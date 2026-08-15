@@ -54,11 +54,35 @@ the glyph *images* come from the platform. Here a 2D canvas rasterizes each run
 into an atlas, one slot per run rather than per glyph, which keeps the run
 intact and therefore keeps EVG's kerning exactly.
 
-Verified against `showcase/pages/boxmodel.tsx`: 19 commands, 15 rects with
-their radii, 4 text runs, rendering to the same geometry as the PDF.
+## Images
 
-Not done yet: IMAGE commands and a real clip stack (a single scissor rect is
-straightforward; nested clips need a stack). Both are marked in the source.
+`object-fit: cover` is the only fit the raster and PDF targets implement, and
+it is done here the same way they do it — by cropping, not by squashing. The
+crop is a UV rectangle computed from the source and box aspect ratios, so the
+GPU samples only the covered region and the quad stays two triangles. A radius
+on the element clips the photo through the same distance field the rectangles
+use.
+
+A photo needs its own texture bound, which a single instanced draw cannot do,
+so the list is split into **runs**: consecutive quads that share the atlas are
+one draw, and an image breaks the run and is drawn on its own. Runs read the
+same instance buffers offset to their first instance, because WebGL 2 has no
+base-instance parameter. That keeps paint order exactly as the list has it —
+`boxmodel` is one run, `album` is six.
+
+The published gallery copies the referenced photos next to the viewer and
+rewrites the list to point at the copies. Without that the `src` was the path
+the author wrote — relative to the page source — which resolves in the
+repository and nowhere else, so the deployed viewer fetched four 404s and drew
+a page with holes in it. The PDF and PNG targets never hit this: they read the
+file at render time and embed the pixels.
+
+Verified against `showcase/pages/boxmodel.tsx`: 20 commands, 15 rects with
+their radii, one border, 4 text runs, rendering to the same geometry as the
+PDF — and against `album`, whose four photos now draw.
+
+Not done yet: a real clip stack. A single scissor rect is straightforward;
+nested clips need a stack. It is marked in the source.
 
 ## SDL2 + OpenGL — the portable half is ready
 

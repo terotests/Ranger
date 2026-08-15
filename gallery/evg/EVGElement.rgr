@@ -563,6 +563,60 @@ class EVGElement {
         return fontFamily
     }
 
+    ; The border, from wherever it was actually written.
+    ;
+    ; There are TWO places a border can land. `setAttribute` — which is what a
+    ; stylesheet and every kebab-case JSX attribute go through — writes
+    ; `box.borderWidth` / `box.borderColor`. The camelCase style-object path in
+    ; JSXToEVG writes the element-level `borderWidth` / `borderColor`. Each
+    ; painter then picked one:
+    ;
+    ;   PDF   box.borderWidth + box.borderColor          -> drew it
+    ;   HTML  the browser, from the emitted CSS          -> drew it
+    ;   PNG   el.borderWidth  + el.borderColor           -> drew NOTHING
+    ;   list  box.borderWidthPx + el.borderColor         -> drew NOTHING
+    ;
+    ; So a CSS-declared border printed and previewed correctly and was missing
+    ; from the raster and the GPU backend — the same shape of bug as the
+    ; border-radius that worked in PDF and silently not in PNG. One accessor,
+    ; and every painter reads it.
+    fn effectiveBorderWidthPx:double () {
+        if (box.borderWidthPx > 0.0) {
+            return box.borderWidthPx
+        }
+        if borderWidth {
+            if borderWidth.isSet {
+                return borderWidth.pixels
+            }
+        }
+        return 0.0
+    }
+
+    fn effectiveBorderColor:EVGColor () {
+        if box.borderColor {
+            def bc:EVGColor (unwrap box.borderColor)
+            if bc.isSet {
+                return bc
+            }
+        }
+        if borderColor {
+            def ec:EVGColor (unwrap borderColor)
+            if ec.isSet {
+                return ec
+            }
+        }
+        ; A width with no colour is a black border, which is what CSS says and
+        ; what the PDF path already assumed.
+        return (EVGColor.black())
+    }
+
+    fn hasBorder:boolean () {
+        if ((this.effectiveBorderWidthPx()) <= 0.0) {
+            return false
+        }
+        return true
+    }
+
     ; The colour fallback glyphs are painted in: the explicit one when set,
     ; otherwise the text colour, so an undeclared document looks exactly as it
     ; did.

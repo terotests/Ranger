@@ -2261,17 +2261,15 @@ class EVGPDFRenderer {
     }
     
     fn renderBorderWithRadius:void (el:EVGElement x:double y:double w:double h:double radius:double) {
-        ; Get border width from box
-        def borderWidth:double el.box.borderWidth.pixels
+        ; Width and colour through the element's own accessor, so this
+        ; agrees with the raster and GPU backends whichever of the two places
+        ; the border was actually written to.
+        def borderWidth:double (el.effectiveBorderWidthPx())
         if (borderWidth <= 0.0) {
             return
         }
         
-        ; Get border color
-        def borderColor:EVGColor (unwrap el.box.borderColor)
-        if (borderColor.isSet == false) {
-            borderColor = (EVGColor.black())
-        }
+        def borderColor:EVGColor (el.effectiveBorderColor())
         
         streamBuffer.writeString("q\n")
         ; Set stroke color
@@ -2288,17 +2286,15 @@ class EVGPDFRenderer {
     }
 
     fn renderBorder:void (el:EVGElement x:double y:double w:double h:double) {
-        ; Get border width from box
-        def borderWidth:double el.box.borderWidth.pixels
+        ; Width and colour through the element's own accessor, so this
+        ; agrees with the raster and GPU backends whichever of the two places
+        ; the border was actually written to.
+        def borderWidth:double (el.effectiveBorderWidthPx())
         if (borderWidth <= 0.0) {
             return
         }
         
-        ; Get border color
-        def borderColor:EVGColor (unwrap el.box.borderColor)
-        if (borderColor.isSet == false) {
-            borderColor = (EVGColor.black())
-        }
+        def borderColor:EVGColor (el.effectiveBorderColor())
         
         streamBuffer.writeString("q\n")
         ; Set stroke color

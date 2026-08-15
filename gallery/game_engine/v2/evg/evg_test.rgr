@@ -121,6 +121,7 @@ class EVGTest {
         test.testStyleSheetCascade(t)
         test.testGraphemeClusters(t)
         test.testEmojiColor(t)
+        test.testBorderResolution(t)
         t.summary()
     }
 
@@ -2324,6 +2325,46 @@ class EVGTest {
         parent.addChild(kid2)
         kid2.inheritProperties(parent)
         t.eqInt("but its own declaration wins" ((kid2.effectiveEmojiColor()).blue()) 235)
+    }
+
+
+    ; A border reaches every painter, from either place it can be written.
+    ;
+    ; There are two. `setAttribute` — a stylesheet, and every kebab-case JSX
+    ; attribute — writes `box.borderWidth`/`box.borderColor`; the camelCase
+    ; style-object path writes the element-level fields. Each painter had
+    ; picked one, and the display list managed to pick one of EACH: a width
+    ; from the box and a colour from the element. A CSS border therefore
+    ; printed in the PDF and was missing from the PNG and from every GPU
+    ; backend — the same shape as the border-radius that worked in PDF and
+    ; silently not in PNG.
+    fn testBorderResolution:void (t:RgTest) {
+        ; The stylesheet route.
+        def viaCss (new EVGElement())
+        viaCss.setAttribute("border-width" "3px")
+        viaCss.setAttribute("border-color" "#b08d57")
+        viaCss.box.resolveUnits(100.0 100.0 14.0 16.0)
+        t.near("a CSS border has its width" (viaCss.effectiveBorderWidthPx()) 3.0)
+        t.eqInt("and its colour" ((viaCss.effectiveBorderColor()).red()) 176)
+
+        ; The camelCase style-object route, which never goes near the box.
+        def viaAttr (new EVGElement())
+        viaAttr.borderWidth = (EVGUnit.parse("2px"))
+        viaAttr.borderColor = (EVGColor.parse("#2563eb"))
+        t.near("an inline border has its width" (viaAttr.effectiveBorderWidthPx()) 2.0)
+        t.eqInt("and its colour" ((viaAttr.effectiveBorderColor()).blue()) 235)
+
+        ; No border at all is zero, not a hairline.
+        def plain (new EVGElement())
+        t.near("an element with no border has none" (plain.effectiveBorderWidthPx()) 0.0)
+        t.eqBool("and reports so" (plain.hasBorder()) false)
+
+        ; A width with no colour is black, which is what CSS says.
+        def widthOnly (new EVGElement())
+        widthOnly.setAttribute("border-width" "1px")
+        widthOnly.box.resolveUnits(100.0 100.0 14.0 16.0)
+        def bc:EVGColor (widthOnly.effectiveBorderColor())
+        t.eqInt("a width with no colour is black" ((bc.red()) + (bc.green()) + (bc.blue())) 0)
     }
 
 }

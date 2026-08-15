@@ -133,26 +133,27 @@ class EVGDisplayList {
             }
         }
 
-        ; Border
-        if (el.box.borderWidthPx > 0.0) {
-            if el.borderColor {
-                def bc:EVGColor (unwrap el.borderColor)
-                if bc.isSet {
-                    def c2 (new EVGDrawCmd())
-                    c2.kind = 1
-                    c2.x = x
-                    c2.y = y
-                    c2.w = w
-                    c2.h = h
-                    c2.radius = radius
-                    c2.thickness = el.box.borderWidthPx
-                    c2.r = (bc.red())
-                    c2.g = (bc.green())
-                    c2.b = (bc.blue())
-                    c2.a = (bc.alpha())
-                    push cmds c2
-                }
-            }
+        ; Border. Read through the element's own accessor rather than a field
+        ; picked by hand: a CSS-declared border lands on `box`, an inline
+        ; camelCase one on the element, and this walk used to read one of each
+        ; — a width from the box and a colour from the element — so a
+        ; stylesheet border was silently dropped from every GPU backend.
+        def bw:double (el.effectiveBorderWidthPx())
+        if (bw > 0.0) {
+            def bc:EVGColor (el.effectiveBorderColor())
+            def c2 (new EVGDrawCmd())
+            c2.kind = 1
+            c2.x = x
+            c2.y = y
+            c2.w = w
+            c2.h = h
+            c2.radius = radius
+            c2.thickness = bw
+            c2.r = (bc.red())
+            c2.g = (bc.green())
+            c2.b = (bc.blue())
+            c2.a = (bc.alpha())
+            push cmds c2
         }
 
         ; Image
