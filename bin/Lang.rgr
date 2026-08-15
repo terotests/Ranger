@@ -5453,7 +5453,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 kotlin ( (e 1 ) ".size" )
                 scala ( (e 1 ) ".length" )
                 swift3 ( (e 1 ) ".count" )
-                rust ( (e 1 ) ".len()" )
+                rust ( "(" (e 1 ) ".len() as i64)" )
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))
                 go ( "int64(len(" (e 1 ) "))")
@@ -7001,7 +7001,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 swift6 ( (e 1) ".count")
                 csharp ( (e 1) ".Length")
                 python ( "len(" (e 1) ")")
-                rust ( (e 1 ) ".len()" )
+                ; chars, not bytes — go and swift count runes here too
+                rust ( "(" (e 1 ) ".chars().count() as i64)" )
                 go( "int64(len([]rune(" (e 1) ")))")
                 php ( "strlen(" (e 1) ")")               
                 * ( (e 1) ".length")

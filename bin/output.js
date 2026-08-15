@@ -29763,7 +29763,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                                 if ( nn.hasFlag("weak") ) {
                                   if ( pp.is_class_variable ) {
-                                    is_weak = true;
+                                    if ( ((nn.array_type.length) == 0) && ((nn.key_type.length) == 0) ) {
+                                      is_weak = true;
+                                    }
                                   }
                                 }
                                 if ( nn.value_type == 6 ) {

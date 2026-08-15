@@ -7405,7 +7405,13 @@ class RangerRustClassWriter {
           ; into a local made it disagree with every reader of it.
           if (nn.hasFlag("weak")) {
             if pp.is_class_variable {
-              is_weak = true
+              ; …and a weak COLLECTION field is a plain Vec or map: the
+              ; annotation there is about the ELEMENTS, so downgrading the
+              ; container gave the field a Weak<RefCell<Vec<…>>> that no
+              ; reader of it expected
+              if (((strlen nn.array_type) == 0) && ((strlen nn.key_type) == 0)) {
+                is_weak = true
+              }
             }
           }
           ; Check if field is an array type 
