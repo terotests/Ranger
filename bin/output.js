@@ -22656,6 +22656,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               var cname = lambdaCtx.captured_variables[i];
               const vD = lambdaCtx.getVariableDef(cname);
               if ( vD.varType == 4 ) {
+                if ( this.cppCaptureByReference(vD, ctx) ) {
+                  continue;
+                }
                 wr.out(", ", false);
                 wr.out(vD.compiledName, false);
               }
@@ -22994,6 +22997,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 wr.out((" " + arg.compiledName) + " ", false);
               };
+            };
+            cppCaptureByReference (vD, ctx) {
+              if ( typeof(vD.nameNode) === "undefined" ) {
+                return false;
+              }
+              const typeNode = vD.nameNode;
+              const tn = typeNode.type_name;
+              if ( ((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer") ) {
+                return true;
+              }
+              if ( vD.needs_cpp_reference == false ) {
+                return false;
+              }
+              const v_type = typeNode.value_type;
+              if ( (v_type == 10) || (v_type == 11) ) {
+                return false;
+              }
+              if ( (tn.length) > 0 ) {
+                if ( ctx.isDefinedClass(tn) ) {
+                  return false;
+                }
+              }
+              return true;
             };
             cppMutableRefParam (fnDesc, arg, ctx) {
               if ( this.cppReadonlyValueParam(arg) ) {
