@@ -404,7 +404,14 @@ extension CodeNode {
   }
 
   fn cloneWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {
-    def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
+    ; Rust reads each own field through its own borrow of the shared cell, and
+    ; a borrow lasts to the end of the statement it is in — three field reads
+    ; in one constructor call is three live borrows of the same cell. Binding
+    ; them first keeps one borrow per statement.
+    def myCode:SourceCode (unwrap code)
+    def mySp:int sp
+    def myEp:int ep
+    def newNode@(lives):CodeNode (new CodeNode ( myCode mySp myEp))
     if( has match.nodes vref) {
       def ast (unwrap (get match.nodes vref))
       return (ast.rebuildWithType(match true))
@@ -491,7 +498,14 @@ extension CodeNode {
   
   fn rebuildWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {
 
-    def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
+    ; Rust reads each own field through its own borrow of the shared cell, and
+    ; a borrow lasts to the end of the statement it is in — three field reads
+    ; in one constructor call is three live borrows of the same cell. Binding
+    ; them first keeps one borrow per statement.
+    def myCode:SourceCode (unwrap code)
+    def mySp:int sp
+    def myEp:int ep
+    def newNode@(lives):CodeNode (new CodeNode ( myCode mySp myEp))
     if( has match.nodes vref) {
       def ast (unwrap (get match.nodes vref))
       ; can not rebuild using the same node :/
@@ -514,7 +528,10 @@ extension CodeNode {
       if( has match.nodes (first ns) ) {
         def rootAst (unwrap (get match.nodes (first ns)))
         if( ( (array_length rootAst.children) == 0 ) && ( (array_length rootAst.ns) < 2 ) && ( (strlen rootAst.vref) > 0 ) && (rootAst.expression == false) ) {
-          def nsNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
+          def nsCode:SourceCode (unwrap code)
+          def nsSp:int sp
+          def nsEp:int ep
+          def nsNode@(lives):CodeNode (new CodeNode ( nsCode nsSp nsEp))
           nsNode.value_type = value_type
           nsNode.expression = expression
           for ns n:string i {
@@ -780,54 +797,112 @@ extension CodeNode {
         return
     }
 
-    def regType:RangerNodeType (TTypes.nameToValue(type_name))
+    ; `node` is often THIS node -- `cn.defineNodeTypeTo(cn ctx)`. Reading a
+    ; field off the receiver while writing one through `node` is then a read
+    ; and a write of the same object at the same time, which Rust refuses at
+    ; run time. Every field this method reads is taken first.
+    def myTypeName:string type_name
+    def myArrayType:string array_type
+    def myKeyType:string key_type
+    def myValueType:RangerNodeType value_type
+    def myExpression:boolean expression
+
+    def regType:RangerNodeType (TTypes.nameToValue(myTypeName))
     if (regType != RangerNodeType.NoType) {
       node.value_type = regType
       node.eval_type = regType
-      node.eval_type_name = type_name
+      node.eval_type_name = myTypeName
       return
     }
-    switch type_name {
+    switch myTypeName {
       default {
-        if (true == expression) {
+        if (true == myExpression) {
           node.value_type = RangerNodeType.ExpressionType
           node.eval_type = RangerNodeType.ExpressionType
           node.expression = true
         }
-        if (value_type == RangerNodeType.Array) {
+        if (myValueType == RangerNodeType.Array) {
           node.value_type = RangerNodeType.Array
           node.eval_type = RangerNodeType.Array
-          node.eval_type_name = type_name
-          node.eval_array_type = array_type
+          node.eval_type_name = myTypeName
+          node.eval_array_type = myArrayType
         }
-        if (value_type == RangerNodeType.Hash) {
+        if (myValueType == RangerNodeType.Hash) {
           node.value_type = RangerNodeType.Hash
           node.eval_type = RangerNodeType.Hash
-          node.eval_type_name = type_name
-          node.eval_array_type = array_type
-          node.key_type = key_type
+          node.eval_type_name = myTypeName
+          node.eval_array_type = myArrayType
+          node.key_type = myKeyType
         }
-        if (value_type == RangerNodeType.Enum) {
+        if (myValueType == RangerNodeType.Enum) {
           node.value_type = RangerNodeType.Enum
           node.eval_type = RangerNodeType.Enum
-          node.eval_type_name = type_name
+          node.eval_type_name = myTypeName
         }
-        if (value_type == RangerNodeType.VRef) {
-          if (ctx.isEnumDefined(type_name)) {
+        if (myValueType == RangerNodeType.VRef) {
+          if (ctx.isEnumDefined(myTypeName)) {
             node.value_type = RangerNodeType.Enum
             node.eval_type = RangerNodeType.Enum
-            node.eval_type_name = type_name
+            node.eval_type_name = myTypeName
           }
-          if (ctx.isDefinedClass(type_name)) {
+          if (ctx.isDefinedClass(myTypeName)) {
             node.value_type = RangerNodeType.Object
             node.eval_type = RangerNodeType.Object
-            node.eval_type_name = type_name
+            node.eval_type_name = myTypeName
           }
         }
       }
     }
   }
 
+
+  ; The same rules applied to THIS node. Every aliasing call site used to be
+  ; spelled `cn.defineNodeTypeTo(cn ctx)`, which reads one object while writing
+  ; it -- legal where an object is a reference, a run time error in Rust.
+  fn defineNodeTypeToSelf:void (ctx:RangerAppWriterContext) {
+    if(value_type == RangerNodeType.ExpressionType || eval_type == RangerNodeType.ExpressionType ) {
+        return
+    }
+    def myTypeName:string type_name
+    def regType:RangerNodeType (TTypes.nameToValue(myTypeName))
+    if (regType != RangerNodeType.NoType) {
+      value_type = regType
+      eval_type = regType
+      eval_type_name = myTypeName
+      return
+    }
+    if (true == expression) {
+      value_type = RangerNodeType.ExpressionType
+      eval_type = RangerNodeType.ExpressionType
+    }
+    def myArrayType:string array_type
+    if (value_type == RangerNodeType.Array) {
+      eval_type = RangerNodeType.Array
+      eval_type_name = myTypeName
+      eval_array_type = myArrayType
+    }
+    if (value_type == RangerNodeType.Hash) {
+      eval_type = RangerNodeType.Hash
+      eval_type_name = myTypeName
+      eval_array_type = myArrayType
+    }
+    if (value_type == RangerNodeType.Enum) {
+      eval_type = RangerNodeType.Enum
+      eval_type_name = myTypeName
+    }
+    if (value_type == RangerNodeType.VRef) {
+      if (ctx.isEnumDefined(myTypeName)) {
+        value_type = RangerNodeType.Enum
+        eval_type = RangerNodeType.Enum
+        eval_type_name = myTypeName
+      }
+      if (ctx.isDefinedClass(myTypeName)) {
+        value_type = RangerNodeType.Object
+        eval_type = RangerNodeType.Object
+        eval_type_name = myTypeName
+      }
+    }
+  }
 
   fn ifNoTypeSetToVoid:void () {
     if( ( (strlen type_name) == 0 ) && ( (strlen key_type) == 0) && ( (strlen array_type) == 0) ) {

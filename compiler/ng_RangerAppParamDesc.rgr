@@ -113,6 +113,14 @@ class RangerAppParamDesc {
   ; such string (StaticAnalyzer.analyzeRustStaticStrings) — Rust emits it as
   ; `&'static str`: assignment is a pointer copy, no allocation, Copy semantics.
   def rust_static_str:boolean false
+  ; A scalar field of a class in a Rust TRAIT FAMILY, held behind a Cell (or a
+  ; RefCell for String). A trait method's receiver is one signature shared by
+  ; the declaration and every impl, so one implementation that mutates forces
+  ; `&mut self` on all of them — and a `&mut self` trait method means the
+  ; caller holds the object's cell for the whole call, which is a panic as
+  ; soon as anything calls back into it. Interior mutability moves the write
+  ; off `self`, so the method takes `&self` and the borrows nest.
+  def rust_interior_cell:boolean false
   def rust_assigned_to_weak:boolean false  ; Parameter is assigned to @(weak) field
   def rust_needs_rc_wrap:boolean false      ; Parameter needs Rc<RefCell<T>> type in Rust
   def rust_assigned_to_field:boolean false  ; Parameter is assigned to a class field (requires owned)
@@ -162,6 +170,15 @@ class RangerAppParamDesc {
     }
     eMap.addEvent(name e)
   }  
+  ; The same change, recording THIS descriptor's own name node as the
+  ; changer. Written as a method because `p.changeStrength(a b (unwrap
+  ; p.nameNode))` reads the receiver's cell inside its own call — on Rust
+  ; that is `p.borrow_mut().changeStrength(…, p.borrow()…)`, one cell
+  ; borrowed two ways in one expression.
+  fn changeStrengthSelf:void (newStrength:int lifeTime:int) {
+    this.changeStrength(newStrength lifeTime (unwrap nameNode))
+  }
+
   fn changeStrength:void (newStrength:int lifeTime:int changer:CodeNode) {
     def entry:RangerRefForce (new RangerRefForce ())
     entry.strength = newStrength

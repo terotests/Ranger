@@ -4,9 +4,17 @@ class RangerAppOperatorDesc {
   Extends (RangerAppParamDesc)
   def name:string ""
   def ref_cnt:int 0
-  def node@(weak):CodeNode
-  def nameNode@(weak):CodeNode
-  def fnBody@(weak):CodeNode
+  ; These three are OWNING, the same as the RangerAppParamDesc declarations
+  ; they restate -- a restatement is the same slot, and the hierarchy
+  ; disagreed with itself about who owns a CodeNode. A descriptor outlives
+  ; the tree it came from whenever that tree was a copy or a macro
+  ; expansion; `weak` is a no-op on the JavaScript host so nothing noticed,
+  ; and on C++ the nodes were already gone by the time the flow parser read
+  ; them. CodeNode points back through `paramDesc`, which stays weak, so
+  ; this direction is the owning one.
+  def node:CodeNode
+  def nameNode:CodeNode
+  def fnBody:CodeNode
   def op_params@(weak):[CodeNode]
   def firstArg:CodeNode
 

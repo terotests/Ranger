@@ -10,6 +10,12 @@ class RangerCompilerMessage {
   def code_line:int 0
   def fileName:string ""
   def description:string ""
-  def node@(weak):CodeNode
+  ; OWNING. A diagnostic outlives the tree it points at: the message is
+  ; collected during analysis and printed after, by which time the nodes it
+  ; describes may be the only thing keeping their source position alive.
+  ; `weak` is a no-op on the JavaScript host so nothing noticed, and on Rust
+  ; the upgrade of a dead reference is a panic in the error printer -- the
+  ; one place that must not fail.
+  def node:CodeNode
 }
 

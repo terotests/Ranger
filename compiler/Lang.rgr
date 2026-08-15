@@ -629,12 +629,13 @@ template <class T, class S> inline T rg_cast(const S& v) {
                 ; free and makes the form valid either way.
                 go ( "(interface{}(" (e 1) ")).(" (typeof 2) ")" )
                 php ( (e 1) )
-                ; Python and Rust have no place to write the type: Python is
-                ; dynamic, and a Rust struct is not a subtype of another one.
-                ; The value passes through, which is what the es6 and the php
-                ; entry already did.
+                ; Python has no place to write the type: it is dynamic, and the
+                ; value passes through, which is what the es6 and the php entry
+                ; already did. Rust needs a real conversion when the target is a
+                ; subclass of a class with children — the writer decides, and
+                ; passes the value through otherwise.
                 python ( (e 1) )
-                rust ( (e 1) )
+                rust ( (custom _) )
                 csharp ( "((" (typeof 2) ")" (e 1) ")" )
                 scala ( (e 1) ".asInstanceOf[" (typeof 2) "]" )
             }
@@ -929,6 +930,62 @@ func _r_sha256(value string) string {
     )            
                 (imp "crypto/sha256") (imp "fmt")) 
                 php( "hash('sha256', " (e 1) ")")
+                rust ( "rg_sha256_hex(&" (e 1) ")"
+                (create_polyfill "
+// SHA-256, spelled out rather than pulled from a crate: the Rust target writes
+// code that `rustc` builds with no Cargo.toml and no dependency, so a hash the
+// compiler needs has to be in the file. Same digest as every other target.
+fn rg_sha256_hex(input: &str) -> String {
+    let k: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+    let mut h: [u32; 8] = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    let mut msg: Vec<u8> = input.as_bytes().to_vec();
+    let bitlen: u64 = (msg.len() as u64) * 8;
+    msg.push(0x80);
+    while (msg.len() % 64) != 56 { msg.push(0); }
+    for i in (0..8).rev() { msg.push(((bitlen >> (i * 8)) & 0xff) as u8); }
+    let mut w: [u32; 64] = [0; 64];
+    let mut off = 0usize;
+    while off < msg.len() {
+        for i in 0..16 {
+            w[i] = ((msg[off + i * 4] as u32) << 24) | ((msg[off + i * 4 + 1] as u32) << 16)
+                 | ((msg[off + i * 4 + 2] as u32) << 8) | (msg[off + i * 4 + 3] as u32);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+        }
+        let (mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh) =
+            (h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(k[i]).wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let mj = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = s0.wrapping_add(mj);
+            hh = g; g = f; f = e; e = d.wrapping_add(t1); d = c; c = b; b = a; a = t1.wrapping_add(t2);
+        }
+        h[0] = h[0].wrapping_add(a); h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c); h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e); h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g); h[7] = h[7].wrapping_add(hh);
+        off += 64;
+    }
+    let mut out = String::new();
+    for v in h.iter() { out.push_str(&format!(\"{:08x}\", v)); }
+    out
+}
+")
+                )
                 kotlin ( "rg_sha256_hex(" (e 1) ")"
                 (create_polyfill "
 fun rg_sha256_hex(input: String): String {
@@ -1180,6 +1237,7 @@ func r_io_get_env( name string) *GoNullable {
 ")
     )
                 es6 ("process.env[" (e 1) "]")
+                rust ( "std::env::var(&" (e 1) ").ok()" )
                 kotlin ( "System.getenv(" (e 1) ")" )
                 csharp ( "System.Environment.GetEnvironmentVariable(" (e 1) ")" )
                 ; .get answers None for a name that is not set, which is the
@@ -1500,6 +1558,50 @@ static class RgPath {
 }
 ")
                 )
+                rust ( "rg_path_normalize(&(" (e 1) "))" (create_polyfill "
+// Path helpers for the compiler's own file handling. std::path::Path::parent
+// drops a trailing slash and Node's path.normalize keeps it, and the compiler
+// builds its library search path by concatenating onto one, so these follow
+// Node rather than the platform.
+fn rg_path_normalize(p: &str) -> String {
+    let s = p.replace('\\\\', \"/\");
+    let trailing = s.len() > 1 && s.ends_with('/');
+    let absolute = s.starts_with('/');
+    let mut parts: Vec<String> = Vec::new();
+    for seg in s.split('/') {
+        if seg.is_empty() || seg == \".\" { continue; }
+        if seg == \"..\" {
+            let popped = match parts.last() {
+                Some(l) if l != \"..\" => { parts.pop(); true }
+                _ => false,
+            };
+            if popped { continue; }
+            if absolute { continue; }
+        }
+        parts.push(seg.to_string());
+    }
+    let mut out = parts.join(\"/\");
+    if absolute { out = format!(\"/{}\", out); }
+    if out.is_empty() { return \".\".to_string(); }
+    if trailing && out != \"/\" { out.push('/'); }
+    out
+}
+fn rg_path_dirname(p: &str) -> String {
+    let mut s = rg_path_normalize(p);
+    while s.len() > 1 && s.ends_with('/') { s.pop(); }
+    match s.rfind('/') {
+        Some(0) => \"/\".to_string(),
+        Some(i) => s[..i].to_string(),
+        None => \".\".to_string(),
+    }
+}
+fn rg_install_directory() -> String {
+    match std::env::current_exe() {
+        Ok(p) => rg_path_dirname(&rg_path_normalize(&p.to_string_lossy())),
+        Err(_) => \".\".to_string(),
+    }
+}
+") )
                 ranger ("( normalize " (e 1) " )")
                 * ( "\"./\"")
             }
@@ -1768,6 +1870,50 @@ static class RgPath {
 }
 ")
                 )
+                rust ( "rg_path_dirname(&(" (e 1) "))" (create_polyfill "
+// Path helpers for the compiler's own file handling. std::path::Path::parent
+// drops a trailing slash and Node's path.normalize keeps it, and the compiler
+// builds its library search path by concatenating onto one, so these follow
+// Node rather than the platform.
+fn rg_path_normalize(p: &str) -> String {
+    let s = p.replace('\\\\', \"/\");
+    let trailing = s.len() > 1 && s.ends_with('/');
+    let absolute = s.starts_with('/');
+    let mut parts: Vec<String> = Vec::new();
+    for seg in s.split('/') {
+        if seg.is_empty() || seg == \".\" { continue; }
+        if seg == \"..\" {
+            let popped = match parts.last() {
+                Some(l) if l != \"..\" => { parts.pop(); true }
+                _ => false,
+            };
+            if popped { continue; }
+            if absolute { continue; }
+        }
+        parts.push(seg.to_string());
+    }
+    let mut out = parts.join(\"/\");
+    if absolute { out = format!(\"/{}\", out); }
+    if out.is_empty() { return \".\".to_string(); }
+    if trailing && out != \"/\" { out.push('/'); }
+    out
+}
+fn rg_path_dirname(p: &str) -> String {
+    let mut s = rg_path_normalize(p);
+    while s.len() > 1 && s.ends_with('/') { s.pop(); }
+    match s.rfind('/') {
+        Some(0) => \"/\".to_string(),
+        Some(i) => s[..i].to_string(),
+        None => \".\".to_string(),
+    }
+}
+fn rg_install_directory() -> String {
+    match std::env::current_exe() {
+        Ok(p) => rg_path_dirname(&rg_path_normalize(&p.to_string_lossy())),
+        Err(_) => \".\".to_string(),
+    }
+}
+") )
                 ranger ("( path_dirname " (e 1) " )")
                 * ( "\"./\"")
             }
@@ -2038,6 +2184,50 @@ static class RgPath {
 }
 ")
                 )
+                rust ( "rg_install_directory()" (create_polyfill "
+// Path helpers for the compiler's own file handling. std::path::Path::parent
+// drops a trailing slash and Node's path.normalize keeps it, and the compiler
+// builds its library search path by concatenating onto one, so these follow
+// Node rather than the platform.
+fn rg_path_normalize(p: &str) -> String {
+    let s = p.replace('\\\\', \"/\");
+    let trailing = s.len() > 1 && s.ends_with('/');
+    let absolute = s.starts_with('/');
+    let mut parts: Vec<String> = Vec::new();
+    for seg in s.split('/') {
+        if seg.is_empty() || seg == \".\" { continue; }
+        if seg == \"..\" {
+            let popped = match parts.last() {
+                Some(l) if l != \"..\" => { parts.pop(); true }
+                _ => false,
+            };
+            if popped { continue; }
+            if absolute { continue; }
+        }
+        parts.push(seg.to_string());
+    }
+    let mut out = parts.join(\"/\");
+    if absolute { out = format!(\"/{}\", out); }
+    if out.is_empty() { return \".\".to_string(); }
+    if trailing && out != \"/\" { out.push('/'); }
+    out
+}
+fn rg_path_dirname(p: &str) -> String {
+    let mut s = rg_path_normalize(p);
+    while s.len() > 1 && s.ends_with('/') { s.pop(); }
+    match s.rfind('/') {
+        Some(0) => \"/\".to_string(),
+        Some(i) => s[..i].to_string(),
+        None => \".\".to_string(),
+    }
+}
+fn rg_install_directory() -> String {
+    match std::env::current_exe() {
+        Ok(p) => rg_path_dirname(&rg_path_normalize(&p.to_string_lossy())),
+        Err(_) => \".\".to_string(),
+    }
+}
+") )
                 ranger ("( install_directory )")
                 * ( "\"./\"")
             }
@@ -2046,6 +2236,7 @@ static class RgPath {
         current_directory         cmdArg:string () {
             templates {
                 es6 ( "process.cwd()" )
+                rust ( "std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()" )
                 python ( "os.getcwd()" (imp "os") )
                 dart ( "Directory.current.path" (imp "dart:io") )
                 csharp( "Directory.GetCurrentDirectory()" (imp "System") (imp "System.IO"))
@@ -2193,6 +2384,7 @@ static class RgFiles {
                 )
                 python ( "os.path.isdir(" (e 1) ")" (imp "os") )
                 scala ( "false /* dir_exists not implemented */ ")
+                rust ( "std::path::Path::new(&" (e 1) ").is_dir()" )
                 kotlin ( "java.io.File(" (e 1) ").isDirectory()" (imp "java.io.File") )
                 swift3 ( "r_dir_exists( dirName: " (e 1) ")" 
 
@@ -2393,6 +2585,7 @@ fn r_wall_clock_ms() -> f64 {
             templates {
                 dart ( nl "Directory(" (e 1) ").createSync(recursive: true);" nl (imp "dart:io") )
                 scala ( "/* create_dir not implemented */ ")
+                rust ( "let _ = std::fs::create_dir_all(&" (e 1) ");" nl )
                 kotlin ( nl "java.io.File(" (e 1) ").mkdirs()" nl (imp "java.io.File") )
                 csharp ( nl "RgFiles.CreateDir(" (e 1) ");" nl
                 (polyfill "after_imports" "
@@ -3812,7 +4005,15 @@ def r_div_f64(a, b):
             templates {
                 go ( "switch (int64(" (e 1) " )) { " I (block 2) i "}" )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
-                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
+                ; Rust demands an exhaustive match, and a Ranger `switch` need not
+                ; have a `default`. The catch-all goes in unconditionally: where
+                ; a `default` already wrote one this arm is unreachable, which is
+                ; a warning, while its absence is an error at every switch
+                ; without one.
+                ; The subject lands in a `let` first. A `match x.borrow().f {}`
+                ; keeps the Ref alive for the whole match -- every arm that
+                ; touches the same cell then panics at run time.
+                rust ( nl "let __sw = " (e 1) ";" nl "match __sw {" I (block 2) nl "_ => {}" i nl "}" nl )
             }
         }
 
@@ -3828,7 +4029,15 @@ def r_div_f64(a, b):
                 scala ( (e 1) " match { " I (block 2) i "}" )
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
-                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
+                ; Rust demands an exhaustive match, and a Ranger `switch` need not
+                ; have a `default`. The catch-all goes in unconditionally: where
+                ; a `default` already wrote one this arm is unreachable, which is
+                ; a warning, while its absence is an error at every switch
+                ; without one.
+                ; The subject lands in a `let` first. A `match x.borrow().f {}`
+                ; keeps the Ref alive for the whole match -- every arm that
+                ; touches the same cell then panics at run time.
+                rust ( nl "let __sw = " (e 1) ";" nl "match __sw {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }
@@ -3874,7 +4083,12 @@ def r_div_f64(a, b):
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
                 ; Rust matches a &str, so a String subject needs as_str().
-                rust ( nl "match " (e 1) ".as_str() {" I (block 2) i nl "}" nl )
+                ; `&*x` is a &str whether x is a String or already a &str;
+                ; `.as_str()` on a &str is the unstable str_as_str feature
+                ; …and the subject lands in a `let` first: `cmdE.borrow().vref`
+                ; makes a Ref that dies at the end of the `match` line, while
+                ; the &str borrowed out of it has to live for the whole match
+                rust ( nl "let __sw = " (e 1) ".clone();" nl "match &*(__sw) {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }
@@ -3890,7 +4104,15 @@ def r_div_f64(a, b):
                 ; `case` arms already matched their own Python and Rust entries,
                 ; so only the head was wrong.
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
-                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
+                ; Rust demands an exhaustive match, and a Ranger `switch` need not
+                ; have a `default`. The catch-all goes in unconditionally: where
+                ; a `default` already wrote one this arm is unreachable, which is
+                ; a warning, while its absence is an error at every switch
+                ; without one.
+                ; The subject lands in a `let` first. A `match x.borrow().f {}`
+                ; keeps the Ref alive for the whole match -- every arm that
+                ; touches the same cell then panics at run time.
+                rust ( nl "let __sw = " (e 1) ";" nl "match __sw {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }       
@@ -4267,8 +4489,17 @@ case class customException(smth:String)  extends Exception
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
                 dart ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
 
-                ; Use index-based loop for Rust with cloned item - no reassignment needed as item is cloned
-                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0.." (e 1) ".len() {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) "]" (cloneif 2) ";" nl (block 4) nl i "}" )
+                ; Use index-based loop for Rust with cloned item - no reassignment needed as item is cloned.
+                ; The index counts in i64, because Ranger declares it `int` and the
+                ; body compares and arithmetics it against other ints -- a usize
+                ; loop variable made every such comparison a type error. The cast
+                ; back to usize belongs at the one place that indexes.
+                ; the bound is read into a local FIRST: a range expression that
+                ; borrows -- `0..self.m.borrow().items.len()` -- keeps that
+                ; borrow alive for the whole loop, and a body that borrows the
+                ; same thing mutably cannot run. The temporary is named after
+                ; the index, so nested loops do not collide.
+                rust ( (forkctx _ ) (def 2) (def 3) "let __n_" (e 3) " = (" (e 1) ".len() as i64);" nl "for " (e 3) " in 0..__n_" (e 3) " {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize]" (cloneif 2) ";" nl (block 4) nl i "}" )
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
@@ -4631,6 +4862,10 @@ static bool r_regex_test_i(string pattern, string s) {
                 ; ...and a str on Python, where the slice is the substring
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
+                ; a charbuffer is Vec<u8> on Rust: slice the bytes and read
+                ; them back as UTF-8. The `*` fallback is JavaScript's String
+                ; method and a Vec has nothing of the sort.
+                rust ( "String::from_utf8_lossy(&" (e 1) "[(" (e 2) ") as usize..(" (e 3) ") as usize]).to_string()" )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
         }
@@ -4662,7 +4897,9 @@ static bool r_regex_test_i(string pattern, string s) {
                 java7 ( (e 1) ".getBytes()" )
                 csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
                 kotlin ( (e 1 ) ".toCharArray()" )
-                rust ( (e 1) ".into_bytes()")
+                ; as_bytes/to_vec, not into_bytes: the source may be a
+                ; borrowed &str, and into_bytes consumes an owned String
+                rust ( (e 1) ".as_bytes().to_vec()")
                 cpp ( (e 1) ".c_str()")
                 dart ( (e 1) ".codeUnits" )
                 php ( (e 1) )
@@ -5229,7 +5466,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 kotlin ( (e 1 ) ".size" )
                 scala ( (e 1 ) ".length" )
                 swift3 ( (e 1 ) ".count" )
-                rust ( (e 1 ) ".len()" )
+                rust ( "(" (e 1 ) ".len() as i64)" )
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))
                 go ( "int64(len(" (e 1 ) "))")
@@ -5418,6 +5655,9 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( (e 1) "[" (e 2) "]")  
                 swift3 ( (e 1) "[" (e 2) "]")    
+                ; Vec<u8> on Rust, so index the byte; `char` is an integer
+                ; code unit here as on every other target
+                rust ( (e 1) "[(" (e 2) ") as usize] as i64" )
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }
@@ -5425,9 +5665,51 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
         substring   cmdSubstring:string       ( text:string start:int end:int ) { 
             templates {
                 ranger ( '(substring ' (e 1) ' ' (e 2) ' ' (e 3) ')')
-                cpp.old ( '' (e 1) '.substr(' (e 2) ', ' (e 3) ' - ' (e 2) ')' )
-                cpp ( 'r_utf8_substr('(e 1) ', ' (e 2) ', ' (e 3) ' - ' (e 2) ')'
+                ; An index means the same thing to all three of strlen, charAt
+                ; and substring, or a scan followed by a slice lands in the
+                ; wrong place. On C++ strlen is s.length() and charAt is
+                ; s.at(i) -- both bytes -- so substring counts bytes too.
+                ; It used to call r_utf8_substr and count CODE POINTS, and a
+                ; scanner that found a character with charAt and sliced it out
+                ; with substring got an empty string the moment the text left
+                ; ASCII: `(substring "—b" 3 4)` is the byte 'b', but as code
+                ; points index 3 is past the end of a two character string.
+                ; Slicing bytes still round-trips UTF-8 -- the pieces of a
+                ; multi byte character concatenate back to the character --
+                ; which is what the compiler's own string parser relies on.
+                ; `utf8_substring` below is the code point version, for text
+                ; that is being counted in characters rather than scanned.
+                cpp ( '' (e 1) '.substr(' (e 2) ', ' (e 3) ' - ' (e 2) ')' )
+                csharp ( (e 1) ".Substring(" (e 2) ", " (e 3) " - " (e 2) " )")
+                php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
+                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
+                swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
+                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
+                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
+                rust ( (custom _) )
+                * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
+            }
+        }
+
+        ; The code point slice. `substring` counts whatever unit its target's
+        ; strlen and charAt count, so that scanning and slicing agree; this one
+        ; always counts characters, for text being measured rather than
+        ; scanned -- truncating a label to twenty characters, say, without
+        ; cutting a multi byte character in half.
+        ;
+        ; Targets whose strings are UTF-16 (Java, Kotlin, Scala, C#, and the
+        ; JavaScript family) count code points here, except that a character
+        ; outside the basic plane still occupies two units in the `*`
+        ; fallback -- Array.from is the code point split, so the fallback
+        ; below uses it.
+        utf8_substring   cmdUtf8Substring:string   ( text:string start:int end:int ) {
+            templates {
+                ranger ( '(utf8_substring ' (e 1) ' ' (e 2) ' ' (e 3) ')')
+                cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', ' (e 3) ' - ' (e 2) ')'
 (create_polyfill '
+// The pos-th to (pos+len)-th CODE POINT of str, counting code points and not
+// bytes. Returns "" for a range that starts past the end, and for invalid
+// UTF-8.
 std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 {
     size_t start = (size_t)start_i;
@@ -5449,17 +5731,51 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
     if (min==std::string::npos || max==std::string::npos) { return ""; }
     return str.substr(min, max - min);
 }
-')                
-                
-                )    
-                csharp ( (e 1) ".Substring(" (e 2) ", " (e 3) " - " (e 2) " )")
-                php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
-                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
+')
+                )
+                ; a Python str is a sequence of code points already
+                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
+                ; a Go string is bytes, and []rune is the code point view
+                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])" )
+                rust ( (e 1) ".chars().skip((" (e 2) ") as usize).take(((" (e 3) ") - (" (e 2) ")) as usize).collect::<String>()" )
+                ; offsetByCodePoints turns a code point index into the UTF-16
+                ; index String.substring wants
+                java7 ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
+                kotlin ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
+                scala ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
+                ; a C# string is UTF-16, so a code point outside the basic
+                ; plane is two chars. Char.IsHighSurrogate finds the pairs and
+                ; the walk stays LINQ free, so this builds on Mono too.
+                csharp ( "RgUtf8.Substr(" (e 1) ", " (e 2) ", " (e 3) ")"
+                    (create_polyfill "
+public static class RgUtf8 {
+  // Slice by CODE POINT: start and end count characters, not UTF-16 units,
+  // so a surrogate pair counts once and is never cut in half.
+  public static string Substr(string s, int start, int end) {
+    if (s == null || end <= start) { return \"\"; }
+    int i = 0, cp = 0, from = -1;
+    while (i < s.Length) {
+      if (cp == start) { from = i; }
+      if (cp == end) { break; }
+      i += (System.Char.IsHighSurrogate(s[i]) && (i + 1) < s.Length) ? 2 : 1;
+      cp++;
+    }
+    if (cp == start) { from = i; }
+    if (from < 0) { return \"\"; }
+    return s.Substring(from, i - from);
+  }
+}
+")
+                )
+                ; runes is Dart's code point view
+                dart ( "String.fromCharCodes(" (e 1) ".runes.toList().sublist(" (e 2) ", " (e 3) "))" )
+                php ( "mb_substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")" )
+                ; a Swift Character is a grapheme cluster, which is the closest
+                ; thing the language offers and matches its own substring
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
                 swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
-                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
-                rust ( (custom _) )
-                * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
+                ; Array.from splits on code points, not on UTF-16 units
+                * ( "Array.from(" (e 1) ").slice(" (e 2) ", " (e 3) ").join('')" )
             }
         }
 
@@ -6421,7 +6737,8 @@ int r_string_last_index_of( std::string str, std::string key )  {
                 kotlin ( (e 1) ".startsWith(" (e 2) ")" )
                 dart ( (e 1) ".startsWith(" (e 2) ")" )
                 python ( (e 1) ".startswith(" (e 2) ")" )
-                rust ( (e 1) ".starts_with(" (e 2) ")" )
+                ; the pattern is a &str: String does not implement Pattern
+                rust ( (e 1) ".starts_with(" (e 2) ".as_str())" )
             }
         }
 
@@ -6436,7 +6753,8 @@ int r_string_last_index_of( std::string str, std::string key )  {
                 swift6 ( (e 1) ".hasSuffix(" (e 2) ")" )
                 csharp ( (e 1) ".EndsWith(" (e 2) ")" )
                 scala ( (e 1) ".endsWith(" (e 2) ")" )
-                rust ( (e 1) ".ends_with(" (e 2) ")" )
+                ; the pattern is a &str: String does not implement Pattern
+                rust ( (e 1) ".ends_with(" (e 2) ".as_str())" )
                 cpp ( "r_string_ends_with(" (e 1) ", " (e 2) ")"
 (create_polyfill
 "
@@ -6489,7 +6807,8 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
                 swift6 ( (e 1) ".replacingOccurrences(of: " (e 2) ", with: " (e 3) ")" )
                 csharp ( (e 1) ".Replace(" (e 2) ", " (e 3) ")" )
                 scala ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
-                rust ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+                ; the pattern is a &str: String does not implement Pattern
+                rust ( (e 1) ".replace(" (e 2) ".as_str(), " (e 3) ".as_str())" )
                 cpp ( "r_string_replace(" (e 1) ", " (e 2) ", " (e 3) ")"
 (create_polyfill
 "
@@ -6533,7 +6852,13 @@ int r_arr_index_of( std::vector<T> vec, T elem )  {
                  
                  )   
                  cpp ( "std::distance( std::find( " (e 1) ".begin(), " (e 1) ".end(), " (e 2) ") )" (imp "<vector>") (imp "<iterator>"))   
-                 rust ( (e 1) ".iter().position( |&r| r == " (e 2) " ).unwrap()" )   
+                 ; `|&r|` moves the element out of a shared reference, and
+                 ; `.unwrap()` panics on a miss where this operator has to
+                 ; answer -1 -- indexOf is how the compiler asks "is it here"
+                 ; written by the class writer: the comparison depends on the
+                 ; element -- an Rc is compared by identity, since
+                 ; Rc<RefCell<T>> implements PartialEq only when T does
+                 rust ( (custom _) )   
                  php ( "array_search(" (e 2) ", " (e 1) ", true)")
                  csharp ( (e 1) ".IndexOf(" (e 2) ")" )
                  go ( "r_indexof_arr_" (rawtype 1)  "(" (e 1) ", " (e 2) ")"
@@ -6584,6 +6909,12 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  python ( (e 1) ".pop(" (e 2) ")" )
                  dart ( (e 1) ".removeAt(" (e 2) ");" )
                  csharp ( (e 1) ".RemoveAt((int)(" (e 2) "));" )
+                 ; Vec::remove drops the element out of the middle; the `*`
+                 ; fallback is JavaScript's splice/pop pair, and Vec::splice
+                 ; wants an iterator, not an index. Written by the class
+                 ; writer, because the target is mutated and an Rc<RefCell>
+                 ; segment on its path has to borrow mutably.
+                 rust ( (custom _) )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop();" )                                              
             }
         }
@@ -6600,7 +6931,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  go( (e 1 ) " = append(" (e 1) "[:" (e 2) "], append(" (typeof 1) "{" (e 3) "}, " (e 1) "[" (e 2) ":]...)...)")   
                  php ( "array_splice(" (e 1) ", " (e 2) ", 0, " (e 3) ");")
                  python ( (e 1) ".insert(" (e 2) ", " (e 3) ")" )
-                 rust ( (e 1) ".insert(" (idx 2) ", " (e 3) ");")
+                 rust ( (e 1) ".insert(" (idx 2) ", " (mvarg 3) ");")
                  swift3 ( (e 1) ".insert(" (e 3) ", at:" (e 2) ")")
                  java7 ( (e 1) ".add((int)(" (e 2) "), " (e 3) ");" )
                  csharp ( (e 1) ".Insert((int)(" (e 2) "), " (e 3) ");" )
@@ -6759,7 +7090,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 swift6 ( (e 1) ".count")
                 csharp ( (e 1) ".Length")
                 python ( "len(" (e 1) ")")
-                rust ( (e 1 ) ".len()" )
+                ; chars, not bytes — go and swift count runes here too
+                rust ( "(" (e 1 ) ".chars().count() as i64)" )
                 go( "int64(len([]rune(" (e 1) ")))")
                 php ( "strlen(" (e 1) ")")               
                 * ( (e 1) ".length")
@@ -6856,7 +7188,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 es6 ( (e 1) ".slice().sort(" ( e 2) ")")
                 python ( "sorted(" (e 1) ", key=functools.cmp_to_key(" (e 2) "))" (imp "functools") )
                 php ( "(function($__arr, $__cb) { usort($__arr, $__cb); return $__arr; })(" (e 1) ", " (e 2) ")" )
-                rust ( "{ let mut __v = " (e 1) ".clone(); let __cb = " (e 2) "; __v.sort_by(|__a, __b| __cb(__a.clone(), __b.clone()).cmp(&0)); __v }" )
+                ; __cb carries its declared type: a bare closure literal in a
+                ; let has no expected type for rustc to infer its parameters
+                ; from, and the body then cannot be checked at all (E0282)
+                rust ( "{ let mut __v = " (e 1) ".clone(); let __cb: " (typeof 2) " = " (e 2) "; __v.sort_by(|__a, __b| __cb(__a.clone(), __b.clone()).cmp(&0)); __v }" )
                 cpp ( "[&]() { auto __v = " (e 1) "; auto __cb = " (e 2) "; std::stable_sort(__v.begin(), __v.end(), [&](const auto& __a, const auto& __b) { return __cb(__a, __b) < 0; }); return __v; }()" (imp "<algorithm>") )
                 ; .toMutableList(): sortedWith answers a read only List, and every
                 ; array in the writer is a MutableList
@@ -7008,6 +7343,10 @@ static class RgList {
 }
 ")
                  )
+                 ; Vec::remove removes AND returns, which is what this
+                 ; operator is; the class writer writes it, so the mutated
+                 ; target borrows mutably
+                 rust ( (custom _) )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop()" )                                              
             }
         }

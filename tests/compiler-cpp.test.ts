@@ -61,10 +61,23 @@ describe("Ranger Compiler - C++ Target", () => {
       expect(charAtCalls).toBeGreaterThan(0);
     });
 
-    it("should generate r_utf8_substr for substring extraction", () => {
+    // `substring` counts the unit its neighbours count. On C++ strlen is
+    // s.length() and charAt is s.at(i), both bytes, so substring slices bytes
+    // -- otherwise a scanner that finds a character with charAt and slices it
+    // out with substring gets nothing back as soon as the text leaves ASCII.
+    // Counting characters is `utf8_substring`, below.
+    it("should slice bytes for substring, matching strlen and charAt", () => {
       const result = getGeneratedCppCode(
         `${FIXTURES_DIR}/string_substring.rgr`
       );
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toMatch(/\.substr\(/);
+      expect(result.code).not.toContain("r_utf8_substr");
+    });
+
+    it("should generate r_utf8_substr for utf8_substring", () => {
+      const result = getGeneratedCppCode(`${FIXTURES_DIR}/utf8_substring.rgr`);
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("r_utf8_substr");
@@ -72,9 +85,7 @@ describe("Ranger Compiler - C++ Target", () => {
 
     it("should use correct substr call with length not end position", () => {
       // This was the critical bug: str.substr(min, max) should be str.substr(min, max - min)
-      const result = getGeneratedCppCode(
-        `${FIXTURES_DIR}/string_substring.rgr`
-      );
+      const result = getGeneratedCppCode(`${FIXTURES_DIR}/utf8_substring.rgr`);
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       // Check the polyfill uses correct form
@@ -103,9 +114,7 @@ describe("Ranger Compiler - C++ Target", () => {
     });
 
     it("should use size_t in r_utf8_substr polyfill (no npos tautology warnings)", () => {
-      const result = getGeneratedCppCode(
-        `${FIXTURES_DIR}/string_substring.rgr`
-      );
+      const result = getGeneratedCppCode(`${FIXTURES_DIR}/utf8_substring.rgr`);
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("size_t start = (size_t)start_i");

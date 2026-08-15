@@ -1,0 +1,58 @@
+; `substring` counts whatever unit its target's strlen and charAt count, so
+; that a scan followed by a slice agrees with itself. `utf8_substring` always
+; counts characters, for text that is being measured rather than scanned.
+;
+; Every verdict printed here is ASCII, and every comparison happens inside the
+; program. Printing the sliced text instead would test the console encoding:
+; the JVM and Mono write `?` for a character their default output charset can
+; not represent, which says nothing about whether the slice was right.
+
+class Utf8SubstringTest {
+    sfn m@(main):void () {
+        ; three characters, six bytes: e (1) + é (2) + 中 (3)
+        def text:string "eé中"
+
+        ; first character
+        if ((utf8_substring text 0 1) == "e") {
+            print "c0: ok"
+        } {
+            print "c0: wrong"
+        }
+        ; one multi-byte character on its own
+        if ((utf8_substring text 1 2) == "é") {
+            print "c1: ok"
+        } {
+            print "c1: wrong"
+        }
+        ; the two character tail
+        if ((utf8_substring text 1 3) == "é中") {
+            print "tail: ok"
+        } {
+            print "tail: wrong"
+        }
+        ; the whole thing round trips
+        if ((utf8_substring text 0 3) == text) {
+            print "whole: ok"
+        } {
+            print "whole: wrong"
+        }
+        ; an empty range is empty, not the rest of the string
+        if ((utf8_substring text 1 1) == "") {
+            print "empty: ok"
+        } {
+            print "empty: wrong"
+        }
+        ; character by character concatenation rebuilds the original
+        def rebuilt:string ""
+        def i:int 0
+        while (i < 3) {
+            rebuilt = rebuilt + (utf8_substring text i (i + 1))
+            i = i + 1
+        }
+        if (rebuilt == text) {
+            print "rebuild: ok"
+        } {
+            print "rebuild: wrong"
+        }
+    }
+}

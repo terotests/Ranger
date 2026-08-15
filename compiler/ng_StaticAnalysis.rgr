@@ -949,7 +949,12 @@ class StaticAnalyzer {
                   def typeName:string typeNode.type_name
                   def isBufferOrArray:boolean false
                   ; Buffer types - these are safe for immutable borrow
-                  if ((typeName == "int_buffer") || (typeName == "double_buffer") || (typeName == "buffer")) {
+                  ; charbuffer belongs here too, and its absence was expensive:
+                  ; the lisp parser hands its source buffer down through every
+                  ; scanning helper, and by value that is a full copy per call
+                  ; -- on a 384KB library, with one call per character, it put
+                  ; 98.8% of the Rust build's instructions in memcpy.
+                  if ((((typeName == "int_buffer") || (typeName == "double_buffer")) || (typeName == "buffer")) || (typeName == "charbuffer")) {
                     isBufferOrArray = true
                   }
                   ; Array types (has array_type set) - safe for immutable borrow if not mutated
@@ -2641,7 +2646,10 @@ class StaticAnalyzer {
     if node.expression {
       if ((array_length node.children) >= 2) {
         def first:CodeNode (node.getFirst())
-        if (first.vref == "def") {
+        ; `let` and `var` bind a local exactly as `def` does — a `let` of a
+        ; shared class was left holding the bare struct while its
+        ; initializer handed back the Rc
+        if (((first.vref == "def") || (first.vref == "let")) || (first.vref == "var")) {
           def nameNode:CodeNode (node.getSecond())
           if (!null? nameNode.paramDesc) {
             this.markDescRcWrap((unwrap nameNode.paramDesc))
@@ -2727,10 +2735,34 @@ class StaticAnalyzer {
       if (cl.rust_needs_ref_semantics == false) {
         continue
       }
+      ; …but not in a TRAIT FAMILY. There the hidden argument is typed as the
+      ; trait object for the methods the trait declares and as the class for
+      ; the rest, so making every method carry one puts the two spellings in
+      ; the same body and neither converts to the other.
+      def inTraitFamily:boolean cl.is_extended_by_children
+      for cl.extends_classes clP:string clPi {
+        if ((unwrap ctx).isDefinedClass(clP)) {
+          def clPC:RangerAppClassDesc ((unwrap ctx).findClass(clP))
+          if clPC.is_extended_by_children {
+            inTraitFamily = true
+          }
+        }
+      }
       for cl.methods m:RangerAppFunctionDesc i {
         if (m.is_lambda == false) {
-          if (this.fnUsesThisValue(m)) {
+          ; EVERY instance method of a shared class carries the handle, not
+          ; just the ones that pass `this` on. A shared object is reached
+          ; through its cell, so a `&self` receiver is a borrow held for the
+          ; whole call — and anything the body calls can come back to the same
+          ; object, which is what the walkers here do all day. Carrying the
+          ; handle instead lets the writer drop the receiver and borrow one
+          ; statement at a time.
+          if ((m.is_static == false) && (inTraitFamily == false)) {
             m.rust_needs_self_rc = true
+          } {
+            if (this.fnUsesThisValue(m)) {
+              m.rust_needs_self_rc = true
+            }
           }
         }
       }
@@ -2759,11 +2791,45 @@ class StaticAnalyzer {
     }
   }
 
+  ; A lambda's parameters bind elements of the collection it walks, so a
+  ; shared element reaches the body as its Rc. Nothing else marks them --
+  ; the analysis walks cl.methods, and a lambda is not one -- and a lambda
+  ; may hold lambdas of its own, so this follows the whole nest: the
+  ; compiler assigns one to a local and calls it recursively.
+  fn markLambdaParamsRec:void (fn:RangerAppFunctionDesc) {
+    for fn.myLambdas lam:RangerAppFunctionDesc li {
+      for lam.params lp:RangerAppParamDesc lpi {
+        this.markDescRcWrap(lp)
+      }
+      this.markLambdaParamsRec(lam)
+    }
+  }
+
   fn applySharedClassRcWrap:void () {
     if (null? ctx) {
       return
     }
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    ; A class that is extended by children is written as
+    ; Rc<RefCell<dyn XTrait>> whatever the ownership analysis made of it
+    ; -- the trait object IS a shared handle -- so it carries reference
+    ; semantics, and so does anything that extends one, since a subclass
+    ; goes into the same trait-typed slots. Without this, `this` inside
+    ; such a class is `self` where the writer needs the receiver Rc, and
+    ; passing it to a trait-typed parameter could not be written at all.
+    for root.definedClasses tcl:RangerAppClassDesc tci {
+      if tcl.is_extended_by_children {
+        this.markClassShared(tcl.name "extended by children")
+      }
+      for tcl.extends_classes tclP:string tclPi {
+        if ((unwrap ctx).isDefinedClass(tclP)) {
+          def tclPC:RangerAppClassDesc ((unwrap ctx).findClass(tclP))
+          if tclPC.is_extended_by_children {
+            this.markClassShared(tcl.name "extends a class with children")
+          }
+        }
+      }
+    }
     for root.definedClasses cl:RangerAppClassDesc ci {
       for cl.variables cv:RangerAppParamDesc vi {
         this.markDescRcWrap(cv)
@@ -2772,6 +2838,12 @@ class StaticAnalyzer {
         for m.params param:RangerAppParamDesc pi {
           this.markDescRcWrap(param)
         }
+        ; A lambda's parameters bind elements of the collection it walks, so
+        ; a shared element reaches the body as its Rc. Nothing else marks
+        ; them -- the analysis walks cl.methods, and a lambda is not one --
+        ; and without the mark the body read `item.field` straight off a
+        ; handle that has no fields.
+        this.markLambdaParamsRec(m)
         if (!null? m.fnBody) {
           this.walkForSharedLocals((unwrap m.fnBody))
         }
@@ -2780,6 +2852,12 @@ class StaticAnalyzer {
         for sm.params param:RangerAppParamDesc pi {
           this.markDescRcWrap(param)
         }
+        ; A lambda's parameters bind elements of the collection it walks, so
+        ; a shared element reaches the body as its Rc. Nothing else marks
+        ; them -- the analysis walks cl.methods, and a lambda is not one --
+        ; and without the mark the body read `item.field` straight off a
+        ; handle that has no fields.
+        this.markLambdaParamsRec(sm)
         if (!null? sm.fnBody) {
           this.walkForSharedLocals((unwrap sm.fnBody))
         }

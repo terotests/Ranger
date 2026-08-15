@@ -124,7 +124,7 @@ operator type:RangerFlowParser all {
       }      
       
       ctx.hadValidType(cn)
-      cn.defineNodeTypeTo(cn ctx)
+      cn.defineNodeTypeToSelf(ctx)
 
       p.name = cn.vref
       if (p.value_type == RangerNodeType.NoType) {

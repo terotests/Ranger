@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | 16 | |
+| Rust | **0** | `rustc` clean; the binary compiles the compiler, byte-identical |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -555,14 +555,67 @@ at zero through all of this work and did not build until the five defects above
 were fixed; Kotlin's 19 became 3490 `kotlinc` errors; PHP is at zero now and has
 never been built or run.
 
-### `strlen` counts bytes, `substring` counts characters
+### `substring` counts the unit its neighbours count — `utf8_substring` counts characters
 
-On C++ `strlen` is `std::string::length()` (bytes) and `charAt` indexes bytes,
-but `substring` is `r_utf8_substr` and counts UTF-8 **characters**. A loop
-written as `while (i < (strlen s))` over `(substring s i (i + 1))` therefore
-runs past the end of a string that holds any non-ASCII character. Every other
-target counts the same unit in both. Prefer `charAt` for a scan; the compiler's
-own `advanceColumnForString` was rewritten that way.
+An index has to mean one thing to all of `strlen`, `charAt` and `substring`,
+because a scanner finds a character with one and slices it out with the others.
+C++ used to disagree with itself: `strlen` is `std::string::length()` and
+`charAt` is `s.at(i)`, both **bytes**, while `substring` was `r_utf8_substr` and
+counted **characters**. A scan over `"—b"` finds `b` at byte 3, and asking for
+characters 3..4 of a two-character string gives back nothing — C++ was the only
+target of seven to answer `scan: []` where the rest answer `scan: [b]`.
+
+`substring` now slices bytes on C++. That still round-trips UTF-8: the pieces of
+a multi-byte character concatenate back into the character, which is what the
+compiler's own string parser relies on when it walks a literal one index at a
+time.
+
+Counting characters is a separate job, so it has its own operator.
+`utf8_substring` always counts code points, whatever unit the target's own
+`substring` counts — for truncating a label to twenty characters without cutting
+one in half. It uses `r_utf8_substr` on C++, the rune slice on Go, `chars()` on
+Rust, `offsetByCodePoints` on the JVM targets, `runes` on Dart, `mb_substr` on
+PHP, a surrogate-aware walk on C#, and `Array.from` elsewhere.
+
+`tests/string-index-semantics.test.ts` pins both halves across seven targets.
+
+### How long the compiler takes to compile itself
+
+Same input (`./compiler/ng_Compiler.rgr` to ES6), same machine, a 4-core Xeon at
+2.80 GHz. Median of three, after a warm-up run. All three renderings emit the
+same bytes — the comparison is only meaningful because the outputs are identical.
+
+| Rendering | Self-compile | Peak RSS |
+| --- | ---: | ---: |
+| C++ (`g++ -O2`) | **4.05 s** | 772 MB |
+| Rust (`rustc -O`) | **4.59 s** | 708 MB |
+| JavaScript (node) | 10.5 s | — |
+
+Building the compiler *binary* is the slow part, not running it: generating the
+C++ takes ~15 s and `g++ -O2` another ~175 s; Rust is ~15 s and `rustc -O`
+~170 s. The two native builds run concurrently in about the time of one.
+
+Three defects stood between this and where it started, and the order they were
+found in is the order of their cost:
+
+1. **A lambda copied a by-reference parameter** (C++ only). The writer captures
+   an enclosing parameter by value so a stored callback keeps its own handle —
+   right for a `shared_ptr`, wrong for a parameter the signature already passes
+   as a reference. `markAsyncFromVariant` guards its recursion with a `visited`
+   list and recurses from inside a `forEach`, so every branch got a private copy
+   of the list, saw nothing its siblings had marked, and re-walked the call
+   graph. The answers were right; the cost was not. The C++ binary had not
+   finished after **775 s**.
+2. **Seven dead source-line lookups.** `WalkNode` — the flow parser's main tree
+   walk — opened by computing the line its node sat on and never read it.
+   `getLine` sums the length of every line from the start of the file, so that
+   was one pass over the whole source *per node*; `stdParamMatch` did the same
+   once per operator match. Deleting the seven bindings took C++ from 29.0 s to
+   4.05 s, Rust from 47.9 s to 4.59 s, and node from 14.2 s to 10.5 s. It was
+   86% of the C++ run and 90% of the Rust one.
+3. **`findMethod` rebuilt the key list** (`keys method_variants`, an allocation
+   plus a copy of every method name) to answer a single map lookup, and
+   `hasMethod` asked each parent twice — 2^depth over an inheritance chain.
 
 ## Dart (`-l=dart`)
 
@@ -661,6 +714,321 @@ without a message from the Ranger compiler:
 
 See [RUST_ISSUES.md](RUST_ISSUES.md) for the measurements and the order of the
 work, and [RUST_TODO.md](RUST_TODO.md).
+
+### What the compiler's own sources took, and where they still stop
+
+Rust compiles. `rustc --edition 2021` accepts the 67k-line rendering of the
+compiler's own sources with **0 errors** (229 warnings), and `rustc -O` links an
+11 MB binary from it:
+
+```bash
+bash scripts/rust-selfhost-check.sh          # regenerate and count rustc errors
+rustc -O --edition 2021 tmp/selfhost-rust/ranger_compiler.rs \
+  -o tmp/selfhost-rust/ranger_rust
+```
+
+That binary does not yet **run** a compilation to completion — see *What the
+binary still hits* at the end of this section. The rest of this records how the
+compile got there, because the number started at 4981.
+
+`node bin/output.js -l=rust ./compiler/ng_Compiler.rgr` reported 21 errors, and
+all 21 were one writer bug: a `this.method(…)` written inside a `forEach` body
+came out as *"a method that stores `this` cannot be called from here on Rust:
+the constructor runs before the object is inside its Rc"*. None of the 21 was in
+a constructor. `StaticAnalyzer.computeSelfRcNeeds` walks `cl.methods` and skips
+lambdas, so a lambda's own desc never carries `rust_needs_self_rc`; the writer
+asked the lambda rather than the method that declares it, and a lambda always
+answers no. The lambda desc already points at its declaring method through
+`insideFn` — `rustEnclosingMethod` hops to it first. That, plus operator entries
+for `sha256`, `env_var`, `dir_exists` and `create_dir`, takes the target to 0.
+
+`rustc` is the real gate, and it still refuses the result. Three writer defects
+came out of the attempt and are fixed:
+
+- A shared local of a class that has subclasses was declared
+  `Rc<RefCell<Rc<RefCell<dyn XTrait>>>>`. `getObjectTypeString` returns the
+  whole handle for such a class, and six sites wrapped it a second time —
+  `.borrow()` then yields another `Rc`, so every field read through the name
+  failed. About 1700 errors.
+- Lambdas were written in the generic writer's JavaScript form,
+  `(item, index) => {`. The Rust writer had no `CreateLambda`. `rustc` stopped
+  at the arrow, 222 parse errors, hiding whatever they covered.
+- A callback parameter's type was written as nothing at all — `cb : )` —
+  because `writeTypeDef` had no `ExpressionType` case.
+
+The biggest single thing in the way was the *"Inheritance is not in the layout"*
+limit above, met at scale: `RangerAppParamDesc` has three subclasses, so it is
+written as `Rc<RefCell<dyn RangerAppParamDescTrait>>`, that trait declared
+methods and no fields, and the compiler reads fields through parent-typed
+references constantly — 1881 errors between the two halves of it. Both halves
+are fixed. `rustAllStructVars` gives a class its own fields plus everything it
+inherits and has not restated, so the struct, the constructor's literal and the
+`derive(Clone)` question all work from one list; and the trait hands each field
+of the trait-defining class out by reference, `rgf_x()` to read and
+`rgf_x_mut()` to write, with `WriteVRef` routing a segment through the accessor
+when the segment before it is a class with children.
+
+Everything after that has been ordinary codegen work, measured one shape at a
+time. `rustc` on the 67k-line output is down from **4981 errors to 7**
+(`bash scripts/rust-selfhost-check.sh` regenerates and counts). The shapes that
+carried real defects, rather than Rust-specific plumbing:
+
+- `indexOf` over an array compiled to `.position(…).unwrap()`, which **panics on
+  a miss** where the operator has to answer −1. Every "is this here" question in
+  the compiler would have aborted the process.
+- A Ranger `switch` without a `default` produced a non-exhaustive `match`.
+- `remove_index` and `array_extract` fell through to JavaScript's `splice`/`pop`
+  pair, and their target was walked as a read while `Vec::remove` mutates it.
+- A no-argument operator call — `(ansi_green)` — is an expression holding one
+  bare name, the same shape as a parenthesised variable, so the concat collector
+  unwrapped it and wrote the operator's *name* as if it were a value.
+- The mutation graph that picks `&self` vs `&mut self` never looked at inherited
+  or trait methods, so a `&self` method could call a `&mut self` one.
+- The compiler-plugin operators had no Rust entry at all, so they still had the
+  bug this file's own plugin section describes: an empty template writing
+  `plugin = ;`, a syntax error that stopped `rustc` reading the region around
+  it. Six other targets had been given entries; Rust had been missed.
+- Ranger writes an initializer parenthesised — `def p (h.payload)` — and the
+  move/clone analysis was inspecting the *wrapper* rather than the name inside
+  it, so every test in it answered "no" and a non-`Copy` field was moved out of
+  a borrowed struct at 45 sites.
+- A no-argument operator call is an expression holding one bare name, the same
+  shape as a parenthesised variable, so the concat collector unwrapped it and
+  wrote the operator's *name* as if it were a value.
+
+- `==` on an object means IDENTITY in every other target, where the handle is a
+  pointer, a reference or a shared_ptr. Rust will not compare two `Rc`s at all,
+  so the comparison had to go through `Rc::ptr_eq`; until it did, the writer had
+  no reading of object equality at all.
+- Two `length` templates handed back a `usize` where every Ranger `int` is
+  `i64`, and the string one counted BYTES where go and swift count runes.
+- `normalize` and `install_directory` had no Rust template and fell through to
+  the catch-all, which answers with the literal `"./"` — so every path the
+  compiler built for its library search came out as that literal.
+- `@(weak)` on a RETURN was written as the `Weak` form, which disagreed with
+  every caller (they bind the result to an `Rc` name) and with every body (they
+  return one).
+
+### The last four, and why they were fixed in the sources
+
+The tail ended in two shapes Rust cannot borrow-check at all, and both were
+answered by expressing the lambda as a method — which every other target
+already handles, so nothing was lost:
+
+- **Recursive closures.** The compiler declared a lambda in a local and then
+  assigned the real body to it so the body could call the name — `walk_xml`,
+  `set_async`, `set_called`, `just_vref`. A `&mut |…|` literal is a temporary
+  that dies at the end of its statement (E0716), and the fix is not local:
+  binding the literal to a `let` first only trades E0716 for E0506, because the
+  body captures the very name being assigned to. Giving such a name the owned
+  `Box<dyn FnMut(…)>` form was written and measured — 25 → 39 — and reverted.
+  The bodies also mutate captured scalars (`currCnt = currCnt + 1`), which rules
+  out the `Rc<RefCell<Option<Rc<dyn Fn>>>>` self-reference cell that would
+  otherwise work: `FnMut` cannot be re-entered through a `RefCell`. So each
+  became a method: `isJustVref` captured nothing, `markCalledFromMain` captured
+  `ctx`, `markAsyncFrom` / `markAsyncFromVariant` captured the visited list, and
+  `walkXmlCreate` threads the register counter through its return value so the
+  generated register names are unchanged.
+- **A closure that calls back into its own receiver.**
+  `this.EnterFn(node ctx wr { … this.walkFunctionBody(…) … })` handed a closure
+  needing `&mut self` to a method that had already taken `&mut self`. `EnterFn`
+  now returns the four parts it used to pass to a callback, so `EnterMethod` and
+  `EnterStaticMethod` call `walkFunctionBody` directly. The parts object is
+  returned non-optional with an `ok` field: an optional return out of a function
+  holding a `try` is a shape the Go writer types from the catch value rather
+  than from the declaration.
+
+Downcasts used to be a third family. They are now written: every generated trait
+carries an `RgAnyRef` supertrait, every participating class implements it in one
+line, and `cast` is a Rust CustomOperator that checks the concrete type through
+`Any` and rebuilds the `Rc` around the same allocation — what
+`Rc::<dyn Any>::downcast` does in std. It is the one place the writer emits
+`unsafe`, and it is sound behind the assert.
+
+The measurements that mattered, including the changes that made things worse and
+were backed out, are recorded in comments at the sites they belong to, so the
+next pass starts from the number rather than the guess.
+
+### Running it: the re-entrancy work
+
+The compile being clean is not the same as the binary working. Every method
+call in the output used to be `x.borrow_mut().m(…)`, which holds the cell for
+the whole call, so any method that reaches its own object again panics —
+`already borrowed`. The compiler does that constantly: `RangerAppWriterContext`
+alone has 48 methods that fetch `this.getRoot()` and then read or write through
+it, and for the root context that handle IS `this`.
+
+The binary now gets through **method collection, code analysis and type
+checking** — stages 1 to 3 of five — and enters code generation, where it used
+to abort on the first file it opened. What moved it:
+
+- **Every instance method of a shared class is emitted with no receiver.** It
+  takes the object's handle instead and borrows one statement at a time. This
+  is the change that mattered: a `&self` receiver is a borrow of the cell held
+  for the whole call, and anything the body then calls can come back to the
+  same object. The narrower rules tried before — only methods that pass `this`
+  on, only bodies that fetch another handle of their own class — each fixed the
+  panic in front of them and left the next one.
+- **A field READ takes a shared borrow and a field WRITE the mutable one.**
+  Shared borrows nest, so two field reads in one statement are two live `Ref`s
+  and nothing more; the mutable form there is what turned them into a panic.
+  The write side is already marked for the writer: assignment sets it, and the
+  template expander sets the same flag for the target of a mutating operator
+  (`push`, `set`, `insert`, …). Compound assignment (`x += 1`) had to be taught
+  to set it too.
+- **`this` at the head of a PATH is always a read.** `this.langWriter.write(…)`
+  borrows the writer's cell for the call, not this one, so the navigation to
+  the field takes the shared form. The mutable question belongs to the last
+  cell in the path.
+- **A `switch` subject lands in a `let` first.** `match x.borrow().f { … }`
+  keeps the `Ref` alive for the whole match, so every arm that touched the same
+  cell panicked. The string overload already did this; the integer and enum
+  ones did not.
+- **A static-spelled call takes the LAST segment of the path as the method
+  name**, wraps a raw value handed to a borrowed shared parameter, and honours
+  an argument that was hoisted to a temporary. That last one is the sharpest:
+  the hoisting ran, wrote its `let`, and this emission path ignored it — which
+  is exactly the double borrow the hoisting exists to prevent.
+- **Argument hoisting also runs for a call node that carries `has_call` but is
+  spelled `(fnRef args)`.** No argument of such a call was examined before.
+- **A read through a weak field takes a shared borrow.** It was always
+  `borrow_mut()`, so two reads of one parent in a single expression panicked.
+- **The receiver handle is unsized where the callee declares the trait
+  object.** A method of a trait family declares its hidden argument as
+  `dyn XTrait`, and a call site holding the concrete class now writes the
+  coercion.
+
+Source sites were changed where the fix was one line and the alternative was a
+codegen special case — always the same shape, reading one field while writing
+another in a single statement:
+
+- `defineNodeTypeToSelf` is the aliasing form of `defineNodeTypeTo`, which was
+  called as `cn.defineNodeTypeTo(cn ctx)` — one object read and written at once.
+- `CodeNode.setFlag`, `cloneWithType`, `rebuildWithType`, `getLine` and
+  `getColumnStr` bind `code`, `sp` and `ep` before constructing.
+- `CodeWriter.createTag`, `addIndent`, `syncColumnFromCurrentLine` and
+  `writeSlice` bind the value they are about to append to.
+- `RangerAppEnum.add` and the three signature counters take the counter into a
+  local before storing it.
+- `changeStrengthSelf`, `getTargetLangName`, `getRootFile`, `setRootFile`,
+  `addError`, `addParserError` and `transformWord` from the earlier pass.
+
+### It self-hosts
+
+The Rust rendering of the compiler compiles **the compiler's own sources**, and
+the JavaScript it produces is **byte-identical** to what the JavaScript build
+produces from the same input — same md5. The compiler that comes out of it runs
+and compiles programs.
+
+```
+$ npm run selfhost:parity:rust
+[1/4] generating the Rust rendering
+[2/4] building it
+[3/4] the Rust binary compiles the compiler
+[4/4] comparing with the JavaScript build
+OK: byte-identical
+```
+
+That makes Rust the seventh target to build the compiler, alongside C++, Dart,
+Python, C#, Go and Kotlin.
+
+### How it got there
+
+```
+[1/5] Collecting methods...
+[2/5] Analyzing code...
+[3/5] Type checking...
+[4/5] Generating code...
+[5/5] Writing output...
+[OK] Compilation successful!
+```
+
+The Rust rendering of the compiler compiles a program end to end, and its
+output is **byte-identical** to what the JavaScript build produces from the
+same input. `scripts/rust-selfhost-run.sh` builds it and runs it over
+`tests/rust_run/hello.rgr`.
+
+What finally moved it was the trait families — the language writers. A trait
+method cannot be dispatched without a receiver, so `&mut self` on one means
+`wr.borrow_mut().WalkNode(…)` at every call site, holding the writer's cell
+for the whole call while `LiveCompiler` calls back into it. Two SHARED borrows
+nest, so the only question was which of these methods actually needs to mutate.
+
+The old answer was "all of them", by fiat. Replacing that blanket with the
+truth took the following, in order, each one uncovered by the next failure:
+
+- **One mutation analysis for the whole family, on one merged call graph.**
+  Per-class graphs get the transitive step wrong, and the merge has to UNION
+  the call edges: `writeClass` calls `writeTypeDef` in one writer and not in
+  the next, and whichever was written last used to be the only one with edges.
+- **The blanket had to come out of `buildInheritedMutationGraph` too.** It
+  marked every inherited trait method as mutating, which fed straight back
+  into the analysis meant to replace it — and separately made every caller of
+  an inherited method `&mut self` for no reason.
+- **A scalar field of a trait-family class lives behind interior mutability** —
+  `Cell<T>`, `RefCell<String>`, `RefCell<Vec/HashMap>`, and `RefCell<Option<T>>`
+  for a field never reached through a path. Writing one is then not a mutation
+  of the struct. Reads take `.get()` or `.borrow()`; a string reads inside a
+  block so its `Ref` dies before the statement continues; writes compute the
+  value into a temporary first, because naming the field as the receiver
+  borrows the object for the whole statement.
+- **Three mutation rules counted writes that were never to this object**: a
+  call through a field holding an Rc borrows the FIELD's cell, a mutating
+  operator on `ctx.someMap` writes the context's field and not this one, and
+  neither is a mutation of the struct.
+- **Call sites had to learn the same answer.** A call through a trait-typed
+  field asks the family, so a `&self` callee is reached with `.borrow()`.
+- **A call through one of this object's handle fields hoists the handle to a
+  local first.** `langWriter.writeClass(…)` reads the field out of this
+  object, and that read's `Ref` lives to the end of the statement — which is
+  the whole call, which is when the callee reaches back in.
+- **A read through a trait accessor takes a shared borrow.** Two reads of one
+  object in a single statement — `outMapped(…, p.compiledName, …, p.name)` —
+  are two live `Ref`s, and the mutable form there is a panic rather than a
+  borrow error.
+
+**The entry point runs on a thread with a 512MB stack.** Rust gives the main
+thread 8MB, and a recursive-descent walk over a real program overflows it with
+`fatal runtime error: stack overflow` and no diagnostic at all — the compiler's
+own sources do it. A spawned thread's stack size is ours to choose, so `main`
+is a shim that spawns the real body.
+
+Three source sites changed where the fix was one line: the JavaScript writer
+records its ReactNative flag on the context rather than on an inherited map
+field, the Go writer builds its HTTP-server writer per call instead of holding
+one, and `RangerAppParamDesc`'s aliasing cases from the earlier passes.
+
+**2379 methods now take `&self`** where 848 did before this pass, and the
+writer trait declares exactly two `&mut self` methods, both field accessors.
+
+Two more defects showed up only at full scale, and both were real:
+
+- **A weak optional field reads with `and_then`, not `map` then `unwrap`.** A
+  weak reference whose referent is gone means NULL, which is what `@(weak)`
+  means on every other target; unwrapping the upgrade turned it into a panic.
+  `RangerCompilerMessage.node` also became owning: a diagnostic outlives the
+  tree it points at, and the error printer is the one place that must not fail.
+- **A trait-interface method always keeps its receiver.** Without one the call
+  site writes `Parent::m(…)`, which is the parent's own implementation — the
+  override never runs. `lineEnding` came back as the generic writer's `""`
+  instead of the JavaScript writer's `";"`, and the difference reached the
+  emitted code. This was the last thing between the two builds and byte
+  equality.
+
+Of the 189 programs in `tests/fixtures`, the Rust binary compiles 136 cleanly
+and reports diagnostics on the rest; a handful still panic on shape and process
+fixtures, which is where to continue.
+
+One conflict is worth naming because no codegen change can settle it:
+`RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and
+three subclasses restated them `@(weak)`. A restatement is the same slot, an
+inherited method body is emitted into every subclass's impl unchanged, and a
+trait accessor's signature comes from the parent while its body reads the
+subclass's slot — so neither declaration can win everywhere. The subclasses were
+changed to agree with the parent, which the parent's own comment explains: a
+descriptor outlives the tree it came from whenever that tree was a copy or a
+macro expansion, `weak` is a no-op on the JavaScript host so nothing noticed,
+and on C++ the nodes were already gone by the time the flow parser read them.
 
 ## C++ static analysis optimizer (`-l=cpp`)
 

@@ -10,6 +10,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[0m\"" )
             cpp ( "std::string(\"\\x1b[0m\")" )
+            rust ( "\"\\x1b[0m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -17,6 +18,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[1m\"" )
             cpp ( "std::string(\"\\x1b[1m\")" )
+            rust ( "\"\\x1b[1m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -24,6 +26,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[2m\"" )
             cpp ( "std::string(\"\\x1b[2m\")" )
+            rust ( "\"\\x1b[2m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -31,6 +34,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[32m\"" )
             cpp ( "std::string(\"\\x1b[32m\")" )
+            rust ( "\"\\x1b[32m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -38,6 +42,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[31m\"" )
             cpp ( "std::string(\"\\x1b[31m\")" )
+            rust ( "\"\\x1b[31m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -45,6 +50,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[33m\"" )
             cpp ( "std::string(\"\\x1b[33m\")" )
+            rust ( "\"\\x1b[33m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -52,6 +58,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[34m\"" )
             cpp ( "std::string(\"\\x1b[34m\")" )
+            rust ( "\"\\x1b[34m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -59,6 +66,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[35m\"" )
             cpp ( "std::string(\"\\x1b[35m\")" )
+            rust ( "\"\\x1b[35m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -66,6 +74,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[36m\"" )
             cpp ( "std::string(\"\\x1b[36m\")" )
+            rust ( "\"\\x1b[36m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -73,6 +82,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[90m\"" )
             cpp ( "std::string(\"\\x1b[90m\")" )
+            rust ( "\"\\x1b[90m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -80,6 +90,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[37m\"" )
             cpp ( "std::string(\"\\x1b[37m\")" )
+            rust ( "\"\\x1b[37m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -89,6 +100,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[41m\"" )
             cpp ( "std::string(\"\\x1b[41m\")" )
+            rust ( "\"\\x1b[41m\".to_string()" )
             * ( "\"\"" )
         }
     }
@@ -96,6 +108,7 @@ operators {
         templates {
             es6 ( "\"\\x1b[42m\"" )
             cpp ( "std::string(\"\\x1b[42m\")" )
+            rust ( "\"\\x1b[42m\".to_string()" )
             * ( "\"\"" )
         }
     }

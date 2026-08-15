@@ -67,6 +67,18 @@ class WalkLater {
   def callArg@(weak):CodeNode
 }
 
+; The four parts EnterFn used to hand to a callback. A callback that calls
+; back into the parser cannot be borrow-checked on Rust — the receiver is
+; already borrowed by the call taking the callback — so the parts are
+; returned instead.
+class RangerFnParts {
+  def ok:boolean false
+  def nameNode:CodeNode
+  def fnArgs:CodeNode
+  def fnBody:CodeNode
+  def desc:RangerAppClassDesc
+}
+
 class RangerFlowParser {
 
   def hasRootPath false
@@ -257,8 +269,9 @@ class RangerFlowParser {
   }
 
   fn WalkNode:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    
-    def line_index:int (node.getLine())
+    ; nothing here reads the source line. Asking for it cost a walk over
+    ; every line of the file -- getLine sums line lengths from the start --
+    ; once per node, which is the whole tree against the whole file.
     if node.flow_done {
       return true
     }
@@ -323,167 +336,8 @@ class RangerFlowParser {
         
         def currCnt 1
 
-        def walk_xml (fn:void (xmlNode:CodeNode regName:string) {
 
-        })
-
-        walk_xml = (fn:void (xmlNode:CodeNode regName:string) {
-
-
-          def rootClassDef (ctx.findClass(xmlNode.vref))
-
-          if rootClassDef.is_system {
-            push opBody.children (r.expression (r.vref 'def') (r.vref regName) (r.expression (r.vref 'create') (r.vref xmlNode.vref)))
-            xmlNode.attrs.forEach({
-              if( (size item.children) > 0) {
-                def fc (at item.children 0)
-                ; print " - attr expression for " + item.vref +   " " + (fc.getCode())
-                push opBody.children (r.expression (r.vref 'attr') (r.vref regName)  (r.vref item.vref) (fc.copy()) )
-                return
-              }
-              if(has item.string_value) {
-                push opBody.children (r.expression (r.vref 'attr') (r.vref regName)  (r.vref item.vref) (r.value item.string_value) )
-              }
-            })
-
-            ; -- walk the children...
-            xmlNode.children.forEach({
-              if(item.value_type != RangerNodeType.XMLNode) {
-                if( item.expression ) {
-                  ; for example maps
-                  def itemCopy (item.copy())
-                  def theNode item
-                  ctx.setTestCompile()
-                  this.WalkNode( itemCopy ctx wr )
-                  ctx.unsetTestCompile()
-                  if(ctx.hasClass(itemCopy.eval_array_type)) {
-                    def paramClassDef (ctx.findClass(itemCopy.eval_array_type))
-                    def chNode item
-                    def t (r.vref 'tmp')
-                    t.setFlag('temp')
-                    push opBody.children (r.expression (r.vref 'forEach' ) (theNode.copy()) 
-                      (r.block 
-                        (r.expression (r.vref 'def') t (r.vref 'item') )
-                        (r.expression (r.vref 'push') (r.vref regName) (r.vref 'tmp'))
-                      )
-                    )
-                  } {
-                    if(ctx.hasClass(itemCopy.eval_type_name)) {
-                      push opBody.children (r.expression (r.vref 'push') (r.vref regName) (theNode.copy()))
-                    }
-                  }
-                } {
-                  ; print "--> not expression, vref -->  " + (item.vref) 
-                  ; if(ctx.hasClass(itemCopy.eval_type)) {
-                  ;  push opBody.children (r.expression (r.vref 'push') (r.vref regName) (item.copy()))
-                  ; }
-                }
-              }
-              if(item.value_type == RangerNodeType.XMLNode) {
-                if(ctx.hasClass(item.vref)) {
-                  def paramClassDef (ctx.findClass(item.vref))
-                  def chNode item
-                  currCnt = currCnt + 1
-                  def regN ('r' + currCnt)
-                  walk_xml ( chNode regN )
-                  push opBody.children (r.expression (r.vref 'push') (r.vref regName) (r.vref regN) )
-                }
-              }
-            })
-            ; ***** system class ends ****
-          } {
-
-            def match (new RangerArgMatch)
-;   fn areEqualATypes:boolean (type1:string type2:string ctx:RangerAppWriterContext) {
-
-            ; areEqualATypes
-
-            push opBody.children (r.expression (r.vref 'def') (r.vref regName) (r.expression (r.vref 'new') (r.vref xmlNode.vref)))
-            ; print "XML node " + xmlNode.vref
-            xmlNode.attrs.forEach({
-              ; print "attr " + item.vref + " str val -> " + item.string_value
-              if( (size item.children) > 0) {
-                def fc (at item.children 0)
-                ; print " - attr expression for " + item.vref +   " " + (fc.getCode())
-                push opBody.children (r.expression (r.vref '=') (r.vref (regName + '.' + item.vref)) (fc.copy()) )
-                return
-              }
-              if(has item.string_value) {
-                push opBody.children (r.expression (r.vref '=') (r.vref (regName + '.' + item.vref)) (r.value item.string_value) )
-              }
-              if(item.parsed_type == RangerNodeType.Integer) {
-                push opBody.children (r.expression (r.vref '=') (r.vref (regName + '.' + item.vref)) (r.value item.int_value) )
-              }
-            })
-            ; -- walk the children...
-            xmlNode.children.forEach({
-              if(item.value_type != RangerNodeType.XMLNode) {
-
-                if( item.expression ) {
-                  ; for example maps
-                  def itemCopy (item.copy())
-                  def theNode item
-
-                  ctx.setTestCompile()
-                  this.WalkNode( itemCopy ctx wr )
-                  ctx.unsetTestCompile()
-
-                  if(ctx.hasClass(itemCopy.eval_array_type)) {
-                    def paramClassDef (ctx.findClass(itemCopy.eval_array_type))
-                    def chNode item
-                    rootClassDef.variables.forEach({
-                      ; --> comparing, are the same class ?? 
-                      if( match.areEqualATypes(item.nameNode.array_type itemCopy.eval_array_type ctx)) {                      ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
-                        def t (r.vref 'tmp')
-                        t.setFlag('temp')
-                        push opBody.children (r.expression (r.vref 'forEach' ) (theNode.copy()) 
-                          (r.block 
-                            (r.expression (r.vref 'def') t (r.vref 'item') )
-                            (r.expression (r.vref 'push') (r.vref (regName +'.' +item.name)) (r.vref 'tmp'))
-                          )
-                        )
-                      }
-                    })
-                  } {
-                    print "could not find class" + itemCopy.eval_array_type
-                  }
-                }
-              }
-              if(item.value_type == RangerNodeType.XMLNode) {
-                if(ctx.hasClass(item.vref)) {
-                  def paramClassDef (ctx.findClass(item.vref))
-                  def chNode item
-                  ; find the variable which has this class as array...
-                  rootClassDef.variables.forEach({
-                    if( match.areEqualATypes(item.nameNode.array_type chNode.vref ctx)) {                      
-                      ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
-                    ; if(item.nameNode.array_type == chNode.vref) {
-                      ; found the variable...
-                      currCnt = currCnt + 1
-                      def regN ('r' + currCnt)
-                      walk_xml ( chNode regN )
-                      if paramClassDef.is_immutable {
-                        ; if Immutable should first walk the children and only after that add..
-                        ;   r1_5 = (r1_5).set_children(operatorsOfVector.push_3(r1_5.children, (r7_1)));
-
-                        push opBody.children (r.expression (r.vref '=') 
-                                                  (r.vref (regName +'.' +item.name)) 
-                                                  (r.expression (r.vref 'push') 
-                                                    (r.vref (regName +'.' +item.name)) (r.vref regN) ) )
-
-                      } {
-                        push opBody.children (r.expression (r.vref 'push') (r.vref (regName +'.' +item.name)) (r.vref regN) )
-                      }
-                    }
-                  })
-                }
-              }
-            })
-          }
-          
-        })
-
-        walk_xml( fc 'r1' )
+        currCnt = (this.walkXmlCreate( fc 'r1' currCnt opBody ctx wr))
 
         push opBody.children (r.expression (r.vref 'ret') (r.vref 'r1'))
         push opTpl.children opBody
@@ -873,7 +727,8 @@ class RangerFlowParser {
         return ("void_" + cc)
       }
       signatureCnt = signatureCnt + 1
-      set isDefinedSignature s signatureCnt
+      def voidSigNo:int signatureCnt
+      set isDefinedSignature s voidSigNo
       return ( "void_" + signatureCnt )
   }  
 
@@ -887,7 +742,8 @@ class RangerFlowParser {
         return ("_" + cc)
       }
       signatureCnt = signatureCnt + 1
-      set isDefinedSignature s signatureCnt
+      def nameSigNo:int signatureCnt
+      set isDefinedSignature s nameSigNo
       if(signatureCnt == 1) {
         return node.type_name
       }
@@ -908,7 +764,8 @@ class RangerFlowParser {
         return ("_" + cc)
       }
       signatureCnt = signatureCnt + 1
-      set isDefinedArgSignature exp_s signatureCnt
+      def argSigNo:int signatureCnt
+      set isDefinedArgSignature exp_s argSigNo
       if(signatureCnt == 1) {
         return ""
       }      
@@ -1134,42 +991,40 @@ class RangerFlowParser {
     }
   }
 
-  fn EnterFn (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter 
-                callback:(fn:void ( node:CodeNode 
-                                    ctx:RangerAppWriterContext 
-                                    wr:CodeWriter 
-                                    nameNode:CodeNode             ; node defining the function name 
-                                    fnArgs:CodeNode               ; arguments list
-                                    fnBody:CodeNode               ; function body
-                                    desc:RangerAppClassDesc       ; class description
-                                  ))) {
-
+  ; The name node, the argument list, the body and the class a function
+  ; definition is made of — or nothing, with the error already reported.
+  fn EnterFnParts:RangerFnParts (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; the result is always an object, with `ok` saying whether it was filled:
+    ; an OPTIONAL return out of a function holding a `try` is a shape the Go
+    ; writer types from the catch value rather than from the declaration.
+    def res:RangerFnParts (new RangerFnParts)
+    ; one exit only: a `return` out of a try block is not something every
+    ; target can write either
     try {
       if( (size node.children ) < 4) {
         ctx.addError( node 'Function has too few arguments')
-        return
-      }
-      def nameNode:CodeNode 
-      def idx 0
-      node.children.forEach({
-        if(item.vref == 'static') {
-          idx = idx + 1
+      } {
+        def idx 0
+        node.children.forEach({
+          if(item.vref == 'static') {
+            idx = idx + 1
+          }
+        })
+        def currClass (ctx.getCurrentClass())
+        if(null? currClass) {
+          ctx.addError( node 'Current class was not defined when entering method')
+        } {
+          res.nameNode = (at node.children (idx + 1))
+          res.fnArgs = (at node.children (idx + 2))
+          res.fnBody = (at node.children (idx + 3))
+          res.desc = (unwrap currClass)
+          res.ok = true
         }
-      })
-      def currClass (ctx.getCurrentClass())
-      if(null? currClass) {
-        ctx.addError( node 'Current class was not defined when entering method')
-        return
       }
-      callback( node ctx wr 
-                  (at node.children (idx + 1))
-                  (at node.children (idx + 2))
-                  (at node.children (idx + 3))
-                  (unwrap currClass)
-              )
     } {
       ctx.addError( node ('Error parsing function ' + (error_msg)))
     }
+    return res
   }
 
   fn Constructor:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1518,6 +1373,242 @@ class RangerFlowParser {
   }
   
 
+  ; Lower one XML node into the create-expression body. This was a recursive
+  ; lambda inside WalkNode; Rust cannot borrow-check a recursive closure that
+  ; mutates what it captures, so the captured state travels as arguments and
+  ; the register counter is threaded through the return value - which keeps
+  ; the generated register names identical to what the lambda produced.
+  fn walkXmlCreate:int (xmlNode:CodeNode regName:string in_currCnt:int opBody:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def currCnt:int in_currCnt
+
+
+    def rootClassDef (ctx.findClass(xmlNode.vref))
+
+    if rootClassDef.is_system {
+      push opBody.children (r.expression (r.vref 'def') (r.vref regName) (r.expression (r.vref 'create') (r.vref xmlNode.vref)))
+      xmlNode.attrs.forEach({
+        if( (size item.children) > 0) {
+          def fc (at item.children 0)
+          ; print " - attr expression for " + item.vref +   " " + (fc.getCode())
+          push opBody.children (r.expression (r.vref 'attr') (r.vref regName)  (r.vref item.vref) (fc.copy()) )
+          return
+        }
+        if(has item.string_value) {
+          push opBody.children (r.expression (r.vref 'attr') (r.vref regName)  (r.vref item.vref) (r.value item.string_value) )
+        }
+      })
+
+      ; -- walk the children...
+      xmlNode.children.forEach({
+        if(item.value_type != RangerNodeType.XMLNode) {
+          if( item.expression ) {
+            ; for example maps
+            def itemCopy (item.copy())
+            def theNode item
+            ctx.setTestCompile()
+            this.WalkNode( itemCopy ctx wr )
+            ctx.unsetTestCompile()
+            if(ctx.hasClass(itemCopy.eval_array_type)) {
+              def paramClassDef (ctx.findClass(itemCopy.eval_array_type))
+              def chNode item
+              def t (r.vref 'tmp')
+              t.setFlag('temp')
+              push opBody.children (r.expression (r.vref 'forEach' ) (theNode.copy()) 
+                (r.block 
+                  (r.expression (r.vref 'def') t (r.vref 'item') )
+                  (r.expression (r.vref 'push') (r.vref regName) (r.vref 'tmp'))
+                )
+              )
+            } {
+              if(ctx.hasClass(itemCopy.eval_type_name)) {
+                push opBody.children (r.expression (r.vref 'push') (r.vref regName) (theNode.copy()))
+              }
+            }
+          } {
+            ; print "--> not expression, vref -->  " + (item.vref) 
+            ; if(ctx.hasClass(itemCopy.eval_type)) {
+            ;  push opBody.children (r.expression (r.vref 'push') (r.vref regName) (item.copy()))
+            ; }
+          }
+        }
+        if(item.value_type == RangerNodeType.XMLNode) {
+          if(ctx.hasClass(item.vref)) {
+            def paramClassDef (ctx.findClass(item.vref))
+            def chNode item
+            currCnt = currCnt + 1
+            def regN ('r' + currCnt)
+            currCnt = (this.walkXmlCreate( chNode regN currCnt opBody ctx wr))
+            push opBody.children (r.expression (r.vref 'push') (r.vref regName) (r.vref regN) )
+          }
+        }
+      })
+      ; ***** system class ends ****
+    } {
+
+      def match (new RangerArgMatch)
+;   fn areEqualATypes:boolean (type1:string type2:string ctx:RangerAppWriterContext) {
+
+      ; areEqualATypes
+
+      push opBody.children (r.expression (r.vref 'def') (r.vref regName) (r.expression (r.vref 'new') (r.vref xmlNode.vref)))
+      ; print "XML node " + xmlNode.vref
+      xmlNode.attrs.forEach({
+        ; print "attr " + item.vref + " str val -> " + item.string_value
+        if( (size item.children) > 0) {
+          def fc (at item.children 0)
+          ; print " - attr expression for " + item.vref +   " " + (fc.getCode())
+          push opBody.children (r.expression (r.vref '=') (r.vref (regName + '.' + item.vref)) (fc.copy()) )
+          return
+        }
+        if(has item.string_value) {
+          push opBody.children (r.expression (r.vref '=') (r.vref (regName + '.' + item.vref)) (r.value item.string_value) )
+        }
+        if(item.parsed_type == RangerNodeType.Integer) {
+          push opBody.children (r.expression (r.vref '=') (r.vref (regName + '.' + item.vref)) (r.value item.int_value) )
+        }
+      })
+      ; -- walk the children...
+      xmlNode.children.forEach({
+        if(item.value_type != RangerNodeType.XMLNode) {
+
+          if( item.expression ) {
+            ; for example maps
+            def itemCopy (item.copy())
+            def theNode item
+
+            ctx.setTestCompile()
+            this.WalkNode( itemCopy ctx wr )
+            ctx.unsetTestCompile()
+
+            if(ctx.hasClass(itemCopy.eval_array_type)) {
+              def paramClassDef (ctx.findClass(itemCopy.eval_array_type))
+              def chNode item
+              rootClassDef.variables.forEach({
+                ; --> comparing, are the same class ?? 
+                if( match.areEqualATypes(item.nameNode.array_type itemCopy.eval_array_type ctx)) {                      ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
+                  def t (r.vref 'tmp')
+                  t.setFlag('temp')
+                  push opBody.children (r.expression (r.vref 'forEach' ) (theNode.copy()) 
+                    (r.block 
+                      (r.expression (r.vref 'def') t (r.vref 'item') )
+                      (r.expression (r.vref 'push') (r.vref (regName +'.' +item.name)) (r.vref 'tmp'))
+                    )
+                  )
+                }
+              })
+            } {
+              print "could not find class" + itemCopy.eval_array_type
+            }
+          }
+        }
+        if(item.value_type == RangerNodeType.XMLNode) {
+          if(ctx.hasClass(item.vref)) {
+            def paramClassDef (ctx.findClass(item.vref))
+            def chNode item
+            ; find the variable which has this class as array...
+            rootClassDef.variables.forEach({
+              if( match.areEqualATypes(item.nameNode.array_type chNode.vref ctx)) {                      
+                ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
+              ; if(item.nameNode.array_type == chNode.vref) {
+                ; found the variable...
+                currCnt = currCnt + 1
+                def regN ('r' + currCnt)
+                currCnt = (this.walkXmlCreate( chNode regN currCnt opBody ctx wr))
+                if paramClassDef.is_immutable {
+                  ; if Immutable should first walk the children and only after that add..
+                  ;   r1_5 = (r1_5).set_children(operatorsOfVector.push_3(r1_5.children, (r7_1)));
+
+                  push opBody.children (r.expression (r.vref '=') 
+                                            (r.vref (regName +'.' +item.name)) 
+                                            (r.expression (r.vref 'push') 
+                                              (r.vref (regName +'.' +item.name)) (r.vref regN) ) )
+
+                } {
+                  push opBody.children (r.expression (r.vref 'push') (r.vref (regName +'.' +item.name)) (r.vref regN) )
+                }
+              }
+            })
+          }
+        }
+      })
+    }
+
+    return currCnt
+  }
+
+  ; The two async walks below were recursive lambdas declared inside
+  ; SolveAsyncFuncs. Rust cannot borrow-check a recursive closure that also
+  ; mutates what it captures, and the only thing either captured was the
+  ; `visited` list (and `ctx`, for the variant walk), so they take those as
+  ; arguments and recurse as methods. The two bodies differed — the variant
+  ; walk also follows `forOtherVersions` — so they stay two.
+  fn markAsyncFrom:void (f:RangerAppFunctionDesc visited:[RangerAppFunctionDesc]) {
+    if( (indexOf visited f ) >= 0 ) {
+      return
+    }
+    push visited f
+    if( (!null? f.nameNode) ) {
+      f.nameNode.setFlag('async')
+    }
+    f.isCalledBy.forEach({
+      this.markAsyncFrom( item visited)
+    })
+    if( !null? f.insideFn) {
+      this.markAsyncFrom( (unwrap f.insideFn ) visited)
+    }
+  }
+
+  fn markAsyncFromVariant:void (f:RangerAppFunctionDesc visited:[RangerAppFunctionDesc] ctx:RangerAppWriterContext) {
+    if( (indexOf visited f ) >= 0 ) {
+      return
+    }
+    push visited f
+    ; TODO: must also iterate all the inherited class functions...
+    if( (!null? f.nameNode) ) {
+      f.nameNode.setFlag('async')
+    }
+    f.forOtherVersions( ctx {
+      this.markAsyncFromVariant( item visited ctx)
+    })
+    f.isCalledBy.forEach({
+      this.markAsyncFromVariant( item visited ctx)
+    })
+    if( !null? f.insideFn) {
+      this.markAsyncFromVariant( (unwrap f.insideFn ) visited ctx)
+    }
+  }
+
+  ; Walk everything main reaches and mark it. This was a recursive lambda
+  ; declared inside SolveAsyncFuncs; Rust cannot borrow-check a recursive
+  ; closure that also mutates what it captures, and the only thing this one
+  ; captured was `ctx`, so it takes it as an argument instead.
+  fn markCalledFromMain:void (f:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if(f.is_called_from_main) {
+      return
+    }
+    f.is_called_from_main = true
+    f.isUsingClasses.forEach({
+      item.is_used_by_main = true
+      if(!null? item.constructor_fn) {
+        this.markCalledFromMain( (unwrap item.constructor_fn) ctx)
+      }
+    })
+    f.forOtherVersions( ctx {
+      this.markCalledFromMain(item ctx)
+    })
+    f.isCalling.forEach({
+      this.markCalledFromMain( item ctx)
+    })
+    f.myLambdas.forEach({
+      this.markCalledFromMain( item ctx)
+    })
+    if( !null? f.container_class) {
+      if(!null? f.container_class.constructor_fn) {
+        this.markCalledFromMain( (unwrap f.container_class.constructor_fn) ctx)
+      }
+    }
+  }
+
   fn SolveAsyncFuncs (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def root (ctx.getRoot())
@@ -1526,40 +1617,17 @@ class RangerFlowParser {
       item.static_methods.forEach({
 
           def thisFn (item)
-          def set_async (fn:void (f:RangerAppFunctionDesc) {
-
-          })
           def visited@(weak):[RangerAppFunctionDesc]
-
-          ;thisFn.params.forEach({
-          ;  item.nameNode.setFlag('async')
-          ;})
-
-          set_async = (fn:void (f:RangerAppFunctionDesc) {
-            if( (indexOf visited f ) >= 0 ) {
-              return
-            }
-            push visited f
-            if( (!null? f.nameNode) ) {
-              f.nameNode.setFlag('async')
-            }
-            f.isCalledBy.forEach({
-              set_async( item )
-            })            
-            if( !null? f.insideFn) {
-              set_async( (unwrap f.insideFn ))
-            }
-          })
           if( (!null? item.nameNode) ) {
             if(item.nameNode.hasFlag("async")) {
               item.isCalledBy.forEach({
-                set_async( item )
+                this.markAsyncFrom( item visited)
               })
               item.forOtherVersions( ctx {
-                set_async(item)
+                this.markAsyncFrom( item visited)
               })
               if( !null? item.insideFn) {
-                set_async( (unwrap item.insideFn ))
+                this.markAsyncFrom( (unwrap item.insideFn ) visited)
               }
             }
           }
@@ -1567,10 +1635,10 @@ class RangerFlowParser {
             if( (!null? item.nameNode) ) {
               if(item.nameNode.hasFlag("async")) {
                 item.isCalledBy.forEach({
-                  set_async( item )
+                  this.markAsyncFrom( item visited)
                 })
                 if( !null? item.insideFn) {
-                  set_async( (unwrap item.insideFn ))
+                  this.markAsyncFrom( (unwrap item.insideFn ) visited)
                 }
               }
             }
@@ -1581,44 +1649,17 @@ class RangerFlowParser {
         item.variants.forEach({
 
           def thisFn (item)
-          def set_async (fn:void (f:RangerAppFunctionDesc) {
-
-          })
           def visited@(weak):[RangerAppFunctionDesc]
-
-          ;thisFn.params.forEach({
-          ;  item.nameNode.setFlag('async')
-          ;})
-
-          set_async = (fn:void (f:RangerAppFunctionDesc) {
-            if( (indexOf visited f ) >= 0 ) {
-              return
-            }
-            push visited f
-            ; TODO: must also iterate all the inherited class functions...
-            if( (!null? f.nameNode) ) {
-              f.nameNode.setFlag('async')
-            }
-            f.forOtherVersions( ctx {
-              set_async(item)
-            })
-            f.isCalledBy.forEach({
-              set_async( item )
-            })            
-            if( !null? f.insideFn) {
-              set_async( (unwrap f.insideFn ))
-            }
-          })
           if( (!null? item.nameNode) ) {
             if(item.nameNode.hasFlag("async")) {
               item.isCalledBy.forEach({
-                set_async( item )
+                this.markAsyncFromVariant( item visited ctx)
               })
               item.forOtherVersions( ctx {
-                set_async(item)
+                this.markAsyncFromVariant( item visited ctx)
               })
               if( !null? item.insideFn) {
-                set_async( (unwrap item.insideFn ))
+                this.markAsyncFromVariant( (unwrap item.insideFn ) visited ctx)
               }
             }
           }
@@ -1626,10 +1667,10 @@ class RangerFlowParser {
             if( (!null? item.nameNode) ) {
               if(item.nameNode.hasFlag("async")) {
                 item.isCalledBy.forEach({
-                  set_async( item )
+                  this.markAsyncFromVariant( item visited ctx)
                 })
                 if( !null? item.insideFn) {
-                  set_async( (unwrap item.insideFn ))
+                  this.markAsyncFromVariant( (unwrap item.insideFn ) visited ctx)
                 }
               }
             }            
@@ -1667,39 +1708,6 @@ class RangerFlowParser {
       })
     })
 
-    def add_dce_fn (fn:void (theFn:RangerAppFunctionDesc) {
-      def set_called (fn:void (f:RangerAppFunctionDesc) {
-
-      })
-      set_called = (fn:void (f:RangerAppFunctionDesc) {
-        if(f.is_called_from_main) {
-          return
-        }
-        f.is_called_from_main = true
-        f.isUsingClasses.forEach({
-          item.is_used_by_main = true
-          if(!null? item.constructor_fn) {
-            set_called( (unwrap item.constructor_fn))
-          }          
-        })
-        f.forOtherVersions( ctx {
-          set_called(item)
-        })
-        f.isCalling.forEach({
-          set_called( item )
-        })
-        f.myLambdas.forEach({
-          set_called( item )
-        })
-        if( !null? f.container_class) {
-          if(!null? f.container_class.constructor_fn) {
-            set_called( (unwrap f.container_class.constructor_fn))
-          }                      
-        }          
-      })
-      set_called(theFn)
-    }) 
-
     def use_dce false
     if(ctx.hasCompilerFlag('dead4main')) {
       def mainFn:RangerAppFunctionDesc
@@ -1714,7 +1722,7 @@ class RangerFlowParser {
         }
       })
       if(!null? mainFn) {
-        add_dce_fn( (unwrap mainFn))
+        this.markCalledFromMain( (unwrap mainFn) ctx)
         use_dce = true
       }
     }
@@ -1727,11 +1735,11 @@ class RangerFlowParser {
           use_dce = true
           cl.is_used_by_main = true
           for cl.static_methods variant@(lives):RangerAppFunctionDesc i {
-            add_dce_fn( variant )
+            this.markCalledFromMain( variant ctx)
           }
           item.method_variants.forEach({
             item.variants.forEach({
-              add_dce_fn(item)
+              this.markCalledFromMain(item ctx)
             })
           })          
         }
@@ -2211,7 +2219,14 @@ class RangerFlowParser {
             def fnArg:RangerAppParamDesc (at vFnDef.params i)
             def callArgP:RangerAppParamDesc arg.paramDesc
             if (!null? callArgP) {
-              callArgP.moveRefTo(node fnArg ctx)
+              ; a descriptor passed to its own parameter slot is the same
+              ; object on both sides, and moving a reference to itself says
+              ; nothing. Rust cannot read it while holding it for the write.
+              def callArgD:RangerAppParamDesc (unwrap arg.paramDesc)
+              def sameSlot:boolean (fnArg == callArgD)
+              if (sameSlot == false) {
+                callArgP.moveRefTo(node fnArg ctx)
+              }
             }
           }
         }
@@ -2950,7 +2965,14 @@ class RangerFlowParser {
   }
 
   fn EnterMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    this.EnterFn(node ctx wr {
+    def parts:RangerFnParts (this.EnterFnParts(node ctx wr))
+    if (parts.ok == false) {
+      return
+    }
+    def nameNode:CodeNode (unwrap parts.nameNode)
+    def fnBody:CodeNode (unwrap parts.fnBody)
+    def desc:RangerAppClassDesc (unwrap parts.desc)
+    try {
       def m@(optional):RangerAppFunctionDesc
       if (null? node.fnDesc) {
       } {
@@ -2966,17 +2988,28 @@ class RangerFlowParser {
       def method:RangerAppFunctionDesc (unwrap m)
       def subCtx:RangerAppWriterContext (unwrap method.fnCtx)
       this.walkFunctionBody( method fnBody ctx subCtx wr)      
-    })
+    } {
+      ctx.addError( node ('Error parsing function ' + (error_msg)))
+    }
   }
   fn EnterStaticMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    this.EnterFn(node ctx wr {
+    def parts:RangerFnParts (this.EnterFnParts(node ctx wr))
+    if (parts.ok == false) {
+      return
+    }
+    def nameNode:CodeNode (unwrap parts.nameNode)
+    def fnBody:CodeNode (unwrap parts.fnBody)
+    def desc:RangerAppClassDesc (unwrap parts.desc)
+    try {
       def m@(lives) (unwrap (desc.findStaticMethod(nameNode.vref)))
       def subCtx (ctx.fork())
       m.fnCtx = subCtx
       subCtx.in_static_method = true
       this.walkFunctionBody( m fnBody ctx subCtx wr)
       subCtx.in_static_method = false
-    })
+    } {
+      ctx.addError( node ('Error parsing function ' + (error_msg)))
+    }
   }
 
   ; (=> _ * 10)
@@ -3918,10 +3951,10 @@ class RangerFlowParser {
       arg.eval_type = arg.value_type
       arg.eval_type_name = arg.type_name 
       if (arg.hasFlag("strong")) {
-        p2.changeStrength(1 1 (unwrap p2.nameNode))
+        p2.changeStrengthSelf(1 1)
       } {
         arg.setFlag("lives")
-        p2.changeStrength(0 1 (unwrap p2.nameNode))
+        p2.changeStrengthSelf(0 1)
       }           
       ; subCtx.hadValidType(p2.nameNode)
       subCtx.defineVariable(p2.name p2)
@@ -6672,10 +6705,10 @@ class RangerFlowParser {
       arg.eval_type = arg.value_type
       arg.eval_type_name = arg.type_name
       if (arg.hasFlag("strong")) {
-        p.changeStrength(1 1 (unwrap p.nameNode))
+        p.changeStrengthSelf(1 1)
       } {
         arg.setFlag("lives")
-        p.changeStrength(0 1 (unwrap p.nameNode))
+        p.changeStrengthSelf(0 1)
       }               
   }
 
@@ -6771,10 +6804,10 @@ class RangerFlowParser {
       arg.eval_type = arg.value_type
       arg.eval_type_name = arg.type_name 
       if (arg.hasFlag("strong")) {
-        p2.changeStrength(1 1 (unwrap p2.nameNode))
+        p2.changeStrengthSelf(1 1)
       } {
         arg.setFlag("lives")
-        p2.changeStrength(0 1 (unwrap p2.nameNode))
+        p2.changeStrengthSelf(0 1)
       }           
       ; subCtx.hadValidType(p2.nameNode)
       subCtx.defineVariable(p2.name p2)
@@ -7255,9 +7288,9 @@ class RangerFlowParser {
       node.paramDesc = p
 
       if (vDef.hasFlag("weak")) {
-          p.changeStrength(0 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(0 2)
       } {
-          p.changeStrength(2 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(2 2)
       }    
 
       if ((size node.children) > 2) {
