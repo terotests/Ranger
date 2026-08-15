@@ -56,6 +56,13 @@ const PAGES = [
     shows: ["px % em rem", "pt pc in mm cm"],
   },
   {
+    id: "vector",
+    title: "Vector paths",
+    blurb:
+      "One path parser, one viewBox transform, three targets: real vector operators in the PDF, an inline <svg> in the HTML, and the same anti-aliased scanline fill that paints this page's glyphs in the PNG.",
+    shows: ["viewBox scaling", "fill-rule holes", "cubic + quadratic", "smooth S/T", "elliptical arcs"],
+  },
+  {
     id: "flex",
     title: "Flex",
     blurb:

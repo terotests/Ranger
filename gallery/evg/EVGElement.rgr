@@ -233,6 +233,10 @@ class EVGElement {
     def fillColor:EVGColor
     def strokeColor:EVGColor
     def strokeWidth:double 0.0
+    ; "nonzero" (the SVG default) or "evenodd". They differ where a shape
+    ; overlaps or nests inside itself, which is exactly what decides whether the
+    ; middle of a ring is a hole or is filled.
+    def fillRule:string "nonzero"
     
     ; Clip path (for any element)
     def clipPath:string ""
@@ -1309,6 +1313,14 @@ class EVGElement {
             def val@(optional):double (to_double value)
             if val {
                 strokeWidth = (unwrap val)
+            }
+            return
+        }
+        if ((name == "fill-rule") || (name == "fillRule")) {
+            if (value == "evenodd") {
+                fillRule = "evenodd"
+            } {
+                fillRule = "nonzero"
             }
             return
         }

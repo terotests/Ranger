@@ -101,6 +101,15 @@
 .seqRow  { flex-direction: row; width: 100%; }
 .seqText { flex: 1; }
 
+/* ---- vector: geometry in the page, size and colour here ---------------- */
+/* `d` and `viewBox` live in the TSX because they are the shape itself. Every
+ * other property of these paths is a theme decision, including how big they
+ * are — a viewBox means the same drawing scales to any box without changing. */
+.vecRow  { align-items: center; }
+.icon    { }
+.shape   { }
+.evenodd { fill-rule: evenodd; }
+
 /* ==== theme: editorial — warm paper, serif display ====================== */
 
 .theme-editorial .page {
@@ -137,6 +146,13 @@
   line-height: 1.4;
   margin-top: 14px;
 }
+.theme-editorial .vecRow { gap: 22px; margin-top: 6px; }
+.theme-editorial .icon   { stroke: #b08d57; stroke-width: 2.5; fill: none; }
+.theme-editorial .iconSm { width: 28px;  height: 28px; }
+.theme-editorial .iconMd { width: 52px;  height: 52px; }
+.theme-editorial .iconLg { width: 84px;  height: 84px; }
+.theme-editorial .shape  { width: 76px; height: 76px; fill: #3b2f2a; }
+
 .theme-editorial .spread { gap: 16px; margin-top: 24px; }
 .theme-editorial .cell   { border-radius: 10px; }
 .theme-editorial .deck   { gap: 16px; margin-top: 20px; }
@@ -222,6 +238,13 @@
   margin-top: 14px;
 }
 .theme-studio .spread { gap: 10px; margin-top: 20px; }
+.theme-studio .vecRow { gap: 18px; margin-top: 6px; }
+.theme-studio .icon   { stroke: #14e0a0; stroke-width: 3; fill: none; }
+.theme-studio .iconSm { width: 30px;  height: 30px; }
+.theme-studio .iconMd { width: 56px;  height: 56px; }
+.theme-studio .iconLg { width: 92px;  height: 92px; }
+.theme-studio .shape  { width: 80px; height: 80px; fill: #e8e8ea; }
+
 .theme-studio .cell   { border-radius: 2px; }
 .theme-studio .deck   { gap: 10px; margin-top: 18px; }
 .theme-studio .shot   { border-radius: 2px; }
