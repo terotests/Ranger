@@ -237,6 +237,37 @@ class RangerRustClassWriter {
   ; using it — `if cb(it, i) { res.push(it.clone()) }` is what `filter`
   ; compiles to. Every non-scalar argument goes in as a clone; for an Rc that
   ; is a refcount bump, and the callback owns what it was given either way.
+  ; Is this value a REFERENCE to a handle rather than a handle? `this` in a
+  ; method that carries the hidden argument is written `__self_rc`, which is
+  ; `&Rc<RefCell<T>>`, and a proven-borrowed parameter is the same shape.
+  ; Either one flowing into an owned position takes a clone.
+  fn rustValueIsBorrowedHandle:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    def bv:CodeNode (this.rustUnwrapParens(node))
+    if (bv.vref == "this") {
+      def bvCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      def bvM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+      if ((!null? bvCls) && (!null? bvM)) {
+        def bvC:RangerAppClassDesc (unwrap bvCls)
+        def bvF:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap bvM)))
+        if (this.rustClassIsShared(bvC.name ctx)) {
+          return bvF.rust_needs_self_rc
+        }
+      }
+      return false
+    }
+    if (bv.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((array_length bv.ns) > 1) {
+      return false
+    }
+    if (bv.hasParamDesc == false) {
+      return false
+    }
+    def bvP:RangerAppParamDesc bv.paramDesc
+    return ((bvP.rust_borrow_type == 1) && bvP.rust_needs_rc_wrap)
+  }
+
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fName:CodeNode (itemAt node.children 0)
     def args:CodeNode (itemAt node.children 1)
@@ -248,12 +279,20 @@ class RangerRustClassWriter {
         wr.out(", " false)
       }
       this.WalkNode(arg ctx wr)
+      def lcCloned:boolean false
       if (arg.expression == false) {
         if arg.hasParamDesc {
           def ap:RangerAppParamDesc (unwrap arg.paramDesc)
           if ((this.rustFieldIsCopyScalar(ap ctx)) == false) {
             wr.out(".clone()" false)
+            lcCloned = true
           }
+        }
+      }
+      ; a lambda call MOVES its arguments, and `this` has no desc to ask
+      if (lcCloned == false) {
+        if (this.rustValueIsBorrowedHandle(arg ctx)) {
+          wr.out(".clone()" false)
         }
       }
     }
@@ -339,7 +378,22 @@ class RangerRustClassWriter {
     if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
     } {
       wr.out(" -> " false)
-      this.writeTypeDef(rv ctx wr)
+      ; …and the RETURN of a shared class is the handle too. Without this a
+      ; `map` callback that hands back a CodeNode was declared to return the
+      ; bare struct while every body returned the Rc.
+      def lrShared:boolean false
+      if ((((strlen rv.type_name) > 0) && ((strlen rv.array_type) == 0)) && ((strlen rv.key_type) == 0)) {
+        lrShared = (this.rustClassIsShared(rv.type_name ctx))
+      }
+      if lrShared {
+        if (rv.hasFlag("optional")) {
+          wr.out((("Option<" + (this.rustSharedTypeString(rv.type_name ctx))) + ">") false)
+        } {
+          wr.out((this.rustSharedTypeString(rv.type_name ctx)) false)
+        }
+      } {
+        this.writeTypeDef(rv ctx wr)
+      }
     }
     if rust_writing_field_type {
       wr.out(">" false)
@@ -5399,6 +5453,10 @@ class RangerRustClassWriter {
         wr.out(", " false)
       }
       this.WalkNode( item ctx wr )
+      ; a literal element is OWNED by the Vec, so a borrowed handle clones
+      if (this.rustValueIsBorrowedHandle(item ctx)) {
+        wr.out(".clone()" false)
+      }
     })
     wr.out("]" false)
   }
@@ -8508,6 +8566,11 @@ class RangerRustClassWriter {
         }
         if (push_rc_state == 2) {
           this.WalkNode(right ctx wr)
+          ; …unless it is only a REFERENCE to a handle — the element the Vec
+          ; keeps has to be an owned Rc
+          if (this.rustValueIsBorrowedHandle(right ctx)) {
+            wr.out(".clone()" false)
+          }
         }
         ctx.unsetInExpr()
         wr.out(");" true)

@@ -23811,6 +23811,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return false;
             };
+            rustValueIsBorrowedHandle (node, ctx) {
+              const bv = this.rustUnwrapParens(node);
+              if ( bv.vref == "this" ) {
+                const bvCls = ctx.getCurrentClass();
+                const bvM = ctx.getCurrentMethod();
+                if ( ((typeof(bvCls) !== "undefined" && bvCls != null ) ) && ((typeof(bvM) !== "undefined" && bvM != null ) ) ) {
+                  const bvC = bvCls;
+                  const bvF = this.rustEnclosingMethod((bvM));
+                  if ( this.rustClassIsShared(bvC.name, ctx) ) {
+                    return bvF.rust_needs_self_rc;
+                  }
+                }
+                return false;
+              }
+              if ( bv.value_type != 11 ) {
+                return false;
+              }
+              if ( (bv.ns.length) > 1 ) {
+                return false;
+              }
+              if ( bv.hasParamDesc == false ) {
+                return false;
+              }
+              const bvP = bv.paramDesc;
+              return (bvP.rust_borrow_type == 1) && bvP.rust_needs_rc_wrap;
+            };
             async CreateLambdaCall (node, ctx, wr) {
               const fName = node.children[0];
               const args = node.children[1];
@@ -23823,12 +23849,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out(", ", false);
                 }
                 await this.WalkNode(arg, ctx, wr);
+                let lcCloned = false;
                 if ( arg.expression == false ) {
                   if ( arg.hasParamDesc ) {
                     const ap = arg.paramDesc;
                     if ( this.rustFieldIsCopyScalar(ap, ctx) == false ) {
                       wr.out(".clone()", false);
+                      lcCloned = true;
                     }
+                  }
+                }
+                if ( lcCloned == false ) {
+                  if ( this.rustValueIsBorrowedHandle(arg, ctx) ) {
+                    wr.out(".clone()", false);
                   }
                 }
               };
@@ -23892,7 +23925,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
               } else {
                 wr.out(" -> ", false);
-                await this.writeTypeDef(rv, ctx, wr);
+                let lrShared = false;
+                if ( (((rv.type_name.length) > 0) && ((rv.array_type.length) == 0)) && ((rv.key_type.length) == 0) ) {
+                  lrShared = this.rustClassIsShared(rv.type_name, ctx);
+                }
+                if ( lrShared ) {
+                  if ( rv.hasFlag("optional") ) {
+                    wr.out(("Option<" + this.rustSharedTypeString(rv.type_name, ctx)) + ">", false);
+                  } else {
+                    wr.out(this.rustSharedTypeString(rv.type_name, ctx), false);
+                  }
+                } else {
+                  await this.writeTypeDef(rv, ctx, wr);
+                }
               }
               if ( this.rust_writing_field_type ) {
                 wr.out(">", false);
@@ -28025,6 +28070,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       wr.out(", ", false);
                     }
                     await this.WalkNode(item, ctx, wr);
+                    if ( this.rustValueIsBorrowedHandle(item, ctx) ) {
+                      wr.out(".clone()", false);
+                    }
                   }));
                   wr.out("]", false);
                 };
@@ -30644,6 +30692,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               if ( push_rc_state == 2 ) {
                                 await this.WalkNode(right_1, ctx, wr);
+                                if ( this.rustValueIsBorrowedHandle(right_1, ctx) ) {
+                                  wr.out(".clone()", false);
+                                }
                               }
                               ctx.unsetInExpr();
                               wr.out(");", true);
