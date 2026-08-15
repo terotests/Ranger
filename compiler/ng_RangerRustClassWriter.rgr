@@ -6211,11 +6211,8 @@ class RangerRustClassWriter {
     ; scope. A name that resolves to a variable has a desc; one that does
     ; not is the operator, and it keeps its wrapper so WalkNode expands it.
     if (node.expression && ((array_length node.children) == 1)) {
-      def onlyC:CodeNode (node.getFirst())
-      if (((onlyC.value_type == RangerNodeType.VRef) && (onlyC.expression == false)) && (onlyC.hasParamDesc == false)) {
-        push out node
-        return
-      }
+      push out node
+      return
     }
     push out cur
   }
