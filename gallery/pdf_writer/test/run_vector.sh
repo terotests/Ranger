@@ -2,11 +2,16 @@
 # ==============================================================================
 # pdf_writer/test/run_vector.sh — vector geometry means the same thing everywhere
 # ==============================================================================
-# PLAN_VECTOR_IR.md Stage 0. Two gates:
+# PLAN_VECTOR_IR.md Stages 0-2. Four gates:
 #
+#   path_parser     the SVG 1.1 §8.3 path grammar: every command letter,
+#                   implicit repetition, S/T reflection, arcs, and the spec's
+#                   own error-handling rule
 #   vector_viewbox  the viewBox transform against the SVG rule worked out by
 #                   hand, AND against Chromium's own implementation recorded in
 #                   fixtures/viewbox.snapshot
+#   vector_raster   contours and the shared scanline rasterizer: fill rules,
+#                   holes, and glyph rendering unchanged by the extraction
 #   renderer parity the PDF and HTML renderers actually USE that transform, on
 #                   the same document, end to end
 #
@@ -40,6 +45,21 @@ fi
 
 status=0
 
+echo "### pdf_writer/path_parser (SVG 1.1 §8.3 grammar)"
+if ! node bin/output.js -es6 gallery/pdf_writer/test/path_parser_test.rgr \
+      -d="$OUT" -o=path_parser_test.js >"$OUT/parser.log" 2>&1; then
+  echo "  COMPILE FAIL path_parser_test"
+  tail -25 "$OUT/parser.log"
+  exit 1
+fi
+
+pp_out="$(node "$OUT/path_parser_test.js" 2>&1)"
+echo "$pp_out" | grep -E "FAIL |passed="
+if ! echo "$pp_out" | grep -q "ALL PASS"; then
+  status=1
+fi
+
+echo
 echo "### pdf_writer/vector_viewbox (offline, spec + browser snapshot)"
 if ! node bin/output.js -es6 gallery/pdf_writer/test/vector_viewbox_test.rgr \
       -d="$OUT" -o=vector_viewbox_test.js >"$OUT/viewbox.log" 2>&1; then
