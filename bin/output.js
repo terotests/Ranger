@@ -23786,6 +23786,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out(("\"" + this.EncodeString(v, ctx, wr)) + "\"", false);
               return true;
             };
+            rustArgIsNameRead (nVal) {
+              let v = nVal;
+              while (v.expression && ((v.children.length) == 1)) {
+                v = v.getFirst();
+              };
+              if ( v.value_type == 11 ) {
+                return true;
+              }
+              if ( v.expression ) {
+                return false;
+              }
+              if ( (v.vref.length) > 0 ) {
+                return true;
+              }
+              return (v.ns.length) > 0;
+            };
             rustStrRefRead (node) {
               if ( this.rustStaticStrRead(node) ) {
                 return true;
@@ -27440,7 +27456,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 needs_clone = true;
                               }
                               if ( needs_clone ) {
-                                if ( nVal_1.value_type == 11 ) {
+                                if ( this.rustArgIsNameRead(nVal_1) ) {
                                   if ( this.rustStrRefRead(nVal_1) ) {
                                     wr.out(".to_string()", false);
                                   } else {
@@ -27571,7 +27587,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 needs_clone_1 = true;
                               }
                               if ( needs_clone_1 ) {
-                                if ( nVal_2.value_type == 11 ) {
+                                if ( this.rustArgIsNameRead(nVal_2) ) {
                                   if ( this.rustStrRefRead(nVal_2) ) {
                                     wr.out(".to_string()", false);
                                   } else {
@@ -27693,7 +27709,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 needs_clone_2 = true;
                               }
                               if ( needs_clone_2 ) {
-                                if ( nVal_3.value_type == 11 ) {
+                                if ( this.rustArgIsNameRead(nVal_3) ) {
                                   if ( this.rustStrRefRead(nVal_3) ) {
                                     wr.out(".to_string()", false);
                                   } else {
@@ -27978,7 +27994,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out(".clone()", false);
                               } else {
                                 if ( needs_clone_3 ) {
-                                  if ( nVal_4.value_type == 11 ) {
+                                  if ( this.rustArgIsNameRead(nVal_4) ) {
                                     if ( this.rustStrRefRead(nVal_4) ) {
                                       wr.out(".to_string()", false);
                                     } else {
@@ -28062,7 +28078,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           needs_clone = true;
                         }
                         if ( needs_clone ) {
-                          if ( n.value_type == 11 ) {
+                          if ( this.rustArgIsNameRead(n) ) {
                             if ( this.rustStrRefRead(n) ) {
                               wr.out(".to_string()", false);
                             } else {

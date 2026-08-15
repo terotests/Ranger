@@ -202,6 +202,27 @@ class RangerRustClassWriter {
     return true
   }
 
+  ; Is this argument a plain NAME read? A string-typed name carries
+  ; value_type String, not VRef, so a `nVal.value_type == VRef` test skipped
+  ; every string variable and left it moved (or left a &str where a String
+  ; was declared). A literal has no vref and stays out.
+  fn rustArgIsNameRead:boolean (nVal:CodeNode) {
+    def v:CodeNode nVal
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if (v.value_type == RangerNodeType.VRef) {
+      return true
+    }
+    if v.expression {
+      return false
+    }
+    if ((strlen v.vref) > 0) {
+      return true
+    }
+    return ((array_length v.ns) > 0)
+  }
+
   ; a read that yields a str REFERENCE rather than an owned String — a
   ; promoted static string, or a borrowed &str string parameter. An owned
   ; sink converts such a read with .to_string(); .clone() would only copy
@@ -4718,7 +4739,7 @@ class RangerRustClassWriter {
                   needs_clone = true
                 }
                 if needs_clone {
-                  if (nVal.value_type == RangerNodeType.VRef) {
+                  if (this.rustArgIsNameRead(nVal)) {
                     if (this.rustStrRefRead(nVal)) {
                       wr.out(".to_string()" false)
                     } {
@@ -4865,7 +4886,7 @@ class RangerRustClassWriter {
                   needs_clone = true
                 }
                 if needs_clone {
-                  if (nVal.value_type == RangerNodeType.VRef) {
+                  if (this.rustArgIsNameRead(nVal)) {
                     if (this.rustStrRefRead(nVal)) {
                       wr.out(".to_string()" false)
                     } {
@@ -4992,7 +5013,7 @@ class RangerRustClassWriter {
                   needs_clone = true
                 }
                 if needs_clone {
-                  if (nVal.value_type == RangerNodeType.VRef) {
+                  if (this.rustArgIsNameRead(nVal)) {
                     if (this.rustStrRefRead(nVal)) {
                       wr.out(".to_string()" false)
                     } {
@@ -5349,7 +5370,7 @@ class RangerRustClassWriter {
                 wr.out(".clone()" false)
               } {
                 if needs_clone {
-                  if (nVal.value_type == RangerNodeType.VRef) {
+                  if (this.rustArgIsNameRead(nVal)) {
                     if (this.rustStrRefRead(nVal)) {
                       wr.out(".to_string()" false)
                     } {
@@ -5442,7 +5463,7 @@ class RangerRustClassWriter {
             needs_clone = true
           }
           if needs_clone {
-            if (n.value_type == RangerNodeType.VRef) {
+            if (this.rustArgIsNameRead(n)) {
               if (this.rustStrRefRead(n)) {
                 wr.out(".to_string()" false)
               } {
