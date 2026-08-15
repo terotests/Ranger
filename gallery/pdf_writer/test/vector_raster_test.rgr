@@ -45,6 +45,7 @@ class VectorRasterTest {
         test.testDashParsing(t)
         test.testDashedStroke(t)
         test.testTransform(t)
+        test.testClipRect(t)
         t.summary()
     }
 
@@ -377,6 +378,43 @@ class VectorRasterTest {
         push horiz 40.0
         r3.addRing(horiz)
         t.ok("edges that were horizontal survive the rotation" ((r3.edgeCount()) >= 2))
+    }
+
+    fn testClipRect:void (t:RgTest) {
+        ; A shape wider than its plot area has to stop at the edge rather than
+        ; running out into the margin. The raster target had no clipping at
+        ; all before this.
+        def buf:RasterBuffer (this.makeBuffer(60 60))
+        def r (new VectorRasterizer())
+        r.setClipRect(10 10 30 30)
+        def wide:[double]
+        push wide 0.0
+        push wide 15.0
+        push wide 60.0
+        push wide 15.0
+        push wide 60.0
+        push wide 25.0
+        push wide 0.0
+        push wide 25.0
+        r.addRing(wide)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        t.eqInt("inside the clip is drawn" (this.alphaAt(buf 20 20)) 255)
+        t.eqInt("past the right edge is not" (this.alphaAt(buf 40 20)) 0)
+        t.eqInt("before the left edge is not" (this.alphaAt(buf 5 20)) 0)
+        ; The clip is inclusive of its far edge, matching a box that owns its
+        ; last pixel.
+        t.eqInt("the far edge itself is inside" (this.alphaAt(buf 30 20)) 255)
+
+        ; Clearing restores the full extent.
+        def full:RasterBuffer (this.makeBuffer(60 60))
+        def r2 (new VectorRasterizer())
+        r2.setClipRect(10 10 30 30)
+        r2.clearClip()
+        r2.addRing(wide)
+        r2.fillAA(full 0 0 0 255 rule)
+        t.eqInt("a cleared clip draws the whole shape" (this.alphaAt(full 45 20)) 255)
     }
 
     ; --------------------------------------------------------------------------

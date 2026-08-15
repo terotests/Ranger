@@ -39,6 +39,16 @@ class EVGPNGTool {
     ; The raster target had no stylesheet path at all, so the same TSX rendered
     ; with -css produced a themed PDF and an unthemed image.
     def styles:EVGStyleLoader
+    ; The clip in force for the element being drawn, in device pixels.
+    ; `overflow: hidden` on an ancestor sets it; a chart's plot area is the
+    ; reason it exists. It applies to what goes through the shared rasterizer,
+    ; which is paths and text.
+    def clipActive:boolean false
+    def clipX0:int 0
+    def clipY0:int 0
+    def clipX1:int 0
+    def clipY1:int 0
+
     def imageCache:[ImageBuffer]
     def imageCacheKeys:[string]
     
@@ -422,7 +432,7 @@ class EVGPNGTool {
                 def bgR:int (el.backgroundColor.red())
                 def bgG:int (el.backgroundColor.green())
                 def bgB:int (el.backgroundColor.blue())
-                def bgA:int (to_int ((el.backgroundColor.alpha()) * 255.0))
+                def bgA:int (this.alphaOf(el (el.backgroundColor.alpha())))
                 
                 print ("    fillRect color: " + (to_string bgR) + "," + (to_string bgG) + "," + (to_string bgB) + "," + (to_string bgA))
                 
@@ -506,10 +516,44 @@ class EVGPNGTool {
             this.renderText(el x y w h padLeft padTop padRight)
         }
         
+        ; `overflow: hidden` clips the children to this element's box — which
+        ; is how a chart keeps a series inside its plot area. The previous clip
+        ; is saved and restored around the subtree, and the two intersect, so a
+        ; nested clip narrows rather than widens.
+        def savedActive:boolean clipActive
+        def savedX0:int clipX0
+        def savedY0:int clipY0
+        def savedX1:int clipX1
+        def savedY1:int clipY1
+
+        if (el.overflow == "hidden") {
+            def nx0:int (to_int x)
+            def ny0:int (to_int y)
+            def nx1:int (to_int (x + w))
+            def ny1:int (to_int (y + h))
+            if clipActive {
+                if (nx0 < clipX0) { nx0 = clipX0 }
+                if (ny0 < clipY0) { ny0 = clipY0 }
+                if (nx1 > clipX1) { nx1 = clipX1 }
+                if (ny1 > clipY1) { ny1 = clipY1 }
+            }
+            clipX0 = nx0
+            clipY0 = ny0
+            clipX1 = nx1
+            clipY1 = ny1
+            clipActive = true
+        }
+
         ; Render children - they have their own absolute calculated positions
         for el.children child:EVGElement i {
             this.renderElement(child 0.0 0.0)
         }
+
+        clipActive = savedActive
+        clipX0 = savedX0
+        clipY0 = savedY0
+        clipX1 = savedX1
+        clipY1 = savedY1
     }
     
     ; --------------------------------------------------------------------------
@@ -526,6 +570,34 @@ class EVGPNGTool {
     ; still come from RasterPrimitives and are NOT rotated; rotating those
     ; means routing them through VectorShapes as paths, which is the follow-up
     ; recorded in the plan.
+    ; Hand the current clip to a rasterizer, if there is one.
+    ; The element's own alpha, scaled by its `opacity`.
+    ;
+    ; This is per-element opacity, not group opacity: each thing the element
+    ; paints is drawn at this alpha, rather than the subtree being composited
+    ; as one layer and faded afterwards. They differ where a shape overlaps
+    ; itself or its own children, and the layer version needs an offscreen
+    ; buffer per group. The per-element form is what an area fill under a line
+    ; series needs, and it is what HTML's CSS opacity already does for the
+    ; simple cases the gallery uses.
+    fn alphaOf:int (el:EVGElement base:double) {
+        def a:double (base * el.opacity)
+        def v:int (to_int ((a * 255.0) + 0.5))
+        if (v > 255) {
+            v = 255
+        }
+        if (v < 0) {
+            v = 0
+        }
+        return v
+    }
+
+    fn applyClip:void (r:VectorRasterizer) {
+        if clipActive {
+            r.setClipRect(clipX0 clipY0 clipX1 clipY1)
+        }
+    }
+
     fn rotationMatrix:Matrix2D (el:EVGElement x:double y:double w:double h:double) {
         if (el.rotate == 0.0) {
             return (Matrix2D.identity())
@@ -598,6 +670,7 @@ class EVGPNGTool {
             ; Every ring in ONE fill: that is what makes a counter a hole
             ; instead of a second solid blob.
             def raster (new VectorRasterizer())
+            this.applyClip(raster)
             def k:int 0
             while (k < (array_length rings)) {
                 def ring:PathRing (itemAt rings k)
@@ -610,10 +683,7 @@ class EVGPNGTool {
                 rule = (VectorRasterizer.evenOdd())
             }
 
-            def alpha:int (to_int (fillColor.a * 255.0))
-            if (alpha > 255) {
-                alpha = 255
-            }
+            def alpha:int (this.alphaOf(el fillColor.a))
             raster.fillAA(buf (fillColor.red()) (fillColor.green()) (fillColor.blue()) alpha rule)
         }
 
@@ -633,6 +703,7 @@ class EVGPNGTool {
                 def deviceWidth:double (el.strokeWidth * scale)
 
                 def stroker (new VectorRasterizer())
+                this.applyClip(stroker)
                 def closed:boolean (this.pathIsClosed(parser))
                 ; Dash lengths are in user units like the stroke width, so they
                 ; scale with the viewBox transform too — a dashed gridline keeps
@@ -651,10 +722,7 @@ class EVGPNGTool {
                     sk = (sk + 1)
                 }
 
-                def sAlpha:int (to_int (el.strokeColor.a * 255.0))
-                if (sAlpha > 255) {
-                    sAlpha = 255
-                }
+                def sAlpha:int (this.alphaOf(el el.strokeColor.a))
                 ; Always non-zero: the quads and joint discs overlap, and
                 ; even-odd would punch holes where they do.
                 def sRule:int (VectorRasterizer.nonZero())
@@ -872,6 +940,10 @@ class EVGPNGTool {
         ; A rotated label is the reason the rasterizer takes a transform at
         ; all: the glyph contours go through the same addEdge a path does, so
         ; the label turns by exactly the code that turns a shape.
+        if clipActive {
+            textRenderer.setClipRect(clipX0 clipY0 clipX1 clipY1)
+        }
+
         def rotating:boolean ((el.rotate == 0.0) == false)
         if rotating {
             def rm:Matrix2D (this.rotationMatrix(el x y w h))
@@ -887,7 +959,7 @@ class EVGPNGTool {
             textR = (el.color.red())
             textG = (el.color.green())
             textB = (el.color.blue())
-            textA = (to_int ((el.color.alpha()) * 255.0))
+            textA = (this.alphaOf(el (el.color.alpha())))
         }
         
         ; Get font size
@@ -949,6 +1021,9 @@ class EVGPNGTool {
         ; after it.
         if rotating {
             textRenderer.clearTransform()
+        }
+        if clipActive {
+            textRenderer.clearClip()
         }
     }
 

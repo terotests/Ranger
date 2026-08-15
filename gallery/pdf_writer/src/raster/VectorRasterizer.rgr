@@ -92,6 +92,13 @@ class VectorRasterizer {
     def edges:[VectorEdge]
     def compositor:RasterCompositor (new RasterCompositor())
 
+    ; Optional rectangular clip, in device pixels. See setClipRect.
+    def hasClip:boolean false
+    def clipX0:int 0
+    def clipY0:int 0
+    def clipX1:int 0
+    def clipY1:int 0
+
     ; Optional affine transform, applied as points arrive. See setTransform.
     def hasTransform:boolean false
     def ta:double 1.0
@@ -151,6 +158,25 @@ class VectorRasterizer {
 
     fn clearTransform:void () {
         hasTransform = false
+    }
+
+    ; Confine the fill to a rectangle, inclusive of its far edge.
+    ;
+    ; A chart's series has to stop at the edge of the plot area rather than
+    ; running out into the margin, and the raster target had no clipping at
+    ; all. Rectangular is what `overflow: hidden` and a plot area need; an
+    ; arbitrary clip path would mean a second coverage test per sample, which
+    ; is a different and much more expensive thing.
+    fn setClipRect:void (x0:int y0:int x1:int y1:int) {
+        clipX0 = x0
+        clipY0 = y0
+        clipX1 = x1
+        clipY1 = y1
+        hasClip = true
+    }
+
+    fn clearClip:void () {
+        hasClip = false
     }
 
     fn addEdge:void (rawX1:double rawY1:double rawX2:double rawY2:double) {
@@ -542,6 +568,23 @@ class VectorRasterizer {
         }
         if (endX >= buf.width) {
             endX = buf.width - 1
+        }
+
+        ; The clip narrows the scanned range, so clipped-away pixels cost
+        ; nothing rather than being sampled and thrown away.
+        if hasClip {
+            if (startX < clipX0) {
+                startX = clipX0
+            }
+            if (endX > clipX1) {
+                endX = clipX1
+            }
+            if (startY < clipY0) {
+                startY = clipY0
+            }
+            if (endY > clipY1) {
+                endY = clipY1
+            }
         }
 
         def subStep:double 0.25

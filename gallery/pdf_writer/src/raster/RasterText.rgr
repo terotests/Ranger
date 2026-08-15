@@ -483,6 +483,16 @@ class RasterText {
         rasterizer.clearTransform()
     }
 
+    ; Confine glyphs to a rectangle — a label that overflows its plot area is
+    ; cut at the same edge a series is.
+    fn setClipRect:void (x0:int y0:int x1:int y1:int) {
+        rasterizer.setClipRect(x0 y0 x1 y1)
+    }
+
+    fn clearClip:void () {
+        rasterizer.clearClip()
+    }
+
     fn renderGlyph:void (buf:RasterBuffer outline:GlyphOutline x:double y:double r:int g:int b:int a:int) {
         ; Every contour of the glyph goes into ONE fill: whether a pixel is
         ; inside is a question about the whole outline, which is what makes the
