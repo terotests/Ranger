@@ -23897,6 +23897,62 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out(">", false);
               }
             };
+            rustArgValueTypeName (nVal) {
+              if ( nVal.value_type == 11 ) {
+                if ( nVal.hasParamDesc ) {
+                  const vP = nVal.paramDesc;
+                  const vNN = vP.nameNode;
+                  if ( (typeof(vNN) !== "undefined" && vNN != null )  ) {
+                    const vN = vNN;
+                    if ( ((vN.array_type.length) > 0) || ((vN.key_type.length) > 0) ) {
+                      return "";
+                    }
+                    if ( (vN.type_name.length) > 0 ) {
+                      return vN.type_name;
+                    }
+                  }
+                }
+              }
+              if ( ((nVal.array_type.length) > 0) || ((nVal.key_type.length) > 0) ) {
+                return "";
+              }
+              if ( (nVal.eval_type_name.length) > 0 ) {
+                return nVal.eval_type_name;
+              }
+              if ( nVal.expression ) {
+                if ( (nVal.children.length) >= 3 ) {
+                  const evFirst = nVal.getFirst();
+                  if ( (evFirst.vref == "itemAt") || (evFirst.vref == "get") ) {
+                    return this.rustNodeCollectionElemType(nVal.getSecond());
+                  }
+                }
+              }
+              return "";
+            };
+            rustNodeCollectionElemType (coll) {
+              const nspLen = coll.nsp.length;
+              if ( nspLen > 0 ) {
+                const lastD = coll.nsp[(nspLen - 1)];
+                const lNN = lastD.nameNode;
+                if ( (typeof(lNN) !== "undefined" && lNN != null )  ) {
+                  const lN = lNN;
+                  if ( (lN.array_type.length) > 0 ) {
+                    return lN.array_type;
+                  }
+                }
+              }
+              if ( coll.hasParamDesc ) {
+                const cp = coll.paramDesc;
+                const cNN = cp.nameNode;
+                if ( (typeof(cNN) !== "undefined" && cNN != null )  ) {
+                  const cN = cNN;
+                  if ( (cN.array_type.length) > 0 ) {
+                    return cN.array_type;
+                  }
+                }
+              }
+              return "";
+            };
             rustTypeIsOwnHandle (type_name, ctx) {
               const tcOpt = ctx.findClass(type_name);
               if ( typeof(tcOpt) === "undefined" ) {
@@ -25329,6 +25385,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   return res;
                 };
                 rustInitRcState (value, ctx) {
+                  if ( value.expression && (value.hasNewOper == false) ) {
+                    if ( this.rustTypeIsOwnHandle(this.rustArgValueTypeName(value), ctx) ) {
+                      return 2;
+                    }
+                  }
                   if ( value.expression == false ) {
                     if ( value.vref == "this" ) {
                       const trCls = ctx.getCurrentClass();
@@ -26081,6 +26142,38 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                       };
                       this.buildInheritedMutationGraph(pc, ctx, directMutations, callGraph);
+                    }
+                  };
+                };
+                markTraitIfaceMutations (cl, ctx, directMutations) {
+                  if ( cl.is_extended_by_children ) {
+                    for ( let i = 0; i < cl.defined_variants.length; i++) {
+                      var fnVar = cl.defined_variants[i];
+                      const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
+                      for ( let vi = 0; vi < mVs.variants.length; vi++) {
+                        var variant = mVs.variants[vi];
+                        directMutations[variant.name] = true;
+                      };
+                    };
+                    return;
+                  }
+                  for ( let epi = 0; epi < cl.extends_classes.length; epi++) {
+                    var extParentName = cl.extends_classes[epi];
+                    const extParentClass = ctx.findClass(extParentName);
+                    if ( (typeof(extParentClass) !== "undefined" && extParentClass != null )  ) {
+                      const epc = extParentClass;
+                      if ( epc.is_extended_by_children ) {
+                        for ( let i_1 = 0; i_1 < cl.defined_variants.length; i_1++) {
+                          var fnVar_1 = cl.defined_variants[i_1];
+                          if ( ( typeof(epc.defined_methods[fnVar_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(epc.defined_methods, fnVar_1) ) ) {
+                            const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
+                            for ( let vi_1 = 0; vi_1 < mVs_1.variants.length; vi_1++) {
+                              var variant_1 = mVs_1.variants[vi_1];
+                              directMutations[variant_1.name] = true;
+                            };
+                          }
+                        };
+                      }
                     }
                   };
                 };
@@ -27608,6 +27701,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                       }
+                      const valTypeForTrait = this.rustArgValueTypeName(nVal_4);
+                      if ( value_is_already_boxed_trait == false ) {
+                        if ( nVal_4.hasNewOper == false ) {
+                          if ( this.rustTypeIsOwnHandle(valTypeForTrait, ctx) ) {
+                            value_is_already_boxed_trait = true;
+                          }
+                        }
+                      }
+                      let value_is_shared_subclass = false;
+                      if ( arg_is_trait_type ) {
+                        if ( value_is_already_boxed_trait == false ) {
+                          if ( nVal_4.hasNewOper == false ) {
+                            if ( this.rustClassIsShared(valTypeForTrait, ctx) ) {
+                              value_is_shared_subclass = true;
+                            }
+                          }
+                        }
+                      }
                       if ( needsMutRef_2 ) {
                         if ( this.rustArgIsAlreadyMutRef(nVal_4) == false ) {
                           wr.out("&mut ", false);
@@ -27696,9 +27807,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                 }
                               }
-                              if ( arg_is_trait_type ) {
+                              if ( arg_is_trait_type && (value_is_shared_subclass == false) ) {
                                 wr.out("Rc::new(RefCell::new(", false);
                               } else {
+                                if ( value_is_shared_subclass ) {
+                                  wr.out("(", false);
+                                }
                                 if ( needs_rc_wrap && (value_already_rc_wrapped == false) ) {
                                   wr.out("Rc::new(RefCell::new(", false);
                                 }
@@ -27738,11 +27852,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                 }
                               }
-                              if ( arg_is_trait_type ) {
+                              if ( arg_is_trait_type && (value_is_shared_subclass == false) ) {
                                 wr.out("))", false);
                               } else {
                                 if ( needs_rc_wrap && (value_already_rc_wrapped == false) ) {
                                   wr.out("))", false);
+                                }
+                                if ( value_is_shared_subclass ) {
+                                  const subTraitName = argNameN_3.type_name;
+                                  wr.out((".clone() as Rc<RefCell<dyn " + subTraitName) + "Trait>>)", false);
                                 }
                               }
                             }
@@ -28163,6 +28281,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             let mGraph = {};
                             this.buildClassMutationGraph(mcl, ctx, mDirect, mGraph);
                             this.buildInheritedMutationGraph(mcl, ctx, mDirect, mGraph);
+                            this.markTraitIfaceMutations(mcl, ctx, mDirect);
                             for ( let mmi = 0; mmi < mcl.methods.length; mmi++) {
                               var mm = mcl.methods[mmi];
                               const mmB = mm.fnBody;
@@ -28417,6 +28536,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       let callGraph = {};
                       this.buildClassMutationGraph(cl, ctx, directMutations, callGraph);
                       this.buildInheritedMutationGraph(cl, ctx, directMutations, callGraph);
+                      this.markTraitIfaceMutations(cl, ctx, directMutations);
                       for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
                         var variant = cl.static_methods[i_4];
                         const vnn = variant.nameNode;
@@ -28524,6 +28644,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             let parentCallGraph = {};
                             this.buildClassMutationGraph(pc, ctx, parentDirectMutations, parentCallGraph);
                             this.buildInheritedMutationGraph(pc, ctx, parentDirectMutations, parentCallGraph);
+                            this.markTraitIfaceMutations(pc, ctx, parentDirectMutations);
                             wr.out(("impl " + cl.name) + " {", true);
                             wr.indent(1);
                             wr.out("// Inherited methods from parent class " + parentName, true);
@@ -29664,6 +29785,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           const rhsThisInner = this.rustUnwrapParens(right);
                           if ( rhsThisInner.vref == "this" ) {
                             if ( this.rustInitRcState(right, ctx) == 2 ) {
+                              rhs_is_already_boxed_trait = true;
+                            }
+                          }
+                          if ( right.expression && (right.hasNewOper == false) ) {
+                            if ( this.rustTypeIsOwnHandle(this.rustArgValueTypeName(right), ctx) ) {
                               rhs_is_already_boxed_trait = true;
                             }
                           }

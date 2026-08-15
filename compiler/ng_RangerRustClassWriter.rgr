@@ -345,6 +345,73 @@ class RangerRustClassWriter {
   ; extended by children has no struct type a name can hold: it is written
   ; as `Rc<RefCell<dyn XTrait>>`, handle and all. Sites that build the shared
   ; form themselves must ask this first — see rustSharedTypeString.
+  ; The class an argument expression evaluates to, as far as the writer can
+  ; tell. A named value answers from its own declaration — the evaluated type
+  ; of a plain name is not always filled in — and everything else from the
+  ; expression's evaluated type. A collection-typed name yields no class
+  ; name: the annotation there describes the elements, not the value.
+  fn rustArgValueTypeName:string (nVal:CodeNode) {
+    if (nVal.value_type == RangerNodeType.VRef) {
+      if nVal.hasParamDesc {
+        def vP:RangerAppParamDesc nVal.paramDesc
+        def vNN@(optional):CodeNode vP.nameNode
+        if (!null? vNN) {
+          def vN:CodeNode (unwrap vNN)
+          if (((strlen vN.array_type) > 0) || ((strlen vN.key_type) > 0)) {
+            return ""
+          }
+          if ((strlen vN.type_name) > 0) {
+            return vN.type_name
+          }
+        }
+      }
+    }
+    if (((strlen nVal.array_type) > 0) || ((strlen nVal.key_type) > 0)) {
+      return ""
+    }
+    if ((strlen nVal.eval_type_name) > 0) {
+      return nVal.eval_type_name
+    }
+    ; An element read carries no evaluated type of its own, so the element's
+    ; class has to come from the collection it was read out of.
+    if nVal.expression {
+      if ((array_length nVal.children) >= 3) {
+        def evFirst:CodeNode (nVal.getFirst())
+        if ((evFirst.vref == "itemAt") || (evFirst.vref == "get")) {
+          return (this.rustNodeCollectionElemType((nVal.getSecond())))
+        }
+      }
+    }
+    return ""
+  }
+
+  ; The element class of a collection-typed name, read off the declaration
+  ; the path ends in — the last segment of `left.nsp`, or the whole name.
+  fn rustNodeCollectionElemType:string (coll:CodeNode) {
+    def nspLen:int (array_length coll.nsp)
+    if (nspLen > 0) {
+      def lastD:RangerAppParamDesc (itemAt coll.nsp (nspLen - 1))
+      def lNN@(optional):CodeNode lastD.nameNode
+      if (!null? lNN) {
+        def lN:CodeNode (unwrap lNN)
+        if ((strlen lN.array_type) > 0) {
+          return lN.array_type
+        }
+      }
+    }
+    if coll.hasParamDesc {
+      def cp:RangerAppParamDesc coll.paramDesc
+      def cNN@(optional):CodeNode cp.nameNode
+      if (!null? cNN) {
+        def cN:CodeNode (unwrap cNN)
+        if ((strlen cN.array_type) > 0) {
+          return cN.array_type
+        }
+      }
+    }
+    return ""
+  }
+
   fn rustTypeIsOwnHandle:boolean (type_name:string ctx:RangerAppWriterContext) {
     def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(type_name))
     if (null? tcOpt) {
@@ -2206,6 +2273,17 @@ class RangerRustClassWriter {
   ; wrapped name (share it by cloning the Rc), 2 = an expression that already
   ; produces an owned Rc (the upgrade of a weak field).
   fn rustInitRcState:int (value:CodeNode ctx:RangerAppWriterContext) {
+    ; A class that has subclasses is written as Rc<RefCell<dyn XTrait>>
+    ; everywhere — the handle IS the type — so any value of one is already
+    ; an owned Rc, whether it is a name, an element read or a call result.
+    ; Only `new` hands back the bare struct.
+    ; A NAME keeps its state-1 answer: it is a handle somebody else owns, and
+    ; sharing it means cloning the Rc.
+    if (value.expression && (value.hasNewOper == false)) {
+      if (this.rustTypeIsOwnHandle((this.rustArgValueTypeName(value)) ctx)) {
+        return 2
+      }
+    }
     if (value.expression == false) {
       ; `this` as a VALUE is written as __self_rc, which IS the owned Rc —
       ; wrapping it gave Rc<RefCell<Rc<RefCell<T>>>> at every site that
@@ -3084,6 +3162,40 @@ class RangerRustClassWriter {
           }
         }
         this.buildInheritedMutationGraph(pc ctx directMutations callGraph)
+      }
+    }
+  }
+
+  ; A method of the trait interface is emitted `&mut self` whatever its body
+  ; does — the same rule the signature writer applies — so anything that
+  ; calls one needs a mutable receiver too. buildInheritedMutationGraph
+  ; already says this for methods only the parent declares; a class that
+  ; OVERRIDES a trait method had its own (possibly non-mutating) answer
+  ; recorded first, and the override is emitted `&mut self` all the same.
+  fn markTraitIfaceMutations:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean]) {
+    if cl.is_extended_by_children {
+      for cl.defined_variants fnVar:string i {
+        def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          set directMutations variant.name true
+        }
+      }
+      return
+    }
+    for cl.extends_classes extParentName:string epi {
+      def extParentClass@(optional):RangerAppClassDesc (ctx.findClass(extParentName))
+      if (!null? extParentClass) {
+        def epc:RangerAppClassDesc (unwrap extParentClass)
+        if epc.is_extended_by_children {
+          for cl.defined_variants fnVar:string i {
+            if (has epc.defined_methods fnVar) {
+              def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+              for mVs.variants variant:RangerAppFunctionDesc vi {
+                set directMutations variant.name true
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -4877,6 +4989,32 @@ class RangerRustClassWriter {
           }
         }
         
+        ; …and so is any EXPRESSION of a trait-parent type: an `unwrap` of an
+        ; optional, an element read out of a [ParamDesc], the upgrade of a
+        ; weak field. All of them already evaluate to Rc<RefCell<dyn XTrait>>,
+        ; and a second cell around one is "the trait is not implemented for
+        ; Rc<RefCell<dyn XTrait>>" (E0277).
+        def valTypeForTrait:string (this.rustArgValueTypeName(nVal))
+        if (value_is_already_boxed_trait == false) {
+          if (nVal.hasNewOper == false) {
+            if (this.rustTypeIsOwnHandle(valTypeForTrait ctx)) {
+              value_is_already_boxed_trait = true
+            }
+          }
+        }
+        ; A SUBCLASS handle is an Rc too, just of the concrete struct: it
+        ; needs the unsizing coercion to the trait object, not a wrap.
+        def value_is_shared_subclass:boolean false
+        if arg_is_trait_type {
+          if (value_is_already_boxed_trait == false) {
+            if (nVal.hasNewOper == false) {
+              if (this.rustClassIsShared(valTypeForTrait ctx)) {
+                value_is_shared_subclass = true
+              }
+            }
+          }
+        }
+
         if needsMutRef {
           ; Parameter needs &mut - output &mut prefix
           if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
@@ -4996,9 +5134,12 @@ class RangerRustClassWriter {
                 }
               }
               
-              if arg_is_trait_type {
+              if (arg_is_trait_type && (value_is_shared_subclass == false)) {
                 wr.out("Rc::new(RefCell::new(" false)
               } {
+                if (value_is_shared_subclass) {
+                  wr.out("(" false)
+                }
                 if (needs_rc_wrap && (value_already_rc_wrapped == false)) {
                   ; Parameter is passed to a method that assigns to weak field
                   ; Wrap the argument in Rc::new(RefCell::new(...))
@@ -5046,11 +5187,16 @@ class RangerRustClassWriter {
                 }
               }
               ; Close the Rc::new(RefCell::new()) if we opened it
-              if arg_is_trait_type {
+              if (arg_is_trait_type && (value_is_shared_subclass == false)) {
                 wr.out("))" false)
               } {
                 if (needs_rc_wrap && (value_already_rc_wrapped == false)) {
                   wr.out("))" false)
+                }
+                ; …or finish the unsizing coercion of a subclass handle
+                if value_is_shared_subclass {
+                  def subTraitName:string argNameN.type_name
+                  wr.out(((".clone() as Rc<RefCell<dyn " + subTraitName) + "Trait>>)") false)
                 }
               }
             }
@@ -5521,6 +5667,7 @@ class RangerRustClassWriter {
           def mGraph:[string:MethodCallList]
           this.buildClassMutationGraph(mcl ctx mDirect mGraph)
           this.buildInheritedMutationGraph(mcl ctx mDirect mGraph)
+          this.markTraitIfaceMutations(mcl ctx mDirect)
           for mcl.methods mm:RangerAppFunctionDesc mmi {
             def mmB@(optional):CodeNode mm.fnBody
             if (!null? mmB) {
@@ -5813,6 +5960,7 @@ class RangerRustClassWriter {
     def callGraph:[string:MethodCallList]
     this.buildClassMutationGraph(cl ctx directMutations callGraph)
     this.buildInheritedMutationGraph(cl ctx directMutations callGraph)
+    this.markTraitIfaceMutations(cl ctx directMutations)
     
     for cl.static_methods variant:RangerAppFunctionDesc i {
       def vnn:CodeNode (unwrap variant.nameNode)
@@ -5939,6 +6087,7 @@ class RangerRustClassWriter {
           def parentCallGraph:[string:MethodCallList]
           this.buildClassMutationGraph(pc ctx parentDirectMutations parentCallGraph)
           this.buildInheritedMutationGraph(pc ctx parentDirectMutations parentCallGraph)
+          this.markTraitIfaceMutations(pc ctx parentDirectMutations)
           
           wr.out(("impl " + cl.name + " {") true)
           wr.indent(1)
@@ -7288,6 +7437,14 @@ class RangerRustClassWriter {
       def rhsThisInner:CodeNode (this.rustUnwrapParens(right))
       if (rhsThisInner.vref == "this") {
         if ((this.rustInitRcState(right ctx)) == 2) {
+          rhs_is_already_boxed_trait = true
+        }
+      }
+      ; …and so does any EXPRESSION of a trait-parent type — an element read
+      ; out of a [ParamDesc], an unwrap, an upgrade. The handle IS the type,
+      ; so a cell around one holds an Rc rather than the object.
+      if (right.expression && (right.hasNewOper == false)) {
+        if (this.rustTypeIsOwnHandle((this.rustArgValueTypeName(right)) ctx)) {
           rhs_is_already_boxed_trait = true
         }
       }
