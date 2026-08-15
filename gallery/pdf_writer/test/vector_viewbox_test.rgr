@@ -1,0 +1,365 @@
+; ==============================================================================
+; vector_viewbox_test.rgr — viewBox semantics, checked against SVG 1.1 itself
+; ==============================================================================
+; PLAN_VECTOR_IR.md §7.1. The viewBox transform is a pure function with a
+; published right answer: the spec states the scale, the meet/slice collapse and
+; the alignment offset as arithmetic. So it can be pinned exactly — no
+; rendering, no image comparison, no browser.
+;
+; That matters because §2.1 is the defect this whole plan starts from: PDF and
+; HTML disagreed about what vector coordinates mean. A shared implementation
+; only fixes that if the shared implementation is right, and "both renderers now
+; call the same function" is not evidence of that. These numbers are.
+;
+; Each case below is worked out from the spec rule, not read off the
+; implementation, so the suite fails if the implementation drifts toward
+; something merely self-consistent.
+;
+;   bash gallery/pdf_writer/test/run_vector.sh
+; ==============================================================================
+
+Import "../../evg/VectorViewBox.rgr"
+Import "../src/core/Utf8.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class VectorViewBoxTest {
+
+    sfn m@(main):void () {
+        def test (new VectorViewBoxTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/vector_viewbox"))
+        test.testParsing(t)
+        test.testMeetLetterboxes(t)
+        test.testSliceCovers(t)
+        test.testNoneStretches(t)
+        test.testAllNineAlignments(t)
+        test.testViewBoxOriginOffset(t)
+        test.testIconCase(t)
+        test.testMatrixAlgebra(t)
+        test.testAgainstBrowser(t)
+        t.summary()
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The second opinion: Chromium's own implementation of the same spec text
+    ; --------------------------------------------------------------------------
+    ; PLAN_VECTOR_IR.md §7.2. Everything above is derived from the spec by hand,
+    ; which is the primary backbone but shares one weakness with the code: if I
+    ; misread the spec, the test agrees with the bug. So the same transforms are
+    ; also recorded from a shipping SVG implementation — the very one the HTML
+    ; renderer delegates to — and checked here.
+    ;
+    ; Recorded once into a committed snapshot, so this runs with no browser:
+    ;   node gallery/pdf_writer/test/browser_viewbox_snapshot.js --write
+    fn testAgainstBrowser:void (t:RgTest) {
+        def raw:buffer (buffer_read_file "./gallery/pdf_writer/test/fixtures" "viewbox.snapshot")
+        def text:string (Utf8.decode((buffer_to_string raw)))
+        t.ok("the viewBox snapshot was read" ((strlen text) > 0))
+        if ((strlen text) == 0) {
+            print "  Run: node gallery/pdf_writer/test/browser_viewbox_snapshot.js --write"
+            return
+        }
+
+        def lines:[string] (strsplit text "\n")
+        def checked:int 0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (trim (itemAt lines i))
+            def skip:boolean false
+            if ((strlen line) == 0) {
+                skip = true
+            } {
+                if ((charAt line 0) == 35) {
+                    skip = true
+                }
+            }
+            if (skip == false) {
+                def parts:[string] (strsplit line "\t")
+                if ((array_length parts) < 10) {
+                    t.ok(("malformed snapshot line: " + line) false)
+                } {
+                    def got:Matrix2D (this.resolveRow(parts))
+                    def label:string ((itemAt parts 0) + " -> " + (itemAt parts 1) + "x" + (itemAt parts 2) + " " + (itemAt parts 3))
+                    this.compareToRow(t label got parts)
+                    checked = (checked + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        t.ok("the snapshot actually contained fixtures" (checked > 0))
+        print ("  " + (to_string checked) + " transform(s) checked against the browser snapshot")
+    }
+
+    ; A snapshot row -> what VectorViewBox makes of the same inputs.
+    fn resolveRow:Matrix2D (parts:[string]) {
+        def viewBox:string (itemAt parts 0)
+        def w:double (this.num((itemAt parts 1)))
+        def h:double (this.num((itemAt parts 2)))
+        def par:string (itemAt parts 3)
+        ; "-" records an omitted attribute, so the browser used ITS default.
+        ; Passing the empty string makes resolveString apply the spec default,
+        ; which is the thing under test.
+        if (par == "-") {
+            par = ""
+        }
+        return (VectorViewBox.resolveString(viewBox w h par))
+    }
+
+    fn compareToRow:void (t:RgTest label:string got:Matrix2D parts:[string]) {
+        t.near((label + " a") got.a (this.num((itemAt parts 4))))
+        t.near((label + " b") got.b (this.num((itemAt parts 5))))
+        t.near((label + " c") got.c (this.num((itemAt parts 6))))
+        t.near((label + " d") got.d (this.num((itemAt parts 7))))
+        t.near((label + " e") got.e (this.num((itemAt parts 8))))
+        t.near((label + " f") got.f (this.num((itemAt parts 9))))
+    }
+
+    fn num:double (s:string) {
+        def v@(optional):double (to_double s)
+        if v {
+            return (unwrap v)
+        }
+        return 0.0
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Parsing
+    ; --------------------------------------------------------------------------
+
+    fn testParsing:void (t:RgTest) {
+        def a:ViewBoxRect (VectorViewBox.parseViewBox("0 0 24 24"))
+        t.eqBool("plain viewBox parses" a.isSet true)
+        t.near("width" a.width 24.0)
+        t.near("height" a.height 24.0)
+
+        ; SVG allows commas as well as whitespace, in any mix.
+        def b:ViewBoxRect (VectorViewBox.parseViewBox("10,20 , 100,50"))
+        t.eqBool("comma separated viewBox parses" b.isSet true)
+        t.near("minX from comma form" b.minX 10.0)
+        t.near("minY from comma form" b.minY 20.0)
+        t.near("width from comma form" b.width 100.0)
+        t.near("height from comma form" b.height 50.0)
+
+        ; Negative and fractional origins are legal — only the size is
+        ; constrained.
+        def c:ViewBoxRect (VectorViewBox.parseViewBox("-5.5 -2.25 11 4.5"))
+        t.eqBool("negative origin is legal" c.isSet true)
+        t.near("negative minX" c.minX (0.0 - 5.5))
+        t.near("fractional minY" c.minY (0.0 - 2.25))
+
+        ; Everything below must NOT come back as a usable transform. A viewBox
+        ; that cannot be honoured has to be visible as such, because guessing
+        ; here is exactly how the two renderers drifted apart in the first place.
+        def tooFew:ViewBoxRect (VectorViewBox.parseViewBox("0 0 24"))
+        t.eqBool("three numbers is not a viewBox" tooFew.isSet false)
+
+        def tooMany:ViewBoxRect (VectorViewBox.parseViewBox("0 0 24 24 24"))
+        t.eqBool("five numbers is not a viewBox" tooMany.isSet false)
+
+        def empty:ViewBoxRect (VectorViewBox.parseViewBox(""))
+        t.eqBool("empty viewBox is unset" empty.isSet false)
+
+        def junk:ViewBoxRect (VectorViewBox.parseViewBox("0 0 wide tall"))
+        t.eqBool("non-numeric viewBox is unset" junk.isSet false)
+
+        ; SVG 1.1: zero disables rendering of the element, negative is an error.
+        def zero:ViewBoxRect (VectorViewBox.parseViewBox("0 0 0 24"))
+        t.eqBool("zero width viewBox is unset" zero.isSet false)
+
+        def neg:ViewBoxRect (VectorViewBox.parseViewBox("0 0 24 -24"))
+        t.eqBool("negative height viewBox is unset" neg.isSet false)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; meet — the whole viewBox fits, the surplus becomes letterboxing
+    ; --------------------------------------------------------------------------
+
+    fn testMeetLetterboxes:void (t:RgTest) {
+        ; viewBox 100x50 into a 200x200 viewport.
+        ;   scale-x = 200/100 = 2, scale-y = 200/50 = 4
+        ;   meet    → both axes take the SMALLER, 2
+        ;   slack-y = 200 - 50*2 = 100, halved by YMid → 50
+        def vb:ViewBoxRect (VectorViewBox.parseViewBox("0 0 100 50"))
+        def m:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMidYMid meet"))
+
+        t.near("meet takes the smaller scale on x" m.a 2.0)
+        t.near("meet takes the smaller scale on y" m.d 2.0)
+        t.near("no horizontal slack to distribute" m.e 0.0)
+        t.near("vertical slack is halved" m.f 50.0)
+
+        ; The corners are what a reader actually sees.
+        t.near("viewBox top-left x" (m.applyX(0.0 0.0)) 0.0)
+        t.near("viewBox top-left y" (m.applyY(0.0 0.0)) 50.0)
+        t.near("viewBox bottom-right x" (m.applyX(100.0 50.0)) 200.0)
+        t.near("viewBox bottom-right y" (m.applyY(100.0 50.0)) 150.0)
+
+        ; The aspect ratio is preserved — this is the property PDF used to break
+        ; by scaling the two axes independently.
+        t.near("uniform scale: x and y agree" m.a m.d)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; slice — the viewport is covered, the surplus overflows
+    ; --------------------------------------------------------------------------
+
+    fn testSliceCovers:void (t:RgTest) {
+        ; Same box, but now both axes take the LARGER scale, 4, and the
+        ; horizontal overflow (200 - 100*4 = -200) is centred, so half hangs
+        ; off each edge.
+        def vb:ViewBoxRect (VectorViewBox.parseViewBox("0 0 100 50"))
+        def m:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMidYMid slice"))
+
+        t.near("slice takes the larger scale" m.a 4.0)
+        t.near("slice is uniform too" m.d 4.0)
+        t.near("overflow is centred" m.e (0.0 - 100.0))
+        t.near("no vertical overflow" m.f 0.0)
+
+        ; The centre of the viewBox lands on the centre of the viewport, which
+        ; is the whole point of slice.
+        t.near("viewBox centre maps to viewport centre x" (m.applyX(50.0 25.0)) 100.0)
+        t.near("viewBox centre maps to viewport centre y" (m.applyY(50.0 25.0)) 100.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; none — the one case where the axes keep independent scales
+    ; --------------------------------------------------------------------------
+
+    fn testNoneStretches:void (t:RgTest) {
+        def vb:ViewBoxRect (VectorViewBox.parseViewBox("0 0 100 50"))
+        def m:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "none"))
+
+        t.near("none keeps the x scale" m.a 2.0)
+        t.near("none keeps the y scale" m.d 4.0)
+        t.near("nothing to align on x" m.e 0.0)
+        t.near("nothing to align on y" m.f 0.0)
+
+        ; `none` fills the viewport exactly — no letterbox, no overflow.
+        t.near("stretched to the full width" (m.applyX(100.0 50.0)) 200.0)
+        t.near("stretched to the full height" (m.applyY(100.0 50.0)) 200.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; All nine alignment keywords
+    ; --------------------------------------------------------------------------
+
+    fn testAllNineAlignments:void (t:RgTest) {
+        ; 100x50 into 200x200 under meet: scale 2, so the scaled viewBox is
+        ; 200x100. Horizontal slack 0, vertical slack 100. Only the Y keyword
+        ; can move anything, which makes each expectation unambiguous.
+        def vb:ViewBoxRect (VectorViewBox.parseViewBox("0 0 100 50"))
+
+        def minMin:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMinYMin meet"))
+        t.near("xMinYMin sits at the top" minMin.f 0.0)
+        def midMin:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMidYMin meet"))
+        t.near("xMidYMin sits at the top" midMin.f 0.0)
+        def maxMin:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMaxYMin meet"))
+        t.near("xMaxYMin sits at the top" maxMin.f 0.0)
+
+        def minMid:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMinYMid meet"))
+        t.near("xMinYMid centres vertically" minMid.f 50.0)
+        def maxMax:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMaxYMax meet"))
+        t.near("xMaxYMax sits at the bottom" maxMax.f 100.0)
+        def minMax:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMinYMax meet"))
+        t.near("xMinYMax sits at the bottom" minMax.f 100.0)
+
+        ; Now rotate the problem so the X keyword is the one with slack:
+        ; 50x100 into 200x200 → scale 2, scaled box 100x200, horizontal slack
+        ; 100, vertical slack 0.
+        def tall:ViewBoxRect (VectorViewBox.parseViewBox("0 0 50 100"))
+        def xMin:Matrix2D (VectorViewBox.resolve(tall 200.0 200.0 "xMinYMid meet"))
+        t.near("xMin sits at the left" xMin.e 0.0)
+        def xMid:Matrix2D (VectorViewBox.resolve(tall 200.0 200.0 "xMidYMid meet"))
+        t.near("xMid centres horizontally" xMid.e 50.0)
+        def xMax:Matrix2D (VectorViewBox.resolve(tall 200.0 200.0 "xMaxYMid meet"))
+        t.near("xMax sits at the right" xMax.e 100.0)
+
+        ; Omitted preserveAspectRatio means xMidYMid meet, per spec.
+        def dflt:Matrix2D (VectorViewBox.resolveString("0 0 50 100" 200.0 200.0 ""))
+        t.near("default align matches xMidYMid" dflt.e 50.0)
+        t.near("default mode matches meet" dflt.a 2.0)
+
+        ; `defer` is only meaningful on <image>; it must not disturb the rest.
+        def deferred:Matrix2D (VectorViewBox.resolve(tall 200.0 200.0 "defer xMaxYMid meet"))
+        t.near("defer is ignored, not misread" deferred.e 100.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A non-zero viewBox origin
+    ; --------------------------------------------------------------------------
+
+    fn testViewBoxOriginOffset:void (t:RgTest) {
+        ; This is the case bounding-box fitting could never express: the author
+        ; deliberately framed a region that does not start at (0, 0).
+        ;   scale 2 (meet), then translate by -minX*2 = -20 and -minY*2 = -40,
+        ;   then the vertical alignment slack of 50.
+        def vb:ViewBoxRect (VectorViewBox.parseViewBox("10 20 100 50"))
+        def m:Matrix2D (VectorViewBox.resolve(vb 200.0 200.0 "xMidYMid meet"))
+
+        t.near("origin shifts x" m.e (0.0 - 20.0))
+        t.near("origin shifts y, then aligns" m.f 10.0)
+
+        ; The framed region's corners land on the letterboxed viewport corners.
+        t.near("framed top-left x" (m.applyX(10.0 20.0)) 0.0)
+        t.near("framed top-left y" (m.applyY(10.0 20.0)) 50.0)
+        t.near("framed bottom-right x" (m.applyX(110.0 70.0)) 200.0)
+        t.near("framed bottom-right y" (m.applyY(110.0 70.0)) 150.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The icon case, which is what most of this exists for
+    ; --------------------------------------------------------------------------
+
+    fn testIconCase:void (t:RgTest) {
+        ; A 24x24 icon drawn into a 64px box. Bounding-box fitting used to scale
+        ; by the INK, so an icon whose art stops short of the viewBox edge got
+        ; silently enlarged and its designed padding disappeared. Here the
+        ; viewBox governs, so the padding survives.
+        def vb:ViewBoxRect (VectorViewBox.parseViewBox("0 0 24 24"))
+        def m:Matrix2D (VectorViewBox.resolve(vb 64.0 64.0 "xMidYMid meet"))
+
+        def expected:double (64.0 / 24.0)
+        t.near("icon scale is viewport/viewBox" m.a expected)
+        t.near("square icon needs no offset" m.e 0.0)
+        t.near("square icon needs no offset on y" m.f 0.0)
+        t.near("icon fills the box" (m.applyX(24.0 24.0)) 64.0)
+
+        ; A stroke drawn 2 units from the edge stays 2 units from the edge,
+        ; scaled — it does not get flattened against the boundary.
+        t.near("interior padding is preserved" (m.applyX(2.0 2.0)) (2.0 * expected))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Matrix composition, which the PDF path relies on
+    ; --------------------------------------------------------------------------
+
+    fn testMatrixAlgebra:void (t:RgTest) {
+        def id:Matrix2D (Matrix2D.identity())
+        t.eqBool("identity reports itself" (id.isIdentity()) true)
+        t.near("identity leaves x alone" (id.applyX(7.0 9.0)) 7.0)
+        t.near("identity leaves y alone" (id.applyY(7.0 9.0)) 9.0)
+
+        ; multiply applies the argument FIRST. Scaling by 2 and then translating
+        ; by 10 must not be the same as translating and then scaling — getting
+        ; this order wrong is how a path ends up offset by its own scale factor.
+        def s:Matrix2D (Matrix2D.scale(2.0 2.0))
+        def tr:Matrix2D (Matrix2D.translate(10.0 0.0))
+
+        def scaleThenTranslate:Matrix2D (tr.multiply(s))
+        t.near("scale first, then translate" (scaleThenTranslate.applyX(5.0 0.0)) 20.0)
+
+        def translateThenScale:Matrix2D (s.multiply(tr))
+        t.near("translate first, then scale" (translateThenScale.applyX(5.0 0.0)) 30.0)
+
+        ; An unset viewBox must yield identity rather than a zero matrix, so a
+        ; document with a malformed viewBox still draws something at 1:1 instead
+        ; of collapsing to a point.
+        def unset (new ViewBoxRect())
+        def none:Matrix2D (VectorViewBox.resolve(unset 100.0 100.0 "xMidYMid meet"))
+        t.eqBool("unset viewBox gives identity" (none.isIdentity()) true)
+
+        ; A zero-sized viewport cannot produce a scale; identity again rather
+        ; than a division by zero.
+        def vb:ViewBoxRect (VectorViewBox.parseViewBox("0 0 24 24"))
+        def degenerate:Matrix2D (VectorViewBox.resolve(vb 0.0 100.0 "xMidYMid meet"))
+        t.eqBool("zero viewport gives identity" (degenerate.isIdentity()) true)
+    }
+}

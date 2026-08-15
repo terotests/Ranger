@@ -214,18 +214,35 @@ mechanical commit if wanted at all.
 Ordered so that each stage lands something visible and nothing depends on a
 stage that has not shipped.
 
-### Stage 0 — Make the renderers agree (no new files)
+### Stage 0 — Make the renderers agree — **DONE**
 
 The highest value per line of code in the whole plan.
 
-1. Fix the `Q` → cubic conversion in `EVGPDFRenderer` (§2.3).
-2. Add `VectorViewBox` — one shared resolver producing a `Matrix2D` from
-   (`viewBox`, element box, `preserveAspectRatio`).
-3. PDF uses it instead of `getScaledCommands(w, h)`; HTML keeps delegating to the
-   browser but now agrees, because both implement the same spec rule.
-4. Golden test: one `<Path>` document → PDF and HTML, compare geometry.
+1. ✅ `Q` → cubic in `EVGPDFRenderer` now uses exact degree elevation (§2.3).
+2. ✅ `gallery/evg/VectorViewBox.rgr` — `Matrix2D` plus one implementation of
+   the SVG viewBox / `preserveAspectRatio` rule.
+3. ✅ PDF resolves through it and emits the result as a `cm` matrix, with path
+   commands left in user units; `getScaledCommands(w, h)` is no longer on the
+   render path.
+4. ✅ HTML asks the same class which viewBox applies and emits it, so the
+   browser applies the identical rule.
+5. ✅ `bash gallery/pdf_writer/test/run_vector.sh` (`npm run test:evg:vector`).
 
-Deliverable: the same document renders the same in PDF and HTML.
+**One behaviour change worth knowing about.** No document in the repo sets
+`viewBox` on a `<Path>` — every one relies on the art being fitted to
+`width`/`height`. Dropping that would have broken all of them, so the fallback
+is now: *explicit viewBox wins; otherwise synthesise one from the path bounds*,
+and both renderers use the same fallback. Two consequences:
+
+* PDF no longer stretches non-square art — the fit is uniform (`meet`), so a
+  path drawn into a box of a different aspect ratio is letterboxed rather than
+  distorted.
+* HTML now emits the synthesised viewBox where it previously emitted none, so
+  the browser fits the art instead of drawing it at 1:1 in the corner.
+
+Both moved toward each other, and toward what the documents were clearly asking
+for. Verified end to end: on the same fixture, PDF emits `2 0 0 2 -20 -20 cm`
+where HTML emits `viewBox="10 10 30 30"` — the same transform expressed twice.
 
 ### Stage 1 — Path completeness
 

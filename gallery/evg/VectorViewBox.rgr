@@ -1,0 +1,378 @@
+; ==============================================================================
+; VectorViewBox.rgr — the one place that decides what vector coordinates mean
+; ==============================================================================
+; PLAN_VECTOR_IR.md §2.1 and §5 Stage 0.
+;
+; Before this file, each renderer answered "where on the page does user unit
+; (10, 20) land?" for itself, and they answered differently:
+;
+;   PDF   fitted the path's BOUNDING BOX to the element box with independent X
+;         and Y scale factors, and ignored viewBox entirely — so a non-square
+;         icon was stretched, and deliberate padding inside the viewBox was
+;         cropped away.
+;   HTML  handed viewBox to the browser, which applied real SVG semantics:
+;         uniform scale, centred, letterboxed.
+;
+; Same document, two geometries. The fix is not to patch either renderer but to
+; have exactly one implementation of the SVG rule, which every renderer calls.
+;
+; The rule implemented here is SVG 1.1 viewBox / preserveAspectRatio: derive a
+; scale from viewport/viewBox on each axis, collapse the two to one (min for
+; `meet`, max for `slice`) unless alignment is `none`, then translate so the
+; requested alignment point of the scaled viewBox meets the same point of the
+; viewport.
+;
+; Nothing here renders. It returns a Matrix2D, so PDF can emit it as a `cm`
+; operand, raster can transform points before flattening, and a test can assert
+; the numbers directly against the spec — no image comparison needed.
+; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; Matrix2D — a 2D affine transform in SVG/PDF operand order.
+;
+;   | a  c  e |     x' = a*x + c*y + e
+;   | b  d  f |     y' = b*x + d*y + f
+;   | 0  0  1 |
+;
+; Deliberately the same six-number layout as an SVG `matrix(...)` and a PDF `cm`
+; operator, so handing it to either renderer needs no reordering.
+; ------------------------------------------------------------------------------
+class Matrix2D {
+    def a:double 1.0
+    def b:double 0.0
+    def c:double 0.0
+    def d:double 1.0
+    def e:double 0.0
+    def f:double 0.0
+
+    sfn identity:Matrix2D () {
+        def m (new Matrix2D())
+        return m
+    }
+
+    sfn create:Matrix2D (ma:double mb:double mc:double md:double me:double mf:double) {
+        def m (new Matrix2D())
+        m.a = ma
+        m.b = mb
+        m.c = mc
+        m.d = md
+        m.e = me
+        m.f = mf
+        return m
+    }
+
+    sfn translate:Matrix2D (tx:double ty:double) {
+        return (Matrix2D.create(1.0 0.0 0.0 1.0 tx ty))
+    }
+
+    sfn scale:Matrix2D (sx:double sy:double) {
+        return (Matrix2D.create(sx 0.0 0.0 sy 0.0 0.0))
+    }
+
+    fn applyX:double (x:double y:double) {
+        def v:double (((a * x) + (c * y)) + e)
+        return v
+    }
+
+    fn applyY:double (x:double y:double) {
+        def v:double (((b * x) + (d * y)) + f)
+        return v
+    }
+
+    ; this ∘ other — apply `other` first, then this.
+    fn multiply:Matrix2D (o:Matrix2D) {
+        def na:double ((a * o.a) + (c * o.b))
+        def nb:double ((b * o.a) + (d * o.b))
+        def nc:double ((a * o.c) + (c * o.d))
+        def nd:double ((b * o.c) + (d * o.d))
+        def ne:double (((a * o.e) + (c * o.f)) + e)
+        def nf:double (((b * o.e) + (d * o.f)) + f)
+        return (Matrix2D.create(na nb nc nd ne nf))
+    }
+
+    fn isIdentity:boolean () {
+        def flat:boolean true
+        if ((a == 1.0) == false) { flat = false }
+        if ((b == 0.0) == false) { flat = false }
+        if ((c == 0.0) == false) { flat = false }
+        if ((d == 1.0) == false) { flat = false }
+        if ((e == 0.0) == false) { flat = false }
+        if ((f == 0.0) == false) { flat = false }
+        return flat
+    }
+}
+
+; ------------------------------------------------------------------------------
+; ViewBoxRect — a parsed `viewBox="minX minY width height"`.
+;
+; `isSet` is false for a missing or malformed viewBox. Callers must check it:
+; per spec a negative or zero width/height disables rendering rather than
+; silently meaning something else, so guessing here would hide a document bug.
+; ------------------------------------------------------------------------------
+class ViewBoxRect {
+    def minX:double 0.0
+    def minY:double 0.0
+    def width:double 0.0
+    def height:double 0.0
+    def isSet:boolean false
+
+    sfn create:ViewBoxRect (x:double y:double w:double h:double) {
+        def r (new ViewBoxRect())
+        r.minX = x
+        r.minY = y
+        r.width = w
+        r.height = h
+        r.isSet = true
+        return r
+    }
+
+    ; Back to the attribute form, for renderers that emit SVG rather than
+    ; consume it. Round-trips through parseViewBox.
+    fn asAttribute:string () {
+        def s:string ((to_string minX) + " " + (to_string minY))
+        s = (s + " " + (to_string width) + " " + (to_string height))
+        return s
+    }
+}
+
+; ------------------------------------------------------------------------------
+; VectorViewBox — viewBox + preserveAspectRatio → Matrix2D.
+; ------------------------------------------------------------------------------
+class VectorViewBox {
+
+    ; Alignment codes. X and Y are independent in SVG, so they are kept apart
+    ; rather than enumerating the nine combined keywords.
+    ;   0 = Min (left / top), 1 = Mid (centre), 2 = Max (right / bottom)
+    ; `none` is signalled separately, because it is the one case where the two
+    ; axes keep independent scales.
+
+    sfn splitTokens:[string] (s:string) {
+        def parts:[string]
+        def current:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            def isSep:boolean false
+            if (ch == 32) { isSep = true }
+            if (ch == 9) { isSep = true }
+            if (ch == 10) { isSep = true }
+            if (ch == 13) { isSep = true }
+            if (ch == 44) { isSep = true }
+            if isSep {
+                if ((strlen current) > 0) {
+                    push parts current
+                    current = ""
+                }
+            } {
+                current = (current + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        if ((strlen current) > 0) {
+            push parts current
+        }
+        return parts
+    }
+
+    ; "minX minY width height", separated by whitespace and/or commas.
+    ;
+    ; Returns an unset rect when the list is not four numbers, or when width or
+    ; height is not positive. SVG 1.1: a negative value is an error and zero
+    ; disables rendering of the element — either way there is no transform to
+    ; compute, and the caller decides what to do about it.
+    sfn parseViewBox:ViewBoxRect (s:string) {
+        def out (new ViewBoxRect())
+        def parts:[string] (VectorViewBox.splitTokens(s))
+        if ((array_length parts) != 4) {
+            return out
+        }
+        def vals:[double]
+        def i:int 0
+        while (i < 4) {
+            def tok:string (itemAt parts i)
+            def num@(optional):double (to_double tok)
+            if num {
+                push vals (unwrap num)
+            } {
+                return out
+            }
+            i = (i + 1)
+        }
+        def w:double (itemAt vals 2)
+        def h:double (itemAt vals 3)
+        if (w <= 0.0) {
+            return out
+        }
+        if (h <= 0.0) {
+            return out
+        }
+        out.minX = (itemAt vals 0)
+        out.minY = (itemAt vals 1)
+        out.width = w
+        out.height = h
+        out.isSet = true
+        return out
+    }
+
+    ; preserveAspectRatio → the three things the transform needs.
+    ;
+    ; Grammar: [defer] <align> [meet | slice], where align is "none" or one of
+    ; the nine xM..YM.. keywords. `defer` only applies to <image> referencing
+    ; another SVG, so it is accepted and ignored. An unrecognised value falls
+    ; back to the spec default rather than failing: an odd string should not
+    ; make an icon vanish.
+    sfn alignX:int (par:string) {
+        def parts:[string] (VectorViewBox.splitTokens(par))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def tok:string (itemAt parts i)
+            if ((indexOf tok "xMin") == 0) { return 0 }
+            if ((indexOf tok "xMid") == 0) { return 1 }
+            if ((indexOf tok "xMax") == 0) { return 2 }
+            i = (i + 1)
+        }
+        return 1
+    }
+
+    sfn alignY:int (par:string) {
+        def parts:[string] (VectorViewBox.splitTokens(par))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def tok:string (itemAt parts i)
+            if ((indexOf tok "YMin") > 0) { return 0 }
+            if ((indexOf tok "YMid") > 0) { return 1 }
+            if ((indexOf tok "YMax") > 0) { return 2 }
+            i = (i + 1)
+        }
+        return 1
+    }
+
+    sfn isNone:boolean (par:string) {
+        def parts:[string] (VectorViewBox.splitTokens(par))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def tok:string (itemAt parts i)
+            if (tok == "none") { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn isSlice:boolean (par:string) {
+        def parts:[string] (VectorViewBox.splitTokens(par))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def tok:string (itemAt parts i)
+            if (tok == "slice") { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The transform mapping viewBox user units onto a viewport of viewW x viewH
+    ; whose origin is (0, 0). Callers translate that origin into place
+    ; themselves — for PDF that means composing with the page flip, which is why
+    ; this stays viewport-local.
+    ;
+    ; SVG 1.1, in order:
+    ;   1. scale-x = viewW / vb.width, scale-y = viewH / vb.height
+    ;   2. unless align is `none`, collapse to one scale: min for meet (the
+    ;      whole viewBox fits, with letterboxing), max for slice (the viewport
+    ;      is covered, with overflow)
+    ;   3. translate by -minX/-minY scaled, then by the alignment offset
+    sfn resolve:Matrix2D (vb:ViewBoxRect viewW:double viewH:double par:string) {
+        if (vb.isSet == false) {
+            return (Matrix2D.identity())
+        }
+        if (viewW <= 0.0) {
+            return (Matrix2D.identity())
+        }
+        if (viewH <= 0.0) {
+            return (Matrix2D.identity())
+        }
+
+        def scaleX:double (viewW / vb.width)
+        def scaleY:double (viewH / vb.height)
+
+        if ((VectorViewBox.isNone(par)) == false) {
+            def uniform:double scaleX
+            if (VectorViewBox.isSlice(par)) {
+                if (scaleY > uniform) {
+                    uniform = scaleY
+                }
+            } {
+                if (scaleY < uniform) {
+                    uniform = scaleY
+                }
+            }
+            scaleX = uniform
+            scaleY = uniform
+        }
+
+        def tx:double (0.0 - (vb.minX * scaleX))
+        def ty:double (0.0 - (vb.minY * scaleY))
+
+        def slackX:double (viewW - (vb.width * scaleX))
+        def slackY:double (viewH - (vb.height * scaleY))
+
+        def ax:int (VectorViewBox.alignX(par))
+        def ay:int (VectorViewBox.alignY(par))
+
+        if (ax == 1) {
+            tx = (tx + (slackX / 2.0))
+        }
+        if (ax == 2) {
+            tx = (tx + slackX)
+        }
+        if (ay == 1) {
+            ty = (ty + (slackY / 2.0))
+        }
+        if (ay == 2) {
+            ty = (ty + slackY)
+        }
+
+        return (Matrix2D.create(scaleX 0.0 0.0 scaleY tx ty))
+    }
+
+    ; Which viewBox actually governs an element, given what the document
+    ; declared and where the path's ink turned out to be.
+    ;
+    ; An explicit viewBox always wins — that is the author saying what the
+    ; coordinate system is. When there is none, SVG proper would draw at 1:1 and
+    ; clip, but EVG's <Path> has always been sized by its `width`/`height` and
+    ; every existing document relies on the art being fitted to that box. So the
+    ; fallback synthesises a viewBox from the path bounds, which keeps those
+    ; documents working AND — the point of doing it here rather than in one
+    ; renderer — gives every renderer the same fallback. Previously PDF fitted
+    ; the bounds while HTML drew at 1:1, so the two disagreed on exactly the
+    ; documents that never set a viewBox, which is all of them.
+    ;
+    ; Degenerate ink (a horizontal line has zero height) yields an unset rect,
+    ; and the caller falls back to identity rather than dividing by zero.
+    sfn effectiveViewBox:ViewBoxRect (declared:string boundsX:double boundsY:double boundsW:double boundsH:double) {
+        def explicit:ViewBoxRect (VectorViewBox.parseViewBox(declared))
+        if explicit.isSet {
+            return explicit
+        }
+        def synth (new ViewBoxRect())
+        if (boundsW <= 0.0) {
+            return synth
+        }
+        if (boundsH <= 0.0) {
+            return synth
+        }
+        return (ViewBoxRect.create(boundsX boundsY boundsW boundsH))
+    }
+
+    ; Convenience: parse and resolve in one step, with the SVG default
+    ; preserveAspectRatio when none was given on the element.
+    sfn resolveString:Matrix2D (viewBox:string viewW:double viewH:double par:string) {
+        def effective:string par
+        if ((strlen effective) == 0) {
+            effective = "xMidYMid meet"
+        }
+        def vb:ViewBoxRect (VectorViewBox.parseViewBox(viewBox))
+        return (VectorViewBox.resolve(vb viewW viewH effective))
+    }
+}

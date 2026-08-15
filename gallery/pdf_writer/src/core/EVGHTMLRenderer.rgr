@@ -14,6 +14,8 @@ Import "../../../evg/EVGTextMeasurer.rgr"
 Import "../../../evg/EVGTextEngine.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/SVGPathParser.rgr"
+Import "../../../evg/VectorViewBox.rgr"
 Import "EVGResourceLoader.rgr"
 
 ; Geometry a child needs from its laid-out parent while rendering.
@@ -1540,9 +1542,19 @@ class EVGHTMLRenderer {
         html = html + " width=\"" + (to_string w) + "\""
         html = html + " height=\"" + (to_string h) + "\""
         
-        ; Add viewBox if set
-        if ((strlen el.viewBox) > 0) {
-            html = html + " viewBox=\"" + el.viewBox + "\""
+        ; Always emit a viewBox — an explicit one when the document gave one,
+        ; otherwise one synthesised from the path bounds (PLAN_VECTOR_IR.md
+        ; §2.1). Emitting nothing used to mean the browser drew the path at 1:1
+        ; in the element box while PDF fitted it, so the two renderers disagreed
+        ; on precisely the documents that set no viewBox. VectorViewBox decides
+        ; which box applies; the browser then applies the same xMidYMid meet
+        ; rule the PDF renderer asks that same class for.
+        def vbParser (new SVGPathParser())
+        vbParser.parse(el.svgPath)
+        def vbBounds:PathBounds (vbParser.getBounds())
+        def vbRect:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox vbBounds.minX vbBounds.minY vbBounds.width vbBounds.height))
+        if vbRect.isSet {
+            html = html + " viewBox=\"" + (vbRect.asAttribute()) + "\""
         }
         
         ; Add position styles - use relative position
