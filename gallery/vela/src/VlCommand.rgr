@@ -1,0 +1,393 @@
+; ==============================================================================
+; VlCommand.rgr — the scene as a flat list of drawing commands.
+; ==============================================================================
+; This is the seam a renderer plugs into, and it exists BEFORE any renderer on
+; purpose: the EVG backend is waiting on richer SVG-path support, and a command
+; list can be built, tested and diffed as text in the meantime. When the backend
+; lands it consumes this list; it does not walk the scene itself, and nothing in
+; here knows what EVG, SVG or PDF are.
+;
+; What the layer is responsible for:
+;   * flattening the group tree, so a command carries ABSOLUTE coordinates
+;   * turning the encode channels into the geometry a renderer draws: a rect is
+;     x/y/width/height, a rule is a segment, a symbol is a centre and a size
+;   * filling in the defaults the reference applies when a channel is absent
+;     (a rect with no fill is not painted; a text with no font size is 11)
+;
+; What it is NOT responsible for: text measurement, path flattening, colour
+; parsing, clipping strategy, or anything else that depends on the output
+; device. Those belong to the backend.
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlScene.rgr"
+
+; op: "rect" | "line" | "text" | "path" | "symbol" | "image" | "group-begin" | "group-end"
+class VlDrawCommand {
+    def op:string "rect"
+    def markType:string ""
+
+    def x:double 0.0
+    def y:double 0.0
+    def width:double 0.0
+    def height:double 0.0
+    ; line/rule endpoints
+    def x2:double 0.0
+    def y2:double 0.0
+
+    def fill:string ""
+    def hasFill:boolean false
+    def fillOpacity:double 1.0
+    def stroke:string ""
+    def hasStroke:boolean false
+    def strokeWidth:double 1.0
+    def strokeOpacity:double 1.0
+    def opacity:double 1.0
+
+    def text:string ""
+    def font:string "sans-serif"
+    def fontSize:double 11.0
+    def fontWeight:string ""
+    def align:string "left"
+    def baseline:string "alphabetic"
+    def angle:double 0.0
+
+    ; SVG path data, in the command's own coordinate space. Set for `path`
+    ; commands and for a symbol whose shape is not a plain circle.
+    def pathData:string ""
+    def shape:string "circle"
+    def size:double 64.0
+    def url:string ""
+
+    ; A polyline or polygon carries its vertices here as a flat x,y,x,y… list
+    ; rather than as a path string: a line mark is a list of points, and turning
+    ; it into path syntax is the backend's decision, not this layer's.
+    def points:[double]
+    def interpolate:string "linear"
+}
+
+class VlCommandList {
+    def commands:[VlDrawCommand]
+
+    fn count:int () {
+        return (array_length commands)
+    }
+
+    ; A stable text form, one command per line: readable in a diff, and the
+    ; artifact a renderer test can pin before any renderer exists.
+    fn asText:string () {
+        def out:string ""
+        for commands cmd:VlDrawCommand idx {
+            out = (out + (VlCommandList.commandText(cmd)))
+            out = (out + (strfromcode 10))
+        }
+        return out
+    }
+
+    sfn commandText:string (cmd:VlDrawCommand) {
+        def out:string cmd.op
+        if (cmd.op == "rect") {
+            out = ((((((out + " x=") + (VlJson.formatNumber(cmd.x 3))) + " y=") + (VlJson.formatNumber(cmd.y 3))) + " w=") + (VlJson.formatNumber(cmd.width 3)))
+            out = ((out + " h=") + (VlJson.formatNumber(cmd.height 3)))
+        }
+        if (cmd.op == "line") {
+            out = ((((((out + " x=") + (VlJson.formatNumber(cmd.x 3))) + " y=") + (VlJson.formatNumber(cmd.y 3))) + " x2=") + (VlJson.formatNumber(cmd.x2 3)))
+            out = ((out + " y2=") + (VlJson.formatNumber(cmd.y2 3)))
+        }
+        if (cmd.op == "text") {
+            out = ((((((out + " x=") + (VlJson.formatNumber(cmd.x 3))) + " y=") + (VlJson.formatNumber(cmd.y 3))) + " size=") + (VlJson.formatNumber(cmd.fontSize 3)))
+            out = ((((out + " align=") + cmd.align) + " text=") + cmd.text)
+        }
+        if (cmd.op == "symbol") {
+            out = ((((((out + " x=") + (VlJson.formatNumber(cmd.x 3))) + " y=") + (VlJson.formatNumber(cmd.y 3))) + " size=") + (VlJson.formatNumber(cmd.size 3)))
+            out = ((out + " shape=") + cmd.shape)
+        }
+        if (cmd.op == "path") {
+            out = ((out + " d=") + cmd.pathData)
+        }
+        if ((cmd.op == "polyline") || (cmd.op == "polygon")) {
+            out = ((out + " points=") + (VlCommandList.pointsText(cmd)))
+        }
+        if (cmd.hasFill) {
+            out = ((out + " fill=") + cmd.fill)
+        }
+        if (cmd.hasStroke) {
+            out = ((((out + " stroke=") + cmd.stroke) + " strokeWidth=") + (VlJson.formatNumber(cmd.strokeWidth 3)))
+        }
+        if (cmd.opacity != 1.0) {
+            out = ((out + " opacity=") + (VlJson.formatNumber(cmd.opacity 3)))
+        }
+        return out
+    }
+
+    sfn pointsText:string (cmd:VlDrawCommand) {
+        def out:string ""
+        def total:int (array_length cmd.points)
+        def k:int 0
+        while (k < total) {
+            if (k > 0) {
+                if ((k % 2) == 0) {
+                    out = (out + " ")
+                } {
+                    out = (out + ",")
+                }
+            }
+            out = (out + (VlJson.formatNumber((itemAt cmd.points k) 3)))
+            k = (k + 1)
+        }
+        return out
+    }
+}
+
+; Walks a scene and produces the command list. Group offsets accumulate, so a
+; command's coordinates are absolute even though the scene's are not.
+class VlSceneCommands {
+
+    sfn build:VlCommandList (root:VlSceneMark) {
+        def list (new VlCommandList())
+        VlSceneCommands.walkMark(list root 0.0 0.0)
+        return list
+    }
+
+    sfn walkMark:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
+        ; A line or an area is ONE shape built from every item, not one shape
+        ; per item — the items are its vertices.
+        if (mark.markType == "line") {
+            VlSceneCommands.emitLine(list mark offsetX offsetY)
+            return
+        }
+        if (mark.markType == "area") {
+            VlSceneCommands.emitArea(list mark offsetX offsetY)
+            return
+        }
+        for mark.items item:VlSceneItem idx {
+            if (mark.markType == "group") {
+                VlSceneCommands.emitGroup(list mark item offsetX offsetY)
+            } {
+                VlSceneCommands.emitItem(list mark item offsetX offsetY)
+            }
+        }
+    }
+
+    ; The vertices of a line mark, in item order.
+    sfn emitLine:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
+        def count:int (array_length mark.items)
+        if (count == 0) {
+            return
+        }
+        def cmd (new VlDrawCommand())
+        cmd.op = "polyline"
+        cmd.markType = mark.markType
+        for mark.items item:VlSceneItem idx {
+            push cmd.points (offsetX + (item.number("x")))
+            push cmd.points (offsetY + (item.number("y")))
+        }
+        def first:VlSceneItem (itemAt mark.items 0)
+        if (first.has("interpolate")) {
+            cmd.interpolate = (first.text("interpolate"))
+        }
+        VlSceneCommands.applyStyle(cmd first)
+        push list.commands cmd
+    }
+
+    ; An area is the band between each item's y and its y2 (or x and x2 for a
+    ; horizontal area): the tops in order, then the baseline back again, which
+    ; closes the polygon.
+    sfn emitArea:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
+        def count:int (array_length mark.items)
+        if (count == 0) {
+            return
+        }
+        def cmd (new VlDrawCommand())
+        cmd.op = "polygon"
+        cmd.markType = mark.markType
+        def horizontal:boolean false
+        def first:VlSceneItem (itemAt mark.items 0)
+        if (first.has("x2")) {
+            horizontal = true
+        }
+        for mark.items item:VlSceneItem idx {
+            push cmd.points (offsetX + (item.number("x")))
+            push cmd.points (offsetY + (item.number("y")))
+        }
+        def k:int (count - 1)
+        while (k >= 0) {
+            def item:VlSceneItem (itemAt mark.items k)
+            if horizontal {
+                push cmd.points (offsetX + (item.number("x2")))
+                push cmd.points (offsetY + (item.number("y")))
+            } {
+                push cmd.points (offsetX + (item.number("x")))
+                push cmd.points (offsetY + (item.number("y2")))
+            }
+            k = (k - 1)
+        }
+        if (first.has("interpolate")) {
+            cmd.interpolate = (first.text("interpolate"))
+        }
+        VlSceneCommands.applyStyle(cmd first)
+        push list.commands cmd
+    }
+
+    sfn emitGroup:void (list:VlCommandList mark:VlSceneMark item:VlSceneItem offsetX:double offsetY:double) {
+        def gx:double (offsetX + (item.number("x")))
+        def gy:double (offsetY + (item.number("y")))
+
+        ; A group with a fill paints its own rectangle first — the chart
+        ; background, and the frame around a cell.
+        if (item.has("fill")) {
+            def bg (new VlDrawCommand())
+            bg.op = "rect"
+            bg.markType = "group"
+            bg.x = gx
+            bg.y = gy
+            bg.width = (item.number("width"))
+            bg.height = (item.number("height"))
+            VlSceneCommands.applyStyle(bg item)
+            push list.commands bg
+        }
+
+        def begin (new VlDrawCommand())
+        begin.op = "group-begin"
+        begin.markType = "group"
+        begin.x = gx
+        begin.y = gy
+        begin.width = (item.number("width"))
+        begin.height = (item.number("height"))
+        push list.commands begin
+
+        for item.marks child:VlSceneMark ci {
+            VlSceneCommands.walkMark(list child gx gy)
+        }
+
+        def end (new VlDrawCommand())
+        end.op = "group-end"
+        end.markType = "group"
+        push list.commands end
+    }
+
+    sfn emitItem:void (list:VlCommandList mark:VlSceneMark item:VlSceneItem offsetX:double offsetY:double) {
+        def cmd (new VlDrawCommand())
+        cmd.markType = mark.markType
+
+        if (mark.markType == "rect") {
+            cmd.op = "rect"
+            cmd.x = (offsetX + (item.number("x")))
+            cmd.y = (offsetY + (item.number("y")))
+            cmd.width = (item.number("width"))
+            cmd.height = (item.number("height"))
+            ; A negative extent is a rectangle drawn from the other corner.
+            if (cmd.width < 0.0) {
+                cmd.x = (cmd.x + cmd.width)
+                cmd.width = (0.0 - cmd.width)
+            }
+            if (cmd.height < 0.0) {
+                cmd.y = (cmd.y + cmd.height)
+                cmd.height = (0.0 - cmd.height)
+            }
+        }
+        if (mark.markType == "rule") {
+            cmd.op = "line"
+            cmd.x = (offsetX + (item.number("x")))
+            cmd.y = (offsetY + (item.number("y")))
+            cmd.x2 = cmd.x
+            cmd.y2 = cmd.y
+            if (item.has("x2")) {
+                cmd.x2 = (offsetX + (item.number("x2")))
+            }
+            if (item.has("y2")) {
+                cmd.y2 = (offsetY + (item.number("y2")))
+            }
+        }
+        if (mark.markType == "text") {
+            cmd.op = "text"
+            cmd.x = (offsetX + (item.number("x")))
+            cmd.y = (offsetY + (item.number("y")))
+            cmd.text = (item.text("text"))
+            cmd.fontSize = 11.0
+            if (item.has("fontSize")) {
+                cmd.fontSize = (item.number("fontSize"))
+            }
+            if (item.has("font")) {
+                cmd.font = (item.text("font"))
+            }
+            if (item.has("fontWeight")) {
+                cmd.fontWeight = (item.text("fontWeight"))
+            }
+            if (item.has("align")) {
+                cmd.align = (item.text("align"))
+            }
+            if (item.has("baseline")) {
+                cmd.baseline = (item.text("baseline"))
+            }
+            if (item.has("angle")) {
+                cmd.angle = (item.number("angle"))
+            }
+        }
+        if (mark.markType == "symbol") {
+            cmd.op = "symbol"
+            cmd.x = (offsetX + (item.number("x")))
+            cmd.y = (offsetY + (item.number("y")))
+            cmd.size = 64.0
+            if (item.has("size")) {
+                cmd.size = (item.number("size"))
+            }
+            if (item.has("shape")) {
+                cmd.shape = (item.text("shape"))
+            }
+        }
+        if (mark.markType == "path") {
+            cmd.op = "path"
+            cmd.x = (offsetX + (item.number("x")))
+            cmd.y = (offsetY + (item.number("y")))
+            cmd.pathData = (item.text("path"))
+        }
+        if (mark.markType == "image") {
+            cmd.op = "image"
+            cmd.x = (offsetX + (item.number("x")))
+            cmd.y = (offsetY + (item.number("y")))
+            cmd.width = (item.number("width"))
+            cmd.height = (item.number("height"))
+            cmd.url = (item.text("url"))
+        }
+
+        VlSceneCommands.applyStyle(cmd item)
+        push list.commands cmd
+    }
+
+    ; The style channels are shared by every mark type, and "absent" is not the
+    ; same as "zero": a rect with no fill is not painted at all, so the flag is
+    ; what a backend reads, not the colour string.
+    sfn applyStyle:void (cmd:VlDrawCommand item:VlSceneItem) {
+        if (item.has("fill")) {
+            def fill:string (item.text("fill"))
+            if (fill != "transparent") {
+                cmd.fill = fill
+                cmd.hasFill = true
+            }
+        }
+        if (item.has("stroke")) {
+            def stroke:string (item.text("stroke"))
+            if (stroke != "transparent") {
+                cmd.stroke = stroke
+                cmd.hasStroke = true
+                cmd.strokeWidth = 1.0
+            }
+        }
+        if (item.has("strokeWidth")) {
+            cmd.strokeWidth = (item.number("strokeWidth"))
+            if (cmd.strokeWidth <= 0.0) {
+                cmd.hasStroke = false
+            }
+        }
+        if (item.has("fillOpacity")) {
+            cmd.fillOpacity = (item.number("fillOpacity"))
+        }
+        if (item.has("strokeOpacity")) {
+            cmd.strokeOpacity = (item.number("strokeOpacity"))
+        }
+        if (item.has("opacity")) {
+            cmd.opacity = (item.number("opacity"))
+        }
+    }
+}

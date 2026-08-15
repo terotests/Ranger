@@ -1,0 +1,13 @@
+rect x=0 y=0 w=300 h=300 stroke=#ddd strokeWidth=1
+group-begin
+text x=166.667 y=216 size=11 align=center text=A fill=black
+text x=300 y=135 size=11 align=center text=B fill=black
+text x=66.667 y=171 size=11 align=center text=C fill=black
+text x=233.333 y=27 size=11 align=center text=D fill=black
+text x=133.333 y=57 size=11 align=center text=E fill=black
+text x=200 y=141 size=11 align=center text=F fill=black
+text x=266.667 y=243 size=11 align=center text=G fill=black
+text x=33.333 y=39 size=11 align=center text=H fill=black
+text x=100 y=144 size=11 align=center text=I fill=black
+group-end
+

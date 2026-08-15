@@ -1,0 +1,601 @@
+; ==============================================================================
+; VlTransform.rgr — data transforms: the `transform` array of a data set.
+; ==============================================================================
+; Each transform takes rows and answers rows. That is deliberately the batch
+; shape, not the reference implementation's pulse/changeset shape: nothing here
+; updates incrementally yet, and modelling a dataflow before there is anything
+; to re-run would be a guess at the interface rather than a use of it. The
+; signatures are per-transform, so an incremental core can be slid underneath
+; without the transforms themselves changing.
+;
+; A row is a VlJson object and a transform that adds a field returns a COPY with
+; the field set — the input rows are left alone, so a data set that several
+; transforms read produces the same rows for each of them.
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlExprEval.rgr"
+Import "VlMath.rgr"
+
+class VlDataSet {
+    def name:string ""
+    def rows:[VlJson]
+
+    fn count:int () {
+        return (array_length rows)
+    }
+}
+
+class VlTransform {
+
+    ; A shallow copy: the members are shared, the object is not, which is all a
+    ; transform that adds a derived field needs.
+    sfn copyRow:VlJson (row:VlJson) {
+        def out:VlJson (VlJson.objectValue())
+        for row.keys key:string ki {
+            out.setMember(key (row.get(key)))
+        }
+        return out
+    }
+
+    ; --- filter ---------------------------------------------------------------
+    sfn filterRows:[VlJson] (rows:[VlJson] test:VlExprNode scope:VlExprScope) {
+        def out:[VlJson]
+        for rows row:VlJson idx {
+            scope.setDatum(row)
+            def keep:VlJson (VlExprEval.eval(test scope))
+            if (VlExprEval.truthy(keep)) {
+                push out row
+            }
+        }
+        return out
+    }
+
+    ; --- formula --------------------------------------------------------------
+    sfn formula:[VlJson] (rows:[VlJson] expr:VlExprNode asName:string scope:VlExprScope) {
+        def out:[VlJson]
+        for rows row:VlJson idx {
+            scope.setDatum(row)
+            def value:VlJson (VlExprEval.eval(expr scope))
+            def copy:VlJson (VlTransform.copyRow(row))
+            copy.setMember(asName value)
+            push out copy
+        }
+        return out
+    }
+
+    ; --- project --------------------------------------------------------------
+    sfn project:[VlJson] (rows:[VlJson] fields:[string] asNames:[string]) {
+        def out:[VlJson]
+        def total:int (array_length fields)
+        for rows row:VlJson idx {
+            def copy:VlJson (VlJson.objectValue())
+            def k:int 0
+            while (k < total) {
+                def field:string (itemAt fields k)
+                def name:string field
+                if (k < (array_length asNames)) {
+                    name = (itemAt asNames k)
+                }
+                copy.setMember(name (row.get(field)))
+                k = (k + 1)
+            }
+            push out copy
+            k = 0
+        }
+        return out
+    }
+
+    ; --- extent ---------------------------------------------------------------
+    ; The [min, max] of a field over the rows, ignoring values that are not
+    ; numbers — which is what the reference does, and why a null in the data
+    ; does not drag a domain to zero.
+    sfn extent:[double] (rows:[VlJson] field:string) {
+        def out:[double]
+        def lo:double 0.0
+        def hi:double 0.0
+        def seen:boolean false
+        for rows row:VlJson idx {
+            def v:VlJson (row.get(field))
+            if (v.isNumber()) {
+                def d:double v.num
+                if (VlExprEval.isFiniteNumber(d)) {
+                    if (! seen) {
+                        lo = d
+                        hi = d
+                        seen = true
+                    } {
+                        if (d < lo) {
+                            lo = d
+                        }
+                        if (d > hi) {
+                            hi = d
+                        }
+                    }
+                }
+            }
+        }
+        push out lo
+        push out hi
+        return out
+    }
+
+    ; The distinct values of a field, in first-seen order — a discrete domain.
+    sfn distinctValues:[string] (rows:[VlJson] field:string) {
+        def out:[string]
+        def seen:[string:int]
+        for rows row:VlJson idx {
+            def key:string (row.get(field).asString())
+            if (! (has seen key)) {
+                set seen key 1
+                push out key
+            }
+        }
+        return out
+    }
+
+    ; --- stack ----------------------------------------------------------------
+    ; Accumulates `field` within each group, writing the running start and end
+    ; into the two names in `asNames`. `offset` is "zero", "normalize" or
+    ; "center"; anything else is treated as zero.
+    ;
+    ; A bar chart with one row per category still goes through this: Vega-Lite
+    ; emits a stack for every bar mark, and the y channel reads `b_end`, so
+    ; without it there is nothing to encode.
+    sfn stack:[VlJson] (rows:[VlJson] field:string groupby:[string] asNames:[string] offset:string sortFields:[string] sortOrders:[string]) {
+        def startName:string "y0"
+        def endName:string "y1"
+        if ((array_length asNames) > 0) {
+            startName = (itemAt asNames 0)
+        }
+        if ((array_length asNames) > 1) {
+            endName = (itemAt asNames 1)
+        }
+
+        ; Group totals first: normalize and center both need the sum before any
+        ; row can be given its place.
+        def groupSum:[string:double]
+        def groupRun:[string:double]
+        for rows row:VlJson idx {
+            def key:string (VlTransform.groupKey(row groupby))
+            def v:double (VlTransform.stackValue(row field))
+            def sum:double 0.0
+            if (has groupSum key) {
+                sum = (unwrap (get groupSum key))
+            }
+            set groupSum key (sum + v)
+            set groupRun key 0.0
+        }
+
+        ; The accumulation order is the SORT order, but the rows come out in the
+        ; order they arrived — the reference stacks tuples in place, so a
+        ; stacked bar's segments are ordered by the sort while the data keeps
+        ; its identity.
+        def order:[int] (VlTransform.sortedOrder(rows sortFields sortOrders))
+        def starts:[double]
+        def ends:[double]
+        for rows row0:VlJson i0 {
+            push starts 0.0
+            push ends 0.0
+        }
+        for order rowIndex:int oi {
+            def row:VlJson (itemAt rows rowIndex)
+            def key:string (VlTransform.groupKey(row groupby))
+            def v:double (VlTransform.stackValue(row field))
+            def run:double 0.0
+            if (has groupRun key) {
+                run = (unwrap (get groupRun key))
+            }
+            def total:double 0.0
+            if (has groupSum key) {
+                total = (unwrap (get groupSum key))
+            }
+            def lo:double run
+            def hi:double (run + v)
+            set groupRun key hi
+
+            if (offset == "normalize") {
+                if (total != 0.0) {
+                    lo = (lo / total)
+                    hi = (hi / total)
+                }
+            }
+            if (offset == "center") {
+                def shift:double (total / 2.0)
+                lo = (lo - shift)
+                hi = (hi - shift)
+            }
+            set_at starts rowIndex lo
+            set_at ends rowIndex hi
+        }
+
+        def out:[VlJson]
+        for rows row:VlJson idx {
+            def copy:VlJson (VlTransform.copyRow(row))
+            copy.setMember(startName (VlJson.numberValue((itemAt starts idx))))
+            copy.setMember(endName (VlJson.numberValue((itemAt ends idx))))
+            push out copy
+        }
+        return out
+    }
+
+    ; Row indices ordered by the given fields. Insertion sort, so equal rows
+    ; keep their input order — the reference's sort is stable and a stacked
+    ; chart's segments would otherwise swap between runs.
+    sfn sortedOrder:[int] (rows:[VlJson] fields:[string] orders:[string]) {
+        def out:[int]
+        def fieldCount:int (array_length fields)
+        for rows row:VlJson idx {
+            def pos:int (array_length out)
+            if (fieldCount > 0) {
+                def scan:int 0
+                def placed:boolean false
+                while ((scan < (array_length out)) && (! placed)) {
+                    def other:VlJson (itemAt rows (itemAt out scan))
+                    if ((VlTransform.compareRows(row other fields orders)) < 0) {
+                        pos = scan
+                        placed = true
+                    }
+                    scan = (scan + 1)
+                }
+            }
+            push out idx
+            def move:int ((array_length out) - 1)
+            while (move > pos) {
+                set_at out move (itemAt out (move - 1))
+                move = (move - 1)
+            }
+            set_at out pos idx
+        }
+        return out
+    }
+
+    sfn compareRows:int (a:VlJson b:VlJson fields:[string] orders:[string]) {
+        def total:int (array_length fields)
+        def k:int 0
+        while (k < total) {
+            def field:string (itemAt fields k)
+            def av:VlJson (a.get(field))
+            def bv:VlJson (b.get(field))
+            def cmp:int 0
+            if ((av.isNumber()) && (bv.isNumber())) {
+                if (av.num < bv.num) {
+                    cmp = -1
+                }
+                if (av.num > bv.num) {
+                    cmp = 1
+                }
+            } {
+                cmp = (VlExprEval.compareStrings((av.asString()) (bv.asString())))
+            }
+            if (cmp != 0) {
+                def descending:boolean false
+                if (k < (array_length orders)) {
+                    descending = ((itemAt orders k) == "descending")
+                }
+                if descending {
+                    return (0 - cmp)
+                }
+                return cmp
+            }
+            k = (k + 1)
+        }
+        return 0
+    }
+
+    ; --- bin ------------------------------------------------------------------
+    ; The reference's bin step search: start from a power of the base near the
+    ; span, coarsen until the bin count fits, then try the finer steps (a fifth
+    ; and a half of it) that still fit. `nice` snaps the boundaries outward.
+    sfn binStep:double (lo:double hi:double maxbins:int base:double minstep:double) {
+        def span:double (hi - lo)
+        if (span == 0.0) {
+            span = 1.0
+            if (lo != 0.0) {
+                span = lo
+                if (span < 0.0) {
+                    span = (0.0 - span)
+                }
+            }
+        }
+        def logb:double (VlMath.ln(base))
+        def level:double (to_double (ceil ((VlMath.ln((to_double maxbins))) / logb)))
+        def exponent:double (to_double (floor (((VlMath.ln(span)) / logb) + 0.5)))
+        def step:double (VlMath.pow(base (exponent - level)))
+        if (step < minstep) {
+            step = minstep
+        }
+        def guard:int 0
+        while (((ceil (span / step)) > maxbins) && (guard < 64)) {
+            step = (step * base)
+            guard = (guard + 1)
+        }
+        def divisors:[double]
+        push divisors 5.0
+        push divisors 2.0
+        for divisors d:double di {
+            def candidate:double (step / d)
+            if (candidate >= minstep) {
+                if ((span / candidate) <= (to_double maxbins)) {
+                    step = candidate
+                }
+            }
+        }
+        return step
+    }
+
+    ; [start, stop, step] for a binning of [lo, hi].
+    sfn binExtent:[double] (lo:double hi:double maxbins:int base:double minstep:double nice:boolean) {
+        def step:double (VlTransform.binStep(lo hi maxbins base minstep))
+        def start:double lo
+        def stop:double hi
+        if nice {
+            def logb:double (VlMath.ln(base))
+            def logStep:double (VlMath.ln(step))
+            def precision:int 0
+            if (logStep < 0.0) {
+                precision = ((to_int ((0.0 - logStep) / logb)) + 1)
+            }
+            def eps:double (VlMath.pow(base (to_double ((0 - precision) - 1))))
+            def snapped:double ((to_double (floor ((start / step) + eps))) * step)
+            start = snapped
+            if (lo < snapped) {
+                start = (snapped - step)
+            }
+            stop = ((to_double (ceil (hi / step))) * step)
+        }
+        if (stop == start) {
+            stop = (start + step)
+        }
+        def out:[double]
+        push out start
+        push out stop
+        push out step
+        return out
+    }
+
+    sfn bin:[VlJson] (rows:[VlJson] field:string asNames:[string] start:double stop:double step:double) {
+        def startName:string "bin0"
+        def endName:string "bin1"
+        if ((array_length asNames) > 0) {
+            startName = (itemAt asNames 0)
+        }
+        if ((array_length asNames) > 1) {
+            endName = (itemAt asNames 1)
+        }
+        def out:[VlJson]
+        for rows row:VlJson idx {
+            def copy:VlJson (VlTransform.copyRow(row))
+            def v:VlJson (row.get(field))
+            if (v.isNumber()) {
+                def value:double v.num
+                def bucket:double ((to_double (floor (((value - start) / step) + 0.00000000000001))) * step)
+                def binLo:double (start + bucket)
+                if (binLo < start) {
+                    binLo = start
+                }
+                if (binLo > (stop - step)) {
+                    binLo = (stop - step)
+                }
+                copy.setMember(startName (VlJson.numberValue(binLo)))
+                copy.setMember(endName (VlJson.numberValue((binLo + step))))
+            } {
+                copy.setMember(startName (VlJson.nullValue()))
+                copy.setMember(endName (VlJson.nullValue()))
+            }
+            push out copy
+        }
+        return out
+    }
+
+    ; --- aggregate ------------------------------------------------------------
+
+    sfn stackValue:double (row:VlJson field:string) {
+        if ((strlen field) == 0) {
+            return 1.0
+        }
+        def v:VlJson (row.get(field))
+        if (v.isNumber()) {
+            return v.num
+        }
+        return 0.0
+    }
+
+    sfn groupKey:string (row:VlJson groupby:[string]) {
+        def key:string ""
+        for groupby field:string idx {
+            if (idx > 0) {
+                key = (key + (strfromcode 31))
+            }
+            key = (key + (row.get(field).asString()))
+        }
+        return key
+    }
+
+    ; --- impute ---------------------------------------------------------------
+    ; Every group must have a row for every key value; the ones that are absent
+    ; are added with an imputed measure. Vega-Lite emits this for an area chart
+    ; so the band has a value at every x rather than jumping the gap.
+    ;
+    ; Only `method: "value"` is implemented — the statistical methods (mean,
+    ; median, min, max) need the group's other values and are not used by the
+    ; specs here. Anything else is reported rather than silently treated as
+    ; "value".
+    sfn impute:[VlJson] (rows:[VlJson] field:string key:string groupby:[string] method:string fill:VlJson) {
+        def out:[VlJson]
+        for rows row:VlJson idx {
+            push out row
+        }
+        if (method != "value") {
+            return out
+        }
+
+        ; The key values seen anywhere, and which (group, key) pairs exist.
+        def keyValues:[string]
+        def keySeen:[string:int]
+        def groupKeys:[string]
+        def groupSeen:[string:int]
+        def groupRow:[string:VlJson]
+        def pairSeen:[string:int]
+        for rows row:VlJson idx {
+            def kv:string (row.get(key).asString())
+            if (! (has keySeen kv)) {
+                set keySeen kv 1
+                push keyValues kv
+            }
+            def gk:string (VlTransform.groupKey(row groupby))
+            if (! (has groupSeen gk)) {
+                set groupSeen gk 1
+                push groupKeys gk
+                set groupRow gk row
+            }
+            set pairSeen ((gk + (strfromcode 30)) + kv) 1
+        }
+
+        for groupKeys gk:string gi {
+            def sample:VlJson (unwrap (get groupRow gk))
+            for keyValues kv:string ki {
+                def pair:string ((gk + (strfromcode 30)) + kv)
+                if (! (has pairSeen pair)) {
+                    def added:VlJson (VlJson.objectValue())
+                    for groupby gfield:string gfi {
+                        added.setMember(gfield (sample.get(gfield)))
+                    }
+                    def keyRow:VlJson (VlTransform.rowWithKey(rows key kv))
+                    added.setMember(key (keyRow.get(key)))
+                    added.setMember(field fill)
+                    push out added
+                }
+            }
+        }
+        return out
+    }
+
+    ; The first row carrying a given key value — used to recover the key's
+    ; original type, since the seen-set holds it as text.
+    sfn rowWithKey:VlJson (rows:[VlJson] key:string value:string) {
+        for rows row:VlJson idx {
+            if ((row.get(key).asString()) == value) {
+                return row
+            }
+        }
+        return (VlJson.objectValue())
+    }
+
+    ; One row per group, carrying the group fields plus one column per measure.
+    ; `ops` and `fields` are parallel; `asNames` may be shorter, in which case
+    ; the reference implementation's default name (`op_field`) is used.
+    sfn aggregate:[VlJson] (rows:[VlJson] groupby:[string] ops:[string] fields:[string] asNames:[string]) {
+        def keys:[string]
+        def keyRows:[string:VlJson]
+        def counts:[string:double]
+        def sums:[string:double]
+        def mins:[string:double]
+        def maxs:[string:double]
+        def seenValue:[string:int]
+
+        def opCount:int (array_length ops)
+        for rows row:VlJson idx {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has keyRows key)) {
+                push keys key
+                def base:VlJson (VlJson.objectValue())
+                for groupby field:string gi {
+                    base.setMember(field (row.get(field)))
+                }
+                set keyRows key base
+                set counts key 0.0
+            }
+            def c:double (unwrap (get counts key))
+            set counts key (c + 1.0)
+
+            def k:int 0
+            while (k < opCount) {
+                def field:string ""
+                if (k < (array_length fields)) {
+                    field = (itemAt fields k)
+                }
+                def slot:string ((key + (strfromcode 30)) + (VlJson.intToText(k)))
+                def v:VlJson (row.get(field))
+                if (v.isNumber()) {
+                    def d:double v.num
+                    def prev:double 0.0
+                    if (has sums slot) {
+                        prev = (unwrap (get sums slot))
+                    }
+                    set sums slot (prev + d)
+                    if (! (has seenValue slot)) {
+                        set seenValue slot 1
+                        set mins slot d
+                        set maxs slot d
+                    } {
+                        def lo:double (unwrap (get mins slot))
+                        def hi:double (unwrap (get maxs slot))
+                        if (d < lo) {
+                            set mins slot d
+                        }
+                        if (d > hi) {
+                            set maxs slot d
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+
+        def out:[VlJson]
+        for keys key:string ki {
+            def base:VlJson (unwrap (get keyRows key))
+            def n:double (unwrap (get counts key))
+            def k:int 0
+            while (k < opCount) {
+                def op:string (itemAt ops k)
+                def field:string ""
+                if (k < (array_length fields)) {
+                    field = (itemAt fields k)
+                }
+                def name:string ((op + "_") + field)
+                if (k < (array_length asNames)) {
+                    name = (itemAt asNames k)
+                }
+                def slot:string ((key + (strfromcode 30)) + (VlJson.intToText(k)))
+                def value:double 0.0
+                if (op == "count") {
+                    value = n
+                } {
+                    def sum:double 0.0
+                    if (has sums slot) {
+                        sum = (unwrap (get sums slot))
+                    }
+                    if (op == "sum") {
+                        value = sum
+                    }
+                    if (op == "mean") {
+                        if (n != 0.0) {
+                            value = (sum / n)
+                        }
+                    }
+                    if (op == "average") {
+                        if (n != 0.0) {
+                            value = (sum / n)
+                        }
+                    }
+                    if (op == "min") {
+                        if (has mins slot) {
+                            value = (unwrap (get mins slot))
+                        }
+                    }
+                    if (op == "max") {
+                        if (has maxs slot) {
+                            value = (unwrap (get maxs slot))
+                        }
+                    }
+                }
+                base.setMember(name (VlJson.numberValue(value)))
+                k = (k + 1)
+            }
+            push out base
+        }
+        return out
+    }
+}

@@ -1,0 +1,13 @@
+rect x=0 y=0 w=495 h=300 stroke=#ddd strokeWidth=1
+group-begin
+rect x=45 y=216 w=20 h=84 fill=#4c78a8
+rect x=290 y=135 w=20 h=165 fill=#4c78a8
+rect x=85 y=171 w=20 h=129 fill=#4c78a8
+rect x=330 y=27 w=20 h=273 fill=#4c78a8
+rect x=125 y=57 w=20 h=243 fill=#4c78a8
+rect x=370 y=141 w=20 h=159 fill=#4c78a8
+rect x=165 y=243 w=20 h=57 fill=#4c78a8
+rect x=410 y=39 w=20 h=261 fill=#4c78a8
+rect x=205 y=144 w=20 h=156 fill=#4c78a8
+group-end
+

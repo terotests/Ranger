@@ -1,0 +1,124 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "items": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 300,
+      "height": 180,
+      "fill": "transparent",
+      "stroke": "#ddd",
+      "background": "white",
+      "items": [
+        {
+          "marktype": "rect",
+          "name": "marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 83.5,
+              "y": 2.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 28; a: A",
+              "xc": 84
+            },
+            {
+              "x": 164.5,
+              "y": 22.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 55; a: B",
+              "xc": 165
+            },
+            {
+              "x": 128.5,
+              "y": 42.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 43; a: C",
+              "xc": 129
+            },
+            {
+              "x": 272.5,
+              "y": 62.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 91; a: D",
+              "xc": 273
+            },
+            {
+              "x": 242.5,
+              "y": 82.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 81; a: E",
+              "xc": 243
+            },
+            {
+              "x": 158.5,
+              "y": 102.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 53; a: F",
+              "xc": 159
+            },
+            {
+              "x": 56.5,
+              "y": 122.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 19; a: G",
+              "xc": 57
+            },
+            {
+              "x": 260.5,
+              "y": 142.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 87; a: H",
+              "xc": 261
+            },
+            {
+              "x": 155.5,
+              "y": 162.5,
+              "width": 1,
+              "height": 15,
+              "fill": "#4c78a8",
+              "opacity": 0.7,
+              "ariaRoleDescription": "tick",
+              "description": "b: 52; a: I",
+              "xc": 156
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

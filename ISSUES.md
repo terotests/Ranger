@@ -2461,3 +2461,50 @@ curl http://localhost:3000/content
 5. **Watch mode**: File watching for live preview
 
 ---
+
+---
+
+## Issue #69: `if!` re-parses its block as Ranger after it was written as the target
+
+`if!` is a `@macro(true)` operator whose template is
+`'if (false == (' (e 1) ' ) ) { ' (block 2) ' } '`. The macro's text is parsed
+again as Ranger, but `(block 2)` has already been written in the TARGET
+language, so the re-parse sees target syntax. It only compiles when the block's
+generated form happens to also be valid Ranger — a lone `def` survives, an
+assignment or a `print` does not.
+
+### Reproduction
+
+```ranger
+class T {
+    fn a:void () {
+        def flag:boolean false
+        if! flag {
+            print "x"
+        }
+    }
+    sfn main:void () { print "ok" }
+}
+```
+
+```
+[FAIL] WriteVREF -> Undefined variable console in class T node : ((console.log ("x")))
+     1 │ if (false == (flag ) ) {
+     2 │ console.log("x");
+```
+
+`more = false` inside the block fails the same way with
+`WriteVREF -> Undefined variable false`, which is the re-parse reading the
+macro's own `false` as a name.
+
+### Workaround
+
+Use the prefix `!` instead — `if (! flag) { … }` compiles and behaves the same.
+
+### Status
+
+Open. `if!` is used in only two places in the repository
+(`compiler/ng_RangerFlowParser.rgr:282`, and a commented-out line in
+`ng_LiveCompiler.rgr`), both with blocks small enough to survive the re-parse,
+which is why it has not surfaced before. Found while writing `gallery/vela`,
+which uses the workaround throughout.

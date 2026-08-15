@@ -1,0 +1,14 @@
+rect x=0 y=0 w=300 h=300 stroke=#ddd strokeWidth=1
+group-begin
+polyline points=0,39 37.5,171 75,144 112.5,57 150,216 187.5,141 225,27 262.5,243 300,135 stroke=#4c78a8 strokeWidth=2
+symbol x=150 y=216 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=300 y=135 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=37.5 y=171 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=225 y=27 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=112.5 y=57 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=187.5 y=141 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=262.5 y=243 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=0 y=39 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=75 y=144 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+group-end
+

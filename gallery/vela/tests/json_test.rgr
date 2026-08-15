@@ -1,0 +1,49 @@
+; Round-trips a spec through the JSON layer and checks the number formatting
+; the golden files depend on.
+Import "../src/VlJson.rgr"
+
+class VlJsonTest {
+    def failures:int 0
+
+    fn check:void (name:string got:string want:string) {
+        if (got == want) {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ((((("FAIL " + name) + ": got ") + got) + " want ") + want)
+        }
+    }
+
+    fn run:void () {
+        def p (new VlJsonParser())
+        def w (new VlJsonWriter())
+
+        def text:string "{\"a\":[1,2,3],\"b\":{\"c\":\"x\"},\"d\":true,\"e\":null,\"f\":1.5}"
+        def v:VlJson (p.parse(text))
+        this.check("parse ok" (? p.ok "true" "false") "true")
+        this.check("roundtrip" (w.write(v)) text)
+
+        def a:VlJson (v.get("a"))
+        this.check("array count" (to_string (a.count())) "3")
+        this.check("member" (v.get("b").stringOr("c" "")) "x")
+
+        this.check("num int" (VlJson.formatNumber(42.0 6)) "42")
+        this.check("num frac" (VlJson.formatNumber(1.5 6)) "1.5")
+        this.check("num neg" (VlJson.formatNumber(-0.25 6)) "-0.25")
+        this.check("num zero" (VlJson.formatNumber(0.0 6)) "0")
+        this.check("num round" (VlJson.formatNumber(0.30000000000000004 6)) "0.3")
+        this.check("num big" (VlJson.formatNumber(1234567.0 6)) "1234567")
+        this.check("num tiny" (VlJson.formatNumber(0.0000004 6)) "0")
+
+        if (failures > 0) {
+            print ("FAILURES: " + (to_string failures))
+        } {
+            print "all json tests passed"
+        }
+    }
+
+    sfn main:void () {
+        def t (new VlJsonTest())
+        t.run()
+    }
+}

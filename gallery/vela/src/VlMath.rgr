@@ -1,0 +1,129 @@
+; ==============================================================================
+; VlMath.rgr — the logarithm and power the Ranger operator set does not have.
+; ==============================================================================
+; Ranger's built-in maths is sin/cos/tan/asin/acos/atan2/sqrt/floor/ceil/fabs.
+; There is no `log`, `exp` or `pow`, and three parts of a chart engine need
+; them: the bin transform picks its step by a logarithm, a log scale is one by
+; definition, and a pow/sqrt scale raises to an arbitrary exponent.
+;
+; `ln` is computed by range reduction plus the atanh series, which converges
+; fast because the reduced argument is close to 1:
+;
+;   ln(x) = k·ln(2) + ln(m),  x = m·2^k, m in [1, 2)
+;   ln(m) = 2·(z + z³/3 + z⁵/5 + …),  z = (m-1)/(m+1)
+;
+; `exp` is the Taylor series after reducing by ln(2), and `pow` is exp(y·ln x)
+; with the integer exponents special-cased so that pow(10, 3) is exactly 1000
+; rather than 999.9999999999998 — a chart's tick labels are read by people, and
+; that difference is visible.
+; ==============================================================================
+
+class VlMath {
+    sfn ln2:double () {
+        return 0.6931471805599453
+    }
+
+    ; ln for x > 0. Zero and negatives answer 0, which is not the mathematical
+    ; result; every caller here guards its argument, and there is no NaN literal
+    ; to return instead.
+    sfn ln:double (x:double) {
+        if (x <= 0.0) {
+            return 0.0
+        }
+        def m:double x
+        def k:int 0
+        while (m >= 2.0) {
+            m = (m / 2.0)
+            k = (k + 1)
+        }
+        while (m < 1.0) {
+            m = (m * 2.0)
+            k = (k - 1)
+        }
+        def z:double ((m - 1.0) / (m + 1.0))
+        def z2:double (z * z)
+        def term:double z
+        def sum:double z
+        def n:int 1
+        while (n < 30) {
+            term = (term * z2)
+            def denom:double (to_double ((2 * n) + 1))
+            def add:double (term / denom)
+            sum = (sum + add)
+            n = (n + 1)
+        }
+        return (((to_double k) * (VlMath.ln2())) + (2.0 * sum))
+    }
+
+    sfn log10:double (x:double) {
+        return ((VlMath.ln(x)) / 2.302585092994046)
+    }
+
+    sfn exp:double (x:double) {
+        if (x == 0.0) {
+            return 1.0
+        }
+        def negative:boolean (x < 0.0)
+        def v:double x
+        if negative {
+            v = (0.0 - v)
+        }
+        ; v = k·ln2 + r, with |r| <= ln2/2, so the series needs few terms.
+        def k:int (floor ((v / (VlMath.ln2())) + 0.5))
+        def r:double (v - ((to_double k) * (VlMath.ln2())))
+        def term:double 1.0
+        def sum:double 1.0
+        def n:int 1
+        while (n < 20) {
+            term = ((term * r) / (to_double n))
+            sum = (sum + term)
+            n = (n + 1)
+        }
+        def scale:double 1.0
+        def i:int 0
+        while (i < k) {
+            scale = (scale * 2.0)
+            i = (i + 1)
+        }
+        def out:double (sum * scale)
+        if negative {
+            return (1.0 / out)
+        }
+        return out
+    }
+
+    ; An integer exponent multiplies rather than going through exp/ln, so the
+    ; common cases stay exact.
+    sfn pow:double (base:double exponent:double) {
+        def rounded:double (to_double (floor (exponent + 0.5)))
+        if (rounded == exponent) {
+            return (VlMath.powInt(base (floor (exponent + 0.5))))
+        }
+        if (base <= 0.0) {
+            return 0.0
+        }
+        return (VlMath.exp((exponent * (VlMath.ln(base)))))
+    }
+
+    sfn powInt:double (base:double exponent:int) {
+        def n:int exponent
+        def negative:boolean false
+        if (n < 0) {
+            negative = true
+            n = (0 - n)
+        }
+        def out:double 1.0
+        def k:int 0
+        while (k < n) {
+            out = (out * base)
+            k = (k + 1)
+        }
+        if negative {
+            if (out == 0.0) {
+                return 0.0
+            }
+            return (1.0 / out)
+        }
+        return out
+    }
+}

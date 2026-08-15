@@ -14,6 +14,7 @@ the long-form writeups live here.
 | [`invaders`](invaders/) | Terminal Space Invaders compiled to several targets, including the experimental LLVM backend |
 | [`game_engine`](game_engine/README.md) | Retained-mode game runner, SDL launcher, and TSX games (Pong, Breakout, Invaders, Pac-Man); scripting is documented in [`docs/GAME_SCRIPTING.md`](game_engine/docs/GAME_SCRIPTING.md) |
 | [`ranger_engine`](ranger_engine/README.md) | An engine that runs **Ranger** source directly: bytecode VM plus a JIT tier that compiles hot functions to host code |
+| [`vela`](vela/README.md) | Vega-compatible visualization runtime: a Vega spec in, a scene out, checked against official Vega |
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |
 | `process_counter_ios`, `process_counter_android` | Native hosts for the same `@process` demo |
 | `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |

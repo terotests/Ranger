@@ -1,0 +1,5 @@
+rect x=0 y=0 w=300 h=300 stroke=#ddd strokeWidth=1
+group-begin
+polyline points=0,39 37.5,171 75,144 112.5,57 150,216 187.5,141 225,27 262.5,243 300,135 stroke=#4c78a8 strokeWidth=2
+group-end
+

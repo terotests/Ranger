@@ -1,0 +1,192 @@
+; ==============================================================================
+; VlScene.rgr — the scene graph a runtime produces and a renderer consumes.
+; ==============================================================================
+; The shape is the reference implementation's: a mark holds items, an item that
+; is a group holds marks. Keeping that structure (rather than flattening early)
+; is what lets the scene be compared item-for-item against `view.scenegraph()`,
+; which is the only honest way to tell whether this runtime computes the same
+; chart — and it keeps group-relative coordinates intact for the command layer
+; to resolve.
+;
+; An item's encoded channels live in a VlJson object rather than in fields. A
+; mark encodes only the channels its spec names, and a fixed field set cannot
+; tell "not encoded" from "encoded as 0" — a distinction the comparison needs,
+; since the reference emits only what it set.
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+class VlSceneItem {
+    def props:VlJson (VlJson.objectValue())
+    def datum:VlJson (new VlJson)
+    def hasDatum:boolean false
+    ; A group item owns the marks drawn inside it.
+    def marks:[VlSceneMark]
+
+    fn setNumber:void (key:string value:double) {
+        props.setMember(key (VlJson.numberValue(value)))
+    }
+    fn setString:void (key:string value:string) {
+        props.setMember(key (VlJson.stringValue(value)))
+    }
+    fn setValue:void (key:string value:VlJson) {
+        props.setMember(key value)
+    }
+    fn number:double (key:string) {
+        return (props.doubleOr(key 0.0))
+    }
+    fn text:string (key:string) {
+        return (props.stringOr(key ""))
+    }
+    fn has:boolean (key:string) {
+        return (props.has(key))
+    }
+
+    ; A mark encodes any two of (x, x2, width) and any two of (y, y2, height);
+    ; the third is derived. The reference fills in the SIZE only — an item with
+    ; x and width keeps no x2 — so this fills in the same one, and a scene that
+    ; is compared against it does not differ by a field nobody set.
+    fn resolveGeometry:void (markType:string) {
+        ; A rectangle written from its far corner is the same rectangle: the
+        ; reference normalises x/x2 and y/y2 so the size is never negative, and
+        ; a binned histogram — whose x reads the bin END — depends on it.
+        if ((markType == "rect") || (markType == "image")) {
+            if ((props.has("x")) && (props.has("x2"))) {
+                if ((this.number("x")) > (this.number("x2"))) {
+                    def swapX:double (this.number("x"))
+                    this.setNumber("x" (this.number("x2")))
+                    this.setNumber("x2" swapX)
+                }
+            }
+            if ((props.has("y")) && (props.has("y2"))) {
+                if ((this.number("y")) > (this.number("y2"))) {
+                    def swapY:double (this.number("y"))
+                    this.setNumber("y" (this.number("y2")))
+                    this.setNumber("y2" swapY)
+                }
+            }
+        }
+        ; A centre channel places the item around its middle: `xc` with a width
+        ; is how a tick mark and a centred bar are written.
+        if (props.has("xc")) {
+            if (! (props.has("x"))) {
+                this.setNumber("x" ((this.number("xc")) - ((this.number("width")) / 2.0)))
+            }
+        }
+        if (props.has("yc")) {
+            if (! (props.has("y"))) {
+                this.setNumber("y" ((this.number("yc")) - ((this.number("height")) / 2.0)))
+            }
+        }
+        if (! (props.has("width"))) {
+            if ((props.has("x")) && (props.has("x2"))) {
+                this.setNumber("width" ((this.number("x2")) - (this.number("x"))))
+            }
+        }
+        if (! (props.has("height"))) {
+            if ((props.has("y")) && (props.has("y2"))) {
+                this.setNumber("height" ((this.number("y2")) - (this.number("y"))))
+            }
+        }
+    }
+}
+
+class VlSceneMark {
+    ; rect | rule | text | symbol | line | area | path | arc | image | group
+    def markType:string "group"
+    def name:string ""
+    def role:string ""
+    def items:[VlSceneItem]
+
+    fn addItem:VlSceneItem () {
+        def item (new VlSceneItem())
+        push items item
+        return item
+    }
+}
+
+; Serialises a scene to canonical JSON. The parity harness reads this and the
+; reference implementation's scenegraph through the same shape, so a difference
+; in the text is a difference in the chart.
+class VlSceneWriter {
+    ; Channels are written in this order whatever order they were encoded in,
+    ; so two runs that set the same values compare equal as text.
+    def channelOrder:[string]
+
+    Constructor () {
+        push channelOrder "x"
+        push channelOrder "y"
+        push channelOrder "x2"
+        push channelOrder "y2"
+        push channelOrder "width"
+        push channelOrder "height"
+        push channelOrder "fill"
+        push channelOrder "fillOpacity"
+        push channelOrder "stroke"
+        push channelOrder "strokeWidth"
+        push channelOrder "strokeOpacity"
+        push channelOrder "opacity"
+        push channelOrder "size"
+        push channelOrder "shape"
+        push channelOrder "text"
+        push channelOrder "font"
+        push channelOrder "fontSize"
+        push channelOrder "fontWeight"
+        push channelOrder "align"
+        push channelOrder "baseline"
+        push channelOrder "angle"
+        push channelOrder "path"
+        push channelOrder "url"
+        push channelOrder "interpolate"
+        push channelOrder "defined"
+    }
+
+    fn markToJson:VlJson (mark:VlSceneMark) {
+        def out:VlJson (VlJson.objectValue())
+        out.setMember("marktype" (VlJson.stringValue(mark.markType)))
+        if ((strlen mark.name) > 0) {
+            out.setMember("name" (VlJson.stringValue(mark.name)))
+        }
+        if ((strlen mark.role) > 0) {
+            out.setMember("role" (VlJson.stringValue(mark.role)))
+        }
+        def items:VlJson (VlJson.arrayValue())
+        for mark.items item:VlSceneItem idx {
+            push items.arr (this.itemToJson(item))
+        }
+        out.setMember("items" items)
+        return out
+    }
+
+    fn itemToJson:VlJson (item:VlSceneItem) {
+        def out:VlJson (VlJson.objectValue())
+        ; Known channels first, in the fixed order …
+        for channelOrder key:string ki {
+            if (item.props.has(key)) {
+                out.setMember(key (item.props.get(key)))
+            }
+        }
+        ; … then anything else the encoder set, in the order it was set, so a
+        ; channel this writer has not heard of is still visible rather than
+        ; silently dropped.
+        for item.props.keys key:string ki {
+            if (! (out.has(key))) {
+                out.setMember(key (item.props.get(key)))
+            }
+        }
+        def markCount:int (array_length item.marks)
+        if (markCount > 0) {
+            def marks:VlJson (VlJson.arrayValue())
+            for item.marks child:VlSceneMark mi {
+                push marks.arr (this.markToJson(child))
+            }
+            out.setMember("items" marks)
+        }
+        return out
+    }
+
+    fn write:string (mark:VlSceneMark) {
+        def w (new VlJsonWriter())
+        return (w.writePretty((this.markToJson(mark))))
+    }
+}

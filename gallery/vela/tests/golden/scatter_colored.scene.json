@@ -1,0 +1,133 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "items": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 300,
+      "height": 300,
+      "fill": "transparent",
+      "stroke": "#ddd",
+      "background": "white",
+      "items": [
+        {
+          "marktype": "symbol",
+          "name": "marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 166.666667,
+              "y": 216,
+              "fill": "transparent",
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 5; b: 28; g: x"
+            },
+            {
+              "x": 300,
+              "y": 135,
+              "fill": "transparent",
+              "stroke": "#f58518",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 9; b: 55; g: y"
+            },
+            {
+              "x": 66.666667,
+              "y": 171,
+              "fill": "transparent",
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 2; b: 43; g: x"
+            },
+            {
+              "x": 233.333333,
+              "y": 27,
+              "fill": "transparent",
+              "stroke": "#f58518",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 7; b: 91; g: y"
+            },
+            {
+              "x": 133.333333,
+              "y": 57,
+              "fill": "transparent",
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 4; b: 81; g: x"
+            },
+            {
+              "x": 200,
+              "y": 141,
+              "fill": "transparent",
+              "stroke": "#f58518",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 6; b: 53; g: y"
+            },
+            {
+              "x": 266.666667,
+              "y": 243,
+              "fill": "transparent",
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 8; b: 19; g: x"
+            },
+            {
+              "x": 33.333333,
+              "y": 39,
+              "fill": "transparent",
+              "stroke": "#f58518",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 1; b: 87; g: y"
+            },
+            {
+              "x": 100,
+              "y": 144,
+              "fill": "transparent",
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "opacity": 0.7,
+              "size": 30,
+              "shape": "circle",
+              "ariaRoleDescription": "point",
+              "description": "c: 3; b: 52; g: x"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

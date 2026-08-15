@@ -1,0 +1,97 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "items": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 300,
+      "height": 300,
+      "fill": "transparent",
+      "stroke": "#ddd",
+      "background": "white",
+      "items": [
+        {
+          "marktype": "line",
+          "name": "marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 0,
+              "y": 39,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 1; b: 87"
+            },
+            {
+              "x": 37.5,
+              "y": 171,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 2; b: 43"
+            },
+            {
+              "x": 75,
+              "y": 144,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 3; b: 52"
+            },
+            {
+              "x": 112.5,
+              "y": 57,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 4; b: 81"
+            },
+            {
+              "x": 150,
+              "y": 216,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 5; b: 28"
+            },
+            {
+              "x": 187.5,
+              "y": 141,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 6; b: 53"
+            },
+            {
+              "x": 225,
+              "y": 27,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 7; b: 91"
+            },
+            {
+              "x": 262.5,
+              "y": 243,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 8; b: 19"
+            },
+            {
+              "x": 300,
+              "y": 135,
+              "stroke": "#4c78a8",
+              "strokeWidth": 2,
+              "defined": true,
+              "description": "c: 9; b: 55"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

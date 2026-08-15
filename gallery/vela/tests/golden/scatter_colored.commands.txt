@@ -1,0 +1,13 @@
+rect x=0 y=0 w=300 h=300 stroke=#ddd strokeWidth=1
+group-begin
+symbol x=166.667 y=216 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=300 y=135 size=30 shape=circle stroke=#f58518 strokeWidth=2 opacity=0.7
+symbol x=66.667 y=171 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=233.333 y=27 size=30 shape=circle stroke=#f58518 strokeWidth=2 opacity=0.7
+symbol x=133.333 y=57 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=200 y=141 size=30 shape=circle stroke=#f58518 strokeWidth=2 opacity=0.7
+symbol x=266.667 y=243 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+symbol x=33.333 y=39 size=30 shape=circle stroke=#f58518 strokeWidth=2 opacity=0.7
+symbol x=100 y=144 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+group-end
+

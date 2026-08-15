@@ -1,0 +1,91 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "items": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 300,
+      "height": 300,
+      "fill": "transparent",
+      "stroke": "#ddd",
+      "background": "white",
+      "items": [
+        {
+          "marktype": "rect",
+          "name": "marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 34.333333,
+              "y": 200,
+              "x2": 66.666667,
+              "y2": 300,
+              "width": 32.333333,
+              "height": 100,
+              "fill": "#4c78a8",
+              "ariaRoleDescription": "bar",
+              "description": "b (binned): 20 – 30; Count of Records: 1"
+            },
+            {
+              "x": 134.333333,
+              "y": 0,
+              "x2": 166.666667,
+              "y2": 300,
+              "width": 32.333333,
+              "height": 300,
+              "fill": "#4c78a8",
+              "ariaRoleDescription": "bar",
+              "description": "b (binned): 50 – 60; Count of Records: 3"
+            },
+            {
+              "x": 101,
+              "y": 200,
+              "x2": 133.333333,
+              "y2": 300,
+              "width": 32.333333,
+              "height": 100,
+              "fill": "#4c78a8",
+              "ariaRoleDescription": "bar",
+              "description": "b (binned): 40 – 50; Count of Records: 1"
+            },
+            {
+              "x": 267.666667,
+              "y": 200,
+              "x2": 300,
+              "y2": 300,
+              "width": 32.333333,
+              "height": 100,
+              "fill": "#4c78a8",
+              "ariaRoleDescription": "bar",
+              "description": "b (binned): 90 – 100; Count of Records: 1"
+            },
+            {
+              "x": 234.333333,
+              "y": 100,
+              "x2": 266.666667,
+              "y2": 300,
+              "width": 32.333333,
+              "height": 200,
+              "fill": "#4c78a8",
+              "ariaRoleDescription": "bar",
+              "description": "b (binned): 80 – 90; Count of Records: 2"
+            },
+            {
+              "x": 1,
+              "y": 200,
+              "x2": 33.333333,
+              "y2": 300,
+              "width": 32.333333,
+              "height": 100,
+              "fill": "#4c78a8",
+              "ariaRoleDescription": "bar",
+              "description": "b (binned): 10 – 20; Count of Records: 1"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

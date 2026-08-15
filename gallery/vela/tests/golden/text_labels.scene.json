@@ -1,0 +1,124 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "items": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 300,
+      "height": 300,
+      "fill": "transparent",
+      "stroke": "#ddd",
+      "background": "white",
+      "items": [
+        {
+          "marktype": "text",
+          "name": "marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 166.666667,
+              "y": 216,
+              "fill": "black",
+              "text": "A",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 5; b: 28; a: A"
+            },
+            {
+              "x": 300,
+              "y": 135,
+              "fill": "black",
+              "text": "B",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 9; b: 55; a: B"
+            },
+            {
+              "x": 66.666667,
+              "y": 171,
+              "fill": "black",
+              "text": "C",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 2; b: 43; a: C"
+            },
+            {
+              "x": 233.333333,
+              "y": 27,
+              "fill": "black",
+              "text": "D",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 7; b: 91; a: D"
+            },
+            {
+              "x": 133.333333,
+              "y": 57,
+              "fill": "black",
+              "text": "E",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 4; b: 81; a: E"
+            },
+            {
+              "x": 200,
+              "y": 141,
+              "fill": "black",
+              "text": "F",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 6; b: 53; a: F"
+            },
+            {
+              "x": 266.666667,
+              "y": 243,
+              "fill": "black",
+              "text": "G",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 8; b: 19; a: G"
+            },
+            {
+              "x": 33.333333,
+              "y": 39,
+              "fill": "black",
+              "text": "H",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 1; b: 87; a: H"
+            },
+            {
+              "x": 100,
+              "y": 144,
+              "fill": "black",
+              "text": "I",
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "description": "c: 3; b: 52; a: I"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

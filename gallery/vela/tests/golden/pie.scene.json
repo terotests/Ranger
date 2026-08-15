@@ -1,0 +1,113 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "items": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 300,
+      "height": 300,
+      "background": "white",
+      "items": [
+        {
+          "marktype": "arc",
+          "name": "marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#4c78a8",
+              "description": "b: 28; a: A",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 0.345637,
+              "endAngle": 0
+            },
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#f58518",
+              "description": "b: 55; a: B",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 1.024567,
+              "endAngle": 0.345637
+            },
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#e45756",
+              "description": "b: 43; a: C",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 1.555366,
+              "endAngle": 1.024567
+            },
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#72b7b2",
+              "description": "b: 91; a: D",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 2.678686,
+              "endAngle": 1.555366
+            },
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#54a24b",
+              "description": "b: 81; a: E",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 3.678564,
+              "endAngle": 2.678686
+            },
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#eeca3b",
+              "description": "b: 53; a: F",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 4.332806,
+              "endAngle": 3.678564
+            },
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#b279a2",
+              "description": "b: 19; a: G",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 4.567345,
+              "endAngle": 4.332806
+            },
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#ff9da6",
+              "description": "b: 87; a: H",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 5.641288,
+              "endAngle": 4.567345
+            },
+            {
+              "x": 150,
+              "y": 150,
+              "fill": "#9d755d",
+              "description": "b: 52; a: I",
+              "outerRadius": 150,
+              "innerRadius": 0,
+              "startAngle": 6.283185,
+              "endAngle": 5.641288
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

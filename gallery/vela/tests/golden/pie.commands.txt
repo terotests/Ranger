@@ -1,0 +1,12 @@
+group-begin
+rect x=0 y=0 w=0 h=0 fill=#4c78a8
+rect x=0 y=0 w=0 h=0 fill=#f58518
+rect x=0 y=0 w=0 h=0 fill=#e45756
+rect x=0 y=0 w=0 h=0 fill=#72b7b2
+rect x=0 y=0 w=0 h=0 fill=#54a24b
+rect x=0 y=0 w=0 h=0 fill=#eeca3b
+rect x=0 y=0 w=0 h=0 fill=#b279a2
+rect x=0 y=0 w=0 h=0 fill=#ff9da6
+rect x=0 y=0 w=0 h=0 fill=#9d755d
+group-end
+

@@ -1,0 +1,982 @@
+; ==============================================================================
+; VlRuntime.rgr — a Vega specification in, a scene out.
+; ==============================================================================
+; The order the reference implementation reaches by dataflow, reached here by a
+; staged evaluation instead:
+;
+;   seed signals -> run data sets -> build scales -> settle signals -> encode
+;
+; Signals and scales are mutually dependent in real specs — a band scale's range
+; comes from a step signal, and the `width` signal comes from that scale's
+; extent — so the settle step re-evaluates both until nothing changes. Two
+; rounds cover every spec Vega-Lite emits for a single-view chart; the loop is
+; bounded and reports when it has not settled rather than looping forever.
+;
+; This is NOT the incremental dataflow: there is no pulse, no changeset and no
+; re-run on a signal change. Everything here is recomputed from the spec each
+; time, which is all a static render needs and is the honest description of what
+; it does.
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlScale.rgr"
+Import "VlExprEval.rgr"
+Import "VlTransform.rgr"
+Import "VlScene.rgr"
+Import "VlConfig.rgr"
+
+class VlRuntime {
+    def spec:VlJson (new VlJson)
+    def scope:VlExprScope (new VlExprScope())
+    def dataSets:[string:VlDataSet]
+    def dataOrder:[string]
+    def scaleOrder:[string]
+    def errors:[string]
+    def warnings:[string]
+
+    def config:VlConfig (new VlConfig())
+    def chartWidth:double 200.0
+    def chartHeight:double 200.0
+    def padding:double 5.0
+    def background:string ""
+
+    ; ------------------------------------------------------------------ run ---
+    fn run:VlSceneMark (specJson:VlJson) {
+        spec = specJson
+        config.loadDefaults()
+        config.mergeSpecConfig((spec.get("config")))
+        this.readSize()
+        this.seedSignals()
+        this.runData()
+        this.reportMissingFunctions()
+        this.buildScales()
+        this.settle()
+        return (this.encodeScene())
+    }
+
+    fn fail:void (msg:string) {
+        push errors msg
+    }
+
+    ; A transform evaluates its expression directly rather than through
+    ; evalExpr, so the "this function does not exist" notes the scope collects
+    ; are drained here — otherwise a spec that needs a function this runtime
+    ; lacks silently computes null and draws a chart that is quietly wrong.
+    fn reportMissingFunctions:void () {
+        for scope.missing name:string ni {
+            this.fail(("expression uses a function this runtime does not have: " + name))
+        }
+        clear scope.missing
+    }
+    fn warn:void (msg:string) {
+        push warnings msg
+    }
+    fn errorCount:int () {
+        return (array_length errors)
+    }
+
+    ; ----------------------------------------------------------------- size ---
+    fn readSize:void () {
+        chartWidth = (spec.doubleOr("width" 200.0))
+        chartHeight = (spec.doubleOr("height" 200.0))
+        padding = (spec.doubleOr("padding" 5.0))
+        background = (spec.stringOr("background" ""))
+    }
+
+    ; -------------------------------------------------------------- signals ---
+    ; A signal with a literal `value` is known before anything runs; one with an
+    ; `update` expression waits for the settle step, because it may read a scale
+    ; that does not exist yet.
+    fn seedSignals:void () {
+        scope.setSignal("width" (VlJson.numberValue(chartWidth)))
+        scope.setSignal("height" (VlJson.numberValue(chartHeight)))
+        scope.setSignal("padding" (VlJson.numberValue(padding)))
+        def signals:VlJson (spec.get("signals"))
+        if (! (signals.isArray())) {
+            return
+        }
+        def total:int (signals.count())
+        def k:int 0
+        while (k < total) {
+            def sig:VlJson (signals.at(k))
+            def name:string (sig.stringOr("name" ""))
+            if ((strlen name) > 0) {
+                if (sig.has("value")) {
+                    scope.setSignal(name (sig.get("value")))
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; Re-evaluates every `update` expression and rebuilds the scales, until a
+    ; round changes nothing.
+    fn settle:void () {
+        def rounds:int 0
+        def changed:boolean true
+        while (changed && (rounds < 4)) {
+            rounds = (rounds + 1)
+            changed = (this.evalSignalUpdates())
+            this.buildScales()
+        }
+        if changed {
+            this.warn("signals did not settle in 4 rounds")
+        }
+    }
+
+    fn evalSignalUpdates:boolean () {
+        def signals:VlJson (spec.get("signals"))
+        if (! (signals.isArray())) {
+            return false
+        }
+        def changed:boolean false
+        def total:int (signals.count())
+        def k:int 0
+        while (k < total) {
+            def sig:VlJson (signals.at(k))
+            def name:string (sig.stringOr("name" ""))
+            def update:string (sig.stringOr("update" ""))
+            if (((strlen name) > 0) && ((strlen update) > 0)) {
+                def before:VlJson (scope.signal(name))
+                def value:VlJson (this.evalExpr(update))
+                scope.setSignal(name value)
+                if (! (VlRuntime.sameValue(before value))) {
+                    changed = true
+                }
+                ; `width` and `height` are the chart's own size when a signal
+                ; sets them, which is how a step-sized bar chart decides how
+                ; wide it is.
+                if (name == "width") {
+                    chartWidth = (value.asDouble())
+                }
+                if (name == "height") {
+                    chartHeight = (value.asDouble())
+                }
+            }
+            k = (k + 1)
+        }
+        return changed
+    }
+
+    ; "Did this signal change?" — scalars compare directly, anything structured
+    ; compares as text, which is cheap at the size a signal ever reaches and
+    ; keeps the settle loop from declaring a change that did not happen.
+    sfn sameValue:boolean (a:VlJson b:VlJson) {
+        if (a.kind != b.kind) {
+            return false
+        }
+        if (a.kind == 0) {
+            return true
+        }
+        if (a.kind == 1) {
+            return (a.b == b.b)
+        }
+        if (a.kind == 2) {
+            return (a.num == b.num)
+        }
+        if (a.kind == 3) {
+            return (a.str == b.str)
+        }
+        def w (new VlJsonWriter())
+        return ((w.write(a)) == (w.write(b)))
+    }
+
+    ; ------------------------------------------------------------------ data ---
+    fn runData:void () {
+        def data:VlJson (spec.get("data"))
+        if (! (data.isArray())) {
+            return
+        }
+        def total:int (data.count())
+        def k:int 0
+        while (k < total) {
+            def def0:VlJson (data.at(k))
+            this.runDataSet(def0)
+            k = (k + 1)
+        }
+    }
+
+    fn runDataSet:void (def0:VlJson) {
+        def name:string (def0.stringOr("name" ""))
+        def ds (new VlDataSet())
+        ds.name = name
+
+        def source:string (def0.stringOr("source" ""))
+        if ((strlen source) > 0) {
+            if (has dataSets source) {
+                def src:VlDataSet (unwrap (get dataSets source))
+                for src.rows row:VlJson ri {
+                    push ds.rows row
+                }
+            } {
+                this.fail(("data set '" + source) + "' is used before it is defined")
+            }
+        }
+
+        def values:VlJson (def0.get("values"))
+        if (values.isArray()) {
+            def vcount:int (values.count())
+            def vi:int 0
+            while (vi < vcount) {
+                push ds.rows (values.at(vi))
+                vi = (vi + 1)
+            }
+        }
+        if (def0.has("url")) {
+            this.fail("data set '" + name + "' loads from a url, which needs the loader capability")
+        }
+
+        def transforms:VlJson (def0.get("transform"))
+        if (transforms.isArray()) {
+            def tcount:int (transforms.count())
+            def ti:int 0
+            while (ti < tcount) {
+                ds.rows = (this.applyTransform((transforms.at(ti)) ds.rows name))
+                ti = (ti + 1)
+            }
+        }
+
+        if (! (has dataSets name)) {
+            push dataOrder name
+        }
+        set dataSets name ds
+    }
+
+    fn applyTransform:[VlJson] (tdef:VlJson rows:[VlJson] dataName:string) {
+        def ttype:string (tdef.stringOr("type" ""))
+
+        if (ttype == "filter") {
+            def node:VlExprNode (this.parseExpr((tdef.stringOr("expr" ""))))
+            return (VlTransform.filterRows(rows node scope))
+        }
+        if (ttype == "formula") {
+            def node:VlExprNode (this.parseExpr((tdef.stringOr("expr" ""))))
+            return (VlTransform.formula(rows node (tdef.stringOr("as" "")) scope))
+        }
+        if (ttype == "stack") {
+            def groupby:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            def asNames:[string] (VlRuntime.stringList((tdef.get("as"))))
+            def sortDef:VlJson (tdef.get("sort"))
+            def sortFields:[string] (VlRuntime.stringList((sortDef.get("field"))))
+            def sortOrders:[string] (VlRuntime.stringList((sortDef.get("order"))))
+            return (VlTransform.stack(rows (tdef.stringOr("field" "")) groupby asNames (tdef.stringOr("offset" "zero")) sortFields sortOrders))
+        }
+        if (ttype == "aggregate") {
+            def groupby:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            def ops:[string] (VlRuntime.stringList((tdef.get("ops"))))
+            def fields:[string] (VlRuntime.stringList((tdef.get("fields"))))
+            def asNames:[string] (VlRuntime.stringList((tdef.get("as"))))
+            return (VlTransform.aggregate(rows groupby ops fields asNames))
+        }
+        if (ttype == "extent") {
+            def ext:[double] (VlTransform.extent(rows (tdef.stringOr("field" ""))))
+            def signalName:string (tdef.stringOr("signal" ""))
+            if ((strlen signalName) > 0) {
+                def value:VlJson (VlJson.arrayValue())
+                push value.arr (VlJson.numberValue((itemAt ext 0)))
+                push value.arr (VlJson.numberValue((itemAt ext 1)))
+                scope.setSignal(signalName value)
+            }
+            return rows
+        }
+        if (ttype == "bin") {
+            def field:string (tdef.stringOr("field" ""))
+            def asNames:[string] (VlRuntime.stringList((tdef.get("as"))))
+            def ext:[double] (this.binInputExtent(tdef rows field))
+            def maxbins:int (tdef.intOr("maxbins" 20))
+            def base:double (tdef.doubleOr("base" 10.0))
+            def minstep:double (tdef.doubleOr("minstep" 0.0))
+            def nice:boolean (tdef.boolOr("nice" true))
+            def plan:[double] (VlTransform.binExtent((itemAt ext 0) (itemAt ext 1) maxbins base minstep nice))
+            def signalName:string (tdef.stringOr("signal" ""))
+            if ((strlen signalName) > 0) {
+                def binSignal:VlJson (VlJson.objectValue())
+                binSignal.setMember("start" (VlJson.numberValue((itemAt plan 0))))
+                binSignal.setMember("stop" (VlJson.numberValue((itemAt plan 1))))
+                binSignal.setMember("step" (VlJson.numberValue((itemAt plan 2))))
+                def fieldsList:VlJson (VlJson.arrayValue())
+                push fieldsList.arr (VlJson.stringValue(field))
+                binSignal.setMember("fields" fieldsList)
+                scope.setSignal(signalName binSignal)
+            }
+            return (VlTransform.bin(rows field asNames (itemAt plan 0) (itemAt plan 1) (itemAt plan 2)))
+        }
+        if (ttype == "impute") {
+            def groupby:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            def method:string (tdef.stringOr("method" "value"))
+            if (method != "value") {
+                this.fail((("impute method '" + method) + "' is not implemented (data '") + dataName + "')")
+                return rows
+            }
+            return (VlTransform.impute(rows (tdef.stringOr("field" "")) (tdef.stringOr("key" "")) groupby method (tdef.get("value"))))
+        }
+        if (ttype == "collect") {
+            ; Sorting is not implemented yet; the rows keep their order, which
+            ; is right for every spec that collects without a sort.
+            if (tdef.has("sort")) {
+                this.warn(("collect sort is not implemented (data '" + dataName) + "')")
+            }
+            return rows
+        }
+        if (ttype == "identifier") {
+            return rows
+        }
+        this.fail((("transform '" + ttype) + "' is not implemented (data '") + dataName + "')")
+        return rows
+    }
+
+    ; A bin's extent is normally a signal an earlier `extent` transform set;
+    ; a literal pair is also allowed.
+    fn binInputExtent:[double] (tdef:VlJson rows:[VlJson] field:string) {
+        def out:[double]
+        def ext:VlJson (tdef.get("extent"))
+        if (ext.isObject()) {
+            if (ext.has("signal")) {
+                def value:VlJson (scope.signal((ext.stringOr("signal" ""))))
+                if (value.isArray()) {
+                    if ((value.count()) > 1) {
+                        push out (value.at(0).asDouble())
+                        push out (value.at(1).asDouble())
+                        return out
+                    }
+                }
+            }
+        }
+        if (ext.isArray()) {
+            if ((ext.count()) > 1) {
+                push out (ext.at(0).asDouble())
+                push out (ext.at(1).asDouble())
+                return out
+            }
+        }
+        return (VlTransform.extent(rows field))
+    }
+
+    sfn stringList:[string] (v:VlJson) {
+        def out:[string]
+        if (v.isArray()) {
+            def total:int (v.count())
+            def k:int 0
+            while (k < total) {
+                push out (v.at(k).asString())
+                k = (k + 1)
+            }
+            return out
+        }
+        if (v.isString()) {
+            push out v.str
+        }
+        return out
+    }
+
+    fn dataRows:[VlJson] (name:string) {
+        if (has dataSets name) {
+            def ds:VlDataSet (unwrap (get dataSets name))
+            return ds.rows
+        }
+        def empty:[VlJson]
+        return empty
+    }
+
+    ; ---------------------------------------------------------------- scales ---
+    fn buildScales:void () {
+        def scales:VlJson (spec.get("scales"))
+        if (! (scales.isArray())) {
+            return
+        }
+        def total:int (scales.count())
+        def k:int 0
+        while (k < total) {
+            this.buildScale((scales.at(k)))
+            k = (k + 1)
+        }
+    }
+
+    fn buildScale:void (sdef:VlJson) {
+        def name:string (sdef.stringOr("name" ""))
+        def sc (new VlScale())
+        sc.name = name
+        sc.scaleType = (sdef.stringOr("type" "linear"))
+        if (sdef.has("padding")) {
+            sc.paddingInner = (sdef.doubleOr("padding" 0.0))
+            sc.paddingOuter = (sdef.doubleOr("padding" 0.0))
+        }
+        sc.paddingInner = (sdef.doubleOr("paddingInner" sc.paddingInner))
+        sc.paddingOuter = (sdef.doubleOr("paddingOuter" sc.paddingOuter))
+        sc.align = (sdef.doubleOr("align" 0.5))
+        sc.round = (sdef.boolOr("round" false))
+        sc.clamp = (sdef.boolOr("clamp" false))
+
+        this.readDomain(sc (sdef.get("domain")) sdef)
+        this.readRange(sc (sdef.get("range")))
+
+        if ((sc.scaleType == "band") || (sc.scaleType == "point")) {
+            sc.layout()
+        } {
+            if (sdef.boolOr("zero" false)) {
+                if (sc.domainMin > 0.0) {
+                    sc.domainMin = 0.0
+                }
+                if (sc.domainMax < 0.0) {
+                    sc.domainMax = 0.0
+                }
+            }
+            if (sdef.boolOr("nice" false)) {
+                sc.niceDomain(10)
+            }
+        }
+
+        if (! (has scope.scales name)) {
+            push scaleOrder name
+        }
+        scope.setScale(name sc)
+    }
+
+    fn readDomain:void (sc:VlScale d:VlJson sdef:VlJson) {
+        if (d.isArray()) {
+            ; A literal domain is either numbers or discrete values.
+            def total:int (d.count())
+            def allNumbers:boolean true
+            def k:int 0
+            while (k < total) {
+                def item:VlJson (d.at(k))
+                if (! (item.isNumber())) {
+                    allNumbers = false
+                }
+                k = (k + 1)
+            }
+            if (allNumbers && (total == 2)) {
+                sc.setNumericDomain((d.at(0).asDouble()) (d.at(1).asDouble()))
+                return
+            }
+            k = 0
+            while (k < total) {
+                sc.addDomainValue((d.at(k).asString()))
+                k = (k + 1)
+            }
+            return
+        }
+        if (! (d.isObject())) {
+            return
+        }
+        ; A domain may be an expression — a binned axis spans the bin plan the
+        ; bin transform put in a signal.
+        if (d.has("signal")) {
+            def value:VlJson (this.evalExpr((d.stringOr("signal" ""))))
+            if (value.isArray()) {
+                if ((value.count()) > 1) {
+                    if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+                        def total:int (value.count())
+                        def k:int 0
+                        while (k < total) {
+                            sc.addDomainValue((value.at(k).asString()))
+                            k = (k + 1)
+                        }
+                        return
+                    }
+                    sc.setNumericDomain((value.at(0).asDouble()) (value.at((value.count()) - 1).asDouble()))
+                }
+            }
+            return
+        }
+        def dataName:string (d.stringOr("data" ""))
+        def rows:[VlJson] (this.dataRows(dataName))
+
+        if (d.has("field")) {
+            def field:string (d.stringOr("field" ""))
+            if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+                def vals:[string] (VlTransform.distinctValues(rows field))
+                for vals v:string vi {
+                    sc.addDomainValue(v)
+                }
+                return
+            }
+            def ext:[double] (VlTransform.extent(rows field))
+            sc.setNumericDomain((itemAt ext 0) (itemAt ext 1))
+            return
+        }
+        def fieldList:VlJson (d.get("fields"))
+        if (fieldList.isArray()) {
+            if (fieldList.count() > 0) {
+                if (fieldList.at(0).isObject()) {
+                    this.readMultiSourceDomain(sc fieldList)
+                    return
+                }
+            }
+        }
+        if (d.has("fields")) {
+            def fields:[string] (VlRuntime.stringList((d.get("fields"))))
+            if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+                for fields field:string fi {
+                    def vals:[string] (VlTransform.distinctValues(rows field))
+                    for vals v:string vi {
+                        sc.addDomainValue(v)
+                    }
+                }
+                return
+            }
+            def lo:double 0.0
+            def hi:double 0.0
+            def seen:boolean false
+            for fields field:string fi {
+                def ext:[double] (VlTransform.extent(rows field))
+                def a:double (itemAt ext 0)
+                def b:double (itemAt ext 1)
+                if (! seen) {
+                    lo = a
+                    hi = b
+                    seen = true
+                } {
+                    if (a < lo) {
+                        lo = a
+                    }
+                    if (b > hi) {
+                        hi = b
+                    }
+                }
+            }
+            sc.setNumericDomain(lo hi)
+        }
+    }
+
+    ; A layered or concatenated chart shares one scale across several data sets,
+    ; and its domain names each of them: [{"data": …, "field": …}, …].
+    fn readMultiSourceDomain:void (sc:VlScale fieldList:VlJson) {
+        def discrete:boolean false
+        if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+            discrete = true
+        }
+        def lo:double 0.0
+        def hi:double 0.0
+        def seen:boolean false
+        def total:int (fieldList.count())
+        def k:int 0
+        while (k < total) {
+            def entry:VlJson (fieldList.at(k))
+            def rows:[VlJson] (this.dataRows((entry.stringOr("data" ""))))
+            def field:string (entry.stringOr("field" ""))
+            if discrete {
+                def vals:[string] (VlTransform.distinctValues(rows field))
+                for vals v:string vi {
+                    sc.addDomainValue(v)
+                }
+            } {
+                def ext:[double] (VlTransform.extent(rows field))
+                def a:double (itemAt ext 0)
+                def b:double (itemAt ext 1)
+                if ((array_length rows) > 0) {
+                    if (! seen) {
+                        lo = a
+                        hi = b
+                        seen = true
+                    } {
+                        if (a < lo) {
+                            lo = a
+                        }
+                        if (b > hi) {
+                            hi = b
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        if (! discrete) {
+            sc.setNumericDomain(lo hi)
+        }
+    }
+
+    fn readRange:void (sc:VlScale r:VlJson) {
+        if (r.isString()) {
+            if (r.str == "width") {
+                sc.setNumericRange(0.0 chartWidth)
+                return
+            }
+            if (r.str == "height") {
+                sc.setNumericRange(chartHeight 0.0)
+                return
+            }
+            def scheme:[string] (VlConfig.schemeColors((r.str)))
+            if ((array_length scheme) > 0) {
+                for scheme color:string ci {
+                    push sc.rangeValues color
+                }
+                return
+            }
+            this.warn(("scale range scheme '" + r.str) + "' is not implemented")
+            return
+        }
+        if (r.isArray()) {
+            def total:int (r.count())
+            if (total == 2) {
+                sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at(1)))))
+                return
+            }
+            ; A longer range is a list of output values — an ordinal range.
+            def k:int 0
+            while (k < total) {
+                push sc.rangeValues (r.at(k).asString())
+                k = (k + 1)
+            }
+            return
+        }
+        if (r.isObject()) {
+            if (r.has("scheme")) {
+                def scheme:[string] (VlConfig.schemeColors((r.stringOr("scheme" ""))))
+                if ((array_length scheme) > 0) {
+                    for scheme color:string ci {
+                        push sc.rangeValues color
+                    }
+                } {
+                    this.warn(("colour scheme '" + (r.stringOr("scheme" ""))) + "' is not implemented")
+                }
+                return
+            }
+            if (r.has("step")) {
+                sc.stepSet = true
+                sc.stepValue = (this.rangeNumber((r.get("step"))))
+                sc.setNumericRange(0.0 0.0)
+                return
+            }
+            if (r.has("signal")) {
+                def v:VlJson (this.evalExpr((r.stringOr("signal" ""))))
+                sc.setNumericRange(0.0 (v.asDouble()))
+                return
+            }
+        }
+    }
+
+    ; A range entry is a number, or a `{"signal": …}` that answers one.
+    fn rangeNumber:double (v:VlJson) {
+        if (v.isNumber()) {
+            return v.num
+        }
+        if (v.isObject()) {
+            if (v.has("signal")) {
+                def out:VlJson (this.evalExpr((v.stringOr("signal" ""))))
+                return (out.asDouble())
+            }
+        }
+        return 0.0
+    }
+
+    ; ------------------------------------------------------------ expressions ---
+    fn parseExpr:VlExprNode (src:string) {
+        def p (new VlExprParser())
+        def node:VlExprNode (p.parse(src))
+        if (! p.ok) {
+            this.fail((("expression: " + p.err) + " in: ") + src)
+        }
+        return node
+    }
+
+    fn evalExpr:VlJson (src:string) {
+        def node:VlExprNode (this.parseExpr(src))
+        def before:int (array_length scope.missing)
+        def out:VlJson (VlExprEval.eval(node scope))
+        def after:int (array_length scope.missing)
+        if (after > before) {
+            this.fail(("expression uses a function this runtime does not have: " + src))
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------- encode ---
+    fn encodeScene:VlSceneMark () {
+        def root (new VlSceneMark())
+        root.markType = "group"
+        root.role = "frame"
+        root.name = "root"
+        def rootItem:VlSceneItem (root.addItem())
+        rootItem.setNumber("x" 0.0)
+        rootItem.setNumber("y" 0.0)
+        rootItem.setNumber("width" chartWidth)
+        rootItem.setNumber("height" chartHeight)
+        ; The spec's top-level `style` (normally "cell") paints the plotting
+        ; frame; `background` paints the page behind it. They are different
+        ; things and the reference keeps them apart, so this does too.
+        def rootEncoded:[string:int]
+        this.applyDefaults(rootItem "group" "frame" (VlConfig.styleNames((spec.get("style")))) rootEncoded)
+        if ((strlen background) > 0) {
+            rootItem.setString("background" background)
+        }
+
+        def marks:VlJson (spec.get("marks"))
+        if (marks.isArray()) {
+            def total:int (marks.count())
+            def k:int 0
+            while (k < total) {
+                def mdef:VlJson (marks.at(k))
+                push rootItem.marks (this.encodeMark(mdef))
+                k = (k + 1)
+            }
+        }
+        return root
+    }
+
+    fn encodeMark:VlSceneMark (mdef:VlJson) {
+        def mark (new VlSceneMark())
+        mark.markType = (mdef.stringOr("type" "rect"))
+        mark.name = (mdef.stringOr("name" ""))
+        mark.role = (mdef.stringOr("role" "mark"))
+
+        if (mark.markType == "group") {
+            this.fail("group marks are not implemented yet")
+            return mark
+        }
+
+        def from:VlJson (mdef.get("from"))
+        def dataName:string (from.stringOr("data" ""))
+        def rows:[VlJson] (this.dataRows(dataName))
+
+        def encode:VlJson (mdef.get("encode"))
+        def enter:VlJson (encode.get("enter"))
+        def update:VlJson (encode.get("update"))
+
+        if ((strlen dataName) == 0) {
+            ; A mark with no data draws exactly once.
+            def item:VlSceneItem (mark.addItem())
+            def empty:VlJson (VlJson.objectValue())
+            this.applyDefaults(item mark.markType mark.role (VlConfig.styleNames((mdef.get("style")))) (VlRuntime.encodedKeys(encode)))
+            this.encodeItem(item mark.markType empty enter update)
+            return mark
+        }
+
+        def styles:[string] (VlConfig.styleNames((mdef.get("style"))))
+        def encoded:[string:int] (VlRuntime.encodedKeys(encode))
+        for rows row:VlJson idx {
+            def item:VlSceneItem (mark.addItem())
+            item.datum = row
+            item.hasDatum = true
+            this.applyDefaults(item mark.markType mark.role styles encoded)
+            this.encodeItem(item mark.markType row enter update)
+        }
+        this.sortMarkItems(mark (mdef.get("sort")))
+        return mark
+    }
+
+    ; The defaults land BEFORE the encode blocks, so anything the spec states
+    ; explicitly overwrites them. The order and the skip rules are the
+    ; reference's: the mark-type block first, then each style with increasing
+    ; precedence, and a default is skipped when the encode already names that
+    ; channel. Colour is the special case — a mark that encodes EITHER fill or
+    ; stroke gets neither default, which is why a scatter plot that strokes its
+    ; points is not also filled.
+    fn applyDefaults:void (item:VlSceneItem markType:string role:string styles:[string] encoded:[string:int]) {
+        def paintEncoded:boolean ((has encoded "fill") || (has encoded "stroke"))
+        if (role == "mark") {
+            def blocks:[VlJson]
+            push blocks config.markAll
+            push blocks (config.markTypeDefaults(markType))
+            for blocks block:VlJson bi {
+                for block.keys key:string ki {
+                    def skip:boolean (has encoded key)
+                    if ((key == "fill") || (key == "stroke")) {
+                        if paintEncoded {
+                            skip = true
+                        }
+                    }
+                    if (! skip) {
+                        item.setValue(key (block.get(key)))
+                    }
+                }
+            }
+        }
+        for styles name:string si {
+            def styleBlock:VlJson (config.style(name))
+            for styleBlock.keys key:string ki {
+                if (! (has encoded key)) {
+                    item.setValue(key (styleBlock.get(key)))
+                }
+            }
+        }
+    }
+
+    ; A value reference may scale and shift whatever it produced: `mult` first,
+    ; then `offset`. A pie's centre is `{"signal": "width", "mult": 0.5}` and a
+    ; grouped bar's position is a band plus a second band scale's offset, so
+    ; both forms go through here.
+    fn applyMultOffset:VlJson (value:VlJson cdef:VlJson row:VlJson) {
+        def hasMult:boolean (cdef.has("mult"))
+        def hasOffset:boolean (cdef.has("offset"))
+        if ((! hasMult) && (! hasOffset)) {
+            return value
+        }
+        def out:double (value.asDouble())
+        if hasMult {
+            out = (out * (this.channelOffset((cdef.get("mult")) row)))
+        }
+        if hasOffset {
+            out = (out + (this.channelOffset((cdef.get("offset")) row)))
+        }
+        return (VlJson.numberValue(out))
+    }
+
+    fn channelOffset:double (odef:VlJson row:VlJson) {
+        if (odef.isNumber()) {
+            return odef.num
+        }
+        if (odef.isObject()) {
+            def value:VlJson (this.encodeChannel("offset" odef row))
+            return (value.asDouble())
+        }
+        return 0.0
+    }
+
+    ; Which channels the spec's own encode blocks set — the defaults consult it.
+    sfn encodedKeys:[string:int] (encode:VlJson) {
+        def out:[string:int]
+        for encode.keys blockName:string bi {
+            def block:VlJson (encode.get(blockName))
+            if (block.isObject()) {
+                for block.keys key:string ki {
+                    set out key 1
+                }
+            }
+        }
+        return out
+    }
+
+    ; `"sort": {"field": "x"}` on a mark orders its ITEMS by an encoded channel
+    ; — which is what makes a line join its points left to right rather than in
+    ; data order. Insertion sort: stable, and a mark's item count is small.
+    fn sortMarkItems:void (mark:VlSceneMark sortDef:VlJson) {
+        if (! (sortDef.isObject())) {
+            return
+        }
+        def field:string (sortDef.stringOr("field" ""))
+        if ((strlen field) == 0) {
+            return
+        }
+        def descending:boolean ((sortDef.stringOr("order" "ascending")) == "descending")
+        def sorted:[VlSceneItem]
+        for mark.items item:VlSceneItem idx {
+            def value:double (item.number(field))
+            def pos:int (array_length sorted)
+            def scan:int 0
+            def placed:boolean false
+            while ((scan < (array_length sorted)) && (! placed)) {
+                def other:double ((itemAt sorted scan).number(field))
+                def before:boolean (value < other)
+                if descending {
+                    before = (value > other)
+                }
+                if before {
+                    pos = scan
+                    placed = true
+                }
+                scan = (scan + 1)
+            }
+            push sorted item
+            def move:int ((array_length sorted) - 1)
+            while (move > pos) {
+                set_at sorted move (itemAt sorted (move - 1))
+                move = (move - 1)
+            }
+            set_at sorted pos item
+        }
+        mark.items = sorted
+    }
+
+    fn encodeItem:void (item:VlSceneItem markType:string row:VlJson enter:VlJson update:VlJson) {
+        scope.setDatum(row)
+        this.encodeChannels(item enter row)
+        this.encodeChannels(item update row)
+        item.resolveGeometry(markType)
+    }
+
+    fn encodeChannels:void (item:VlSceneItem channels:VlJson row:VlJson) {
+        if (! (channels.isObject())) {
+            return
+        }
+        for channels.keys key:string ki {
+            def cdef:VlJson (channels.get(key))
+            def value:VlJson (this.encodeChannel(key cdef row))
+            if (value.isDefined()) {
+                item.setValue(key value)
+            }
+        }
+    }
+
+    ; One channel definition to one value. The forms are the reference's:
+    ;   {"value": v}                      a constant
+    ;   {"field": f}                      the datum's field
+    ;   {"signal": expr}                  an expression
+    ;   {"scale": s, "field": f}          the field through a scale
+    ;   {"scale": s, "value": v}          a constant through a scale
+    ;   {"scale": s, "band": n}           n band widths
+    ;   [{"test": expr, …}, …]            the first passing branch
+    fn encodeChannel:VlJson (key:string cdef:VlJson row:VlJson) {
+        if (cdef.isArray()) {
+            def total:int (cdef.count())
+            def k:int 0
+            while (k < total) {
+                def branch:VlJson (cdef.at(k))
+                def test:string (branch.stringOr("test" ""))
+                if ((strlen test) == 0) {
+                    return (this.encodeChannel(key branch row))
+                }
+                def passed:VlJson (this.evalExpr(test))
+                if (VlExprEval.truthy(passed)) {
+                    return (this.encodeChannel(key branch row))
+                }
+                k = (k + 1)
+            }
+            return (VlJson.nullValue())
+        }
+        if (! (cdef.isObject())) {
+            return (VlJson.nullValue())
+        }
+
+        if (cdef.has("signal")) {
+            def signalValue:VlJson (this.evalExpr((cdef.stringOr("signal" ""))))
+            return (this.applyMultOffset(signalValue cdef row))
+        }
+
+        def scaleName:string (cdef.stringOr("scale" ""))
+        if ((strlen scaleName) == 0) {
+            if (cdef.has("value")) {
+                return (this.applyMultOffset((cdef.get("value")) cdef row))
+            }
+            if (cdef.has("field")) {
+                return (this.applyMultOffset((row.get((cdef.stringOr("field" "")))) cdef row))
+            }
+            return (VlJson.nullValue())
+        }
+
+        if (! (scope.hasScale(scaleName))) {
+            this.fail(("encode refers to scale '" + scaleName) + "' which the spec does not define")
+            return (VlJson.nullValue())
+        }
+        def sc:VlScale (scope.scale(scaleName))
+
+        def out:double 0.0
+        def haveValue:boolean false
+        if (cdef.has("field")) {
+            def field:string (cdef.stringOr("field" ""))
+            def raw:VlJson (row.get(field))
+            if ((sc.scaleType == "ordinal") && ((array_length sc.rangeValues) > 0)) {
+                return (VlJson.stringValue((sc.mapOrdinal(raw))))
+            }
+            out = (sc.mapValue(raw))
+            haveValue = true
+        }
+        if (cdef.has("value")) {
+            def raw2:VlJson (cdef.get("value"))
+            if ((sc.scaleType == "ordinal") && ((array_length sc.rangeValues) > 0)) {
+                return (VlJson.stringValue((sc.mapOrdinal(raw2))))
+            }
+            out = (sc.mapValue(raw2))
+            haveValue = true
+        }
+        if (cdef.has("band")) {
+            def band:double (cdef.doubleOr("band" 0.0))
+            out = (out + ((sc.bandwidth()) * band))
+            haveValue = true
+        }
+        if (! haveValue) {
+            return (VlJson.nullValue())
+        }
+        return (this.applyMultOffset((VlJson.numberValue(out)) cdef row))
+    }
+}

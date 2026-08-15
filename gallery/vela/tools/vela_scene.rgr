@@ -1,0 +1,84 @@
+; ==============================================================================
+; vela_scene.rgr — run a Vega specification and print the scene as JSON.
+; ==============================================================================
+;   vela_scene <spec.vg.json> [out.scene.json]
+;
+; With no output path the scene goes to stdout, which is what the parity harness
+; reads. Errors go to stdout too, prefixed, and set a non-empty error list — a
+; spec this runtime cannot run says so instead of printing half a chart.
+; ==============================================================================
+
+Import "../src/VlRuntime.rgr"
+
+class VelaSceneTool {
+
+    ; read_file / write_file take a directory and a name rather than one path.
+    sfn dirOf:string (path:string) {
+        def lastSep:int (lastIndexOf path "/")
+        if (lastSep >= 0) {
+            return (substring path 0 (lastSep + 1))
+        }
+        return "./"
+    }
+
+    sfn nameOf:string (path:string) {
+        def lastSep:int (lastIndexOf path "/")
+        if (lastSep >= 0) {
+            return (substring path (lastSep + 1) (strlen path))
+        }
+        return path
+    }
+
+    sfn main:void () {
+        def argCount:int (shell_arg_cnt)
+        if (argCount < 1) {
+            print "usage: vela_scene <spec.vg.json> [out.scene.json]"
+            return
+        }
+        def inputPath:string (shell_arg 0)
+        def outputPath:string ""
+        if (argCount > 1) {
+            outputPath = (shell_arg 1)
+        }
+
+        ; read_file takes a directory and a name, not one path.
+        def inDir:string (VelaSceneTool.dirOf(inputPath))
+        def inName:string (VelaSceneTool.nameOf(inputPath))
+        def text@(optional):string (read_file inDir inName)
+        if (null? text) {
+            print ("could not read " + inputPath)
+            return
+        }
+
+        def parser (new VlJsonParser())
+        def specJson:VlJson (parser.parse((unwrap text)))
+        if (! parser.ok) {
+            print ("spec is not valid JSON: " + parser.err)
+            return
+        }
+
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(specJson))
+
+        for rt.warnings w:string wi {
+            print ("warning: " + w)
+        }
+        for rt.errors e:string ei {
+            print ("error: " + e)
+        }
+        if ((array_length rt.errors) > 0) {
+            return
+        }
+
+        def writer (new VlSceneWriter())
+        def out:string (writer.write(scene))
+        if ((strlen outputPath) > 0) {
+            def outDir:string (VelaSceneTool.dirOf(outputPath))
+            def outName:string (VelaSceneTool.nameOf(outputPath))
+            write_file outDir outName out
+            print (("wrote " + outputPath) + " ")
+        } {
+            print out
+        }
+    }
+}
