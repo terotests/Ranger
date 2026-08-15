@@ -223,6 +223,35 @@ class RangerRustClassWriter {
     return ((array_length v.ns) > 0)
   }
 
+  ; a read that yields a SLICE reference rather than an owned Vec — a
+  ; borrowed collection parameter, which writeArgsDef spells `&[T]`. An owned
+  ; sink converts it with .to_vec(); .clone() would only copy the reference.
+  fn rustSliceRefRead:boolean (node:CodeNode) {
+    def v:CodeNode node
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if (((array_length v.ns) == 1) && v.hasParamDesc) {
+      def p:RangerAppParamDesc v.paramDesc
+      if (p.rust_borrow_type == 1) {
+        def pNN@(optional):CodeNode p.nameNode
+        if (!null? pNN) {
+          def pN:CodeNode (unwrap pNN)
+          if (((strlen pN.array_type) > 0) && ((strlen pN.key_type) == 0)) {
+            def ael:string pN.array_type
+            if (((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char")) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    return false
+  }
+
   ; a read that yields a str REFERENCE rather than an owned String — a
   ; promoted static string, or a borrowed &str string parameter. An owned
   ; sink converts such a read with .to_string(); .clone() would only copy
@@ -2458,8 +2487,10 @@ class RangerRustClassWriter {
         return 2
       }
     }
-    ; a call that returns a shared class already hands out an owned Rc
-    if value.hasFnCall {
+    ; a call that returns a shared class already hands out an owned Rc —
+    ; but a `new` carries a call node of its own (the constructor) and still
+    ; produces the raw struct
+    if (value.hasFnCall && (value.hasNewOper == false)) {
       if (!null? value.fnDesc) {
         def cfd:RangerAppFunctionDesc (unwrap value.fnDesc)
         if (!null? cfd.nameNode) {
@@ -4549,7 +4580,11 @@ class RangerRustClassWriter {
                   if (this.rustStrRefRead(nVal)) {
                     wr.out(".to_string()" false)
                   } {
-                    wr.out(".clone()" false)
+                    if (this.rustSliceRefRead(nVal)) {
+                      wr.out(".to_vec()" false)
+                    } {
+                      wr.out(".clone()" false)
+                    }
                   }
                 } {
                   ; a named String or collection handed to an owned
@@ -4718,11 +4753,25 @@ class RangerRustClassWriter {
               if needsImmutableRef2 {
                 ; Parameter needs & - output & prefix without clone
                 wr.out("&" false)
+                ; …and a borrowed SHARED parameter is `&Rc<RefCell<T>>`, so a
+                ; raw value handed to one takes its cell here
+                def borrowRcWrap2:boolean false
+                if arg.rust_needs_rc_wrap {
+                  if ((this.rustInitRcState(nVal ctx)) == 0) {
+                    borrowRcWrap2 = true
+                  }
+                }
+                if borrowRcWrap2 {
+                  wr.out("Rc::new(RefCell::new(" false)
+                }
                 ctx.setInExpr()
                 wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
                 wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
+                if borrowRcWrap2 {
+                  wr.out("))" false)
+                }
               } {
                 ctx.setInExpr()
                 wr.suppress_expr_parens = true
@@ -4751,7 +4800,11 @@ class RangerRustClassWriter {
                     if (this.rustStrRefRead(nVal)) {
                       wr.out(".to_string()" false)
                     } {
-                      wr.out(".clone()" false)
+                      if (this.rustSliceRefRead(nVal)) {
+                        wr.out(".to_vec()" false)
+                      } {
+                        wr.out(".clone()" false)
+                      }
                     }
                   }
                 }
@@ -4898,7 +4951,11 @@ class RangerRustClassWriter {
                     if (this.rustStrRefRead(nVal)) {
                       wr.out(".to_string()" false)
                     } {
-                      wr.out(".clone()" false)
+                      if (this.rustSliceRefRead(nVal)) {
+                        wr.out(".to_vec()" false)
+                      } {
+                        wr.out(".clone()" false)
+                      }
                     }
                   }
                 }
@@ -5029,7 +5086,11 @@ class RangerRustClassWriter {
                     if (this.rustStrRefRead(nVal)) {
                       wr.out(".to_string()" false)
                     } {
-                      wr.out(".clone()" false)
+                      if (this.rustSliceRefRead(nVal)) {
+                        wr.out(".to_vec()" false)
+                      } {
+                        wr.out(".clone()" false)
+                      }
                     }
                   }
                 }
@@ -5386,7 +5447,11 @@ class RangerRustClassWriter {
                     if (this.rustStrRefRead(nVal)) {
                       wr.out(".to_string()" false)
                     } {
-                      wr.out(".clone()" false)
+                      if (this.rustSliceRefRead(nVal)) {
+                        wr.out(".to_vec()" false)
+                      } {
+                        wr.out(".clone()" false)
+                      }
                     }
                   }
                 }
@@ -5479,7 +5544,11 @@ class RangerRustClassWriter {
               if (this.rustStrRefRead(n)) {
                 wr.out(".to_string()" false)
               } {
-                wr.out(".clone()" false)
+                if (this.rustSliceRefRead(n)) {
+                  wr.out(".to_vec()" false)
+                } {
+                  wr.out(".clone()" false)
+                }
               }
             }
           }

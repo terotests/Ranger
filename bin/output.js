@@ -23802,6 +23802,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return (v.ns.length) > 0;
             };
+            rustSliceRefRead (node) {
+              let v = node;
+              while (v.expression && ((v.children.length) == 1)) {
+                v = v.getFirst();
+              };
+              if ( v.expression ) {
+                return false;
+              }
+              if ( ((v.ns.length) == 1) && v.hasParamDesc ) {
+                const p = v.paramDesc;
+                if ( p.rust_borrow_type == 1 ) {
+                  const pNN = p.nameNode;
+                  if ( (typeof(pNN) !== "undefined" && pNN != null )  ) {
+                    const pN = pNN;
+                    if ( ((pN.array_type.length) > 0) && ((pN.key_type.length) == 0) ) {
+                      const ael = pN.array_type;
+                      if ( ((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char") ) {
+                        return true;
+                      }
+                    }
+                  }
+                }
+              }
+              return false;
+            };
             rustStrRefRead (node) {
               if ( this.rustStaticStrRead(node) ) {
                 return true;
@@ -25521,7 +25546,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       return 2;
                     }
                   }
-                  if ( value.hasFnCall ) {
+                  if ( value.hasFnCall && (value.hasNewOper == false) ) {
                     if ( (typeof(value.fnDesc) !== "undefined" && value.fnDesc != null )  ) {
                       const cfd = value.fnDesc;
                       if ( (typeof(cfd.nameNode) !== "undefined" && cfd.nameNode != null )  ) {
@@ -27290,7 +27315,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( this.rustStrRefRead(nVal) ) {
                                   wr.out(".to_string()", false);
                                 } else {
-                                  wr.out(".clone()", false);
+                                  if ( this.rustSliceRefRead(nVal) ) {
+                                    wr.out(".to_vec()", false);
+                                  } else {
+                                    wr.out(".clone()", false);
+                                  }
                                 }
                               } else {
                                 if ( (tgt_expects_owned && (needsMutRef == false)) && (nVal.value_type == 11) ) {
@@ -27441,11 +27470,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           } else {
                             if ( needsImmutableRef2 ) {
                               wr.out("&", false);
+                              let borrowRcWrap2 = false;
+                              if ( arg_1.rust_needs_rc_wrap ) {
+                                if ( this.rustInitRcState(nVal_1, ctx) == 0 ) {
+                                  borrowRcWrap2 = true;
+                                }
+                              }
+                              if ( borrowRcWrap2 ) {
+                                wr.out("Rc::new(RefCell::new(", false);
+                              }
                               ctx.setInExpr();
                               wr.suppress_expr_parens = true;
                               await this.WalkNode(nVal_1, ctx, wr);
                               wr.suppress_expr_parens = false;
                               ctx.unsetInExpr();
+                              if ( borrowRcWrap2 ) {
+                                wr.out("))", false);
+                              }
                             } else {
                               ctx.setInExpr();
                               wr.suppress_expr_parens = true;
@@ -27472,7 +27513,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   if ( this.rustStrRefRead(nVal_1) ) {
                                     wr.out(".to_string()", false);
                                   } else {
-                                    wr.out(".clone()", false);
+                                    if ( this.rustSliceRefRead(nVal_1) ) {
+                                      wr.out(".to_vec()", false);
+                                    } else {
+                                      wr.out(".clone()", false);
+                                    }
                                   }
                                 }
                               }
@@ -27603,7 +27648,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   if ( this.rustStrRefRead(nVal_2) ) {
                                     wr.out(".to_string()", false);
                                   } else {
-                                    wr.out(".clone()", false);
+                                    if ( this.rustSliceRefRead(nVal_2) ) {
+                                      wr.out(".to_vec()", false);
+                                    } else {
+                                      wr.out(".clone()", false);
+                                    }
                                   }
                                 }
                               }
@@ -27726,7 +27775,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   if ( this.rustStrRefRead(nVal_3) ) {
                                     wr.out(".to_string()", false);
                                   } else {
-                                    wr.out(".clone()", false);
+                                    if ( this.rustSliceRefRead(nVal_3) ) {
+                                      wr.out(".to_vec()", false);
+                                    } else {
+                                      wr.out(".clone()", false);
+                                    }
                                   }
                                 }
                               }
@@ -28011,7 +28064,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     if ( this.rustStrRefRead(nVal_4) ) {
                                       wr.out(".to_string()", false);
                                     } else {
-                                      wr.out(".clone()", false);
+                                      if ( this.rustSliceRefRead(nVal_4) ) {
+                                        wr.out(".to_vec()", false);
+                                      } else {
+                                        wr.out(".clone()", false);
+                                      }
                                     }
                                   }
                                 }
@@ -28095,7 +28152,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( this.rustStrRefRead(n) ) {
                               wr.out(".to_string()", false);
                             } else {
-                              wr.out(".clone()", false);
+                              if ( this.rustSliceRefRead(n) ) {
+                                wr.out(".to_vec()", false);
+                              } else {
+                                wr.out(".clone()", false);
+                              }
                             }
                           }
                         }
