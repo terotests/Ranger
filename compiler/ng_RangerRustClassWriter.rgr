@@ -6306,8 +6306,14 @@ class RangerRustClassWriter {
   ; Does this expression already produce an Option? A call whose return is
   ; declared `@(optional)` does, and so does a read of an optional name.
   ; Wrapping one in Some() gives an Option holding an Option.
-  fn rustExprIsOptional:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+  fn rustExprIsOptional:boolean (inNode:CodeNode ctx:RangerAppWriterContext) {
+    ; the expression is usually parenthesised — `x = (ctx.findVariable(n))` —
+    ; and the wrapper carries neither the flag nor the call's descriptor
+    def node:CodeNode (this.rustUnwrapParens(inNode))
     if (node.hasFlag("optional")) {
+      return true
+    }
+    if (inNode.hasFlag("optional")) {
       return true
     }
     if (!null? node.fnDesc) {
@@ -7507,10 +7513,19 @@ class RangerRustClassWriter {
           } {
             if left_is_trait_type {
               if rhs_is_already_boxed_trait {
-                ; RHS is already Rc<RefCell<dyn Trait>>, clone the Rc for shared ownership
-                wr.out(" = Some(" false)
-                this.WalkNode(right ctx wr)
-                wr.out(".clone());" true)
+                ; RHS is already Rc<RefCell<dyn Trait>>, clone the Rc for
+                ; shared ownership — and if it is already an Option too
+                ; (a call whose return is `@(optional)`) it goes in whole,
+                ; or the Some() nests one Option inside another
+                if (this.rustExprIsOptional(right ctx)) {
+                  wr.out(" = " false)
+                  this.WalkNode(right ctx wr)
+                  wr.out(".clone();" true)
+                } {
+                  wr.out(" = Some(" false)
+                  this.WalkNode(right ctx wr)
+                  wr.out(".clone());" true)
+                }
               } {
                 ; Assignment to trait type field: needs Some(Rc::new(RefCell::new(value)))
                 wr.out(" = Some(Rc::new(RefCell::new(" false)

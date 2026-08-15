@@ -28849,8 +28849,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         await this.rustWriteBitOperand(oo, ctx, wr);
                         wr.out(" as f64", false);
                       };
-                      rustExprIsOptional (node, ctx) {
+                      rustExprIsOptional (inNode, ctx) {
+                        const node = this.rustUnwrapParens(inNode);
                         if ( node.hasFlag("optional") ) {
+                          return true;
+                        }
+                        if ( inNode.hasFlag("optional") ) {
                           return true;
                         }
                         if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
@@ -29848,9 +29852,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               } else {
                                 if ( left_is_trait_type ) {
                                   if ( rhs_is_already_boxed_trait ) {
-                                    wr.out(" = Some(", false);
-                                    await this.WalkNode(right, ctx, wr);
-                                    wr.out(".clone());", true);
+                                    if ( this.rustExprIsOptional(right, ctx) ) {
+                                      wr.out(" = ", false);
+                                      await this.WalkNode(right, ctx, wr);
+                                      wr.out(".clone();", true);
+                                    } else {
+                                      wr.out(" = Some(", false);
+                                      await this.WalkNode(right, ctx, wr);
+                                      wr.out(".clone());", true);
+                                    }
                                   } else {
                                     wr.out(" = Some(Rc::new(RefCell::new(", false);
                                     await this.WalkNode(right, ctx, wr);
