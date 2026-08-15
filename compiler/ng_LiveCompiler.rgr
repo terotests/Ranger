@@ -6,11 +6,20 @@ Import "ng_RangerActiveOperators.rgr"
 
 extension RangerAppWriterContext {
   def rootFile:string "--not-defined--"
+  ; the root may be THIS context, and reaching it through the handle would
+  ; borrow a cell the call is already inside
   fn getRootFile:string () {
+    if (null? parent) {
+      return rootFile
+    }
     def root:RangerAppWriterContext (this.getRoot())
     return root.rootFile
   }   
   fn setRootFile:void (file_name:string) {
+    if (null? parent) {
+      rootFile = file_name
+      return
+    }
     def root:RangerAppWriterContext (this.getRoot())
     root.rootFile = file_name
   }    
@@ -1038,9 +1047,49 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
+            ; a container of a SHARED class holds the Rc, so a freshly
+            ; constructed value takes its cell on the way in — `set events n
+            ; (new EventList)` stored the bare struct
+            def mvRcWrap:boolean false
+            if arg.hasNewOper {
+              def mvCont:CodeNode (itemAt node.children 1)
+              def mvElem:string ""
+              def mvNsp:int (array_length mvCont.nsp)
+              if (mvNsp > 0) {
+                def mvLast:RangerAppParamDesc (itemAt mvCont.nsp (mvNsp - 1))
+                def mvLNN@(optional):CodeNode mvLast.nameNode
+                if (!null? mvLNN) {
+                  def mvLN:CodeNode (unwrap mvLNN)
+                  mvElem = mvLN.array_type
+                }
+              } {
+                if mvCont.hasParamDesc {
+                  def mvP:RangerAppParamDesc (unwrap mvCont.paramDesc)
+                  def mvPNN@(optional):CodeNode mvP.nameNode
+                  if (!null? mvPNN) {
+                    def mvPN:CodeNode (unwrap mvPNN)
+                    mvElem = mvPN.array_type
+                  }
+                }
+              }
+              if ((strlen mvElem) > 0) {
+                if (ctx.isDefinedClass(mvElem)) {
+                  def mvCl:RangerAppClassDesc (ctx.findClass(mvElem))
+                  if mvCl.rust_needs_ref_semantics {
+                    mvRcWrap = true
+                  }
+                }
+              }
+            }
+            if mvRcWrap {
+              wr.out("Rc::new(RefCell::new(" false)
+            }
             ctx.setInExpr()
             this.WalkNode(arg ctx wr)
             ctx.unsetInExpr()
+            if mvRcWrap {
+              wr.out("))" false)
+            }
             def barg:CodeNode arg
             while (barg.expression && ((array_length barg.children) == 1)) {
               barg = (barg.getFirst())
@@ -1058,7 +1107,20 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               }
               if (!null? bpd2) {
                 def bpd:RangerAppParamDesc (unwrap bpd2)
-                if (bpd.is_optional == false) {
+                ; an uninitialized COLLECTION carries is_optional on its desc
+                ; while the Rust name is a plain Vec or map — skipping those
+                ; left every stored `[string]` local moved into the container
+                def bIsOpt:boolean bpd.is_optional
+                if bIsOpt {
+                  def bOptNN@(optional):CodeNode bpd.nameNode
+                  if (!null? bOptNN) {
+                    def bOptN:CodeNode (unwrap bOptNN)
+                    if (((strlen bOptN.array_type) > 0) || ((strlen bOptN.key_type) > 0)) {
+                      bIsOpt = false
+                    }
+                  }
+                }
+                if (bIsOpt == false) {
                   def bNN@(optional):CodeNode bpd.nameNode
                   if (!null? bNN) {
                     def bN:CodeNode (unwrap bNN)

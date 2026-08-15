@@ -1,6 +1,23 @@
 
 extension RangerFlowParser {
 
+  ; Is this node nothing but a name, a primitive, or a single-child wrapper
+  ; around one? A local recursive lambda used to answer this; Rust cannot
+  ; borrow-check a recursive closure, and the question needs no captured
+  ; state, so it is a method.
+  fn isJustVref:boolean (a:CodeNode) {
+    if( has a.vref ) {
+      return true
+    }
+    if( TTypes.isPrimitive( a.value_type ) )  {
+      return true
+    }
+    if( (size a.children ) == 1 ) {
+      return ( this.isJustVref( (at a.children 0)) )
+    }
+    return false
+  }
+
   fn findLanguageOper@(optional weak):CodeNode (details:CodeNode ctx:RangerAppWriterContext opDef:CodeNode) {
     def langName (ctx.getTargetLang())
     def rv:CodeNode
@@ -165,7 +182,9 @@ extension RangerFlowParser {
       ctx.addOpNs( fc.vref )
       added_ns = fc.vref
 
-      def line_index:int (callArgs.getLine())
+      ; the source line was computed here and never read. getLine sums the
+      ; length of every line from the start of the file, so this cost one pass
+      ; over the whole source per operator match.
       ; def callerArgCnt:int (((array_length callArgs.children) - 1))
       def callerArgCnt (call_arg_cnt - 1)
       def fnArgCnt:int (array_length args.children)
@@ -529,7 +548,8 @@ extension RangerFlowParser {
                 if( (item.hasFlag('ignore')) || (item.hasFlag('noeval')) ) {
                   return
                 }
-                def opName ((item.getSecond()).int_value)
+                def opSecond:CodeNode (item.getSecond())
+                def opName (opSecond.int_value)
                 def opArg (at args.children (opName - 1))
                 if( (has opCnts opName ) ) {
                   ; print (langOper.getCode())
@@ -539,23 +559,7 @@ extension RangerFlowParser {
 
                   def regName ""
                   def realArg (at callArgs.children (opName))
-                  def just_vref (fn:boolean (a:CodeNode) {
-                    return false
-                  })
-
-                  just_vref = (fn:boolean (a:CodeNode) {
-                    if( has a.vref ) {
-                      return true
-                    }
-                    if( TTypes.isPrimitive( a.value_type ) )  {
-                      return true
-                    }
-                    if( (size a.children ) == 1 ) {
-                      return ( just_vref( (at a.children 0)) )
-                    }
-                    return false
-                  })
-                  if(just_vref(realArg)) {
+                  if(this.isJustVref(realArg)) {
                     return
                   }
 
@@ -927,7 +931,16 @@ extension RangerFlowParser {
             if cA.hasParamDesc {
               def pp:RangerAppParamDesc cA.paramDesc
               def pp2:RangerAppParamDesc cA2.paramDesc
-              pp.moveRefTo(callArgs (unwrap pp2) ctx)
+              ; `@(move 0 1)` on a call whose two arguments are the same
+              ; variable names one descriptor on both sides, and moving a
+              ; reference to itself says nothing. Rust cannot read an object
+              ; while holding it for the write.
+              def ppSelf:RangerAppParamDesc (unwrap cA.paramDesc)
+              def ppTarget:RangerAppParamDesc (unwrap cA2.paramDesc)
+              def ppSame:boolean (ppSelf == ppTarget)
+              if (ppSame == false) {
+                pp.moveRefTo(callArgs ppTarget ctx)
+              }
             }
           }
           if (nameNode.hasFlag("returns")) {

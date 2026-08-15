@@ -16,14 +16,18 @@ class CodeFile {
         writer.createTag("imports")
     }
 
-    fn initSourceMapsIfNeeded:void () {
+    ; The flag is passed in rather than read back off `fileSystem`: the
+    ; caller is the file system itself, and on Rust it is inside its own
+    ; cell for the duration of the call that creates this file — reaching
+    ; back through the weak reference borrows that cell a second time.
+    fn initSourceMapsIfNeeded:void (mapsEnabled:boolean) {
         if (!null? sourceMapBuilder) {
             return
         }
         if (null? fileSystem) {
             return
         }
-        if (fileSystem.sourceMapsEnabled == false) {
+        if (mapsEnabled == false) {
             return
         }
         sourceMapBuilder = (new SourceMapBuilder ())
@@ -86,7 +90,7 @@ class CodeFileSystem {
         }
         def new_file:CodeFile (new CodeFile (path name))
         new_file.fileSystem = this
-        new_file.initSourceMapsIfNeeded()
+        new_file.initSourceMapsIfNeeded(sourceMapsEnabled)
         push files new_file
         return new_file
     }
@@ -377,8 +381,13 @@ class CodeWriter {
     fn addIndent:void () {
         def i:int 0 
         if ( 0 == (strlen currentLine) ) {
+            ; the two reads land in a local first: writing one own field
+            ; while reading another in the same statement is a mutable and a
+            ; shared borrow of one object at once
+            def indentStep:string tabStr
             while (i < indentAmount) {
-                currentLine = currentLine + tabStr
+                def lineSoFar:string currentLine
+                currentLine = lineSoFar + indentStep
                 i = i + 1
             }
         }
@@ -387,7 +396,10 @@ class CodeWriter {
     fn createTag@(weak):CodeWriter (name:string) {
         def new_writer:CodeWriter (new CodeWriter ())
         def new_slice:CodeSlice (new CodeSlice ())
-        set tags name (array_length slices)
+        ; the count first: writing one own field while reading another in the
+        ; same statement is a mutable and a shared borrow of one cell in Rust
+        def tagIndex:int (array_length slices)
+        set tags name tagIndex
         push slices new_slice
         new_slice.writer = new_writer
         new_writer.indentAmount = indentAmount
@@ -492,7 +504,8 @@ class CodeWriter {
     }
 
     fn syncColumnFromCurrentLine:void () {
-        columnNumber = (strlen currentLine)
+        def lineLen:int (strlen currentLine)
+        columnNumber = lineLen
     }
 
     fn writeSlice:void (str:string newLine:boolean) {
@@ -501,7 +514,8 @@ class CodeWriter {
         if ((strlen str) > 0) {
             this.recordCurrentMapping()
         }
-        currentLine = currentLine + str
+        def lineBefore:string currentLine
+        currentLine = lineBefore + str
         this.advanceColumnForString(str)
         if newLine {
             current_slice.code = current_slice.code + currentLine + nlStr

@@ -169,7 +169,9 @@ extension RangerFlowParser {
       ctx.addOpNs( fc.vref )
       added_ns = fc.vref
 
-      def line_index:int (callArgs.getLine())
+      ; the source line was computed here and never read. getLine sums the
+      ; length of every line from the start of the file, so this cost one pass
+      ; over the whole source per operator match.
       ; def callerArgCnt:int (((array_length callArgs.children) - 1))
       def callerArgCnt (call_arg_cnt - 1)
       def fnArgCnt:int (array_length args.children)

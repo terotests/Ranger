@@ -12,6 +12,7 @@ systemclass RangerCompilerPlugin {
     python object
     csharp object
     kotlin "Any?"
+    rust "()"
 }
 
 operators {
@@ -24,6 +25,7 @@ operators {
             python ( "None" )
             csharp ( "null" )
             kotlin ( "null" )
+            rust ( "()" )
             * ()
         }
     }
@@ -37,6 +39,7 @@ operators {
             python ( "[]" )
             csharp ( "new System.Collections.Generic.List<String>()" )
             kotlin ( "mutableListOf<String>()" )
+            rust ( "{ let _ = &" (e 1) "; Vec::<String>::new() }" )
             * ()
         }
     }
@@ -50,6 +53,7 @@ operators {
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
             kotlin ( "/* no plugin host on this target */" )
+            rust ( "{ let _ = &" (e 1) "; }" )
             * ()
         }
     }
@@ -64,6 +68,7 @@ operators {
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
             kotlin ( "/* no plugin host on this target */" )
+            rust ( "{ let _ = &" (e 1) "; }" )
             * ()
         }
     }
@@ -76,6 +81,7 @@ operators {
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
             kotlin ( "/* no plugin host on this target */" )
+            rust ( "{ let _ = &" (e 1) "; }" )
             * ()
         }
     }

@@ -365,7 +365,9 @@ class RangerFlowParser {
       ctx.addOpNs( fc.vref )
       added_ns = fc.vref
 
-      def line_index:int (callArgs.getLine())
+      ; the source line was computed here and never read. getLine sums the
+      ; length of every line from the start of the file, so this cost one pass
+      ; over the whole source per operator match.
       ; def callerArgCnt:int (((array_length callArgs.children) - 1))
       def callerArgCnt (call_arg_cnt - 1)
       def fnArgCnt:int (array_length args.children)
@@ -2036,10 +2038,10 @@ class RangerFlowParser {
         arg.eval_type = arg.value_type
         arg.eval_type_name = arg.type_name 
         if (arg.hasFlag("strong")) {
-          p2.changeStrength(1 1 (unwrap p2.nameNode))
+          p2.changeStrengthSelf(1 1)
         } {
           arg.setFlag("lives")
-          p2.changeStrength(0 1 (unwrap p2.nameNode))
+          p2.changeStrengthSelf(0 1)
         }           
         ; subCtx.hadValidType(p2.nameNode)
         subCtx.defineVariable(p2.name p2)
@@ -2514,7 +2516,8 @@ class RangerFlowParser {
     }
   }
   fn WalkNode:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def line_index:int (node.getLine())
+    ; the source line was computed here and never read -- one pass over the
+    ; whole source per node walked.
     if node.flow_done {
       return true
     }
@@ -2911,10 +2914,10 @@ class RangerFlowParser {
       arg.eval_type = arg.value_type
       arg.eval_type_name = arg.type_name
       if (arg.hasFlag("strong")) {
-        p.changeStrength(1 1 (unwrap p.nameNode))
+        p.changeStrengthSelf(1 1)
       } {
         arg.setFlag("lives")
-        p.changeStrength(0 1 (unwrap p.nameNode))
+        p.changeStrengthSelf(0 1)
       }               
   }
 
@@ -3336,9 +3339,9 @@ class RangerFlowParser {
       node.paramDesc = p
 
       if (vDef.hasFlag("weak")) {
-          p.changeStrength(0 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(0 2)
       } {
-          p.changeStrength(2 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(2 2)
       }    
 
       if ((array_length node.children) > 2) {
@@ -3597,10 +3600,10 @@ class RangerFlowParser {
         arg.eval_type = arg.value_type
         arg.eval_type_name = arg.type_name 
         if (arg.hasFlag("strong")) {
-          p2.changeStrength(1 1 (unwrap p2.nameNode))
+          p2.changeStrengthSelf(1 1)
         } {
           arg.setFlag("lives")
-          p2.changeStrength(0 1 (unwrap p2.nameNode))
+          p2.changeStrengthSelf(0 1)
         }           
         ; subCtx.hadValidType(p2.nameNode)
         subCtx.defineVariable(p2.name p2)

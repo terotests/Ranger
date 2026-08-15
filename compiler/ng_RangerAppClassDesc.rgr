@@ -97,12 +97,29 @@ class RangerAppClassDesc {
   def consumes_traits:[string]
   def trait_params:[string:RangerTraitParams]
   def is_union_of:[string]
-  def nameNode@(weak):CodeNode
+  ; These three are OWNING, the same as the RangerAppParamDesc declarations
+  ; they restate -- a restatement is the same slot, and the hierarchy
+  ; disagreed with itself about who owns a CodeNode. A descriptor outlives
+  ; the tree it came from whenever that tree was a copy or a macro
+  ; expansion; `weak` is a no-op on the JavaScript host so nothing noticed,
+  ; and on C++ the nodes were already gone by the time the flow parser read
+  ; them. CodeNode points back through `paramDesc`, which stays weak, so
+  ; this direction is the owning one.
+  def nameNode:CodeNode
   def classNode@(weak):CodeNode
   def contr_writers:[CodeWriter]
   def is_inherited:boolean false
   def is_extended_by_children:boolean false  ; True if other classes extend this class (for Rust trait generation)
   def child_classes:[string]  ; List of class names that extend this class
+
+  ; Rust: one answer per trait-interface method for the WHOLE family — does
+  ; any implementation of it mutate its own object? The trait declaration and
+  ; every impl have to agree on `&self` against `&mut self`, so the answer is
+  ; computed once on the family's root class and read from there by all of
+  ; them. Computed on the root, so a subclass looks the answer up through its
+  ; parent rather than deciding for itself.
+  def rust_trait_mut:[string:boolean]
+  def rust_trait_mut_ready:boolean false
 
   ; Set by StaticAnalyzer.analyzeClassSharing (PLAN_RUST_OWNERSHIP step 2):
   ; some object of this class is aliased and held — stored into an object
@@ -307,21 +324,24 @@ Tests if the `class name` is either
     }
     for extends_classes cname:string i {
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))
+      ; asking the parent twice doubles the work at every hop, so a chain
+      ; of depth d cost 2^d lookups. The answer is already in hand.
       if (cDesc.hasMethod(m_name)) {
-        return (cDesc.hasMethod(m_name))
+        return true
       }
     }
     return false
   }
   fn findMethod@(optional weak):RangerAppFunctionDesc (f_name:string) {
-    def res@(weak lives):RangerAppFunctionDesc    
-    def vNames (keys method_variants)
-    for vNames mname:string i {
-      if(mname == f_name) {
-        def list (unwrap (get method_variants mname))
-        res = (itemAt list.variants 0)
-        return res
-      }
+    def res@(weak lives):RangerAppFunctionDesc
+    ; a map lookup, not a scan over a materialized key list: `keys` copies
+    ; every key of every class on every call, and this is called once per
+    ; class per function by the async pass. On the compiler's own sources
+    ; that scan is most of a native build's running time.
+    if (has method_variants f_name) {
+      def list (unwrap (get method_variants f_name))
+      res = (itemAt list.variants 0)
+      return res
     }
     for extends_classes cname:string i {
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))
@@ -543,9 +563,9 @@ Tests if the `class name` is either
       node.paramDesc = p
 
       if (vDef.hasFlag("weak")) {
-          p.changeStrength(0 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(0 2)
       } {
-          p.changeStrength(2 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(2 2)
       }    
 
       if ((array_length node.children) > 2) {
@@ -638,7 +658,11 @@ Tests if the `class name` is either
         nn.has_vref_annotation = true
         nn.vref_annotation = vAnn
       } 
-      push nn.vref_annotation.children  (nn.vref_annotation.newVRefNode("main"))
+      ; the new node first: pushing INTO the annotation while reading it for
+      ; the value borrows one object two ways in a single statement
+      def mainAnn:CodeNode nn.vref_annotation
+      def mainRef:CodeNode (mainAnn.newVRefNode("main"))
+      push mainAnn.children mainRef
 
     }
   }

@@ -28,7 +28,10 @@ class RangerAppEnum {
   def values:[string:int]
   def node:CodeNode
   fn add:void (n:string) {
-    set values n cnt
+    ; the counter first: writing one own field while reading another in the
+    ; same statement is a mutable and a shared borrow of one object at once
+    def nextVal:int cnt
+    set values n nextVal
     cnt = (cnt + 1)
   }
 }
@@ -243,6 +246,12 @@ class RangerAppWriterContext {
   def rust_moved_vars:[string:boolean]
   def rust_usage_count:[string:int]
   def rust_temp_counter:int 0
+  ; Rust: every field name ever reached THROUGH a path anywhere in the
+  ; program. Kept here rather than on the writer, because a writer that
+  ; mutates a field of its own cannot take `&self` — and the whole point of
+  ; the scan is to let writers take `&self`.
+  def rust_path_field_names:[string:boolean]
+  def rust_path_names_ready:boolean false
 
   ; Mark a variable as moved (value has been transferred)
   fn rustMarkMoved (varName:string) {
@@ -919,7 +928,10 @@ class RangerAppWriterContext {
     ; `word transform` pair does not parse. C# and Dart both need them
     ; renamed -- the TypeScript engine declares a static method called `null`,
     ; and neither language can spell that as an identifier.
-    if (((this.getTargetLang()) == "csharp") || ((this.getTargetLang()) == "dart")) {
+    ; one call, one local: two calls through the same handle in one expression
+    ; are two live borrows of the same cell in Rust
+    def twLang:string (this.getTargetLangName())
+    if ((twLang == "csharp") || (twLang == "dart")) {
       if (input_word == "null") {
         return "_null"
       }
@@ -930,6 +942,15 @@ class RangerAppWriterContext {
         return "_false"
       }
     }
+    ; the root may be THIS context, and reaching it through the handle would
+    ; borrow a cell the call is already inside
+    if (null? parent) {
+      this.initReservedWords()
+      if(has refTransform input_word) {
+        return (unwrap (get refTransform input_word))
+      }
+      return input_word
+    }
     def root (this.getRoot())
     root.initReservedWords()
     if(has root.refTransform input_word) {
@@ -937,6 +958,21 @@ class RangerAppWriterContext {
     }
     return input_word
   }
+  ; The target language, answered without going through the handle. The
+  ; `getTargetLang` operator takes the context as an Rc and borrows it, which
+  ; panics when the method asking is already inside the same cell; a plain
+  ; method reads the field directly and only borrows the PARENT, which is
+  ; always a different cell.
+  fn getTargetLangName:string () {
+    if( has targetLangName ) {
+      return targetLangName
+    }
+    if (!null? parent) {
+      return (parent.getTargetLangName())
+    }
+    return "ranger"
+  }
+
   fn initReservedWords:boolean () {
     ; reserved_word_transformations
     ; Supports language-specific reserved words:
@@ -957,7 +993,7 @@ class RangerAppWriterContext {
     }
     def cmds:CodeNode
     def langNodes:CodeNode (itemAt lang.children 1)
-    def targetLang (this.getTargetLang())
+    def targetLang (this.getTargetLangName())
     for langNodes.children lch:CodeNode i {
       def fc:CodeNode (lch.getFirst())
       if (fc.vref == "reserved_words") {
@@ -1020,7 +1056,7 @@ class RangerAppWriterContext {
     if (this.isDefinedClass(typeName)) {
       def cl:RangerAppClassDesc (this.findClass(typeName))
       if cl.is_system {
-        return (unwrap (get cl.systemNames (this.getTargetLang())))
+        return (unwrap (get cl.systemNames (this.getTargetLangName())))
       }
     }
     return typeName
@@ -1225,10 +1261,10 @@ class RangerAppWriterContext {
       arg.eval_type = arg.value_type
       arg.eval_type_name = arg.type_name
       if (arg.hasFlag("strong")) {
-        p.changeStrength(1 1 (unwrap p.nameNode))
+        p.changeStrengthSelf(1 1)
       } {
         arg.setFlag("lives")
-        p.changeStrength(0 1 (unwrap p.nameNode))
+        p.changeStrengthSelf(0 1)
       }        
       ;m.fnCtx.defineVariable( arg.vref p)   
     }
@@ -1476,15 +1512,27 @@ class RangerAppWriterContext {
     def e:RangerCompilerMessage (new RangerCompilerMessage ())
     e.description = descr
     e.node = targetnode
-    def root:RangerAppWriterContext (this.getRoot())
-    push root.compilerErrors e
+    ; the root may be THIS context, and on Rust reaching it through the
+    ; handle would borrow a cell the call is already inside
+    if (null? parent) {
+      push compilerErrors e
+    } {
+      def root:RangerAppWriterContext (this.getRoot())
+      push root.compilerErrors e
+    }
   }
   fn addParserError:void (targetnode@(weak lives):CodeNode descr:string) {
     def e:RangerCompilerMessage (new RangerCompilerMessage ())
     e.description = descr
     e.node = targetnode
-    def root:RangerAppWriterContext (this.getRoot())
-    push root.parserErrors e
+    ; the root may be THIS context, and on Rust reaching it through the
+    ; handle would borrow a cell the call is already inside
+    if (null? parent) {
+      push parserErrors e
+    } {
+      def root:RangerAppWriterContext (this.getRoot())
+      push root.parserErrors e
+    }
   }
   fn addTemplateClass:void (name:string node@(lives):CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())

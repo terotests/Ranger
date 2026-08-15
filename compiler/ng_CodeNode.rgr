@@ -466,7 +466,13 @@ class CodeNode {
   }  
   fn setFlag:void (flagName:string) {
     if (false == has_vref_annotation) {
-      vref_annotation = (new CodeNode ((unwrap code) sp ep))
+      ; the three reads land in locals first: writing one own field while
+      ; reading another in the same statement is a mutable and a shared borrow
+      ; of one object at once
+      def annCode:SourceCode (unwrap code)
+      def annSp:int sp
+      def annEp:int ep
+      vref_annotation = (new CodeNode (annCode annSp annEp))
     }
     if (this.hasFlag(flagName)) {
       return
@@ -591,13 +597,15 @@ class CodeNode {
     return s
   }
   fn getLine:int () {
-    return (code.getLine(sp))
+    def lnSp:int sp
+    return (code.getLine(lnSp))
   }
   fn getLineString:string (line_index:int) {
     return (code.getLineString(line_index))
   }
   fn getColStartString:string () {
-    return (code.getColumnStr(sp))
+    def colSp:int sp
+    return (code.getColumnStr(colSp))
   }
   fn getLineAsString:string () {
     def idx:int (this.getLine())
