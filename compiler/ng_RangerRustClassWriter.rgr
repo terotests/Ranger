@@ -7105,13 +7105,45 @@ class RangerRustClassWriter {
       def cArgs:CodeNode (real.getSecond())
       for cArgs.children cA:CodeNode cI {
         def cReal:CodeNode (this.rustUnwrapParens(cA))
-        if (this.isSelfMethodCall(cReal)) {
+        ; …and so does a plain field path READ THROUGH one of this object's
+        ; own Rc fields — `this.irModule.ptrType` makes a Ref that lives to
+        ; the end of the statement, which is past the point the call takes
+        ; its `&mut self` (E0502). Only a bare path, no call: hoisting
+        ; anything that merely mentions `this` was measured at 12 -> 88.
+        def cNeedsTmp:boolean (this.isSelfMethodCall(cReal))
+        def cIsPathRead:boolean false
+        if (cNeedsTmp == false) {
+          if (cReal.hasFnCall == false) {
+            if ((array_length cReal.ns) >= 3) {
+              if ((itemAt cReal.ns 0) == "this") {
+                if ((array_length cReal.nsp) >= 2) {
+                  def cSeg:RangerAppParamDesc (itemAt cReal.nsp 1)
+                  if cSeg.rust_needs_rc_wrap {
+                    cNeedsTmp = true
+                    cIsPathRead = true
+                  }
+                }
+              }
+            }
+          }
+        }
+        if cNeedsTmp {
           this.rustExtractSelfCallConflicts(cReal ctx wr)
           def cTmp:string (ctx.rustGetTempVar())
           wr.out((("let " + cTmp) + " = ") false)
           ctx.setInExpr()
           this.WalkNode(cReal ctx wr)
           ctx.unsetInExpr()
+          ; a hoisted field READ is still a read out of a Ref: it owns its
+          ; value or it moves out of the cell (E0507), and a str reference
+          ; becomes the owned String the parameter is declared with
+          if cIsPathRead {
+            if (this.rustStrRefRead(cReal)) {
+              wr.out(".to_string()" false)
+            } {
+              wr.out(".clone()" false)
+            }
+          }
           wr.out(";" true)
           cA.rust_use_tmpvar = cTmp
         }

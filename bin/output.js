@@ -29481,13 +29481,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             for ( let cI = 0; cI < cArgs.children.length; cI++) {
                               var cA = cArgs.children[cI];
                               const cReal = this.rustUnwrapParens(cA);
-                              if ( this.isSelfMethodCall(cReal) ) {
+                              let cNeedsTmp = this.isSelfMethodCall(cReal);
+                              let cIsPathRead = false;
+                              if ( cNeedsTmp == false ) {
+                                if ( cReal.hasFnCall == false ) {
+                                  if ( (cReal.ns.length) >= 3 ) {
+                                    if ( (cReal.ns[0]) == "this" ) {
+                                      if ( (cReal.nsp.length) >= 2 ) {
+                                        const cSeg = cReal.nsp[1];
+                                        if ( cSeg.rust_needs_rc_wrap ) {
+                                          cNeedsTmp = true;
+                                          cIsPathRead = true;
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                              if ( cNeedsTmp ) {
                                 await this.rustExtractSelfCallConflicts(cReal, ctx, wr);
                                 const cTmp = ctx.rustGetTempVar();
                                 wr.out(("let " + cTmp) + " = ", false);
                                 ctx.setInExpr();
                                 await this.WalkNode(cReal, ctx, wr);
                                 ctx.unsetInExpr();
+                                if ( cIsPathRead ) {
+                                  if ( this.rustStrRefRead(cReal) ) {
+                                    wr.out(".to_string()", false);
+                                  } else {
+                                    wr.out(".clone()", false);
+                                  }
+                                }
                                 wr.out(";", true);
                                 cA.rust_use_tmpvar = cTmp;
                               }
