@@ -53494,6 +53494,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     } };
                                   };
                                 };
+                                markLambdaParamsRec (fn) {
+                                  for ( let li = 0; li < fn.myLambdas.length; li++) {
+                                    var lam = fn.myLambdas[li];
+                                    for ( let lpi = 0; lpi < lam.params.length; lpi++) {
+                                      var lp = lam.params[lpi];
+                                      this.markDescRcWrap(lp);
+                                    };
+                                    this.markLambdaParamsRec(lam);
+                                  };
+                                };
                                 applySharedClassRcWrap () {
                                   if ( typeof(this.ctx) === "undefined" ) {
                                     return;
@@ -53512,13 +53522,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           var param = m.params[pi];
                                           this.markDescRcWrap(param);
                                         };
-                                        for ( let li = 0; li < m.myLambdas.length; li++) {
-                                          var lam = m.myLambdas[li];
-                                          for ( let lpi = 0; lpi < lam.params.length; lpi++) {
-                                            var lp = lam.params[lpi];
-                                            this.markDescRcWrap(lp);
-                                          };
-                                        };
+                                        this.markLambdaParamsRec(m);
                                         if ( (typeof(m.fnBody) !== "undefined" && m.fnBody != null )  ) {
                                           this.walkForSharedLocals(m.fnBody);
                                         }
@@ -53529,13 +53533,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           var param_1 = sm.params[pi_1];
                                           this.markDescRcWrap(param_1);
                                         };
-                                        for ( let li_1 = 0; li_1 < sm.myLambdas.length; li_1++) {
-                                          var lam_1 = sm.myLambdas[li_1];
-                                          for ( let lpi_1 = 0; lpi_1 < lam_1.params.length; lpi_1++) {
-                                            var lp_1 = lam_1.params[lpi_1];
-                                            this.markDescRcWrap(lp_1);
-                                          };
-                                        };
+                                        this.markLambdaParamsRec(sm);
                                         if ( (typeof(sm.fnBody) !== "undefined" && sm.fnBody != null )  ) {
                                           this.walkForSharedLocals(sm.fnBody);
                                         }
