@@ -33,6 +33,10 @@ class RangerRustClassWriter {
   ; the upgrade of a weak field itself, so the path writer must not add a
   ; second one for the same read.
   def rust_in_weak_unwrap:boolean false
+  ; set while a STRUCT FIELD's type is written. A borrowed closure needs a
+  ; lifetime to sit in a struct, and the struct has none; an owned one does
+  ; not. A parameter keeps the borrow, which is what call sites pass.
+  def rust_writing_field_type:boolean false
 
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -296,7 +300,11 @@ class RangerRustClassWriter {
   fn writeRustLambdaType:void (expression_value:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def rv:CodeNode (itemAt expression_value.children 0)
     def sec:CodeNode (itemAt expression_value.children 1)
-    wr.out("&mut dyn FnMut(" false)
+    if rust_writing_field_type {
+      wr.out("Box<dyn FnMut(" false)
+    } {
+      wr.out("&mut dyn FnMut(" false)
+    }
     for sec.children arg:CodeNode i {
       if (i > 0) {
         wr.out(", " false)
@@ -326,6 +334,9 @@ class RangerRustClassWriter {
     } {
       wr.out(" -> " false)
       this.writeTypeDef(rv ctx wr)
+    }
+    if rust_writing_field_type {
+      wr.out(">" false)
     }
   }
 
@@ -518,7 +529,22 @@ class RangerRustClassWriter {
     }
     if (lt_type == RangerNodeType.ExpressionType) {
       if (!null? node.expression_value) {
+        ; an uninitialized closure FIELD holds None until something is put
+        ; in it, so the Option goes around the Box the same as for any other
+        ; field of a class type
+        def lamOpt:boolean false
+        if rust_writing_field_type {
+          if (node.hasFlag("optional")) {
+            lamOpt = true
+          }
+        }
+        if lamOpt {
+          wr.out("Option<" false)
+        }
         this.writeRustLambdaType((unwrap node.expression_value) ctx wr)
+        if lamOpt {
+          wr.out(">" false)
+        }
         return
       }
     }
@@ -1260,6 +1286,12 @@ class RangerRustClassWriter {
   ; The Rust type of a field, without its name — shared by the struct
   ; declaration and by the trait accessors that hand the field out.
   fn writeStructFieldType:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    rust_writing_field_type = true
+    this.writeStructFieldTypeInner(p ctx wr)
+    rust_writing_field_type = false
+  }
+
+  fn writeStructFieldTypeInner:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     def nameN:CodeNode (unwrap p.nameNode)
     ; A field of a shared class holds the Rc (PLAN_RUST_OWNERSHIP 2b). A
     ; weak field keeps its Weak form, and a collection wraps its element
@@ -2251,10 +2283,13 @@ class RangerRustClassWriter {
     ; build the receiver path: a bare member roots at self, and a strong
     ; optional segment holds Option<Rc<…>> — reach the Rc with
     ; .as_ref().unwrap() so the hidden __self_rc argument is the live Rc
+    ; `thisName`, not the literal "self": a constructor body calls its
+    ; receiver `me`, and a hidden-argument path that said `self` there
+    ; referred to the module keyword in a function with no self parameter.
     def path:string ""
     def segIdx:int 0
     if (root == "this") {
-      path = "self"
+      path = thisName
       segIdx = 1
     }
     while (segIdx < (nsLen - 1)) {
@@ -2288,7 +2323,7 @@ class RangerRustClassWriter {
       }
       if ((strlen path) == 0) {
         if segMember {
-          path = ("self." + segName)
+          path = ((thisName + ".") + segName)
         } {
           path = segName
         }

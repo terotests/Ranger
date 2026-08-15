@@ -23607,6 +23607,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_receiver_written = false;
               this.rust_in_trait_decl = false;
               this.rust_in_weak_unwrap = false;
+              this.rust_writing_field_type = false;
               this.thisName = "self";
               this.rustFnReturnsUnion = "";
               this.fileHeaderWritten = false;
@@ -23862,7 +23863,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             async writeRustLambdaType (expression_value, ctx, wr) {
               const rv = expression_value.children[0];
               const sec = expression_value.children[1];
-              wr.out("&mut dyn FnMut(", false);
+              if ( this.rust_writing_field_type ) {
+                wr.out("Box<dyn FnMut(", false);
+              } else {
+                wr.out("&mut dyn FnMut(", false);
+              }
               for ( let i = 0; i < sec.children.length; i++) {
                 var arg = sec.children[i];
                 if ( i > 0 ) {
@@ -23887,6 +23892,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               } else {
                 wr.out(" -> ", false);
                 await this.writeTypeDef(rv, ctx, wr);
+              }
+              if ( this.rust_writing_field_type ) {
+                wr.out(">", false);
               }
             };
             rustTypeIsOwnHandle (type_name, ctx) {
@@ -24023,7 +24031,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               if ( lt_type == 20 ) {
                 if ( (typeof(node.expression_value) !== "undefined" && node.expression_value != null )  ) {
+                  let lamOpt = false;
+                  if ( this.rust_writing_field_type ) {
+                    if ( node.hasFlag("optional") ) {
+                      lamOpt = true;
+                    }
+                  }
+                  if ( lamOpt ) {
+                    wr.out("Option<", false);
+                  }
                   await this.writeRustLambdaType(node.expression_value, ctx, wr);
+                  if ( lamOpt ) {
+                    wr.out(">", false);
+                  }
                   return;
                 }
               }
@@ -24615,6 +24635,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return res;
               };
               async writeStructFieldType (p, ctx, wr) {
+                this.rust_writing_field_type = true;
+                await this.writeStructFieldTypeInner(p, ctx, wr);
+                this.rust_writing_field_type = false;
+              };
+              async writeStructFieldTypeInner (p, ctx, wr) {
                 const nameN = p.nameNode;
                 let shared_field = false;
                 if ( p.rust_needs_rc_wrap ) {
@@ -25372,7 +25397,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   let path = "";
                   let segIdx = 0;
                   if ( root == "this" ) {
-                    path = "self";
+                    path = this.thisName;
                     segIdx = 1;
                   }
                   while (segIdx < (nsLen - 1)) {
@@ -25403,7 +25428,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     if ( (path.length) == 0 ) {
                       if ( segMember ) {
-                        path = "self." + segName;
+                        path = (this.thisName + ".") + segName;
                       } else {
                         path = segName;
                       }
