@@ -416,7 +416,7 @@ class RgRegistryBridge extends EvalNativeBridge {
                 set dec.guestIds i gid
             }
             if (tk == "ai") {
-                if (false == (v.isArray())) {
+                if (false == (v.isArrayValue())) {
                     dec.ok = false
                     dec.err = (("type:" + row.name) + ":array-expected")
                     return dec
@@ -435,7 +435,7 @@ class RgRegistryBridge extends EvalNativeBridge {
                 }
             }
             if (tk == "ad") {
-                if (false == (v.isArray())) {
+                if (false == (v.isArrayValue())) {
                     dec.ok = false
                     dec.err = (("type:" + row.name) + ":array-expected")
                     return dec
