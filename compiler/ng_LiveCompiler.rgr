@@ -1058,7 +1058,20 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               }
               if (!null? bpd2) {
                 def bpd:RangerAppParamDesc (unwrap bpd2)
-                if (bpd.is_optional == false) {
+                ; an uninitialized COLLECTION carries is_optional on its desc
+                ; while the Rust name is a plain Vec or map — skipping those
+                ; left every stored `[string]` local moved into the container
+                def bIsOpt:boolean bpd.is_optional
+                if bIsOpt {
+                  def bOptNN@(optional):CodeNode bpd.nameNode
+                  if (!null? bOptNN) {
+                    def bOptN:CodeNode (unwrap bOptNN)
+                    if (((strlen bOptN.array_type) > 0) || ((strlen bOptN.key_type) > 0)) {
+                      bIsOpt = false
+                    }
+                  }
+                }
+                if (bIsOpt == false) {
                   def bNN@(optional):CodeNode bpd.nameNode
                   if (!null? bNN) {
                     def bN:CodeNode (unwrap bNN)

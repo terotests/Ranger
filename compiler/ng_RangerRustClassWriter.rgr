@@ -5490,9 +5490,32 @@ class RangerRustClassWriter {
         wr.out(", " false)
       }
       this.WalkNode( item ctx wr )
-      ; a literal element is OWNED by the Vec, so a borrowed handle clones
-      if (this.rustValueIsBorrowedHandle(item ctx)) {
-        wr.out(".clone()" false)
+      ; a literal element is OWNED by the Vec, so a NAME read into one moves
+      ; unless it is cloned — and the name goes on being used after the
+      ; literal, which is what Ranger's semantics say. A Copy scalar needs
+      ; nothing (clippy's clone_on_copy), and a borrowed handle clones too.
+      def alCloned:boolean false
+      if (this.rustArgIsNameRead(item)) {
+        def alCopy:boolean false
+        if item.hasParamDesc {
+          def alP:RangerAppParamDesc (unwrap item.paramDesc)
+          alCopy = (this.rustFieldIsCopyScalar(alP ctx))
+        } {
+          alCopy = true
+        }
+        if (alCopy == false) {
+          if (this.rustStrRefRead(item)) {
+            wr.out(".to_string()" false)
+          } {
+            wr.out(".clone()" false)
+          }
+          alCloned = true
+        }
+      }
+      if (alCloned == false) {
+        if (this.rustValueIsBorrowedHandle(item ctx)) {
+          wr.out(".clone()" false)
+        }
       }
     })
     wr.out("]" false)

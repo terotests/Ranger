@@ -28098,8 +28098,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       wr.out(", ", false);
                     }
                     await this.WalkNode(item, ctx, wr);
-                    if ( this.rustValueIsBorrowedHandle(item, ctx) ) {
-                      wr.out(".clone()", false);
+                    let alCloned = false;
+                    if ( this.rustArgIsNameRead(item) ) {
+                      let alCopy = false;
+                      if ( item.hasParamDesc ) {
+                        const alP = item.paramDesc;
+                        alCopy = this.rustFieldIsCopyScalar(alP, ctx);
+                      } else {
+                        alCopy = true;
+                      }
+                      if ( alCopy == false ) {
+                        if ( this.rustStrRefRead(item) ) {
+                          wr.out(".to_string()", false);
+                        } else {
+                          wr.out(".clone()", false);
+                        }
+                        alCloned = true;
+                      }
+                    }
+                    if ( alCloned == false ) {
+                      if ( this.rustValueIsBorrowedHandle(item, ctx) ) {
+                        wr.out(".clone()", false);
+                      }
                     }
                   }));
                   wr.out("]", false);
@@ -50762,7 +50782,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     }
                                     if ( (typeof(bpd2) !== "undefined" && bpd2 != null )  ) {
                                       const bpd = bpd2;
-                                      if ( bpd.is_optional == false ) {
+                                      let bIsOpt = bpd.is_optional;
+                                      if ( bIsOpt ) {
+                                        const bOptNN = bpd.nameNode;
+                                        if ( (typeof(bOptNN) !== "undefined" && bOptNN != null )  ) {
+                                          const bOptN = bOptNN;
+                                          if ( ((bOptN.array_type.length) > 0) || ((bOptN.key_type.length) > 0) ) {
+                                            bIsOpt = false;
+                                          }
+                                        }
+                                      }
+                                      if ( bIsOpt == false ) {
                                         const bNN = bpd.nameNode;
                                         if ( (typeof(bNN) !== "undefined" && bNN != null )  ) {
                                           const bN = bNN;
