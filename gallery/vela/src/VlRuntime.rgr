@@ -913,7 +913,7 @@ class VlRuntime {
         def total:int (legends.count())
         def k:int 0
         while (k < total) {
-            def ldef:VlJson (legends.at(k))
+            def ldef:VlJson (this.resolveSignalMembers((legends.at(k))))
             def legend (new VlLegend())
             def named:boolean false
             for legend.channelOrder channel:string ci {
@@ -951,6 +951,30 @@ class VlRuntime {
         if (reach > chartWidth) {
             this.growExtent("right" (reach - chartWidth))
         }
+    }
+
+    ; A guide's own properties may be signals rather than literals — a legend's
+    ; gradient is as long as the chart is tall, written as
+    ; `{"signal": "clamp(height, 64, 200)"}`. Resolving them here means the
+    ; guide builders read plain numbers and never learn what a signal is.
+    fn resolveSignalMembers:VlJson (obj:VlJson) {
+        if (! (obj.isObject())) {
+            return obj
+        }
+        def out:VlJson (VlJson.objectValue())
+        for obj.keys key:string ki {
+            def v:VlJson (obj.get(key))
+            if (v.isObject()) {
+                if (v.has("signal")) {
+                    out.setMember(key (this.evalExpr((v.stringOr("signal" "")))))
+                } {
+                    out.setMember(key v)
+                }
+            } {
+                out.setMember(key v)
+            }
+        }
+        return out
     }
 
     ; A guide's `encode` block holds constants, not per-datum expressions: it is
@@ -1286,19 +1310,30 @@ class VlRuntime {
 
         def out:double 0.0
         def haveValue:boolean false
+        ; A scale with a list of output VALUES answers one of them rather than a
+        ; number: an ordinal scale picks by index, and a continuous one mixes
+        ; the two its input falls between. That is what makes a heat map a heat
+        ; map — the same colour ramp, read continuously instead of in steps.
+        def listed:boolean ((array_length sc.rangeValues) > 0)
         if (cdef.has("field")) {
             def field:string (cdef.stringOr("field" ""))
             def raw:VlJson (row.get(field))
-            if ((sc.scaleType == "ordinal") && ((array_length sc.rangeValues) > 0)) {
-                return (VlJson.stringValue((sc.mapOrdinal(raw))))
+            if listed {
+                if (sc.scaleType == "ordinal") {
+                    return (VlJson.stringValue((sc.mapOrdinal(raw))))
+                }
+                return (VlJson.stringValue((sc.mapRamp((raw.asDouble())))))
             }
             out = (sc.mapValue(raw))
             haveValue = true
         }
         if (cdef.has("value")) {
             def raw2:VlJson (cdef.get("value"))
-            if ((sc.scaleType == "ordinal") && ((array_length sc.rangeValues) > 0)) {
-                return (VlJson.stringValue((sc.mapOrdinal(raw2))))
+            if listed {
+                if (sc.scaleType == "ordinal") {
+                    return (VlJson.stringValue((sc.mapOrdinal(raw2))))
+                }
+                return (VlJson.stringValue((sc.mapRamp((raw2.asDouble())))))
             }
             out = (sc.mapValue(raw2))
             haveValue = true

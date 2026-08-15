@@ -36,7 +36,7 @@ const ROOT = path.resolve(VELA, '..', '..');
 const SCENE_TOOL = path.join(VELA, 'bin', 'vela_scene.js');
 
 const TOLERANCE = 1e-6;
-const IGNORED = new Set(['exit', 'zindex', 'bounds', 'mark', 'datum', 'source', 'clip', 'strokeForeground', 'context']);
+const IGNORED = new Set(['exit', 'zindex', 'bounds', 'mark', 'datum', 'source', 'clip', 'strokeForeground', 'context', 'zdirty']);
 
 let vega, vl;
 try {

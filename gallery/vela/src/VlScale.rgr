@@ -264,6 +264,69 @@ class VlScale {
         return (this.mapNumber((v.asDouble())))
     }
 
+    ; A CONTINUOUS scale whose range is a colour ramp: the value's position in
+    ; the domain picks a place along the ramp, and the two colours it falls
+    ; between are mixed in proportion. The reference interpolates the same way —
+    ; piecewise and in plain RGB, one segment per pair of adjacent colours —
+    ; and rounds each channel, so `rgb(94, 192, 191)` is arrived at rather than
+    ; approached.
+    fn mapRamp:string (value:double) {
+        def n:int (array_length rangeValues)
+        if (n == 0) {
+            return ""
+        }
+        if (n == 1) {
+            return (itemAt rangeValues 0)
+        }
+        def t:double (this.fraction(value))
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        def scaled:double (t * (to_double (n - 1)))
+        def i:int (floor scaled)
+        if (i > (n - 2)) {
+            i = (n - 2)
+        }
+        def local:double (scaled - (to_double i))
+        def a:string (itemAt rangeValues i)
+        def b:string (itemAt rangeValues (i + 1))
+        def r:int (VlScale.mixChannel((VlScale.hexChannel(a 0)) (VlScale.hexChannel(b 0)) local))
+        def g:int (VlScale.mixChannel((VlScale.hexChannel(a 1)) (VlScale.hexChannel(b 1)) local))
+        def bl:int (VlScale.mixChannel((VlScale.hexChannel(a 2)) (VlScale.hexChannel(b 2)) local))
+        return ((((((("rgb(" + (VlJson.intToText(r))) + ", ") + (VlJson.intToText(g))) + ", ") + (VlJson.intToText(bl))) + ")"))
+    }
+
+    sfn mixChannel:int (from:int to:int t:double) {
+        def v:double ((to_double from) + (((to_double to) - (to_double from)) * t))
+        return (floor (v + 0.5))
+    }
+
+    ; One channel of a "#rrggbb" colour, as a number. Anything else answers
+    ; zero: a ramp is written by this project, not by a document.
+    sfn hexChannel:int (colour:string index:int) {
+        def start:int (1 + (index * 2))
+        if ((strlen colour) < (start + 2)) {
+            return 0
+        }
+        return (((VlScale.hexDigit((charAt colour start))) * 16) + (VlScale.hexDigit((charAt colour (start + 1)))))
+    }
+
+    sfn hexDigit:int (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return (c - 48)
+        }
+        if ((c >= 97) && (c <= 102)) {
+            return ((c - 97) + 10)
+        }
+        if ((c >= 65) && (c <= 70)) {
+            return ((c - 65) + 10)
+        }
+        return 0
+    }
+
     fn mapOrdinal:string (v:VlJson) {
         def total:int (array_length rangeValues)
         if (total == 0) {

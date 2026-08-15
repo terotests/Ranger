@@ -73,6 +73,14 @@ class VlLegend {
     def titleOrient:string "top"
     ; How many entries a symbol legend draws before it gives up and says so.
     def symbolLimit:int 30
+    ; A gradient legend's bar: how long, how thick, and how far its labels sit
+    ; from it. The length is normally a signal a specification computed from the
+    ; chart's own height, so the runtime resolves it before this reads it.
+    def gradientLength:double 200.0
+    def gradientThickness:double 16.0
+    def gradientStrokeColor:string "#ddd"
+    def gradientStrokeWidth:double 0.0
+    def gradientLabelOffset:double 2.0
 
     ; --- what the spec asked for ---------------------------------------------
     ; channel -> scale, for the channels this legend encodes. The channel that
@@ -143,6 +151,11 @@ class VlLegend {
         titleLimit = (ldef.doubleOr("titleLimit" titleLimit))
         titleOrient = (ldef.stringOr("titleOrient" titleOrient))
         symbolLimit = (ldef.intOr("symbolLimit" symbolLimit))
+        gradientLength = (ldef.doubleOr("gradientLength" gradientLength))
+        gradientThickness = (ldef.doubleOr("gradientThickness" gradientThickness))
+        gradientStrokeColor = (ldef.stringOr("gradientStrokeColor" gradientStrokeColor))
+        gradientStrokeWidth = (ldef.doubleOr("gradientStrokeWidth" gradientStrokeWidth))
+        gradientLabelOffset = (ldef.doubleOr("gradientLabelOffset" gradientLabelOffset))
         title = (ldef.stringOr("title" title))
     }
 
@@ -207,6 +220,15 @@ class VlLegend {
             return mark
         }
         def sc:VlScale (this.scaleFor(primary))
+
+        ; A legend over a CONTINUOUS colour scale is a bar, not a column of
+        ; symbols: there is no set of values to list, only a ramp with its ends
+        ; labelled. The reference decides between the two the same way — one
+        ; scale, on fill or stroke, and continuous.
+        if (this.wantsGradient(primary sc)) {
+            return (this.buildGradient(mark group sc labelsEncode titleEncode))
+        }
+
         def entries:[VlLegendEntry] (this.entriesFor(sc))
         ; A size scale's first tick is usually its domain minimum, and a symbol
         ; of no area is not an entry — the reference drops it.
@@ -318,6 +340,153 @@ class VlLegend {
         group.setNumber("width" width)
         group.setNumber("height" height)
         return mark
+    }
+
+    fn wantsGradient:boolean (primary:string sc:VlScale) {
+        if ((primary == "fill") == false) {
+            if ((primary == "stroke") == false) {
+                return false
+            }
+        }
+        if ((this.channelCount()) > 1) {
+            return false
+        }
+        if ((array_length sc.rangeValues) == 0) {
+            return false
+        }
+        return (((sc.scaleType == "linear") || (sc.scaleType == "log")) || (this.isPowScale(sc)))
+    }
+
+    fn channelCount:int () {
+        def total:int 0
+        for channelOrder name:string idx {
+            if (has scales name) {
+                total = (total + 1)
+            }
+        }
+        return total
+    }
+
+    fn isPowScale:boolean (sc:VlScale) {
+        return ((sc.scaleType == "pow") || (sc.scaleType == "sqrt"))
+    }
+
+    ; The bar, and the two ends of the scale beside it. The bar's fill is a
+    ; gradient, which the scene carries as its stops — a renderer with no
+    ; gradient of its own draws them as slices, and one with gradients uses
+    ; them directly.
+    fn buildGradient:VlSceneMark (mark:VlSceneMark group:VlSceneItem sc:VlScale labelsEncode:VlJson titleEncode:VlJson) {
+        def entryMark (new VlSceneMark())
+        entryMark.markType = "group"
+        entryMark.role = "legend-entry"
+        def entryItem:VlSceneItem (entryMark.addItem())
+
+        def barMark (new VlSceneMark())
+        barMark.markType = "rect"
+        barMark.role = "legend-gradient"
+        def bar:VlSceneItem (barMark.addItem())
+        bar.setNumber("opacity" 1.0)
+        bar.setNumber("x" 0.0)
+        bar.setNumber("y" 0.0)
+        bar.setNumber("width" gradientThickness)
+        bar.setNumber("height" gradientLength)
+        bar.setString("stroke" gradientStrokeColor)
+        bar.setNumber("strokeWidth" gradientStrokeWidth)
+        bar.setValue("gradientStops" (this.gradientStops(sc)))
+
+        ; The values the ends are labelled with. The reference asks for as many
+        ; ticks as the bar is long — two per hundred pixels — and falls back to
+        ; the domain's own ends when that produces too few to read as a scale.
+        def count:int (floor (gradientLength / 100.0))
+        count = (count * 2)
+        if (count < 2) {
+            count = 2
+        }
+        def values:[double] (sc.ticks(count))
+        if ((array_length values) < 3) {
+            clear values
+            push values sc.domainMin
+            push values sc.domainMax
+        }
+        def labels:[string] (VlScale.tickLabels(values))
+
+        def labelMark (new VlSceneMark())
+        labelMark.markType = "text"
+        labelMark.role = "legend-label"
+        def boxes (new VlBounds())
+        boxes.union((VlBounds.ofSymbol((gradientThickness / 2.0) (gradientLength / 2.0) 0.0 0.0 false)))
+        boxes.set(0.0 0.0 gradientThickness gradientLength)
+        for values v:double idx {
+            def item:VlSceneItem (labelMark.addItem())
+            item.setString("fill" labelColor)
+            item.setString("font" labelFont)
+            item.setNumber("fontSize" labelFontSize)
+            item.setNumber("opacity" 1.0)
+            item.setString("align" "left")
+            def perc:double (sc.fraction(v))
+            def baseline:string "middle"
+            if (perc <= 0.0) {
+                baseline = "bottom"
+            }
+            if (perc >= 1.0) {
+                baseline = "top"
+            }
+            item.setString("baseline" baseline)
+            item.setNumber("y" ((1.0 - perc) * gradientLength))
+            item.setNumber("x" (gradientThickness + gradientLabelOffset))
+            item.setString("text" (itemAt labels idx))
+            VlLegend.applyEncode(item labelsEncode)
+            boxes.union((VlBounds.ofText((item.text("text")) (item.number("fontSize")) (item.text("align")) (item.text("baseline")) (item.number("x")) (item.number("y")))))
+        }
+
+        push entryItem.marks barMark
+        push entryItem.marks labelMark
+
+        def entryX:double padding
+        def entryY:double padding
+        def titleBox (new VlBounds())
+        if ((strlen title) > 0) {
+            titleBox = (VlBounds.ofText(title titleFontSize "left" "top" padding padding))
+            entryY = (entryY + ((titleBox.height()) + titlePadding))
+        }
+        entryItem.setNumber("x" entryX)
+        entryItem.setNumber("y" entryY)
+        boxes.translate(entryX entryY)
+        push group.marks entryMark
+        if ((strlen title) > 0) {
+            push group.marks (this.buildTitle(titleEncode))
+            boxes.union(titleBox)
+        }
+
+        width = (VlBounds.ceilTo(((boxes.x2 - padding) + (padding * 2.0))))
+        height = (VlBounds.ceilTo(((boxes.y2 - padding) + (padding * 2.0))))
+        group.setNumber("x" 0.0)
+        group.setNumber("y" 0.0)
+        group.setNumber("width" width)
+        group.setNumber("height" height)
+        return mark
+    }
+
+    ; The ramp as offsets and colours, sampled where the scale's own colours
+    ; change so that a renderer drawing them as slices lands on the same bands
+    ; the reference's gradient does.
+    fn gradientStops:VlJson (sc:VlScale) {
+        def out:VlJson (VlJson.arrayValue())
+        def n:int (array_length sc.rangeValues)
+        if (n < 2) {
+            return out
+        }
+        def steps:int ((n - 1) * 4)
+        def k:int 0
+        while (k <= steps) {
+            def t:double ((to_double k) / (to_double steps))
+            def stop:VlJson (VlJson.objectValue())
+            stop.setMember("offset" (VlJson.numberValue(t)))
+            stop.setMember("color" (VlJson.stringValue((sc.mapRamp((sc.domainMin + (t * (sc.domainMax - sc.domainMin)))))))) 
+            push out.arr stop
+            k = (k + 1)
+        }
+        return out
     }
 
     ; The channels each row's symbol and label carry, in the reference's order:
