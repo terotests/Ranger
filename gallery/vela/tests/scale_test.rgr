@@ -31,6 +31,19 @@ class VlScaleTest {
         return out
     }
 
+    ; A blank is a real answer on a log axis, so the separator is visible.
+    fn labelsText:string (sc:VlScale count:int) {
+        def out:string ""
+        def labels:[string] (sc.logLabels((sc.ticks(count)) count))
+        for labels label:string idx {
+            if (idx > 0) {
+                out = (out + "|")
+            }
+            out = (out + label)
+        }
+        return out
+    }
+
     fn run:void () {
         ; --- linear ---
         def lin (new VlScale())
@@ -121,6 +134,44 @@ class VlScaleTest {
         pt.layout()
         this.check("point width" (this.num((pt.bandwidth()))) "0")
         this.check("point B" (this.num((pt.mapDiscrete("B")))) "50")
+
+        ; --- log ---
+        ; Every expected value here is what d3-scale answers for the same
+        ; domain, which is what the reference implementation uses.
+        def lg (new VlScale())
+        lg.scaleType = "log"
+        lg.setNumericDomain(19.0 91.0)
+        lg.setNumericRange(300.0 0.0)
+        lg.niceDomain(10)
+        this.check("log nice 19..91" ((this.num((lg.domainMin))) + ".." + (this.num((lg.domainMax)))) "10..100")
+        this.check("log ticks" (this.ticksText(lg 8)) "10,20,30,40,50,60,70,80,90,100")
+        this.check("log map 19" (this.num((lg.mapNumber(19.0)))) "216.37392")
+        this.check("log map 50" (this.num((lg.mapNumber(50.0)))) "90.308999")
+        ; Ten ticks and room for eight: the last one before the decade ends is
+        ; the one that goes unlabelled.
+        this.check("log labels" (this.labelsText(lg 8)) "10|20|30|40|50|60|70|80||100")
+
+        ; Four decades: still every whole multiple, because the domain spans
+        ; fewer decades than the tick count asked for.
+        def lg2 (new VlScale())
+        lg2.scaleType = "log"
+        lg2.setNumericDomain(1.0 10000.0)
+        lg2.niceDomain(10)
+        def lg2ticks:[double] (lg2.ticks(8))
+        this.check("log 4 decades tick count" (this.num((to_double (array_length lg2ticks)))) "37")
+        this.check("log 4 decades grouped label" (VlScale.groupedLabel((itemAt lg2ticks 36))) "10,000")
+
+        ; Past that there is no room for the multiples, so the decades
+        ; themselves are ticked — and a domain reaching below one nices
+        ; downward, not to zero, which a log scale cannot reach.
+        def lg3 (new VlScale())
+        lg3.scaleType = "log"
+        lg3.setNumericDomain(0.5 5000.0)
+        lg3.setNumericRange(200.0 0.0)
+        lg3.niceDomain(10)
+        this.check("log nice 0.5..5000" ((this.num((lg3.domainMin))) + ".." + (this.num((lg3.domainMax)))) "0.1..10000")
+        this.check("log decade ticks" (this.ticksText(lg3 5)) "0.1,1,10,100,1000,10000")
+        this.check("log map 0.5" (this.num((lg3.mapNumber(0.5)))) "172.0412")
 
         ; --- ordinal ---
         def ord (new VlScale())

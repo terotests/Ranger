@@ -10,10 +10,10 @@ of the Vega JavaScript sources and not affiliated with the Vega project. See
 
 **Status:** it draws. Marks, scales, transforms, signals, expressions, axes,
 legends and layout produce a scene that matches the reference implementation
-item for item on **251 of 251 marks** across 13 chart types, and the EVG backend
+item for item on **267 of 267 marks** across 14 chart types, and the EVG backend
 renders that scene to **PDF, PNG and HTML** — six charts are on the project's
-[EVG showcase](https://terotests.github.io/Ranger/evg/). Time and log scales are
-the largest remaining pieces; see
+[EVG showcase](https://terotests.github.io/Ranger/evg/). Time scales and faceted
+layout are the largest remaining pieces; see
 [What is not there yet](#what-is-not-there-yet).
 
 ```
@@ -28,7 +28,7 @@ the largest remaining pieces; see
    │  VlJson      spec + data as one value type │
    │  VlExpr      the Vega expression language  │
    │  VlTransform filter formula stack bin …    │
-   │  VlScale     band point linear ordinal     │
+   │  VlScale     band point linear log ordinal │
    │  VlRuntime   signals → data → scales →     │
    │              encode                        │
    │  VlAxis      ticks, labels, grid, title    │
@@ -161,14 +161,15 @@ Measured by `tests/run.sh`: does the mark geometry match the reference?
 | scatter | `scatter.vg.json` | ✓ |
 | bubble (size) | `bubble.vg.json` | ✓ |
 | coloured scatter | `scatter_colored.vg.json` | ✓ |
+| log scale | `scatter_log.vg.json` | ✓ |
 | tick | `tick.vg.json` | ✓ |
 | text labels | `text_labels.vg.json` | ✓ |
 | pie / arc | `pie.vg.json` | ✓ |
 | layered | `layered.vg.json` | ✓ (both layers) |
 
-**251 / 251 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
+**267 / 267 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
 grid, tick, label, domain line and title, every legend symbol, key and title,
-and the groups that place all of them, in all thirteen charts.
+and the groups that place all of them, in all fourteen charts.
 
 The groups are the newer half of that number. A group carries the coordinates
 that *place* what is inside it, and the harness used to walk straight through
@@ -179,7 +180,7 @@ which is also what pins the legend's own size and position.
 | Area | State |
 | --- | --- |
 | Marks | rect, rule, symbol, text, line, area, arc, path, image — encoded; group marks are not nested yet |
-| Scales | band, point, linear, ordinal · `nice`, `zero`, `clamp`, `round`, step ranges, colour schemes |
+| Scales | band, point, linear, log, ordinal · `nice`, `zero`, `clamp`, `round`, `base`, step ranges, colour schemes |
 | Transforms | filter, formula, stack (with sort), aggregate, bin, extent, impute, project, collect (unsorted) |
 | Expressions | the documented expression profile: operators, member access, calls, array and object literals |
 | Signals | literal values and `update` expressions, settled against the scales |
@@ -222,6 +223,26 @@ symbol had to agree with the mark it stands for.
 The spec's own `encode` block is applied to the symbols and labels *before*
 anything is measured, because it changes what there is to measure — a legend
 that strokes its symbols makes every row taller.
+
+## A log axis prints fewer labels than it draws ticks
+
+A log scale's ticks are every whole multiple inside each decade — 10, 20 … 90,
+100 — so a domain of two decades has twenty of them and nowhere near room for
+twenty labels. The reference does not thin the ticks; it thins the *labels*,
+keeping the ones near the front of each decade and blanking the rest. On
+[10, 100] with room for eight, 10 through 80 are printed and 90 is not.
+
+The test is d3's, and the surprising half of it is that a value just below a
+power of the base counts as the *ninth* step of the decade below rather than
+the first of its own: 90 divided by its nearest power is 0.9, which is folded
+up to 9, and 9 is one too many. Getting that backwards prints every label or
+none.
+
+The labels themselves are grouped rather than abbreviated — a thousand is
+"1,000", not "1k" — and the domain nices to whole powers of the base, because
+there is no even step to round to. `[19, 91]` becomes `[10, 100]`, and a domain
+reaching below one nices *downward*, never to zero, which a log scale cannot
+reach.
 
 ## Drawing: the EVG backend
 
@@ -298,8 +319,8 @@ theme at all they come out in the colours their specifications asked for.
   legend is drawn correctly whatever it says, but only the right-hand edge is
   placed. The reference resolves the other seven anchors against the view
   bounds; that is layout work, not legend work.
-* **Time and log scales**, and a Ranger Vega-Lite compiler — none of which a
-  static chart needs, and all of which are named in the table below.
+* **Time scales**, and a Ranger Vega-Lite compiler — neither of which a static
+  chart needs, and both of which are named in the table below.
 * **Two width estimates, on purpose.** `VlText.estimateWidth` is the
   reference's canvas-free 0.8 em per character and sizes the axis extents,
   because matching the reference's layout is what the comparison measures.
@@ -316,8 +337,8 @@ theme at all they come out in the colours their specifications asked for.
   edge can still differ by a few pixels — a backend should not clip to the plot
   rectangle. `VlBounds` is what that fix would be built on.
 * **Time scales and the date/time layer.** No temporal axis.
-* **Log and power scales.** `VlMath` has the `ln`/`exp`/`pow` they need; the
-  scale types are not wired up.
+* **Power scales.** `VlMath` has the `pow` they need; the scale type is not
+  wired up. `log` is built.
 * **Incremental dataflow.** Everything recomputes. The transform signatures are
   per-transform so an incremental core can go underneath without rewriting them.
 * **A Ranger Vega-Lite compiler.** The Vega-Lite → Vega step is still the
@@ -338,7 +359,7 @@ gallery/vela/
 │   ├── VlEvg.rgr         the EVG backend: commands → path data
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
-│   ├── VlScale.rgr       band / point / linear / ordinal, ticks, nice
+│   ├── VlScale.rgr       band / point / linear / log / ordinal, ticks
 │   ├── VlTransform.rgr   data transforms
 │   ├── VlConfig.rgr      the defaults a mark inherits
 │   ├── VlScene.rgr       scene graph + canonical JSON

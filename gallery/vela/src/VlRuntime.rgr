@@ -415,6 +415,7 @@ class VlRuntime {
         sc.align = (sdef.doubleOr("align" 0.5))
         sc.round = (sdef.boolOr("round" false))
         sc.clamp = (sdef.boolOr("clamp" false))
+        sc.logBase = (sdef.doubleOr("base" 10.0))
 
         this.readBins(sc (sdef.get("bins")))
         this.readDomain(sc (sdef.get("domain")) sdef)

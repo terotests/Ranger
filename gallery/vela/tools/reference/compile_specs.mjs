@@ -143,6 +143,14 @@ const SPECS = {
       color: { field: 'g', type: 'nominal' },
     },
   },
+  scatter_log: {
+    data: { values },
+    mark: 'point',
+    encoding: {
+      x: { field: 'c', type: 'quantitative' },
+      y: { field: 'b', type: 'quantitative', scale: { type: 'log' } },
+    },
+  },
   layered: {
     data: { values },
     layer: [
