@@ -706,7 +706,7 @@ of the trait-defining class out by reference, `rgf_x()` to read and
 when the segment before it is a class with children.
 
 Everything after that has been ordinary codegen work, measured one shape at a
-time. `rustc` on the 67k-line output is down from **4981 errors to 11**
+time. `rustc` on the 67k-line output is down from **4981 errors to 7**
 (`bash scripts/rust-selfhost-check.sh` regenerates and counts). The shapes that
 carried real defects, rather than Rust-specific plumbing:
 
@@ -746,11 +746,12 @@ carried real defects, rather than Rust-specific plumbing:
   every caller (they bind the result to an `Rc` name) and with every body (they
   return one).
 
-### The 11 that are left
+### The 7 that are left
 
-They are two structural families and one borrow shape, not a flat tail:
+They are all one shape — a closure that Rust cannot borrow-check the way the
+Ranger object model uses it:
 
-- **Recursive closures (7).** The compiler declares a lambda in a local and then
+- **Recursive closures (5).** The compiler declares a lambda in a local and then
   assigns the real body to it, so the body can call the name — `walk_xml`,
   `set_async`, `set_called`. A `&mut |…|` literal is a temporary that dies at
   the end of its statement (E0716), and the fix for that is not local: binding
@@ -758,28 +759,25 @@ They are two structural families and one borrow shape, not a flat tail:
   captures the very name being assigned to. Giving such a name the owned
   `Box<dyn FnMut(…)>` form was written and measured — 25 → 39 — and reverted;
   it removes the temporaries and replaces them with the same borrow conflict.
-  A real fix is closure conversion: lift the lambda to a function and pass its
-  captured environment explicitly. The two E0500 are the same family seen from
-  the other side — a closure that captures `self` handed to a `&mut self`
-  method.
-- **Downcasts (3).** `(cast (unwrap n2.paramDesc) to:RangerAppFunctionDesc)`
-  asks for a subclass handle out of a parent-typed one. The UPCAST direction is
-  now written wherever it is needed (argument, return, assignment, weak
-  downgrade) as `x as Rc<RefCell<dyn XTrait>>`. The downcast has no expression
-  in stable Rust: `Rc<RefCell<dyn Trait>>` cannot become `Rc<RefCell<Concrete>>`
-  by any safe conversion. The route that would work, for whoever picks this up:
-  give every generated trait a supertrait carrying
-  `fn rg_as_any(&self) -> &dyn Any`, emit one `impl` of it per class, and write
-  `cast` as a Rust CustomOperator calling a helper that asserts
-  `v.borrow().rg_as_any().is::<T>()` and then rebuilds the `Rc` around the same
-  allocation through a raw pointer. That is what `Rc::<dyn Any>::downcast` does
-  in std, and it is sound behind the assert — but it puts `unsafe` in the
-  generated output and a supertrait on every trait, so it is a decision to make
-  deliberately rather than a bug to fix.
-- **One E0502**: a self field read through a cell, passed as an argument to a
-  `&mut self` call — the `Ref` outlives the point the `&mut` is taken. Hoisting
-  every such argument into a temporary was measured at 12 → 88 and reverted; the
-  hoist has to be narrower than "reads a self field".
+  The bodies also mutate captured scalars (`currCnt = currCnt + 1`), which rules
+  out the `Rc<RefCell<Option<Rc<dyn Fn>>>>` self-reference cell that would
+  otherwise work: `FnMut` cannot be re-entered through a `RefCell`. A real fix
+  is closure conversion — lift the lambda to a function and pass its captured
+  environment explicitly, boxing the mutated captures.
+- **A closure that calls back into its own receiver (2).**
+  `this.EnterFn(node ctx wr { … this.walkFunctionBody(…) … })` hands a closure
+  that needs `&mut self` to a method that already took `&mut self`. Writing the
+  self-call inside the closure through `__self_rc` instead would compile and
+  then panic at runtime, because the outer `&mut self` is a live `borrow_mut`
+  of the same cell. This is the same object model question as the recursive
+  lambdas, seen from the other side.
+
+Downcasts used to be a third family. They are now written: every generated trait
+carries an `RgAnyRef` supertrait, every participating class implements it in one
+line, and `cast` is a Rust CustomOperator that checks the concrete type through
+`Any` and rebuilds the `Rc` around the same allocation — what
+`Rc::<dyn Any>::downcast` does in std. It is the one place the writer emits
+`unsafe`, and it is sound behind the assert.
 
 The measurements that mattered, including the changes that made things worse and
 were backed out, are recorded in comments at the sites they belong to, so the
