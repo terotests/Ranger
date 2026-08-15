@@ -254,7 +254,11 @@ for (const page of PAGES) {
     const html = `${stem}.html`;
     allWarnings.push(...render("evg_png_tool.js", page.id, theme.id, path.join(OUT, png)));
     allWarnings.push(...render("evg_pdf_tool.js", page.id, theme.id, path.join(OUT, pdf)));
-    allWarnings.push(...render("evg_html_tool.js", page.id, theme.id, path.join(OUT, html)));
+    // -embed inlines the TTFs as data URIs. Without it the page references
+    // font files by path, which resolves on the build machine and nowhere
+    // else — the browser then falls back to a system face, wraps text where
+    // EVG did not, and the absolutely-positioned boxes land on the headings.
+    allWarnings.push(...render("evg_html_tool.js", page.id, theme.id, path.join(OUT, html), ["-embed"]));
     entries.push({ page: page.id, theme: theme.id, png, pdf, html });
   }
   // Source, served as text so the gallery can link to what produced the page.

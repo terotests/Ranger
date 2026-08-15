@@ -213,8 +213,31 @@ class EVGHTMLTool {
         renderer.setPageSize(pageWidth pageHeight)
         renderer.setTitle(title)
         renderer.setBaseDir(inputDir)
-        ; Set font path relative to input directory (assumes fonts in ../assets/fonts/)
-        renderer.setFontBasePath(inputDir + "../assets/fonts/")
+        ; Point @font-face at the directory the faces were actually loaded
+        ; from. This used to be guessed as inputDir + "../assets/fonts/", which
+        ; is only right for documents that sit in gallery/pdf_writer/examples;
+        ; anywhere else it wrote a path that does not exist — and, when the
+        ; input path was absolute, one that only exists on the build machine.
+        ; The browser then loaded no face at all, fell back to a system font
+        ; with different metrics, and wrapped text where EVG had not, so
+        ; absolutely-positioned boxes landed on top of headings.
+        def fontsRoot:string (fontSetup.fontsRoot())
+        if ((strlen fontsRoot) > 0) {
+            renderer.setFontBasePath(fontsRoot)
+        } {
+            renderer.setFontBasePath(inputDir + "../assets/fonts/")
+        }
+
+        ; Hand over the file each face was actually opened from, so @font-face
+        ; points at the same TTF the layout was measured with instead of a
+        ; hand-maintained guess.
+        def fmForFaces:FontManager (fontSetup.getManager())
+        def fi:int 0
+        while (fi < (array_length fmForFaces.fonts)) {
+            def face:TrueTypeFont (itemAt fmForFaces.fonts fi)
+            renderer.addFontFile(face.fontFamily face.fontPath)
+            fi = (fi + 1)
+        }
 
         ; Same faces as the PDF path: measurement now comes from the TTF files
         ; rather than fontSize * 0.55.

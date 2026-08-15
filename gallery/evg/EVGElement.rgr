@@ -191,7 +191,10 @@ class EVGElement {
     def borderBottomWidth:EVGUnit
     def borderLeftWidth:EVGUnit
     def borderColor:EVGColor
-    def borderRadius:EVGUnit
+    ; NOTE: border-radius lives on `box`, not here. A duplicate field on the
+    ; element used to shadow it — setAttribute wrote box.borderRadius while the
+    ; raster renderer read the element's, so rounded corners silently came out
+    ; square in PNG and correct in PDF. Do not reintroduce it.
     
     ; Image properties
     def src:string ""

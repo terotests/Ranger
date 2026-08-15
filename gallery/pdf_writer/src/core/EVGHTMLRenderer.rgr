@@ -64,6 +64,14 @@ class EVGHTMLRenderer {
     def indentString:string "  "
     def usedFontFamilies:[string]
     def fontBasePath:string "./fonts/"
+    ; Real file paths for the faces that were actually loaded, registered by
+    ; the tool. fontFamilyToFileName below is a hand-maintained guess at where
+    ; a family lives, and it had drifted: it knows "Josefin Slab" but not
+    ; "Josefin Sans" or "Cinzel", so those resolved to a file that does not
+    ; exist and the browser silently substituted a system face. The font
+    ; manager already knows the truth, having opened the files.
+    def fontFileFamilies:[string]
+    def fontFilePaths:[string]
     def imageBasePath:string "./"
     def outputMode:string "inline"  ; "inline" | "stylesheet" | "both"
     def prettyPrint:boolean true
@@ -276,11 +284,57 @@ class EVGHTMLRenderer {
         return css
     }
     
+    ; Tell the renderer where a face really is. Overrides the name mapping.
+    fn addFontFile:void (family:string path:string) {
+        def i:int 0
+        while (i < (array_length fontFileFamilies)) {
+            if ((itemAt fontFileFamilies i) == family) {
+                return
+            }
+            i = (i + 1)
+        }
+        push fontFileFamilies family
+        push fontFilePaths path
+    }
+
+    fn fontFileFor:string (family:string) {
+        def i:int 0
+        while (i < (array_length fontFileFamilies)) {
+            if ((itemAt fontFileFamilies i) == family) {
+                return (itemAt fontFilePaths i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     fn generateFontFace:string (fontFamily:string) {
         ; Generate @font-face for a font family
         ; Convert font family name to filename
         def fileName:string (this.fontFamilyToFileName(fontFamily))
         def fontPath:string fontBasePath
+        ; A registered path is the file the measurer actually opened, so it
+        ; beats the name mapping outright.
+        ; A registered path is the file the measurer actually opened, so it
+        ; beats the name mapping outright. buffer_read_file wants the
+        ; directory and the name apart, so split it at the last separator.
+        def known:string (this.fontFileFor(fontFamily))
+        if ((strlen known) > 0) {
+            def cut:int (0 - 1)
+            def ci:int 0
+            while (ci < (strlen known)) {
+                if ((charAt known ci) == 47) {
+                    cut = ci
+                }
+                ci = (ci + 1)
+            }
+            if (cut > 0) {
+                fontPath = (substring known 0 (cut + 1))
+                fileName = (substring known (cut + 1) (strlen known))
+            } {
+                fileName = known
+            }
+        }
         
         def css:string ""
         css = css + "    @font-face {\n"
@@ -295,6 +349,14 @@ class EVGHTMLRenderer {
             }
         }
         
+        ; A registered file is embeddable whether or not its NAME has a slash
+        ; in it — the directory is carried separately.
+        if ((strlen known) > 0) {
+            if embedAssets {
+                canEmbed = true
+            }
+        }
+
         if canEmbed {
             ; Try to embed font as base64 data URI
             def resolvedPath:string (this.resolveImagePath(fileName))

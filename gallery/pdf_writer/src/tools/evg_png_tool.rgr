@@ -350,10 +350,14 @@ class EVGPNGTool {
         }
         
         ; Get border radius
+        ; border-radius lives on the BOX. EVGElement carried a field of the same
+        ; name that setAttribute never wrote, and this was the only code
+        ; reading it — so every rounded corner came out square in the raster
+        ; while the PDF, which reads the box, rounded them correctly.
         def radius:int 0
-        if el.borderRadius {
-            if el.borderRadius.isSet {
-                radius = (to_int (el.borderRadius.pixels * scale))
+        if el.box.borderRadius {
+            if el.box.borderRadius.isSet {
+                radius = (to_int (el.box.borderRadiusPx * scale))
             }
         }
         
