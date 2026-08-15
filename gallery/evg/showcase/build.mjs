@@ -204,7 +204,7 @@ try {
   c.style.width = doc.width + "px";
   c.width = Math.round(doc.width * dpr);
   c.height = Math.round(doc.height * dpr);
-  const gl = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false });
+  const gl = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
   if (!gl) throw new Error("This browser has no WebGL 2.");
   await document.fonts.ready;
   // A face nothing has used yet is not fetched until asked for by size.
@@ -215,8 +215,9 @@ try {
   const images = await loadImages(doc);
   const s = renderDisplayList(gl, doc, { dpr, images });
   document.getElementById("stats").textContent =
-    \`\${s.drawn} quads · \${s.textRuns} text runs · \${s.images} images\`
-    + (s.missingImages ? \` · \${s.missingImages} could not be loaded\` : "");
+    \`\${s.drawn} quads · \${s.paths || 0} paths · \${s.textRuns} text runs · \${s.images} images\`
+    + (s.missingImages ? \` · \${s.missingImages} could not be loaded\` : "")
+    + (s.skippedFills ? \` · \${s.skippedFills} fills need a stencil buffer\` : "");
   window.__evgStats = s;
 } catch (e) {
   err.textContent = String((e && e.stack) || e);
