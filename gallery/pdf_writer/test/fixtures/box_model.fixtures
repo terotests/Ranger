@@ -396,3 +396,28 @@ N a    c1   bg=#ff0000
 N b    c1   bg=#00ff00
 N c    c1   bg=#0000ff
 N d    c1   bg=#ffff00
+
+# A grid item's containing block is its CELL, not the grid's content box, so a
+# percentage resolves against the track it lands in. Items used to be resolved
+# against the container before the tracks were sized, which made every `100%`
+# item the full width of the grid.
+F grid-percent-item
+N root -   w=400 h=100 disp=grid gtc=100px_300px gtr=100px bg=#ffffff
+N a   root w=100% h=50% bg=#ff0000
+N b   root w=50%  h=100% bg=#00ff00
+
+F grid-percent-item-padding
+N root -   w=420 h=140 pad=10 disp=grid gtc=1fr_1fr gtr=120px gap=20 bg=#ffffff
+N a   root w=100% h=100% bg=#ff0000
+N b   root w=25%  h=50%  bg=#00ff00
+
+# An explicit row template on a container with no declared height. The fixed
+# rows still apply; only tracks that genuinely need a container height to
+# resolve (% and fr) fall back to content sizing.
+F grid-rows-auto-height-container
+N root -    w=400 h=300 bg=#ffffff
+N deck root w=360 disp=grid gtc=1fr_1fr gtr=90px_auto gap=10 bg=#dddddd
+N a    deck bg=#ff0000
+N b    deck bg=#00ff00
+N c    deck h=30 bg=#0000ff
+N d    deck h=45 bg=#ffff00

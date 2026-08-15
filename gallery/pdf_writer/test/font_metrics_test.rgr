@@ -45,7 +45,53 @@ class FontMetricsTest {
         test.testLayoutMatchesMeasurer(t fm)
         test.testRasterWrapMatchesLayout(t fm)
         test.testKerning(t fm)
+        test.testBoldIsMeasured(t fm)
         t.summary()
+    }
+
+    ; font-weight has to reach the MEASUREMENT, not just the paint.
+    ;
+    ; The renderers pick a bold cut by appending "-Bold" to the family when
+    ; they draw; layout measured the plain family. A bold heading was therefore
+    ; measured in the regular face and drawn in the wider bold one, so it
+    ; wrapped a line later than the box it had been given.
+    ;
+    ; Chromium lays "A Mysterious Discovery" out at 18px as 196.0156 regular
+    ; and 209.25 bold; EVG used to report the first for BOTH. The goldens below
+    ; are EVG's own values, which sit 0.011px under the browser's because
+    ; Chromium rounds each advance — browser agreement itself is enforced to
+    ; 0.05px by browser_parity_test, which has bold faces of its own.
+    fn testBoldIsMeasured:void (t:RgTest fm:FontManager) {
+        def text:string "A Mysterious Discovery"
+        def regular:double (fm.measureText(text "Noto Sans" 18.0))
+        def bold:double (fm.measureText(text "Noto Sans-Bold" 18.0))
+        t.near("the regular face measures as the browser does" regular 196.0048828125)
+        t.near("the bold face measures as the browser does" bold 209.2412109375)
+        t.ok("bold is wider than regular" (bold > regular))
+
+        ; And an element carrying font-weight resolves to that face, which is
+        ; what puts the two in agreement.
+        def plain (new EVGElement())
+        plain.setAttribute("font-family" "Noto Sans")
+        t.eqStr("an unweighted element uses the family" (plain.effectiveFontFamily()) "Noto Sans")
+
+        def heading (new EVGElement())
+        heading.setAttribute("font-family" "Noto Sans")
+        heading.setAttribute("font-weight" "bold")
+        t.eqStr("a bold element resolves to the bold face" (heading.effectiveFontFamily()) "Noto Sans-Bold")
+
+        ; Layout measures through the same resolver, so the shrink-wrapped box
+        ; of a bold label is the bold width.
+        heading.textContent = text
+        heading.setAttribute("font-size" "18px")
+        def page (new EVGElement())
+        page.setAttribute("width" "400px")
+        page.setAttribute("height" "200px")
+        page.addChild(heading)
+        def lay (new EVGLayout())
+        lay.setMeasurer((new TTFTextMeasurer(fm)))
+        lay.layout(page)
+        t.near("a bold label shrink-wraps to the bold width" heading.calculatedWidth 209.2412109375)
     }
 
     ; Kerning, read from GPOS pair adjustments (or the legacy `kern` table on a

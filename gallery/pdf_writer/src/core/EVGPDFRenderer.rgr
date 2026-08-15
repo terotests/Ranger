@@ -2112,8 +2112,11 @@ class EVGPDFRenderer {
         }
         def lineSpacing:double (fontSize * lineHeight)
         
-        ; Get font family
-        def fontFamily:string el.fontFamily
+        ; Get the face, weight included. Registering the bold cut under its own
+        ; name is what gets it embedded — before this a bold heading was
+        ; measured, embedded and drawn in the regular face, so `font-weight`
+        ; did nothing at all in a PDF.
+        def fontFamily:string (el.effectiveFontFamily())
         if ((strlen fontFamily) == 0) {
             fontFamily = "Helvetica"
         }

@@ -341,7 +341,8 @@
     "test:evg:fonts": "bash gallery/pdf_writer/test/run_fonts.sh",
     "test:evg:frontend": "bash gallery/pdf_writer/test/run_print.sh",
     "test:evg:all": "npm run test:evg && npm run test:evg:fonts && npm run test:evg:layout && npm run test:evg:frontend",
-    "test:evg:layout": "bash gallery/pdf_writer/test/run_layout.sh"
+    "showcase": "node gallery/evg/showcase/build.mjs",
+  "test:evg:layout": "bash gallery/pdf_writer/test/run_layout.sh"
   },
   "repository": {
     "type": "git",

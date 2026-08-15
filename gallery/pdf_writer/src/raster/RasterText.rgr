@@ -127,6 +127,9 @@ class RasterText {
     ; game) rendering. Set true only when debugging the rasterizer itself.
     ; (See gallery/game_engine/RENDERING_EVG.md: "strip the debug prints".)
     def debug:boolean false
+    ; Nesting level while walking a composite glyph's components, which may
+    ; themselves be composite.
+    def compositeDepth:int 0
 
     ; Edges buffer for glyph rendering (reused to avoid slice issues in Go)
     def currentEdges:[GlyphEdge]
@@ -213,7 +216,13 @@ class RasterText {
         outline.yMax = (to_double (this.readInt16(off + 8)))
         
         if (numberOfContours < 0) {
-            ; Composite glyph - skip for now (TODO: implement)
+            ; Composite glyph: a base letter plus one or more components
+            ; positioned against it. Skipping these drew nothing at all for
+            ; every accented character — ä, ö, å, é — while still reserving
+            ; their advance, so Finnish text came out with holes in it and
+            ; nothing said so.
+            this.parseComposite(outline off fontSize)
+            outline.advanceWidth = ((to_double (font.getGlyphWidth(glyphIndex))) * scale)
             return outline
         }
         
@@ -358,6 +367,118 @@ class RasterText {
         return outline
     }
     
+    ; Read the components of a composite glyph and fold them into `outline`.
+    ;
+    ; Each component names another glyph plus a placement: an offset, and
+    ; optionally a 2x2 transform. The component is parsed through parseGlyph,
+    ; so its own points arrive already scaled to fontSize — which is why the
+    ; offsets are scaled here but the matrix is not.
+    fn parseComposite:void (outline:GlyphOutline off:int fontSize:double) {
+        if (compositeDepth > 4) {
+            ; A component may itself be composite. Real fonts nest one or two
+            ; deep; this is only here so a corrupt or cyclic table cannot spin.
+            return
+        }
+        compositeDepth = (compositeDepth + 1)
+
+        def scale:double (fontSize / (to_double font.unitsPerEm))
+        def p:int (off + 10)
+        def more:boolean true
+        while more {
+            def flags:int (this.readUInt16(p))
+            def compGlyph:int (this.readUInt16(p + 2))
+            p = (p + 4)
+
+            def a1:int 0
+            def a2:int 0
+            if ((bit_and flags 1) != 0) {
+                ; ARG_1_AND_2_ARE_WORDS
+                a1 = (this.readInt16(p))
+                a2 = (this.readInt16(p + 2))
+                p = (p + 4)
+            } {
+                a1 = (this.readInt8(p))
+                a2 = (this.readInt8(p + 1))
+                p = (p + 2)
+            }
+
+            def dx:double 0.0
+            def dy:double 0.0
+            if ((bit_and flags 2) != 0) {
+                ; ARGS_ARE_XY_VALUES. The alternative is point matching, which
+                ; aligns two point indices instead; no face here uses it and
+                ; guessing an offset would be worse than none.
+                dx = (to_double a1)
+                dy = (to_double a2)
+            }
+
+            def xScale:double 1.0
+            def yScale:double 1.0
+            def scale01:double 0.0
+            def scale10:double 0.0
+            if ((bit_and flags 8) != 0) {
+                ; WE_HAVE_A_SCALE
+                xScale = (this.readF2Dot14(p))
+                yScale = xScale
+                p = (p + 2)
+            } {
+                if ((bit_and flags 64) != 0) {
+                    ; WE_HAVE_AN_X_AND_Y_SCALE
+                    xScale = (this.readF2Dot14(p))
+                    yScale = (this.readF2Dot14(p + 2))
+                    p = (p + 4)
+                } {
+                    if ((bit_and flags 128) != 0) {
+                        ; WE_HAVE_A_TWO_BY_TWO
+                        xScale = (this.readF2Dot14(p))
+                        scale01 = (this.readF2Dot14(p + 2))
+                        scale10 = (this.readF2Dot14(p + 4))
+                        yScale = (this.readF2Dot14(p + 6))
+                        p = (p + 8)
+                    }
+                }
+            }
+
+            def comp:GlyphOutline (this.parseGlyph(compGlyph fontSize))
+            def ox:double (dx * scale)
+            def oy:double (dy * scale)
+            def ci:int 0
+            while (ci < (array_length comp.contours)) {
+                def src:GlyphContour (itemAt comp.contours ci)
+                def dst (new GlyphContour())
+                def pi:int 0
+                while (pi < (array_length src.points)) {
+                    def pt:GlyphPoint (itemAt src.points pi)
+                    def nx:double (((pt.x * xScale) + (pt.y * scale10)) + ox)
+                    def ny:double (((pt.x * scale01) + (pt.y * yScale)) + oy)
+                    dst.addPoint(nx ny pt.onCurve)
+                    pi = (pi + 1)
+                }
+                outline.addContour(dst)
+                ci = (ci + 1)
+            }
+
+            ; MORE_COMPONENTS
+            more = ((bit_and flags 32) != 0)
+        }
+
+        compositeDepth = (compositeDepth - 1)
+    }
+
+    ; A component transform is stored as F2Dot14: a signed 2.14 fixed-point
+    ; number, so 1.0 is 16384.
+    fn readF2Dot14:double (offset:int) {
+        return ((to_double (this.readInt16(offset))) / 16384.0)
+    }
+
+    fn readInt8:int (offset:int) {
+        def v:int (this.readUInt8(offset))
+        if (v >= 128) {
+            return (v - 256)
+        }
+        return v
+    }
+
     ; Render a glyph outline to buffer (anti-aliased)
     fn renderGlyph:void (buf:RasterBuffer outline:GlyphOutline x:double y:double r:int g:int b:int a:int) {
         ; Convert outline to edges
