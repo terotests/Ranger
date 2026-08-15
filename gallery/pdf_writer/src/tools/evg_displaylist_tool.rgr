@@ -1,0 +1,165 @@
+; evg_displaylist_tool — lay a page out and emit its draw commands as JSON.
+;
+;   evg-displaylist page.tsx out.json [-css sheet.css] [-theme name] [-w N] [-h N]
+;
+; This is the seam between the engine and a GPU backend. Everything above it —
+; JSX, the stylesheet, flex, grid, real TTF metrics, kerning — is the same code
+; the PDF and PNG targets use. Everything below it is a backend that knows only
+; about quads, glyph runs and scissor rectangles.
+;
+; Consumers today:
+;   gallery/evg/gl/evg-webgl.js       WebGL 2, in a browser
+;   gallery/evg/gl/evg_gl_host.rgr    SDL2 + OpenGL, via the C++ target
+
+Import "../core/Utf8.rgr"
+Import "../jsx/JSXToEVG.rgr"
+Import "../core/EVGStyleLoader.rgr"
+Import "../fonts/EVGFontSetup.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+
+class EVGDisplayListTool {
+
+    def inputFile:string ""
+    def outputFile:string ""
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def styles:EVGStyleLoader
+    def fontsOverride:string ""
+
+    sfn m@(main):void () {
+        def tool (new EVGDisplayListTool())
+        tool.run()
+    }
+
+    fn run:void () {
+        def sl (new EVGStyleLoader())
+        styles = sl
+
+        def argCount:int (shell_arg_cnt)
+        if (argCount < 2) {
+            print "Usage: evg-displaylist input.tsx output.json [-css file] [-theme name] [-w N] [-h N] [-fonts dir]"
+            return
+        }
+        inputFile = (shell_arg 0)
+        outputFile = (shell_arg 1)
+
+        def i:int 2
+        while (i < argCount) {
+            def arg:string (shell_arg i)
+            if (arg == "-css") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    styles.addFile((shell_arg i))
+                }
+            }
+            if (arg == "-theme") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    styles.setTheme((shell_arg i))
+                }
+            }
+            if (arg == "-fonts") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    fontsOverride = (shell_arg i)
+                }
+            }
+            if (arg == "-w") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    def wv@(optional):double (to_double (shell_arg i))
+                    if wv {
+                        pageWidth = (unwrap wv)
+                    }
+                }
+            }
+            if (arg == "-h") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    def hv@(optional):double (to_double (shell_arg i))
+                    if hv {
+                        pageHeight = (unwrap hv)
+                    }
+                }
+            }
+            i = i + 1
+        }
+
+        ; Split the input into directory + name the way the other tools do.
+        def lastSlash:int (0 - 1)
+        def si:int 0
+        while (si < (strlen inputFile)) {
+            if ((charAt inputFile si) == 47) {
+                lastSlash = si
+            }
+            si = (si + 1)
+        }
+        def inputDir:string "./"
+        def inputName:string inputFile
+        if (lastSlash >= 0) {
+            inputDir = (substring inputFile 0 (lastSlash + 1))
+            inputName = (substring inputFile (lastSlash + 1) (strlen inputFile))
+        }
+
+        def fontSetup (new EVGFontSetup())
+        fontSetup.init(inputDir fontsOverride)
+
+        def conv (new JSXToEVG())
+        conv.pageWidth = pageWidth
+        conv.pageHeight = pageHeight
+        def root:EVGElement (conv.parseFile(inputDir inputName))
+        if (root.tagName == "") {
+            print "Error: no JSX content found"
+            return
+        }
+
+        def usedTheme:string (styles.applyTo(root))
+        if (styles.hasFiles()) {
+            styles.report(usedTheme)
+        }
+
+        def lay (new EVGLayout())
+        lay.setMeasurer((new TTFTextMeasurer((fontSetup.getManager()))))
+        lay.setPageSize(pageWidth pageHeight)
+        lay.layout(root)
+
+        def li:int 0
+        while (li < (lay.warningCount())) {
+            print ("Layout warning: " + (lay.warningAt(li)))
+            li = (li + 1)
+        }
+
+        def dl (new EVGDisplayList())
+        dl.build(root)
+
+        ; The page size travels with the list: a backend has to know how big
+        ; the surface is before it can set up a projection.
+        def json:string "{\"width\":"
+        json = json + (EVGDisplayList.num(pageWidth))
+        json = json + ",\"height\":" + (EVGDisplayList.num(pageHeight))
+        json = json + ",\"list\":" + (dl.toJson()) + "}"
+
+        ; Split the output path the same way, since the writer takes dir+name.
+        def oLast:int (0 - 1)
+        def oi:int 0
+        while (oi < (strlen outputFile)) {
+            if ((charAt outputFile oi) == 47) {
+                oLast = oi
+            }
+            oi = (oi + 1)
+        }
+        def outDir:string "./"
+        def outName:string outputFile
+        if (oLast >= 0) {
+            outDir = (substring outputFile 0 (oLast + 1))
+            outName = (substring outputFile (oLast + 1) (strlen outputFile))
+        }
+        ; buffer_from_string writes one byte per character, so the text has to
+        ; be UTF-8 encoded first or every "ä" lands on disk as a lone 0xE4.
+        def buf:buffer (buffer_from_string (Utf8.encode(json)))
+        buffer_write_file outDir outName buf
+        print ((dl.summary()) + "  -> " + outputFile)
+    }
+}

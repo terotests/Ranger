@@ -208,6 +208,88 @@ class EVGDisplayList {
         }
     }
 
+    ; Serialize to JSON — the wire format between the engine and a backend.
+    ;
+    ; One flat array of commands. A backend needs no Ranger runtime to consume
+    ; it, which is what lets the WebGL renderer be plain JavaScript while the
+    ; SDL2 one is the same list decoded in C++.
+    fn toJson:string () {
+        def out:string "{\"cmds\":["
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (i > 0) {
+                out = out + ","
+            }
+            out = out + "{\"k\":" + (to_string c.kind)
+            out = out + ",\"x\":" + (EVGDisplayList.num(c.x))
+            out = out + ",\"y\":" + (EVGDisplayList.num(c.y))
+            out = out + ",\"w\":" + (EVGDisplayList.num(c.w))
+            out = out + ",\"h\":" + (EVGDisplayList.num(c.h))
+            if (c.radius > 0.0) {
+                out = out + ",\"r\":" + (EVGDisplayList.num(c.radius))
+            }
+            if (c.thickness > 0.0) {
+                out = out + ",\"t\":" + (EVGDisplayList.num(c.thickness))
+            }
+            out = out + ",\"c\":[" + (to_string c.r) + "," + (to_string c.g)
+            out = out + "," + (to_string c.b) + "," + (EVGDisplayList.num(c.a)) + "]"
+            if ((strlen c.text) > 0) {
+                out = out + ",\"text\":" + (EVGDisplayList.jsonString(c.text))
+                out = out + ",\"font\":" + (EVGDisplayList.jsonString(c.fontFamily))
+                out = out + ",\"size\":" + (EVGDisplayList.num(c.fontSize))
+            }
+            if ((strlen c.src) > 0) {
+                out = out + ",\"src\":" + (EVGDisplayList.jsonString(c.src))
+            }
+            out = out + "}"
+            i = (i + 1)
+        }
+        out = out + "]}"
+        return out
+    }
+
+    ; Two decimals is plenty for a pixel and keeps the payload small.
+    sfn num:string (v:double) {
+        def scaled:int (to_int ((v * 100.0) + 0.5))
+        if (v < 0.0) {
+            scaled = (to_int ((v * 100.0) - 0.5))
+        }
+        def whole:int (to_int (scaled / 100))
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def fs:string (to_string frac)
+        if (frac < 10) {
+            fs = "0" + fs
+        }
+        return ((to_string whole) + "." + fs)
+    }
+
+    sfn jsonString:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (c == 34) {
+                out = out + "\\\""
+            } {
+                if (c == 92) {
+                    out = out + "\\\\"
+                } {
+                    if (c < 32) {
+                        out = out + " "
+                    } {
+                        out = out + (strfromcode c)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
     ; A backend-shaped summary: how many quads, how many text runs, how deep
     ; the clip stack goes. Useful for sizing a vertex buffer up front.
     fn summary:string () {
@@ -236,8 +318,11 @@ class EVGDisplayList {
             }
             i = (i + 1)
         }
-        return ((((("rects=" + (to_string rects)) + " borders=" + (to_string borders))
-            + " images=" + (to_string images)) + " text=" + (to_string texts))
-            + " clips=" + (to_string clips))
+        def s:string ("rects=" + (to_string rects))
+        s = s + " borders=" + (to_string borders)
+        s = s + " images=" + (to_string images)
+        s = s + " text=" + (to_string texts)
+        s = s + " clips=" + (to_string clips)
+        return s
     }
 }

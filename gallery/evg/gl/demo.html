@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>EVG on WebGL</title>
+<style>
+  /* The same TTFs EVG measured with. Without them the browser substitutes a
+     system face: the positions would still be EVG's, but the glyphs would not
+     be the ones the PDF is set in, so the comparison would prove nothing. */
+  @font-face { font-family:"Cinzel"; src:url("../../pdf_writer/assets/fonts/Cinzel/Cinzel-Regular.ttf"); }
+  @font-face { font-family:"Noto Sans"; src:url("../../pdf_writer/assets/fonts/Noto_Sans/NotoSans-Regular.ttf"); }
+  @font-face { font-family:"Josefin Sans"; src:url("../../pdf_writer/assets/fonts/Josefin_Sans/JosefinSans-Regular.ttf"); }
+  @font-face { font-family:"Josefin Sans-Bold"; src:url("../../pdf_writer/assets/fonts/Josefin_Sans/JosefinSans-Bold.ttf"); }
+  @font-face { font-family:"Noto Sans-Bold"; src:url("../../pdf_writer/assets/fonts/Noto_Sans/NotoSans-Bold.ttf"); }
+  body { margin:0; background:#8a8a8a; display:flex; justify-content:center; padding:24px; font:14px system-ui }
+  canvas { background:#fff; box-shadow:0 2px 18px rgba(0,0,0,.35) }
+  #err { color:#900; font:13px monospace; white-space:pre-wrap }
+</style>
+<div>
+  <canvas id="c"></canvas>
+  <p id="err"></p>
+</div>
+<script type="module">
+import { renderDisplayList } from "./evg-webgl.js";
+const url = new URLSearchParams(location.search).get("list") || "boxmodel.json";
+try {
+  const doc = await (await fetch(url)).json();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const c = document.getElementById("c");
+  c.style.width = doc.width + "px";
+  c.style.height = doc.height + "px";
+  c.width = Math.round(doc.width * dpr);
+  c.height = Math.round(doc.height * dpr);
+  const gl = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false });
+  if (!gl) throw new Error("WebGL 2 not available");
+  await document.fonts.ready;
+  // document.fonts.ready resolves before a face that nothing has used yet is
+  // fetched, so ask for each size the list actually needs.
+  await Promise.all(doc.list.cmds.filter(c => c.text)
+    .map(c => document.fonts.load(`${c.size}px "${c.font}"`)));
+  const stats = renderDisplayList(gl, doc, { dpr });
+  window.__evgStats = stats;
+  document.title = `EVG on WebGL — ${stats.drawn} quads`;
+} catch (e) {
+  document.getElementById("err").textContent = String(e && e.stack || e);
+  window.__evgStats = { error: String(e) };
+}
+</script>
