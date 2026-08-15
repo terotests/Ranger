@@ -13,6 +13,7 @@ Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
 Import "../../../evg/SVGPathParser.rgr"
 Import "../../../evg/VectorViewBox.rgr"
+Import "../../../evg/VectorStroke.rgr"
 Import "Buffer.rgr"
 Import "Utf8.rgr"
 Import "../fonts/FontManager.rgr"
@@ -1764,6 +1765,31 @@ class EVGPDFRenderer {
         return (VectorViewBox.resolve(vb w h "xMidYMid meet"))
     }
 
+    ; PDF has a dash operator, so the pattern goes straight through: the array
+    ; of on/off lengths and a phase. It sits inside the path's q/Q pair with the
+    ; viewBox matrix already applied, so the lengths are in user units and scale
+    ; with the drawing exactly as they do in SVG.
+    fn writeDashPattern:void (el:EVGElement) {
+        if ((strlen el.strokeDashArray) == 0) {
+            return
+        }
+        def dashes:[double] (VectorStroke.parseDashes(el.strokeDashArray))
+        if ((array_length dashes) == 0) {
+            return
+        }
+        def out:string "["
+        def k:int 0
+        while (k < (array_length dashes)) {
+            if (k > 0) {
+                out = (out + " ")
+            }
+            out = (out + (this.formatNum((itemAt dashes k))))
+            k = (k + 1)
+        }
+        out = (out + "] " + (this.formatNum(el.strokeDashOffset)) + " d\n")
+        streamBuffer.writeString(out)
+    }
+
     fn renderPath:void (el:EVGElement x:double y:double w:double h:double) {
         def pathData:string el.svgPath
         if ((strlen pathData) == 0) {
@@ -1882,6 +1908,7 @@ class EVGPDFRenderer {
             if (el.strokeWidth > 0.0) {
                 streamBuffer.writeString((this.formatNum(el.strokeWidth)) + " w\n")
             }
+            this.writeDashPattern(el)
             ; Fill and stroke
             streamBuffer.writeString("B\n")
         } {
@@ -1904,6 +1931,7 @@ class EVGPDFRenderer {
                     if (el.strokeWidth > 0.0) {
                         streamBuffer.writeString((this.formatNum(el.strokeWidth)) + " w\n")
                     }
+                    this.writeDashPattern(el)
                     ; Stroke
                     streamBuffer.writeString("S\n")
                 }

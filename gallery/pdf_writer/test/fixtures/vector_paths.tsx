@@ -11,9 +11,15 @@
 //              Its Q segment also pins the quadratic -> cubic elevation.
 //  3. check    an explicit 24x24 viewBox drawn into 48x48 -> a clean scale of 2
 //              with no offset, and the designed padding kept.
+//  4. dashed   a stroked line with a dash pattern, which each target expresses
+//              its own way: PDF's dash operator, SVG's attribute, and geometry
+//              cut up before stroking in the raster target.
+//
+// The page is tall enough for all four boxes at their declared size. If it is
+// not, flex squeezes them and every expected transform below changes with it.
 function render() {
   return (
-    <View width="300px" height="200px" backgroundColor="#ffffff">
+    <View width="300px" height="400px" backgroundColor="#ffffff">
       <View width="80px" height="80px" backgroundColor="#f0f0f0">
         <Path d="M25,10 L30,20 L40,22 L32,30 L35,40 L25,35 L15,40 L18,30 L10,22 L20,20 Z" width="60px" height="60px" fill="#f39c12" />
       </View>
@@ -22,6 +28,9 @@ function render() {
       </View>
       <View width="80px" height="80px" backgroundColor="#dddddd">
         <Path viewBox="0 0 24 24" d="M4 12 L10 18 L20 6" width="48px" height="48px" stroke="#000000" strokeWidth="2" />
+      </View>
+      <View width="80px" height="80px" backgroundColor="#cccccc">
+        <Path viewBox="0 0 100 10" d="M0 5 L100 5" width="60px" height="6px" stroke="#000000" strokeWidth="2" strokeDasharray="6 3" />
       </View>
     </View>
   );

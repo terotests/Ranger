@@ -1,5 +1,6 @@
 Import "RasterBuffer.rgr"
 Import "RasterCompositing.rgr"
+Import "../../../evg/VectorStroke.rgr"
 
 ; ==============================================================================
 ; VectorRasterizer.rgr — one anti-aliased scanline fill, for every filled shape
@@ -236,6 +237,183 @@ class VectorRasterizer {
             def jy:double (itemAt pts ((j * 2) + 1))
             this.addDisc(jx jy hw)
             j = (j + 1)
+        }
+    }
+
+    ; Add a dashed stroke along a ring.
+    ;
+    ; PDF has a dash operator and SVG has an attribute, so only the raster
+    ; target has to do this itself — and here it is geometry, not state: walk
+    ; the flattened polyline, cut it into the on and off runs the pattern asks
+    ; for, and stroke the on runs. Dashes are what make a gridline read as a
+    ; gridline rather than as another series.
+    ;
+    ; `dashes` alternates on, off, on, off. An odd-length pattern repeats to
+    ; make it even, exactly as SVG specifies, so "4" means 4 on and 4 off.
+    fn addDashedStroke:void (pts:[double] width:double closed:boolean dashes:[double] dashOffset:double) {
+        def dn:int (array_length dashes)
+        if (dn == 0) {
+            this.addStroke(pts width closed)
+            return
+        }
+
+        ; A pattern that is all zeroes would never advance. Treat it as solid
+        ; rather than looping forever looking for a length that never arrives.
+        def total:double 0.0
+        def di:int 0
+        while (di < dn) {
+            def dv:double (itemAt dashes di)
+            if (dv > 0.0) {
+                total = (total + dv)
+            }
+            di = (di + 1)
+        }
+        if (total <= 0.0) {
+            this.addStroke(pts width closed)
+            return
+        }
+
+        def m:int (array_length pts)
+        def n:int (idiv m 2)
+        if (n < 2) {
+            return
+        }
+        def segCount:int (n - 1)
+        if closed {
+            segCount = n
+        }
+
+        ; Walk the pattern with a cursor. `idx` is the position in the pattern
+        ; and `remaining` how much of that entry is left; both survive across
+        ; segment boundaries, so a dash spans a corner instead of restarting
+        ; at every vertex.
+        def idx:int 0
+        def on:boolean true
+        def remaining:double (itemAt dashes 0)
+        if (remaining < 0.0) {
+            remaining = 0.0
+        }
+
+        ; stroke-dashoffset shifts the pattern along the path, which is how a
+        ; caller lines dashes up across separate gridlines.
+        def skip:double dashOffset
+        if (skip < 0.0) {
+            skip = 0.0
+        }
+        while (skip > 0.0) {
+            if (skip < remaining) {
+                remaining = (remaining - skip)
+                skip = 0.0
+            } {
+                skip = (skip - remaining)
+                idx = (idx + 1)
+                def wrapped:int idx
+                if (wrapped >= dn) {
+                    wrapped = (wrapped - ((idiv wrapped dn) * dn))
+                    idx = wrapped
+                }
+                on = (on == false)
+                remaining = (itemAt dashes idx)
+                if (remaining < 0.0) {
+                    remaining = 0.0
+                }
+            }
+        }
+
+        ; The run being accumulated, emitted whenever the pattern turns off.
+        def run:[double]
+        def runOpen:boolean false
+
+        def k:int 0
+        while (k < segCount) {
+            def nextIdx:int (k + 1)
+            if (nextIdx >= n) {
+                nextIdx = 0
+            }
+            def ax:double (itemAt pts (k * 2))
+            def ay:double (itemAt pts ((k * 2) + 1))
+            def bx:double (itemAt pts (nextIdx * 2))
+            def by:double (itemAt pts ((nextIdx * 2) + 1))
+
+            def dx:double (bx - ax)
+            def dy:double (by - ay)
+            def segLen:double (sqrt ((dx * dx) + (dy * dy)))
+
+            if (segLen > 0.000001) {
+                def travelled:double 0.0
+                while (travelled < segLen) {
+                    def left:double (segLen - travelled)
+                    def step:double remaining
+                    if (step > left) {
+                        step = left
+                    }
+                    ; A zero-length pattern entry would not advance; step past
+                    ; it so the cursor keeps moving.
+                    if (step <= 0.0) {
+                        step = 0.0
+                    }
+
+                    def t0:double (travelled / segLen)
+                    def t1:double ((travelled + step) / segLen)
+                    def x0:double (ax + (dx * t0))
+                    def y0:double (ay + (dy * t0))
+                    def x1:double (ax + (dx * t1))
+                    def y1:double (ay + (dy * t1))
+
+                    if on {
+                        if (runOpen == false) {
+                            def fresh:[double]
+                            run = fresh
+                            push run x0
+                            push run y0
+                            runOpen = true
+                        }
+                        push run x1
+                        push run y1
+                    }
+
+                    travelled = (travelled + step)
+                    remaining = (remaining - step)
+
+                    if (remaining <= 0.0000001) {
+                        ; The pattern entry ran out: emit the run if one was
+                        ; open, and move to the next entry.
+                        if on {
+                            if runOpen {
+                                this.addStroke(run width false)
+                                runOpen = false
+                            }
+                        }
+                        idx = (idx + 1)
+                        if (idx >= dn) {
+                            idx = 0
+                        }
+                        on = (on == false)
+                        remaining = (itemAt dashes idx)
+                        if (remaining < 0.0) {
+                            remaining = 0.0
+                        }
+                        if (remaining == 0.0) {
+                            ; Skip a zero entry outright rather than spinning
+                            ; on it.
+                            idx = (idx + 1)
+                            if (idx >= dn) {
+                                idx = 0
+                            }
+                            on = (on == false)
+                            remaining = (itemAt dashes idx)
+                            if (remaining <= 0.0) {
+                                remaining = total
+                            }
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+
+        if runOpen {
+            this.addStroke(run width false)
         }
     }
 

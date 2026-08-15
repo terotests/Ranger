@@ -1586,6 +1586,20 @@ class EVGHTMLRenderer {
             if (el.strokeWidth > 0.0) {
                 html = html + " stroke-width=\"" + (to_string el.strokeWidth) + "\""
             }
+            ; The browser dashes natively; the raster target has to cut the
+            ; geometry itself. Both read the same attribute so a gridline is
+            ; dashed the same way in all three outputs.
+            if ((strlen el.strokeDashArray) > 0) {
+                html = html + " stroke-dasharray=\"" + el.strokeDashArray + "\""
+                if ((el.strokeDashOffset == 0.0) == false) {
+                    html = html + " stroke-dashoffset=\"" + (to_string el.strokeDashOffset) + "\""
+                }
+            }
+        }
+        if ((strlen el.fillRule) > 0) {
+            if (el.fillRule == "evenodd") {
+                html = html + " fill-rule=\"evenodd\""
+            }
         }
         
         html = html + "/>\n"

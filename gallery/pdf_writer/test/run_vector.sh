@@ -62,6 +62,21 @@ if ! echo "$pp_out" | grep -q "ALL PASS"; then
 fi
 
 echo
+echo "### pdf_writer/path_builder (building a path from data)"
+if ! node bin/output.js -es6 gallery/pdf_writer/test/path_builder_test.rgr \
+      -d="$OUT" -o=path_builder_test.js >"$OUT/builder.log" 2>&1; then
+  echo "  COMPILE FAIL path_builder_test"
+  tail -25 "$OUT/builder.log"
+  exit 1
+fi
+
+pb_out="$(node "$OUT/path_builder_test.js" 2>&1)"
+echo "$pb_out" | grep -E "FAIL |passed="
+if ! echo "$pb_out" | grep -q "ALL PASS"; then
+  status=1
+fi
+
+echo
 echo "### pdf_writer/vector_shapes (basic shapes as paths)"
 if ! node bin/output.js -es6 gallery/pdf_writer/test/vector_shapes_test.rgr \
       -d="$OUT" -o=vector_shapes_test.js >"$OUT/shapes.log" 2>&1; then
@@ -160,6 +175,8 @@ else
   #   C2 = P3 + 2/3(C - P3) = (50, 16.667)
   # The old code emitted the control point twice, i.e. "50 0 50 0 50 50 c".
   check "PDF: quadratic is elevated, not duplicated" "$OUT/vector.pdf" "33.33333333333333 0 50 16.66666666666667 50 50 c"
+  # A dash pattern goes through PDF's own dash operator.
+  check "PDF: the dash pattern reaches the dash operator" "$OUT/vector.pdf" "[6 3] 0 d"
 fi
 
 if [ ! -s "$OUT/vector.html" ]; then
@@ -173,6 +190,7 @@ else
   check "HTML: star carries the synthesised viewBox" "$OUT/vector.html" 'viewBox="10 10 30 30"'
   check "HTML: quad carries the synthesised viewBox" "$OUT/vector.html" 'viewBox="0 0 50 50"'
   check "HTML: explicit viewBox is passed through" "$OUT/vector.html" 'viewBox="0 0 24 24"'
+  check "HTML: the dash pattern reaches the attribute" "$OUT/vector.html" 'stroke-dasharray="6 3"'
 fi
 
 # The raster target used to have no path support at all: a <Path> that

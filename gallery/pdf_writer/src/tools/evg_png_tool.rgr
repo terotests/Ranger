@@ -12,6 +12,7 @@ Import "../raster/PNGEncoder.rgr"
 Import "../raster/VectorRasterizer.rgr"
 Import "../../../evg/SVGPathParser.rgr"
 Import "../../../evg/VectorViewBox.rgr"
+Import "../../../evg/VectorStroke.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../fonts/TrueTypeFont.rgr"
@@ -603,10 +604,20 @@ class EVGPNGTool {
 
                 def stroker (new VectorRasterizer())
                 def closed:boolean (this.pathIsClosed(parser))
+                ; Dash lengths are in user units like the stroke width, so they
+                ; scale with the viewBox transform too — a dashed gridline keeps
+                ; its rhythm when the chart is drawn larger.
+                def rawDashes:[double] (VectorStroke.parseDashes(el.strokeDashArray))
+                def dashes:[double] (VectorStroke.scaleDashes(rawDashes scale))
+                def dashOffset:double (el.strokeDashOffset * scale)
                 def sk:int 0
                 while (sk < (array_length rings)) {
                     def sring:PathRing (itemAt rings sk)
-                    stroker.addStroke(sring.pts deviceWidth closed)
+                    if ((array_length dashes) > 0) {
+                        stroker.addDashedStroke(sring.pts deviceWidth closed dashes dashOffset)
+                    } {
+                        stroker.addStroke(sring.pts deviceWidth closed)
+                    }
                     sk = (sk + 1)
                 }
 

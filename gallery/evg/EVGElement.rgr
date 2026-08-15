@@ -237,6 +237,11 @@ class EVGElement {
     ; overlaps or nests inside itself, which is exactly what decides whether the
     ; middle of a ring is a hole or is filled.
     def fillRule:string "nonzero"
+    ; Dash pattern as SVG writes it: alternating on/off lengths in user
+    ; units, e.g. "4 2". Empty means a solid stroke. Gridlines and target
+    ; lines are the reason this exists.
+    def strokeDashArray:string ""
+    def strokeDashOffset:double 0.0
     
     ; Clip path (for any element)
     def clipPath:string ""
@@ -1313,6 +1318,17 @@ class EVGElement {
             def val@(optional):double (to_double value)
             if val {
                 strokeWidth = (unwrap val)
+            }
+            return
+        }
+        if ((name == "stroke-dasharray") || (name == "strokeDasharray")) {
+            strokeDashArray = value
+            return
+        }
+        if ((name == "stroke-dashoffset") || (name == "strokeDashoffset")) {
+            def dv@(optional):double (to_double value)
+            if dv {
+                strokeDashOffset = (unwrap dv)
             }
             return
         }

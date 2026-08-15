@@ -24,6 +24,7 @@
 Import "../src/raster/VectorRasterizer.rgr"
 Import "../src/raster/RasterBuffer.rgr"
 Import "../../evg/SVGPathParser.rgr"
+Import "../../evg/VectorStroke.rgr"
 Import "../../game_engine/v2/tests/harness/RgTest.rgr"
 
 class VectorRasterTest {
@@ -41,6 +42,8 @@ class VectorRasterTest {
         test.testDonutPath(t)
         test.testArcDonut(t)
         test.testStroke(t)
+        test.testDashParsing(t)
+        test.testDashedStroke(t)
         t.summary()
     }
 
@@ -307,6 +310,102 @@ class VectorRasterTest {
         ; (34, 26) is 5.7 units out: beyond the join radius, so a round join
         ; leaves it empty where a mitre would have run to a point.
         t.eqInt("the join is round, not mitred" (this.alphaAt(corner 34 26)) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Dashes
+    ; --------------------------------------------------------------------------
+
+    fn testDashParsing:void (t:RgTest) {
+        def two:[double] (VectorStroke.parseDashes("8 4"))
+        t.eqInt("a two-entry pattern parses" (array_length two) 2)
+        t.near("on length" (itemAt two 0) 8.0)
+        t.near("off length" (itemAt two 1) 4.0)
+
+        ; Commas separate as well as spaces, in any mix.
+        def commas:[double] (VectorStroke.parseDashes("3,1, 3 ,1"))
+        t.eqInt("commas and spaces mix freely" (array_length commas) 4)
+
+        ; An odd-length pattern repeats to become even, so "4" is 4 on 4 off.
+        def odd:[double] (VectorStroke.parseDashes("4"))
+        t.eqInt("an odd pattern repeats to become even" (array_length odd) 2)
+        t.near("with the same value on" (itemAt odd 0) 4.0)
+        t.near("and off" (itemAt odd 1) 4.0)
+
+        def odd3:[double] (VectorStroke.parseDashes("1 2 3"))
+        t.eqInt("a three-entry pattern doubles to six" (array_length odd3) 6)
+
+        ; Empty means solid, and so does anything the spec calls invalid — one
+        ; thing for a caller to check instead of three.
+        def none:[double] (VectorStroke.parseDashes(""))
+        t.eqInt("an empty pattern is solid" (array_length none) 0)
+        def neg:[double] (VectorStroke.parseDashes("4 -2"))
+        t.eqInt("a negative entry invalidates the pattern" (array_length neg) 0)
+        def junk:[double] (VectorStroke.parseDashes("4 wide"))
+        t.eqInt("so does an unparseable one" (array_length junk) 0)
+        ; All zeroes would never advance along the path.
+        def zeroes:[double] (VectorStroke.parseDashes("0 0"))
+        t.eqInt("an all-zero pattern is not a pattern" (array_length zeroes) 0)
+
+        def scaled:[double] (VectorStroke.scaleDashes(two 2.5))
+        t.near("dash lengths scale with the drawing" (itemAt scaled 0) 20.0)
+        t.near("both of them" (itemAt scaled 1) 10.0)
+    }
+
+    fn testDashedStroke:void (t:RgTest) {
+        ; A horizontal line, 10 on and 10 off, starting at x = 0. So x in
+        ; [0,10) is ink, [10,20) is gap, [20,30) is ink again.
+        def buf:RasterBuffer (this.makeBuffer(60 20))
+        def r (new VectorRasterizer())
+        def line:[double]
+        push line 0.0
+        push line 10.0
+        push line 60.0
+        push line 10.0
+        def dashes:[double] (VectorStroke.parseDashes("10 10"))
+        r.addDashedStroke(line 4.0 false dashes 0.0)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        t.eqInt("the first dash is drawn" (this.alphaAt(buf 5 10)) 255)
+        t.eqInt("the first gap is empty" (this.alphaAt(buf 15 10)) 0)
+        t.eqInt("the second dash is drawn" (this.alphaAt(buf 25 10)) 255)
+        t.eqInt("the second gap is empty" (this.alphaAt(buf 35 10)) 0)
+
+        ; dashoffset shifts the pattern along the path, which is how separate
+        ; gridlines are made to line up with each other.
+        def shifted:RasterBuffer (this.makeBuffer(60 20))
+        def r2 (new VectorRasterizer())
+        r2.addDashedStroke(line 4.0 false dashes 10.0)
+        r2.fillAA(shifted 0 0 0 255 rule)
+        t.eqInt("an offset of one dash inverts the pattern" (this.alphaAt(shifted 5 10)) 0)
+        t.eqInt("so the former gap is now ink" (this.alphaAt(shifted 15 10)) 255)
+
+        ; An empty pattern is a solid stroke, not an invisible one — the
+        ; failure mode that would quietly erase every gridline.
+        def solid:RasterBuffer (this.makeBuffer(60 20))
+        def r3 (new VectorRasterizer())
+        def noDashes:[double]
+        r3.addDashedStroke(line 4.0 false noDashes 0.0)
+        r3.fillAA(solid 0 0 0 255 rule)
+        t.eqInt("no pattern means solid here" (this.alphaAt(solid 15 10)) 255)
+        t.eqInt("all the way along" (this.alphaAt(solid 45 10)) 255)
+
+        ; A dash carries across a corner rather than restarting at the vertex.
+        def corner:RasterBuffer (this.makeBuffer(60 60))
+        def r4 (new VectorRasterizer())
+        def bend:[double]
+        push bend 5.0
+        push bend 5.0
+        push bend 25.0
+        push bend 5.0
+        push bend 25.0
+        push bend 45.0
+        def longDash:[double] (VectorStroke.parseDashes("100 100"))
+        r4.addDashedStroke(bend 4.0 false longDash 0.0)
+        r4.fillAA(corner 0 0 0 255 rule)
+        t.eqInt("a dash longer than the first segment continues past the corner"
+                (this.alphaAt(corner 25 25)) 255)
     }
 
     ; The same shape written with arcs instead of straight lines, which is how
