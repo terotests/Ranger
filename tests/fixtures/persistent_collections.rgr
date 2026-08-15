@@ -1,0 +1,83 @@
+
+; Persistent collections: `#[T]` and `#[K:V]`.
+;
+; The contract under test is one sentence: an operation on a persistent value
+; never changes the value it was given. Every line below prints something that
+; would differ if the old value had been touched.
+
+Import "ImmutableVector.rgr"
+
+; A value class. `@(immutable)` gives it __CopySelf and a set_<field> per field,
+; each returning a new instance — and `[T]` inside it stays an ordinary array,
+; while `#[T]` asks for structural sharing.
+class AppState@(immutable) {
+  def loading:boolean false
+  def selectedId:string ""
+  def tags:[string]
+  def rows:#[string]
+  def users:#[string:string]
+}
+
+class PersistentDemo {
+
+  sfn vectorKeepsTheOldValue:void () {
+    def a:#[int] (new Vector@(int))
+    def b (conj a 1)
+    def c (conj b 2)
+    def d (conj c 3)
+    print (("sizes " + (to_string (size a))) + (to_string (size b)) + (to_string (size c)) + (to_string (size d)))
+
+    def e (assoc d 1 20)
+    print (("assoc new " + (to_string (itemAt e 1))) + " old " + (to_string (itemAt d 1)))
+
+    def f (removeAt d 0)
+    print (("removeAt new " + (to_string (size f))) + " old " + (to_string (size d)))
+    print ("removeAt head " + (to_string (itemAt f 0)))
+  }
+
+  sfn mapKeepsTheOldValue:void () {
+    def m:#[string:int] (new Map@(string int))
+    def m1 (assoc m "a" 1)
+    def m2 (assoc m1 "b" 2)
+    def m3 (dissoc m2 "a")
+    print (("map sizes " + (to_string (size m1))) + (to_string (size m2)) + (to_string (size m3)))
+    def gotOld:int (?? (get m2 "a") 0)
+    def gotNew:int (?? (get m3 "a") 0)
+    print (("map a old " + (to_string gotOld)) + " new " + (to_string gotNew))
+  }
+
+  ; The reducer shape: state in, new state out, old state still valid.
+  sfn stateTransition:void () {
+    def s0 (new AppState)
+
+    def rows0 s0.rows
+    def rows1 (conj rows0 "first")
+    def s1 (s0.set_rows(rows1))
+    def s2 (s1.set_loading(true))
+    def s3 (s2.set_selectedId("42"))
+
+    print (("rows " + (to_string (size s0.rows))) + (to_string (size s1.rows)) + (to_string (size s3.rows)))
+    print (("loading " + (to_string s0.loading)) + " " + (to_string s3.loading))
+    print (("selected '" + s0.selectedId) + "' '" + s3.selectedId + "'")
+
+    ; The point for a view layer: changing `loading` did not rebuild `rows`.
+    ; The two states carry the same collection, so a renderer that compares
+    ; branches can skip the whole subtree instead of diffing it.
+    def shared:boolean (s1.rows == s3.rows)
+    print ("rows branch shared " + (to_string shared))
+
+    ; A plain `[T]` field in the same class still behaves like an array.
+    def fresh:[string]
+    push fresh "plain"
+    def s4 (s3.set_tags(fresh))
+    for s4.tags t:string i {
+      print ("tag " + t)
+    }
+  }
+
+  sfn main:void () {
+    PersistentDemo.vectorKeepsTheOldValue()
+    PersistentDemo.mapKeepsTheOldValue()
+    PersistentDemo.stateTransition()
+  }
+}

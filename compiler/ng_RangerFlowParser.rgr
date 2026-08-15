@@ -7182,60 +7182,35 @@ class RangerFlowParser {
       ; immutable classes have only weak properties
       if currC.is_immutable {
         vDef.setFlag("weak")
-        if( vDef.value_type == RangerNodeType.Array) {
-          def initNode (node.newExpressionNode())
-          initNode.push( (node.newVRefNode("new")) )
-          def tDef (node.newVRefNode("Vector"))
-          
-          ; Vector@(string)
-          def vAnn (node.newExpressionNode())
-          vAnn.push( (node.newVRefNode(vDef.array_type)))
-          tDef.has_vref_annotation = true
-          tDef.vref_annotation = vAnn
-          initNode.push(tDef)
+      }
 
-          set node.children 2 (initNode)
-
-          vDef.value_type = RangerNodeType.VRef
-          vDef.type_name = "Vector"
-          ; def obj:Vector@(string)
-          def tAnn (node.newExpressionNode())
-          tAnn.push( (node.newVRefNode(vDef.array_type)))
-          vDef.has_type_annotation = true
-          vDef.type_annotation = tAnn
-
-          this.CheckTypeAnnotationOf( vDef ctx wr )
-          this.CheckVRefTypeAnnotationOf( tDef ctx wr )
-          
+      ; A persistent collection is now spelled `#[T]` / `#[K:V]` and is lowered
+      ; to Vector@(T) / Map@(K V) by the parser, so the type needs no rewriting
+      ; here — only a default value. `def xs:[T]` starts life as an empty array,
+      ; and `def xs:#[T]` has to start as an empty Vector for the same reason:
+      ; without it the field is untyped until something assigns to it, and the
+      ; first `conj xs item` fails to match instead of appending to nothing.
+      ; The flag survives monomorphisation; `type_name` does not — by this point
+      ; CheckTypeAnnotationOf has already rewritten `Vector@(string)` to the
+      ; concrete `Vector_string`, which is exactly the name to construct.
+      if (vDef.hasFlag("persistent")) {
+        if ((size node.children) < 3) {
+          def pcInit:CodeNode (node.newExpressionNode())
+          pcInit.push( (node.newVRefNode("new")) )
+          pcInit.push( (node.newVRefNode(vDef.type_name)) )
+          node.push(pcInit)
         }
-        if( vDef.value_type == RangerNodeType.Hash) {
-          def initNode (node.newExpressionNode())
-          initNode.push( (node.newVRefNode("new")) )
-          def tDef (node.newVRefNode("Map"))
-          
-          ; Vector@(string)
-          def vAnn (node.newExpressionNode())
-          vAnn.push( (node.newVRefNode(vDef.key_type)))
-          vAnn.push( (node.newVRefNode(vDef.array_type)))
-          tDef.has_vref_annotation = true
-          tDef.vref_annotation = vAnn
-          initNode.push(tDef)
-          set node.children 2 (initNode)
-
-          vDef.value_type = RangerNodeType.VRef
-          vDef.type_name = "Map"
-          ; def obj:Vector@(string)
-          def tAnn (node.newExpressionNode())
-          tAnn.push( (node.newVRefNode(vDef.key_type)))
-          tAnn.push( (node.newVRefNode(vDef.array_type)))
-          vDef.has_type_annotation = true
-          vDef.type_annotation = tAnn
-
-          this.CheckTypeAnnotationOf( vDef ctx wr )
-          this.CheckVRefTypeAnnotationOf( tDef ctx wr )
-
-        }
-      }      
+      }
+      ;
+      ; Every collection field of an @(immutable) class used to be swapped for a
+      ; Vector at this point, with no way to ask for a plain array, and that
+      ; silently broke the three things a model layer does with a collection:
+      ; `for xs x i {}` did not compile against the Vector type, `push xs item`
+      ; as a statement compiled to a discarded return value and did nothing at
+      ; all, and `set_xs(plainArray)` type-checked (the generated setter still
+      ; declared `[T]`) and then died at run time with `count is not a
+      ; function`. Only scalar fields actually worked. Spelling the two worlds
+      ; apart fixes all three and leaves `[T]` meaning what it always meant.
 
       ; transforming reserved words here 
       p.name = s

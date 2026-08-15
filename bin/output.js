@@ -6755,6 +6755,13 @@ class RangerLispParser  {
             this.curr_node.children.push(new_expr_node_1);
             continue;
           }
+          let is_persistent = false;
+          if ( c == (35) ) {
+            this.i = this.i + 1;
+            c = s.charCodeAt(this.i );
+            vt_sp = this.i;
+            is_persistent = true;
+          }
           if ( c == (91) ) {
             this.i = this.i + 1;
             vt_sp = this.i;
@@ -6790,6 +6797,39 @@ class RangerLispParser  {
               vt_ep = this.i;
               const type_name = s.substring((1 + hash_sep), vt_ep );
               const key_type_name = s.substring(vt_sp, hash_sep );
+              if ( is_persistent ) {
+                const pm_node = new CodeNode(this.code, sp, vt_ep);
+                pm_node.vref = s.substring(sp, ep );
+                pm_node.ns = ns_list;
+                pm_node.parsed_type = 11;
+                pm_node.value_type = 11;
+                pm_node.type_name = "Map";
+                pm_node.parent = this.curr_node;
+                const pm_ann = new CodeNode(this.code, sp, vt_ep);
+                pm_ann.expression = true;
+                const pm_key = new CodeNode(this.code, sp, vt_ep);
+                pm_key.vref = key_type_name;
+                pm_key.value_type = 11;
+                pm_key.parsed_type = 11;
+                pm_key.ns = key_type_name.split(".");
+                pm_ann.children.push(pm_key);
+                const pm_val = new CodeNode(this.code, sp, vt_ep);
+                pm_val.vref = type_name;
+                pm_val.value_type = 11;
+                pm_val.parsed_type = 11;
+                pm_val.ns = type_name.split(".");
+                pm_ann.children.push(pm_val);
+                pm_node.setFlag("persistent");
+                pm_node.type_annotation = pm_ann;
+                pm_node.has_type_annotation = true;
+                if ( vref_had_type_ann ) {
+                  pm_node.vref_annotation = vref_ann_node;
+                  pm_node.has_vref_annotation = true;
+                }
+                this.curr_node.children.push(pm_node);
+                this.i = 1 + this.i;
+                continue;
+              }
               const new_hash_node = new CodeNode(this.code, sp, vt_ep);
               new_hash_node.vref = s.substring(sp, ep );
               new_hash_node.ns = ns_list;
@@ -6813,6 +6853,33 @@ class RangerLispParser  {
             } else {
               vt_ep = this.i;
               const type_name_1 = s.substring(vt_sp, vt_ep );
+              if ( is_persistent ) {
+                const pv_node = new CodeNode(this.code, sp, vt_ep);
+                pv_node.vref = s.substring(sp, ep );
+                pv_node.ns = ns_list;
+                pv_node.parsed_type = 11;
+                pv_node.value_type = 11;
+                pv_node.type_name = "Vector";
+                pv_node.parent = this.curr_node;
+                const pv_ann = new CodeNode(this.code, sp, vt_ep);
+                pv_ann.expression = true;
+                const pv_elem = new CodeNode(this.code, sp, vt_ep);
+                pv_elem.vref = type_name_1;
+                pv_elem.value_type = 11;
+                pv_elem.parsed_type = 11;
+                pv_elem.ns = type_name_1.split(".");
+                pv_ann.children.push(pv_elem);
+                pv_node.setFlag("persistent");
+                pv_node.type_annotation = pv_ann;
+                pv_node.has_type_annotation = true;
+                if ( vref_had_type_ann ) {
+                  pv_node.vref_annotation = vref_ann_node;
+                  pv_node.has_vref_annotation = true;
+                }
+                this.curr_node.children.push(pv_node);
+                this.i = 1 + this.i;
+                continue;
+              }
               const new_arr_node = new CodeNode(this.code, sp, vt_ep);
               new_arr_node.vref = s.substring(sp, ep );
               new_arr_node.ns = ns_list;
@@ -15682,45 +15749,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const currC_4 = ctx.currentClass;
         if ( currC_4.is_immutable ) {
           vDef.setFlag("weak");
-          if ( vDef.value_type == 6 ) {
-            const initNode = node.newExpressionNode();
-            (initNode).push(node.newVRefNode("new"));
-            const tDef = node.newVRefNode("Vector");
-            const vAnn = node.newExpressionNode();
-            (vAnn).push(node.newVRefNode(vDef.array_type));
-            tDef.has_vref_annotation = true;
-            tDef.vref_annotation = vAnn;
-            (initNode).push(tDef);
-            node.children[2] = initNode;
-            vDef.value_type = 11;
-            vDef.type_name = "Vector";
-            const tAnn = node.newExpressionNode();
-            (tAnn).push(node.newVRefNode(vDef.array_type));
-            vDef.has_type_annotation = true;
-            vDef.type_annotation = tAnn;
-            await this.CheckTypeAnnotationOf(vDef, ctx, wr);
-            await this.CheckVRefTypeAnnotationOf(tDef, ctx, wr);
-          }
-          if ( vDef.value_type == 7 ) {
-            const initNode_1 = node.newExpressionNode();
-            (initNode_1).push(node.newVRefNode("new"));
-            const tDef_1 = node.newVRefNode("Map");
-            const vAnn_1 = node.newExpressionNode();
-            (vAnn_1).push(node.newVRefNode(vDef.key_type));
-            (vAnn_1).push(node.newVRefNode(vDef.array_type));
-            tDef_1.has_vref_annotation = true;
-            tDef_1.vref_annotation = vAnn_1;
-            (initNode_1).push(tDef_1);
-            node.children[2] = initNode_1;
-            vDef.value_type = 11;
-            vDef.type_name = "Map";
-            const tAnn_1 = node.newExpressionNode();
-            (tAnn_1).push(node.newVRefNode(vDef.key_type));
-            (tAnn_1).push(node.newVRefNode(vDef.array_type));
-            vDef.has_type_annotation = true;
-            vDef.type_annotation = tAnn_1;
-            await this.CheckTypeAnnotationOf(vDef, ctx, wr);
-            await this.CheckVRefTypeAnnotationOf(tDef_1, ctx, wr);
+        }
+        if ( vDef.hasFlag("persistent") ) {
+          if ( (node.children.length) < 3 ) {
+            const pcInit = node.newExpressionNode();
+            (pcInit).push(node.newVRefNode("new"));
+            (pcInit).push(node.newVRefNode(vDef.type_name));
+            (node).push(pcInit);
           }
         }
         p_1.name = s_3;

@@ -337,6 +337,69 @@ operator type:Map all {
     }
 }
 
+; ----------------------------------------------------------------------------
+; The persistent contract, spelled the way `#[T]` / `#[K:V]` users write it.
+;
+;   conj a x        vector with x appended
+;   assoc a i x     vector with index i replaced   /  map with key set
+;   dissoc m k      map without key k
+;   removeAt a i    vector without index i
+;
+; None of these ever changes the value they are given. `a` means the same thing
+; before and after, on every target.
+;
+; Cost, honestly: conj and assoc on a Vector touch one slice and its parents,
+; so they share the rest of the structure. removeAt rebuilds, and every Map
+; operation copies the whole map — the Map here is copy-on-write, not a HAMT.
+; For an application state holding tens of keys that is the right trade; for
+; tens of thousands it is not, and the note in PLAN_IO_EFFECTS.md says so.
+; ----------------------------------------------------------------------------
+operator type:Vector all {
+    fn conj:S (item:T) {
+        return (self.add(item))
+    }
+    fn assoc:S (idx:int item:T) {
+        return (self.set(idx item))
+    }
+    fn size:int () {
+        return (self.count())
+    }
+    ; O(n): the slice/parent chain has no cheap deletion, so this rebuilds.
+    fn removeAt:S (idx:int) {
+        def res (new S)
+        def cnt (self.count())
+        def i 0
+        while (i < cnt) {
+            if (i != idx) {
+                def item (itemAt self i)
+                res = res.add(item)
+            }
+            i = i + 1
+        }
+        return res
+    }
+}
+
+operator type:Map all {
+    fn  assoc:S (key:K value:T) {
+        return (self.set(key value))
+    }
+    fn  dissoc:S (key:K) {
+        def c (new S)
+        def allKeys ( keys self.elements)
+        for allKeys k:string i {
+            if (k != key) {
+                set c.elements k (unwrap (get self.elements k))
+            }
+        }
+        return c
+    }
+    fn  size:int () {
+        def allKeys ( keys self.elements)
+        return (array_length allKeys)
+    }
+}
+
 operator type:Map all {
     fn  set:S (key:K value:T) {
         def c (new S)        

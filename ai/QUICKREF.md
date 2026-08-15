@@ -145,6 +145,56 @@ set map "k" 1
 remove map "k"
 ```
 
+## Persistent collections
+
+Two worlds, spelled differently. `[T]` is the mutable array it has always been;
+`#[T]` is a persistent value — an operation on it never changes the value it was
+given. Needs `Import "ImmutableVector.rgr"`.
+
+```ranger
+[int]            ; mutable array
+[string:User]    ; mutable map
+
+#[int]           ; persistent vector
+#[string:User]   ; persistent map
+```
+
+```ranger
+def a:#[int] (new Vector@(int))
+def b (conj a 4)          ; append      -> new value, a unchanged
+def c (assoc b 1 20)      ; replace idx -> new value, b unchanged
+def d (removeAt c 0)      ; drop idx    -> new value (O(n))
+
+def m:#[string:int] (new Map@(string int))
+def m1 (assoc m "a" 1)    ; set key
+def m2 (dissoc m1 "a")    ; drop key
+
+(itemAt a 0)  (size a)  (array_length a)
+```
+
+A class field declared `#[T]` starts as an empty persistent collection, so no
+initializer is needed:
+
+```ranger
+class AppState@(immutable) {
+  def loading:boolean false
+  def tags:[string]      ; ordinary array — `for`, `push`, replaced wholesale
+  def rows:#[string]     ; structural sharing
+}
+```
+
+`@(immutable)` generates a `set_<field>` per field, each returning a **new**
+instance sharing everything it did not change:
+
+```ranger
+def s1 (s0.set_loading(true))
+def s2 (s1.set_rows(rows2))
+; s1.rows == s2.rows when rows did not change — a renderer can skip that branch
+```
+
+Cost: `conj` / `assoc` on a vector share structure; `removeAt` rebuilds, and
+every `Map` operation copies the whole map (copy-on-write, not a HAMT).
+
 ## Optionals
 
 Prefix form only:

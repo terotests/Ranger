@@ -77,6 +77,20 @@ stopping one cancels its work), **staleness** (a superseded answer is dropped
 before it touches state), **streams** (one request, many results) and
 **capability security** (no grant, no I/O).
 
+Application state on that pipeline wants cheap copies, so `[T]` and `[K:V]` have
+been joined by a persistent world with its own spelling — `#[T]` and `#[K:V]` —
+where an operation never changes the value it was given:
+
+```ranger
+def b (conj a 4)        ; a is still what it was
+def c (assoc b 1 20)    ; b is still what it was
+```
+
+Paired with `@(immutable)`, which gives a class a `set_<field>` per field
+returning a new instance, an unchanged branch stays identical by reference
+(`s1.rows == s2.rows`), so a renderer can skip a subtree instead of diffing it.
+Mutable `[T]` is untouched: a parser or a rasterizer keeps pushing into arrays.
+
 **Docs:** [PLAN_IO_EFFECTS.md](PLAN_IO_EFFECTS.md) (model, decisions, roadmap).
 **Gallery:** [process_db_effects](gallery/process_db_effects/README.md) — the same
 Ranger model layer driven against DuckDB and against no database at all.

@@ -292,9 +292,87 @@ fn update:Update (state:UserState event:UserEvent)
 ```
 
 — returning both the new state and the effects, is a better fit for replay,
-time-travel and testing. It wants either records with cheap copies or ownership
-support that makes `state.withLoading(true)` non-tragic. Worth doing after the
-capability set is broad enough to be interesting.
+time-travel and testing. What it needs first is cheap immutable copying, and
+**that part is now in place** (see below); what is still missing is the
+ergonomics — `with`, nested update, and a transient builder.
+
+#### Cheap immutable copying — done
+
+`[T]` and `[K:V]` stay the mutable collections they have always been. A second,
+persistent world is spelled with a `#` sigil:
+
+```text
+[int]           mutable array          #[int]          persistent vector
+[string:User]   mutable map            #[string:User]  persistent map
+```
+
+with the contract that an operation never changes the value it was given:
+
+```ranger
+def b (conj a 4)        ; a is still what it was
+def c (assoc b 1 20)    ; b is still what it was
+def m2 (dissoc m1 "a")  ; m1 is still what it was
+```
+
+`#[T]` / `#[K:V]` are lowered in the parser to the `Vector` / `Map` traits of
+[`lib/ImmutableVector.rgr`](lib/ImmutableVector.rgr), so every stage after the
+parser sees an ordinary annotated type and every target compiles it — no new
+type kind, no class-writer changes, all 12 targets from day one. Because the
+lowering is syntactic, the physical representation stays free to change per
+target later; the semantics are what got pinned.
+
+`@(immutable)` on a class generates `__CopySelf` and a `set_<field>` per field,
+each returning a new instance that shares everything it did not change:
+
+```ranger
+class AppState@(immutable) {
+  def loading:boolean false
+  def tags:[string]      ; ordinary array — replaced wholesale
+  def rows:#[string]     ; structural sharing
+}
+
+def s1 (s0.set_rows(rows2))
+def s2 (s1.set_loading(true))
+; s1.rows == s2.rows — changing `loading` did not rebuild `rows`
+```
+
+That last line is the point for a view layer: an unchanged branch is identical
+by reference, so a renderer can skip a subtree instead of diffing it.
+
+**What this cost to fix.** `@(immutable)` already existed, undocumented, and had
+rotted into silence. Every collection field of an immutable class was swapped
+for a `Vector` with no way to ask for a plain array, and that broke the three
+things a model layer does with a collection: `for xs x i {}` did not compile
+against the Vector type; `push xs item` as a statement compiled to a discarded
+return value and **did nothing at all**; and `set_xs(plainArray)` type-checked —
+the generated setter still declared `[T]` — and then died at run time with
+`count is not a function`. Only scalar fields ever worked. Spelling the two
+worlds apart fixes all three, and
+[`tests/persistent-collections.test.ts`](tests/persistent-collections.test.ts)
+now gates the behaviour so it cannot rot again.
+
+**Cost, measured honestly.** `conj` and `assoc` on a vector touch one slice and
+its parents and share the rest. `removeAt` rebuilds, and every `Map` operation
+copies the whole map — the `Map` here is copy-on-write, not a HAMT. For an
+application state holding tens of keys that is the right trade; for tens of
+thousands it is not, and replacing it is the first thing on the list below.
+
+#### What is still missing
+
+- **`with`, including nested paths.** `(with state user.name:"Ada")` rebuilding
+  only the spine and sharing every other branch. Today it is one
+  `set_<field>` call per field, which is workable for flat state and turns into
+  copy-constructor misery for nested state.
+- **A transient builder.** `(mutate empty { for rows row { push it row } })` —
+  a locally mutable builder that cannot escape its block and is frozen back into
+  a persistent value at the end. Building a query result one `conj` at a time is
+  the case that needs it, which is exactly what an I/O pipeline does.
+- **Ownership-driven reuse.** When the compiler can already see that the old
+  value is dead, `conj` could mutate in place instead of sharing. Ranger tracks
+  `borrowed` / `moved` / `shared` today, so the information is there.
+- **A real persistent map.** See the `Map` note above.
+- **`pvec` / literal syntax.** `(pvec 1 2 3)` instead of
+  `(new Vector@(int))`, and no explicit `Import "ImmutableVector.rgr"`.
 
 ### Milestone 5 — compiler support
 
