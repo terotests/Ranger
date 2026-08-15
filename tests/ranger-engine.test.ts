@@ -54,7 +54,9 @@ function tierOf(engine: any, name: string): string {
 describe("Ranger engine", () => {
   beforeAll(() => {
     if (!fs.existsSync(API) || !fs.existsSync(VM_ONLY)) {
-      execFileSync("bash", [path.join(ROOT, "scripts/ranger-engine-build.sh")], {
+      // Only the two hosts these tests use; the command line and the dumper
+      // are another twenty seconds of compiler for nothing.
+      execFileSync("bash", [path.join(ROOT, "scripts/ranger-engine-build.sh"), "api", "vm"], {
         cwd: ROOT,
         stdio: "pipe",
       });
