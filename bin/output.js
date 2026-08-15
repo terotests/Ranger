@@ -799,35 +799,35 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
       this.isCalling.push(m);
     }
   };
-  addIndirectClassUsage (m, ctx) {
+  async addIndirectClassUsage (m, ctx) {
     if ( (this.isUsingClasses.indexOf(m)) < 0 ) {
       this.isUsingClasses.push(m);
-      operatorsOf.forEach_11(m.variables, ((item, index) => { 
+      await operatorsOf.forEach_11(m.variables, (async (item, index) => { 
         const nn = item.nameNode;
         if ( ctx.isDefinedClass(nn.type_name) ) {
           const cc = ctx.findClass(nn.type_name);
-          this.addIndirectClassUsage(cc, ctx);
+          await this.addIndirectClassUsage(cc, ctx);
         }
         if ( ctx.isDefinedClass(nn.array_type) ) {
           const cc_1 = ctx.findClass(nn.array_type);
-          this.addIndirectClassUsage(cc_1, ctx);
+          await this.addIndirectClassUsage(cc_1, ctx);
         }
       }));
     }
   };
-  addClassUsage (m, ctx) {
+  async addClassUsage (m, ctx) {
     if ( (this.isUsingClasses.indexOf(m)) < 0 ) {
       this.isUsingClasses.push(m);
       this.isDirectlyUsingClasses.push(m);
-      operatorsOf.forEach_11(m.variables, ((item, index) => { 
+      await operatorsOf.forEach_11(m.variables, (async (item, index) => { 
         const nn = item.nameNode;
         if ( ctx.isDefinedClass(nn.type_name) ) {
           const cc = ctx.findClass(nn.type_name);
-          this.addIndirectClassUsage(cc, ctx);
+          await this.addIndirectClassUsage(cc, ctx);
         }
         if ( ctx.isDefinedClass(nn.array_type) ) {
           const cc_1 = ctx.findClass(nn.array_type);
-          this.addIndirectClassUsage(cc_1, ctx);
+          await this.addIndirectClassUsage(cc_1, ctx);
         }
       }));
     } else {
@@ -9551,6 +9551,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     constructor() {
     }
   }
+  class RangerFnParts  {
+    constructor() {
+      this.ok = false;
+    }
+  }
   class RangerFlowParser  {
     constructor() {
       this.hasRootPath = false;     /** note: unused */
@@ -9771,116 +9776,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const opBody = CodeNode.blockNode();
           const opTpl = CodeNode.fromList([CodeNode.vref1("defn"), CodeNode.vref1("tmp_create"), CodeNode.expressionNode()]);
           let currCnt = 1;
-          let walk_xml = ((xmlNode, regName) => { 
-          });
-          walk_xml = (async (xmlNode, regName) => { 
-            const rootClassDef = ctx.findClass(xmlNode.vref);
-            if ( rootClassDef.is_system ) {
-              opBody.children.push(CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), CodeNode.fromList([CodeNode.vref1("create"), CodeNode.vref1(xmlNode.vref)])]));
-              await operatorsOf.forEach_15(xmlNode.attrs, ((item, index) => { 
-                if ( (item.children.length) > 0 ) {
-                  const fc_1 = item.children[0];
-                  opBody.children.push(CodeNode.fromList([CodeNode.vref1("attr"), CodeNode.vref1(regName), CodeNode.vref1(item.vref), fc_1.copy()]));
-                  return;
-                }
-                if ( (item.string_value.length) > 0 ) {
-                  opBody.children.push(CodeNode.fromList([CodeNode.vref1("attr"), CodeNode.vref1(regName), CodeNode.vref1(item.vref), CodeNode.newStr(item.string_value)]));
-                }
-              }));
-              await operatorsOf.forEach_15(xmlNode.children, (async (item, index) => { 
-                if ( item.value_type != 22 ) {
-                  if ( item.expression ) {
-                    const itemCopy = item.copy();
-                    const theNode = item;
-                    ctx.setTestCompile();
-                    await this.WalkNode(itemCopy, ctx, wr);
-                    ctx.unsetTestCompile();
-                    if ( ctx.hasClass(itemCopy.eval_array_type) ) {
-                      const paramClassDef = ctx.findClass(itemCopy.eval_array_type);
-                      const chNode = item;
-                      const t = CodeNode.vref1("tmp");
-                      t.setFlag("temp");
-                      opBody.children.push(CodeNode.fromList([CodeNode.vref1("forEach"), theNode.copy(), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("def"), t, CodeNode.vref1("item")]), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), CodeNode.vref1("tmp")])])]));
-                    } else {
-                      if ( ctx.hasClass(itemCopy.eval_type_name) ) {
-                        opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), theNode.copy()]));
-                      }
-                    }
-                  } else {
-                  }
-                }
-                if ( item.value_type == 22 ) {
-                  if ( ctx.hasClass(item.vref) ) {
-                    const paramClassDef_1 = ctx.findClass(item.vref);
-                    const chNode_1 = item;
-                    currCnt = currCnt + 1;
-                    const regN = "r" + currCnt;
-                    await walk_xml(chNode_1, regN);
-                    opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), CodeNode.vref1(regN)]));
-                  }
-                }
-              }));
-            } else {
-              const match = new RangerArgMatch();
-              opBody.children.push(CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), CodeNode.fromList([CodeNode.vref1("new"), CodeNode.vref1(xmlNode.vref)])]));
-              await operatorsOf.forEach_15(xmlNode.attrs, ((item, index) => { 
-                if ( (item.children.length) > 0 ) {
-                  const fc_2 = item.children[0];
-                  opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), fc_2.copy()]));
-                  return;
-                }
-                if ( (item.string_value.length) > 0 ) {
-                  opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), CodeNode.newStr(item.string_value)]));
-                }
-                if ( item.parsed_type == 3 ) {
-                  opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), CodeNode.newInt(item.int_value)]));
-                }
-              }));
-              await operatorsOf.forEach_15(xmlNode.children, (async (item, index) => { 
-                if ( item.value_type != 22 ) {
-                  if ( item.expression ) {
-                    const itemCopy_1 = item.copy();
-                    const theNode_1 = item;
-                    ctx.setTestCompile();
-                    await this.WalkNode(itemCopy_1, ctx, wr);
-                    ctx.unsetTestCompile();
-                    if ( ctx.hasClass(itemCopy_1.eval_array_type) ) {
-                      const paramClassDef_2 = ctx.findClass(itemCopy_1.eval_array_type);
-                      const chNode_2 = item;
-                      operatorsOf.forEach_11(rootClassDef.variables, ((item, index) => { 
-                        if ( match.areEqualATypes(item.nameNode.array_type, itemCopy_1.eval_array_type, ctx) ) {
-                          const t_1 = CodeNode.vref1("tmp");
-                          t_1.setFlag("temp");
-                          opBody.children.push(CodeNode.fromList([CodeNode.vref1("forEach"), theNode_1.copy(), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("def"), t_1, CodeNode.vref1("item")]), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1("tmp")])])]));
-                        }
-                      }));
-                    } else {
-                      console.log("could not find class" + itemCopy_1.eval_array_type);
-                    }
-                  }
-                }
-                if ( item.value_type == 22 ) {
-                  if ( ctx.hasClass(item.vref) ) {
-                    const paramClassDef_3 = ctx.findClass(item.vref);
-                    const chNode_3 = item;
-                    operatorsOf.forEach_11(rootClassDef.variables, ((item, index) => { 
-                      if ( match.areEqualATypes(item.nameNode.array_type, chNode_3.vref, ctx) ) {
-                        currCnt = currCnt + 1;
-                        const regN_1 = "r" + currCnt;
-                        walk_xml(chNode_3, regN_1);
-                        if ( paramClassDef_3.is_immutable ) {
-                          opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1(regN_1)])]));
-                        } else {
-                          opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1(regN_1)]));
-                        }
-                      }
-                    }));
-                  }
-                }
-              }));
-            }
-          });
-          await walk_xml(fc, "r1");
+          currCnt = await this.walkXmlCreate(fc, "r1", currCnt, opBody, ctx, wr);
           opBody.children.push(CodeNode.fromList([CodeNode.vref1("ret"), CodeNode.vref1("r1")]));
           opTpl.children.push(opBody);
           node.value_type = 0;
@@ -9892,39 +9788,39 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       if ( (node.children.length) > 0 ) {
-        const fc_3 = node.getFirst();
-        if ( (fc_3.ns.length) > 1 ) {
-          if ( (fc_3.ns[0]) == "plugin" ) {
+        const fc_1 = node.getFirst();
+        if ( (fc_1.ns.length) > 1 ) {
+          if ( (fc_1.ns[0]) == "plugin" ) {
             if ( node.is_plugin ) {
               return true;
             }
             node.is_plugin = true;
-            const pName = fc_3.ns[1];
+            const pName = fc_1.ns[1];
             ctx.addPluginNode(pName, node);
             return true;
           }
         }
       }
       if ( (node.children.length) == 1 ) {
-        const fc_4 = node.children[0];
-        if ( ctx.isVarDefined(fc_4.vref) ) {
-          fc_4.parent = node;
-          if ( (typeof(fc_4.evalCtx) !== "undefined" && fc_4.evalCtx != null )  ) {
-            await this.WalkNode(fc_4, fc_4.evalCtx, wr);
+        const fc_2 = node.children[0];
+        if ( ctx.isVarDefined(fc_2.vref) ) {
+          fc_2.parent = node;
+          if ( (typeof(fc_2.evalCtx) !== "undefined" && fc_2.evalCtx != null )  ) {
+            await this.WalkNode(fc_2, fc_2.evalCtx, wr);
           } else {
-            await this.WalkNode(fc_4, ctx, wr);
+            await this.WalkNode(fc_2, ctx, wr);
           }
-          node.copyEvalResFrom(fc_4);
+          node.copyEvalResFrom(fc_2);
           return true;
         }
       }
       const skip_if = ["Extends", "operator", "extends", "operators", "systemclass", "systemunion", "union", "flag", "trait", "enum", "Import"];
       if ( (node.children.length) > 0 ) {
-        const fc_5 = node.children[0];
-        if ( (skip_if.indexOf(fc_5.vref)) >= 0 ) {
+        const fc_3 = node.children[0];
+        if ( (skip_if.indexOf(fc_3.vref)) >= 0 ) {
           return true;
         }
-        if ( fc_5.vref == "#" ) {
+        if ( fc_3.vref == "#" ) {
           const fnCtx = ctx.findFunctionCtx();
           await this.DefineArrowOpFn(node, fnCtx, wr);
           node.value_type = 11;
@@ -9937,31 +9833,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           node.hasParamDesc = false;
           return true;
         } else {
-          if ( fc_5.expression && ((fc_5.children.length) > 0) ) {
-            const exprFc = fc_5.children[0];
+          if ( fc_3.expression && ((fc_3.children.length) > 0) ) {
+            const exprFc = fc_3.children[0];
             if ( exprFc.vref == "#" ) {
-              await this.DefineArrowOpFn(fc_5, ctx, wr);
+              await this.DefineArrowOpFn(fc_3, ctx, wr);
             }
           }
         }
-        if ( fc_5.vref == "proc_send" ) {
+        if ( fc_3.vref == "proc_send" ) {
           if ( await RangerProcessProcSend.transform(this, node, ctx, wr) ) {
             return true;
           }
         }
-        if ( fc_5.vref == "proc_start" ) {
+        if ( fc_3.vref == "proc_start" ) {
           await RangerProcessProcStartCheck.validate(this, node, ctx, wr);
         }
         let b_found = true;
-        const opFn = await ctx.getOpFns(fc_5.vref);
+        const opFn = await ctx.getOpFns(fc_3.vref);
         if ( (opFn.length) > 0 ) {
-          if ( fc_5.vref == "=" ) {
+          if ( fc_3.vref == "=" ) {
             this.repairAssignMethodCallRhs(node);
           }
           await this.TransformOpFn(opFn, node, ctx, wr);
           return true;
         }
-        switch (fc_5.vref ) { 
+        switch (fc_3.vref ) { 
           case "page" : 
             const sc = node.getSecond();
             ctx.addPage(sc.vref, node);
@@ -10037,8 +9933,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               ctx.addService(sc_1.vref, node);
               const paramClass = params.getFirst();
               const rvClassDef = ctx.findClass(sc_1.type_name);
-              const paramClassDef_4 = ctx.findClass(paramClass.type_name);
-              node.appGUID = (sc_1.vref + "_") + (require('crypto').createHash('sha256').update((rvClassDef.node.getCode() + paramClassDef_4.node.getCode())).digest('hex'));
+              const paramClassDef = ctx.findClass(paramClass.type_name);
+              node.appGUID = (sc_1.vref + "_") + (require('crypto').createHash('sha256').update((rvClassDef.node.getCode() + paramClassDef.node.getCode())).digest('hex'));
             } catch(e) {
               ctx.addError(node, "invalid service definition");
             }
@@ -10055,17 +9951,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return true;
       }
       if ( (node.children.length) > 0 ) {
-        const fc_6 = node.children[0];
-        if ( fc_6.expression && ((node.children.length) == 2) ) {
+        const fc_4 = node.children[0];
+        if ( fc_4.expression && ((node.children.length) == 2) ) {
           const sec = node.getSecond();
           if ( ((sec.vref.length) > 0) && ((sec.vref[0]) == ".") ) {
-            await this.WalkNode(fc_6, ctx, wr);
-            if ( ((fc_6.eval_type_name.length) > 0) && ctx.isDefinedClass(fc_6.eval_type_name) ) {
+            await this.WalkNode(fc_4, ctx, wr);
+            if ( ((fc_4.eval_type_name.length) > 0) && ctx.isDefinedClass(fc_4.eval_type_name) ) {
               const parts = (sec.vref.substring(1, (sec.vref.length) )).split(".");
               let method_name = parts[0];
-              let classDesc = ctx.findClass(fc_6.eval_type_name);
-              const objExpr = fc_6.copy();
-              let calledItem = CodeNode.fromList([CodeNode.vref1("property"), fc_6.copy(), CodeNode.vref1(method_name)]);
+              let classDesc = ctx.findClass(fc_4.eval_type_name);
+              const objExpr = fc_4.copy();
+              let calledItem = CodeNode.fromList([CodeNode.vref1("property"), fc_4.copy(), CodeNode.vref1(method_name)]);
               await operatorsOf.forEach_12(parts, ((item, index) => { 
                 if ( index > 0 ) {
                   try {
@@ -10095,14 +9991,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
           }
         }
-        if ( fc_6.expression && ((node.children.length) == 3) ) {
+        if ( fc_4.expression && ((node.children.length) == 3) ) {
           if ( await this.transformDotMethodCallExpr(node, ctx, wr) ) {
             return true;
           }
         }
-        if ( fc_6.value_type == 11 ) {
+        if ( fc_4.value_type == 11 ) {
           let was_called = true;
-          switch (fc_6.vref ) { 
+          switch (fc_4.vref ) { 
             case "Enum" : 
               was_called = true;
               break;
@@ -10356,11 +10252,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const vNameNode = vDef.nameNode;
           if ( ctx.isDefinedClass(node.type_name) ) {
             const m = ctx.getCurrentMethod();
-            m.addClassUsage(ctx.findClass(node.type_name), ctx);
+            await m.addClassUsage(ctx.findClass(node.type_name), ctx);
           }
           if ( ctx.isDefinedClass(node.eval_type_name) ) {
             const m_1 = ctx.getCurrentMethod();
-            m_1.addClassUsage(ctx.findClass(node.eval_type_name), ctx);
+            await m_1.addClassUsage(ctx.findClass(node.eval_type_name), ctx);
           }
           if ( (typeof(vNameNode) !== "undefined" && vNameNode != null )  ) {
             if ( vNameNode.hasFlag("optional") ) {
@@ -10388,7 +10284,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           node.eval_type = 28;
           node.eval_type_name = rootObjName;
           const m_2 = ctx.getCurrentMethod();
-          m_2.addClassUsage(ctx.findClass(rootObjName), ctx);
+          await m_2.addClassUsage(ctx.findClass(rootObjName), ctx);
         }
         if ( ctx.hasTemplateNode(rootObjName) ) {
           class_or_this = true;
@@ -10409,28 +10305,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return;
       }
     };
-    async EnterFn (node, ctx, wr, callback) {
+    async EnterFnParts (node, ctx, wr) {
+      const res = new RangerFnParts();
       try {
         if ( (node.children.length) < 4 ) {
           ctx.addError(node, "Function has too few arguments");
-          return;
-        }
-        let nameNode;
-        let idx = 0;
-        await operatorsOf.forEach_15(node.children, ((item, index) => { 
-          if ( item.vref == "static" ) {
-            idx = idx + 1;
+        } else {
+          let idx = 0;
+          await operatorsOf.forEach_15(node.children, ((item, index) => { 
+            if ( item.vref == "static" ) {
+              idx = idx + 1;
+            }
+          }));
+          const currClass = ctx.getCurrentClass();
+          if ( typeof(currClass) === "undefined" ) {
+            ctx.addError(node, "Current class was not defined when entering method");
+          } else {
+            res.nameNode = node.children[(idx + 1)];
+            res.fnArgs = node.children[(idx + 2)];
+            res.fnBody = node.children[(idx + 3)];
+            res.desc = currClass;
+            res.ok = true;
           }
-        }));
-        const currClass = ctx.getCurrentClass();
-        if ( typeof(currClass) === "undefined" ) {
-          ctx.addError(node, "Current class was not defined when entering method");
-          return;
         }
-        await callback(node, ctx, wr, node.children[(idx + 1)], node.children[(idx + 2)], node.children[(idx + 3)], currClass);
       } catch(e) {
         ctx.addError(node, "Error parsing function " + (( e.toString())));
       }
+      return res;
     };
     async Constructor (node, ctx, wr) {
       this.shouldHaveChildCnt(3, node, ctx, "Method expexts four arguments");
@@ -10534,7 +10435,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const newCl = currC;
           this.expandRecordCtorArgsIfNeeded(newCl, ctorFn, params, node);
         }
-        operatorsOf.forEach_11(ctorFn.params, ((item, index) => { 
+        await operatorsOf.forEach_11(ctorFn.params, ((item, index) => { 
           if ( item.nameNode.hasFlag("keyword") ) {
             if ( (params.children.length) > index ) {
               (params.children[index]).setFlag("keyword");
@@ -10558,7 +10459,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           currC = ctx.findClass(obj.vref);
         }
         const currM = ctx.getCurrentMethod();
-        currM.addClassUsage(currC, ctx);
+        await currM.addClassUsage(currC, ctx);
       }
       node.hasNewOper = true;
       node.clDesc = currC;
@@ -10716,11 +10617,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       wr.out("fn rtti_get_fields:[RTTIClassField] (className:string) {", true);
       wr.indent(1);
       wr.out("def fields:[RTTIClassField]", true);
-      await operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+      await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
         if ( item.isNormalClass() ) {
           wr.out(("if(className == '" + item.name) + "') {", true);
           wr.indent(1);
-          operatorsOf.forEach_11(item.variables, ((item, index) => { 
+          await operatorsOf.forEach_11(item.variables, ((item, index) => { 
             wr.out("def f (new RTTIClassField)", true);
             wr.out(("f.name = `" + item.compiledName) + "`", true);
             wr.out(("f.type_name = `" + item.nameNode.type_name) + "`", true);
@@ -10736,6 +10637,115 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       wr.indent(-1);
       wr.out("}", true);
       await root.pushAndCollectCode(wr.getCode(), orig_wr);
+    };
+    async walkXmlCreate (xmlNode, regName, in_currCnt, opBody, ctx, wr) {
+      let currCnt = in_currCnt;
+      const rootClassDef = ctx.findClass(xmlNode.vref);
+      if ( rootClassDef.is_system ) {
+        opBody.children.push(CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), CodeNode.fromList([CodeNode.vref1("create"), CodeNode.vref1(xmlNode.vref)])]));
+        await operatorsOf.forEach_15(xmlNode.attrs, ((item, index) => { 
+          if ( (item.children.length) > 0 ) {
+            const fc = item.children[0];
+            opBody.children.push(CodeNode.fromList([CodeNode.vref1("attr"), CodeNode.vref1(regName), CodeNode.vref1(item.vref), fc.copy()]));
+            return;
+          }
+          if ( (item.string_value.length) > 0 ) {
+            opBody.children.push(CodeNode.fromList([CodeNode.vref1("attr"), CodeNode.vref1(regName), CodeNode.vref1(item.vref), CodeNode.newStr(item.string_value)]));
+          }
+        }));
+        await operatorsOf.forEach_15(xmlNode.children, (async (item, index) => { 
+          if ( item.value_type != 22 ) {
+            if ( item.expression ) {
+              const itemCopy = item.copy();
+              const theNode = item;
+              ctx.setTestCompile();
+              await this.WalkNode(itemCopy, ctx, wr);
+              ctx.unsetTestCompile();
+              if ( ctx.hasClass(itemCopy.eval_array_type) ) {
+                const paramClassDef = ctx.findClass(itemCopy.eval_array_type);
+                const chNode = item;
+                const t = CodeNode.vref1("tmp");
+                t.setFlag("temp");
+                opBody.children.push(CodeNode.fromList([CodeNode.vref1("forEach"), theNode.copy(), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("def"), t, CodeNode.vref1("item")]), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), CodeNode.vref1("tmp")])])]));
+              } else {
+                if ( ctx.hasClass(itemCopy.eval_type_name) ) {
+                  opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), theNode.copy()]));
+                }
+              }
+            } else {
+            }
+          }
+          if ( item.value_type == 22 ) {
+            if ( ctx.hasClass(item.vref) ) {
+              const paramClassDef_1 = ctx.findClass(item.vref);
+              const chNode_1 = item;
+              currCnt = currCnt + 1;
+              const regN = "r" + currCnt;
+              currCnt = await this.walkXmlCreate(chNode_1, regN, currCnt, opBody, ctx, wr);
+              opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), CodeNode.vref1(regN)]));
+            }
+          }
+        }));
+      } else {
+        const match = new RangerArgMatch();
+        opBody.children.push(CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), CodeNode.fromList([CodeNode.vref1("new"), CodeNode.vref1(xmlNode.vref)])]));
+        await operatorsOf.forEach_15(xmlNode.attrs, ((item, index) => { 
+          if ( (item.children.length) > 0 ) {
+            const fc_1 = item.children[0];
+            opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), fc_1.copy()]));
+            return;
+          }
+          if ( (item.string_value.length) > 0 ) {
+            opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), CodeNode.newStr(item.string_value)]));
+          }
+          if ( item.parsed_type == 3 ) {
+            opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), CodeNode.newInt(item.int_value)]));
+          }
+        }));
+        await operatorsOf.forEach_15(xmlNode.children, (async (item, index) => { 
+          if ( item.value_type != 22 ) {
+            if ( item.expression ) {
+              const itemCopy_1 = item.copy();
+              const theNode_1 = item;
+              ctx.setTestCompile();
+              await this.WalkNode(itemCopy_1, ctx, wr);
+              ctx.unsetTestCompile();
+              if ( ctx.hasClass(itemCopy_1.eval_array_type) ) {
+                const paramClassDef_2 = ctx.findClass(itemCopy_1.eval_array_type);
+                const chNode_2 = item;
+                await operatorsOf.forEach_11(rootClassDef.variables, ((item, index) => { 
+                  if ( match.areEqualATypes(item.nameNode.array_type, itemCopy_1.eval_array_type, ctx) ) {
+                    const t_1 = CodeNode.vref1("tmp");
+                    t_1.setFlag("temp");
+                    opBody.children.push(CodeNode.fromList([CodeNode.vref1("forEach"), theNode_1.copy(), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("def"), t_1, CodeNode.vref1("item")]), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1("tmp")])])]));
+                  }
+                }));
+              } else {
+                console.log("could not find class" + itemCopy_1.eval_array_type);
+              }
+            }
+          }
+          if ( item.value_type == 22 ) {
+            if ( ctx.hasClass(item.vref) ) {
+              const paramClassDef_3 = ctx.findClass(item.vref);
+              const chNode_3 = item;
+              await operatorsOf.forEach_11(rootClassDef.variables, (async (item, index) => { 
+                if ( match.areEqualATypes(item.nameNode.array_type, chNode_3.vref, ctx) ) {
+                  currCnt = currCnt + 1;
+                  const regN_1 = "r" + currCnt;
+                  currCnt = await this.walkXmlCreate(chNode_3, regN_1, currCnt, opBody, ctx, wr);
+                  if ( paramClassDef_3.is_immutable ) {
+                    opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1(regN_1)])]));
+                  } else {
+                    opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1(regN_1)]));
+                  }
+                }
+              }));
+            }
+          }
+        }));
+      }
+      return currCnt;
     };
     async markAsyncFrom (f, visited) {
       if ( (visited.indexOf(f)) >= 0 ) {
@@ -10884,14 +10894,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let use_dce = false;
       if ( ctx.hasCompilerFlag("dead4main") ) {
         let mainFn;
-        await operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+        await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
           const cl = item;
           for ( let i = 0; i < cl.static_methods.length; i++) {
             var variant = cl.static_methods[i];
             ctx.disableCurrentClass();
             if ( variant.nameNode.hasFlag("main") && (variant.nameNode.code.filename == ctx.getRootFile()) ) {
               mainFn = variant;
-              mainFn.addClassUsage(cl, ctx);
+              await mainFn.addClassUsage(cl, ctx);
             }
           };
         }));
@@ -11280,7 +11290,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           await this.WalkNode(fnNode, subCtx, wr);
           const callParams = node.children[1];
           let keyword_cnt = 0;
-          operatorsOf.forEach_11(vFnDef.params, ((item, index) => { 
+          await operatorsOf.forEach_11(vFnDef.params, ((item, index) => { 
             if ( item.nameNode.hasFlag("keyword") ) {
               keyword_cnt = keyword_cnt + 1;
               (callParams.children[index]).setFlag("keyword");
@@ -11947,11 +11957,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         ctx.hadValidType(v.nameNode);
         if ( ctx.isDefinedClass(v.nameNode.type_name) ) {
           const cl = ctx.findClass(v.nameNode.type_name);
-          m.addClassUsage(cl, ctx);
+          await m.addClassUsage(cl, ctx);
         }
         if ( ctx.isDefinedClass(v.nameNode.array_type) ) {
           const cl_1 = ctx.findClass(v.nameNode.array_type);
-          m.addClassUsage(cl_1, ctx);
+          await m.addClassUsage(cl_1, ctx);
         }
       };
       subCtx.setInMethod();
@@ -11989,7 +11999,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
     };
     async EnterMethod (node, ctx, wr) {
-      await this.EnterFn(node, ctx, wr, (async (node, ctx, wr, nameNode, fnArgs, fnBody, desc) => { 
+      const parts = await this.EnterFnParts(node, ctx, wr);
+      if ( parts.ok == false ) {
+        return;
+      }
+      const nameNode = parts.nameNode;
+      const fnBody = parts.fnBody;
+      const desc = parts.desc;
+      try {
         let m;
         if ( typeof(node.fnDesc) === "undefined" ) {
         } else {
@@ -12005,17 +12022,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const method = m;
         const subCtx = method.fnCtx;
         await this.walkFunctionBody(method, fnBody, ctx, subCtx, wr);
-      }));
+      } catch(e) {
+        ctx.addError(node, "Error parsing function " + (( e.toString())));
+      }
     };
     async EnterStaticMethod (node, ctx, wr) {
-      await this.EnterFn(node, ctx, wr, (async (node, ctx, wr, nameNode, fnArgs, fnBody, desc) => { 
+      const parts = await this.EnterFnParts(node, ctx, wr);
+      if ( parts.ok == false ) {
+        return;
+      }
+      const nameNode = parts.nameNode;
+      const fnBody = parts.fnBody;
+      const desc = parts.desc;
+      try {
         const m = desc.findStaticMethod(nameNode.vref);
         const subCtx = ctx.fork();
         m.fnCtx = subCtx;
         subCtx.in_static_method = true;
         await this.walkFunctionBody(m, fnBody, ctx, subCtx, wr);
         subCtx.in_static_method = false;
-      }));
+      } catch(e) {
+        ctx.addError(node, "Error parsing function " + (( e.toString())));
+      }
     };
     async DefineArrowOpFn (node, ctx, wr) {
       const myName = ctx.createNewOpFnName();
@@ -14991,12 +15019,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let allTypes = [];
       const serviceBuilder = new RangerServiceBuilder();
       await serviceBuilder.CreateServices(this, ctx, wr);
-      operatorsOf_13.forEach_40(this.extendedClasses, ((item, index) => { 
+      await operatorsOf_13.forEach_40(this.extendedClasses, (async (item, index) => { 
         const ch = ctx.findClass(index);
         const parent = ctx.findClass(item);
         ch.addParentClass(item);
         parent.is_inherited = true;
-        operatorsOf.forEach_11(parent.variables, ((item, index) => { 
+        await operatorsOf.forEach_11(parent.variables, ((item, index) => { 
           ch.ctx.defineVariable(item.name, item);
         }));
       }));
@@ -15061,15 +15089,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
         }
       };
-      const cClassList = this.serializedClasses.slice().sort(((left, right) => { 
+      const cClassList = this.serializedClasses.slice().sort((async (left, right) => { 
         let left_had = false;
         let right_had = false;
-        operatorsOf.forEach_11(left.variables, ((item, index) => { 
+        await operatorsOf.forEach_11(left.variables, ((item, index) => { 
           if ( (item.nameNode.type_name == right.name) || (item.nameNode.array_type == right.name) ) {
             left_had = true;
           }
         }));
-        operatorsOf.forEach_11(right.variables, ((item, index) => { 
+        await operatorsOf.forEach_11(right.variables, ((item, index) => { 
           if ( (item.nameNode.type_name == left.name) || (item.nameNode.array_type == left.name) ) {
             right_had = true;
           }
@@ -55452,11 +55480,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             if ( autoDetectedTypeScript ) {
                                                               appCtx.compilerFlags["typescript"] = true;
                                                             }
-                                                            operatorsOf_13.forEach_40(params.params, ((item, index) => { 
+                                                            await operatorsOf_13.forEach_40(params.params, ((item, index) => { 
                                                               const v = item;
                                                               comp_attrs[index] = v;
                                                             }));
-                                                            operatorsOf_13.forEach_40(comp_attrs, ((item, index) => { 
+                                                            await operatorsOf_13.forEach_40(comp_attrs, ((item, index) => { 
                                                               const n_1 = item;
                                                               appCtx.compilerSettings[index] = n_1;
                                                             }));
@@ -56051,10 +56079,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             cb(it_3, i_4);
                                                           };
                                                         };
-                                                        operatorsOf.forEach_11 = function(__self, cb) {
+                                                        operatorsOf.forEach_11 = async function(__self, cb) {
                                                           for ( let i_5 = 0; i_5 < __self.length; i_5++) {
                                                             var it_4 = __self[i_5];
-                                                            cb(it_4, i_5);
+                                                            await cb(it_4, i_5);
                                                           };
                                                         };
                                                         operatorsOf.forEach_12 = async function(__self, cb) {
@@ -56411,12 +56439,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             await cb(value_5, kk_5);
                                                           };
                                                         };
-                                                        operatorsOf_13.forEach_40 = function(__self, cb) {
+                                                        operatorsOf_13.forEach_40 = async function(__self, cb) {
                                                           const list_6 = Object.keys(__self);
                                                           for ( let i_22 = 0; i_22 < list_6.length; i_22++) {
                                                             var kk_6 = list_6[i_22];
                                                             const value_6 = (( Object.prototype.hasOwnProperty.call(__self, kk_6) ? __self[kk_6] : undefined ));
-                                                            cb(value_6, kk_6);
+                                                            await cb(value_6, kk_6);
                                                           };
                                                         };
                                                         operatorsOf_13.forEach_55 = function(__self, cb) {
@@ -56453,20 +56481,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           }
                                                           return "ranger";
                                                         };
-                                                        operatorsOf_21.addUsage_28 = function(__self, cn) {
+                                                        operatorsOf_21.addUsage_28 = async function(__self, cn) {
                                                           const ctx = __self;
                                                           const currM = ctx.getCurrentMethod();
                                                           if ( ctx.isDefinedClass(cn.type_name) ) {
                                                             const cl = ctx.findClass(cn.type_name);
-                                                            currM.addClassUsage(cl, ctx);
+                                                            await currM.addClassUsage(cl, ctx);
                                                           }
                                                           if ( ctx.isDefinedClass(cn.eval_type_name) ) {
                                                             const cl_1 = ctx.findClass(cn.eval_type_name);
-                                                            currM.addClassUsage(cl_1, ctx);
+                                                            await currM.addClassUsage(cl_1, ctx);
                                                           }
                                                           if ( ctx.isDefinedClass(cn.eval_array_type) ) {
                                                             const cl_2 = ctx.findClass(cn.eval_array_type);
-                                                            currM.addClassUsage(cl_2, ctx);
+                                                            await currM.addClassUsage(cl_2, ctx);
                                                           }
                                                         };
                                                         operatorsOf_21.getActiveTransaction_22 = function(c) {
@@ -56709,7 +56737,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             if ( (node.children.length) > 2 ) {
                                                               __self.shouldBeEqualTypes(cn, p.def_value, ctx, "Variable was assigned an incompatible type.");
                                                             }
-                                                            operatorsOf_21.addUsage_28(ctx, cn);
+                                                            await operatorsOf_21.addUsage_28(ctx, cn);
                                                           } else {
                                                             const cn_1 = node.children[1];
                                                             cn_1.eval_type = cn_1.typeNameAsType(ctx);
@@ -56918,7 +56946,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             if ( (node.children.length) > 2 ) {
                                                               __self.shouldBeEqualTypes(cn_2, p_1.def_value, ctx, "Variable was assigned an incompatible type.");
                                                             }
-                                                            operatorsOf_21.addUsage_28(ctx, cn_2);
+                                                            await operatorsOf_21.addUsage_28(ctx, cn_2);
                                                           } else {
                                                             const cn_3 = node.children[1];
                                                             cn_3.eval_type = cn_3.typeNameAsType(ctx);
