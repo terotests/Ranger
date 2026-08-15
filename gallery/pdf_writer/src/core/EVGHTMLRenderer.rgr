@@ -1,3 +1,4 @@
+Import "../fonts/FontManager.rgr"
 Import "../../../evg/EVGCodepoint.rgr"
 ; EVGHTMLRenderer.rgr - Render EVG elements to HTML/CSS
 ; 
@@ -74,6 +75,11 @@ class EVGHTMLRenderer {
     ; wraps here that did not wrap in the PDF, and the absolutely positioned
     ; boxes below it land on top of each other.
     def fallbackFamily:string ""
+    ; The faces, so an emoji run can be found and wrapped in its own colour.
+    ; Optional: with no manager the renderer writes the text in one piece,
+    ; exactly as it did.
+    def fontManager:FontManager
+    def hasFontManager:boolean false
     def fontBasePath:string "./fonts/"
     ; Real file paths for the faces that were actually loaded, registered by
     ; the tool. fontFamilyToFileName below is a hand-maintained guess at where
@@ -298,6 +304,68 @@ class EVGHTMLRenderer {
         return css
     }
     
+    ; The element's text as markup: one piece normally, and a wrapped <span>
+    ; around each fallback run when `emoji-color` asks for one.
+    ;
+    ; There are no inline spans in EVG, so an author has no other way to say
+    ; "this emoji is not the colour of the sentence it is in" — and a
+    ; monochrome emoji face will take any colour it is filled with, which is
+    ; the whole reason the property is worth having.
+    fn textMarkup:string (el:EVGElement) {
+        def text:string (this.presentationText(el.textContent))
+        if (el.emojiColor.isSet == false) {
+            return (this.escapeHtml(text))
+        }
+        if (hasFontManager == false) {
+            return (this.escapeHtml(text))
+        }
+        def primary:TrueTypeFont (fontManager.getFont((el.effectiveFontFamily())))
+        if ((primary.isLoaded()) == false) {
+            return (this.escapeHtml(text))
+        }
+        def tint:string (el.emojiColor.toCSSString())
+
+        def cps:[int] (EVGCodepoint.toArray(text))
+        def out:string ""
+        def buf:string ""
+        def bufIsEmoji:boolean false
+        def have:boolean false
+        def i:int 0
+        while (i < (array_length cps)) {
+            def end:int (EVGGrapheme.clusterEnd(cps i))
+            def face:TrueTypeFont (fontManager.faceForClusterFrom(primary cps i end))
+            def isEmoji:boolean false
+            if (face.isLoaded()) {
+                isEmoji = ((face.fontPath == primary.fontPath) == false)
+            }
+            if have {
+                if (isEmoji != bufIsEmoji) {
+                    out = out + (this.wrapRun(buf bufIsEmoji tint))
+                    buf = ""
+                }
+            }
+            bufIsEmoji = isEmoji
+            have = true
+            def c:int i
+            while (c < end) {
+                buf = buf + (EVGCodepoint.toStr((itemAt cps c)))
+                c = (c + 1)
+            }
+            i = end
+        }
+        if have {
+            out = out + (this.wrapRun(buf bufIsEmoji tint))
+        }
+        return out
+    }
+
+    fn wrapRun:string (text:string isEmoji:boolean tint:string) {
+        if (isEmoji == false) {
+            return (this.escapeHtml(text))
+        }
+        return ("<span style=\"color: " + tint + "\">" + (this.escapeHtml(text)) + "</span>")
+    }
+
     ; The text as this engine SHAPED it, for a browser to set.
     ;
     ; Variation selectors are dropped once a fallback face is in play, and the
@@ -325,6 +393,11 @@ class EVGHTMLRenderer {
             i = (i + step)
         }
         return out
+    }
+
+    fn setFontManager:void (fm:FontManager) {
+        fontManager = fm
+        hasFontManager = true
     }
 
     fn setFallbackFamily:void (f:string) {
@@ -857,7 +930,7 @@ class EVGHTMLRenderer {
         html = html + ">"
         
         ; Add text content (escape HTML)
-        html = html + (this.escapeHtml((this.presentationText(el.textContent))))
+        html = html + (this.textMarkup(el))
         
         ; Render any children (nested text)
         def i:int 0

@@ -245,6 +245,9 @@ class EVGHTMLTool {
         ; same file EVG measured with instead of substituting its own. Only
         ; when the document actually needs it: the face is embedded base64 and
         ; would otherwise bloat every page that has no emoji on it.
+        ; The renderer needs the faces too, so an emoji run can be found and
+        ; wrapped in its own colour when `emoji-color` asks for one.
+        renderer.setFontManager(fmForFaces)
         def fbFamily:string (this.findFallbackFamily(root fmForFaces))
         if ((strlen fbFamily) > 0) {
             renderer.setFallbackFamily(fbFamily)

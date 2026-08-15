@@ -956,12 +956,49 @@ the ones EVG measured with. The HTML renderer now writes the text as the engine
 shaped it — selectors dropped — because the engine has already chosen the
 presentation by choosing the face. All three targets agree glyph for glyph.
 
-Still open: **colour**. Noto Color Emoji is COLRv1 with no v0 layer records at
-all, so there is no simple layered-glyph path to take; its 60 000 fills are
-86% `PaintSolid` under `PaintGlyph`/`PaintColrLayers`/transforms, and 14%
-linear and radial gradients. PDF has no COLR support, so colour glyphs would
-have to be drawn as vector artwork with invisible text behind them for
-extraction. Sized, not started.
+### Phase 4.9 — `emoji-color` ✅
+
+A monochrome emoji face is outlines, so it takes whatever colour it is filled
+with. Every target already tinted emoji with the element's `color` — the one
+thing the engine could not do was give them a **different** colour from the
+sentence they sit in, because EVG has no inline spans to hang a second colour
+on.
+
+```css
+.caption { color: #1f2937; emoji-color: #e11d48 }
+```
+
+Inherited like `color`, so a deck sets it once. Unset it is the text colour and
+every existing document is byte-identical — all 28 example PDFs confirm that.
+
+- **PDF** — the fill colour is chosen per segment, and a fallback segment is
+  already its own `BT`/`ET` block, so this is one `rg` operator.
+- **PNG** — the raster pen carries a second colour for fallback clusters.
+- **HTML** — fallback runs are wrapped in a `<span>` with their own colour,
+  which is also the first thing in this engine that needs the renderer to know
+  the faces rather than just their filenames.
+
+### Multi-colour emoji — sized, deliberately not built
+
+Noto Color Emoji is **COLRv1 with no v0 layer records at all**, so there is no
+simple layered-glyph path to take. Measured on the v40 face:
+
+| | |
+| --- | --- |
+| file | 25 MB, of which the `SVG ` table is 19 MB |
+| base colour glyphs | 3 993 |
+| using a gradient | **2 278 (57%)** |
+| deepest glyph | 230 layers |
+| paint formats | `PaintGlyph` 64 637, `PaintSolid` 51 493, transforms 29 107, gradients 8 630, `PaintComposite` 314 |
+
+Two facts decide it. Gradients are not a rounding error — flattening them to a
+single stop would visibly degrade more than half the set — and PDF has no COLR
+support at all, so colour glyphs must become vector artwork with invisible text
+behind them for extraction. That is a paint-graph interpreter, a glyph
+outline → PDF path converter, axial and radial shading patterns on both the PDF
+and the raster side, and a subsetter that follows COLR layer references. It is
+tractable and it is scoped here; it is not a variation on what `emoji-color`
+does.
 
 ## 11. File / module impact (expected)
 

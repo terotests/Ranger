@@ -142,6 +142,15 @@ class RasterText {
     def fallbackManager:FontManager
     def hasFallbackManager:boolean false
 
+    ; The colour to fill glyphs that came from a fallback face. A monochrome
+    ; emoji face takes whatever colour it is given, so `emoji-color` can make
+    ; it differ from the sentence around it. Off by default, which means
+    ; "the same as the text".
+    def fallbackColorSet:boolean false
+    def fallbackR:int 0
+    def fallbackG:int 0
+    def fallbackB:int 0
+
     ; Edges buffer for glyph rendering (reused to avoid slice issues in Go)
     def currentEdges:[GlyphEdge]
     
@@ -161,6 +170,17 @@ class RasterText {
     fn setFallbackManager:void (fm:FontManager) {
         fallbackManager = fm
         hasFallbackManager = true
+    }
+
+    fn setFallbackColor:void (r:int g:int b:int) {
+        fallbackColorSet = true
+        fallbackR = r
+        fallbackG = g
+        fallbackB = b
+    }
+
+    fn clearFallbackColor:void () {
+        fallbackColorSet = false
     }
     
     ; Measure text width using the current font
@@ -1116,10 +1136,18 @@ class RasterText {
                 def keep:TrueTypeFont font
                 this.setFont((unwrap face))
                 def shaped:TTFShapedRun (face.shapeRange(cps i end))
+                def fr:int r
+                def fg:int g
+                def fb:int b
+                if fallbackColorSet {
+                    fr = fallbackR
+                    fg = fallbackG
+                    fb = fallbackB
+                }
                 def gi:int 0
                 while (gi < (array_length shaped.glyphs)) {
                     def o:GlyphOutline (this.parseGlyph((itemAt shaped.glyphs gi) fontSize))
-                    this.renderGlyph(buf o currX renderY r g b a)
+                    this.renderGlyph(buf o currX renderY fr fg fb a)
                     currX = (currX + o.advanceWidth)
                     gi = (gi + 1)
                 }

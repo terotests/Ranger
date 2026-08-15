@@ -2449,13 +2449,29 @@ class EVGPDFRenderer {
             def r:double (color.r / 255.0)
             def g:double (color.g / 255.0)
             def b:double (color.b / 255.0)
+            ; A fallback face is monochrome outlines and takes whatever colour
+            ; it is filled with, so `emoji-color` can hand it a different one
+            ; from the sentence it sits in. Unset, this is the text colour and
+            ; the output is unchanged.
+            def ec:EVGColor (el.effectiveEmojiColor())
+            def er:double (ec.r / 255.0)
+            def eg:double (ec.g / 255.0)
+            def eb:double (ec.b / 255.0)
             def segs:[PDFTextSegment] (this.splitLine(line fontFamily fontSize textX))
             def sgi:int 0
             while (sgi < (array_length segs)) {
                 def seg:PDFTextSegment (itemAt segs sgi)
+                def sr:double r
+                def sg:double g
+                def sb:double b
+                if seg.isCid {
+                    sr = er
+                    sg = eg
+                    sb = eb
+                }
                 streamBuffer.writeString("BT\n")
                 streamBuffer.writeString((this.segmentFontName(seg)) + " " + (this.formatNum(fontSize)) + " Tf\n")
-                streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+                streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " rg\n")
                 streamBuffer.writeString((this.formatNum(seg.x)) + " " + (this.formatNum(lineY)) + " Td\n")
                 streamBuffer.writeString((this.segmentShowOperator(seg)) + "\n")
                 streamBuffer.writeString("ET\n")

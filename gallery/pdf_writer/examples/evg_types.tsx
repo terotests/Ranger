@@ -99,6 +99,8 @@ export interface EVGStyle {
 
   // Visual - Colors
   color?: Color;
+  /** Fill colour for glyphs taken from a fallback face (emoji). Defaults to `color`. */
+  emojiColor?: Color;
   opacity?: number;
 
   // Visual - Overflow
@@ -211,6 +213,8 @@ export interface EVGDividerProps extends EVGBaseProps {
   thickness?: Unit;
   /** Color of the divider */
   color?: Color;
+  /** Fill colour for glyphs taken from a fallback face (emoji). Defaults to `color`. */
+  emojiColor?: Color;
 }
 
 // =============================================================================
