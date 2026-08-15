@@ -754,6 +754,36 @@ class RangerRustClassWriter {
       }
     }
   }
+  ; The `.upgrade()` a single-segment read of a weak field needs. Mirrors
+  ; the last-segment branch of the nsp walk: an assignment target stores
+  ; into the raw field (the store side downgrades) and an `unwrap` writes
+  ; its own upgrade, so both stay out of the way. A weak COLLECTION field
+  ; is a plain Vec or map — the annotation there is about the elements.
+  fn writeRustWeakVRefTail:void (node:CodeNode p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (p.is_class_variable == false) {
+      return
+    }
+    if (ctx.in_lhs_of_assignment || rust_in_weak_unwrap) {
+      return
+    }
+    def wvNN@(optional):CodeNode p.nameNode
+    if (null? wvNN) {
+      return
+    }
+    def wvN:CodeNode (unwrap wvNN)
+    if ((wvN.hasFlag("weak")) == false) {
+      return
+    }
+    if (((strlen wvN.array_type) > 0) || ((strlen wvN.key_type) > 0)) {
+      return
+    }
+    if p.is_optional {
+      wr.out(".as_ref().map(|__w| __w.upgrade().unwrap())" false)
+    } {
+      wr.out(".upgrade().unwrap()" false)
+    }
+  }
+
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
       ; `this` as a VALUE in a shared-class method is the receiver's Rc,
@@ -1145,6 +1175,12 @@ class RangerRustClassWriter {
       }
       def p:RangerAppParamDesc node.paramDesc
       wr.out((this.adjustType(p.compiledName)) false)
+      ; A bare name that resolves to a weak FIELD is read here, not in the
+      ; nsp walk above — `def non:ClassDesc currentClass` has one segment
+      ; and no path desc — so the upgrade has to be written here too, or
+      ; the reader gets the Weak where it declared an Rc (E0308).
+      def pWeakTail:RangerAppParamDesc (unwrap node.paramDesc)
+      this.writeRustWeakVRefTail(node pWeakTail ctx wr)
       return
     }
 
@@ -2307,6 +2343,12 @@ class RangerRustClassWriter {
         if ((strlen segD.compiledName) > 0) {
           segName = (this.adjustType(segD.compiledName))
         }
+        ; a field reached through a parent-typed reference comes from the
+        ; trait's accessor here as well — `dyn Trait` has no fields, so the
+        ; bare name is "no field `nameNode` on type `dyn …Trait`" (E0609)
+        if (this.rustSegThroughTrait(fc segIdx ctx)) {
+          segName = ((this.rustFieldAccessorName(segD)) + "()")
+        }
         if segD.is_optional {
           def sdNN@(optional):CodeNode segD.nameNode
           def segColl:boolean false
@@ -2364,10 +2406,11 @@ class RangerRustClassWriter {
             def segRcNN@(optional):CodeNode segRcD.nameNode
             if (!null? segRcNN) {
               def segRcN:CodeNode (unwrap segRcNN)
+              ; a weak segment borrows too: the `.upgrade().unwrap()` written
+              ; above already turned it back into an Rc, and a `@(weak)` local
+              ; never held anything else
               if (((strlen segRcN.array_type) == 0) && ((strlen segRcN.key_type) == 0)) {
-                if (segRcN.hasFlag("weak") == false) {
-                  path = (path + ".borrow()")
-                }
+                path = (path + ".borrow()")
               }
             }
           }

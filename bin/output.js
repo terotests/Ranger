@@ -24221,6 +24221,30 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
               }
             };
+            writeRustWeakVRefTail (node, p, ctx, wr) {
+              if ( p.is_class_variable == false ) {
+                return;
+              }
+              if ( ctx.in_lhs_of_assignment || this.rust_in_weak_unwrap ) {
+                return;
+              }
+              const wvNN = p.nameNode;
+              if ( typeof(wvNN) === "undefined" ) {
+                return;
+              }
+              const wvN = wvNN;
+              if ( wvN.hasFlag("weak") == false ) {
+                return;
+              }
+              if ( ((wvN.array_type.length) > 0) || ((wvN.key_type.length) > 0) ) {
+                return;
+              }
+              if ( p.is_optional ) {
+                wr.out(".as_ref().map(|__w| __w.upgrade().unwrap())", false);
+              } else {
+                wr.out(".upgrade().unwrap()", false);
+              }
+            };
             async WriteVRef (node, ctx, wr) {
               if ( node.vref == "this" ) {
                 if ( this.rust_writing_call_receiver == false ) {
@@ -24530,6 +24554,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   const p_1 = node.paramDesc;
                   wr.out(this.adjustType(p_1.compiledName), false);
+                  const pWeakTail = node.paramDesc;
+                  this.writeRustWeakVRefTail(node, pWeakTail, ctx, wr);
                   return;
                 }
                 let b_was_static = false;
@@ -25412,6 +25438,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       if ( (segD.compiledName.length) > 0 ) {
                         segName = this.adjustType(segD.compiledName);
                       }
+                      if ( this.rustSegThroughTrait(fc, segIdx, ctx) ) {
+                        segName = this.rustFieldAccessorName(segD) + "()";
+                      }
                       if ( segD.is_optional ) {
                         const sdNN = segD.nameNode;
                         let segColl = false;
@@ -25460,9 +25489,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( (typeof(segRcNN) !== "undefined" && segRcNN != null )  ) {
                             const segRcN = segRcNN;
                             if ( ((segRcN.array_type.length) == 0) && ((segRcN.key_type.length) == 0) ) {
-                              if ( segRcN.hasFlag("weak") == false ) {
-                                path = path + ".borrow()";
-                              }
+                              path = path + ".borrow()";
                             }
                           }
                         }
