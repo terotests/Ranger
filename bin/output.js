@@ -27750,7 +27750,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.out(", ", false);
                         }
                         written = written + 1;
+                        const ctorArgNN = arg.nameNode;
+                        let ctorArgWrap = false;
+                        if ( ((ctorArgNN.array_type.length) == 0) && ((ctorArgNN.key_type.length) == 0) ) {
+                          if ( this.rustClassIsShared(ctorArgNN.type_name, ctx) ) {
+                            if ( this.rustInitRcState(n, ctx) == 0 ) {
+                              ctorArgWrap = true;
+                            }
+                          }
+                        }
+                        if ( ctorArgWrap ) {
+                          wr.out("Rc::new(RefCell::new(", false);
+                        }
                         await this.WalkNode(n, ctx, wr);
+                        if ( ctorArgWrap ) {
+                          wr.out("))", false);
+                        }
                         const argNameN = arg.nameNode;
                         let arg_type = argNameN.value_type;
                         if ( ((arg_type == 10) || (arg_type == 11)) || (arg_type == 0) ) {

@@ -5043,7 +5043,26 @@ class RangerRustClassWriter {
             wr.out(", " false)
           }
           written = written + 1
+          ; a constructor parameter of a shared class holds the Rc, and a
+          ; `new` on the right hands back the bare struct — `(new CodeNode
+          ; (new SourceCode "") 0 0)` passed a SourceCode where the field
+          ; wants Rc<RefCell<SourceCode>>
+          def ctorArgNN:CodeNode (unwrap arg.nameNode)
+          def ctorArgWrap:boolean false
+          if (((strlen ctorArgNN.array_type) == 0) && ((strlen ctorArgNN.key_type) == 0)) {
+            if (this.rustClassIsShared(ctorArgNN.type_name ctx)) {
+              if ((this.rustInitRcState(n ctx)) == 0) {
+                ctorArgWrap = true
+              }
+            }
+          }
+          if ctorArgWrap {
+            wr.out("Rc::new(RefCell::new(" false)
+          }
           this.WalkNode(n ctx wr)
+          if ctorArgWrap {
+            wr.out("))" false)
+          }
           ; In Rust, values are moved when passed, so clone when passing a variable
           def argNameN:CodeNode (unwrap arg.nameNode)
           def arg_type:RangerNodeType argNameN.value_type
