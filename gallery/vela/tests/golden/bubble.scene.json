@@ -11,7 +11,7 @@
       "fill": "transparent",
       "stroke": "#ddd",
       "background": "white",
-      "viewWidth": 356,
+      "viewWidth": 414,
       "viewHeight": 347,
       "originX": 51,
       "originY": 10,
@@ -917,6 +917,293 @@
               "shape": "circle",
               "ariaRoleDescription": "point",
               "description": "c: 3; b: 52"
+            }
+          ]
+        },
+        {
+          "marktype": "group",
+          "role": "legend",
+          "items": [
+            {
+              "x": 318,
+              "y": 0,
+              "width": 40,
+              "height": 117,
+              "orient": "right",
+              "padding": 0,
+              "titlePadding": 5,
+              "items": [
+                {
+                  "marktype": "group",
+                  "role": "legend-entry",
+                  "items": [
+                    {
+                      "x": 0,
+                      "y": 16,
+                      "items": [
+                        {
+                          "marktype": "group",
+                          "role": "scope",
+                          "items": [
+                            {
+                              "x": 0,
+                              "y": 0,
+                              "width": 40,
+                              "height": 10,
+                              "opacity": 1,
+                              "noBound": true,
+                              "row": 0,
+                              "column": 0,
+                              "items": [
+                                {
+                                  "marktype": "symbol",
+                                  "role": "legend-symbol",
+                                  "items": [
+                                    {
+                                      "x": 10,
+                                      "y": 5,
+                                      "fill": "transparent",
+                                      "stroke": "#4c78a8",
+                                      "strokeWidth": 1.5,
+                                      "opacity": 0.7,
+                                      "size": 4,
+                                      "shape": "circle"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "marktype": "text",
+                                  "role": "legend-label",
+                                  "items": [
+                                    {
+                                      "x": 24,
+                                      "y": 5,
+                                      "fill": "#000",
+                                      "opacity": 1,
+                                      "text": "0",
+                                      "font": "sans-serif",
+                                      "fontSize": 10,
+                                      "align": "left",
+                                      "baseline": "middle",
+                                      "limit": 160
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "x": 0,
+                              "y": 15,
+                              "width": 40,
+                              "height": 13.040417,
+                              "opacity": 1,
+                              "noBound": true,
+                              "row": 1,
+                              "column": 0,
+                              "items": [
+                                {
+                                  "marktype": "symbol",
+                                  "role": "legend-symbol",
+                                  "items": [
+                                    {
+                                      "x": 10,
+                                      "y": 5.5,
+                                      "fill": "transparent",
+                                      "stroke": "#4c78a8",
+                                      "strokeWidth": 1.5,
+                                      "opacity": 0.7,
+                                      "size": 82.461538,
+                                      "shape": "circle"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "marktype": "text",
+                                  "role": "legend-label",
+                                  "items": [
+                                    {
+                                      "x": 24,
+                                      "y": 5.5,
+                                      "fill": "#000",
+                                      "opacity": 1,
+                                      "text": "20",
+                                      "font": "sans-serif",
+                                      "fontSize": 10,
+                                      "align": "left",
+                                      "baseline": "middle",
+                                      "limit": 160
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "x": 0,
+                              "y": 33,
+                              "width": 40,
+                              "height": 16.842773,
+                              "opacity": 1,
+                              "noBound": true,
+                              "row": 2,
+                              "column": 0,
+                              "items": [
+                                {
+                                  "marktype": "symbol",
+                                  "role": "legend-symbol",
+                                  "items": [
+                                    {
+                                      "x": 10,
+                                      "y": 7.5,
+                                      "fill": "transparent",
+                                      "stroke": "#4c78a8",
+                                      "strokeWidth": 1.5,
+                                      "opacity": 0.7,
+                                      "size": 160.923077,
+                                      "shape": "circle"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "marktype": "text",
+                                  "role": "legend-label",
+                                  "items": [
+                                    {
+                                      "x": 24,
+                                      "y": 7.5,
+                                      "fill": "#000",
+                                      "opacity": 1,
+                                      "text": "40",
+                                      "font": "sans-serif",
+                                      "fontSize": 10,
+                                      "align": "left",
+                                      "baseline": "middle",
+                                      "limit": 160
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "x": 0,
+                              "y": 55,
+                              "width": 40,
+                              "height": 19.23603,
+                              "opacity": 1,
+                              "noBound": true,
+                              "row": 3,
+                              "column": 0,
+                              "items": [
+                                {
+                                  "marktype": "symbol",
+                                  "role": "legend-symbol",
+                                  "items": [
+                                    {
+                                      "x": 10,
+                                      "y": 8.5,
+                                      "fill": "transparent",
+                                      "stroke": "#4c78a8",
+                                      "strokeWidth": 1.5,
+                                      "opacity": 0.7,
+                                      "size": 239.384615,
+                                      "shape": "circle"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "marktype": "text",
+                                  "role": "legend-label",
+                                  "items": [
+                                    {
+                                      "x": 24,
+                                      "y": 8.5,
+                                      "fill": "#000",
+                                      "opacity": 1,
+                                      "text": "60",
+                                      "font": "sans-serif",
+                                      "fontSize": 10,
+                                      "align": "left",
+                                      "baseline": "middle",
+                                      "limit": 160
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "x": 0,
+                              "y": 79,
+                              "width": 40,
+                              "height": 21.91412,
+                              "opacity": 1,
+                              "noBound": true,
+                              "row": 4,
+                              "column": 0,
+                              "items": [
+                                {
+                                  "marktype": "symbol",
+                                  "role": "legend-symbol",
+                                  "items": [
+                                    {
+                                      "x": 10,
+                                      "y": 10,
+                                      "fill": "transparent",
+                                      "stroke": "#4c78a8",
+                                      "strokeWidth": 1.5,
+                                      "opacity": 0.7,
+                                      "size": 317.846154,
+                                      "shape": "circle"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "marktype": "text",
+                                  "role": "legend-label",
+                                  "items": [
+                                    {
+                                      "x": 24,
+                                      "y": 10,
+                                      "fill": "#000",
+                                      "opacity": 1,
+                                      "text": "80",
+                                      "font": "sans-serif",
+                                      "fontSize": 10,
+                                      "align": "left",
+                                      "baseline": "middle",
+                                      "limit": 160
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "marktype": "text",
+                  "role": "legend-title",
+                  "items": [
+                    {
+                      "x": 0,
+                      "y": 0,
+                      "fill": "#000",
+                      "opacity": 1,
+                      "text": "b",
+                      "font": "sans-serif",
+                      "fontSize": 11,
+                      "fontWeight": "bold",
+                      "align": "left",
+                      "baseline": "top",
+                      "angle": 0,
+                      "orient": "top",
+                      "limit": 180,
+                      "anchor": "start"
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }

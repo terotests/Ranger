@@ -8,5 +8,46 @@ arc x=150 y=150 r=0..150 a=4.3328..3.6786 fill=#eeca3b
 arc x=150 y=150 r=0..150 a=4.5673..4.3328 fill=#b279a2
 arc x=150 y=150 r=0..150 a=5.6413..4.5673 fill=#ff9da6
 arc x=150 y=150 r=0..150 a=6.2832..5.6413 fill=#9d755d
+group-begin
+group-begin
+group-begin
+symbol x=324 y=22 size=100 shape=circle fill=#4c78a8
+text x=334 y=22 size=10 align=left text=A fill=#000
+group-end
+group-begin
+symbol x=324 y=35 size=100 shape=circle fill=#f58518
+text x=334 y=35 size=10 align=left text=B fill=#000
+group-end
+group-begin
+symbol x=324 y=48 size=100 shape=circle fill=#e45756
+text x=334 y=48 size=10 align=left text=C fill=#000
+group-end
+group-begin
+symbol x=324 y=61 size=100 shape=circle fill=#72b7b2
+text x=334 y=61 size=10 align=left text=D fill=#000
+group-end
+group-begin
+symbol x=324 y=74 size=100 shape=circle fill=#54a24b
+text x=334 y=74 size=10 align=left text=E fill=#000
+group-end
+group-begin
+symbol x=324 y=87 size=100 shape=circle fill=#eeca3b
+text x=334 y=87 size=10 align=left text=F fill=#000
+group-end
+group-begin
+symbol x=324 y=100 size=100 shape=circle fill=#b279a2
+text x=334 y=100 size=10 align=left text=G fill=#000
+group-end
+group-begin
+symbol x=324 y=113 size=100 shape=circle fill=#ff9da6
+text x=334 y=113 size=10 align=left text=H fill=#000
+group-end
+group-begin
+symbol x=324 y=126 size=100 shape=circle fill=#9d755d
+text x=334 y=126 size=10 align=left text=I fill=#000
+group-end
+group-end
+text x=318 y=0 size=11 align=left text=a fill=#000
+group-end
 group-end
 

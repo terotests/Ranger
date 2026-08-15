@@ -84,5 +84,18 @@ symbol x=200 y=141 size=30 shape=circle stroke=#f58518 strokeWidth=2 opacity=0.7
 symbol x=266.667 y=243 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
 symbol x=33.333 y=39 size=30 shape=circle stroke=#f58518 strokeWidth=2 opacity=0.7
 symbol x=100 y=144 size=30 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+group-begin
+group-begin
+group-begin
+symbol x=324 y=22 size=100 shape=circle stroke=#4c78a8 strokeWidth=1.5 opacity=0.7
+text x=334 y=22 size=10 align=left text=x fill=#000
+group-end
+group-begin
+symbol x=324 y=40 size=100 shape=circle stroke=#f58518 strokeWidth=1.5 opacity=0.7
+text x=334 y=40 size=10 align=left text=y fill=#000
+group-end
+group-end
+text x=318 y=0 size=11 align=left text=g fill=#000
+group-end
 group-end
 

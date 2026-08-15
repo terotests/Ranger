@@ -66,8 +66,8 @@ const PAGES = [
     id: "charts",
     title: "Charts",
     blurb:
-      "Unmodified Vega specifications, compiled from Vega-Lite examples and run by the Vela runtime in this repository: every gridline, bar, wedge and label is geometry Ranger computed and the EVG vector layer drew. The page is generated, and its colours are not in it — the series are numbered and the stylesheet paints them, so the same charts come out in three palettes.",
-    shows: ["generated path data", "series colours from CSS", "one path per paint", "arcs and symbols"],
+      "Unmodified Vega specifications, compiled from Vega-Lite examples and run by the Vela runtime in this repository: every gridline, bar, wedge, key and label is geometry Ranger computed and the EVG vector layer drew. The page is generated, and its colours are not in it — the series are numbered and the stylesheet paints them, so the same charts come out in three palettes, legends included.",
+    shows: ["generated path data", "series colours from CSS", "one path per paint", "arcs, symbols and legends"],
     themes: ["editorial", "studio", "autumn"],
   },
   {

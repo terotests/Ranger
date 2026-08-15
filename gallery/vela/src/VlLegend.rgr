@@ -1,0 +1,451 @@
+; ==============================================================================
+; VlLegend.rgr — a legend specification becomes ordinary marks.
+; ==============================================================================
+; Like an axis, a legend is not a primitive: it is a group of groups holding
+; symbols and text. The nesting is the reference's and is worth knowing, because
+; every coordinate below is relative to the level above it:
+;
+;   group role=legend          placed beside the plot, sized by its contents
+;     group role=legend-entry  pushed down by the title
+;       group role=scope       one per entry — a row
+;         symbol role=legend-symbol
+;         text   role=legend-label
+;     text role=legend-title
+;
+; What makes this harder than an axis is that nothing in it has a fixed size.
+; The row height is `max(ceil(sqrt(symbolSize) + strokeWidth), fontSize)`, the
+; next row starts below the previous row's BOX, and the box comes from the ink —
+; so a size legend, whose symbols grow down the column, has five different row
+; heights and five different gaps. VlBounds answers that question; this file
+; does the placing.
+;
+; Only symbol legends are built. A continuous colour scale gets a gradient bar
+; in the reference, which is a different mark (a rect with a gradient fill) and
+; a different layout; a spec that asks for one is reported rather than drawn
+; wrong.
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlScale.rgr"
+Import "VlScene.rgr"
+Import "VlText.rgr"
+Import "VlBounds.rgr"
+
+; One row of the legend: the value it stands for, the text beside it, and the
+; channels the scales mapped for it.
+class VlLegendEntry {
+    def value:VlJson (new VlJson)
+    def label:string ""
+    ; The symbol's area, from the size scale when there is one.
+    def symbolSize:double 100.0
+    ; The row's own extent — the reference's `datum.size`, which is what the
+    ; symbol is centred on and what the label is pushed past.
+    def cell:double 0.0
+    def item:VlSceneItem (new VlSceneItem())
+    def labelItem:VlSceneItem (new VlSceneItem())
+}
+
+class VlLegend {
+    ; --- the reference's `config.legend`, overridable per legend --------------
+    def orient:string "right"
+    def padding:double 0.0
+    def rowPadding:double 2.0
+    def columnPadding:double 10.0
+    def titlePadding:double 5.0
+    def labelAlign:string "left"
+    def labelBaseline:string "middle"
+    def labelLimit:double 160.0
+    def labelOffset:double 4.0
+    def labelFont:string "sans-serif"
+    def labelFontSize:double 10.0
+    def labelColor:string "#000"
+    def symbolType:string "circle"
+    def symbolSize:double 100.0
+    def symbolOffset:double 0.0
+    def symbolStrokeWidth:double 1.5
+    def symbolBaseFillColor:string "transparent"
+    def symbolBaseStrokeColor:string "#888"
+    def titleFont:string "sans-serif"
+    def titleFontSize:double 11.0
+    def titleFontWeight:string "bold"
+    def titleColor:string "#000"
+    def titleLimit:double 180.0
+    def titleOrient:string "top"
+    ; How many entries a symbol legend draws before it gives up and says so.
+    def symbolLimit:int 30
+
+    ; --- what the spec asked for ---------------------------------------------
+    ; channel -> scale, for the channels this legend encodes. The channel that
+    ; decides the ENTRIES is the first of `channelOrder` present, which is the
+    ; reference's priority order and not the spec's key order.
+    def scales:[string:VlScale]
+    def channelOrder:[string]
+    def title:string ""
+
+    ; --- filled in by build(), read by the layout step -------------------------
+    def width:double 0.0
+    def height:double 0.0
+    def errors:[string]
+
+    Constructor () {
+        push channelOrder "size"
+        push channelOrder "shape"
+        push channelOrder "fill"
+        push channelOrder "stroke"
+        push channelOrder "strokeWidth"
+        push channelOrder "strokeDash"
+        push channelOrder "opacity"
+    }
+
+    fn addScale:void (channel:string sc:VlScale) {
+        set scales channel sc
+    }
+
+    fn hasChannel:boolean (channel:string) {
+        return (has scales channel)
+    }
+
+    fn scaleFor:VlScale (channel:string) {
+        return (unwrap (get scales channel))
+    }
+
+    ; The channel whose scale supplies the entries.
+    fn primaryChannel:string () {
+        for channelOrder name:string idx {
+            if (has scales name) {
+                return name
+            }
+        }
+        return ""
+    }
+
+    fn readConfig:void (ldef:VlJson) {
+        orient = (ldef.stringOr("orient" orient))
+        padding = (ldef.doubleOr("padding" padding))
+        rowPadding = (ldef.doubleOr("rowPadding" rowPadding))
+        columnPadding = (ldef.doubleOr("columnPadding" columnPadding))
+        titlePadding = (ldef.doubleOr("titlePadding" titlePadding))
+        labelAlign = (ldef.stringOr("labelAlign" labelAlign))
+        labelBaseline = (ldef.stringOr("labelBaseline" labelBaseline))
+        labelLimit = (ldef.doubleOr("labelLimit" labelLimit))
+        labelOffset = (ldef.doubleOr("labelOffset" labelOffset))
+        labelFont = (ldef.stringOr("labelFont" labelFont))
+        labelFontSize = (ldef.doubleOr("labelFontSize" labelFontSize))
+        labelColor = (ldef.stringOr("labelColor" labelColor))
+        symbolType = (ldef.stringOr("symbolType" symbolType))
+        symbolSize = (ldef.doubleOr("symbolSize" symbolSize))
+        symbolOffset = (ldef.doubleOr("symbolOffset" symbolOffset))
+        symbolStrokeWidth = (ldef.doubleOr("symbolStrokeWidth" symbolStrokeWidth))
+        titleFont = (ldef.stringOr("titleFont" titleFont))
+        titleFontSize = (ldef.doubleOr("titleFontSize" titleFontSize))
+        titleFontWeight = (ldef.stringOr("titleFontWeight" titleFontWeight))
+        titleColor = (ldef.stringOr("titleColor" titleColor))
+        titleLimit = (ldef.doubleOr("titleLimit" titleLimit))
+        titleOrient = (ldef.stringOr("titleOrient" titleOrient))
+        symbolLimit = (ldef.intOr("symbolLimit" symbolLimit))
+        title = (ldef.stringOr("title" title))
+    }
+
+    ; ------------------------------------------------------------- entries ----
+    ; A discrete scale is listed by its domain; a continuous one by its ticks.
+    ; The reference asks for five ticks and drops the first entry when the scale
+    ; maps it to nothing — a zero-area symbol is not a legend entry.
+    fn entriesFor:[VlLegendEntry] (sc:VlScale) {
+        def out:[VlLegendEntry]
+        def discrete:boolean ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal")))
+        if discrete {
+            for sc.domainValues name:string idx {
+                def e (new VlLegendEntry())
+                e.value = (VlJson.stringValue(name))
+                e.label = name
+                push out e
+            }
+            return out
+        }
+        def values:[double] (sc.ticks(5))
+        def labels:[string] (VlScale.tickLabels(values))
+        for values v:double idx {
+            def e (new VlLegendEntry())
+            e.value = (VlJson.numberValue(v))
+            e.label = (itemAt labels idx)
+            push out e
+        }
+        return out
+    }
+
+    ; What a scale answers for one entry, as the channel wants it: a colour or a
+    ; shape name from an ordinal range, a number from a continuous one.
+    fn channelValue:VlJson (channel:string sc:VlScale value:VlJson) {
+        if (sc.scaleType == "ordinal") {
+            return (VlJson.stringValue((sc.mapOrdinal(value))))
+        }
+        if ((sc.scaleType == "band") || (sc.scaleType == "point")) {
+            return (VlJson.numberValue((sc.mapValue(value))))
+        }
+        return (VlJson.numberValue((sc.mapNumber((value.asDouble())))))
+    }
+
+    ; --------------------------------------------------------------- build ----
+    ; The encode blocks are the spec's own overrides, already flattened to
+    ; literal values by the runtime. They are applied to the symbol and label
+    ; items BEFORE anything is measured, because they can change what there is
+    ; to measure: a legend that strokes its symbols makes every row taller.
+    fn build:VlSceneMark (ldef:VlJson symbolsEncode:VlJson labelsEncode:VlJson titleEncode:VlJson) {
+        this.readConfig(ldef)
+
+        def mark (new VlSceneMark())
+        mark.markType = "group"
+        mark.role = "legend"
+        def group:VlSceneItem (mark.addItem())
+        group.setString("orient" orient)
+        group.setNumber("padding" padding)
+        group.setNumber("titlePadding" titlePadding)
+
+        def primary:string (this.primaryChannel())
+        if ((strlen primary) == 0) {
+            push errors "legend names no scale"
+            return mark
+        }
+        def sc:VlScale (this.scaleFor(primary))
+        def entries:[VlLegendEntry] (this.entriesFor(sc))
+        ; A size scale's first tick is usually its domain minimum, and a symbol
+        ; of no area is not an entry — the reference drops it.
+        if (primary == "size") {
+            if ((array_length entries) > 0) {
+                if ((sc.mapNumber(((itemAt entries 0).value.asDouble()))) == 0.0) {
+                    entries = (VlLegend.dropFirst(entries))
+                }
+            }
+        }
+        if ((array_length entries) > symbolLimit) {
+            push errors "legend has more entries than symbolLimit, which this runtime does not truncate"
+        }
+
+        ; A legend that names only fill or only stroke leaves the other channel
+        ; to the configuration, so a stroked symbol still has something to fill
+        ; and vice versa. When the spec names fill itself, neither default
+        ; applies — the reference's rule, and the reason a stacked bar's key is
+        ; a plain filled square with no outline.
+        def wantBase:boolean (! (has scales "fill"))
+
+        this.fillEntries(entries symbolsEncode labelsEncode wantBase)
+
+        ; The column width every row shares: the widest row, so the labels line
+        ; up whatever their symbols do.
+        def offset:double 0.0
+        for entries e:VlLegendEntry idx {
+            if (e.cell > offset) {
+                offset = e.cell
+            }
+        }
+
+        def entryMark (new VlSceneMark())
+        entryMark.markType = "group"
+        entryMark.role = "legend-entry"
+        def entryItem:VlSceneItem (entryMark.addItem())
+
+        def scopeMark (new VlSceneMark())
+        scopeMark.markType = "group"
+        scopeMark.role = "scope"
+
+        def boxes:[VlBounds]
+        for entries e:VlLegendEntry idx {
+            def row:VlSceneItem (scopeMark.addItem())
+            row.setValue("noBound" (VlJson.boolValue(true)))
+            row.setNumber("opacity" 1.0)
+            row.setNumber("row" (to_double idx))
+            row.setNumber("column" 0.0)
+
+            def sx:double ((offset * 0.5) + symbolOffset)
+            def sy:double (e.cell * 0.5)
+            e.item.setNumber("x" sx)
+            e.item.setNumber("y" sy)
+            e.labelItem.setNumber("x" ((offset + symbolOffset) + labelOffset))
+            e.labelItem.setNumber("y" sy)
+
+            def symbolMark (new VlSceneMark())
+            symbolMark.markType = "symbol"
+            symbolMark.role = "legend-symbol"
+            push symbolMark.items e.item
+            def labelMark (new VlSceneMark())
+            labelMark.markType = "text"
+            labelMark.role = "legend-label"
+            push labelMark.items e.labelItem
+            push row.marks symbolMark
+            push row.marks labelMark
+
+            def box:VlBounds (VlBounds.ofSymbol(sx sy (e.item.number("size")) (e.item.number("strokeWidth")) (e.item.has("stroke"))))
+            box.union((VlBounds.ofText((e.labelItem.text("text")) (e.labelItem.number("fontSize")) (e.labelItem.text("align")) (e.labelItem.text("baseline")) (e.labelItem.number("x")) sy)))
+            push boxes box
+        }
+
+        this.layoutRows(scopeMark boxes)
+        push entryItem.marks scopeMark
+
+        ; The entry block, and then the title above it.
+        def contents (new VlBounds())
+        for boxes box:VlBounds bi {
+            contents.union(box)
+        }
+        def entryX:double padding
+        def entryY:double padding
+        def titleBox (new VlBounds())
+        if ((strlen title) > 0) {
+            titleBox = (VlBounds.ofText(title titleFontSize "left" "top" padding padding))
+            entryY = (entryY + ((titleBox.height()) + titlePadding))
+        }
+        entryItem.setNumber("x" entryX)
+        entryItem.setNumber("y" entryY)
+        contents.translate(entryX entryY)
+        push group.marks entryMark
+
+        if ((strlen title) > 0) {
+            push group.marks (this.buildTitle(titleEncode))
+            contents.union(titleBox)
+        }
+
+        ; The legend is as big as what it holds, measured from its own origin —
+        ; the reference anchors the box at the padding rather than at whatever
+        ; negative coordinate an outsized symbol reached.
+        width = (padding * 2.0)
+        height = (padding * 2.0)
+        if contents.isSet {
+            width = (VlBounds.ceilTo(((contents.x2 - padding) + (padding * 2.0))))
+            height = (VlBounds.ceilTo(((contents.y2 - padding) + (padding * 2.0))))
+        }
+        group.setNumber("x" 0.0)
+        group.setNumber("y" 0.0)
+        group.setNumber("width" width)
+        group.setNumber("height" height)
+        return mark
+    }
+
+    ; The channels each row's symbol and label carry, in the reference's order:
+    ; the configuration first, then whatever the scales map, then the spec's own
+    ; encode block over the top.
+    fn fillEntries:void (entries:[VlLegendEntry] symbolsEncode:VlJson labelsEncode:VlJson wantBase:boolean) {
+        for entries e:VlLegendEntry idx {
+            def item:VlSceneItem e.item
+            item.setNumber("opacity" 1.0)
+            if wantBase {
+                item.setString("fill" symbolBaseFillColor)
+                item.setString("stroke" symbolBaseStrokeColor)
+            }
+            item.setString("shape" symbolType)
+            item.setNumber("size" symbolSize)
+            item.setNumber("strokeWidth" symbolStrokeWidth)
+            for channelOrder channel:string ci {
+                if (has scales channel) {
+                    def sc:VlScale (this.scaleFor(channel))
+                    item.setValue(channel (this.channelValue(channel sc e.value)))
+                }
+            }
+            VlLegend.applyEncode(item symbolsEncode)
+
+            def label:VlSceneItem e.labelItem
+            label.setString("fill" labelColor)
+            label.setString("font" labelFont)
+            label.setNumber("fontSize" labelFontSize)
+            label.setNumber("opacity" 1.0)
+            label.setString("align" labelAlign)
+            label.setString("baseline" labelBaseline)
+            label.setNumber("limit" labelLimit)
+            label.setString("text" e.label)
+            VlLegend.applyEncode(label labelsEncode)
+
+            ; The row's extent, from what the symbol ended up being: big enough
+            ; for the stroked symbol, and never smaller than a line of label.
+            e.symbolSize = (item.number("size"))
+            def fontSize:double (label.number("fontSize"))
+            def span:double (VlBounds.ceilTo(((sqrt e.symbolSize) + (item.number("strokeWidth")))))
+            if (span < fontSize) {
+                span = fontSize
+            }
+            e.cell = span
+        }
+    }
+
+    ; Rows down a single column: each one starts below the previous row's box,
+    ; plus the row padding, and a row whose symbol spills above its own origin
+    ; is pushed down by that much. This is the reference's grid layout with the
+    ; column count fixed at one, which is what a vertical legend always has.
+    fn layoutRows:void (scopeMark:VlSceneMark boxes:[VlBounds]) {
+        def y:double 0.0
+        def previousExtent:double 0.0
+        for scopeMark.items row:VlSceneItem idx {
+            def box:VlBounds (itemAt boxes idx)
+            def step:double 0.0
+            if (idx > 0) {
+                step = rowPadding
+                if (box.y1 < 0.0) {
+                    step = (step + (VlBounds.ceilTo((0.0 - box.y1))))
+                }
+                step = (step + previousExtent)
+            }
+            y = (y + step)
+            row.setNumber("x" 0.0)
+            row.setNumber("y" y)
+            box.translate(0.0 y)
+            previousExtent = (VlBounds.ceilTo((box.y2 - y)))
+            row.setNumber("height" (box.y2 - y))
+        }
+        ; Every row in a column is as wide as the WIDEST row in it, so a short
+        ; label does not make its row narrower than the one below and a renderer
+        ; drawing row backgrounds gets a straight edge.
+        def widest:double 0.0
+        for scopeMark.items row:VlSceneItem idx {
+            def edge:double (((itemAt boxes idx).x2) - (row.number("x")))
+            if (edge > widest) {
+                widest = edge
+            }
+        }
+        for scopeMark.items row:VlSceneItem idx {
+            row.setNumber("width" widest)
+        }
+    }
+
+    sfn dropFirst:[VlLegendEntry] (entries:[VlLegendEntry]) {
+        def out:[VlLegendEntry]
+        for entries e:VlLegendEntry idx {
+            if (idx > 0) {
+                push out e
+            }
+        }
+        return out
+    }
+
+    fn buildTitle:VlSceneMark (titleEncode:VlJson) {
+        def mark (new VlSceneMark())
+        mark.markType = "text"
+        mark.role = "legend-title"
+        def item:VlSceneItem (mark.addItem())
+        item.setString("fill" titleColor)
+        item.setString("font" titleFont)
+        item.setNumber("fontSize" titleFontSize)
+        item.setString("fontWeight" titleFontWeight)
+        item.setNumber("opacity" 1.0)
+        item.setString("orient" titleOrient)
+        item.setString("text" title)
+        item.setNumber("limit" titleLimit)
+        item.setNumber("x" padding)
+        item.setNumber("y" padding)
+        ; A title above the entries starts at the legend's left edge and reads
+        ; left to right. Turned titles belong to left- and right-oriented title
+        ; orientations, which nothing generates yet.
+        item.setString("anchor" "start")
+        item.setNumber("angle" 0.0)
+        item.setString("align" "left")
+        item.setString("baseline" "top")
+        VlLegend.applyEncode(item titleEncode)
+        return mark
+    }
+
+    sfn applyEncode:void (item:VlSceneItem block:VlJson) {
+        if (! (block.isObject())) {
+            return
+        }
+        for block.keys key:string ki {
+            item.setValue(key (block.get(key)))
+        }
+    }
+}
