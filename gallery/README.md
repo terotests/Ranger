@@ -15,6 +15,7 @@ the long-form writeups live here.
 | [`game_engine`](game_engine/README.md) | Retained-mode game runner, SDL launcher, and TSX games (Pong, Breakout, Invaders, Pac-Man); scripting is documented in [`docs/GAME_SCRIPTING.md`](game_engine/docs/GAME_SCRIPTING.md) |
 | [`ranger_engine`](ranger_engine/README.md) | An engine that runs **Ranger** source directly: bytecode VM plus a JIT tier that compiles hot functions to host code |
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |
+| [`process_db_effects`](process_db_effects/README.md) | A Ranger model layer that performs no I/O, driven against DuckDB and against a fake by the same source — the reference implementation of [PLAN_IO_EFFECTS.md](../PLAN_IO_EFFECTS.md) |
 | `process_counter_ios`, `process_counter_android` | Native hosts for the same `@process` demo |
 | `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
 

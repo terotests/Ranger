@@ -40,7 +40,7 @@ Hosts should build view DTOs **after** notify (in the listener), not inside Rang
 
 3. **Child sync in runtime hook** — Override `fn __rangerSyncChildren:void ()` on the root (or parent) instead of calling host APIs from `ProcessUiHost.notifyPath`. Parent merges child `pending*` fields here.
 
-4. **Handlers stay pure-ish** — Handlers mutate process fields and may `proc_send`; they must not call host timer/storage/network APIs directly.
+4. **Handlers stay pure-ish** — Handlers mutate process fields and may `proc_send`; they must not call host timer/storage/network APIs directly. To *ask* for I/O, submit an `EffectRequest` to the `EffectQueue` ([`lib/RangerEffects.rgr`](lib/RangerEffects.rgr)); the host drains it after the turn, runs it against a granted capability, and delivers the answer back as a new event. See [PLAN_IO_EFFECTS.md](PLAN_IO_EFFECTS.md).
 
 5. **`proc_send` is turn-wrapped** — Compiler lowers `proc_send` to `beginDispatchTurn(root)` … handler … `endDispatchTurn(root)` where `root` is `target.__rangerFindRoot()`.
 

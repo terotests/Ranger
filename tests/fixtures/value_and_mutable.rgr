@@ -1,0 +1,140 @@
+
+; ============================================================================
+; value_and_mutable.rgr — the four ways to declare data, side by side.
+;
+;                    mutable                  immutable / value
+;   class            class C { }              class C@(immutable) { }
+;   record           record R { }             record R@(immutable) { }
+;
+; The difference is not how you read them — `p.x` is `p.x` in all four — but
+; what you may do to them:
+;
+;   mutable    p.x = 1        push p.tags "t"
+;   value      (with p x 1)   (conj p.tags "t")     ← returns a NEW value
+;
+; and what the compiler will stop you doing: on a value, `p.x = 1` and
+; `push p.tags "t"` are compile errors, not conventions.
+; ============================================================================
+
+Import "ImmutableVector.rgr"
+
+; ----------------------------------------------------------------------------
+; 1. Mutable class — the default. Reference semantics, assign whatever.
+; ----------------------------------------------------------------------------
+class MutableUser {
+  def name:string ""
+  def age:int 0
+  def tags:[string]
+}
+
+; ----------------------------------------------------------------------------
+; 2. Value class — @(immutable). Gets __CopySelf and a set_<field> per field;
+;    `with` updates several at once. Fields are read-only from the outside.
+;
+;    `tags` is a plain `[string]`: shared by reference on copy and replaced
+;    wholesale. `roles` is `#[string]`: structural sharing, edited with conj.
+; ----------------------------------------------------------------------------
+class ValueUser@(immutable) {
+  def name:string ""
+  def age:int 0
+  def tags:[string]
+  def roles:#[string]
+}
+
+; ----------------------------------------------------------------------------
+; 3. Mutable record — a class with a positional constructor generated for it.
+; ----------------------------------------------------------------------------
+record MutablePoint {
+  def x:int 0
+  def y:int 0
+}
+
+; ----------------------------------------------------------------------------
+; 4. Value record — both at once: positional construction AND `with`.
+;    This is the shape an application state or a wire message wants.
+; ----------------------------------------------------------------------------
+record ValuePoint@(immutable) {
+  def x:int 0
+  def y:int 0
+  def label:string ""
+}
+
+; A value class with a hand-written constructor. The generated copy calls it,
+; matching each parameter to the field of the same name.
+class ValueRange@(immutable) {
+  def lo:int 0
+  def hi:int 0
+  Constructor (lo:int hi:int) {
+    this.lo = lo
+    this.hi = hi
+  }
+  fn span:int () {
+    return (hi - lo)
+  }
+}
+
+class ValueDemo {
+
+  sfn mutableClass:void () {
+    def u (new MutableUser)
+    u.name = "Ada"
+    u.age = 36
+    push u.tags "admin"
+    u.age = 37
+    print ((("1 mutable class: " + u.name) + " ") + (to_string u.age) + " tags=" + (to_string (array_length u.tags)))
+  }
+
+  sfn valueClass:void () {
+    def u0 (new ValueUser)
+    def u1 (with u0 name "Ada" age 36)
+    def u2 (with u1 age 37)
+
+    ; Every version is still valid and still says what it said.
+    print ((((("2 value class: '" + u0.name) + "'/") + (to_string u0.age)) + " '" + u1.name + "'/" + (to_string u1.age)) + " '" + u2.name + "'/" + (to_string u2.age))
+
+    ; A collection replaced wholesale: build a fresh array, set it.
+    def fresh:[string]
+    push fresh "admin"
+    push fresh "editor"
+    def u3 (u2.set_tags(fresh))
+    print ("   tags " + (to_string (array_length u2.tags)) + " -> " + (to_string (array_length u3.tags)))
+
+    ; A persistent collection edited in place-of-value: conj returns a new one.
+    def r1 (conj u3.roles "reader")
+    def u4 (u3.set_roles(r1))
+    def r2 (conj u4.roles "writer")
+    def u5 (u4.set_roles(r2))
+    print ("   roles " + (to_string (size u3.roles)) + (to_string (size u4.roles)) + (to_string (size u5.roles)))
+
+    ; Changing `roles` did not rebuild `tags` — same array, by identity.
+    def shared:boolean (u3.tags == u5.tags)
+    print ("   tags branch shared " + (to_string shared))
+  }
+
+  sfn mutableRecord:void () {
+    def p (new MutablePoint(3 4))
+    p.x = 30
+    print ((("3 mutable record: " + (to_string p.x)) + ",") + (to_string p.y))
+  }
+
+  sfn valueRecord:void () {
+    def p0 (new ValuePoint(3 4 "origin"))
+    def p1 (with p0 x 30 label "moved")
+    def p2 (p1.set_y(40))
+    print ((((("4 value record: " + (to_string p0.x)) + ",") + (to_string p0.y)) + "," + p0.label) + " -> " + (to_string p2.x) + "," + (to_string p2.y) + "," + p2.label)
+  }
+
+  sfn valueWithConstructor:void () {
+    def r0 (new ValueRange(1 10))
+    def r1 (with r0 hi 20)
+    print (("5 value + ctor: " + (to_string (r0.span()))) + " -> " + (to_string (r1.span())))
+  }
+
+  sfn main:void () {
+    ValueDemo.mutableClass()
+    ValueDemo.valueClass()
+    ValueDemo.mutableRecord()
+    ValueDemo.valueRecord()
+    ValueDemo.valueWithConstructor()
+  }
+}

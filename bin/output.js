@@ -6755,6 +6755,13 @@ class RangerLispParser  {
             this.curr_node.children.push(new_expr_node_1);
             continue;
           }
+          let is_persistent = false;
+          if ( c == (35) ) {
+            this.i = this.i + 1;
+            c = s.charCodeAt(this.i );
+            vt_sp = this.i;
+            is_persistent = true;
+          }
           if ( c == (91) ) {
             this.i = this.i + 1;
             vt_sp = this.i;
@@ -6790,6 +6797,39 @@ class RangerLispParser  {
               vt_ep = this.i;
               const type_name = s.substring((1 + hash_sep), vt_ep );
               const key_type_name = s.substring(vt_sp, hash_sep );
+              if ( is_persistent ) {
+                const pm_node = new CodeNode(this.code, sp, vt_ep);
+                pm_node.vref = s.substring(sp, ep );
+                pm_node.ns = ns_list;
+                pm_node.parsed_type = 11;
+                pm_node.value_type = 11;
+                pm_node.type_name = "Map";
+                pm_node.parent = this.curr_node;
+                const pm_ann = new CodeNode(this.code, sp, vt_ep);
+                pm_ann.expression = true;
+                const pm_key = new CodeNode(this.code, sp, vt_ep);
+                pm_key.vref = key_type_name;
+                pm_key.value_type = 11;
+                pm_key.parsed_type = 11;
+                pm_key.ns = key_type_name.split(".");
+                pm_ann.children.push(pm_key);
+                const pm_val = new CodeNode(this.code, sp, vt_ep);
+                pm_val.vref = type_name;
+                pm_val.value_type = 11;
+                pm_val.parsed_type = 11;
+                pm_val.ns = type_name.split(".");
+                pm_ann.children.push(pm_val);
+                pm_node.setFlag("persistent");
+                pm_node.type_annotation = pm_ann;
+                pm_node.has_type_annotation = true;
+                if ( vref_had_type_ann ) {
+                  pm_node.vref_annotation = vref_ann_node;
+                  pm_node.has_vref_annotation = true;
+                }
+                this.curr_node.children.push(pm_node);
+                this.i = 1 + this.i;
+                continue;
+              }
               const new_hash_node = new CodeNode(this.code, sp, vt_ep);
               new_hash_node.vref = s.substring(sp, ep );
               new_hash_node.ns = ns_list;
@@ -6813,6 +6853,33 @@ class RangerLispParser  {
             } else {
               vt_ep = this.i;
               const type_name_1 = s.substring(vt_sp, vt_ep );
+              if ( is_persistent ) {
+                const pv_node = new CodeNode(this.code, sp, vt_ep);
+                pv_node.vref = s.substring(sp, ep );
+                pv_node.ns = ns_list;
+                pv_node.parsed_type = 11;
+                pv_node.value_type = 11;
+                pv_node.type_name = "Vector";
+                pv_node.parent = this.curr_node;
+                const pv_ann = new CodeNode(this.code, sp, vt_ep);
+                pv_ann.expression = true;
+                const pv_elem = new CodeNode(this.code, sp, vt_ep);
+                pv_elem.vref = type_name_1;
+                pv_elem.value_type = 11;
+                pv_elem.parsed_type = 11;
+                pv_elem.ns = type_name_1.split(".");
+                pv_ann.children.push(pv_elem);
+                pv_node.setFlag("persistent");
+                pv_node.type_annotation = pv_ann;
+                pv_node.has_type_annotation = true;
+                if ( vref_had_type_ann ) {
+                  pv_node.vref_annotation = vref_ann_node;
+                  pv_node.has_vref_annotation = true;
+                }
+                this.curr_node.children.push(pv_node);
+                this.i = 1 + this.i;
+                continue;
+              }
               const new_arr_node = new CodeNode(this.code, sp, vt_ep);
               new_arr_node.vref = s.substring(sp, ep );
               new_arr_node.ns = ns_list;
@@ -8640,11 +8707,53 @@ class RangerImmutableExtension  {
     }
     wr.out(("fn __CopySelf:" + cl.name) + " () {", true);
     wr.indent(1);
-    wr.out(("def res (new " + cl.name) + ")", true);
-    for ( let ii = 0; ii < cl.variables.length; ii++) {
-      var ivar = cl.variables[ii];
-      wr.out((("res." + ivar.compiledName) + " = this.") + ivar.compiledName, true);
-    };
+    let ctorArgs = "";
+    let ctorArity = 0;
+    let ctorUnknown = "";
+    if ( cl.is_record ) {
+      for ( let ii = 0; ii < cl.variables.length; ii++) {
+        var ivar = cl.variables[ii];
+        if ( ctorArity > 0 ) {
+          ctorArgs = ctorArgs + " ";
+        }
+        ctorArgs = (ctorArgs + "this.") + ivar.compiledName;
+        ctorArity = ctorArity + 1;
+      };
+    } else {
+      if ( cl.has_constructor ) {
+        const cfn = cl.constructor_fn;
+        for ( let pi = 0; pi < cfn.params.length; pi++) {
+          var p = cfn.params[pi];
+          let matched = false;
+          for ( let ii_1 = 0; ii_1 < cl.variables.length; ii_1++) {
+            var ivar_1 = cl.variables[ii_1];
+            if ( ivar_1.name == p.name ) {
+              matched = true;
+            }
+          };
+          if ( matched == false ) {
+            ctorUnknown = p.name;
+          }
+          if ( ctorArity > 0 ) {
+            ctorArgs = ctorArgs + " ";
+          }
+          ctorArgs = (ctorArgs + "this.") + p.name;
+          ctorArity = ctorArity + 1;
+        };
+      }
+    }
+    if ( (ctorUnknown.length) > 0 ) {
+      ctx.addError(cl.nameNode, ((("@(immutable) class " + cl.name) + " has a constructor parameter that names no field (") + ctorUnknown) + ") — a copy cannot reconstruct it. Name the parameter after the field, or drop the constructor.");
+    }
+    if ( ctorArity > 0 ) {
+      wr.out(((("def res (new " + cl.name) + "(") + ctorArgs) + "))", true);
+    } else {
+      wr.out(("def res (new " + cl.name) + ")", true);
+      for ( let ii_2 = 0; ii_2 < cl.variables.length; ii_2++) {
+        var ivar_2 = cl.variables[ii_2];
+        wr.out((("res." + ivar_2.compiledName) + " = this.") + ivar_2.compiledName, true);
+      };
+    }
     wr.out("return res", true);
     wr.indent(-1);
     wr.out("}", true);
@@ -8658,9 +8767,9 @@ class RangerImmutableExtension  {
         wr.out(((((((("fn set_" + pvar_1.name) + ":") + cl.name) + " (new_value_of_") + pvar_1.name) + ":") + this.typeDefOf(pvar_1)) + ") {", true);
         wr.indent(1);
         wr.out("def res (this.__CopySelf())", true);
-        for ( let ii_1 = 0; ii_1 < cl.variables.length; ii_1++) {
-          var ivar_1 = cl.variables[ii_1];
-          if ( ivar_1 == pvar_1 ) {
+        for ( let ii_3 = 0; ii_3 < cl.variables.length; ii_3++) {
+          var ivar_3 = cl.variables[ii_3];
+          if ( ivar_3 == pvar_1 ) {
             wr.out((("res." + pvar_1.compiledName) + " = new_value_of_") + pvar_1.name, true);
           }
         };
@@ -11812,7 +11921,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const currC = ctx.getCurrentClass();
             if ( (currC) == (propC) ) {
               if ( (target.ns[0]) == "this" ) {
-                do_transform = true;
+                const curM = ctx.getCurrentMethod();
+                if ( curM.name != "Constructor" ) {
+                  do_transform = true;
+                }
               }
             } else {
               do_transform = true;
@@ -14631,6 +14743,91 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         console.log(((("  union " + shapeName) + " over ") + ("" + (caseNames.length))) + " cases");
       }
     };
+    isWithExpression (node) {
+      const cnt = node.children.length;
+      if ( cnt < 4 ) {
+        return false;
+      }
+      if ( ((cnt - 2) % 2) != 0 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( head.vref != "with" ) {
+        return false;
+      }
+      if ( (head.ns.length) > 1 ) {
+        return false;
+      }
+      return true;
+    };
+    expandWithIn (node, ctx, wr) {
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.expandWithIn(ch, ctx, wr);
+      };
+      if ( this.isWithExpression(node) ) {
+        this.expandWith(node, ctx, wr);
+      }
+    };
+    expandWith (node, ctx, wr) {
+      const cnt = node.children.length;
+      let holes = {};
+      const subjectHole = "__rg_with_subject";
+      holes[subjectHole] = node.children[1];
+      let code = ("(" + subjectHole) + ")";
+      let i = 2;
+      while (i < cnt) {
+        const fieldNode = node.children[i];
+        const valueNode = node.children[(i + 1)];
+        const fieldName = fieldNode.vref;
+        if ( (fieldName.length) == 0 ) {
+          ctx.addError(node, "with: expected a field name");
+          return;
+        }
+        if ( (fieldNode.ns.length) > 1 ) {
+          ctx.addError(node, ("with: nested paths are not supported yet (" + fieldName) + ") — update the inner value first");
+          return;
+        }
+        const holeName = "__rg_with_v" + ((i.toString()));
+        holes[holeName] = valueNode;
+        const opened = ((("(" + code) + ".set_") + fieldName) + "(";
+        code = (opened + holeName) + "))";
+        i = i + 2;
+      };
+      const src = new SourceCode(code);
+      src.filename = "with_expansion.rgr";
+      const parser = new RangerLispParser(src);
+      parser.parse(false);
+      const rn = parser.rootNode;
+      if ( typeof(rn) === "undefined" ) {
+        ctx.addError(node, "with: could not expand");
+        return;
+      }
+      const root = rn;
+      if ( (root.children.length) == 0 ) {
+        ctx.addError(node, "with: could not expand");
+        return;
+      }
+      const expanded = root.children[0];
+      this.substituteWithHoles(expanded, holes);
+      node.getChildrenFrom(expanded);
+      node.expression = true;
+    };
+    substituteWithHoles (node, holes) {
+      const cnt = node.children.length;
+      let i = 0;
+      while (i < cnt) {
+        const ch = node.children[i];
+        if ( ( typeof(holes[ch.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(holes, ch.vref) ) ) {
+          const repl = (( Object.prototype.hasOwnProperty.call(holes, ch.vref) ? holes[ch.vref] : undefined ));
+          node.children[i] = repl;
+          repl.parent = node;
+        } else {
+          this.substituteWithHoles(ch, holes);
+        }
+        i = i + 1;
+      };
+    };
     isMatchStatement (node) {
       if ( (node.children.length) != 3 ) {
         return false;
@@ -14996,6 +15193,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     async CollectMethods (node, ctx, wr) {
       this.DesugarShapes(node, ctx, wr);
+      this.expandWithIn(node, ctx, wr);
       await this.WalkCollectMethods(node, ctx, wr);
       let allTypes = [];
       const serviceBuilder = new RangerServiceBuilder();
@@ -15682,45 +15880,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const currC_4 = ctx.currentClass;
         if ( currC_4.is_immutable ) {
           vDef.setFlag("weak");
-          if ( vDef.value_type == 6 ) {
-            const initNode = node.newExpressionNode();
-            (initNode).push(node.newVRefNode("new"));
-            const tDef = node.newVRefNode("Vector");
-            const vAnn = node.newExpressionNode();
-            (vAnn).push(node.newVRefNode(vDef.array_type));
-            tDef.has_vref_annotation = true;
-            tDef.vref_annotation = vAnn;
-            (initNode).push(tDef);
-            node.children[2] = initNode;
-            vDef.value_type = 11;
-            vDef.type_name = "Vector";
-            const tAnn = node.newExpressionNode();
-            (tAnn).push(node.newVRefNode(vDef.array_type));
-            vDef.has_type_annotation = true;
-            vDef.type_annotation = tAnn;
-            await this.CheckTypeAnnotationOf(vDef, ctx, wr);
-            await this.CheckVRefTypeAnnotationOf(tDef, ctx, wr);
-          }
-          if ( vDef.value_type == 7 ) {
-            const initNode_1 = node.newExpressionNode();
-            (initNode_1).push(node.newVRefNode("new"));
-            const tDef_1 = node.newVRefNode("Map");
-            const vAnn_1 = node.newExpressionNode();
-            (vAnn_1).push(node.newVRefNode(vDef.key_type));
-            (vAnn_1).push(node.newVRefNode(vDef.array_type));
-            tDef_1.has_vref_annotation = true;
-            tDef_1.vref_annotation = vAnn_1;
-            (initNode_1).push(tDef_1);
-            node.children[2] = initNode_1;
-            vDef.value_type = 11;
-            vDef.type_name = "Map";
-            const tAnn_1 = node.newExpressionNode();
-            (tAnn_1).push(node.newVRefNode(vDef.key_type));
-            (tAnn_1).push(node.newVRefNode(vDef.array_type));
-            vDef.has_type_annotation = true;
-            vDef.type_annotation = tAnn_1;
-            await this.CheckTypeAnnotationOf(vDef, ctx, wr);
-            await this.CheckVRefTypeAnnotationOf(tDef_1, ctx, wr);
+        }
+        if ( vDef.hasFlag("persistent") ) {
+          if ( (node.children.length) < 3 ) {
+            const pcInit = node.newExpressionNode();
+            (pcInit).push(node.newVRefNode("new"));
+            (pcInit).push(node.newVRefNode(vDef.type_name));
+            (node).push(pcInit);
           }
         }
         p_1.name = s_3;

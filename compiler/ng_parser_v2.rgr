@@ -1135,6 +1135,23 @@ class RangerLispParser {
             push curr_node.children new_expr_node
             continue 
           }
+          ; `#[T]` and `#[K:V]` — persistent collection types.
+          ;
+          ; The `#` is consumed here and recorded as a flag; everything after it
+          ; parses exactly like `[T]` / `[K:V]`, so nested types, annotations and
+          ; the element-type extraction all keep working unchanged. The flow
+          ; parser lowers a flagged node to `Vector@(T)` / `Map@(K V)`.
+          ;
+          ; Spelling the two worlds differently is the whole point: `[T]` stays
+          ; the mutable array it has always been, and nothing written before this
+          ; change means anything new.
+          def is_persistent:boolean false
+          if (c == ((ccode "#"))) {
+            i = i + 1
+            c = (charAt s i)
+            vt_sp = i
+            is_persistent = true
+          }
           if (c == ((ccode "["))) {
             i = i + 1
             vt_sp = i
@@ -1173,6 +1190,40 @@ class RangerLispParser {
               vt_ep = i
               def type_name:string (substring s (1 + hash_sep) vt_ep)
               def key_type_name:string (substring s vt_sp hash_sep)
+              ; `#[K:V]` becomes `Map@(K V)` -- same reasoning as `#[T]` below.
+              if (is_persistent) {
+                def pm_node:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
+                pm_node.vref = (substring s sp ep)
+                pm_node.ns = ns_list
+                pm_node.parsed_type = RangerNodeType.VRef
+                pm_node.value_type = RangerNodeType.VRef
+                pm_node.type_name = "Map"
+                pm_node.parent = curr_node
+                def pm_ann:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
+                pm_ann.expression = true
+                def pm_key:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
+                pm_key.vref = key_type_name
+                pm_key.value_type = RangerNodeType.VRef
+                pm_key.parsed_type = RangerNodeType.VRef
+                pm_key.ns = (strsplit key_type_name ".")
+                push pm_ann.children pm_key
+                def pm_val:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
+                pm_val.vref = type_name
+                pm_val.value_type = RangerNodeType.VRef
+                pm_val.parsed_type = RangerNodeType.VRef
+                pm_val.ns = (strsplit type_name ".")
+                push pm_ann.children pm_val
+                pm_node.setFlag("persistent")
+                pm_node.type_annotation = pm_ann
+                pm_node.has_type_annotation = true
+                if (vref_had_type_ann) {
+                  pm_node.vref_annotation = vref_ann_node
+                  pm_node.has_vref_annotation = true
+                }
+                push curr_node.children pm_node
+                i = 1 + i
+                continue 
+              }
               def new_hash_node:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
               new_hash_node.vref = (substring s sp ep)
               new_hash_node.ns = ns_list
@@ -1196,6 +1247,38 @@ class RangerLispParser {
             } {
               vt_ep = i
               def type_name:string (substring s vt_sp vt_ep)
+              ; `#[T]` becomes `Vector@(T)` right here, so every later stage --
+              ; local defs, parameters, return types, class properties -- sees an
+              ; ordinary annotated type and needs no persistent-collection case
+              ; of its own. Lowering at any single declaration site instead would
+              ; have to be repeated at all of them.
+              if (is_persistent) {
+                def pv_node:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
+                pv_node.vref = (substring s sp ep)
+                pv_node.ns = ns_list
+                pv_node.parsed_type = RangerNodeType.VRef
+                pv_node.value_type = RangerNodeType.VRef
+                pv_node.type_name = "Vector"
+                pv_node.parent = curr_node
+                def pv_ann:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
+                pv_ann.expression = true
+                def pv_elem:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
+                pv_elem.vref = type_name
+                pv_elem.value_type = RangerNodeType.VRef
+                pv_elem.parsed_type = RangerNodeType.VRef
+                pv_elem.ns = (strsplit type_name ".")
+                push pv_ann.children pv_elem
+                pv_node.setFlag("persistent")
+                pv_node.type_annotation = pv_ann
+                pv_node.has_type_annotation = true
+                if (vref_had_type_ann) {
+                  pv_node.vref_annotation = vref_ann_node
+                  pv_node.has_vref_annotation = true
+                }
+                push curr_node.children pv_node
+                i = 1 + i
+                continue 
+              }
               def new_arr_node:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
               new_arr_node.vref = (substring s sp ep)
               new_arr_node.ns = ns_list

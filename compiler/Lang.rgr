@@ -6765,7 +6765,11 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 * ( (e 1) ".length")
             }
         }
-        clear    _:void      ( array:[T] ) {
+        ; `@(mutates)` for the same reason push / set_at / removeLast carry it:
+        ; without it `clear` was the one array operator that could reach through
+        ; an @(immutable) class's field and empty the array in place, wiping
+        ; every other value that shares it — silently, since clear returns void.
+        clear    _:void      ( array@(mutates):[T] ) {
             templates {
                  ranger ( "(clear " (e 1) ")")
                  cpp ( (e 1) ".clear();" )

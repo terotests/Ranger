@@ -145,6 +145,115 @@ set map "k" 1
 remove map "k"
 ```
 
+## Values and mutation
+
+Four ways to declare data. The difference is not how you read them — `p.x` is
+`p.x` in all four — but what you may do to them.
+
+```ranger
+class  User          { def name:string "" }   ; mutable, reference semantics
+class  User@(immutable) { def name:string "" } ; value: set_/with, no mutation
+record Point         { def x:int 0 }          ; mutable + positional ctor
+record Point@(immutable) { def x:int 0 }      ; value + positional ctor
+```
+
+```ranger
+; mutable
+def u (new User)
+u.name = "Ada"
+push u.tags "admin"
+
+; value
+def p0 (new Point(1 2))
+def p1 (with p0 x 9)          ; p0 is still (1 2)
+def p2 (p1.set_y(4))          ; one field
+```
+
+On a value the compiler **refuses** in-place mutation — `push`, `set_at`,
+`removeLast` and `clear` against a value's field are all compile errors, not
+conventions. A constructor is the exception: `this.x = x` there is an ordinary
+assignment, since the value is still being built.
+
+`obj.field = v` from outside the class is rewritten to `obj = (obj).set_field(v)`
+— it rebinds the *variable*, and any other reference to the old value keeps it:
+
+```ranger
+def keep p0
+p0.x = 9                      ; p0 moved; keep.x is still 1
+```
+
+An `@(immutable)` class with a hand-written constructor is copied by calling it,
+matching each parameter to the field of the same name; a parameter naming no
+field is a compile error.
+
+## Persistent collections
+
+Two worlds, spelled differently. `[T]` is the mutable array it has always been;
+`#[T]` is a persistent value — an operation on it never changes the value it was
+given. Needs `Import "ImmutableVector.rgr"`.
+
+```ranger
+[int]            ; mutable array
+[string:User]    ; mutable map
+
+#[int]           ; persistent vector
+#[string:User]   ; persistent map
+```
+
+```ranger
+def a:#[int] (new Vector@(int))
+def b (conj a 4)          ; append      -> new value, a unchanged
+def c (assoc b 1 20)      ; replace idx -> new value, b unchanged
+def d (removeAt c 0)      ; drop idx    -> new value (O(n))
+
+def m:#[string:int] (new Map@(string int))
+def m1 (assoc m "a" 1)    ; set key
+def m2 (dissoc m1 "a")    ; drop key
+
+(itemAt a 0)  (size a)  (array_length a)
+```
+
+A class field declared `#[T]` starts as an empty persistent collection, so no
+initializer is needed:
+
+```ranger
+class AppState@(immutable) {
+  def loading:boolean false
+  def tags:[string]      ; ordinary array — `for`, `push`, replaced wholesale
+  def rows:#[string]     ; structural sharing
+}
+```
+
+`@(immutable)` generates a `set_<field>` per field, each returning a **new**
+instance sharing everything it did not change, and `with` updates several at
+once:
+
+```ranger
+def s1 (s0.set_loading(true))
+def s2 (with s1 phase "ready" total 5 errorText "")
+; s1.rows == s2.rows when rows did not change — a renderer can skip that branch
+```
+
+`with` takes space-separated `field value` pairs, the same spelling the keyword
+form of record construction uses (`(new Point xpos 3 ypos 4)`) — a colon there
+would parse as a type annotation. Values may be any expression:
+
+```ranger
+def s3 (with s2 epoch (s2.epoch + 1) title ("Notes: " + name))
+```
+
+It lowers to the chain it stands for, so nothing new reaches the backends:
+
+```ranger
+((s2.set_epoch((s2.epoch + 1))).set_title(("Notes: " + name)))
+```
+
+Nested paths (`with state user.name "Ada"`) are not supported yet — update the
+inner value first and set it as a field.
+
+Cost: `conj` / `assoc` on a vector share structure; `removeAt` rebuilds, and
+every `Map` operation copies the whole map (copy-on-write, not a HAMT).
+
 ## Optionals
 
 Prefix form only:

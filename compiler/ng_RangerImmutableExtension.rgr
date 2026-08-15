@@ -37,9 +37,62 @@ class RangerImmutableExtension {
 
         wr.out("fn __CopySelf:" + cl.name + " () {" , true)
         wr.indent(1)
-        wr.out("def res (new " + cl.name + ")" , true)
-        for cl.variables ivar:RangerAppParamDesc ii {
-            wr.out("res."+ivar.compiledName + " = this." + ivar.compiledName , true)                    
+        ; `(new C)` only works when the class has no constructor, or one that
+        ; takes nothing. A record's generated constructor takes every field, and
+        ; a hand-written one takes whatever it takes — either way `__CopySelf`
+        ; used to emit `(new C)` and fail with "Not enough arguments for class
+        ; constructor", pointing at generated code the author never wrote.
+        ; `record R@(immutable)` could not be compiled at all.
+        ;
+        ; Construct through the constructor instead, passing each parameter the
+        ; value of the field with the same name. That is exactly right for a
+        ; record (buildRecordConstructor names the parameters after the fields)
+        ; and right for the usual hand-written constructor; a parameter that
+        ; names no field cannot be reconstructed, and says so.
+        def ctorArgs@(mutable):string ""
+        def ctorArity@(mutable):int 0
+        def ctorUnknown@(mutable):string ""
+        if (cl.is_record) {
+            for cl.variables ivar:RangerAppParamDesc ii {
+                if (ctorArity > 0) {
+                    ctorArgs = (ctorArgs + " ")
+                }
+                ctorArgs = ((ctorArgs + "this.") + ivar.compiledName)
+                ctorArity = (ctorArity + 1)
+            }
+        } {
+            if (cl.has_constructor) {
+                def cfn:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+                for cfn.params p:RangerAppParamDesc pi {
+                    def matched@(mutable):boolean false
+                    for cl.variables ivar:RangerAppParamDesc ii {
+                        if (ivar.name == p.name) {
+                            matched = true
+                        }
+                    }
+                    if (matched == false) {
+                        ctorUnknown = p.name
+                    }
+                    if (ctorArity > 0) {
+                        ctorArgs = (ctorArgs + " ")
+                    }
+                    ctorArgs = ((ctorArgs + "this.") + p.name)
+                    ctorArity = (ctorArity + 1)
+                }
+            }
+        }
+
+        if ((strlen ctorUnknown) > 0) {
+            ctx.addError((unwrap cl.nameNode) ((("@(immutable) class " + cl.name) + " has a constructor parameter that names no field (") + ctorUnknown + ") — a copy cannot reconstruct it. Name the parameter after the field, or drop the constructor."))
+        }
+
+        if (ctorArity > 0) {
+            wr.out(((("def res (new " + cl.name) + "(") + ctorArgs) + "))" , true)
+        } {
+            wr.out("def res (new " + cl.name + ")" , true)
+            for cl.variables ivar:RangerAppParamDesc ii {
+                wr.out("res."+ivar.compiledName + " = this." + ivar.compiledName , true)
+            }
         }
         wr.out("return res" true)
         wr.indent(-1)

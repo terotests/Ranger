@@ -1,0 +1,457 @@
+
+; ============================================================================
+; notes_model.rgr — a Model layer written entirely in Ranger, with no I/O.
+;
+; Three things live here, and the split is the point:
+;
+;   NotesState    an @(immutable) value. Every transition returns a new one and
+;                 leaves the old one valid, so the previous state is always
+;                 available to compare against.
+;
+;   NotesReducer  pure functions of (state, event) -> (new state, effects).
+;                 They perform no I/O, touch no queue, and read no clock: an
+;                 effect is a value they return. Testable with nothing but
+;                 values on both sides.
+;
+;   NotesPage     the @process. It owns the current state, hands events to the
+;                 reducer, stores the state it gets back, and submits the
+;                 effects. That is all it does.
+;
+;     event -> reducer -> (state', [EffectRequest])
+;                              |
+;                        host effect runtime
+;                              |
+;                        EffectResult -> reducer -> (state'', ...)
+;
+; Compile: npm run build:ranger  (from gallery/process_db_effects)
+; ============================================================================
+
+Import "RangerProcess.rgr"
+Import "RangerEffects.rgr"
+
+; ----------------------------------------------------------------------------
+; Domain
+; ----------------------------------------------------------------------------
+class Note {
+  def id:int 0
+  def title:string ""
+  def body:string ""
+  def tag:string ""
+}
+
+; ----------------------------------------------------------------------------
+; State — one immutable value.
+;
+; `@(immutable)` generates __CopySelf and a set_<field> per field, and `with`
+; updates several fields at once while sharing everything it did not change.
+; `notes` is a plain `[Note]` because a query replaces the whole list; a `#[Note]`
+; would buy structural sharing that nothing here would use.
+; ----------------------------------------------------------------------------
+class NotesState@(immutable) {
+  def phase:string "idle"        ; idle | schema | seeding | loading | ready | failed
+  def searchText:string ""
+  def notes:[Note]
+  def total:int 0
+  def shortest:int 0
+  def longest:int 0
+  def errorText:string ""
+
+  ; The staleness token. Every user-visible question bumps it, and an answer
+  ; carrying an older token is dropped instead of overwriting newer data.
+  def epoch:int 0
+  def staleDropped:int 0
+
+  ; observable counters, so tests can assert on behaviour rather than on logs
+  def inFlight:int 0
+  def deniedCount:int 0
+  def cancelledCount:int 0
+  def statsPending:int 0
+  def streamChunks:int 0
+  def streamRows:int 0
+  def lastElapsedMs:int 0
+}
+
+; What a transition produced: the next state, and the I/O it is asking for.
+class NotesUpdate@(immutable) {
+  def state:NotesState (new NotesState)
+  def effects:[EffectRequest]
+}
+
+; ----------------------------------------------------------------------------
+; The reducer. Every function here is (state, …) -> NotesUpdate and nothing
+; else: no queue, no clock, no database, no process.
+; ----------------------------------------------------------------------------
+class NotesReducer {
+
+  sfn noEffects:NotesUpdate (s:NotesState) {
+    def u:NotesUpdate (new NotesUpdate)
+    def none:[EffectRequest]
+    return (with u state s effects none)
+  }
+
+  sfn oneEffect:NotesUpdate (s:NotesState e:EffectRequest) {
+    def u:NotesUpdate (new NotesUpdate)
+    def list:[EffectRequest]
+    push list e
+    return (with u state s effects list)
+  }
+
+  ; Open the page: create the schema, then seed, then list. Each step is an
+  ; event, so the sequencing is visible in the model instead of hidden in a
+  ; chain of awaits somewhere in the host.
+  sfn open:NotesUpdate (s:NotesState owner:string) {
+    def sql:string "CREATE TABLE IF NOT EXISTS notes (id INTEGER, title VARCHAR, body VARCHAR, tag VARCHAR)"
+    def noArgs:[string]
+    def next:NotesState (with s phase "schema" errorText "" inFlight (s.inFlight + 1))
+    def eff:EffectRequest (EffectRequests.exec(owner sql noArgs s.epoch "schema"))
+    return (NotesReducer.oneEffect(next eff))
+  }
+
+  sfn seed:NotesUpdate (s:NotesState owner:string) {
+    def sql:string "INSERT INTO notes VALUES (1,'Effects','I/O is described, not performed','core'), (2,'Scopes','Every task has a lifecycle owner','core'), (3,'Capabilities','No grant, no socket','security'), (4,'Streams','Zero to n values over time','core'), (5,'Staleness','Newer questions win','ui')"
+    def noArgs:[string]
+    def next:NotesState (with s phase "seeding" inFlight (s.inFlight + 1))
+    def eff:EffectRequest (EffectRequests.exec(owner sql noArgs s.epoch "seed"))
+    return (NotesReducer.oneEffect(next eff))
+  }
+
+  ; A new search supersedes every search still in flight.
+  sfn search:NotesUpdate (s:NotesState owner:string text:string) {
+    def nextEpoch:int (s.epoch + 1)
+    def next:NotesState (with s searchText text phase "loading" epoch nextEpoch inFlight (s.inFlight + 1))
+    def args:[string]
+    def pattern:string (("%" + text) + "%")
+    push args pattern
+    push args pattern
+    def sql:string "SELECT id, title, body, tag FROM notes WHERE title ILIKE ? OR body ILIKE ? ORDER BY id"
+    def eff:EffectRequest (EffectRequests.query(owner sql args nextEpoch "search"))
+    return (NotesReducer.oneEffect(next eff))
+  }
+
+  sfn listAll:NotesUpdate (s:NotesState owner:string) {
+    def nextEpoch:int (s.epoch + 1)
+    def next:NotesState (with s phase "loading" epoch nextEpoch inFlight (s.inFlight + 1))
+    def noArgs:[string]
+    def sql:string "SELECT id, title, body, tag FROM notes ORDER BY id"
+    def eff:EffectRequest (EffectRequests.query(owner sql noArgs nextEpoch "search"))
+    return (NotesReducer.oneEffect(next eff))
+  }
+
+  ; Fan out: three independent questions, returned together, answered in
+  ; whatever order the database gets to them. The reducer does not wait; the
+  ; state counts down.
+  sfn loadStats:NotesUpdate (s:NotesState owner:string) {
+    def next:NotesState (with s statsPending 3 inFlight (s.inFlight + 3))
+    def noArgs:[string]
+    def list:[EffectRequest]
+    push list (EffectRequests.query(owner "SELECT count(*) AS n FROM notes" noArgs s.epoch "stat.count"))
+    push list (EffectRequests.query(owner "SELECT min(length(body)) AS n FROM notes" noArgs s.epoch "stat.min"))
+    push list (EffectRequests.query(owner "SELECT max(length(body)) AS n FROM notes" noArgs s.epoch "stat.max"))
+    def u:NotesUpdate (new NotesUpdate)
+    return (with u state next effects list)
+  }
+
+  ; A Stream, not a Task: one request, many results.
+  sfn streamAll:NotesUpdate (s:NotesState owner:string chunk:int) {
+    def next:NotesState (with s streamChunks 0 streamRows 0 inFlight (s.inFlight + 1))
+    def sql:string "SELECT id, title, body, tag FROM notes ORDER BY id"
+    def eff:EffectRequest (EffectRequests.stream(owner sql chunk s.epoch "stream"))
+    return (NotesReducer.oneEffect(next eff))
+  }
+
+  ; A deliberately ungranted capability, to show what refusal looks like.
+  sfn tryForbidden:NotesUpdate (s:NotesState owner:string) {
+    def next:NotesState (with s inFlight (s.inFlight + 1))
+    def r:EffectRequest (new EffectRequest)
+    def noArgs:[string]
+    r.capability = "filesystem"
+    r.op = "read"
+    r.ownerPath = owner
+    r.sql = "/etc/passwd"
+    r.args = noArgs
+    r.epoch = s.epoch
+    r.label = "forbidden"
+    return (NotesReducer.oneEffect(next r))
+  }
+
+  ; ---- the single entry point for every answer ------------------------------
+  ;
+  ; One typed function rather than name-based dispatch, so this works on targets
+  ; without reflection (Go, Swift, C++, Rust) exactly as it does on JavaScript.
+  sfn result:NotesUpdate (s:NotesState owner:string r:EffectResult) {
+    def base@(mutable):NotesState s
+    if (r.more == false) {
+      base = (with s inFlight (s.inFlight - 1))
+    }
+
+    if (r.isCancelled()) {
+      def cancelled:NotesState (with base cancelledCount (base.cancelledCount + 1))
+      return (NotesReducer.noEffects(cancelled))
+    }
+    if (r.isDenied()) {
+      def deniedText:string ("capability denied: " + r.capability)
+      def denied:NotesState (with base deniedCount (base.deniedCount + 1) errorText deniedText)
+      return (NotesReducer.noEffects(denied))
+    }
+
+    ; Stale answers are dropped before they can touch state. This is the bug
+    ; class where a slow first search overwrites a fast second one.
+    if (r.isStale(base.epoch)) {
+      def stale:NotesState (with base staleDropped (base.staleDropped + 1))
+      return (NotesReducer.noEffects(stale))
+    }
+
+    if (r.ok == false) {
+      def failed:NotesState (with base phase "failed" errorText r.errorMessage)
+      return (NotesReducer.noEffects(failed))
+    }
+
+    def timed:NotesState (with base lastElapsedMs r.elapsedMs)
+
+    if (r.label == "schema") {
+      return (NotesReducer.seed(timed owner))
+    }
+    if (r.label == "seed") {
+      return (NotesReducer.listAll(timed owner))
+    }
+    if (r.label == "search") {
+      def rows:[Note] (NotesReducer.parseNotes(r.payload))
+      def listed:NotesState (with timed notes rows total (array_length rows) phase "ready")
+      return (NotesReducer.noEffects(listed))
+    }
+    if (r.label == "stream") {
+      return (NotesReducer.applyStreamChunk(timed r))
+    }
+    if (r.label == "stat.count") {
+      def counted:NotesState (with timed total (NotesReducer.firstNumber(r.payload)))
+      return (NotesReducer.settleStat(counted))
+    }
+    if (r.label == "stat.min") {
+      def shortestS:NotesState (with timed shortest (NotesReducer.firstNumber(r.payload)))
+      return (NotesReducer.settleStat(shortestS))
+    }
+    if (r.label == "stat.max") {
+      def longestS:NotesState (with timed longest (NotesReducer.firstNumber(r.payload)))
+      return (NotesReducer.settleStat(longestS))
+    }
+    return (NotesReducer.noEffects(timed))
+  }
+
+  sfn settleStat:NotesUpdate (s:NotesState) {
+    def left:int (s.statsPending - 1)
+    if (left <= 0) {
+      def done:NotesState (with s statsPending 0 phase "ready")
+      return (NotesReducer.noEffects(done))
+    }
+    def pending:NotesState (with s statsPending left)
+    return (NotesReducer.noEffects(pending))
+  }
+
+  sfn applyStreamChunk:NotesUpdate (s:NotesState r:EffectResult) {
+    def chunkRows:[EffectRow] (EffectPayload.parseRows(r.payload))
+    def chunks:int (s.streamChunks + 1)
+    def rows:int (s.streamRows + (array_length chunkRows))
+    if (r.more == false) {
+      def finished:NotesState (with s streamChunks chunks streamRows rows phase "ready")
+      return (NotesReducer.noEffects(finished))
+    }
+    def more:NotesState (with s streamChunks chunks streamRows rows)
+    return (NotesReducer.noEffects(more))
+  }
+
+  sfn parseNotes:[Note] (payload:string) {
+    def parsed:[EffectRow] (EffectPayload.parseRows(payload))
+    def fresh:[Note]
+    for parsed row:EffectRow i {
+      def n:Note (new Note)
+      n.id = (row.getInt("id"))
+      n.title = (row.get("title"))
+      n.body = (row.get("body"))
+      n.tag = (row.get("tag"))
+      push fresh n
+    }
+    return fresh
+  }
+
+  sfn firstNumber:int (payload:string) {
+    def parsed:[EffectRow] (EffectPayload.parseRows(payload))
+    if ((array_length parsed) == 0) {
+      return 0
+    }
+    def row:EffectRow (itemAt parsed 0)
+    return (row.getInt("n"))
+  }
+}
+
+; ----------------------------------------------------------------------------
+; The process. It owns the state value and the identity; it does not compute
+; transitions and it does not perform I/O.
+; ----------------------------------------------------------------------------
+class NotesPage @process(true) @name("app.notes") extends RangerProcessBase {
+
+  def state:NotesState (new NotesState)
+
+  ; The state this page was showing before the last transition. Kept because an
+  ; immutable value makes it free: the previous state is not a copy, it is the
+  ; object that was already there.
+  def previous:NotesState (new NotesState)
+
+  fn start:void () {
+  }
+
+  fn stop:void () {
+    ; Nothing to unwind by hand. The host cancels the scope that owns this
+    ; process, and every request still in flight under it dies with it.
+  }
+
+  ; ---- what this process is allowed to reach -------------------------------
+  fn capabilities:CapabilityManifest () {
+    def m:CapabilityManifest (new CapabilityManifest)
+    m.require("db")
+    m.require("clock")
+    return m
+  }
+
+  fn owner:string () {
+    return this.__rangerPath
+  }
+
+  ; The one place a transition is stored and its effects are handed on.
+  fn applyUpdate:void (u:NotesUpdate) {
+    previous = state
+    state = u.state
+    def q:EffectQueue (EffectQueue.__singleton())
+    for u.effects e:EffectRequest i {
+      q.submit(e)
+    }
+    this.markStateDirty()
+  }
+
+  ; ---- events --------------------------------------------------------------
+
+  fn onOpen:void () {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.open(state own))
+    this.applyUpdate(u)
+  }
+
+  fn onSearch:void (text:string) {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.search(state own text))
+    this.applyUpdate(u)
+  }
+
+  fn onListAll:void () {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.listAll(state own))
+    this.applyUpdate(u)
+  }
+
+  fn onLoadStats:void () {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.loadStats(state own))
+    this.applyUpdate(u)
+  }
+
+  fn onStreamAll:void (chunk:int) {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.streamAll(state own chunk))
+    this.applyUpdate(u)
+  }
+
+  fn onTryForbidden:void () {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.tryForbidden(state own))
+    this.applyUpdate(u)
+  }
+
+  fn onEffectResult:void (r:EffectResult) {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.result(state own r))
+    this.applyUpdate(u)
+  }
+}
+
+; ----------------------------------------------------------------------------
+; ViewModel — a pure projection of state. No process handle, no I/O, no
+; framework: the same value renders in React, on a terminal, in a test.
+; ----------------------------------------------------------------------------
+class NoteRowView {
+  def id:int 0
+  def title:string ""
+  def subtitle:string ""
+  def badge:string ""
+}
+
+class NotesViewModel {
+  def title:string ""
+  def statusLine:string ""
+  def showSpinner:boolean false
+  def showEmpty:boolean false
+  def errorText:string ""
+  def rows:[NoteRowView]
+  def footer:string ""
+}
+
+class NotesViewModelBuilder {
+
+  ; State in, view model out. Takes the value, not the process, so a test can
+  ; build one without starting anything.
+  sfn fromState:NotesViewModel (m:NotesState) {
+    def vm:NotesViewModel (new NotesViewModel)
+    vm.title = "Notes"
+    if ((strlen m.searchText) > 0) {
+      vm.title = (("Notes matching \"" + m.searchText) + "\"")
+    }
+    vm.showSpinner = (m.inFlight > 0)
+    vm.errorText = m.errorText
+
+    def rows:[NoteRowView]
+    for m.notes n:Note i {
+      def rv:NoteRowView (new NoteRowView)
+      rv.id = n.id
+      rv.title = n.title
+      rv.subtitle = n.body
+      rv.badge = n.tag
+      push rows rv
+    }
+    vm.rows = rows
+    vm.showEmpty = (((array_length rows) == 0) && (m.phase == "ready"))
+
+    if (m.phase == "failed") {
+      vm.statusLine = ("Failed: " + m.errorText)
+    } {
+      if (m.inFlight > 0) {
+        vm.statusLine = ((("Working (" + (to_string m.inFlight)) + " in flight)"))
+      } {
+        vm.statusLine = ((((to_string (array_length rows)) + " of ") + (to_string m.total)) + " notes")
+      }
+    }
+
+    vm.footer = ((((("epoch " + (to_string m.epoch)) + " · stale dropped ") + (to_string m.staleDropped)) + " · cancelled ") + (to_string m.cancelledCount))
+    return vm
+  }
+
+  sfn build:NotesViewModel (p:NotesPage) {
+    return (NotesViewModelBuilder.fromState(p.state))
+  }
+
+  ; Terminal renderer, so the same ViewModel has a second consumer from day one.
+  sfn renderText:string (vm:NotesViewModel) {
+    def out@(mutable):string ""
+    out = (out + vm.title + "\n")
+    out = (out + vm.statusLine + "\n")
+    if (vm.showSpinner) {
+      out = (out + "  ... working\n")
+    }
+    if (vm.showEmpty) {
+      out = (out + "  (no notes)\n")
+    }
+    for vm.rows r:NoteRowView i {
+      out = (out + "  [" + (to_string r.id) + "] " + r.title + " (" + r.badge + ")\n")
+      out = (out + "      " + r.subtitle + "\n")
+    }
+    out = (out + vm.footer + "\n")
+    return out
+  }
+}
