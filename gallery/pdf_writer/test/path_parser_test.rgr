@@ -1,0 +1,405 @@
+; ==============================================================================
+; path_parser_test.rgr — the path grammar, against SVG 1.1 §8.3
+; ==============================================================================
+; PLAN_VECTOR_IR.md §2.2 and Stage 1. The parser used to handle M L H V C Q Z
+; and skip everything else one character at a time — no error, no warning, the
+; path just lost segments and closed across the gap. The repo's own
+; examples/test_svg_path.tsx contains a "circle" written with S commands that
+; rendered as a single wedge because of it.
+;
+; The grammar is published, so these expectations come from the spec rather
+; than from the implementation:
+;
+;   - every command letter, absolute and relative
+;   - implicit argument repetition, including that a repeated M is an L
+;   - S and T reflection, including the rule for what to do when the previous
+;     segment was not of the matching kind
+;   - arcs, checked geometrically: an arc that traces a known circle must land
+;     on that circle
+;   - error handling: render up to but not including the failing command, and
+;     say what was refused
+;
+;   bash gallery/pdf_writer/test/run_vector.sh
+; ==============================================================================
+
+Import "../../evg/SVGPathParser.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class PathParserTest {
+
+    sfn m@(main):void () {
+        def test (new PathParserTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/path_parser"))
+        test.testBasicCommands(t)
+        test.testRelativeCommands(t)
+        test.testImplicitRepetition(t)
+        test.testSmoothCubic(t)
+        test.testSmoothQuad(t)
+        test.testArcGeometry(t)
+        test.testArcFlags(t)
+        test.testArcEdgeCases(t)
+        test.testErrorHandling(t)
+        test.testNumberForms(t)
+        t.summary()
+    }
+
+    fn parse:SVGPathParser (d:string) {
+        def p (new SVGPathParser())
+        p.parse(d)
+        return p
+    }
+
+    fn countOf:int (p:SVGPathParser kind:string) {
+        def cmds:[PathCommand] (p.getCommands())
+        def n:int 0
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if (c.type == kind) {
+                n = (n + 1)
+            }
+            k = (k + 1)
+        }
+        return n
+    }
+
+    fn cmdAt:PathCommand (p:SVGPathParser idx:int) {
+        def cmds:[PathCommand] (p.getCommands())
+        return (itemAt cmds idx)
+    }
+
+    ; --------------------------------------------------------------------------
+
+    fn testBasicCommands:void (t:RgTest) {
+        def p:SVGPathParser (this.parse("M10 20 L30 40 H50 V60 Z"))
+        def cmds:[PathCommand] (p.getCommands())
+        t.eqInt("M L H V Z produces five commands" (array_length cmds) 5)
+        t.eqBool("a well-formed path reports no errors" (p.hasErrors()) false)
+
+        def m:PathCommand (this.cmdAt(p 0))
+        t.eqStr("first is a moveto" m.type "M")
+        t.near("moveto x" m.x 10.0)
+        t.near("moveto y" m.y 20.0)
+
+        ; H and V become plain linetos, carrying the unchanged coordinate over.
+        def hz:PathCommand (this.cmdAt(p 2))
+        t.eqStr("H becomes a lineto" hz.type "L")
+        t.near("H keeps y from the pen" hz.y 40.0)
+        t.near("H takes its x" hz.x 50.0)
+
+        def vt:PathCommand (this.cmdAt(p 3))
+        t.eqStr("V becomes a lineto" vt.type "L")
+        t.near("V keeps x from the pen" vt.x 50.0)
+        t.near("V takes its y" vt.y 60.0)
+
+        t.eqStr("last is a closepath" ((this.cmdAt(p 4)).type) "Z")
+    }
+
+    fn testRelativeCommands:void (t:RgTest) {
+        ; Every lower-case form is relative to the current point, and after Z
+        ; the current point returns to the subpath start — so the final l is
+        ; measured from (10, 10), not from where the pen visually was.
+        def p:SVGPathParser (this.parse("M10 10 l5 5 h5 v5 Z l1 2"))
+        t.eqBool("relative path parses cleanly" (p.hasErrors()) false)
+
+        def l1:PathCommand (this.cmdAt(p 1))
+        t.near("l is relative to the moveto" l1.x 15.0)
+        t.near("l is relative on y too" l1.y 15.0)
+
+        def h1:PathCommand (this.cmdAt(p 2))
+        t.near("h advances from the pen" h1.x 20.0)
+        t.near("h holds y" h1.y 15.0)
+
+        def v1:PathCommand (this.cmdAt(p 3))
+        t.near("v holds x" v1.x 20.0)
+        t.near("v advances from the pen" v1.y 20.0)
+
+        def after:PathCommand (this.cmdAt(p 5))
+        t.near("closepath resets the pen to the subpath start on x" after.x 11.0)
+        t.near("closepath resets the pen to the subpath start on y" after.y 12.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Implicit repetition — the silent data-loss bug
+    ; --------------------------------------------------------------------------
+
+    fn testImplicitRepetition:void (t:RgTest) {
+        ; Three coordinate pairs after a single M: a moveto and TWO linetos,
+        ; because a repeated moveto is a lineto. This used to yield one command
+        ; and drop the rest without a word.
+        def p:SVGPathParser (this.parse("M10 10 20 20 30 30"))
+        def cmds:[PathCommand] (p.getCommands())
+        t.eqInt("repeated moveto arguments become linetos" (array_length cmds) 3)
+        t.eqStr("the first is still a moveto" ((this.cmdAt(p 0)).type) "M")
+        t.eqStr("the second is a lineto" ((this.cmdAt(p 1)).type) "L")
+        t.eqStr("the third is a lineto" ((this.cmdAt(p 2)).type) "L")
+        t.near("the last lineto keeps its coordinates" ((this.cmdAt(p 2)).x) 30.0)
+
+        ; The same for curves: two cubics from one C.
+        def c:SVGPathParser (this.parse("M0 0 C1 1 2 2 3 3 4 4 5 5 6 6"))
+        t.eqInt("a repeated cubic argument set is a second cubic" (this.countOf(c "C")) 2)
+        def second:PathCommand (this.cmdAt(c 2))
+        t.near("the second cubic's endpoint" second.x 6.0)
+        t.near("the second cubic's first control point" second.x1 4.0)
+
+        ; And for linetos, which is the most common form in optimizer output.
+        def l:SVGPathParser (this.parse("M0 0 L1 1 2 2 3 3"))
+        t.eqInt("three linetos from one L" (this.countOf(l "L")) 3)
+        t.eqBool("implicit repetition is not an error" (l.hasErrors()) false)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; S and T reflection
+    ; --------------------------------------------------------------------------
+
+    fn testSmoothCubic:void (t:RgTest) {
+        ; After C with second control (8, 0) ending at (10, 0), the reflection
+        ; about the current point is (2*10 - 8, 2*0 - 0) = (12, 0).
+        def p:SVGPathParser (this.parse("M0 0 C2 0 8 0 10 0 S18 0 20 0"))
+        t.eqInt("S produces a cubic" (this.countOf(p "C")) 2)
+        def s:PathCommand (this.cmdAt(p 2))
+        t.near("S reflects the previous control point on x" s.x1 12.0)
+        t.near("S reflects the previous control point on y" s.y1 0.0)
+        t.near("S keeps its own second control point" s.x2 18.0)
+        t.near("S keeps its endpoint" s.x 20.0)
+
+        ; A leading S has nothing to reflect: the spec says use the current
+        ; point, which makes it behave like a plain C.
+        def lone:SVGPathParser (this.parse("M5 5 S10 10 20 20"))
+        def ls:PathCommand (this.cmdAt(lone 1))
+        t.near("a leading S uses the current point on x" ls.x1 5.0)
+        t.near("a leading S uses the current point on y" ls.y1 5.0)
+
+        ; So does an S after something that was not a cubic — the reflection
+        ; state must be cleared, not carried over from an older curve.
+        def afterLine:SVGPathParser (this.parse("M0 0 C1 1 8 8 10 10 L30 30 S40 40 50 50"))
+        def as:PathCommand (this.cmdAt(afterLine 3))
+        t.near("S after a lineto does not reflect a stale control point" as.x1 30.0)
+        t.near("S after a lineto uses the pen position" as.y1 30.0)
+    }
+
+    fn testSmoothQuad:void (t:RgTest) {
+        ; Q control (4, 4) ending at (10, 0) reflects to (2*10 - 4, 2*0 - 4)
+        ; = (16, -4).
+        def p:SVGPathParser (this.parse("M0 0 Q4 4 10 0 T20 0"))
+        t.eqInt("T produces a quadratic" (this.countOf(p "Q")) 2)
+        def tc:PathCommand (this.cmdAt(p 2))
+        t.near("T reflects the previous control point on x" tc.x1 16.0)
+        t.near("T reflects the previous control point on y" tc.y1 (0.0 - 4.0))
+        t.near("T keeps its endpoint" tc.x 20.0)
+
+        ; A chain of Ts keeps reflecting, each against the control point the
+        ; previous T computed.
+        def chain:SVGPathParser (this.parse("M0 0 Q4 4 10 0 T20 0 T30 0"))
+        def t2:PathCommand (this.cmdAt(chain 3))
+        t.near("a second T reflects the control point the first T derived" t2.x1 24.0)
+        t.near("and its y" t2.y1 4.0)
+
+        ; T after a cubic has no quadratic control to reflect.
+        def afterCubic:SVGPathParser (this.parse("M0 0 C1 1 8 8 10 10 T20 20"))
+        def at:PathCommand (this.cmdAt(afterCubic 2))
+        t.near("T after a cubic uses the current point" at.x1 10.0)
+        t.near("T after a cubic uses the current point on y" at.y1 10.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Arcs — checked as geometry, not as a coordinate dump
+    ; --------------------------------------------------------------------------
+
+    fn testArcGeometry:void (t:RgTest) {
+        ; A half-circle of radius 10, centred at (10, 0), from (0,0) to (20,0).
+        ; Whatever cubics come out, every one of their points must sit on that
+        ; circle — which is the property that actually matters and the one a
+        ; hand-written coordinate list would not check.
+        def p:SVGPathParser (this.parse("M0 0 A10 10 0 0 1 20 0"))
+        t.eqBool("an arc parses without error" (p.hasErrors()) false)
+        t.ok("an arc becomes cubics" ((this.countOf(p "C")) > 0))
+
+        def worst:double (this.worstRadialError(p 10.0 0.0 10.0))
+        t.ok("every arc control point lies on the circle it traces" (worst < 0.02))
+
+        def last:PathCommand (this.cmdAt(p ((array_length (p.getCommands())) - 1)))
+        t.near("the arc ends exactly where it was told to" last.x 20.0)
+        t.near("and on y" last.y 0.0)
+
+        ; A full circle written as two arcs — the shape used by nearly every
+        ; hand-written circular icon.
+        def circle:SVGPathParser (this.parse("M0 10 A10 10 0 1 1 20 10 A10 10 0 1 1 0 10 Z"))
+        t.eqBool("a two-arc circle parses" (circle.hasErrors()) false)
+        def circleWorst:double (this.worstRadialError(circle 10.0 10.0 10.0))
+        t.ok("both halves stay on the circle" (circleWorst < 0.02))
+    }
+
+    ; The largest distance-from-radius among all emitted curve points.
+    fn worstRadialError:double (p:SVGPathParser cx:double cy:double r:double) {
+        def cmds:[PathCommand] (p.getCommands())
+        def worst:double 0.0
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if (c.type == "C") {
+                def e:double (this.radialError(c.x c.y cx cy r))
+                if (e > worst) {
+                    worst = e
+                }
+            }
+            k = (k + 1)
+        }
+        return worst
+    }
+
+    fn radialError:double (x:double y:double cx:double cy:double r:double) {
+        def dx:double (x - cx)
+        def dy:double (y - cy)
+        def d:double (sqrt ((dx * dx) + (dy * dy)))
+        def e:double (d - r)
+        if (e < 0.0) {
+            e = (0.0 - e)
+        }
+        return e
+    }
+
+    fn testArcFlags:void (t:RgTest) {
+        ; The two flags select which of the four possible arcs is drawn. The
+        ; large-arc sweeps the long way round, so it must travel further.
+        def small:SVGPathParser (this.parse("M0 0 A10 10 0 0 1 20 0"))
+        def large:SVGPathParser (this.parse("M0 0 A10 10 0 1 1 20 0"))
+        t.ok("the large-arc flag emits more curve segments"
+             ((this.countOf(large "C")) >= (this.countOf(small "C"))))
+
+        ; Sweep flips which side of the chord the arc bulges to, so the two
+        ; must land on opposite sides of y = 0.
+        def up:SVGPathParser (this.parse("M0 0 A10 10 0 0 1 20 0"))
+        def down:SVGPathParser (this.parse("M0 0 A10 10 0 0 0 20 0"))
+        def upMid:double (this.midY(up))
+        def downMid:double (this.midY(down))
+        t.ok("the sweep flag mirrors the arc across the chord" ((upMid * downMid) < 0.0))
+
+        ; Flags may be written without separators: "0011" is 0, 0, then the
+        ; coordinate 11. Reading a flag as a general number swallows the digits
+        ; that follow and throws the rest of the arc out of alignment.
+        def compact:SVGPathParser (this.parse("M0 0 A10 10 0 0011 0"))
+        t.eqBool("unseparated arc flags parse" (compact.hasErrors()) false)
+        def cLast:PathCommand (this.cmdAt(compact ((array_length (compact.getCommands())) - 1)))
+        t.near("the coordinate after packed flags is read correctly" cLast.x 11.0)
+        t.near("and its y" cLast.y 0.0)
+    }
+
+    ; The y of the point halfway along the emitted curve list — enough to tell
+    ; which side of the chord the arc bulged to.
+    fn midY:double (p:SVGPathParser) {
+        def cmds:[PathCommand] (p.getCommands())
+        def n:int (array_length cmds)
+        def mid:PathCommand (itemAt cmds (idiv n 2))
+        return mid.y
+    }
+
+    fn testArcEdgeCases:void (t:RgTest) {
+        ; SVG 1.1: a zero radius means a straight line, not a dropped segment.
+        def zero:SVGPathParser (this.parse("M0 0 A0 0 0 0 1 20 0"))
+        t.eqInt("a zero-radius arc becomes a lineto" (this.countOf(zero "L")) 1)
+        t.eqBool("and is not an error" (zero.hasErrors()) false)
+
+        ; Coincident endpoints likewise.
+        def same:SVGPathParser (this.parse("M5 5 A10 10 0 0 1 5 5"))
+        t.eqBool("an arc to the current point is not an error" (same.hasErrors()) false)
+
+        ; F.6.6: radii too small to reach the endpoint are scaled up until they
+        ; do, rather than the arc being abandoned. Radius 1 cannot span 20
+        ; units, so the result must still end where it was told.
+        def tooSmall:SVGPathParser (this.parse("M0 0 A1 1 0 0 1 20 0"))
+        t.eqBool("undersized radii are corrected, not rejected" (tooSmall.hasErrors()) false)
+        def last:PathCommand (this.cmdAt(tooSmall ((array_length (tooSmall.getCommands())) - 1)))
+        t.near("a corrected arc still reaches its endpoint" last.x 20.0)
+
+        ; A negative radius is taken as its absolute value.
+        def neg:SVGPathParser (this.parse("M0 0 A-10 -10 0 0 1 20 0"))
+        t.eqBool("negative radii are accepted as absolute" (neg.hasErrors()) false)
+        def negLast:PathCommand (this.cmdAt(neg ((array_length (neg.getCommands())) - 1)))
+        t.near("and still reach the endpoint" negLast.x 20.0)
+
+        ; A rotated ellipse must still start and end on its endpoints.
+        def rot:SVGPathParser (this.parse("M0 0 A20 10 45 0 1 30 10"))
+        t.eqBool("a rotated elliptical arc parses" (rot.hasErrors()) false)
+        def rotLast:PathCommand (this.cmdAt(rot ((array_length (rot.getCommands())) - 1)))
+        t.near("rotated arc endpoint x" rotLast.x 30.0)
+        t.near("rotated arc endpoint y" rotLast.y 10.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Error handling — SVG 1.1 §8.3
+    ; --------------------------------------------------------------------------
+
+    fn testErrorHandling:void (t:RgTest) {
+        ; "render up to, but not including, the path command containing the
+        ; first error" — so the two good linetos survive and the bad command
+        ; does not appear at all.
+        def p:SVGPathParser (this.parse("M0 0 L10 10 L20 20 X99 99 L30 30"))
+        def cmds:[PathCommand] (p.getCommands())
+        t.eqInt("commands before the error are kept" (array_length cmds) 3)
+        t.eqBool("the failure is reported" (p.hasErrors()) true)
+        t.ok("the report names the offending command"
+             (((indexOf (p.errorSummary()) "'X'")) >= 0))
+
+        ; A truncated argument list is the same rule: the incomplete command is
+        ; not emitted, and it is not silently rounded out with zeros.
+        def short:SVGPathParser (this.parse("M0 0 L10 10 L20"))
+        t.eqInt("an incomplete command is dropped whole" (array_length (short.getCommands())) 2)
+        t.eqBool("and reported" (short.hasErrors()) true)
+
+        ; Path data must start with a command.
+        def leading:SVGPathParser (this.parse("10 10 L20 20"))
+        t.eqInt("data before any command produces nothing" (array_length (leading.getCommands())) 0)
+        t.eqBool("and is reported" (leading.hasErrors()) true)
+
+        ; Numbers after Z are not a repeat of anything. Before, closepath took
+        ; no arguments and consumed no input, so this spun forever.
+        def afterZ:SVGPathParser (this.parse("M0 0 L10 10 Z 5 5"))
+        t.eqBool("numbers after closepath are reported" (afterZ.hasErrors()) true)
+        t.eqInt("and the good part is kept" (array_length (afterZ.getCommands())) 3)
+
+        ; An empty path is empty, not an error.
+        def empty:SVGPathParser (this.parse(""))
+        t.eqInt("an empty path yields no commands" (array_length (empty.getCommands())) 0)
+        t.eqBool("and is not an error" (empty.hasErrors()) false)
+
+        ; Unsupported-but-real SVG commands must be named, so a document using
+        ; them is diagnosable rather than mysteriously clipped.
+        def bearing:SVGPathParser (this.parse("M0 0 L10 10 B45"))
+        t.eqBool("an out-of-profile command is reported" (bearing.hasErrors()) true)
+        t.eqInt("and everything before it survives" (array_length (bearing.getCommands())) 2)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Number forms the grammar allows
+    ; --------------------------------------------------------------------------
+
+    fn testNumberForms:void (t:RgTest) {
+        ; Comma or whitespace, in any mix, including none before a sign.
+        def p:SVGPathParser (this.parse("M0,0L10,10"))
+        t.eqInt("commas separate as well as spaces" (array_length (p.getCommands())) 2)
+
+        def signs:SVGPathParser (this.parse("M0 0 L-10-20"))
+        def s:PathCommand (this.cmdAt(signs 1))
+        t.near("a leading minus separates numbers" s.x (0.0 - 10.0))
+        t.near("and the second one too" s.y (0.0 - 20.0))
+
+        def frac:SVGPathParser (this.parse("M0 0 L1.5 2.25"))
+        def f:PathCommand (this.cmdAt(frac 1))
+        t.near("fractional coordinates" f.x 1.5)
+        t.near("fractional coordinates on y" f.y 2.25)
+
+        def exp:SVGPathParser (this.parse("M0 0 L1e2 2E-1"))
+        def e:PathCommand (this.cmdAt(exp 1))
+        t.near("exponent notation" e.x 100.0)
+        t.near("negative exponent notation" e.y 0.2)
+
+        ; Bounds are computed over what was actually parsed.
+        def b:SVGPathParser (this.parse("M10 20 L30 60"))
+        def bounds:PathBounds (b.getBounds())
+        t.near("bounds minX" bounds.minX 10.0)
+        t.near("bounds minY" bounds.minY 20.0)
+        t.near("bounds width" bounds.width 20.0)
+        t.near("bounds height" bounds.height 40.0)
+    }
+}

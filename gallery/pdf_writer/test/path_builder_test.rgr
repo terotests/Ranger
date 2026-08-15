@@ -1,0 +1,298 @@
+; ==============================================================================
+; path_builder_test.rgr — building a path is the inverse of parsing one
+; ==============================================================================
+; PLAN_VECTOR_IR.md Stage 3.5.
+;
+; The property that matters is the round trip: whatever the builder produces,
+; the parser must read back as the same geometry. That is what makes it safe
+; for a chart to build a path from data and hand it to any renderer — and it
+; checks the builder and the parser against each other rather than against
+; either one's own idea of correctness.
+;
+; The rest is the behaviour a caller looping over data actually depends on:
+; that the pen tracks what was appended, that a relative move after an appended
+; shape starts from the right place, and that the first point of a series does
+; not need special handling at the call site.
+;
+;   bash gallery/pdf_writer/test/run_vector.sh
+; ==============================================================================
+
+Import "../../evg/PathBuilder.rgr"
+Import "../../evg/SVGPathParser.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class PathBuilderTest {
+
+    sfn m@(main):void () {
+        def test (new PathBuilderTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/path_builder"))
+        test.testBasics(t)
+        test.testFirstPointNeedsNoSpecialCase(t)
+        test.testRelativeMoves(t)
+        test.testCloseReturnsThePen(t)
+        test.testShapesAccumulate(t)
+        test.testPathDataAppend(t)
+        test.testBounds(t)
+        test.testRoundTrip(t)
+        test.testSeriesFromData(t)
+        t.summary()
+    }
+
+    fn cmdAt:PathCommand (b:PathBuilder i:int) {
+        def cmds:[PathCommand] (b.getCommands())
+        return (itemAt cmds i)
+    }
+
+    fn countOf:int (b:PathBuilder kind:string) {
+        def cmds:[PathCommand] (b.getCommands())
+        def n:int 0
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if (c.type == kind) {
+                n = (n + 1)
+            }
+            k = (k + 1)
+        }
+        return n
+    }
+
+    ; --------------------------------------------------------------------------
+
+    fn testBasics:void (t:RgTest) {
+        def b (new PathBuilder())
+        t.eqBool("a new builder is empty" (b.isEmpty()) true)
+
+        b.moveTo(10.0 20.0)
+        b.lineTo(30.0 40.0)
+        b.close()
+        t.eqBool("and is not empty once used" (b.isEmpty()) false)
+        t.eqInt("it holds what was built" (b.commandCount()) 3)
+        t.eqStr("in order" ((this.cmdAt(b 0)).type) "M")
+        t.eqStr("in order" ((this.cmdAt(b 1)).type) "L")
+        t.eqStr("in order" ((this.cmdAt(b 2)).type) "Z")
+
+        b.reset()
+        t.eqBool("reset empties it" (b.isEmpty()) true)
+    }
+
+    fn testFirstPointNeedsNoSpecialCase:void (t:RgTest) {
+        ; A caller looping over data points should not have to branch on "is
+        ; this the first one". A lineto with no pen position becomes the
+        ; moveto the path grammar would have required anyway.
+        def b (new PathBuilder())
+        b.lineTo(5.0 5.0)
+        b.lineTo(10.0 10.0)
+        t.eqInt("the first lineto becomes a moveto" (this.countOf(b "M")) 1)
+        t.eqStr("and it is the first command" ((this.cmdAt(b 0)).type) "M")
+        t.near("carrying the point it was given" ((this.cmdAt(b 0)).x) 5.0)
+        t.eqInt("the second stays a lineto" (this.countOf(b "L")) 1)
+
+        ; Closing an empty path is a no-op rather than a stray Z with nothing
+        ; to close.
+        def empty (new PathBuilder())
+        empty.close()
+        t.eqBool("closing an empty path does nothing" (empty.isEmpty()) true)
+    }
+
+    fn testRelativeMoves:void (t:RgTest) {
+        def b (new PathBuilder())
+        b.moveTo(100.0 100.0)
+        b.lineBy(10.0 0.0)
+        b.lineBy(0.0 (0.0 - 20.0))
+        def one:PathCommand (this.cmdAt(b 1))
+        t.near("lineBy advances from the pen" one.x 110.0)
+        t.near("holding the other axis" one.y 100.0)
+        def two:PathCommand (this.cmdAt(b 2))
+        t.near("and again from the new position" two.x 110.0)
+        t.near("with a negative step going up" two.y 80.0)
+
+        ; A relative move as the very first command has no pen to be relative
+        ; to. Treating it as absolute is the honest reading; measuring it from
+        ; an implied (0, 0) would put the shape somewhere the caller never
+        ; asked for.
+        def fresh (new PathBuilder())
+        fresh.lineBy(7.0 9.0)
+        def first:PathCommand (this.cmdAt(fresh 0))
+        t.near("a leading relative move is absolute" first.x 7.0)
+        t.near("on both axes" first.y 9.0)
+    }
+
+    fn testCloseReturnsThePen:void (t:RgTest) {
+        ; After a close the pen is back at the subpath start, so a relative
+        ; move measures from there — the same rule the parser follows.
+        def b (new PathBuilder())
+        b.moveTo(50.0 50.0)
+        b.lineTo(80.0 50.0)
+        b.lineTo(80.0 80.0)
+        b.close()
+        b.lineBy(5.0 5.0)
+        def after:PathCommand (this.cmdAt(b 4))
+        t.near("the pen returned to the subpath start" after.x 55.0)
+        t.near("on both axes" after.y 55.0)
+    }
+
+    fn testShapesAccumulate:void (t:RgTest) {
+        ; Forty gridlines as one path rather than forty elements: each shape is
+        ; its own subpath in the same command list.
+        def b (new PathBuilder())
+        b.addRect(0.0 0.0 100.0 50.0)
+        b.addCircle(50.0 25.0 10.0)
+        t.eqInt("two shapes give two movetos" (this.countOf(b "M")) 2)
+        t.eqInt("and two closepaths" (this.countOf(b "Z")) 2)
+        t.eqInt("the circle contributes its cubics" (this.countOf(b "C")) 4)
+
+        ; The pen follows what was appended, so a relative move afterwards
+        ; starts where the appended shape left the pen — at the last subpath's
+        ; start, because a shape ends closed.
+        b.lineBy(0.0 0.0)
+        def last:PathCommand (this.cmdAt(b ((b.commandCount()) - 1)))
+        t.near("the pen tracks appended shapes" last.x 60.0)
+        t.near("on both axes" last.y 25.0)
+
+        ; Degenerate shapes contribute nothing rather than a stray point.
+        def d (new PathBuilder())
+        d.addCircle(0.0 0.0 0.0)
+        t.eqBool("a zero-radius circle adds nothing" (d.isEmpty()) true)
+    }
+
+    fn testPathDataAppend:void (t:RgTest) {
+        ; A marker or icon that already exists as path data drops straight in.
+        def b (new PathBuilder())
+        b.addRect(0.0 0.0 10.0 10.0)
+        b.addPathData("M20 20 L30 30 Z")
+        t.eqInt("appended path data adds its subpath" (this.countOf(b "M")) 2)
+        def cmds:[PathCommand] (b.getCommands())
+        def n:int (array_length cmds)
+        t.eqStr("ending with its closepath" ((itemAt cmds (n - 1)).type) "Z")
+
+        ; What does not parse does not arrive, per the parser's own rule.
+        def bad (new PathBuilder())
+        bad.addPathData("M0 0 L10 10 X9")
+        t.eqInt("the good part of malformed data is kept" (bad.commandCount()) 2)
+    }
+
+    fn testBounds:void (t:RgTest) {
+        def b (new PathBuilder())
+        b.moveTo(10.0 20.0)
+        b.lineTo(50.0 60.0)
+        def box:PathBounds (b.bounds())
+        t.near("bounds minX" box.minX 10.0)
+        t.near("bounds minY" box.minY 20.0)
+        t.near("bounds width" box.width 40.0)
+        t.near("bounds height" box.height 40.0)
+
+        ; A curve can bulge past its endpoints, so control points count. A box
+        ; that ignored them would crop exactly the shapes curves are used for.
+        def c (new PathBuilder())
+        c.moveTo(0.0 0.0)
+        c.cubicTo(0.0 100.0 100.0 100.0 100.0 0.0)
+        def curved:PathBounds (c.bounds())
+        t.near("control points widen the bounds" curved.maxY 100.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The property that matters
+    ; --------------------------------------------------------------------------
+
+    fn testRoundTrip:void (t:RgTest) {
+        def b (new PathBuilder())
+        b.moveTo(5.5 10.25)
+        b.lineTo(20.0 10.25)
+        b.cubicTo(30.0 10.25 40.0 20.5 40.0 30.0)
+        b.quadTo(40.0 40.0 20.0 40.0)
+        b.close()
+        b.addCircle(60.0 60.0 12.5)
+
+        def d:string (b.asPathData())
+        t.ok("the builder emits path data" ((strlen d) > 0))
+
+        def p (new SVGPathParser())
+        p.parse(d)
+        t.eqBool("which the parser reads without complaint" (p.hasErrors()) false)
+
+        def back:[PathCommand] (p.getCommands())
+        def built:[PathCommand] (b.getCommands())
+        t.eqInt("with the same number of commands" (array_length back) (array_length built))
+
+        def worst:double 0.0
+        def k:int 0
+        while (k < (array_length built)) {
+            def a:PathCommand (itemAt built k)
+            def z:PathCommand (itemAt back k)
+            t.eqStr(("command " + (to_string k) + " keeps its type") z.type a.type)
+            def dx:double (z.x - a.x)
+            if (dx < 0.0) { dx = (0.0 - dx) }
+            if (dx > worst) { worst = dx }
+            def dy:double (z.y - a.y)
+            if (dy < 0.0) { dy = (0.0 - dy) }
+            if (dy > worst) { worst = dy }
+            def dx1:double (z.x1 - a.x1)
+            if (dx1 < 0.0) { dx1 = (0.0 - dx1) }
+            if (dx1 > worst) { worst = dx1 }
+            def dy2:double (z.y2 - a.y2)
+            if (dy2 < 0.0) { dy2 = (0.0 - dy2) }
+            if (dy2 > worst) { worst = dy2 }
+            k = (k + 1)
+        }
+        t.ok("and every coordinate survives, controls included" (worst < 0.0002))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; What this is for
+    ; --------------------------------------------------------------------------
+
+    fn testSeriesFromData:void (t:RgTest) {
+        ; A line series and its filled area, built the way a chart would: one
+        ; pass over the data, no string concatenation, no per-point element.
+        def values:[double]
+        push values 10.0
+        push values 40.0
+        push values 25.0
+        push values 60.0
+        push values 45.0
+
+        def plotX:double 0.0
+        def plotY:double 0.0
+        def plotW:double 200.0
+        def plotH:double 100.0
+        def maxV:double 60.0
+
+        def line (new PathBuilder())
+        def i:int 0
+        while (i < (array_length values)) {
+            def v:double (itemAt values i)
+            def x:double (plotX + ((plotW * (to_double i)) / (to_double ((array_length values) - 1))))
+            def y:double ((plotY + plotH) - ((v / maxV) * plotH))
+            line.lineTo(x y)
+            i = (i + 1)
+        }
+
+        t.eqInt("one command per data point" (line.commandCount()) 5)
+        t.eqInt("the first promoted to a moveto" (this.countOf(line "M")) 1)
+        t.eqInt("the rest linetos" (this.countOf(line "L")) 4)
+
+        def box:PathBounds (line.bounds())
+        t.near("the series spans the plot width" box.width 200.0)
+        t.near("the highest value reaches the top" box.minY 0.0)
+        ; 10 of 60 sits a sixth of the way up, so the lowest point is five
+        ; sixths of the way down the plot.
+        def expectedLow:double (plotH - ((10.0 / 60.0) * plotH))
+        t.near("and the lowest sits where its value puts it" box.maxY expectedLow)
+
+        ; The same points closed into an area fill, by continuing the path down
+        ; to the baseline — one path, one fill.
+        def area (new PathBuilder())
+        area.addCommands((line.getCommands()))
+        area.lineTo((plotX + plotW) (plotY + plotH))
+        area.lineTo(plotX (plotY + plotH))
+        area.close()
+        t.eqInt("the area reuses the series and closes it" (area.commandCount()) 8)
+        t.eqInt("as a single subpath" (this.countOf(area "M")) 1)
+
+        def d:string (area.asPathData())
+        def p (new SVGPathParser())
+        p.parse(d)
+        t.eqBool("and the result is valid path data" (p.hasErrors()) false)
+    }
+}

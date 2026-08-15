@@ -1,0 +1,573 @@
+; ==============================================================================
+; vector_raster_test.rgr — contours, fill rules and holes
+; ==============================================================================
+; PLAN_VECTOR_IR.md §2.4 and Stage 2.
+;
+; Two things are pinned here, and they fail in different places:
+;
+;   1. flattenRings preserves subpath boundaries. The older flatten() returned
+;      every point of every subpath in one list, so a consumer could only treat
+;      the result as a single polygon — which is why a donut, the letter "O" or
+;      any icon with a counter came out solid.
+;
+;   2. VectorRasterizer applies the fill rule across ALL rings at once. Whether
+;      a pixel is inside is a question about the whole shape, so filling ring by
+;      ring cannot produce a hole no matter how the rings are wound.
+;
+; The rasterizer is checked by rendering into a small buffer and reading pixels
+; back, because "is the middle of this ring transparent" is not a property any
+; amount of edge bookkeeping demonstrates on its own.
+;
+;   bash gallery/pdf_writer/test/run_vector.sh
+; ==============================================================================
+
+Import "../src/raster/VectorRasterizer.rgr"
+Import "../src/raster/RasterBuffer.rgr"
+Import "../../evg/SVGPathParser.rgr"
+Import "../../evg/VectorStroke.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class VectorRasterTest {
+
+    sfn m@(main):void () {
+        def test (new VectorRasterTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/vector_raster"))
+        test.testRingSplitting(t)
+        test.testRingTransform(t)
+        test.testSolidFill(t)
+        test.testNonZeroHole(t)
+        test.testNonZeroSameWindingIsSolid(t)
+        test.testEvenOddHole(t)
+        test.testAntiAliasing(t)
+        test.testDonutPath(t)
+        test.testArcDonut(t)
+        test.testStroke(t)
+        test.testDashParsing(t)
+        test.testDashedStroke(t)
+        test.testTransform(t)
+        test.testClipRect(t)
+        t.summary()
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Ring splitting
+    ; --------------------------------------------------------------------------
+
+    fn testRingSplitting:void (t:RgTest) {
+        ; Two subpaths, so two rings. The old flatten() gave one list of eight
+        ; points with nothing marking where the first shape ended.
+        def p (new SVGPathParser())
+        p.parse("M0 0 L10 0 L10 10 L0 10 Z M3 3 L7 3 L7 7 L3 7 Z")
+        def rings:[PathRing] (p.flattenRingsPlain(4))
+        t.eqInt("two subpaths give two rings" (array_length rings) 2)
+
+        def outer:PathRing (itemAt rings 0)
+        def inner:PathRing (itemAt rings 1)
+        t.eqInt("the outer ring keeps its four corners" (outer.pointCount()) 4)
+        t.eqInt("the inner ring keeps its four corners" (inner.pointCount()) 4)
+
+        ; Z adds no point: the fill closes the ring itself.
+        t.near("first ring starts at the moveto" (itemAt outer.pts 0) 0.0)
+        t.near("second ring starts at its own moveto" (itemAt inner.pts 0) 3.0)
+
+        ; A subpath left open still fills — SVG closes it implicitly.
+        def open (new SVGPathParser())
+        open.parse("M0 0 L10 0 L10 10")
+        def openRings:[PathRing] (open.flattenRingsPlain(4))
+        t.eqInt("an unclosed subpath is still one ring" (array_length openRings) 1)
+        t.eqInt("with all of its points" ((itemAt openRings 0).pointCount()) 3)
+
+        ; Curves are subdivided into the ring, not dropped.
+        def curved (new SVGPathParser())
+        curved.parse("M0 0 C5 0 10 5 10 10 Z")
+        def curvedRings:[PathRing] (curved.flattenRingsPlain(8))
+        t.eqInt("a curve gives one ring" (array_length curvedRings) 1)
+        t.eqInt("subdivided into the requested steps" ((itemAt curvedRings 0).pointCount()) 9)
+
+        ; A moveto that starts a new subpath without a Z still closes the
+        ; previous one for filling purposes.
+        def noZ (new SVGPathParser())
+        noZ.parse("M0 0 L5 0 L5 5 M10 10 L15 10 L15 15")
+        def noZRings:[PathRing] (noZ.flattenRingsPlain(4))
+        t.eqInt("a moveto ends the previous ring" (array_length noZRings) 2)
+    }
+
+    fn testRingTransform:void (t:RgTest) {
+        ; The transform is applied during flattening, so curve subdivision
+        ; happens at the size the shape is actually drawn.
+        def p (new SVGPathParser())
+        p.parse("M0 0 L10 0 L10 10 Z")
+        def rings:[PathRing] (p.flattenRings(4 2.0 0.0 0.0 3.0 100.0 50.0))
+        def r:PathRing (itemAt rings 0)
+        t.near("origin is translated" (itemAt r.pts 0) 100.0)
+        t.near("origin is translated on y" (itemAt r.pts 1) 50.0)
+        t.near("x is scaled then translated" (itemAt r.pts 2) 120.0)
+        t.near("the second point keeps its y" (itemAt r.pts 3) 50.0)
+        ; (10, 10) under scale (2, 3) then translate (100, 50) -> (120, 80).
+        t.near("the third point takes the x scale" (itemAt r.pts 4) 120.0)
+        t.near("and the y scale, which differs from it" (itemAt r.pts 5) 80.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Filling
+    ; --------------------------------------------------------------------------
+
+    fn makeBuffer:RasterBuffer (w:int h:int) {
+        def buf (new RasterBuffer())
+        buf.create(w h)
+        return buf
+    }
+
+    ; A square ring, wound clockwise on screen (y down) when `cw` is true.
+    fn square:[double] (x:double y:double size:double cw:boolean) {
+        def pts:[double]
+        if cw {
+            push pts x
+            push pts y
+            push pts (x + size)
+            push pts y
+            push pts (x + size)
+            push pts (y + size)
+            push pts x
+            push pts (y + size)
+        } {
+            push pts x
+            push pts y
+            push pts x
+            push pts (y + size)
+            push pts (x + size)
+            push pts (y + size)
+            push pts (x + size)
+            push pts y
+        }
+        return pts
+    }
+
+    fn alphaAt:int (buf:RasterBuffer x:int y:int) {
+        return (buf.getA(x y))
+    }
+
+    fn testSolidFill:void (t:RgTest) {
+        def buf:RasterBuffer (this.makeBuffer(40 40))
+        def r (new VectorRasterizer())
+        def ring1:[double] (this.square(10.0 10.0 20.0 true))
+        r.addRing(ring1)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 255 0 0 255 rule)
+
+        t.eqInt("the middle of a square is opaque" (this.alphaAt(buf 20 20)) 255)
+        t.eqInt("well outside it is untouched" (this.alphaAt(buf 2 2)) 0)
+        t.eqInt("just outside the edge is untouched" (this.alphaAt(buf 35 20)) 0)
+        t.eqInt("the fill carries its colour" (buf.getR(20 20)) 255)
+    }
+
+    fn testNonZeroHole:void (t:RgTest) {
+        ; Outer clockwise, inner counter-clockwise: the windings cancel inside
+        ; the inner ring, so the non-zero rule leaves a hole. This is how every
+        ; donut, ring icon and letter counter is built.
+        def buf:RasterBuffer (this.makeBuffer(40 40))
+        def r (new VectorRasterizer())
+        def ring2:[double] (this.square(5.0 5.0 30.0 true))
+        r.addRing(ring2)
+        def ring3:[double] (this.square(15.0 15.0 10.0 false))
+        r.addRing(ring3)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 255 255 rule)
+
+        t.eqInt("the band between the rings is filled" (this.alphaAt(buf 10 20)) 255)
+        t.eqInt("the band is filled on the other side too" (this.alphaAt(buf 30 20)) 255)
+        t.eqInt("the middle of the inner ring is a hole" (this.alphaAt(buf 20 20)) 0)
+        t.eqInt("outside everything stays empty" (this.alphaAt(buf 1 1)) 0)
+    }
+
+    fn testNonZeroSameWindingIsSolid:void (t:RgTest) {
+        ; Same construction, but both rings wound the same way: now the windings
+        ; ADD, and the non-zero rule fills straight through. This is the
+        ; difference the rule actually expresses, and getting it backwards is
+        ; how a hole silently becomes a blob.
+        def buf:RasterBuffer (this.makeBuffer(40 40))
+        def r (new VectorRasterizer())
+        def ring4:[double] (this.square(5.0 5.0 30.0 true))
+        r.addRing(ring4)
+        def ring5:[double] (this.square(15.0 15.0 10.0 true))
+        r.addRing(ring5)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 255 255 rule)
+
+        t.eqInt("co-wound rings fill solid under non-zero" (this.alphaAt(buf 20 20)) 255)
+    }
+
+    fn testEvenOddHole:void (t:RgTest) {
+        ; Even-odd ignores direction entirely: two nested rings always give a
+        ; hole, whichever way each is wound. That is why SVG offers it, and it
+        ; is the one capability glyph rendering never needed.
+        def buf:RasterBuffer (this.makeBuffer(40 40))
+        def r (new VectorRasterizer())
+        def ring6:[double] (this.square(5.0 5.0 30.0 true))
+        r.addRing(ring6)
+        def ring7:[double] (this.square(15.0 15.0 10.0 true))
+        r.addRing(ring7)
+        def rule:int (VectorRasterizer.evenOdd())
+        r.fillAA(buf 0 128 0 255 rule)
+
+        t.eqInt("even-odd fills the band" (this.alphaAt(buf 10 20)) 255)
+        t.eqInt("even-odd punches the hole regardless of winding" (this.alphaAt(buf 20 20)) 0)
+    }
+
+    fn testAntiAliasing:void (t:RgTest) {
+        ; A half-pixel edge must land between transparent and opaque, not snap
+        ; to one of them. Sixteen samples per pixel give 17 levels, which is
+        ; what glyph rendering has always used and what path fills now inherit.
+        def buf:RasterBuffer (this.makeBuffer(20 20))
+        def r (new VectorRasterizer())
+        def pts:[double]
+        push pts 5.0
+        push pts 5.0
+        push pts 10.5
+        push pts 5.0
+        push pts 10.5
+        push pts 15.0
+        push pts 5.0
+        push pts 15.0
+        r.addRing(pts)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        def edge:int (this.alphaAt(buf 10 10))
+        t.ok("a half-covered pixel is partially opaque" ((edge > 0) && (edge < 255)))
+        t.eqInt("a fully covered pixel is opaque" (this.alphaAt(buf 7 10)) 255)
+        t.eqInt("an uncovered pixel is empty" (this.alphaAt(buf 12 10)) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; End to end: path data -> rings -> pixels
+    ; --------------------------------------------------------------------------
+
+    ; --------------------------------------------------------------------------
+    ; Stroking
+    ; --------------------------------------------------------------------------
+    ; Approximated as fillable geometry: a quad per segment plus a disc at each
+    ; joint, merged by the non-zero rule. PLAN_VECTOR_IR.md Stage 2 says this is
+    ; the approximation and real offset curves are the eventual answer — but
+    ; without it an outline icon (fill: none, stroke: ...) is simply invisible
+    ; in the raster target while showing up in PDF and HTML.
+    fn testStroke:void (t:RgTest) {
+        def buf:RasterBuffer (this.makeBuffer(60 60))
+        def r (new VectorRasterizer())
+        ; A horizontal line across the middle, 6 units wide.
+        def line:[double]
+        push line 10.0
+        push line 30.0
+        push line 50.0
+        push line 30.0
+        r.addStroke(line 6.0 false)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        t.eqInt("the stroke covers its centre line" (this.alphaAt(buf 30 30)) 255)
+        t.eqInt("and its full half-width above" (this.alphaAt(buf 30 28)) 255)
+        t.eqInt("and below" (this.alphaAt(buf 30 32)) 255)
+        t.eqInt("but not beyond the half-width" (this.alphaAt(buf 30 40)) 0)
+        t.eqInt("and not past the end" (this.alphaAt(buf 56 30)) 0)
+
+        ; An open path must NOT be stroked along a phantom closing edge.
+        def open:RasterBuffer (this.makeBuffer(60 60))
+        def r2 (new VectorRasterizer())
+        def el:[double]
+        push el 10.0
+        push el 10.0
+        push el 50.0
+        push el 10.0
+        push el 50.0
+        push el 50.0
+        r2.addStroke(el 4.0 false)
+        r2.fillAA(open 0 0 0 255 rule)
+        t.eqInt("an open stroke follows its segments" (this.alphaAt(open 30 10)) 255)
+        t.eqInt("an open stroke does not close itself" (this.alphaAt(open 30 30)) 0)
+
+        ; A closed one does.
+        def shut:RasterBuffer (this.makeBuffer(60 60))
+        def r3 (new VectorRasterizer())
+        r3.addStroke(el 4.0 true)
+        r3.fillAA(shut 0 0 0 255 rule)
+        t.eqInt("a closed stroke joins the last point to the first" (this.alphaAt(shut 30 30)) 255)
+
+        ; Joints are filled: the outside of a corner is a wedge the two quads
+        ; leave open, which is what the disc is for.
+        def corner:RasterBuffer (this.makeBuffer(60 60))
+        def r4 (new VectorRasterizer())
+        def bend:[double]
+        push bend 10.0
+        push bend 30.0
+        push bend 30.0
+        push bend 30.0
+        push bend 30.0
+        push bend 50.0
+        r4.addStroke(bend 8.0 false)
+        r4.fillAA(corner 0 0 0 255 rule)
+        ; (32, 28) is outside BOTH quads — past the end of the horizontal one
+        ; and above the start of the vertical one — but 2.83 units from the
+        ; corner, so the round join covers it.
+        t.eqInt("the round join fills the wedge between the quads" (this.alphaAt(corner 32 28)) 255)
+        ; (34, 26) is 5.7 units out: beyond the join radius, so a round join
+        ; leaves it empty where a mitre would have run to a point.
+        t.eqInt("the join is round, not mitred" (this.alphaAt(corner 34 26)) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Transform
+    ; --------------------------------------------------------------------------
+    ; The rasterizer applies an affine transform as points arrive, which is
+    ; what makes rotation work for glyphs and paths alike: RasterText feeds its
+    ; contours through the same addEdge a path does.
+
+    fn testTransform:void (t:RgTest) {
+        ; A wide, short bar rotated a quarter turn about its own centre must
+        ; come out tall and narrow, occupying the same centre.
+        def buf:RasterBuffer (this.makeBuffer(60 60))
+        def r (new VectorRasterizer())
+        ; Rotate 90 degrees clockwise about (30, 30): x' = -y + 60, y' = x.
+        r.setTransform(0.0 1.0 (0.0 - 1.0) 0.0 60.0 0.0)
+        def bar:[double] (this.square(10.0 25.0 0.0 true))
+        ; A 40 x 10 bar, written out rather than squared.
+        def pts:[double]
+        push pts 10.0
+        push pts 25.0
+        push pts 50.0
+        push pts 25.0
+        push pts 50.0
+        push pts 35.0
+        push pts 10.0
+        push pts 35.0
+        r.addRing(pts)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        ; Before rotation the bar spans x 10..50, y 25..35. After a quarter
+        ; turn about the centre it spans x 25..35, y 10..50.
+        t.eqInt("the rotated bar covers its own centre" (this.alphaAt(buf 30 30)) 255)
+        t.eqInt("it reaches up where it used to reach right" (this.alphaAt(buf 30 15)) 255)
+        t.eqInt("and down" (this.alphaAt(buf 30 45)) 255)
+        t.eqInt("but no longer reaches right" (this.alphaAt(buf 45 30)) 0)
+        t.eqInt("or left" (this.alphaAt(buf 15 30)) 0)
+
+        ; Clearing puts it back: a transform is per drawing, and one left set
+        ; would turn everything drawn afterwards.
+        def plain:RasterBuffer (this.makeBuffer(60 60))
+        def r2 (new VectorRasterizer())
+        r2.setTransform(0.0 1.0 (0.0 - 1.0) 0.0 60.0 0.0)
+        r2.clearTransform()
+        r2.addRing(pts)
+        r2.fillAA(plain 0 0 0 255 rule)
+        t.eqInt("a cleared transform draws the original" (this.alphaAt(plain 45 30)) 255)
+        t.eqInt("and not the rotated one" (this.alphaAt(plain 30 15)) 0)
+
+        ; A rotation turns horizontal edges into ones that matter, so the
+        ; horizontal-edge shortcut has to run after the transform, not before.
+        def flat:RasterBuffer (this.makeBuffer(60 60))
+        def r3 (new VectorRasterizer())
+        r3.setTransform(0.0 1.0 (0.0 - 1.0) 0.0 60.0 0.0)
+        def horiz:[double]
+        push horiz 10.0
+        push horiz 20.0
+        push horiz 50.0
+        push horiz 20.0
+        push horiz 50.0
+        push horiz 40.0
+        push horiz 10.0
+        push horiz 40.0
+        r3.addRing(horiz)
+        t.ok("edges that were horizontal survive the rotation" ((r3.edgeCount()) >= 2))
+    }
+
+    fn testClipRect:void (t:RgTest) {
+        ; A shape wider than its plot area has to stop at the edge rather than
+        ; running out into the margin. The raster target had no clipping at
+        ; all before this.
+        def buf:RasterBuffer (this.makeBuffer(60 60))
+        def r (new VectorRasterizer())
+        r.setClipRect(10 10 30 30)
+        def wide:[double]
+        push wide 0.0
+        push wide 15.0
+        push wide 60.0
+        push wide 15.0
+        push wide 60.0
+        push wide 25.0
+        push wide 0.0
+        push wide 25.0
+        r.addRing(wide)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        t.eqInt("inside the clip is drawn" (this.alphaAt(buf 20 20)) 255)
+        t.eqInt("past the right edge is not" (this.alphaAt(buf 40 20)) 0)
+        t.eqInt("before the left edge is not" (this.alphaAt(buf 5 20)) 0)
+        ; The clip is inclusive of its far edge, matching a box that owns its
+        ; last pixel.
+        t.eqInt("the far edge itself is inside" (this.alphaAt(buf 30 20)) 255)
+
+        ; Clearing restores the full extent.
+        def full:RasterBuffer (this.makeBuffer(60 60))
+        def r2 (new VectorRasterizer())
+        r2.setClipRect(10 10 30 30)
+        r2.clearClip()
+        r2.addRing(wide)
+        r2.fillAA(full 0 0 0 255 rule)
+        t.eqInt("a cleared clip draws the whole shape" (this.alphaAt(full 45 20)) 255)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Dashes
+    ; --------------------------------------------------------------------------
+
+    fn testDashParsing:void (t:RgTest) {
+        def two:[double] (VectorStroke.parseDashes("8 4"))
+        t.eqInt("a two-entry pattern parses" (array_length two) 2)
+        t.near("on length" (itemAt two 0) 8.0)
+        t.near("off length" (itemAt two 1) 4.0)
+
+        ; Commas separate as well as spaces, in any mix.
+        def commas:[double] (VectorStroke.parseDashes("3,1, 3 ,1"))
+        t.eqInt("commas and spaces mix freely" (array_length commas) 4)
+
+        ; An odd-length pattern repeats to become even, so "4" is 4 on 4 off.
+        def odd:[double] (VectorStroke.parseDashes("4"))
+        t.eqInt("an odd pattern repeats to become even" (array_length odd) 2)
+        t.near("with the same value on" (itemAt odd 0) 4.0)
+        t.near("and off" (itemAt odd 1) 4.0)
+
+        def odd3:[double] (VectorStroke.parseDashes("1 2 3"))
+        t.eqInt("a three-entry pattern doubles to six" (array_length odd3) 6)
+
+        ; Empty means solid, and so does anything the spec calls invalid — one
+        ; thing for a caller to check instead of three.
+        def none:[double] (VectorStroke.parseDashes(""))
+        t.eqInt("an empty pattern is solid" (array_length none) 0)
+        def neg:[double] (VectorStroke.parseDashes("4 -2"))
+        t.eqInt("a negative entry invalidates the pattern" (array_length neg) 0)
+        def junk:[double] (VectorStroke.parseDashes("4 wide"))
+        t.eqInt("so does an unparseable one" (array_length junk) 0)
+        ; All zeroes would never advance along the path.
+        def zeroes:[double] (VectorStroke.parseDashes("0 0"))
+        t.eqInt("an all-zero pattern is not a pattern" (array_length zeroes) 0)
+
+        def scaled:[double] (VectorStroke.scaleDashes(two 2.5))
+        t.near("dash lengths scale with the drawing" (itemAt scaled 0) 20.0)
+        t.near("both of them" (itemAt scaled 1) 10.0)
+    }
+
+    fn testDashedStroke:void (t:RgTest) {
+        ; A horizontal line, 10 on and 10 off, starting at x = 0. So x in
+        ; [0,10) is ink, [10,20) is gap, [20,30) is ink again.
+        def buf:RasterBuffer (this.makeBuffer(60 20))
+        def r (new VectorRasterizer())
+        def line:[double]
+        push line 0.0
+        push line 10.0
+        push line 60.0
+        push line 10.0
+        def dashes:[double] (VectorStroke.parseDashes("10 10"))
+        r.addDashedStroke(line 4.0 false dashes 0.0)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        t.eqInt("the first dash is drawn" (this.alphaAt(buf 5 10)) 255)
+        t.eqInt("the first gap is empty" (this.alphaAt(buf 15 10)) 0)
+        t.eqInt("the second dash is drawn" (this.alphaAt(buf 25 10)) 255)
+        t.eqInt("the second gap is empty" (this.alphaAt(buf 35 10)) 0)
+
+        ; dashoffset shifts the pattern along the path, which is how separate
+        ; gridlines are made to line up with each other.
+        def shifted:RasterBuffer (this.makeBuffer(60 20))
+        def r2 (new VectorRasterizer())
+        r2.addDashedStroke(line 4.0 false dashes 10.0)
+        r2.fillAA(shifted 0 0 0 255 rule)
+        t.eqInt("an offset of one dash inverts the pattern" (this.alphaAt(shifted 5 10)) 0)
+        t.eqInt("so the former gap is now ink" (this.alphaAt(shifted 15 10)) 255)
+
+        ; An empty pattern is a solid stroke, not an invisible one — the
+        ; failure mode that would quietly erase every gridline.
+        def solid:RasterBuffer (this.makeBuffer(60 20))
+        def r3 (new VectorRasterizer())
+        def noDashes:[double]
+        r3.addDashedStroke(line 4.0 false noDashes 0.0)
+        r3.fillAA(solid 0 0 0 255 rule)
+        t.eqInt("no pattern means solid here" (this.alphaAt(solid 15 10)) 255)
+        t.eqInt("all the way along" (this.alphaAt(solid 45 10)) 255)
+
+        ; A dash carries across a corner rather than restarting at the vertex.
+        def corner:RasterBuffer (this.makeBuffer(60 60))
+        def r4 (new VectorRasterizer())
+        def bend:[double]
+        push bend 5.0
+        push bend 5.0
+        push bend 25.0
+        push bend 5.0
+        push bend 25.0
+        push bend 45.0
+        def longDash:[double] (VectorStroke.parseDashes("100 100"))
+        r4.addDashedStroke(bend 4.0 false longDash 0.0)
+        r4.fillAA(corner 0 0 0 255 rule)
+        t.eqInt("a dash longer than the first segment continues past the corner"
+                (this.alphaAt(corner 25 25)) 255)
+    }
+
+    ; The same shape written with arcs instead of straight lines, which is how
+    ; a real ring icon comes out of a drawing tool. The two arcs are given
+    ; opposite sweep flags, and it is that — not the ring order — that decides
+    ; whether the middle is a hole under the non-zero rule.
+    fn testArcDonut:void (t:RgTest) {
+        ; Each circle is written as TWO semicircular arcs whose endpoints are
+        ; diametrically opposite. That pins the centre at (50, 50) for both:
+        ; with a chord that is a full diameter there is only one possible
+        ; centre, so the flags choose the direction and nothing else. Writing a
+        ; circle as ONE near-closed arc leaves two candidate centres and the
+        ; flags pick between them, which is a much easier thing to get wrong
+        ; than it looks.
+        def p (new SVGPathParser())
+        p.parse("M10,50 A40 40 0 1 0 90,50 A40 40 0 1 0 10,50 Z M30,50 A20 20 0 1 1 70,50 A20 20 0 1 1 30,50 Z")
+        def rings:[PathRing] (p.flattenRingsPlain(8))
+        t.eqInt("two circles give two rings" (array_length rings) 2)
+        t.eqBool("the arc donut parses cleanly" (p.hasErrors()) false)
+
+        def buf:RasterBuffer (this.makeBuffer(100 100))
+        def r (new VectorRasterizer())
+        def k:int 0
+        while (k < (array_length rings)) {
+            def ring:PathRing (itemAt rings k)
+            r.addRing(ring.pts)
+            k = (k + 1)
+        }
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 10 10 10 255 rule)
+
+        t.eqInt("the arc band is filled on the left" (this.alphaAt(buf 15 50)) 255)
+        t.eqInt("the arc band is filled on the right" (this.alphaAt(buf 85 50)) 255)
+        t.eqInt("the arc counter is a hole" (this.alphaAt(buf 50 50)) 0)
+        t.eqInt("outside the outer arc is empty" (this.alphaAt(buf 2 50)) 0)
+    }
+
+    fn testDonutPath:void (t:RgTest) {
+        ; The whole chain, on the shape that motivated it. Two concentric
+        ; squares written as one path with opposite winding.
+        def p (new SVGPathParser())
+        p.parse("M5 5 L35 5 L35 35 L5 35 Z M15 15 L15 25 L25 25 L25 15 Z")
+        def rings:[PathRing] (p.flattenRingsPlain(4))
+        t.eqInt("the path gives two rings" (array_length rings) 2)
+
+        def buf:RasterBuffer (this.makeBuffer(40 40))
+        def r (new VectorRasterizer())
+        def k:int 0
+        while (k < (array_length rings)) {
+            def ring:PathRing (itemAt rings k)
+            r.addRing(ring.pts)
+            k = (k + 1)
+        }
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 20 20 20 255 rule)
+
+        t.eqInt("the ring band is filled" (this.alphaAt(buf 10 20)) 255)
+        t.eqInt("the counter is a hole" (this.alphaAt(buf 20 20)) 0)
+    }
+}

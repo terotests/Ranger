@@ -20,6 +20,26 @@ class PathCommand {
     def sweep:boolean false
 }
 
+; One closed contour of a flattened path, as a flat [x0 y0 x1 y1 ...] list.
+;
+; Rings are the unit a fill is defined over, which is why flattening has to
+; preserve them: `flatten` returns every point of every subpath in one list with
+; no boundary between them, so a consumer can only treat the result as a single
+; polygon. That is why a donut, the letter "O", or any icon with a counter came
+; out solid — the hole and the outline were welded into one ring.
+class PathRing {
+    def pts:[double]
+
+    Constructor () {
+        def p:[double]
+        pts = p
+    }
+
+    fn pointCount:int () {
+        return (idiv (array_length pts) 2)
+    }
+}
+
 class PathBounds {
     def minX:double 0.0
     def minY:double 0.0
@@ -39,11 +59,62 @@ class SVGPathParser {
     def startY:double 0.0
     def commands:[PathCommand]
     def bounds:PathBounds
-    
+
+    ; The previous segment's second control point, reflected by S and T.
+    ; `lastCtrlKind` is "C" after a cubic, "Q" after a quadratic and "" after
+    ; anything else — S following a non-cubic (and T following a non-quadratic)
+    ; must use the current point instead of a stale reflection.
+    def lastCtrlX:double 0.0
+    def lastCtrlY:double 0.0
+    def lastCtrlKind:string ""
+
+    ; Diagnostics. SVG 1.1 §8.3 says a path with a syntax error renders up to,
+    ; but not including, the command containing the error — so bad data is
+    ; partially drawn rather than dropped or fatal. That is implemented, but on
+    ; its own it is indistinguishable from art that just ends there, which is
+    ; how unsupported commands went unnoticed for so long. So the parser also
+    ; records WHAT it refused and where, and callers can surface it.
+    def errors:[string]
+    def truncated:boolean false
+
+    ; Set when a number was expected and not found. Commands check it after
+    ; reading their arguments and decline to emit a partial segment.
+    def numFail:boolean false
+
     Constructor () {
         def emptyCommands:[PathCommand]
         commands = emptyCommands
+        def emptyErrors:[string]
+        errors = emptyErrors
         bounds = (new PathBounds())
+    }
+
+    fn getErrors:[string] () {
+        return errors
+    }
+
+    fn hasErrors:boolean () {
+        return ((array_length errors) > 0)
+    }
+
+    ; One line naming every problem, for a renderer or CLI to print. Empty when
+    ; the path parsed cleanly.
+    fn errorSummary:string () {
+        def n:int (array_length errors)
+        if (n == 0) {
+            return ""
+        }
+        def out:string (itemAt errors 0)
+        def k:int 1
+        while (k < n) {
+            out = (out + "; " + (itemAt errors k))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn addError:void (msg:string) {
+        push errors (msg + " at offset " + (to_string i))
     }
     
     ; Parse SVG path data string
@@ -59,27 +130,110 @@ class SVGPathParser {
         ; Reset commands array
         def emptyCommands:[PathCommand]
         commands = emptyCommands
-        
-        ; Parse path commands
+        def emptyErrors:[string]
+        errors = emptyErrors
+        truncated = false
+        lastCtrlKind = ""
+
+        ; The command letter currently in force. SVG lets a command's argument
+        ; set repeat without repeating the letter — "M 10 10 20 20 30 30" is a
+        ; moveto followed by two linetos — and real files lean on it heavily,
+        ; both hand-written and from optimizers. The old loop read one letter,
+        ; consumed exactly one argument set, and then skipped the leftover
+        ; numbers one character at a time, silently losing every repeat.
+        def pending:int 0
+
         while (i < len) {
             this.skipWhitespace()
             if (i >= len) {
                 break
             }
-            
+
             def ch:char (charAt pathData i)
             def chInt:int ch
-            
-            ; Command letters
-            if (((chInt >= 65) && (chInt <= 90)) || ((chInt >= 97) && (chInt <= 122))) {
-                this.parseCommand(ch)
+
+            def isLetter:boolean false
+            if ((chInt >= 65) && (chInt <= 90)) { isLetter = true }
+            if ((chInt >= 97) && (chInt <= 122)) { isLetter = true }
+
+            if isLetter {
+                pending = chInt
+                i = (i + 1)
             } {
-                i = i + 1
+                if (pending == 0) {
+                    this.addError("path data must begin with a command letter")
+                    truncated = true
+                    break
+                }
+                ; A repeated moveto is a lineto — the pen only moves once.
+                if (pending == 77) { pending = 76 }
+                if (pending == 109) { pending = 108 }
+                ; closepath takes no arguments, so a number here cannot be a
+                ; repeat of anything. Without this the loop would spin forever
+                ; on a command that consumes nothing.
+                if (pending == 90) {
+                    this.addError("unexpected number after closepath")
+                    truncated = true
+                    break
+                }
+                if (pending == 122) {
+                    this.addError("unexpected number after closepath")
+                    truncated = true
+                    break
+                }
+            }
+
+            def ok:boolean (this.parseCommand(pending))
+            if (ok == false) {
+                truncated = true
+                break
             }
         }
-        
+
         ; Calculate bounding box
         this.calculateBounds()
+    }
+
+    ; True when the next non-separator character could start a number, which is
+    ; how an implicit repeat is told apart from the end of the path.
+    fn hasNumberAhead:boolean () {
+        this.skipWhitespace()
+        if (i >= len) {
+            return false
+        }
+        def ch:char (charAt pathData i)
+        def chInt:int ch
+        if ((chInt >= 48) && (chInt <= 57)) { return true }
+        if (chInt == 46) { return true }
+        if (chInt == 45) { return true }
+        if (chInt == 43) { return true }
+        return false
+    }
+
+    ; An arc flag is a single character, 0 or 1, and needs no separator after
+    ; it: "a1 1 0 011 1" is legal and optimizers emit exactly that. Reading a
+    ; flag as a general number would swallow the digits that follow it and throw
+    ; the rest of the arc out of alignment.
+    fn parseFlag:boolean () {
+        this.skipWhitespace()
+        if (i >= len) {
+            numFail = true
+            this.addError("arc flag expected")
+            return false
+        }
+        def ch:char (charAt pathData i)
+        def chInt:int ch
+        if (chInt == 48) {
+            i = (i + 1)
+            return false
+        }
+        if (chInt == 49) {
+            i = (i + 1)
+            return true
+        }
+        numFail = true
+        this.addError("arc flag must be 0 or 1")
+        return false
     }
     
     fn skipWhitespace:void () {
@@ -161,100 +315,94 @@ class SVGPathParser {
         }
         
         def numStr:string (substring pathData start i)
-        def result:double (unwrap (str2double numStr))
-        return result
+        ; A sign with no digits after it, or nothing at all, is a syntax error
+        ; rather than a zero. Reading it as zero is how a malformed path used to
+        ; turn into geometry that looked deliberate.
+        def parsed@(optional):double (str2double numStr)
+        if parsed {
+            return (unwrap parsed)
+        }
+        numFail = true
+        this.addError("expected a number")
+        return 0.0
     }
     
-    fn parseCommand:void (cmd:char) {
-        def cmdInt:int cmd
-        def cmdStr:string (strfromcode cmdInt)
-        i = i + 1
-        
-        ; Move to
+    ; Parse ONE argument set for `cmdInt`. Returns false when the arguments
+    ; were malformed or the command is not one this profile implements, and the
+    ; caller then stops — matching SVG 1.1 §8.3, which renders a path up to but
+    ; not including the command containing the first error.
+    ;
+    ; The command letter has already been consumed by the caller, because an
+    ; implicit repeat has no letter to consume.
+    fn parseCommand:boolean (cmdInt:int) {
+        numFail = false
+
+        ; ----------------------------------------------------------------- M m
         if ((cmdInt == 77) || (cmdInt == 109)) {
             def x:double (this.parseNumber())
             def y:double (this.parseNumber())
-            
+            if numFail {
+                return false
+            }
             if (cmdInt == 109) {
-                ; Relative
                 x = currentX + x
                 y = currentY + y
             }
-            
             def pathCmd (new PathCommand())
             pathCmd.type = "M"
             pathCmd.x = x
             pathCmd.y = y
             push commands pathCmd
-            
             currentX = x
             currentY = y
             startX = x
             startY = y
-            return
+            lastCtrlKind = ""
+            return true
         }
-        
-        ; Line to
+
+        ; ----------------------------------------------------------------- L l
         if ((cmdInt == 76) || (cmdInt == 108)) {
             def x:double (this.parseNumber())
             def y:double (this.parseNumber())
-            
+            if numFail {
+                return false
+            }
             if (cmdInt == 108) {
-                ; Relative
                 x = currentX + x
                 y = currentY + y
             }
-            
-            def pathCmd (new PathCommand())
-            pathCmd.type = "L"
-            pathCmd.x = x
-            pathCmd.y = y
-            push commands pathCmd
-            
-            currentX = x
-            currentY = y
-            return
+            this.emitLine(x y)
+            return true
         }
-        
-        ; Horizontal line
+
+        ; ----------------------------------------------------------------- H h
         if ((cmdInt == 72) || (cmdInt == 104)) {
             def x:double (this.parseNumber())
-            
+            if numFail {
+                return false
+            }
             if (cmdInt == 104) {
-                ; Relative
                 x = currentX + x
             }
-            
-            def pathCmd (new PathCommand())
-            pathCmd.type = "L"
-            pathCmd.x = x
-            pathCmd.y = currentY
-            push commands pathCmd
-            
-            currentX = x
-            return
+            this.emitLine(x currentY)
+            return true
         }
-        
-        ; Vertical line
+
+        ; ----------------------------------------------------------------- V v
         if ((cmdInt == 86) || (cmdInt == 118)) {
             def y:double (this.parseNumber())
-            
+            if numFail {
+                return false
+            }
             if (cmdInt == 118) {
-                ; Relative
                 y = currentY + y
             }
-            
-            def pathCmd (new PathCommand())
-            pathCmd.type = "L"
-            pathCmd.x = currentX
-            pathCmd.y = y
-            push commands pathCmd
-            
-            currentY = y
-            return
+            this.emitLine(currentX y)
+            return true
         }
-        
-        ; Cubic Bezier curve
+
+        ; ----------------------------------------------------------------- C c
         if ((cmdInt == 67) || (cmdInt == 99)) {
             def x1:double (this.parseNumber())
             def y1:double (this.parseNumber())
@@ -262,9 +410,10 @@ class SVGPathParser {
             def y2:double (this.parseNumber())
             def x:double (this.parseNumber())
             def y:double (this.parseNumber())
-            
+            if numFail {
+                return false
+            }
             if (cmdInt == 99) {
-                ; Relative
                 x1 = currentX + x1
                 y1 = currentY + y1
                 x2 = currentX + x2
@@ -272,62 +421,336 @@ class SVGPathParser {
                 x = currentX + x
                 y = currentY + y
             }
-            
-            def pathCmd (new PathCommand())
-            pathCmd.type = "C"
-            pathCmd.x1 = x1
-            pathCmd.y1 = y1
-            pathCmd.x2 = x2
-            pathCmd.y2 = y2
-            pathCmd.x = x
-            pathCmd.y = y
-            push commands pathCmd
-            
-            currentX = x
-            currentY = y
-            return
+            this.emitCubic(x1 y1 x2 y2 x y)
+            return true
         }
-        
-        ; Quadratic Bezier curve
+
+        ; ----------------------------------------------------------------- S s
+        ; Smooth cubic: the first control point is the reflection of the
+        ; previous cubic's second control point about the current point. After
+        ; anything that was not a cubic, the spec says to use the current point
+        ; itself, which is what makes a lone S behave like a plain C.
+        if ((cmdInt == 83) || (cmdInt == 115)) {
+            def x2:double (this.parseNumber())
+            def y2:double (this.parseNumber())
+            def x:double (this.parseNumber())
+            def y:double (this.parseNumber())
+            if numFail {
+                return false
+            }
+            if (cmdInt == 115) {
+                x2 = currentX + x2
+                y2 = currentY + y2
+                x = currentX + x
+                y = currentY + y
+            }
+            def x1:double currentX
+            def y1:double currentY
+            if (lastCtrlKind == "C") {
+                x1 = ((2.0 * currentX) - lastCtrlX)
+                y1 = ((2.0 * currentY) - lastCtrlY)
+            }
+            this.emitCubic(x1 y1 x2 y2 x y)
+            return true
+        }
+
+        ; ----------------------------------------------------------------- Q q
         if ((cmdInt == 81) || (cmdInt == 113)) {
             def x1:double (this.parseNumber())
             def y1:double (this.parseNumber())
             def x:double (this.parseNumber())
             def y:double (this.parseNumber())
-            
+            if numFail {
+                return false
+            }
             if (cmdInt == 113) {
-                ; Relative
                 x1 = currentX + x1
                 y1 = currentY + y1
                 x = currentX + x
                 y = currentY + y
             }
-            
-            def pathCmd (new PathCommand())
-            pathCmd.type = "Q"
-            pathCmd.x1 = x1
-            pathCmd.y1 = y1
-            pathCmd.x = x
-            pathCmd.y = y
-            push commands pathCmd
-            
-            currentX = x
-            currentY = y
-            return
+            this.emitQuad(x1 y1 x y)
+            return true
         }
-        
-        ; Close path
+
+        ; ----------------------------------------------------------------- T t
+        ; Smooth quadratic: same reflection rule, against the previous
+        ; quadratic's single control point.
+        if ((cmdInt == 84) || (cmdInt == 116)) {
+            def x:double (this.parseNumber())
+            def y:double (this.parseNumber())
+            if numFail {
+                return false
+            }
+            if (cmdInt == 116) {
+                x = currentX + x
+                y = currentY + y
+            }
+            def x1:double currentX
+            def y1:double currentY
+            if (lastCtrlKind == "Q") {
+                x1 = ((2.0 * currentX) - lastCtrlX)
+                y1 = ((2.0 * currentY) - lastCtrlY)
+            }
+            this.emitQuad(x1 y1 x y)
+            return true
+        }
+
+        ; ----------------------------------------------------------------- A a
+        if ((cmdInt == 65) || (cmdInt == 97)) {
+            def rx:double (this.parseNumber())
+            def ry:double (this.parseNumber())
+            def rot:double (this.parseNumber())
+            def largeArc:boolean (this.parseFlag())
+            def sweep:boolean (this.parseFlag())
+            def x:double (this.parseNumber())
+            def y:double (this.parseNumber())
+            if numFail {
+                return false
+            }
+            if (cmdInt == 97) {
+                x = currentX + x
+                y = currentY + y
+            }
+            this.emitArc(rx ry rot largeArc sweep x y)
+            return true
+        }
+
+        ; ----------------------------------------------------------------- Z z
         if ((cmdInt == 90) || (cmdInt == 122)) {
             def pathCmd (new PathCommand())
             pathCmd.type = "Z"
             push commands pathCmd
-            
             currentX = startX
             currentY = startY
+            lastCtrlKind = ""
+            return true
+        }
+
+        ; Anything else is outside this profile. Saying so is the point: an
+        ; unknown letter used to be skipped one character at a time, taking its
+        ; arguments with it, so the path silently closed across the gap and
+        ; looked like art that had always been that shape.
+        this.addError("unsupported path command '" + (strfromcode cmdInt) + "'")
+        return false
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Segment emitters — one place each, so the pen and the reflection state
+    ; cannot get out of step with what was pushed.
+    ; --------------------------------------------------------------------------
+
+    fn emitLine:void (x:double y:double) {
+        def pathCmd (new PathCommand())
+        pathCmd.type = "L"
+        pathCmd.x = x
+        pathCmd.y = y
+        push commands pathCmd
+        currentX = x
+        currentY = y
+        lastCtrlKind = ""
+    }
+
+    fn emitCubic:void (x1:double y1:double x2:double y2:double x:double y:double) {
+        def pathCmd (new PathCommand())
+        pathCmd.type = "C"
+        pathCmd.x1 = x1
+        pathCmd.y1 = y1
+        pathCmd.x2 = x2
+        pathCmd.y2 = y2
+        pathCmd.x = x
+        pathCmd.y = y
+        push commands pathCmd
+        currentX = x
+        currentY = y
+        lastCtrlX = x2
+        lastCtrlY = y2
+        lastCtrlKind = "C"
+    }
+
+    fn emitQuad:void (x1:double y1:double x:double y:double) {
+        def pathCmd (new PathCommand())
+        pathCmd.type = "Q"
+        pathCmd.x1 = x1
+        pathCmd.y1 = y1
+        pathCmd.x = x
+        pathCmd.y = y
+        push commands pathCmd
+        currentX = x
+        currentY = y
+        lastCtrlX = x1
+        lastCtrlY = y1
+        lastCtrlKind = "Q"
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Elliptical arc -> cubics
+    ; --------------------------------------------------------------------------
+    ; SVG 1.1 Appendix F.6.5 (endpoint -> centre parameterisation) and F.6.6
+    ; (correction of out-of-range radii). The arc is converted here, once, so
+    ; every consumer gets arcs for free: PDF has no arc operator, the raster
+    ; side flattens curves anyway, and the previous state of affairs was that
+    ; PathCommand carried rx/ry/rotation/largeArc/sweep fields that nothing ever
+    ; produced.
+    ;
+    ; The conversion follows the same construction as the older SVGPath.rgr in
+    ; evg/original/: split the sweep into pieces of at most 90 degrees and give
+    ; each piece a cubic whose control points sit along the arc's tangents.
+    fn emitArc:void (rxIn:double ryIn:double rotDeg:double largeArc:boolean sweep:boolean x:double y:double) {
+        def x1:double currentX
+        def y1:double currentY
+        def x2:double x
+        def y2:double y
+
+        def rx:double (fabs rxIn)
+        def ry:double (fabs ryIn)
+
+        def dx:double (x1 - x2)
+        def dy:double (y1 - y2)
+        def d:double (sqrt ((dx * dx) + (dy * dy)))
+
+        ; Degenerate: coincident endpoints, or a radius of zero. The spec says
+        ; to draw a straight line — not to drop the segment.
+        if (d < 0.00001) {
+            this.emitLine(x2 y2)
             return
         }
+        if (rx < 0.00001) {
+            this.emitLine(x2 y2)
+            return
+        }
+        if (ry < 0.00001) {
+            this.emitLine(x2 y2)
+            return
+        }
+
+        def PI:double (M_PI)
+        def rot:double ((rotDeg / 180.0) * PI)
+        def sinrot:double (sin rot)
+        def cosrot:double (cos rot)
+
+        ; Endpoint -> centre, step 1: the endpoint midpoint in the ellipse's
+        ; own rotated frame.
+        def x1p:double (((cosrot * dx) / 2.0) + ((sinrot * dy) / 2.0))
+        def y1p:double ((((0.0 - sinrot) * dx) / 2.0) + ((cosrot * dy) / 2.0))
+
+        ; F.6.6: radii too small to span the endpoints are scaled up until they
+        ; exactly reach, rather than the arc being abandoned.
+        def lambda:double (((x1p * x1p) / (rx * rx)) + ((y1p * y1p) / (ry * ry)))
+        if (lambda > 1.0) {
+            def k:double (sqrt lambda)
+            rx = (rx * k)
+            ry = (ry * k)
+        }
+
+        def sa:double ((((rx * rx) * (ry * ry)) - ((rx * rx) * (y1p * y1p))) - ((ry * ry) * (x1p * x1p)))
+        def sb:double (((rx * rx) * (y1p * y1p)) + ((ry * ry) * (x1p * x1p)))
+        if (sa < 0.0) {
+            sa = 0.0
+        }
+        def s:double 0.0
+        if (sb > 0.0) {
+            s = (sqrt (sa / sb))
+        }
+        ; The two flags pick which of the two possible ellipses is drawn.
+        if (largeArc == sweep) {
+            s = (0.0 - s)
+        }
+
+        def cxp:double (((s * rx) * y1p) / ry)
+        def cyp:double ((((0.0 - s) * ry) * x1p) / rx)
+        def cx:double (((x1 + x2) / 2.0) + ((cosrot * cxp) - (sinrot * cyp)))
+        def cy:double (((y1 + y2) / 2.0) + ((sinrot * cxp) + (cosrot * cyp)))
+
+        ; Start angle and swept angle, on the unit circle the ellipse maps from.
+        def ux:double ((x1p - cxp) / rx)
+        def uy:double ((y1p - cyp) / ry)
+        def vx:double (((0.0 - x1p) - cxp) / rx)
+        def vy:double (((0.0 - y1p) - cyp) / ry)
+
+        def a1:double (this.vecAngle(1.0 0.0 ux uy))
+        def da:double (this.vecAngle(ux uy vx vy))
+
+        if (sweep == false) {
+            if (da > 0.0) {
+                da = (da - (2.0 * PI))
+            }
+        } {
+            if (da < 0.0) {
+                da = ((2.0 * PI) + da)
+            }
+        }
+
+        ; One cubic per <=90 degrees keeps the approximation error far below
+        ; anything a renderer can show.
+        def ndivs:int (to_int (((fabs da) / (PI * 0.5)) + 1.0))
+        def hda:double ((da / (to_double ndivs)) / 2.0)
+        def kappa:double (fabs (((4.0 / 3.0) * (1.0 - (cos hda))) / (sin hda)))
+        if (da < 0.0) {
+            kappa = (0.0 - kappa)
+        }
+
+        def px:double 0.0
+        def py:double 0.0
+        def ptanx:double 0.0
+        def ptany:double 0.0
+
+        def k:int 0
+        while (k <= ndivs) {
+            def a:double (a1 + ((da * (to_double k)) / (to_double ndivs)))
+            def cosa:double (cos a)
+            def sina:double (sin a)
+
+            ; Point on the ellipse, and the tangent scaled by kappa — both
+            ; carried through the same rotation and translation.
+            def ex:double (((cosrot * (cosa * rx)) - (sinrot * (sina * ry))) + cx)
+            def ey:double (((sinrot * (cosa * rx)) + (cosrot * (sina * ry))) + cy)
+            def tvx:double ((0.0 - sina) * (rx * kappa))
+            def tvy:double (cosa * (ry * kappa))
+            def tanx:double ((cosrot * tvx) - (sinrot * tvy))
+            def tany:double ((sinrot * tvx) + (cosrot * tvy))
+
+            if (k > 0) {
+                this.emitCubic((px + ptanx) (py + ptany) (ex - tanx) (ey - tany) ex ey)
+            }
+            px = ex
+            py = ey
+            ptanx = tanx
+            ptany = tany
+            k = (k + 1)
+        }
+
+        ; An arc leaves no control point for S/T to reflect.
+        currentX = x2
+        currentY = y2
+        lastCtrlKind = ""
     }
-    
+
+    ; Signed angle from (ux, uy) to (vx, vy), in radians.
+    fn vecAngle:double (ux:double uy:double vx:double vy:double) {
+        def magU:double (sqrt ((ux * ux) + (uy * uy)))
+        def magV:double (sqrt ((vx * vx) + (vy * vy)))
+        def denom:double (magU * magV)
+        if (denom < 0.0000000001) {
+            return 0.0
+        }
+        def r:double (((ux * vx) + (uy * vy)) / denom)
+        ; Rounding can push the cosine a hair outside [-1, 1], where acos is
+        ; undefined and would poison every later coordinate.
+        if (r < (0.0 - 1.0)) {
+            r = (0.0 - 1.0)
+        }
+        if (r > 1.0) {
+            r = 1.0
+        }
+        def sign:double 1.0
+        if ((ux * vy) < (uy * vx)) {
+            sign = (0.0 - 1.0)
+        }
+        return (sign * (acos r))
+    }
+
+
     fn calculateBounds:void () {
         if ((array_length commands) == 0) {
             return
@@ -497,6 +920,135 @@ class SVGPathParser {
     ; arcs as a straight line to the endpoint. M starts a new point, Z closes the
     ; ring (the fill closes implicitly, so Z adds no point). Used by a filled-path
     ; renderer (UIContext.fillPolygon) to rasterize <Path> elements.
+    ; Flatten to closed contours, transformed by an affine matrix on the way.
+    ;
+    ; The six matrix arguments are passed as plain numbers rather than a
+    ; Matrix2D so that this file stays free of dependencies — it is imported by
+    ; the PDF renderer, the WASM UI and the game-engine tests alike. They are in
+    ; SVG matrix(a b c d e f) order:
+    ;
+    ;   x' = a*x + c*y + e
+    ;   y' = b*x + d*y + f
+    ;
+    ; `steps` is the number of line segments each curve is split into. Doing the
+    ; transform HERE rather than afterwards matters: the subdivision then
+    ; happens at the size the shape is actually drawn, so a path scaled up does
+    ; not show the facets of a curve flattened at its original scale.
+    fn flattenRings:[PathRing] (steps:int ma:double mb:double mc:double md:double me:double mf:double) {
+        def rings:[PathRing]
+        def current (new PathRing())
+        def started:boolean false
+
+        ; Pen position in USER units — the curve maths runs before the
+        ; transform, so control points and the pen have to agree.
+        def cx:double 0.0
+        def cy:double 0.0
+        def sx:double 0.0
+        def sy:double 0.0
+
+        def n:int (array_length commands)
+        def k:int 0
+        while (k < n) {
+            def cmd:PathCommand (itemAt commands k)
+
+            if (cmd.type == "M") {
+                ; A new subpath closes whatever was open.
+                if started {
+                    if ((current.pointCount()) >= 2) {
+                        push rings current
+                    }
+                }
+                current = (new PathRing())
+                started = true
+                cx = cmd.x
+                cy = cmd.y
+                sx = cmd.x
+                sy = cmd.y
+                push current.pts ((ma * cx) + ((mc * cy) + me))
+                push current.pts ((mb * cx) + ((md * cy) + mf))
+            }
+
+            if (cmd.type == "L") {
+                cx = cmd.x
+                cy = cmd.y
+                push current.pts ((ma * cx) + ((mc * cy) + me))
+                push current.pts ((mb * cx) + ((md * cy) + mf))
+            }
+
+            if (cmd.type == "C") {
+                def s:int 1
+                while (s <= steps) {
+                    def tt:double ((to_double s) / (to_double steps))
+                    def u:double (1.0 - tt)
+                    def b0:double ((u * u) * u)
+                    def b1:double (((3.0 * u) * u) * tt)
+                    def b2:double (((3.0 * u) * tt) * tt)
+                    def b3:double ((tt * tt) * tt)
+                    def px:double ((((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x2)) + (b3 * cmd.x))
+                    def py:double ((((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y2)) + (b3 * cmd.y))
+                    push current.pts ((ma * px) + ((mc * py) + me))
+                    push current.pts ((mb * px) + ((md * py) + mf))
+                    s = (s + 1)
+                }
+                cx = cmd.x
+                cy = cmd.y
+            }
+
+            if (cmd.type == "Q") {
+                def s:int 1
+                while (s <= steps) {
+                    def tt:double ((to_double s) / (to_double steps))
+                    def u:double (1.0 - tt)
+                    def b0:double (u * u)
+                    def b1:double ((2.0 * u) * tt)
+                    def b2:double (tt * tt)
+                    def px:double (((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x))
+                    def py:double (((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y))
+                    push current.pts ((ma * px) + ((mc * py) + me))
+                    push current.pts ((mb * px) + ((md * py) + mf))
+                    s = (s + 1)
+                }
+                cx = cmd.x
+                cy = cmd.y
+            }
+
+            if (cmd.type == "Z") {
+                ; The fill closes the ring itself, so Z adds no point — it ends
+                ; the ring and returns the pen to the subpath start.
+                if started {
+                    if ((current.pointCount()) >= 2) {
+                        push rings current
+                    }
+                }
+                current = (new PathRing())
+                started = false
+                cx = sx
+                cy = sy
+            }
+
+            k = (k + 1)
+        }
+
+        ; An unclosed final subpath still fills — SVG closes it implicitly for
+        ; the purposes of filling.
+        if started {
+            if ((current.pointCount()) >= 2) {
+                push rings current
+            }
+        }
+
+        return rings
+    }
+
+    ; Flatten with no transform.
+    fn flattenRingsPlain:[PathRing] (steps:int) {
+        return (this.flattenRings(steps 1.0 0.0 0.0 1.0 0.0 0.0))
+    }
+
+    ; Older flattening that returns every point of every subpath in ONE list.
+    ; Kept because existing callers depend on the signature, but it cannot
+    ; express a shape with more than one contour: use flattenRings for anything
+    ; that will be filled.
     fn flatten:[double] (steps:int) {
         def pts:[double]
         def cx:double 0.0

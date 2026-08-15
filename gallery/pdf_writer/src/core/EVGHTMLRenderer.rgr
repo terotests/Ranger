@@ -871,6 +871,11 @@ class EVGHTMLRenderer {
         }
         
         ; Opacity
+        ; Rotation about the element's centre, which is the CSS default
+        ; origin and the same point the other two renderers use.
+        if ((el.rotate == 0.0) == false) {
+            css = css + "transform: rotate(" + (to_string el.rotate) + "deg); "
+        }
         if (el.opacity < 1.0) {
             css = css + "opacity: " + (to_string el.opacity) + "; "
         }
@@ -1585,6 +1590,20 @@ class EVGHTMLRenderer {
             html = html + " stroke=\"" + (el.strokeColor.toCSSString()) + "\""
             if (el.strokeWidth > 0.0) {
                 html = html + " stroke-width=\"" + (to_string el.strokeWidth) + "\""
+            }
+            ; The browser dashes natively; the raster target has to cut the
+            ; geometry itself. Both read the same attribute so a gridline is
+            ; dashed the same way in all three outputs.
+            if ((strlen el.strokeDashArray) > 0) {
+                html = html + " stroke-dasharray=\"" + el.strokeDashArray + "\""
+                if ((el.strokeDashOffset == 0.0) == false) {
+                    html = html + " stroke-dashoffset=\"" + (to_string el.strokeDashOffset) + "\""
+                }
+            }
+        }
+        if ((strlen el.fillRule) > 0) {
+            if (el.fillRule == "evenodd") {
+                html = html + " fill-rule=\"evenodd\""
             }
         }
         

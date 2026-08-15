@@ -104,3 +104,8 @@ gallery/evg/showcase/dist/
 
 # Ranger engine: generated hosts (npm run engine:build)
 gallery/ranger_engine/bin/
+
+# Scratch output from building the EVG tools by hand while developing.
+# The test runners use their own throwaway dirs; this one is for ad-hoc runs
+# and has been committed by accident once already.
+.vec_out/

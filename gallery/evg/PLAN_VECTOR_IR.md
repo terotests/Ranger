@@ -244,7 +244,7 @@ Both moved toward each other, and toward what the documents were clearly asking
 for. Verified end to end: on the same fixture, PDF emits `2 0 0 2 -20 -20 cm`
 where HTML emits `viewBox="10 10 30 30"` — the same transform expressed twice.
 
-### Stage 1 — Path completeness
+### Stage 1 — Path completeness — **DONE**
 
 1. `S/s`, `T/t` (smooth cubic/quad, reflected control point).
 2. Implicit command repetition in the parse loop.
@@ -256,30 +256,112 @@ where HTML emits `viewBox="10 10 30 30"` — the same transform expressed twice.
    implementation. (The PDF renderer currently has no `"A"` branch at all, so an
    arc would vanish silently.)
 
-### Stage 2 — Contours and the shared rasterizer
+### Stage 2 — Contours and the shared rasterizer — **DONE**
 
-1. `flatten()` returns **rings**, not one flat list (§2.4), plus a fill rule.
-2. Extract `VectorRasterizer` from `RasterText` (§3): `Contour`, `Edge`,
-   `fillAA(rule)`; add even-odd.
-3. `RasterText` feeds glyph contours into it — glyph output must be pixel-identical
-   before and after; this is the regression gate for the refactor.
-4. Raster `<Path>` support → closes **PNG 0.9**.
-5. Point `UIContext.fillPolygon` at the same code — gains AA and holes.
+1. ✅ `flattenRings` returns **rings** and applies the transform while
+   flattening, so curves are subdivided at the size they are drawn.
+   `PathRing` is the unit; `flatten()` is kept for its existing callers and
+   documented as unable to express more than one contour.
+2. ✅ `VectorRasterizer` extracted from `RasterText`: `VectorEdge`, `addRing`,
+   `fillAA(rule)`, with even-odd alongside non-zero.
+3. ✅ `RasterText` feeds glyph contours into it. Verified by rendering a text
+   page before and after the refactor: **byte-identical PNG**. The duplicate
+   non-AA fill path in `RasterText` (`renderGlyphFast`, `scanlineFill` and
+   their helpers, all unreachable) went with it — leaving it would have left
+   two fills to drift apart, which is what the stage exists to prevent.
+4. ✅ Raster `<Path>` support, fill and stroke → closes **PNG 0.9**.
+5. ❌ `UIContext.fillPolygon` — see the note below.
 
-Note on scope: **fill is nearly free, stroke is not.** Stroking arbitrary paths
-in raster needs offset-curve geometry with joins (miter/round/bevel) and caps —
-that is a genuine algorithm, not an extraction, and it is the part the original
-sketch under-estimated. Suggested v1: fill exactly; approximate stroke by
-emitting quads per flattened segment plus round joins. PDF and HTML get real
-strokes natively, so only raster carries the approximation.
+Note on scope: **fill was nearly free, stroke was not.** As predicted, fill came
+out of the extraction almost unchanged, while stroking needed its own answer.
+Shipped as the approximation described above: one quad per flattened segment
+plus a disc at each joint, merged by the non-zero rule, giving round joins and
+butt caps. It is indistinguishable from a real stroke at icon weights and
+visibly an approximation for very thick strokes with sharp corners, where a
+mitre would run to a point. PDF and HTML stroke natively, so only raster carries
+it. Real offset curves remain the eventual answer.
 
-### Stage 3 — Shape normalisation
+**What did not land: the WASM UI still has its own fill.** `UIContext` paints
+into `SoftCanvas` (`game_engine/v2/framebuffer.rgr`) while the rasterizer works
+on `RasterBuffer` (`pdf_writer/src/raster`). Sharing the code needs either a
+buffer abstraction or a cross-gallery dependency, and that is a design decision
+worth making deliberately rather than as a side effect of this stage. The
+shapes `WasmUiSelect` draws today are single-ring chevrons and check marks, so
+it has no live defect from the missing hole support — but it does still lack
+anti-aliasing, and `flatten()` is still what it calls.
 
-`rect` / `rounded rect` / `circle` / `ellipse` / `line` / `polyline` / `polygon`
-→ `PathCommand[]`. Pure functions, no renderer changes, fully unit-testable.
-This is where the sketch's "everything is a path" insight pays off.
+### Stage 3 — Shape normalisation — **DONE**
 
-### Stage 4 — `SvgParser` and the `<Svg>` element
+`gallery/evg/VectorShapes.rgr`: `rect` (with SVG's rx/ry rules), `circle`,
+`ellipse`, `line`, `polyline`, `polygon` → `PathCommand[]`, plus `asPathData`
+to go back to a `d` string. Pure functions, no renderer changes, no state.
+
+Curves come out as cubics using the exact kappa rather than arcs, so consumers
+need no arc conversion. Checked geometrically — sampled points on a circle must
+lie on that circle, which is what would catch a wrong kappa where endpoint
+comparisons never would — and round-tripped: emit a shape as path data, parse
+it back with `SVGPathParser`, confirm the geometry survived. That last one
+exercises the writer and the reader against each other and is what makes the
+emitted `d` safe to hand to a browser.
+
+**What this makes redundant, as a follow-up.** Three hand-rolled versions of
+the same geometry now exist alongside the derived one:
+
+| Duplicate | Where |
+| --- | --- |
+| `drawRoundedRectPath` | `EVGPDFRenderer.rgr:1966`, 7 call sites, with kappa truncated to `0.5523` |
+| `fillRoundedRect` / `drawRoundedRect` | `RasterPrimitives.rgr:93`, `:129` |
+| `fillCircle` / `fillEllipse` | `RasterPrimitives.rgr:170`, `:326` |
+
+Routing them through `VectorShapes` is the obvious cleanup, and it is
+deliberately NOT part of this stage: `drawRoundedRectPath` works in PDF's
+y-up space and is used for clipping as well as filling, so the winding
+direction of the replacement matters, and no golden test currently covers
+border-radius output. Worth doing with a rendering comparison in hand rather
+than on the way past.
+
+A language note found here, recorded because it will bite again: **`to_int`
+floors rather than truncating toward zero.** Splitting a negative number into
+whole and fractional parts directly gives the wrong pair — -2.5 comes apart as
+whole -3 and fraction 0.4999.
+
+### Stage 3.5 — Chart primitives — **DONE**
+
+Not in the original plan. These came out of asking what a chart engine would
+need on top of the vector layer, and each turned out to be a gap the layer had
+rather than something a chart library could paper over.
+
+1. ✅ `PathBuilder` — the counterpart to the parser. A chart's geometry comes
+   from data, and without this the only way to draw it is to concatenate `d` by
+   hand and hand the result straight back to the parser. The basic shapes are
+   included, so a whole scene accumulates into one path with one fill.
+2. ✅ `stroke-dasharray` / `stroke-dashoffset` in all three targets, parsed
+   once in `VectorStroke`. Gridlines.
+3. ✅ `rotate` rendered. It had been parsed into `EVGElement` all along with no
+   renderer reading it, so a rotated axis label was silently upright. The
+   rasterizer takes a transform, which is what makes it work for glyphs and
+   paths through one implementation.
+4. ✅ Rectangular clipping in the raster target, so a series stops at the plot
+   area. PDF and HTML already clipped; only raster leaked.
+5. ✅ `opacity` in the raster target, per element rather than per group.
+
+**Found on the way, and worth knowing.** `to_string` reaches for exponential
+notation on very small magnitudes — `cos 90°` is `6.123233995736766e-17` — and
+**PDF real numbers have no exponential form**. That was going into content
+streams, where a viewer is within its rights to reject the whole thing. Now
+clamped, with the gate asserting no exponent ever reaches the stream.
+
+**What is left of this group.** Opacity in the PDF target needs an ExtGState
+resource threaded into the page dictionary in two code paths. It is the most
+delicate part of the PDF writer and nothing golden-tests its structure, so it
+was left rather than done in a hurry.
+
+Also still per-target rather than shared: rotation applies in raster to what
+goes through the rasterizer — text and paths. Rectangular backgrounds come from
+`RasterPrimitives` and stay upright. Routing those through `VectorShapes` is the
+same follow-up Stage 3 already records.
+
+### Stage 4 — `SvgParser` and the `<Svg>` element — next
 
 XML subset → vector display list, with the restricted profile below. `<Svg
 src="…">` as one `EVGElement`.

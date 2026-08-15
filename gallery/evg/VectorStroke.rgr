@@ -1,0 +1,105 @@
+; ==============================================================================
+; VectorStroke.rgr — how a stroke is drawn, independent of who draws it
+; ==============================================================================
+; PLAN_VECTOR_IR.md Stage 3.5.
+;
+; The dash pattern has to mean the same thing in all three targets: PDF has a
+; dash operator, SVG has an attribute the browser honours, and the raster side
+; cuts the geometry itself. Those are three different mechanisms fed by one
+; string, so the string is parsed once, here, in the renderer-neutral module —
+; not once per renderer, which is how the viewBox ended up meaning two
+; different things.
+; ==============================================================================
+
+class VectorStroke {
+
+    ; Parse a dash pattern the way SVG writes it: lengths separated by commas
+    ; and/or whitespace, alternating on and off.
+    ;
+    ; An odd-length list repeats to become even, exactly as the spec says, so
+    ; "4" means 4 on and 4 off. A negative entry invalidates the whole list per
+    ; spec; an empty result therefore means "stroke solid" — which is also what
+    ; a caller gets for an empty or unparseable string, so there is one thing to
+    ; check rather than three.
+    sfn parseDashes:[double] (s:string) {
+        def out:[double]
+        def current:string ""
+        def i:int 0
+        def n:int (strlen s)
+        def bad:boolean false
+        while (i <= n) {
+            def isSep:boolean true
+            if (i < n) {
+                def ch:int (charAt s i)
+                isSep = false
+                if (ch == 32) { isSep = true }
+                if (ch == 9) { isSep = true }
+                if (ch == 10) { isSep = true }
+                if (ch == 13) { isSep = true }
+                if (ch == 44) { isSep = true }
+            }
+            if isSep {
+                if ((strlen current) > 0) {
+                    def v@(optional):double (to_double current)
+                    if v {
+                        def dv:double (unwrap v)
+                        if (dv < 0.0) {
+                            bad = true
+                        }
+                        push out dv
+                    } {
+                        bad = true
+                    }
+                    current = ""
+                }
+            } {
+                current = (current + (strfromcode (charAt s i)))
+            }
+            i = (i + 1)
+        }
+
+        def empty:[double]
+        if bad {
+            return empty
+        }
+        def cnt:int (array_length out)
+        if (cnt == 0) {
+            return empty
+        }
+
+        ; A pattern of nothing but zeroes would never advance along the path.
+        ; It is not a dash pattern, so it is not treated as one.
+        def total:double 0.0
+        def j:int 0
+        while (j < cnt) {
+            total = (total + (itemAt out j))
+            j = (j + 1)
+        }
+        if (total <= 0.0) {
+            return empty
+        }
+
+        if (((idiv cnt 2) * 2) != cnt) {
+            def k:int 0
+            while (k < cnt) {
+                push out (itemAt out k)
+                k = (k + 1)
+            }
+        }
+        return out
+    }
+
+    ; Every length in a dash pattern is in user units, so it scales with the
+    ; drawing exactly as the stroke width does. PDF and SVG apply the scale
+    ; through their transform; the raster target has already baked the
+    ; transform into its points, so it scales the pattern here instead.
+    sfn scaleDashes:[double] (dashes:[double] scale:double) {
+        def out:[double]
+        def k:int 0
+        while (k < (array_length dashes)) {
+            push out ((itemAt dashes k) * scale)
+            k = (k + 1)
+        }
+        return out
+    }
+}
