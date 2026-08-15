@@ -14,6 +14,7 @@
 
 Import "../src/fonts/FontManager.rgr"
 Import "../src/fonts/EVGFontSetup.rgr"
+Import "../src/fonts/TTFSubset.rgr"
 Import "../../evg/EVGTextEngine.rgr"
 Import "../../evg/EVGTextMeasurer.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -47,6 +48,7 @@ class FontMetricsTest {
         test.testKerning(t fm)
         test.testBoldIsMeasured(t fm)
         test.testEmojiFallback(t fm)
+        test.testSubset(t fm)
         t.summary()
     }
 
@@ -378,6 +380,78 @@ class FontMetricsTest {
         def oneEmoji:double (emoji.measureText(grinStr 20.0))
         t.near("a mixed run measures as its parts" mixed (plain + oneEmoji))
         t.ok("and the emoji contributes a real advance" (oneEmoji > 0.0))
+    }
+
+
+    ; The embedded font carries the glyphs the page used, not the face.
+    ;
+    ; 858 KB for one 🎉 was more than the rest of the PDF put together. The
+    ; subset keeps glyph IDS — a dense renumbering would invalidate every
+    ; string already written, since Identity-H puts glyph ids in the content
+    ; stream — so the saving comes from `glyf` and from dropping every table a
+    ; CIDFontType2 never consults.
+    fn testSubset:void (t:RgTest fm:FontManager) {
+        def emoji:TrueTypeFont (fm.getFont("Noto Emoji"))
+        if ((emoji.isLoaded()) == false) {
+            t.ok("emoji face present for the subset test" false)
+            return
+        }
+        def wanted:[int]
+        push wanted (emoji.getGlyphIndex(128512))
+        def sub:buffer (TTFSubset.build(emoji wanted))
+        def subLen:int (buffer_length sub)
+        def fullLen:int (buffer_length (emoji.getFontData()))
+
+        t.ok("the subset is not empty" (subLen > 0))
+        t.ok("and is a small fraction of the face" (subLen < (to_int (fullLen / 20))))
+
+        ; A valid sfnt: version 1.0 and the six tables a CIDFontType2 needs.
+        def v0:int (buffer_get sub 0)
+        def v1:int (buffer_get sub 1)
+        def v2:int (buffer_get sub 2)
+        def v3:int (buffer_get sub 3)
+        t.ok("it starts with sfnt version 1.0"
+             ((((v0 == 0) && (v1 == 1)) && (v2 == 0)) && (v3 == 0)))
+        def numTables:int (((buffer_get sub 4) * 256) + (buffer_get sub 5))
+        t.eqInt("with the six tables a CIDFontType2 needs" numTables 6)
+
+        ; numGlyphs must still reach the glyph that was asked for, because the
+        ; PDF names glyphs by their ORIGINAL id.
+        def wantGid:int (itemAt wanted 0)
+        def maxpNum:int (this.tableNumGlyphs(sub))
+        t.ok("and numGlyphs still covers the requested glyph id" (maxpNum > wantGid))
+
+        ; A face nothing asked for still subsets — to .notdef alone, not to
+        ; nothing, so a reader always has a glyph 0 to fall back on.
+        def none:[int]
+        def bare:buffer (TTFSubset.build(emoji none))
+        t.ok("an empty request still produces a font" ((buffer_length bare) > 0))
+    }
+
+    ; numGlyphs out of the subset's own maxp, found through its table directory.
+    fn tableNumGlyphs:int (sub:buffer) {
+        def n:int (((buffer_get sub 4) * 256) + (buffer_get sub 5))
+        def i:int 0
+        while (i < n) {
+            def rec:int (12 + (i * 16))
+            def tag:string ""
+            def c:int 0
+            while (c < 4) {
+                tag = tag + (strfromcode (buffer_get sub (rec + c)))
+                c = (c + 1)
+            }
+            if (tag == "maxp") {
+                def off:int 0
+                def b:int 0
+                while (b < 4) {
+                    off = ((off * 256) + (buffer_get sub ((rec + 8) + b)))
+                    b = (b + 1)
+                }
+                return (((buffer_get sub (off + 4)) * 256) + (buffer_get sub (off + 5)))
+            }
+            i = (i + 1)
+        }
+        return 0
     }
 
 }

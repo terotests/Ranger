@@ -15,6 +15,7 @@ Import "../../../evg/SVGPathParser.rgr"
 Import "Buffer.rgr"
 Import "Utf8.rgr"
 Import "../fonts/FontManager.rgr"
+Import "../fonts/TTFSubset.rgr"
 Import "../jpeg/JPEGReader.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
 Import "../jpeg/JPEGDecoder.rgr"
@@ -2458,7 +2459,27 @@ class EVGPDFRenderer {
             def family:string (itemAt usedCidFonts fi)
             def ttf:TrueTypeFont (fontManager.getFont(family))
             if (ttf.isLoaded()) {
-                def fontFileData:buffer (ttf.getFontData())
+                ; Only the glyphs this document drew. An emoji face is 858 KB
+                ; and a colour one 25 MB, essentially all of it `glyf`, so
+                ; embedding the file whole made one 🎉 cost more than the rest
+                ; of the PDF together. The subset keeps glyph ids, which is
+                ; what lets /CIDToGIDMap stay /Identity and the strings
+                ; already written stay valid.
+                def subsetGids:[int]
+                def gi:int 0
+                while (gi < (array_length cidUsedGid)) {
+                    if ((itemAt cidUsedFont gi) == fi) {
+                        push subsetGids (itemAt cidUsedGid gi)
+                    }
+                    gi = gi + 1
+                }
+                def fontFileData:buffer (TTFSubset.build(ttf subsetGids))
+                if ((buffer_length fontFileData) == 0) {
+                    ; A face the subsetter cannot handle — a CFF outline font,
+                    ; say. Embed it whole rather than emit a font with no
+                    ; glyphs in it.
+                    fontFileData = (ttf.getFontData())
+                }
                 def fontFileLen:int (buffer_length fontFileData)
 
                 push objectOffsets (pdf.size())
