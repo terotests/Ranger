@@ -1825,6 +1825,50 @@ static class RgPath {
 }
 ")
                 )
+                rust ( "rg_path_dirname(&(" (e 1) "))" (create_polyfill "
+// Path helpers for the compiler's own file handling. std::path::Path::parent
+// drops a trailing slash and Node's path.normalize keeps it, and the compiler
+// builds its library search path by concatenating onto one, so these follow
+// Node rather than the platform.
+fn rg_path_normalize(p: &str) -> String {
+    let s = p.replace('\\\\', \"/\");
+    let trailing = s.len() > 1 && s.ends_with('/');
+    let absolute = s.starts_with('/');
+    let mut parts: Vec<String> = Vec::new();
+    for seg in s.split('/') {
+        if seg.is_empty() || seg == \".\" { continue; }
+        if seg == \"..\" {
+            let popped = match parts.last() {
+                Some(l) if l != \"..\" => { parts.pop(); true }
+                _ => false,
+            };
+            if popped { continue; }
+            if absolute { continue; }
+        }
+        parts.push(seg.to_string());
+    }
+    let mut out = parts.join(\"/\");
+    if absolute { out = format!(\"/{}\", out); }
+    if out.is_empty() { return \".\".to_string(); }
+    if trailing && out != \"/\" { out.push('/'); }
+    out
+}
+fn rg_path_dirname(p: &str) -> String {
+    let mut s = rg_path_normalize(p);
+    while s.len() > 1 && s.ends_with('/') { s.pop(); }
+    match s.rfind('/') {
+        Some(0) => \"/\".to_string(),
+        Some(i) => s[..i].to_string(),
+        None => \".\".to_string(),
+    }
+}
+fn rg_install_directory() -> String {
+    match std::env::current_exe() {
+        Ok(p) => rg_path_dirname(&rg_path_normalize(&p.to_string_lossy())),
+        Err(_) => \".\".to_string(),
+    }
+}
+") )
                 ranger ("( path_dirname " (e 1) " )")
                 * ( "\"./\"")
             }

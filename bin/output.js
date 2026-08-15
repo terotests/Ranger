@@ -29304,6 +29304,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             is_optional = false;
                           }
                           let should_clone_rhs = false;
+                          const rightInner = this.rustUnwrapParens(right);
+                          if ( rightInner.expression == false ) {
+                            let rcRTypeName = rightInner.eval_type_name;
+                            if ( (rcRTypeName.length) == 0 ) {
+                              rcRTypeName = rightInner.type_name;
+                            }
+                            if ( rightInner.hasParamDesc ) {
+                              const rcRP = rightInner.paramDesc;
+                              const rcRNN = rcRP.nameNode;
+                              if ( (typeof(rcRNN) !== "undefined" && rcRNN != null )  ) {
+                                const rcRN = rcRNN;
+                                if ( (rcRTypeName.length) == 0 ) {
+                                  rcRTypeName = rcRN.type_name;
+                                }
+                              }
+                            }
+                            if ( (rcRTypeName.length) > 0 ) {
+                              if ( this.rustClassIsShared(rcRTypeName, ctx) ) {
+                                should_clone_rhs = true;
+                              }
+                            }
+                          }
                           let rhs_is_string = false;
                           let rhs_is_object = false;
                           let rhs_is_optional = false;
@@ -29352,8 +29374,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( rhs_is_optional ) {
                               should_clone_rhs = true;
                             }
+                            let rhsIsRcHandle = false;
+                            if ( rp.rust_needs_rc_wrap ) {
+                              const rcNN3 = rp.nameNode;
+                              if ( (typeof(rcNN3) !== "undefined" && rcNN3 != null )  ) {
+                                const rcN3 = rcNN3;
+                                if ( ((rcN3.array_type.length) == 0) && ((rcN3.key_type.length) == 0) ) {
+                                  if ( rcN3.hasFlag("weak") == false ) {
+                                    rhsIsRcHandle = true;
+                                  }
+                                }
+                              }
+                            }
                             if ( should_clone_rhs ) {
-                              if ( rhs_is_object ) {
+                              if ( rhs_is_object && (rhsIsRcHandle == false) ) {
                                 const rNameN2 = rp.nameNode;
                                 if ( (typeof(rNameN2) !== "undefined" && rNameN2 != null )  ) {
                                   const rnn2 = rNameN2;
@@ -29429,8 +29463,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( rhs_is_optional ) {
                                 should_clone_rhs = true;
                               }
+                              let rhsIsRcHandle2 = false;
+                              if ( rp_1.rust_needs_rc_wrap ) {
+                                const rcNN4 = rp_1.nameNode;
+                                if ( (typeof(rcNN4) !== "undefined" && rcNN4 != null )  ) {
+                                  const rcN4 = rcNN4;
+                                  if ( ((rcN4.array_type.length) == 0) && ((rcN4.key_type.length) == 0) ) {
+                                    if ( rcN4.hasFlag("weak") == false ) {
+                                      rhsIsRcHandle2 = true;
+                                    }
+                                  }
+                                }
+                              }
                               if ( should_clone_rhs ) {
-                                if ( rhs_is_object ) {
+                                if ( rhs_is_object && (rhsIsRcHandle2 == false) ) {
                                   const rNameN3 = rp_1.nameNode;
                                   if ( (typeof(rNameN3) !== "undefined" && rNameN3 != null )  ) {
                                     const rnn3 = rNameN3;
@@ -29722,10 +29768,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     wr.out("));", true);
                                   } else {
                                     const rhsAlreadyOption = this.rustExprIsOptional(right, ctx);
+                                    let optAssignRcWrap = false;
+                                    if ( rhsAlreadyOption == false ) {
+                                      if ( this.rustClassIsShared(field_type_name, ctx) ) {
+                                        if ( this.rustInitRcState(right, ctx) == 0 ) {
+                                          optAssignRcWrap = true;
+                                        }
+                                      }
+                                    }
                                     if ( rhsAlreadyOption ) {
                                       wr.out(" = ", false);
                                     } else {
                                       wr.out(" = Some(", false);
+                                    }
+                                    if ( optAssignRcWrap ) {
+                                      wr.out("Rc::new(RefCell::new(", false);
                                     }
                                     await this.WalkNode(right, ctx, wr);
                                     if ( should_clone_rhs ) {
@@ -29734,6 +29791,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       } else {
                                         wr.out(".clone()", false);
                                       }
+                                    }
+                                    if ( optAssignRcWrap ) {
+                                      wr.out("))", false);
                                     }
                                     if ( rhsAlreadyOption ) {
                                       wr.out(";", true);

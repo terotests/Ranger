@@ -6810,6 +6810,33 @@ class RangerRustClassWriter {
       ; Check if right side is a variable that should be cloned
       ; Clone when: assigning a non-primitive VRef to a field (the var may be used later)
       def should_clone_rhs:boolean false
+      ; A NAME that holds an Rc is cloned into whatever it is assigned to.
+      ; The assignment moves it otherwise, and the name almost always stays
+      ; live afterwards — `p.nameNode = arg` then `f(arg)` is the ordinary
+      ; shape. An Rc clone is a refcount bump, which is what the assignment
+      ; means in every other target.
+      def rightInner:CodeNode (this.rustUnwrapParens(right))
+      if (rightInner.expression == false) {
+        def rcRTypeName:string rightInner.eval_type_name
+        if ((strlen rcRTypeName) == 0) {
+          rcRTypeName = rightInner.type_name
+        }
+        if rightInner.hasParamDesc {
+          def rcRP:RangerAppParamDesc (unwrap rightInner.paramDesc)
+          def rcRNN@(optional):CodeNode rcRP.nameNode
+          if (!null? rcRNN) {
+            def rcRN:CodeNode (unwrap rcRNN)
+            if ((strlen rcRTypeName) == 0) {
+              rcRTypeName = rcRN.type_name
+            }
+          }
+        }
+        if ((strlen rcRTypeName) > 0) {
+          if (this.rustClassIsShared(rcRTypeName ctx)) {
+            should_clone_rhs = true
+          }
+        }
+      }
       def rhs_is_string:boolean false
       def rhs_is_object:boolean false
       def rhs_is_optional:boolean false
@@ -6876,8 +6903,23 @@ class RangerRustClassWriter {
           should_clone_rhs = true
         }
         ; But don't clone if RHS type has trait object fields (no Clone derive)
+        ; — unless the NAME holds an Rc, where the clone is of the handle and
+        ; asks nothing of the type inside it. Suppressing it there moved the
+        ; name into the assignment and broke every later use of it.
+        def rhsIsRcHandle:boolean false
+        if rp.rust_needs_rc_wrap {
+          def rcNN3@(optional):CodeNode rp.nameNode
+          if (!null? rcNN3) {
+            def rcN3:CodeNode (unwrap rcNN3)
+            if (((strlen rcN3.array_type) == 0) && ((strlen rcN3.key_type) == 0)) {
+              if (rcN3.hasFlag("weak") == false) {
+                rhsIsRcHandle = true
+              }
+            }
+          }
+        }
         if should_clone_rhs {
-          if rhs_is_object {
+          if (rhs_is_object && (rhsIsRcHandle == false)) {
             def rNameN2@(optional):CodeNode rp.nameNode
             if (!null? rNameN2) {
               def rnn2:CodeNode (unwrap rNameN2)
@@ -6964,9 +7006,23 @@ class RangerRustClassWriter {
           if rhs_is_optional {
             should_clone_rhs = true
           }
-          ; But don't clone if RHS type has trait object fields (no Clone derive)
+          ; But don't clone if RHS type has trait object fields (no Clone
+          ; derive) — unless the NAME holds an Rc, where the clone is of the
+          ; handle and asks nothing of the type inside it.
+          def rhsIsRcHandle2:boolean false
+          if rp.rust_needs_rc_wrap {
+            def rcNN4@(optional):CodeNode rp.nameNode
+            if (!null? rcNN4) {
+              def rcN4:CodeNode (unwrap rcNN4)
+              if (((strlen rcN4.array_type) == 0) && ((strlen rcN4.key_type) == 0)) {
+                if (rcN4.hasFlag("weak") == false) {
+                  rhsIsRcHandle2 = true
+                }
+              }
+            }
+          }
           if should_clone_rhs {
-            if rhs_is_object {
+            if (rhs_is_object && (rhsIsRcHandle2 == false)) {
               def rNameN3@(optional):CodeNode rp.nameNode
               if (!null? rNameN3) {
                 def rnn3:CodeNode (unwrap rNameN3)
@@ -7332,10 +7388,25 @@ class RangerRustClassWriter {
                 ; `@(weak optional)`, and a Some() around that gives an
                 ; Option holding an Option.
                 def rhsAlreadyOption:boolean (this.rustExprIsOptional(right ctx))
+                ; A field of a shared class holds Option<Rc<RefCell<T>>>, so
+                ; a RAW value on the right — `x = (new CodeNode …)` hands
+                ; back the bare struct — takes the cell here. A right side
+                ; that is already a handle goes in as it is.
+                def optAssignRcWrap:boolean false
+                if (rhsAlreadyOption == false) {
+                  if (this.rustClassIsShared(field_type_name ctx)) {
+                    if ((this.rustInitRcState(right ctx)) == 0) {
+                      optAssignRcWrap = true
+                    }
+                  }
+                }
                 if rhsAlreadyOption {
                   wr.out(" = " false)
                 } {
                   wr.out(" = Some(" false)
+                }
+                if optAssignRcWrap {
+                  wr.out("Rc::new(RefCell::new(" false)
                 }
                 this.WalkNode(right ctx wr)
                 if should_clone_rhs {
@@ -7344,6 +7415,9 @@ class RangerRustClassWriter {
                   } {
                     wr.out(".clone()" false)
                   }
+                }
+                if optAssignRcWrap {
+                  wr.out("))" false)
                 }
                 if rhsAlreadyOption {
                   wr.out(";" true)
