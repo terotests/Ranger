@@ -471,6 +471,18 @@ class RasterText {
     }
 
     ; Render a glyph outline to buffer (anti-aliased)
+    ; Rotate (or otherwise transform) the glyphs drawn from here on. The
+    ; matrix is applied by the shared rasterizer, so a rotated label goes
+    ; through exactly the same code as a rotated path — which is why an axis
+    ; title and a shape cannot end up rotated differently.
+    fn setTransform:void (a:double b:double c:double d:double e:double f:double) {
+        rasterizer.setTransform(a b c d e f)
+    }
+
+    fn clearTransform:void () {
+        rasterizer.clearTransform()
+    }
+
     fn renderGlyph:void (buf:RasterBuffer outline:GlyphOutline x:double y:double r:int g:int b:int a:int) {
         ; Every contour of the glyph goes into ONE fill: whether a pixel is
         ; inside is a question about the whole outline, which is what makes the

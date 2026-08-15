@@ -1526,6 +1526,30 @@ class EVGPDFRenderer {
             borderRadius = el.box.borderRadius.pixels
         }
         
+        ; Rotation about the element's centre. Wrapped around everything this
+        ; element draws — its background, its path, its text — so the parts do
+        ; not come apart from each other. The matrix is translate(centre) *
+        ; rotate * translate(-centre), written out.
+        def rotated:boolean false
+        if ((el.rotate == 0.0) == false) {
+            rotated = true
+            def rad:double ((el.rotate / 180.0) * (M_PI))
+            ; Clockwise on the page. PDF's y axis points up while the layout's
+            ; points down, so the sign of the angle flips on the way in and the
+            ; matrix below is a standard y-up rotation.
+            def cs:double (cos rad)
+            def sn:double (sin rad)
+            ; Rotate about the element's centre: translate(c) * rotate *
+            ; translate(-c), multiplied out. The defining property is that the
+            ; centre maps to itself, which is what the test asserts.
+            def ccx:double (x + (w / 2.0))
+            def ccy:double (pdfY + (h / 2.0))
+            def ex:double ((ccx - (cs * ccx)) + (sn * ccy))
+            def fy:double ((ccy - (sn * ccx)) - (cs * ccy))
+            streamBuffer.writeString("q\n")
+            streamBuffer.writeString((this.formatNum(cs)) + " " + (this.formatNum(sn)) + " " + (this.formatNum((0.0 - sn))) + " " + (this.formatNum(cs)) + " " + (this.formatNum(ex)) + " " + (this.formatNum(fy)) + " cm\n")
+        }
+
         ; Apply clip path if set OR if overflow is hidden
         def hasClipPath:boolean false
         if ((strlen el.clipPath) > 0) {
@@ -1621,6 +1645,13 @@ class EVGPDFRenderer {
         
         ; Restore state if overflow clip was applied
         if hasOverflowClip {
+            streamBuffer.writeString("Q\n")
+        }
+
+        ; The rotation q was pushed BEFORE the clip q, so it has to be popped
+        ; after them — an unbalanced stack here would leave the rotation in
+        ; force for the rest of the page.
+        if rotated {
             streamBuffer.writeString("Q\n")
         }
     }
@@ -3081,8 +3112,21 @@ class EVGPDFRenderer {
     }
     
     fn formatNum:string (n:double) {
-        ; Format number for PDF - simple conversion
-        ; PDF doesn't need high precision for most values
+        ; PDF real numbers may NOT use exponential notation — the syntax has no
+        ; such form, and a viewer is within its rights to reject the whole
+        ; stream. `to_string` reaches for it on very small magnitudes, which is
+        ; exactly what a rotation produces: cos 90 degrees comes out as
+        ; 6.123233995736766e-17 rather than a plain zero.
+        ;
+        ; Anything this small is zero at any page size, so it is written as
+        ; zero rather than as something no parser has to accept.
+        def mag:double n
+        if (mag < 0.0) {
+            mag = (0.0 - mag)
+        }
+        if (mag < 0.000001) {
+            return "0"
+        }
         def result:string (to_string n)
         return result
     }

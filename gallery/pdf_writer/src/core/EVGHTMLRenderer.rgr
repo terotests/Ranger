@@ -871,6 +871,11 @@ class EVGHTMLRenderer {
         }
         
         ; Opacity
+        ; Rotation about the element's centre, which is the CSS default
+        ; origin and the same point the other two renderers use.
+        if ((el.rotate == 0.0) == false) {
+            css = css + "transform: rotate(" + (to_string el.rotate) + "deg); "
+        }
         if (el.opacity < 1.0) {
             css = css + "opacity: " + (to_string el.opacity) + "; "
         }

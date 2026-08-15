@@ -177,6 +177,17 @@ else
   check "PDF: quadratic is elevated, not duplicated" "$OUT/vector.pdf" "33.33333333333333 0 50 16.66666666666667 50 50 c"
   # A dash pattern goes through PDF's own dash operator.
   check "PDF: the dash pattern reaches the dash operator" "$OUT/vector.pdf" "[6 3] 0 d"
+  # A quarter turn: cos 90 is zero to within a float, sin 90 is one, so the
+  # matrix reads 0 1 -1 0 with the translation that keeps the centre fixed.
+  check "PDF: rotation emits a rotation matrix" "$OUT/vector.pdf" "0 1 -1 0 "
+  # PDF real numbers have no exponential form, and cos 90 degrees is exactly
+  # where to_string reaches for one. A viewer may reject the whole stream.
+  if grep -qE "[0-9]e-?[0-9]+ " "$OUT/vector.pdf"; then
+    echo "  FAIL PDF: exponential notation reached the content stream"
+    status=1
+  else
+    echo "  PASS PDF: no exponential notation in the content stream"
+  fi
 fi
 
 if [ ! -s "$OUT/vector.html" ]; then

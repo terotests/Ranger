@@ -44,6 +44,7 @@ class VectorRasterTest {
         test.testStroke(t)
         test.testDashParsing(t)
         test.testDashedStroke(t)
+        test.testTransform(t)
         t.summary()
     }
 
@@ -310,6 +311,72 @@ class VectorRasterTest {
         ; (34, 26) is 5.7 units out: beyond the join radius, so a round join
         ; leaves it empty where a mitre would have run to a point.
         t.eqInt("the join is round, not mitred" (this.alphaAt(corner 34 26)) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Transform
+    ; --------------------------------------------------------------------------
+    ; The rasterizer applies an affine transform as points arrive, which is
+    ; what makes rotation work for glyphs and paths alike: RasterText feeds its
+    ; contours through the same addEdge a path does.
+
+    fn testTransform:void (t:RgTest) {
+        ; A wide, short bar rotated a quarter turn about its own centre must
+        ; come out tall and narrow, occupying the same centre.
+        def buf:RasterBuffer (this.makeBuffer(60 60))
+        def r (new VectorRasterizer())
+        ; Rotate 90 degrees clockwise about (30, 30): x' = -y + 60, y' = x.
+        r.setTransform(0.0 1.0 (0.0 - 1.0) 0.0 60.0 0.0)
+        def bar:[double] (this.square(10.0 25.0 0.0 true))
+        ; A 40 x 10 bar, written out rather than squared.
+        def pts:[double]
+        push pts 10.0
+        push pts 25.0
+        push pts 50.0
+        push pts 25.0
+        push pts 50.0
+        push pts 35.0
+        push pts 10.0
+        push pts 35.0
+        r.addRing(pts)
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        ; Before rotation the bar spans x 10..50, y 25..35. After a quarter
+        ; turn about the centre it spans x 25..35, y 10..50.
+        t.eqInt("the rotated bar covers its own centre" (this.alphaAt(buf 30 30)) 255)
+        t.eqInt("it reaches up where it used to reach right" (this.alphaAt(buf 30 15)) 255)
+        t.eqInt("and down" (this.alphaAt(buf 30 45)) 255)
+        t.eqInt("but no longer reaches right" (this.alphaAt(buf 45 30)) 0)
+        t.eqInt("or left" (this.alphaAt(buf 15 30)) 0)
+
+        ; Clearing puts it back: a transform is per drawing, and one left set
+        ; would turn everything drawn afterwards.
+        def plain:RasterBuffer (this.makeBuffer(60 60))
+        def r2 (new VectorRasterizer())
+        r2.setTransform(0.0 1.0 (0.0 - 1.0) 0.0 60.0 0.0)
+        r2.clearTransform()
+        r2.addRing(pts)
+        r2.fillAA(plain 0 0 0 255 rule)
+        t.eqInt("a cleared transform draws the original" (this.alphaAt(plain 45 30)) 255)
+        t.eqInt("and not the rotated one" (this.alphaAt(plain 30 15)) 0)
+
+        ; A rotation turns horizontal edges into ones that matter, so the
+        ; horizontal-edge shortcut has to run after the transform, not before.
+        def flat:RasterBuffer (this.makeBuffer(60 60))
+        def r3 (new VectorRasterizer())
+        r3.setTransform(0.0 1.0 (0.0 - 1.0) 0.0 60.0 0.0)
+        def horiz:[double]
+        push horiz 10.0
+        push horiz 20.0
+        push horiz 50.0
+        push horiz 20.0
+        push horiz 50.0
+        push horiz 40.0
+        push horiz 10.0
+        push horiz 40.0
+        r3.addRing(horiz)
+        t.ok("edges that were horizontal survive the rotation" ((r3.edgeCount()) >= 2))
     }
 
     ; --------------------------------------------------------------------------

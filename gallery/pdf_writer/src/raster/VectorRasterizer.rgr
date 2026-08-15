@@ -92,6 +92,15 @@ class VectorRasterizer {
     def edges:[VectorEdge]
     def compositor:RasterCompositor (new RasterCompositor())
 
+    ; Optional affine transform, applied as points arrive. See setTransform.
+    def hasTransform:boolean false
+    def ta:double 1.0
+    def tb:double 0.0
+    def tc:double 0.0
+    def td:double 1.0
+    def te:double 0.0
+    def tf:double 0.0
+
     Constructor () {
         def e:[VectorEdge]
         edges = e
@@ -118,9 +127,48 @@ class VectorRasterizer {
         return (array_length edges)
     }
 
-    fn addEdge:void (px1:double py1:double px2:double py2:double) {
+    ; An affine transform applied to every point on the way in, in SVG
+    ; matrix(a b c d e f) order.
+    ;
+    ; Putting it here rather than at each call site is what makes rotation work
+    ; for glyphs and paths alike: RasterText feeds its contours through addEdge
+    ; exactly as a path does, so a rotated axis label and a rotated shape go
+    ; through one implementation.
+    ;
+    ; Note for future use: `addStroke` computes its perpendiculars BEFORE the
+    ; transform, so a rotation gives the right stroke width (rotation preserves
+    ; length) but a non-uniform scale would skew it. Scale paths through the
+    ; flattening matrix instead, where the stroke width is scaled to match.
+    fn setTransform:void (a:double b:double c:double d:double e:double f:double) {
+        ta = a
+        tb = b
+        tc = c
+        td = d
+        te = e
+        tf = f
+        hasTransform = true
+    }
+
+    fn clearTransform:void () {
+        hasTransform = false
+    }
+
+    fn addEdge:void (rawX1:double rawY1:double rawX2:double rawY2:double) {
+        def px1:double rawX1
+        def py1:double rawY1
+        def px2:double rawX2
+        def py2:double rawY2
+        if hasTransform {
+            px1 = (((ta * rawX1) + (tc * rawY1)) + te)
+            py1 = (((tb * rawX1) + (td * rawY1)) + tf)
+            px2 = (((ta * rawX2) + (tc * rawY2)) + te)
+            py2 = (((tb * rawX2) + (td * rawY2)) + tf)
+        }
+
         ; A horizontal edge can never cross a scanline, so it contributes
-        ; nothing and only costs time in the inner loop.
+        ; nothing and only costs time in the inner loop. Tested AFTER the
+        ; transform, because a rotation is exactly what turns a horizontal edge
+        ; into one that matters.
         def dy:double (py2 - py1)
         if (dy < 0.0) {
             dy = (0.0 - dy)

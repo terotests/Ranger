@@ -519,6 +519,30 @@ class EVGPNGTool {
     ; sources for each: SVGPathParser for the geometry, VectorViewBox for where
     ; it lands, VectorRasterizer for the fill. Anywhere this file made its own
     ; decision instead, PNG would drift from PDF and HTML again.
+    ; The rotation an element asks for, about its own centre, in device space.
+    ;
+    ; Applies to what goes through the shared rasterizer — text and paths —
+    ; which is what a chart needs for an axis label. Rectangular backgrounds
+    ; still come from RasterPrimitives and are NOT rotated; rotating those
+    ; means routing them through VectorShapes as paths, which is the follow-up
+    ; recorded in the plan.
+    fn rotationMatrix:Matrix2D (el:EVGElement x:double y:double w:double h:double) {
+        if (el.rotate == 0.0) {
+            return (Matrix2D.identity())
+        }
+        def PI:double (M_PI)
+        def rad:double ((el.rotate / 180.0) * PI)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        ; y grows downward here, so this is clockwise on screen — the same
+        ; direction CSS rotate() turns and the same one the PDF renderer emits.
+        def ccx:double (x + (w / 2.0))
+        def ccy:double (y + (h / 2.0))
+        def ex:double ((ccx - (cs * ccx)) + (sn * ccy))
+        def fy:double ((ccy - (sn * ccx)) - (cs * ccy))
+        return (Matrix2D.create(cs sn (0.0 - sn) cs ex fy))
+    }
+
     fn renderPath:void (el:EVGElement x:double y:double w:double h:double) {
         def pathData:string el.svgPath
         if ((strlen pathData) == 0) {
@@ -555,7 +579,13 @@ class EVGPNGTool {
 
         ; The transform includes the element's position, so the rings come out
         ; already in device space.
-        def rings:[PathRing] (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
+        ; viewBox transform, then the element's position, then any rotation —
+        ; applied in that order so the rotation turns the shape where it sits
+        ; rather than swinging it away from its box.
+        def placed:Matrix2D (Matrix2D.create(m.a m.b m.c m.d (m.e + x) (m.f + y)))
+        def rot:Matrix2D (this.rotationMatrix(el x y w h))
+        def full:Matrix2D (rot.multiply(placed))
+        def rings:[PathRing] (parser.flattenRings(steps full.a full.b full.c full.d full.e full.f))
 
         def buf:RasterBuffer (renderer.getBuffer())
 
@@ -839,6 +869,15 @@ class EVGPNGTool {
     }
 
     fn renderText:void (el:EVGElement x:double y:double w:double h:double padLeft:double padTop:double padRight:double) {
+        ; A rotated label is the reason the rasterizer takes a transform at
+        ; all: the glyph contours go through the same addEdge a path does, so
+        ; the label turns by exactly the code that turns a shape.
+        def rotating:boolean ((el.rotate == 0.0) == false)
+        if rotating {
+            def rm:Matrix2D (this.rotationMatrix(el x y w h))
+            textRenderer.setTransform(rm.a rm.b rm.c rm.d rm.e rm.f)
+        }
+
         ; Get text color
         def textR:int 0
         def textG:int 0
@@ -903,6 +942,13 @@ class EVGPNGTool {
             def lineY:double ((y + padTop) + (lineStep * (to_double li)))
             this.renderTextLine(el ln.text (x + padLeft) lineY fontSize textR textG textB textA hasShadow)
             li = (li + 1)
+        }
+
+        ; Leave the rasterizer as it was found: the transform is per element,
+        ; and a label that forgot to clear it would rotate everything drawn
+        ; after it.
+        if rotating {
+            textRenderer.clearTransform()
         }
     }
 
