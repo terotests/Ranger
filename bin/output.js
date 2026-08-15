@@ -23608,6 +23608,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_in_trait_decl = false;
               this.rust_in_weak_unwrap = false;
               this.rust_lhs_is_receiver = false;
+              this.rust_writing_return_type = false;
               this.rust_writing_field_type = false;
               this.thisName = "self";
               this.rustFnReturnsUnion = "";
@@ -24204,6 +24205,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               const is_optional = node.hasFlag("optional");
               let is_weak = node.hasFlag("weak");
+              if ( this.rust_writing_return_type ) {
+                is_weak = false;
+              }
               if ( is_weak ) {
                 if ( ((node.array_type.length) > 0) || ((node.key_type.length) > 0) ) {
                   is_weak = false;
@@ -24767,7 +24771,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     return;
                   }
                 }
+                this.rust_writing_return_type = true;
                 await this.writeTypeDef(vnn, ctx, wr);
+                this.rust_writing_return_type = false;
               };
               rustExprReadsThrough (node, name) {
                 if ( (node.ns.length) >= 2 ) {
@@ -27294,12 +27300,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                 }
                               }
+                              let borrowRcWrap3 = false;
+                              if ( needsImmutableRef && (borrowedLitDone2 == false) ) {
+                                if ( arg.rust_needs_rc_wrap ) {
+                                  if ( this.rustInitRcState(nVal, ctx) == 0 ) {
+                                    borrowRcWrap3 = true;
+                                  }
+                                }
+                              }
                               if ( borrowedLitDone2 == false ) {
+                                if ( borrowRcWrap3 ) {
+                                  wr.out("Rc::new(RefCell::new(", false);
+                                }
                                 ctx.setInExpr();
                                 wr.suppress_expr_parens = true;
                                 await this.WalkNode(nVal, ctx, wr);
                                 wr.suppress_expr_parens = false;
                                 ctx.unsetInExpr();
+                                if ( borrowRcWrap3 ) {
+                                  wr.out("))", false);
+                                }
                               }
                               let src_is_ref = false;
                               if ( nVal.value_type == 11 ) {
@@ -30611,6 +30631,30 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                 }
                               }
+                              let retTraitCoerce = 0;
+                              let retTraitName = "";
+                              if ( (typeof(this.rustFnReturnNameNode) !== "undefined" && this.rustFnReturnNameNode != null )  ) {
+                                const rtNN = this.rustFnReturnNameNode;
+                                if ( ((rtNN.array_type.length) == 0) && ((rtNN.key_type.length) == 0) ) {
+                                  if ( this.rustTypeIsOwnHandle(rtNN.type_name, ctx) ) {
+                                    const retValT = this.rustArgValueTypeName(retVal);
+                                    if ( (retValT.length) > 0 ) {
+                                      if ( retValT != rtNN.type_name ) {
+                                        if ( this.rustTypeIsOwnHandle(retValT, ctx) == false ) {
+                                          if ( this.rustClassIsShared(retValT, ctx) ) {
+                                            retTraitName = rtNN.type_name;
+                                            if ( rtNN.hasFlag("optional") ) {
+                                              retTraitCoerce = 2;
+                                            } else {
+                                              retTraitCoerce = 1;
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
                               if ( retNeedsRcWrap ) {
                                 wr.out("Rc::new(RefCell::new(", false);
                               }
@@ -30670,6 +30714,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   } else {
                                     wr.out(".clone()", false);
                                   }
+                                }
+                              }
+                              if ( retTraitCoerce > 0 ) {
+                                if ( retTraitCoerce == 2 ) {
+                                  wr.out((".map(|__u| __u as Rc<RefCell<dyn " + retTraitName) + "Trait>>)", false);
+                                } else {
+                                  wr.out((" as Rc<RefCell<dyn " + retTraitName) + "Trait>>", false);
                                 }
                               }
                               if ( node.rust_is_tail_return ) {

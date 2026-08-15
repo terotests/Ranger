@@ -39,6 +39,9 @@ class RangerRustClassWriter {
   ; method on that reference rather than assigning to it: the `*` a real
   ; assignment target needs would be dereferencing the method's own result.
   def rust_lhs_is_receiver:boolean false
+  ; set while a function's RETURN type is written. A `@(weak)` return is
+  ; still an owned handle — see writeTypeDef.
+  def rust_writing_return_type:boolean false
   ; set while a STRUCT FIELD's type is written. A borrowed closure needs a
   ; lifetime to sit in a struct, and the struct has none; an owned one does
   ; not. A parameter keeps the borrow, which is what call sites pass.
@@ -743,6 +746,12 @@ class RangerRustClassWriter {
     }
     def is_optional:boolean (node.hasFlag("optional"))
     def is_weak:boolean (node.hasFlag("weak"))
+    ; …and `@(weak)` on a RETURN says nothing about the handle handed back:
+    ; every caller binds the result to an Rc name, and the bodies return one.
+    ; Declaring the Weak form there left the signature disagreeing with both.
+    if rust_writing_return_type {
+      is_weak = false
+    }
     ; `@(weak)` on a COLLECTION is about what the elements own, not the
     ; container: the Vec or the map itself belongs to the field. Wrapping it
     ; in a Weak handed back something with no len, push, get or insert on it
@@ -1441,7 +1450,9 @@ class RangerRustClassWriter {
         return
       }
     }
+    rust_writing_return_type = true
     this.writeTypeDef(vnn ctx wr)
+    rust_writing_return_type = false
   }
 
   ; Does this expression read through a shared cell (a field path rooted in
@@ -4557,12 +4568,28 @@ class RangerRustClassWriter {
                     }
                   }
                 }
+                ; a borrowed SHARED parameter is `&Rc<RefCell<T>>`, so a raw
+                ; value handed to one takes its cell here
+                def borrowRcWrap3:boolean false
+                if (needsImmutableRef && (borrowedLitDone2 == false)) {
+                  if arg.rust_needs_rc_wrap {
+                    if ((this.rustInitRcState(nVal ctx)) == 0) {
+                      borrowRcWrap3 = true
+                    }
+                  }
+                }
                 if (borrowedLitDone2 == false) {
+                  if borrowRcWrap3 {
+                    wr.out("Rc::new(RefCell::new(" false)
+                  }
                   ctx.setInExpr()
                   wr.suppress_expr_parens = true
                   this.WalkNode(nVal ctx wr)
                   wr.suppress_expr_parens = false
                   ctx.unsetInExpr()
+                  if borrowRcWrap3 {
+                    wr.out("))" false)
+                  }
                 }
                 
                 ; Check if source is reference and target expects owned - add clone
@@ -8468,6 +8495,31 @@ class RangerRustClassWriter {
             }
           }
         }
+        ; 0 = no coercion, 1 = a bare handle, 2 = an Option around one
+        def retTraitCoerce:int 0
+        def retTraitName:string ""
+        if (!null? rustFnReturnNameNode) {
+          def rtNN:CodeNode (unwrap rustFnReturnNameNode)
+          if (((strlen rtNN.array_type) == 0) && ((strlen rtNN.key_type) == 0)) {
+            if (this.rustTypeIsOwnHandle(rtNN.type_name ctx)) {
+              def retValT:string (this.rustArgValueTypeName(retVal))
+              if ((strlen retValT) > 0) {
+                if (retValT != rtNN.type_name) {
+                  if ((this.rustTypeIsOwnHandle(retValT ctx)) == false) {
+                    if (this.rustClassIsShared(retValT ctx)) {
+                      retTraitName = rtNN.type_name
+                      if (rtNN.hasFlag("optional")) {
+                        retTraitCoerce = 2
+                      } {
+                        retTraitCoerce = 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
         if retNeedsRcWrap {
           wr.out("Rc::new(RefCell::new(" false)
         }
@@ -8536,6 +8588,16 @@ class RangerRustClassWriter {
             } {
               wr.out(".clone()" false)
             }
+          }
+        }
+        ; a SUBCLASS handle returned where the declared return is the trait
+        ; parent needs the unsizing coercion — `Rc<RefCell<Sub>>` is not
+        ; `Rc<RefCell<dyn ParentTrait>>` until it is cast
+        if (retTraitCoerce > 0) {
+          if (retTraitCoerce == 2) {
+            wr.out(((".map(|__u| __u as Rc<RefCell<dyn " + retTraitName) + "Trait>>)") false)
+          } {
+            wr.out(((" as Rc<RefCell<dyn " + retTraitName) + "Trait>>") false)
           }
         }
         if node.rust_is_tail_return {
