@@ -1579,7 +1579,11 @@ class RangerGolangClassWriter {
             }
             if isHttpServer {
               ; This is an HttpServer - generate route setup and server start
-              httpServerWriter.writeServerStart(serverArg node ctx wr this)
+              ; a fresh one per call: it carries no state between calls, and a
+              ; method that reaches a struct field of its own takes `&mut
+              ; self` — which a trait signature then imposes on every writer
+              def srvWriter:RangerGolangHttpServerWriter (new RangerGolangHttpServerWriter())
+              srvWriter.writeServerStart(serverArg node ctx wr this)
               return
             }
           }

@@ -246,6 +246,12 @@ class RangerAppWriterContext {
   def rust_moved_vars:[string:boolean]
   def rust_usage_count:[string:int]
   def rust_temp_counter:int 0
+  ; Rust: every field name ever reached THROUGH a path anywhere in the
+  ; program. Kept here rather than on the writer, because a writer that
+  ; mutates a field of its own cannot take `&self` — and the whole point of
+  ; the scan is to let writers take `&self`.
+  def rust_path_field_names:[string:boolean]
+  def rust_path_names_ready:boolean false
 
   ; Mark a variable as moved (value has been transferred)
   fn rustMarkMoved (varName:string) {

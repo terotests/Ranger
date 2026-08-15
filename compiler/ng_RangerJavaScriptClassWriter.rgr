@@ -963,7 +963,10 @@ class RangerJavaScriptClassWriter {
     }
     if(cl.nameNode.hasFlag("ReactNative")) {
       is_react_native = true
-      set this.compFlags "ReactNative" true
+      ; on the CONTEXT, not on the writer: compFlags is inherited from the
+      ; generic writer, and a trait method that writes an inherited field
+      ; takes `&mut self` — which every sibling writer then inherits too
+      ctx.setFlag("ReactNative" true)
     }
     if(cl.nameNode.hasFlag("default")) {
       is_rn_default = true

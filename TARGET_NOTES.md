@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | **0** | `rustc` clean; the binary runs stages 1-3 and enters 4, see below |
+| Rust | **0** | `rustc` clean; the binary compiles programs end to end |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -860,67 +860,73 @@ another in a single statement:
 - `changeStrengthSelf`, `getTargetLangName`, `getRootFile`, `setRootFile`,
   `addError`, `addParserError` and `transformWord` from the earlier pass.
 
-### Where it stops now
+### It runs
 
 ```
 [1/5] Collecting methods...
 [2/5] Analyzing code...
 [3/5] Type checking...
 [4/5] Generating code...
-thread 'main' panicked: RefCell already borrowed
-  LiveCompiler::WriteScalarValue
-  LiveCompiler::WalkNode
-  RangerJavaScriptClassWriter::WalkNode
+[5/5] Writing output...
+[OK] Compilation successful!
 ```
 
-The remaining wall is the **trait families** — the language writers — and it is
-now understood rather than guessed at.
+The Rust rendering of the compiler compiles a program end to end, and its
+output is **byte-identical** to what the JavaScript build produces from the
+same input. `scripts/rust-selfhost-run.sh` builds it and runs it over
+`tests/rust_run/hello.rgr`.
 
-A trait method cannot be dispatched without a receiver, so `&mut self` on one
-means `wr.borrow_mut().WalkNode(…)` at every call site, and the borrow is held
-for the whole call. `LiveCompiler` calls back into the same writer partway
-through, and that is the panic. Two SHARED borrows would nest, so the question
-is only which of these methods actually needs to mutate.
+What finally moved it was the trait families — the language writers. A trait
+method cannot be dispatched without a receiver, so `&mut self` on one means
+`wr.borrow_mut().WalkNode(…)` at every call site, holding the writer's cell
+for the whole call while `LiveCompiler` calls back into it. Two SHARED borrows
+nest, so the only question was which of these methods actually needs to mutate.
 
-The answer used to be "all of them", by fiat: `markTraitIfaceMutations` marked
-every trait-interface method as mutating, because one signature serves the
-declaration and every impl and any implementation that mutates forces the
-mutable form on all of them. That blanket has been replaced by the real union —
-one analysis over the whole family, on one merged mutation graph, cached on the
-family's root and read by every emission site. **848 methods now take `&self`
-where all of them used to take `&mut self`.**
+The old answer was "all of them", by fiat. Replacing that blanket with the
+truth took the following, in order, each one uncovered by the next failure:
 
-That is not yet enough for the writers, and the reason is the per-emission
-scratch state the target writers keep on themselves. So a scalar field of a
-trait-family class now goes into the struct behind **interior mutability** —
-`Cell<T>` for a Copy scalar, `RefCell<String>` for a string — read as
-`.get()` or, for a string, inside a block so the `Ref` is dropped before the
-statement continues, and written with `set()` / `replace()` after the value has
-been computed into a temporary. Writing one is then not a mutation of the
-struct, and the method keeps `&self`. 88 fields are emitted that way, and the
-root causes drop from 302 to 223.
+- **One mutation analysis for the whole family, on one merged call graph.**
+  Per-class graphs get the transitive step wrong, and the merge has to UNION
+  the call edges: `writeClass` calls `writeTypeDef` in one writer and not in
+  the next, and whichever was written last used to be the only one with edges.
+- **The blanket had to come out of `buildInheritedMutationGraph` too.** It
+  marked every inherited trait method as mutating, which fed straight back
+  into the analysis meant to replace it — and separately made every caller of
+  an inherited method `&mut self` for no reason.
+- **A scalar field of a trait-family class lives behind interior mutability** —
+  `Cell<T>`, `RefCell<String>`, `RefCell<Vec/HashMap>`, and `RefCell<Option<T>>`
+  for a field never reached through a path. Writing one is then not a mutation
+  of the struct. Reads take `.get()` or `.borrow()`; a string reads inside a
+  block so its `Ref` dies before the statement continues; writes compute the
+  value into a temporary first, because naming the field as the receiver
+  borrows the object for the whole statement.
+- **Three mutation rules counted writes that were never to this object**: a
+  call through a field holding an Rc borrows the FIELD's cell, a mutating
+  operator on `ctx.someMap` writes the context's field and not this one, and
+  neither is a mutation of the struct.
+- **Call sites had to learn the same answer.** A call through a trait-typed
+  field asks the family, so a `&self` callee is reached with `.borrow()`.
+- **A call through one of this object's handle fields hoists the handle to a
+  local first.** `langWriter.writeClass(…)` reads the field out of this
+  object, and that read's `Ref` lives to the end of the statement — which is
+  the whole call, which is when the callee reaches back in.
+- **A read through a trait accessor takes a shared borrow.** Two reads of one
+  object in a single statement — `outMapped(…, p.compiledName, …, p.name)` —
+  are two live `Ref`s, and the mutable form there is a panic rather than a
+  borrow error.
 
-What is left is a named handful. Forcing the family answer to "never mutates"
-now leaves exactly ten direct writes, and every remaining error is a caller of
-one of them:
+Three source sites changed where the fix was one line: the JavaScript writer
+records its ReactNative flag on the context rather than on an inherited map
+field, the Go writer builds its HTTP-server writer per call instead of holding
+one, and `RangerAppParamDesc`'s aliasing cases from the earlier passes.
 
-- `RangerRustClassWriter.rustFnReturnNameNode` — an OPTIONAL object field, the
-  one shape a cell cannot take here. It is reached through paths from other
-  classes as `x.field.as_ref().unwrap()`, and the cell read has to go on the
-  end of the path while the `Option` handling has already been written in
-  front of it. Wrapping it was measured: 84 errors, all of that shape.
-- `RangerAppParamDesc.has_events` and `.eMap` — fields of a trait ROOT. The
-  root's fields are the ones the trait exposes through accessors that hand out
-  references, and a cell cannot serve that signature without changing the
-  accessor to return a value and every write site to call `set()`.
+**2379 methods now take `&self`** where 848 did before this pass, and the
+writer trait declares exactly two `&mut self` methods, both field accessors.
 
-Both are tractable and neither is architectural. The optional case needs the
-cell read emitted around the whole path rather than appended to it; the root
-case needs generated accessors that read and write through the cell.
-
-Everything before code generation runs: the parser, the flow analyser, the type
-checker and the whole descriptor machinery execute in Rust and reach the same
-answers the JavaScript build does, on the same input.
+Simple programs compile correctly. Larger fixtures still panic — the same
+class of borrow re-entrancy, in paths this program does not reach — so the
+Rust backend is not yet at parity with the six targets that build the compiler
+itself. `tests/fixtures` is the place to continue.
 
 One conflict is worth naming because no codegen change can settle it:
 `RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and
