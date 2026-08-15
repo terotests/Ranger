@@ -29,7 +29,7 @@ try {
   c.style.height = doc.height + "px";
   c.width = Math.round(doc.width * dpr);
   c.height = Math.round(doc.height * dpr);
-  const gl = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false });
+  const gl = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
   if (!gl) throw new Error("WebGL 2 not available");
   await document.fonts.ready;
   // document.fonts.ready resolves before a face that nothing has used yet is

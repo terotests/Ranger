@@ -5,6 +5,7 @@ published to `/evg/` on the project's GitHub Pages site.
 
 ```
 npm run showcase          # -> gallery/evg/showcase/dist/index.html
+npm run showcase:gl       # check the WebGL viewer actually drew the pages
 ```
 
 Each page is rendered under **two themes** — the generated `charts` page under

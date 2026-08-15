@@ -43,10 +43,25 @@
  * triangles. A radius on the element clips the photo through the same distance
  * field the rectangles use.
  *
- * Not yet implemented: nested clips beyond a single scissor rectangle.
+ * Vector paths
+ * ------------
+ * A path arrives already flattened into rings of points, in page coordinates —
+ * the display list does the parsing and the viewBox arithmetic, so this file
+ * carries no path parser. A FILL is drawn stencil-then-cover: each ring goes
+ * into the stencil buffer as a triangle fan, then one quad over the path's
+ * bounding box paints every pixel the rule says is inside. That handles holes
+ * and both fill rules without a triangulator, and it is why the context needs a
+ * stencil buffer. A STROKE is expanded to a quad per segment on the CPU, which
+ * needs no stencil at all.
+ *
+ * Not yet implemented: nested clips beyond a single scissor rectangle; stroke
+ * joins and caps are butt joints, which is invisible at the widths a chart uses.
  */
 
-const KIND = { RECT: 0, BORDER: 1, IMAGE: 2, TEXT: 3, PUSH_CLIP: 4, POP_CLIP: 5 };
+const KIND = {
+  RECT: 0, BORDER: 1, IMAGE: 2, TEXT: 3, PUSH_CLIP: 4, POP_CLIP: 5,
+  PATH: 6, STROKE: 7,
+};
 
 // aShape.z — what the fragment shader should do with this instance.
 const MODE = { SHAPE: 0, TEXT: 1, IMAGE: 2 };
@@ -57,6 +72,7 @@ in vec4 aRect;            // x, y, w, h in page pixels
 in vec4 aColor;           // rgba, 0..1
 in vec3 aShape;           // radius, thickness (0 = fill), mode
 in vec4 aUV;              // u0,v0,u1,v1 — atlas slot, or the image's cover crop
+in float aRot;            // radians, about the rect's own centre
 uniform vec2 uPage;
 out vec4 vColor;
 out vec2 vLocal;          // position within the rect, in pixels
@@ -67,6 +83,15 @@ out float vMode;
 out vec2 vUV;
 void main() {
   vec2 p = aRect.xy + aCorner * aRect.zw;
+  // A rotated element turns about its own centre, which is what the PDF matrix
+  // and the raster transform both do — an axis title on its side has to land in
+  // the same place in all three.
+  if (aRot != 0.0) {
+    vec2 c = aRect.xy + aRect.zw * 0.5;
+    float s = sin(aRot), co = cos(aRot);
+    vec2 d = p - c;
+    p = c + vec2(d.x * co - d.y * s, d.x * s + d.y * co);
+  }
   // Page space is y-down like every 2D layout engine; clip space is y-up.
   vec2 ndc = vec2((p.x / uPage.x) * 2.0 - 1.0, 1.0 - (p.y / uPage.y) * 2.0);
   gl_Position = vec4(ndc, 0.0, 1.0);
@@ -140,6 +165,70 @@ void main() {
   if (alpha <= 0.001) discard;
   outColor = vec4(vColor.rgb, vColor.a * alpha);
 }`;
+
+// Paths are drawn as plain triangles in page space with one colour per draw:
+// a fill covers its own bounding box through the stencil, a stroke is the quads
+// its segments expand to.
+const PATH_VERT = `#version 300 es
+in vec2 aPos;
+uniform vec2 uPage;
+void main() {
+  vec2 ndc = vec2((aPos.x / uPage.x) * 2.0 - 1.0, 1.0 - (aPos.y / uPage.y) * 2.0);
+  gl_Position = vec4(ndc, 0.0, 1.0);
+}`;
+
+const PATH_FRAG = `#version 300 es
+precision highp float;
+uniform vec4 uColor;
+out vec4 outColor;
+void main() { outColor = uColor; }`;
+
+/** The rings of a path command, as flat [x,y,…] arrays. */
+function ringsOf(c) {
+  const out = [];
+  const pts = c.pts || [];
+  const ends = c.ends || [];
+  let start = 0;
+  for (const end of ends) {
+    if (end - start >= 4) out.push(pts.slice(start, end));
+    start = end;
+  }
+  return out;
+}
+
+/** A stroke's quads: one per segment, butt-jointed. */
+function strokeTriangles(rings, width) {
+  const half = Math.max(width, 0.75) / 2;
+  const tris = [];
+  for (const ring of rings) {
+    for (let i = 0; i + 3 < ring.length; i += 2) {
+      const x1 = ring[i], y1 = ring[i + 1], x2 = ring[i + 2], y2 = ring[i + 3];
+      let dx = x2 - x1, dy = y2 - y1;
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-6) continue;
+      // The normal, scaled to half the stroke width.
+      const nx = (-dy / len) * half, ny = (dx / len) * half;
+      tris.push(
+        x1 + nx, y1 + ny, x2 + nx, y2 + ny, x2 - nx, y2 - ny,
+        x1 + nx, y1 + ny, x2 - nx, y2 - ny, x1 - nx, y1 - ny,
+      );
+    }
+  }
+  return tris;
+}
+
+function boundsOf(rings) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const ring of rings) {
+    for (let i = 0; i + 1 < ring.length; i += 2) {
+      if (ring[i] < x0) x0 = ring[i];
+      if (ring[i] > x1) x1 = ring[i];
+      if (ring[i + 1] < y0) y0 = ring[i + 1];
+      if (ring[i + 1] > y1) y1 = ring[i + 1];
+    }
+  }
+  return [x0, y0, x1, y1];
+}
 
 function compile(gl, type, src) {
   const s = gl.createShader(type);
@@ -295,11 +384,11 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // Instances in paint order, plus the runs that must be drawn separately.
   // A run is a stretch of instances that share a texture binding; an image
   // ends the run before it and forms one of its own.
-  const rects = [], colors = [], shapes = [], uvs = [];
+  const rects = [], colors = [], shapes = [], uvs = [], rots = [];
   const runs = [];
   let missingImages = 0, drawnImages = 0;
   const pushRun = (start, count, tex) => {
-    if (count > 0) runs.push({ start, count, tex });
+    if (count > 0) runs.push({ kind: "quads", start, count, tex });
   };
   let runStart = 0;
   const flush = () => {
@@ -307,9 +396,26 @@ export function renderDisplayList(gl, doc, opts = {}) {
     pushRun(runStart, n - runStart, null);
     runStart = n;
   };
+  // Path geometry is not instanced quads, so a path ends the run before it and
+  // becomes a run of its own — which is what keeps the paint order intact.
+  const pushPath = (op) => { flush(); runs.push(op); };
 
   for (const c of cmds) {
     if (c.k === KIND.PUSH_CLIP || c.k === KIND.POP_CLIP) continue;   // TODO: scissor stack
+    if (c.k === KIND.PATH || c.k === KIND.STROKE) {
+      const rings = ringsOf(c);
+      if (!rings.length) continue;
+      const col = c.c || [0, 0, 0, 1];
+      const rgba = [col[0] / 255, col[1] / 255, col[2] / 255, col[3]];
+      if (c.k === KIND.STROKE) {
+        const tris = strokeTriangles(rings, c.t || 1);
+        if (tris.length) pushPath({ kind: "tris", verts: new Float32Array(tris), color: rgba });
+      } else {
+        pushPath({ kind: "fill", rings: rings.map((r) => new Float32Array(r)),
+                   bounds: boundsOf(rings), evenOdd: !!c.eo, color: rgba });
+      }
+      continue;
+    }
     if (c.k === KIND.IMAGE) {
       const t = c.src && textures.get(c.src);
       if (!t) { missingImages += 1; continue; }
@@ -320,6 +426,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(uv[0], uv[1], uv[2], uv[3]);
       shapes.push(c.r || 0, 0, MODE.IMAGE);
+      rots.push(((c.rot || 0) * Math.PI) / 180);
       colors.push(1, 1, 1, 1);
       pushRun(runStart, 1, t.tex);
       runStart = rects.length / 4;
@@ -339,6 +446,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
       uvs.push(0, 0, 0, 0);
       shapes.push(c.r || 0, c.k === KIND.BORDER ? (c.t || 1) : 0, MODE.SHAPE);
     }
+    rots.push(((c.rot || 0) * Math.PI) / 180);
     const col = c.c || [0, 0, 0, 1];
     colors.push(col[0] / 255, col[1] / 255, col[2] / 255, col[3]);
   }
@@ -365,6 +473,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
     { name: "aColor", data: colors, size: 4 },
     { name: "aShape", data: shapes, size: 3 },
     { name: "aUV", data: uvs, size: 4 },
+    { name: "aRot", data: rots, size: 1 },
   ];
   for (const a of instanced) {
     a.buf = gl.createBuffer();
@@ -396,7 +505,87 @@ export function renderDisplayList(gl, doc, opts = {}) {
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
+  // The path pipeline: its own program, its own buffer, one draw per path.
+  const pathProg = gl.createProgram();
+  gl.attachShader(pathProg, compile(gl, gl.VERTEX_SHADER, PATH_VERT));
+  gl.attachShader(pathProg, compile(gl, gl.FRAGMENT_SHADER, PATH_FRAG));
+  gl.linkProgram(pathProg);
+  if (!gl.getProgramParameter(pathProg, gl.LINK_STATUS)) {
+    throw new Error("link path: " + gl.getProgramInfoLog(pathProg));
+  }
+  const pathVao = gl.createVertexArray();
+  gl.bindVertexArray(pathVao);
+  const pathBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
+  const pathPosLoc = gl.getAttribLocation(pathProg, "aPos");
+  gl.enableVertexAttribArray(pathPosLoc);
+  gl.vertexAttribPointer(pathPosLoc, 2, gl.FLOAT, false, 0, 0);
+  const pathPageLoc = gl.getUniformLocation(pathProg, "uPage");
+  const pathColorLoc = gl.getUniformLocation(pathProg, "uColor");
+
+  const hasStencil = gl.getContextAttributes().stencil === true;
+  let paths = 0, skippedFills = 0;
+
+  const drawTris = (verts, color) => {
+    gl.bindVertexArray(pathVao);
+    gl.useProgram(pathProg);
+    gl.uniform2f(pathPageLoc, doc.width, doc.height);
+    gl.uniform4f(pathColorLoc, color[0], color[1], color[2], color[3]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, verts.length / 2);
+  };
+
+  /**
+   * Stencil-then-cover. Every ring goes into the stencil as a fan; the rule
+   * decides which counts survive; then one quad over the bounding box paints
+   * them and zeroes the stencil on its way out, so no clear is needed between
+   * paths.
+   */
+  const drawFill = (op) => {
+    if (!hasStencil) { skippedFills += 1; return; }
+    gl.bindVertexArray(pathVao);
+    gl.useProgram(pathProg);
+    gl.uniform2f(pathPageLoc, doc.width, doc.height);
+    gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
+
+    gl.enable(gl.STENCIL_TEST);
+    gl.colorMask(false, false, false, false);
+    gl.stencilFunc(gl.ALWAYS, 0, 0xff);
+    if (op.evenOdd) {
+      gl.stencilMask(0x01);
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.INVERT);
+    } else {
+      gl.stencilMask(0xff);
+      // A ring's winding decides the sign, which is what "non-zero" counts.
+      gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+      gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+    }
+    for (const ring of op.rings) {
+      gl.bufferData(gl.ARRAY_BUFFER, ring, gl.STREAM_DRAW);
+      gl.drawArrays(gl.TRIANGLE_FAN, 0, ring.length / 2);
+    }
+
+    gl.colorMask(true, true, true, true);
+    gl.stencilFunc(gl.NOTEQUAL, 0, op.evenOdd ? 0x01 : 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
+    gl.uniform4f(pathColorLoc, op.color[0], op.color[1], op.color[2], op.color[3]);
+    const [x0, y0, x1, y1] = op.bounds;
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      x0, y0, x1, y0, x1, y1,
+      x0, y0, x1, y1, x0, y1,
+    ]), gl.STREAM_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    gl.stencilMask(0xff);
+    gl.disable(gl.STENCIL_TEST);
+  };
+
   for (const run of runs) {
+    if (run.kind === "fill") { drawFill(run); paths += 1; continue; }
+    if (run.kind === "tris") { drawTris(run.verts, run.color); paths += 1; continue; }
+    gl.useProgram(prog);
+    gl.bindVertexArray(vao);
     if (run.tex) {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, run.tex);
@@ -405,5 +594,11 @@ export function renderDisplayList(gl, doc, opts = {}) {
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, run.count);
   }
 
-  return { drawn: count, textRuns: slots.size, images: drawnImages, missingImages, runs: runs.length };
+  return {
+    drawn: count, textRuns: slots.size, images: drawnImages, missingImages,
+    runs: runs.length, paths,
+    // A context without a stencil buffer cannot fill a path; say so rather than
+    // drawing a chart with no bars in it.
+    skippedFills,
+  };
 }
