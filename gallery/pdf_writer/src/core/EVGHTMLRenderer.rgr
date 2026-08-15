@@ -304,6 +304,35 @@ class EVGHTMLRenderer {
         return css
     }
     
+    ; Did the engine fit this label's text on a single line?
+    ;
+    ; Asked of the same measurer layout used, so the answer is layout's answer
+    ; and not a second opinion.
+    fn fitsOneLine:boolean (el:EVGElement) {
+        if ((strlen el.textContent) == 0) {
+            return false
+        }
+        if (el.calculatedWidth <= 0.0) {
+            return false
+        }
+        def fs:double el.inheritedFontSize
+        if el.fontSize.isSet {
+            fs = el.fontSize.pixels
+        }
+        if (fs <= 0.0) {
+            return false
+        }
+        def avail:double (el.box.getInnerWidth(el.calculatedWidth))
+        if (avail <= 0.0) {
+            return false
+        }
+        def w:double (measurer.measureTextWidth((this.presentationText(el.textContent)) (el.effectiveFontFamily()) fs))
+        ; A hair of slack, so a label whose text measures exactly its own box
+        ; still counts as fitting — that is the shrink-wrapped case, and it is
+        ; the one that wraps.
+        return (w <= (avail + 0.5))
+    }
+
     ; The element's text as markup: one piece normally, and a wrapped <span>
     ; around each fallback run when `emoji-color` asks for one.
     ;
@@ -997,6 +1026,20 @@ class EVGHTMLRenderer {
         ; Dimensions (if set)
         if (el.calculatedWidth > 0.0) {
             css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
+        }
+
+        ; When EVG put the whole label on ONE line, say so, and let the browser
+        ; overflow rather than re-break it.
+        ;
+        ; The box carries EVG's own measurement, printed to a few decimals, and
+        ; a browser summing the same advances can land a hundredth of a pixel
+        ; over it — measured: 288.719 against a declared 288.701. That is
+        ; enough to wrap the last word onto a second line, which then pushes
+        ; every absolutely-positioned box below it out of place. EVG has
+        ; already decided where this text breaks; the browser deciding again is
+        ; exactly the disagreement this engine exists to prevent.
+        if (this.fitsOneLine(el)) {
+            css = css + "white-space: nowrap; "
         }
         
         ; Text shadow
