@@ -706,8 +706,9 @@ of the trait-defining class out by reference, `rgf_x()` to read and
 when the segment before it is a class with children.
 
 Everything after that has been ordinary codegen work, measured one shape at a
-time. `rustc` on the 67k-line output is down from **4981 errors to 155**. The
-shapes that carried real defects, rather than Rust-specific plumbing:
+time. `rustc` on the 67k-line output is down from **4981 errors to 11**
+(`bash scripts/rust-selfhost-check.sh` regenerates and counts). The shapes that
+carried real defects, rather than Rust-specific plumbing:
 
 - `indexOf` over an array compiled to `.position(…).unwrap()`, which **panics on
   a miss** where the operator has to answer −1. Every "is this here" question in
@@ -732,10 +733,50 @@ shapes that carried real defects, rather than Rust-specific plumbing:
   shape as a parenthesised variable, so the concat collector unwrapped it and
   wrote the operator's *name* as if it were a value.
 
-What remains is a long flat tail: no single shape accounts for more than about
-a dozen errors. The measurements that mattered, including three changes that
-made things worse and were backed out, are recorded in comments at the sites
-they belong to, so the next pass starts from the number rather than the guess.
+- `==` on an object means IDENTITY in every other target, where the handle is a
+  pointer, a reference or a shared_ptr. Rust will not compare two `Rc`s at all,
+  so the comparison had to go through `Rc::ptr_eq`; until it did, the writer had
+  no reading of object equality at all.
+- Two `length` templates handed back a `usize` where every Ranger `int` is
+  `i64`, and the string one counted BYTES where go and swift count runes.
+- `normalize` and `install_directory` had no Rust template and fell through to
+  the catch-all, which answers with the literal `"./"` — so every path the
+  compiler built for its library search came out as that literal.
+- `@(weak)` on a RETURN was written as the `Weak` form, which disagreed with
+  every caller (they bind the result to an `Rc` name) and with every body (they
+  return one).
+
+### The 11 that are left
+
+They are two structural families and one borrow shape, not a flat tail:
+
+- **Recursive closures (7).** The compiler declares a lambda in a local and then
+  assigns the real body to it, so the body can call the name — `walk_xml`,
+  `set_async`, `set_called`. A `&mut |…|` literal is a temporary that dies at
+  the end of its statement (E0716), and the fix for that is not local: binding
+  the literal to a `let` first only trades E0716 for E0506, because the body
+  captures the very name being assigned to. Giving such a name the owned
+  `Box<dyn FnMut(…)>` form was written and measured — 25 → 39 — and reverted;
+  it removes the temporaries and replaces them with the same borrow conflict.
+  A real fix is closure conversion: lift the lambda to a function and pass its
+  captured environment explicitly. The two E0500 are the same family seen from
+  the other side — a closure that captures `self` handed to a `&mut self`
+  method.
+- **Downcasts (3).** `(cast (unwrap n2.paramDesc) to:RangerAppFunctionDesc)`
+  asks for a subclass handle out of a parent-typed one. The UPCAST direction is
+  now written wherever it is needed (argument, return, assignment, weak
+  downgrade) as `x as Rc<RefCell<dyn XTrait>>`. The downcast has no expression
+  in stable Rust: `Rc<RefCell<dyn Trait>>` cannot become `Rc<RefCell<Concrete>>`
+  without the trait object being `Rc<dyn Any>` to begin with, which is a change
+  to the representation rather than to a call site.
+- **One E0502**: a self field read through a cell, passed as an argument to a
+  `&mut self` call — the `Ref` outlives the point the `&mut` is taken. Hoisting
+  every such argument into a temporary was measured at 12 → 88 and reverted; the
+  hoist has to be narrower than "reads a self field".
+
+The measurements that mattered, including the changes that made things worse and
+were backed out, are recorded in comments at the sites they belong to, so the
+next pass starts from the number rather than the guess.
 
 One conflict is worth naming because no codegen change can settle it:
 `RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and
