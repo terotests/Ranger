@@ -555,14 +555,67 @@ at zero through all of this work and did not build until the five defects above
 were fixed; Kotlin's 19 became 3490 `kotlinc` errors; PHP is at zero now and has
 never been built or run.
 
-### `strlen` counts bytes, `substring` counts characters
+### `substring` counts the unit its neighbours count — `utf8_substring` counts characters
 
-On C++ `strlen` is `std::string::length()` (bytes) and `charAt` indexes bytes,
-but `substring` is `r_utf8_substr` and counts UTF-8 **characters**. A loop
-written as `while (i < (strlen s))` over `(substring s i (i + 1))` therefore
-runs past the end of a string that holds any non-ASCII character. Every other
-target counts the same unit in both. Prefer `charAt` for a scan; the compiler's
-own `advanceColumnForString` was rewritten that way.
+An index has to mean one thing to all of `strlen`, `charAt` and `substring`,
+because a scanner finds a character with one and slices it out with the others.
+C++ used to disagree with itself: `strlen` is `std::string::length()` and
+`charAt` is `s.at(i)`, both **bytes**, while `substring` was `r_utf8_substr` and
+counted **characters**. A scan over `"—b"` finds `b` at byte 3, and asking for
+characters 3..4 of a two-character string gives back nothing — C++ was the only
+target of seven to answer `scan: []` where the rest answer `scan: [b]`.
+
+`substring` now slices bytes on C++. That still round-trips UTF-8: the pieces of
+a multi-byte character concatenate back into the character, which is what the
+compiler's own string parser relies on when it walks a literal one index at a
+time.
+
+Counting characters is a separate job, so it has its own operator.
+`utf8_substring` always counts code points, whatever unit the target's own
+`substring` counts — for truncating a label to twenty characters without cutting
+one in half. It uses `r_utf8_substr` on C++, the rune slice on Go, `chars()` on
+Rust, `offsetByCodePoints` on the JVM targets, `runes` on Dart, `mb_substr` on
+PHP, a surrogate-aware walk on C#, and `Array.from` elsewhere.
+
+`tests/string-index-semantics.test.ts` pins both halves across seven targets.
+
+### How long the compiler takes to compile itself
+
+Same input (`./compiler/ng_Compiler.rgr` to ES6), same machine, a 4-core Xeon at
+2.80 GHz. Median of three, after a warm-up run. All three renderings emit the
+same bytes — the comparison is only meaningful because the outputs are identical.
+
+| Rendering | Self-compile | Peak RSS |
+| --- | ---: | ---: |
+| C++ (`g++ -O2`) | **4.05 s** | 772 MB |
+| Rust (`rustc -O`) | **4.59 s** | 708 MB |
+| JavaScript (node) | 10.5 s | — |
+
+Building the compiler *binary* is the slow part, not running it: generating the
+C++ takes ~15 s and `g++ -O2` another ~175 s; Rust is ~15 s and `rustc -O`
+~170 s. The two native builds run concurrently in about the time of one.
+
+Three defects stood between this and where it started, and the order they were
+found in is the order of their cost:
+
+1. **A lambda copied a by-reference parameter** (C++ only). The writer captures
+   an enclosing parameter by value so a stored callback keeps its own handle —
+   right for a `shared_ptr`, wrong for a parameter the signature already passes
+   as a reference. `markAsyncFromVariant` guards its recursion with a `visited`
+   list and recurses from inside a `forEach`, so every branch got a private copy
+   of the list, saw nothing its siblings had marked, and re-walked the call
+   graph. The answers were right; the cost was not. The C++ binary had not
+   finished after **775 s**.
+2. **Seven dead source-line lookups.** `WalkNode` — the flow parser's main tree
+   walk — opened by computing the line its node sat on and never read it.
+   `getLine` sums the length of every line from the start of the file, so that
+   was one pass over the whole source *per node*; `stdParamMatch` did the same
+   once per operator match. Deleting the seven bindings took C++ from 29.0 s to
+   4.05 s, Rust from 47.9 s to 4.59 s, and node from 14.2 s to 10.5 s. It was
+   86% of the C++ run and 90% of the Rust one.
+3. **`findMethod` rebuilt the key list** (`keys method_variants`, an allocation
+   plus a copy of every method name) to answer a single map lookup, and
+   `hasMethod` asked each parent twice — 2^depth over an inheritance chain.
 
 ## Dart (`-l=dart`)
 
