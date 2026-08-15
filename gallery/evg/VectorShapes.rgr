@@ -1,0 +1,328 @@
+Import "SVGPathParser.rgr"
+
+; ==============================================================================
+; VectorShapes.rgr — every basic shape, expressed as a path
+; ==============================================================================
+; PLAN_VECTOR_IR.md Stage 3.
+;
+; SVG's basic shapes are not really separate primitives: `rect`, `circle`,
+; `ellipse`, `line`, `polyline` and `polygon` each have a path equivalent that
+; the spec states outright, and browsers render them through exactly that
+; equivalence. Following it here means a renderer never has to grow a second
+; way to draw a rounded corner, and a shape cannot end up looking different
+; from the path that describes it.
+;
+; That matters more than it sounds, because the tree ALREADY has the beginnings
+; of the other approach: the PDF renderer has its own drawRoundedRectPath, the
+; raster side has fillRoundedRect and fillCircle, and each is a separate
+; implementation of a curve that this file now derives once.
+;
+; Everything here is a pure function: shape parameters in, `[PathCommand]` out,
+; no renderer, no state, no I/O. So each one can be checked against the
+; geometry it claims to draw rather than against a rendering of it.
+;
+; Curves are emitted as cubics rather than arcs. A quarter ellipse is matched by
+; a cubic to within about one part in a thousand of the radius using the
+; standard constant below — far under a pixel at any size these are drawn — and
+; it keeps the output free of the arc conversion every consumer would otherwise
+; have to run.
+; ==============================================================================
+
+class VectorShapes {
+
+    ; 4/3 * (sqrt(2) - 1). The control-point distance that makes a cubic follow
+    ; a quarter circle. The same constant already appears, spelled out, in the
+    ; PDF renderer's rounded-rect code.
+    sfn kappa:double () {
+        return 0.5522847498307936
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Emitters
+    ; --------------------------------------------------------------------------
+
+    sfn moveTo:PathCommand (x:double y:double) {
+        def c (new PathCommand())
+        c.type = "M"
+        c.x = x
+        c.y = y
+        return c
+    }
+
+    sfn lineTo:PathCommand (x:double y:double) {
+        def c (new PathCommand())
+        c.type = "L"
+        c.x = x
+        c.y = y
+        return c
+    }
+
+    sfn cubicTo:PathCommand (x1:double y1:double x2:double y2:double x:double y:double) {
+        def c (new PathCommand())
+        c.type = "C"
+        c.x1 = x1
+        c.y1 = y1
+        c.x2 = x2
+        c.y2 = y2
+        c.x = x
+        c.y = y
+        return c
+    }
+
+    sfn closePath:PathCommand () {
+        def c (new PathCommand())
+        c.type = "Z"
+        return c
+    }
+
+    ; --------------------------------------------------------------------------
+    ; line — the one shape that is never filled
+    ; --------------------------------------------------------------------------
+    sfn line:[PathCommand] (x1:double y1:double x2:double y2:double) {
+        def out:[PathCommand]
+        push out (VectorShapes.moveTo(x1 y1))
+        push out (VectorShapes.lineTo(x2 y2))
+        return out
+    }
+
+    ; --------------------------------------------------------------------------
+    ; polyline / polygon — the same points, open or closed
+    ; --------------------------------------------------------------------------
+    ; `pts` is a flat [x0 y0 x1 y1 ...] list. A trailing odd coordinate is
+    ; ignored rather than paired with a zero, because SVG says a points list
+    ; with an odd count is in error and inventing the missing half would draw a
+    ; line to somewhere the document never mentioned.
+    sfn polyline:[PathCommand] (pts:[double]) {
+        return (VectorShapes.pointsToPath(pts false))
+    }
+
+    sfn polygon:[PathCommand] (pts:[double]) {
+        return (VectorShapes.pointsToPath(pts true))
+    }
+
+    sfn pointsToPath:[PathCommand] (pts:[double] closed:boolean) {
+        def out:[PathCommand]
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return out
+        }
+        push out (VectorShapes.moveTo((itemAt pts 0) (itemAt pts 1)))
+        def k:int 1
+        while (k < n) {
+            push out (VectorShapes.lineTo((itemAt pts (k * 2)) (itemAt pts ((k * 2) + 1))))
+            k = (k + 1)
+        }
+        if closed {
+            push out (VectorShapes.closePath())
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------------------
+    ; ellipse and circle
+    ; --------------------------------------------------------------------------
+    ; Four quarter arcs starting at the rightmost point and going in the
+    ; direction of increasing y — which is downward on screen, matching the
+    ; sweep the spec's own equivalent path uses.
+    ;
+    ; A radius of zero disables rendering per SVG 1.1, and a negative one is an
+    ; error; both give no commands rather than a degenerate shape, so a caller
+    ; that draws the result draws nothing instead of a stray dot.
+    sfn ellipse:[PathCommand] (cx:double cy:double rx:double ry:double) {
+        def out:[PathCommand]
+        if (rx <= 0.0) {
+            return out
+        }
+        if (ry <= 0.0) {
+            return out
+        }
+        def k:double (VectorShapes.kappa())
+        def ox:double (rx * k)
+        def oy:double (ry * k)
+
+        push out (VectorShapes.moveTo((cx + rx) cy))
+        push out (VectorShapes.cubicTo((cx + rx) (cy + oy) (cx + ox) (cy + ry) cx (cy + ry)))
+        push out (VectorShapes.cubicTo((cx - ox) (cy + ry) (cx - rx) (cy + oy) (cx - rx) cy))
+        push out (VectorShapes.cubicTo((cx - rx) (cy - oy) (cx - ox) (cy - ry) cx (cy - ry)))
+        push out (VectorShapes.cubicTo((cx + ox) (cy - ry) (cx + rx) (cy - oy) (cx + rx) cy))
+        push out (VectorShapes.closePath())
+        return out
+    }
+
+    sfn circle:[PathCommand] (cx:double cy:double r:double) {
+        return (VectorShapes.ellipse(cx cy r r))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; rect, with or without rounded corners
+    ; --------------------------------------------------------------------------
+    ; SVG's rules for the corner radii, which are easy to get subtly wrong:
+    ;
+    ;   - a negative width or height is an error, and zero disables rendering
+    ;   - if only one of rx/ry is given, the other takes the same value, so
+    ;     rx="8" alone means a circular corner and not an elliptical one
+    ;   - each radius is clamped to half the corresponding side, so a radius
+    ;     larger than the box gives a stadium rather than a self-crossing mess
+    ;
+    ; Pass a negative radius to mean "not specified".
+    sfn rect:[PathCommand] (x:double y:double w:double h:double rxIn:double ryIn:double) {
+        def out:[PathCommand]
+        if (w <= 0.0) {
+            return out
+        }
+        if (h <= 0.0) {
+            return out
+        }
+
+        def rx:double rxIn
+        def ry:double ryIn
+        ; "auto": an unspecified radius follows the one that was given, and if
+        ; neither was, both are zero.
+        if (rx < 0.0) {
+            rx = ry
+        }
+        if (ry < 0.0) {
+            ry = rx
+        }
+        if (rx < 0.0) {
+            rx = 0.0
+        }
+        if (ry < 0.0) {
+            ry = 0.0
+        }
+        if (rx > (w / 2.0)) {
+            rx = (w / 2.0)
+        }
+        if (ry > (h / 2.0)) {
+            ry = (h / 2.0)
+        }
+
+        ; Square corners: four lines, and no curve maths to get wrong.
+        def rounded:boolean true
+        if (rx <= 0.0) {
+            rounded = false
+        }
+        if (ry <= 0.0) {
+            rounded = false
+        }
+
+        if (rounded == false) {
+            push out (VectorShapes.moveTo(x y))
+            push out (VectorShapes.lineTo((x + w) y))
+            push out (VectorShapes.lineTo((x + w) (y + h)))
+            push out (VectorShapes.lineTo(x (y + h)))
+            push out (VectorShapes.closePath())
+            return out
+        }
+
+        def k:double (VectorShapes.kappa())
+        def ox:double (rx * k)
+        def oy:double (ry * k)
+        def x1:double (x + w)
+        def y1:double (y + h)
+
+        ; Clockwise from the top-left corner's end, the same order the spec's
+        ; equivalent path uses. Each corner's control points pull toward the
+        ; corner the curve is cutting.
+        push out (VectorShapes.moveTo((x + rx) y))
+        push out (VectorShapes.lineTo((x1 - rx) y))
+        push out (VectorShapes.cubicTo((x1 - rx + ox) y x1 (y + ry - oy) x1 (y + ry)))
+        push out (VectorShapes.lineTo(x1 (y1 - ry)))
+        push out (VectorShapes.cubicTo(x1 (y1 - ry + oy) (x1 - rx + ox) y1 (x1 - rx) y1))
+        push out (VectorShapes.lineTo((x + rx) y1))
+        push out (VectorShapes.cubicTo((x + rx - ox) y1 x (y1 - ry + oy) x (y1 - ry)))
+        push out (VectorShapes.lineTo(x (y + ry)))
+        push out (VectorShapes.cubicTo(x (y + ry - oy) (x + rx - ox) y (x + rx) y))
+        push out (VectorShapes.closePath())
+        return out
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Back to path data
+    ; --------------------------------------------------------------------------
+    ; The bridge to everything that speaks `d` rather than commands — the HTML
+    ; renderer, an SVG exporter, a debug dump. Round-trips: parsing the result
+    ; gives back the same geometry, which is what the test suite checks rather
+    ; than comparing strings.
+    sfn asPathData:string (cmds:[PathCommand]) {
+        def out:string ""
+        def n:int (array_length cmds)
+        def k:int 0
+        while (k < n) {
+            def c:PathCommand (itemAt cmds k)
+            if (k > 0) {
+                out = (out + " ")
+            }
+            if (c.type == "M") {
+                out = (out + "M" + (VectorShapes.num(c.x)) + "," + (VectorShapes.num(c.y)))
+            }
+            if (c.type == "L") {
+                out = (out + "L" + (VectorShapes.num(c.x)) + "," + (VectorShapes.num(c.y)))
+            }
+            if (c.type == "C") {
+                out = (out + "C" + (VectorShapes.num(c.x1)) + "," + (VectorShapes.num(c.y1)))
+                out = (out + " " + (VectorShapes.num(c.x2)) + "," + (VectorShapes.num(c.y2)))
+                out = (out + " " + (VectorShapes.num(c.x)) + "," + (VectorShapes.num(c.y)))
+            }
+            if (c.type == "Q") {
+                out = (out + "Q" + (VectorShapes.num(c.x1)) + "," + (VectorShapes.num(c.y1)))
+                out = (out + " " + (VectorShapes.num(c.x)) + "," + (VectorShapes.num(c.y)))
+            }
+            if (c.type == "Z") {
+                out = (out + "Z")
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Rounded to four decimals, with trailing zeros and a trailing point
+    ; removed. That places a point well inside a thousandth of a pixel at any
+    ; size these are drawn, without carrying the noise a raw double repr brings
+    ; — 0.5522847498307936 in every corner of every rounded rectangle adds up.
+    ;
+    ; The sign is taken off first and put back at the end. `to_int` FLOORS
+    ; rather than truncating toward zero, so splitting a negative into whole
+    ; and fractional parts directly gives the wrong pair: -2.5 comes apart as
+    ; whole -3 and fraction 0.4999, which prints as -3.4999.
+    sfn num:string (v:double) {
+        def neg:boolean false
+        def a:double v
+        if (a < 0.0) {
+            neg = true
+            a = (0.0 - a)
+        }
+
+        def scaled:int (to_int ((a * 10000.0) + 0.5))
+        def whole:int (idiv scaled 10000)
+        def fracPart:int (scaled - (whole * 10000))
+
+        def out:string (to_string whole)
+        if (fracPart > 0) {
+            def frac:string (to_string fracPart)
+            while ((strlen frac) < 4) {
+                frac = ("0" + frac)
+            }
+            ; fracPart is non-zero, so stripping trailing zeros always leaves
+            ; at least one significant digit.
+            while ((strlen frac) > 1) {
+                def lastCh:int (charAt frac ((strlen frac) - 1))
+                if (lastCh == 48) {
+                    frac = (substring frac 0 ((strlen frac) - 1))
+                } {
+                    break
+                }
+            }
+            out = (out + "." + frac)
+        }
+
+        ; A value that rounds to zero has no sign to carry — "-0" would be
+        ; noise in the output and is not what the number is.
+        if neg {
+            if (scaled > 0) {
+                out = ("-" + out)
+            }
+        }
+        return out
+    }
+}
