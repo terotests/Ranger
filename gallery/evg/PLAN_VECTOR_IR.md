@@ -267,16 +267,62 @@ This is where the sketch's "everything is a path" insight pays off.
 XML subset → vector display list, with the restricted profile below. `<Svg
 src="…">` as one `EVGElement`.
 
-### Stage 5 — Paint
+### Stage 5 — Paint (flat colour only)
 
-Gradients on paths. **Dependency worth flagging:** the sketch lists
-`linearGradient`/`radialGradient` in the first SVG version, but the PDF renderer
-does not have gradients yet — `TODO_EVG.md` still lists PDF Type 2 / Type 3
-shading as upcoming work. Raster has `RasterGradient` and HTML has CSS
-gradients, so a gradient-filled SVG would render in two targets out of three.
-Either finish PDF shading first or accept a documented gap.
+Flat `fill` / `stroke` with opacity. Gradient paint is deliberately **out of
+scope for this plan** — see §6.
 
-## 6. Profile for the first SVG version
+## 6. Gradients are deferred, on purpose
+
+`linearGradient` / `radialGradient` are dropped from the first vector profile.
+Everything else in this plan comes first. The reasoning is worth recording,
+because it is not just a scheduling call.
+
+**Gradients are already the worst parity offender in the codebase.** Today the
+same `background-gradient` produces three different results:
+
+| Target | Behaviour |
+| --- | --- |
+| HTML | `EVGHTMLRenderer.rgr:827` — the raw CSS string is passed through verbatim; the browser interpolates, with all stops |
+| Raster | `evg_png_tool.rgr:490` — only `getStartColor()` and `getEndColor()` are read; **every intermediate stop is discarded**, and `RasterGradient` does its own interpolation |
+| PDF | Not implemented at all (`TODO_EVG.md` still lists Type 2 / Type 3 shading as upcoming) |
+
+So a three-stop gradient is correct in HTML, silently reduced to two stops in
+PNG, and absent from PDF. Extending that into the vector layer would multiply an
+existing inconsistency across every path, and the whole point of §2 is to *remove*
+this class of divergence.
+
+**Print makes the guarantee unkeepable anyway.** Even with PDF shading
+implemented, gradients are the one construct where identical output cannot be
+promised: many RIPs and printer drivers rasterize smooth shading rather than
+executing it, at a resolution and dither of their own choosing, and banding
+behaviour then depends on the device. A flat fill survives that pipeline
+predictably; a gradient does not.
+
+**Colour management is a separate, larger axis — and it affects flat colour
+too.** Worth stating explicitly so it is not mistaken for a gradient problem:
+
+* `EVGColor` is RGBA doubles with no colour-space tag (`EVGColor.rgr:5`).
+* The PDF renderer writes `rg` / `RG` (DeviceRGB) everywhere, and images as
+  `/DeviceRGB`. There is no ICC profile, no `/OutputIntent`, no CMYK path.
+
+For screen output this is fine. For print, DeviceRGB means the conversion to the
+press's CMYK happens somewhere downstream, outside EVG's control — brand colours
+are the usual casualty. That is a genuine gap, but it is a **document-level
+colour pipeline** question (output intent, ICC, spot colours), not something to
+solve as a side effect of adding gradients. Deferring gradients keeps the two
+questions from getting entangled.
+
+**When to revisit.** Gradients are visually valuable, particularly for
+application UI where the raster and HTML targets dominate and print parity is
+not a constraint. The natural time to come back is after Stage 2, once
+`VectorRasterizer` exists: gradient paint then becomes "which colour does this
+covered pixel get", a property of the shared rasterizer rather than a
+per-renderer special case. Prerequisites when that happens: N-stop support in
+`RasterGradient` (removing the two-stop truncation), and PDF Type 2/3 shading,
+so all three targets start from the same model.
+
+## 7. Profile for the first SVG version
 
 Agreed with the sketch's subset. Explicitly out, and enforced by the parser
 rather than by convention:
@@ -299,7 +345,7 @@ Additions worth making explicit, because imported SVG is untrusted input:
   often contain `<text>`, and a logo that quietly loses its wordmark is the most
   likely "SVG support is broken" report. Detect it and say so.
 
-## 7. Summary
+## 8. Summary
 
 The plan's core decision — *general Vector IR, SVG as an importer* — is correct
 and is the right next big EVG feature. Three adjustments to the sketch:
@@ -312,3 +358,9 @@ and is the right next big EVG feature. Three adjustments to the sketch:
 3. **The raster rasterizer already exists inside `RasterText`.** Extracting it is
    cheaper than writing one and pays out in three places. The genuinely new work
    on the raster side is stroking, not filling.
+
+Gradients are explicitly deferred (§6): they are the one construct where
+cross-target parity cannot be promised — print pipelines rasterize them at their
+own discretion — and the existing implementations already disagree with each
+other. Flat colour first; revisit once `VectorRasterizer` makes gradient paint a
+property of one shared fill stage rather than three separate ones.
