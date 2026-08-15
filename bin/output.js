@@ -30324,9 +30324,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               } else {
                                 if ( is_self_ref ) {
                                   if ( this.rustClassIsShared(field_type_name, ctx) ) {
+                                    const selfRefRaw = this.rustInitRcState(right, ctx) == 0;
                                     wr.out(" = Some(", false);
+                                    if ( selfRefRaw ) {
+                                      wr.out("Rc::new(RefCell::new(", false);
+                                    }
                                     await this.WalkNode(right, ctx, wr);
-                                    wr.out(".clone());", true);
+                                    if ( selfRefRaw ) {
+                                      wr.out("))", false);
+                                      wr.out(");", true);
+                                    } else {
+                                      wr.out(".clone());", true);
+                                    }
                                   } else {
                                     wr.out(" = Some(Box::new(", false);
                                     await this.WalkNode(right, ctx, wr);

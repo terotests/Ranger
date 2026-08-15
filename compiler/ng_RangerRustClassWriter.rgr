@@ -8117,10 +8117,22 @@ class RangerRustClassWriter {
         } {
           if is_self_ref {
             if (this.rustClassIsShared(field_type_name ctx)) {
-              ; an Rc field provides the indirection a Box used to
+              ; an Rc field provides the indirection a Box used to — and a
+              ; RAW value still takes its cell here, as it does at every
+              ; other shared target. Cloning one calls the CLASS's own
+              ; `clone` method, which is not Rc::clone at all.
+              def selfRefRaw:boolean ((this.rustInitRcState(right ctx)) == 0)
               wr.out(" = Some(" false)
+              if selfRefRaw {
+                wr.out("Rc::new(RefCell::new(" false)
+              }
               this.WalkNode(right ctx wr)
-              wr.out(".clone());" true)
+              if selfRefRaw {
+                wr.out("))" false)
+                wr.out(");" true)
+              } {
+                wr.out(".clone());" true)
+              }
             } {
               ; Assignment to self-referential optional field: needs Some(Box::new(value.clone()))
               wr.out(" = Some(Box::new(" false)
