@@ -5000,7 +5000,6 @@ class RangerRustClassWriter {
                       wr.out(".clone()" false)
                     }
                   }
-                }
               }
               ; Close the Rc::new(RefCell::new()) if we opened it
               if arg_is_trait_type {
@@ -7381,6 +7380,13 @@ class RangerRustClassWriter {
         }
         ; Check if RHS is a parameter that's already Rc<RefCell<T>> (rust_needs_rc_wrap)
         def rhs_is_rc_wrapped:boolean false
+        ; …as does any expression the state machine calls an owned handle: an
+        ; element read out of a Vec of Rc, a map get, an upgrade. Wrapping
+        ; one gave Rc::downgrade(&Rc::new(RefCell::new(<an Rc>))) -- a Weak
+        ; pointing at a fresh cell holding a handle, not at the object.
+        if ((this.rustInitRcState(right ctx)) == 2) {
+          rhs_is_rc_wrapped = true
+        }
         ; A CALL returning a shared class already hands back the Rc, so it
         ; is downgraded as it stands. Wrapping it made
         ; `Rc::downgrade(&Rc::new(RefCell::new(f(…))))` — a cell around a
