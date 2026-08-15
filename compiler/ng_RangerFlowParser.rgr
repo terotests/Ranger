@@ -1518,6 +1518,79 @@ class RangerFlowParser {
   }
   
 
+  ; The two async walks below were recursive lambdas declared inside
+  ; SolveAsyncFuncs. Rust cannot borrow-check a recursive closure that also
+  ; mutates what it captures, and the only thing either captured was the
+  ; `visited` list (and `ctx`, for the variant walk), so they take those as
+  ; arguments and recurse as methods. The two bodies differed — the variant
+  ; walk also follows `forOtherVersions` — so they stay two.
+  fn markAsyncFrom:void (f:RangerAppFunctionDesc visited:[RangerAppFunctionDesc]) {
+    if( (indexOf visited f ) >= 0 ) {
+      return
+    }
+    push visited f
+    if( (!null? f.nameNode) ) {
+      f.nameNode.setFlag('async')
+    }
+    f.isCalledBy.forEach({
+      this.markAsyncFrom( item visited)
+    })
+    if( !null? f.insideFn) {
+      this.markAsyncFrom( (unwrap f.insideFn ) visited)
+    }
+  }
+
+  fn markAsyncFromVariant:void (f:RangerAppFunctionDesc visited:[RangerAppFunctionDesc] ctx:RangerAppWriterContext) {
+    if( (indexOf visited f ) >= 0 ) {
+      return
+    }
+    push visited f
+    ; TODO: must also iterate all the inherited class functions...
+    if( (!null? f.nameNode) ) {
+      f.nameNode.setFlag('async')
+    }
+    f.forOtherVersions( ctx {
+      this.markAsyncFromVariant( item visited ctx)
+    })
+    f.isCalledBy.forEach({
+      this.markAsyncFromVariant( item visited ctx)
+    })
+    if( !null? f.insideFn) {
+      this.markAsyncFromVariant( (unwrap f.insideFn ) visited ctx)
+    }
+  }
+
+  ; Walk everything main reaches and mark it. This was a recursive lambda
+  ; declared inside SolveAsyncFuncs; Rust cannot borrow-check a recursive
+  ; closure that also mutates what it captures, and the only thing this one
+  ; captured was `ctx`, so it takes it as an argument instead.
+  fn markCalledFromMain:void (f:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if(f.is_called_from_main) {
+      return
+    }
+    f.is_called_from_main = true
+    f.isUsingClasses.forEach({
+      item.is_used_by_main = true
+      if(!null? item.constructor_fn) {
+        this.markCalledFromMain( (unwrap item.constructor_fn) ctx)
+      }
+    })
+    f.forOtherVersions( ctx {
+      this.markCalledFromMain(item ctx)
+    })
+    f.isCalling.forEach({
+      this.markCalledFromMain( item ctx)
+    })
+    f.myLambdas.forEach({
+      this.markCalledFromMain( item ctx)
+    })
+    if( !null? f.container_class) {
+      if(!null? f.container_class.constructor_fn) {
+        this.markCalledFromMain( (unwrap f.container_class.constructor_fn) ctx)
+      }
+    }
+  }
+
   fn SolveAsyncFuncs (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def root (ctx.getRoot())
@@ -1526,40 +1599,17 @@ class RangerFlowParser {
       item.static_methods.forEach({
 
           def thisFn (item)
-          def set_async (fn:void (f:RangerAppFunctionDesc) {
-
-          })
           def visited@(weak):[RangerAppFunctionDesc]
-
-          ;thisFn.params.forEach({
-          ;  item.nameNode.setFlag('async')
-          ;})
-
-          set_async = (fn:void (f:RangerAppFunctionDesc) {
-            if( (indexOf visited f ) >= 0 ) {
-              return
-            }
-            push visited f
-            if( (!null? f.nameNode) ) {
-              f.nameNode.setFlag('async')
-            }
-            f.isCalledBy.forEach({
-              set_async( item )
-            })            
-            if( !null? f.insideFn) {
-              set_async( (unwrap f.insideFn ))
-            }
-          })
           if( (!null? item.nameNode) ) {
             if(item.nameNode.hasFlag("async")) {
               item.isCalledBy.forEach({
-                set_async( item )
+                this.markAsyncFrom( item visited)
               })
               item.forOtherVersions( ctx {
-                set_async(item)
+                this.markAsyncFrom( item visited)
               })
               if( !null? item.insideFn) {
-                set_async( (unwrap item.insideFn ))
+                this.markAsyncFrom( (unwrap item.insideFn ) visited)
               }
             }
           }
@@ -1567,10 +1617,10 @@ class RangerFlowParser {
             if( (!null? item.nameNode) ) {
               if(item.nameNode.hasFlag("async")) {
                 item.isCalledBy.forEach({
-                  set_async( item )
+                  this.markAsyncFrom( item visited)
                 })
                 if( !null? item.insideFn) {
-                  set_async( (unwrap item.insideFn ))
+                  this.markAsyncFrom( (unwrap item.insideFn ) visited)
                 }
               }
             }
@@ -1581,44 +1631,17 @@ class RangerFlowParser {
         item.variants.forEach({
 
           def thisFn (item)
-          def set_async (fn:void (f:RangerAppFunctionDesc) {
-
-          })
           def visited@(weak):[RangerAppFunctionDesc]
-
-          ;thisFn.params.forEach({
-          ;  item.nameNode.setFlag('async')
-          ;})
-
-          set_async = (fn:void (f:RangerAppFunctionDesc) {
-            if( (indexOf visited f ) >= 0 ) {
-              return
-            }
-            push visited f
-            ; TODO: must also iterate all the inherited class functions...
-            if( (!null? f.nameNode) ) {
-              f.nameNode.setFlag('async')
-            }
-            f.forOtherVersions( ctx {
-              set_async(item)
-            })
-            f.isCalledBy.forEach({
-              set_async( item )
-            })            
-            if( !null? f.insideFn) {
-              set_async( (unwrap f.insideFn ))
-            }
-          })
           if( (!null? item.nameNode) ) {
             if(item.nameNode.hasFlag("async")) {
               item.isCalledBy.forEach({
-                set_async( item )
+                this.markAsyncFromVariant( item visited ctx)
               })
               item.forOtherVersions( ctx {
-                set_async(item)
+                this.markAsyncFromVariant( item visited ctx)
               })
               if( !null? item.insideFn) {
-                set_async( (unwrap item.insideFn ))
+                this.markAsyncFromVariant( (unwrap item.insideFn ) visited ctx)
               }
             }
           }
@@ -1626,10 +1649,10 @@ class RangerFlowParser {
             if( (!null? item.nameNode) ) {
               if(item.nameNode.hasFlag("async")) {
                 item.isCalledBy.forEach({
-                  set_async( item )
+                  this.markAsyncFromVariant( item visited ctx)
                 })
                 if( !null? item.insideFn) {
-                  set_async( (unwrap item.insideFn ))
+                  this.markAsyncFromVariant( (unwrap item.insideFn ) visited ctx)
                 }
               }
             }            
@@ -1667,39 +1690,6 @@ class RangerFlowParser {
       })
     })
 
-    def add_dce_fn (fn:void (theFn:RangerAppFunctionDesc) {
-      def set_called (fn:void (f:RangerAppFunctionDesc) {
-
-      })
-      set_called = (fn:void (f:RangerAppFunctionDesc) {
-        if(f.is_called_from_main) {
-          return
-        }
-        f.is_called_from_main = true
-        f.isUsingClasses.forEach({
-          item.is_used_by_main = true
-          if(!null? item.constructor_fn) {
-            set_called( (unwrap item.constructor_fn))
-          }          
-        })
-        f.forOtherVersions( ctx {
-          set_called(item)
-        })
-        f.isCalling.forEach({
-          set_called( item )
-        })
-        f.myLambdas.forEach({
-          set_called( item )
-        })
-        if( !null? f.container_class) {
-          if(!null? f.container_class.constructor_fn) {
-            set_called( (unwrap f.container_class.constructor_fn))
-          }                      
-        }          
-      })
-      set_called(theFn)
-    }) 
-
     def use_dce false
     if(ctx.hasCompilerFlag('dead4main')) {
       def mainFn:RangerAppFunctionDesc
@@ -1714,7 +1704,7 @@ class RangerFlowParser {
         }
       })
       if(!null? mainFn) {
-        add_dce_fn( (unwrap mainFn))
+        this.markCalledFromMain( (unwrap mainFn) ctx)
         use_dce = true
       }
     }
@@ -1727,11 +1717,11 @@ class RangerFlowParser {
           use_dce = true
           cl.is_used_by_main = true
           for cl.static_methods variant@(lives):RangerAppFunctionDesc i {
-            add_dce_fn( variant )
+            this.markCalledFromMain( variant ctx)
           }
           item.method_variants.forEach({
             item.variants.forEach({
-              add_dce_fn(item)
+              this.markCalledFromMain(item ctx)
             })
           })          
         }

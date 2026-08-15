@@ -1,6 +1,23 @@
 
 extension RangerFlowParser {
 
+  ; Is this node nothing but a name, a primitive, or a single-child wrapper
+  ; around one? A local recursive lambda used to answer this; Rust cannot
+  ; borrow-check a recursive closure, and the question needs no captured
+  ; state, so it is a method.
+  fn isJustVref:boolean (a:CodeNode) {
+    if( has a.vref ) {
+      return true
+    }
+    if( TTypes.isPrimitive( a.value_type ) )  {
+      return true
+    }
+    if( (size a.children ) == 1 ) {
+      return ( this.isJustVref( (at a.children 0)) )
+    }
+    return false
+  }
+
   fn findLanguageOper@(optional weak):CodeNode (details:CodeNode ctx:RangerAppWriterContext opDef:CodeNode) {
     def langName (ctx.getTargetLang())
     def rv:CodeNode
@@ -540,23 +557,7 @@ extension RangerFlowParser {
 
                   def regName ""
                   def realArg (at callArgs.children (opName))
-                  def just_vref (fn:boolean (a:CodeNode) {
-                    return false
-                  })
-
-                  just_vref = (fn:boolean (a:CodeNode) {
-                    if( has a.vref ) {
-                      return true
-                    }
-                    if( TTypes.isPrimitive( a.value_type ) )  {
-                      return true
-                    }
-                    if( (size a.children ) == 1 ) {
-                      return ( just_vref( (at a.children 0)) )
-                    }
-                    return false
-                  })
-                  if(just_vref(realArg)) {
+                  if(this.isJustVref(realArg)) {
                     return
                   }
 

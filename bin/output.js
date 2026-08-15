@@ -10737,100 +10737,122 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       wr.out("}", true);
       await root.pushAndCollectCode(wr.getCode(), orig_wr);
     };
+    async markAsyncFrom (f, visited) {
+      if ( (visited.indexOf(f)) >= 0 ) {
+        return;
+      }
+      visited.push(f);
+      if ( (typeof(f.nameNode) !== "undefined" && f.nameNode != null )  ) {
+        f.nameNode.setFlag("async");
+      }
+      await operatorsOf.forEach_29(f.isCalledBy, (async (item, index) => { 
+        await this.markAsyncFrom(item, visited);
+      }));
+      if ( (typeof(f.insideFn) !== "undefined" && f.insideFn != null )  ) {
+        await this.markAsyncFrom(f.insideFn, visited);
+      }
+    };
+    async markAsyncFromVariant (f, visited, ctx) {
+      if ( (visited.indexOf(f)) >= 0 ) {
+        return;
+      }
+      visited.push(f);
+      if ( (typeof(f.nameNode) !== "undefined" && f.nameNode != null )  ) {
+        f.nameNode.setFlag("async");
+      }
+      await f.forOtherVersions(ctx, (async (item) => { 
+        await this.markAsyncFromVariant(item, visited, ctx);
+      }));
+      await operatorsOf.forEach_29(f.isCalledBy, (async (item, index) => { 
+        await this.markAsyncFromVariant(item, visited, ctx);
+      }));
+      if ( (typeof(f.insideFn) !== "undefined" && f.insideFn != null )  ) {
+        await this.markAsyncFromVariant(f.insideFn, visited, ctx);
+      }
+    };
+    async markCalledFromMain (f, ctx) {
+      if ( f.is_called_from_main ) {
+        return;
+      }
+      f.is_called_from_main = true;
+      await operatorsOf.forEach_30(f.isUsingClasses, (async (item, index) => { 
+        item.is_used_by_main = true;
+        if ( (typeof(item.constructor_fn) !== "undefined" && item.constructor_fn != null )  ) {
+          await this.markCalledFromMain(item.constructor_fn, ctx);
+        }
+      }));
+      await f.forOtherVersions(ctx, (async (item) => { 
+        await this.markCalledFromMain(item, ctx);
+      }));
+      await operatorsOf.forEach_29(f.isCalling, (async (item, index) => { 
+        await this.markCalledFromMain(item, ctx);
+      }));
+      await operatorsOf.forEach_29(f.myLambdas, (async (item, index) => { 
+        await this.markCalledFromMain(item, ctx);
+      }));
+      if ( (typeof(f.container_class) !== "undefined" && f.container_class != null )  ) {
+        if ( (typeof(f.container_class.constructor_fn) !== "undefined" && f.container_class.constructor_fn != null )  ) {
+          await this.markCalledFromMain(f.container_class.constructor_fn, ctx);
+        }
+      }
+    };
     async SolveAsyncFuncs (node, ctx, wr) {
       const root = ctx.getRoot();
       await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
         await operatorsOf.forEach_29(item.static_methods, (async (item, index) => { 
           const thisFn = item;
-          let set_async = ((f) => { 
-          });
           let visited = [];
-          set_async = (async (f) => { 
-            if ( (visited.indexOf(f)) >= 0 ) {
-              return;
-            }
-            visited.push(f);
-            if ( (typeof(f.nameNode) !== "undefined" && f.nameNode != null )  ) {
-              f.nameNode.setFlag("async");
-            }
-            await operatorsOf.forEach_29(f.isCalledBy, ((item, index) => { 
-              set_async(item);
-            }));
-            if ( (typeof(f.insideFn) !== "undefined" && f.insideFn != null )  ) {
-              await set_async(f.insideFn);
-            }
-          });
           if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
             if ( item.nameNode.hasFlag("async") ) {
-              await operatorsOf.forEach_29(item.isCalledBy, ((item, index) => { 
-                set_async(item);
+              await operatorsOf.forEach_29(item.isCalledBy, (async (item, index) => { 
+                await this.markAsyncFrom(item, visited);
               }));
-              await item.forOtherVersions(ctx, ((item) => { 
-                set_async(item);
+              await item.forOtherVersions(ctx, (async (item) => { 
+                await this.markAsyncFrom(item, visited);
               }));
               if ( (typeof(item.insideFn) !== "undefined" && item.insideFn != null )  ) {
-                await set_async(item.insideFn);
+                await this.markAsyncFrom(item.insideFn, visited);
               }
             }
           }
           await operatorsOf.forEach_29(item.myLambdas, (async (item, index) => { 
             if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
               if ( item.nameNode.hasFlag("async") ) {
-                await operatorsOf.forEach_29(item.isCalledBy, ((item, index) => { 
-                  set_async(item);
+                await operatorsOf.forEach_29(item.isCalledBy, (async (item, index) => { 
+                  await this.markAsyncFrom(item, visited);
                 }));
                 if ( (typeof(item.insideFn) !== "undefined" && item.insideFn != null )  ) {
-                  await set_async(item.insideFn);
+                  await this.markAsyncFrom(item.insideFn, visited);
                 }
               }
             }
           }));
         }));
-        await operatorsOf_13.forEach_30(item.method_variants, (async (item, index) => { 
+        await operatorsOf_13.forEach_31(item.method_variants, (async (item, index) => { 
           await operatorsOf.forEach_29(item.variants, (async (item, index) => { 
             const thisFn_1 = item;
-            let set_async_1 = ((f) => { 
-            });
             let visited_1 = [];
-            set_async_1 = (async (f) => { 
-              if ( (visited_1.indexOf(f)) >= 0 ) {
-                return;
-              }
-              visited_1.push(f);
-              if ( (typeof(f.nameNode) !== "undefined" && f.nameNode != null )  ) {
-                f.nameNode.setFlag("async");
-              }
-              await f.forOtherVersions(ctx, ((item) => { 
-                set_async_1(item);
-              }));
-              await operatorsOf.forEach_29(f.isCalledBy, ((item, index) => { 
-                set_async_1(item);
-              }));
-              if ( (typeof(f.insideFn) !== "undefined" && f.insideFn != null )  ) {
-                await set_async_1(f.insideFn);
-              }
-            });
             if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
               if ( item.nameNode.hasFlag("async") ) {
-                await operatorsOf.forEach_29(item.isCalledBy, ((item, index) => { 
-                  set_async_1(item);
+                await operatorsOf.forEach_29(item.isCalledBy, (async (item, index) => { 
+                  await this.markAsyncFromVariant(item, visited_1, ctx);
                 }));
-                await item.forOtherVersions(ctx, ((item) => { 
-                  set_async_1(item);
+                await item.forOtherVersions(ctx, (async (item) => { 
+                  await this.markAsyncFromVariant(item, visited_1, ctx);
                 }));
                 if ( (typeof(item.insideFn) !== "undefined" && item.insideFn != null )  ) {
-                  await set_async_1(item.insideFn);
+                  await this.markAsyncFromVariant(item.insideFn, visited_1, ctx);
                 }
               }
             }
             await operatorsOf.forEach_29(item.myLambdas, (async (item, index) => { 
               if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
                 if ( item.nameNode.hasFlag("async") ) {
-                  await operatorsOf.forEach_29(item.isCalledBy, ((item, index) => { 
-                    set_async_1(item);
+                  await operatorsOf.forEach_29(item.isCalledBy, (async (item, index) => { 
+                    await this.markAsyncFromVariant(item, visited_1, ctx);
                   }));
                   if ( (typeof(item.insideFn) !== "undefined" && item.insideFn != null )  ) {
-                    await set_async_1(item.insideFn);
+                    await this.markAsyncFromVariant(item.insideFn, visited_1, ctx);
                   }
                 }
               }
@@ -10840,7 +10862,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }));
       let notUsedFunctionCnt = 0;
       await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
-        await operatorsOf_13.forEach_30(item.method_variants, (async (item, index) => { 
+        await operatorsOf_13.forEach_31(item.method_variants, (async (item, index) => { 
           await operatorsOf.forEach_29(item.variants, ((item, index) => { 
             if ( (item.isCalledBy.length) == 0 ) {
               if ( (typeof(item.container_class) !== "undefined" && item.container_class != null )  ) {
@@ -10859,37 +10881,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }));
         }));
       }));
-      const add_dce_fn = (async (theFn) => { 
-        let set_called = ((f) => { 
-        });
-        set_called = (async (f) => { 
-          if ( f.is_called_from_main ) {
-            return;
-          }
-          f.is_called_from_main = true;
-          operatorsOf.forEach_31(f.isUsingClasses, ((item, index) => { 
-            item.is_used_by_main = true;
-            if ( (typeof(item.constructor_fn) !== "undefined" && item.constructor_fn != null )  ) {
-              set_called(item.constructor_fn);
-            }
-          }));
-          await f.forOtherVersions(ctx, ((item) => { 
-            set_called(item);
-          }));
-          await operatorsOf.forEach_29(f.isCalling, ((item, index) => { 
-            set_called(item);
-          }));
-          await operatorsOf.forEach_29(f.myLambdas, ((item, index) => { 
-            set_called(item);
-          }));
-          if ( (typeof(f.container_class) !== "undefined" && f.container_class != null )  ) {
-            if ( (typeof(f.container_class.constructor_fn) !== "undefined" && f.container_class.constructor_fn != null )  ) {
-              await set_called(f.container_class.constructor_fn);
-            }
-          }
-        });
-        await set_called(theFn);
-      });
       let use_dce = false;
       if ( ctx.hasCompilerFlag("dead4main") ) {
         let mainFn;
@@ -10905,7 +10896,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
         }));
         if ( (typeof(mainFn) !== "undefined" && mainFn != null )  ) {
-          await add_dce_fn(mainFn);
+          await this.markCalledFromMain(mainFn, ctx);
           use_dce = true;
         }
       }
@@ -10919,11 +10910,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             cl_1.is_used_by_main = true;
             for ( let i_1 = 0; i_1 < cl_1.static_methods.length; i_1++) {
               var variant_1 = cl_1.static_methods[i_1];
-              await add_dce_fn(variant_1);
+              await this.markCalledFromMain(variant_1, ctx);
             };
-            await operatorsOf_13.forEach_30(item.method_variants, (async (item, index) => { 
-              await operatorsOf.forEach_29(item.variants, ((item, index) => { 
-                add_dce_fn(item);
+            await operatorsOf_13.forEach_31(item.method_variants, (async (item, index) => { 
+              await operatorsOf.forEach_29(item.variants, (async (item, index) => { 
+                await this.markCalledFromMain(item, ctx);
               }));
             }));
           }
@@ -10944,7 +10935,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             return item.is_called_from_main;
           }));
-          await operatorsOf_13.forEach_30(item.method_variants, ((item, index) => { 
+          await operatorsOf_13.forEach_31(item.method_variants, ((item, index) => { 
             item.variants = operatorsOf.filter_32(item.variants, ((item, index) => { 
               const cc_2 = item.container_class;
               if ( item.is_called_from_main == false ) {
@@ -10959,7 +10950,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       if ( ctx.hasCompilerFlag("deadcode") ) {
         await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
-          await operatorsOf_13.forEach_30(item.method_variants, ((item, index) => { 
+          await operatorsOf_13.forEach_31(item.method_variants, ((item, index) => { 
             item.variants = operatorsOf.filter_32(item.variants, ((item, index) => { 
               return item.is_unsed == false;
             }));
@@ -12338,7 +12329,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         tryTypes.splice(0, 0, (( Object.prototype.hasOwnProperty.call(this.match_types, codeStrHash) ? this.match_types[codeStrHash] : undefined )));
       }
       const cList = (ctx.getRoot()).getClasses().slice().reverse();
-      operatorsOf.forEach_31(cList, ((item, index) => { 
+      await operatorsOf.forEach_30(cList, ((item, index) => { 
         if ( item.isNormalClass() || item.is_system ) {
           if ( (codeStrHash.indexOf(item.name)) >= 0 ) {
             tryTypes.splice(0, 0, item.name);
@@ -15205,7 +15196,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.hadValidType(p.nameNode);
           varNames[p.name] = true;
         };
-        await operatorsOf_13.forEach_30(c.method_variants, (async (item, index) => { 
+        await operatorsOf_13.forEach_31(c.method_variants, (async (item, index) => { 
           await operatorsOf.forEach_29(item.variants, ((item, index) => { 
             if ( ( typeof(varNames[item.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(varNames, item.name) ) ) {
               ctx.addError(item.nameNode, "Class has defined method and variable of the same name.");
@@ -16554,6 +16545,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       return true;
     };
+    isJustVref (a) {
+      if ( (a.vref.length) > 0 ) {
+        return true;
+      }
+      if ( TTypes.isPrimitive(a.value_type) ) {
+        return true;
+      }
+      if ( (a.children.length) == 1 ) {
+        return this.isJustVref((a.children[0]));
+      }
+      return false;
+    };
     async findLanguageOper (details, ctx, opDef) {
       const langName = operatorsOf_21.getTargetLang_22(ctx);
       let rv;
@@ -17004,22 +17007,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( ( typeof(opCnts[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(opCnts, opName_1) ) ) {
                     let regName_2 = "";
                     const realArg_1 = callArgs.children[opName_1];
-                    let just_vref = ((a) => { 
-                      return false;
-                    });
-                    just_vref = ((a) => { 
-                      if ( (a.vref.length) > 0 ) {
-                        return true;
-                      }
-                      if ( TTypes.isPrimitive(a.value_type) ) {
-                        return true;
-                      }
-                      if ( (a.children.length) == 1 ) {
-                        return just_vref((a.children[0]));
-                      }
-                      return false;
-                    });
-                    if ( await just_vref(realArg_1) ) {
+                    if ( this.isJustVref(realArg_1) ) {
                       return;
                     }
                     if ( ( typeof(regNames[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(regNames, opName_1) ) ) {
@@ -52010,7 +51998,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out("## " + index, true);
                               }
                               const theClass = item;
-                              await operatorsOf_13.forEach_30(item.method_variants, (async (item, index) => { 
+                              await operatorsOf_13.forEach_31(item.method_variants, (async (item, index) => { 
                                 await operatorsOf.forEach_29(item.variants, (async (item, index) => { 
                                   if ( b_only_documented ) {
                                     if ( (item.git_doc.length) == 0 ) {
@@ -56101,10 +56089,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             await cb(it_9, i_15);
                                                           };
                                                         };
-                                                        operatorsOf.forEach_31 = function(__self, cb) {
-                                                          for ( let i_17 = 0; i_17 < __self.length; i_17++) {
-                                                            var it_10 = __self[i_17];
-                                                            cb(it_10, i_17);
+                                                        operatorsOf.forEach_30 = async function(__self, cb) {
+                                                          for ( let i_16 = 0; i_16 < __self.length; i_16++) {
+                                                            var it_10 = __self[i_16];
+                                                            await cb(it_10, i_16);
                                                           };
                                                         };
                                                         operatorsOf.filter_32 = function(__self, cb) {
@@ -56415,10 +56403,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             await cb(value_4, kk_4);
                                                           };
                                                         };
-                                                        operatorsOf_13.forEach_30 = async function(__self, cb) {
+                                                        operatorsOf_13.forEach_31 = async function(__self, cb) {
                                                           const list_5 = Object.keys(__self);
-                                                          for ( let i_16 = 0; i_16 < list_5.length; i_16++) {
-                                                            var kk_5 = list_5[i_16];
+                                                          for ( let i_17 = 0; i_17 < list_5.length; i_17++) {
+                                                            var kk_5 = list_5[i_17];
                                                             const value_5 = (( Object.prototype.hasOwnProperty.call(__self, kk_5) ? __self[kk_5] : undefined ));
                                                             await cb(value_5, kk_5);
                                                           };
