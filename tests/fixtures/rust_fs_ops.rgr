@@ -1,0 +1,44 @@
+; The filesystem and environment operators the compiler itself calls. Each of
+; these had no Rust template, and an operator with no template for the active
+; target does not fall back -- it fails to match, and the build stops with
+; "Could not match argument types". A program that creates a directory or reads
+; an environment variable could not be built for Rust at all.
+
+class RustFsOps {
+    sfn m@(main):void () {
+        def dir:string "rgr_fs_ops_probe"
+
+        ; NOTE: whether create_dir over an EXISTING directory throws is not the
+        ; same on every target -- Node's mkdirSync raises EEXIST where Rust's
+        ; create_dir_all succeeds -- so this probe only creates once. That
+        ; disagreement is real but is a separate question from whether the
+        ; operator has a Rust template at all, which is what this fixture is for.
+        if (dir_exists dir) {
+            print "dir: created"
+        } {
+            (create_dir dir)
+            if (dir_exists dir) {
+                print "dir: created"
+            } {
+                print "dir: missing"
+            }
+        }
+
+        if (dir_exists "rgr_fs_ops_absent") {
+            print "absent: wrong"
+        } {
+            print "absent: ok"
+        }
+
+        ; env_var answers an optional: absent is None, not an empty string
+        def missing@(optional):string (env_var "RGR_PROBE_DEFINITELY_NOT_SET")
+        if (null? missing) {
+            print "env missing: ok"
+        } {
+            print "env missing: wrong"
+        }
+
+        ; sha256 has to give the same digest as every other target
+        print ("sha256: " + (sha256 "abc"))
+    }
+}
