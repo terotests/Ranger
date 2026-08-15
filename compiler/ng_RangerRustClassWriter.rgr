@@ -42,6 +42,9 @@ class RangerRustClassWriter {
   ; its enum variant, exactly as an argument or a field assignment is.
   ; Empty for every other function.
   def rustFnReturnsUnion:string ""
+  ; the declared return of the function being written, so a `return` can
+  ; ask what shape the caller is expecting
+  def rustFnReturnNameNode@(optional):CodeNode
   def fileHeaderWritten:boolean false
   
   ; Rust needs semicolons at end of statements
@@ -5646,6 +5649,7 @@ class RangerRustClassWriter {
         sCtx.is_function = true
         def fnB:CodeNode (unwrap variant.fnBody)
         rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
+        rustFnReturnNameNode = variant.nameNode
         this.walkRustFnBody(fnB sCtx wr)
         rustFnReturnsUnion = ""
       }
@@ -5729,6 +5733,7 @@ class RangerRustClassWriter {
           sCtx.is_function = true
           def fnBNode:CodeNode (unwrap variant.fnBody)
           rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
+          rustFnReturnNameNode = variant.nameNode
           this.walkRustFnBody(fnBNode sCtx wr)
           rustFnReturnsUnion = ""
         }
@@ -7664,9 +7669,33 @@ class RangerRustClassWriter {
             return
           }
         }
+        ; A function whose return type is a shared class hands back the
+        ; Rc, and a `new` produces the bare struct — `return (new CodeNode …)`
+        ; from a `:CodeNode` function was the struct where the handle was
+        ; declared. Anything that already evaluates to a handle passes
+        ; through untouched.
+        def retNeedsRcWrap:boolean false
+        if (!null? rustFnReturnNameNode) {
+          def rfNN:CodeNode (unwrap rustFnReturnNameNode)
+          if (((strlen rfNN.array_type) == 0) && ((strlen rfNN.key_type) == 0)) {
+            if (rfNN.hasFlag("optional") == false) {
+              if (this.rustClassIsShared(rfNN.type_name ctx)) {
+                if ((this.rustInitRcState(retVal ctx)) == 0) {
+                  retNeedsRcWrap = true
+                }
+              }
+            }
+          }
+        }
+        if retNeedsRcWrap {
+          wr.out("Rc::new(RefCell::new(" false)
+        }
         ctx.setInExpr()
         this.WalkNode(retVal ctx wr)
         ctx.unsetInExpr()
+        if retNeedsRcWrap {
+          wr.out("))" false)
+        }
         ; Add .clone() for non-primitive types (String, objects, arrays, etc.)
         ; Check if the return value needs cloning based on its evaluated type
         def tn:string retVal.eval_type_name

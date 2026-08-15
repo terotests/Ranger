@@ -28306,6 +28306,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           sCtx_1.is_function = true;
                           const fnB_1 = variant.fnBody;
                           this.rustFnReturnsUnion = this.rustUnionReturnOf(variant, ctx);
+                          this.rustFnReturnNameNode = variant.nameNode;
                           await this.walkRustFnBody(fnB_1, sCtx_1, wr);
                           this.rustFnReturnsUnion = "";
                         }
@@ -28373,6 +28374,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             sCtx_2.is_function = true;
                             const fnBNode = variant_1.fnBody;
                             this.rustFnReturnsUnion = this.rustUnionReturnOf(variant_1, ctx);
+                            this.rustFnReturnNameNode = variant_1.nameNode;
                             await this.walkRustFnBody(fnBNode, sCtx_2, wr);
                             this.rustFnReturnsUnion = "";
                           }
@@ -29997,9 +29999,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 return;
                               }
                             }
+                            let retNeedsRcWrap = false;
+                            if ( (typeof(this.rustFnReturnNameNode) !== "undefined" && this.rustFnReturnNameNode != null )  ) {
+                              const rfNN = this.rustFnReturnNameNode;
+                              if ( ((rfNN.array_type.length) == 0) && ((rfNN.key_type.length) == 0) ) {
+                                if ( rfNN.hasFlag("optional") == false ) {
+                                  if ( this.rustClassIsShared(rfNN.type_name, ctx) ) {
+                                    if ( this.rustInitRcState(retVal, ctx) == 0 ) {
+                                      retNeedsRcWrap = true;
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                            if ( retNeedsRcWrap ) {
+                              wr.out("Rc::new(RefCell::new(", false);
+                            }
                             ctx.setInExpr();
                             await this.WalkNode(retVal, ctx, wr);
                             ctx.unsetInExpr();
+                            if ( retNeedsRcWrap ) {
+                              wr.out("))", false);
+                            }
                             const tn_1 = retVal.eval_type_name;
                             let needs_ret_clone = false;
                             if ( (tn_1 == "string") || (retVal.eval_type == 10) ) {
