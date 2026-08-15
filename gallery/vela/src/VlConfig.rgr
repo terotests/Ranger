@@ -35,6 +35,13 @@ class VlConfig {
         cell.setMember("stroke" (VlJson.stringValue("#ddd")))
         set styles "cell" cell
 
+        ; A chart with no plotting frame — a pie, an arc — carries "view"
+        ; instead of "cell": the same transparent background with no border
+        ; drawn round it.
+        def view:VlJson (VlJson.objectValue())
+        view.setMember("fill" (VlJson.stringValue("transparent")))
+        set styles "view" view
+
         def point:VlJson (VlJson.objectValue())
         point.setMember("size" (VlJson.intValue(30)))
         point.setMember("strokeWidth" (VlJson.intValue(2)))

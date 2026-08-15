@@ -25,6 +25,7 @@ Import "VlTransform.rgr"
 Import "VlScene.rgr"
 Import "VlConfig.rgr"
 Import "VlAxis.rgr"
+Import "VlLegend.rgr"
 
 class VlRuntime {
     def spec:VlJson (new VlJson)
@@ -414,6 +415,7 @@ class VlRuntime {
         sc.align = (sdef.doubleOr("align" 0.5))
         sc.round = (sdef.boolOr("round" false))
         sc.clamp = (sdef.boolOr("clamp" false))
+        sc.logBase = (sdef.doubleOr("base" 10.0))
 
         this.readBins(sc (sdef.get("bins")))
         this.readDomain(sc (sdef.get("domain")) sdef)
@@ -765,6 +767,11 @@ class VlRuntime {
             }
         }
 
+        ; Legends last, and outside the plot: they are placed against the right
+        ; edge of everything the axes claimed, so they have to be built after
+        ; the axes have said how far that reaches.
+        this.encodeLegends(rootItem)
+
         ; The drawing surface, now that the axes have said how much room they
         ; need. A renderer reads these four and needs no idea what an axis is:
         ; make a canvas this big, translate by the origin, draw the commands.
@@ -872,6 +879,95 @@ class VlRuntime {
         }
         push out from
         push out to
+        return out
+    }
+
+    ; --------------------------------------------------------------- legends ---
+    ; A legend is placed, not laid out in flow: it sits a fixed distance beyond
+    ; the right edge of the plot and everything the axes claimed there, and the
+    ; drawing grows to hold it. Several legends stack down that same edge.
+    ;
+    ; Only the right-hand orientation is placed. `orient` is carried into the
+    ; scene either way, so a spec that asks for a legend on another edge draws
+    ; its contents correctly in the wrong place rather than not at all — and
+    ; says so.
+    fn encodeLegends:void (rootItem:VlSceneItem) {
+        def legends:VlJson (spec.get("legends"))
+        if (! (legends.isArray())) {
+            return
+        }
+        def anchorX:double ((VlBounds.ceilTo((chartWidth + extentRight))) + 18.0)
+        def stackY:double 0.0
+        def reach:double 0.0
+        def total:int (legends.count())
+        def k:int 0
+        while (k < total) {
+            def ldef:VlJson (legends.at(k))
+            def legend (new VlLegend())
+            def named:boolean false
+            for legend.channelOrder channel:string ci {
+                def scaleName:string (ldef.stringOr(channel ""))
+                if ((strlen scaleName) > 0) {
+                    if (scope.hasScale(scaleName)) {
+                        legend.addScale(channel (scope.scale(scaleName)))
+                        named = true
+                    } {
+                        this.fail(((("legend refers to scale '" + scaleName) + "' for channel ") + channel) + " which the spec does not define")
+                    }
+                }
+            }
+            if named {
+                def encode:VlJson (ldef.get("encode"))
+                def mark:VlSceneMark (legend.build(ldef (this.resolveEncodeBlock(encode "symbols")) (this.resolveEncodeBlock(encode "labels")) (this.resolveEncodeBlock(encode "title"))))
+                for legend.errors msg:string mi {
+                    this.warn(msg)
+                }
+                def orient:string (ldef.stringOr("orient" "right"))
+                if ((orient == "right") == false) {
+                    this.warn(("legend orient '" + orient) + "' is not placed yet; it is drawn on the right")
+                }
+                def group:VlSceneItem (itemAt mark.items 0)
+                group.setNumber("x" anchorX)
+                group.setNumber("y" stackY)
+                stackY = ((stackY + legend.height) + 8.0)
+                if ((anchorX + legend.width) > reach) {
+                    reach = (anchorX + legend.width)
+                }
+                push rootItem.marks mark
+            }
+            k = (k + 1)
+        }
+        if (reach > chartWidth) {
+            this.growExtent("right" (reach - chartWidth))
+        }
+    }
+
+    ; A guide's `encode` block holds constants, not per-datum expressions: it is
+    ; how a spec says "these symbols are hollow" or "this key is half opacity".
+    ; Flattening enter and update into literal values here means the legend
+    ; builder can apply them before it measures anything, which it has to — a
+    ; stroke width that arrives from an encode block changes every row's height.
+    fn resolveEncodeBlock:VlJson (encode:VlJson name:string) {
+        def out:VlJson (VlJson.objectValue())
+        def block:VlJson (encode.get(name))
+        if (! (block.isObject())) {
+            return out
+        }
+        def empty:VlJson (VlJson.objectValue())
+        def parts:[string]
+        push parts "enter"
+        push parts "update"
+        for parts part:string pi {
+            def channels:VlJson (block.get(part))
+            if (channels.isObject()) {
+                for channels.keys key:string ki {
+                    def value:VlJson (this.encodeChannel(key (channels.get(key)) empty))
+                    if (value.isDefined()) {
+                        out.setMember(key value)
+                    }
+                }
+            }
+        }
         return out
     }
 

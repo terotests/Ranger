@@ -17,9 +17,10 @@
 // Two things are deliberately not compared:
 //   * `exit`, `zindex`, `bounds` and the back-references — bookkeeping of the
 //     reference's own incremental dataflow, not properties of the chart.
-//   * axis and legend groups — Vela does not build guides yet. Marks the
-//     reference produces that Vela does not are reported as MISSING rather
-//     than quietly dropped.
+//
+// Marks the reference produces that Vela does not are reported as MISSING
+// rather than quietly dropped — which is how the legend groups read before
+// they were built.
 // =============================================================================
 
 import fs from 'fs';
@@ -50,16 +51,33 @@ if (!fs.existsSync(SCENE_TOOL)) {
   process.exit(1);
 }
 
-const specs = process.argv.length > 2
-  ? process.argv.slice(2)
-  : fs.readdirSync(SPEC_DIR).filter((f) => f.endsWith('.vg.json')).sort().map((f) => path.join(SPEC_DIR, f));
+// Every spec under tests/specs, including the subdirectories that hold the
+// showcase's own charts at the size a printed page needs. Those are the same
+// charts at a different size, and size is exactly what the awkward parts of an
+// axis depend on: which labels collide, which tick lands on a half pixel,
+// whether the last label is close enough to the end of the scale to be pulled
+// inside it. Four real defects were sitting in specs the comparison did not
+// reach until they were on a page.
+function specsUnder(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : 1)) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...specsUnder(full));
+    else if (entry.name.endsWith('.vg.json')) out.push(full);
+  }
+  return out;
+}
+
+const specs = process.argv.length > 2 ? process.argv.slice(2) : specsUnder(SPEC_DIR);
 
 let total = 0;
 let matched = 0;
 const report = [];
 
 for (const specPath of specs) {
-  const name = path.basename(specPath).replace(/\.vg\.json$/, '');
+  // Named by its path under tests/specs, so the three sizes of the same chart
+  // are told apart in the report.
+  const name = path.relative(SPEC_DIR, specPath).replace(/\.vg\.json$/, '').replace(/\\/g, '/');
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
 
   let refMarks;
@@ -78,8 +96,6 @@ for (const specPath of specs) {
   const velaMarks = collectMarks(JSON.parse(velaOut));
 
   for (const [markName, refMark] of refMarks) {
-    // Legends are not built yet; they are counted, not diffed.
-    if ((refMark.role || '').startsWith('legend')) continue;
     total++;
     const velaMark = velaMarks.get(markName);
     if (!velaMark) {
@@ -134,22 +150,27 @@ function dumpItem(it) {
 // --- comparison --------------------------------------------------------------
 
 /**
- * Every non-group mark in the scene, keyed by its path through the tree.
+ * Every mark in the scene, keyed by its path through the tree.
  * A chart has several axes and they all carry the same roles, so the key
  * includes each group's index — without it the axes overwrite each other in
  * the map and only the last one is ever compared.
+ *
+ * Groups are compared too, not just walked through. A group carries the numbers
+ * that PLACE what is inside it — an axis group's orient and origin, a legend
+ * group's corner and size, a legend row's height — and while they were skipped,
+ * a legend whose every symbol matched could still have been drawn in the wrong
+ * corner of the page and this said nothing.
  */
 function collectMarks(mark, out = new Map(), trail = []) {
-  if (mark.marktype !== 'group') {
-    let key = mark.name || `${trail.join('/')}#${mark.role || mark.marktype}`;
-    if (!mark.name && out.has(key)) {
-      let n = 2;
-      while (out.has(`${key}~${n}`)) n++;
-      key = `${key}~${n}`;
-    }
-    out.set(key, mark);
-    return out;
+  let key = mark.name || `${trail.join('/')}#${mark.role || mark.marktype}`;
+  if (!mark.name && out.has(key)) {
+    let n = 2;
+    while (out.has(`${key}~${n}`)) n++;
+    key = `${key}~${n}`;
   }
+  out.set(key, mark);
+  if (mark.marktype !== 'group') return out;
+
   for (const [i, item] of (mark.items || []).entries()) {
     for (const child of item.items || []) {
       collectMarks(child, out, trail.concat(`${mark.name || mark.role || 'group'}${i > 0 ? i : ''}`));

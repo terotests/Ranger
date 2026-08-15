@@ -1,0 +1,193 @@
+; ==============================================================================
+; VlBounds.rgr — how much room a drawn thing actually takes.
+; ==============================================================================
+; Axes never needed this. An axis is placed by its own rules — tick size plus
+; label padding plus the widest label — and the plot is pushed in by that
+; number. A legend is not: the reference lays one out from the BOUNDS of what it
+; drew. A row is as tall as its symbol or its label, whichever wins; the next
+; row starts below the previous row's box; and the whole legend is as wide as
+; the widest thing in it. Nothing in that chain is a constant, so the runtime
+; has to be able to answer "how big is this item" before it can place the next.
+;
+; The two answers here are the reference's own, from vega-scenegraph:
+;
+;   text    the box is fontSize tall — not the line height — and as wide as the
+;           canvas-free estimate (0.8 em per character). Its top edge sits at
+;           `baselineOffset - round(0.8 * fontSize)` from the anchor, which is
+;           how a 'middle' baseline ends up very slightly above centre.
+;   symbol  vega's own circle is `sqrt(size)/2` across the radius, NOT d3's
+;           `sqrt(size/PI)`, and a stroked path is expanded by the miter limit
+;           (4) times half the stroke width, not by half the stroke width.
+;
+; Both of those are worth stating plainly because both are surprising, and a
+; legend that is off by a pixel is off because one of them was assumed instead
+; of read.
+; ==============================================================================
+
+Import "VlText.rgr"
+
+class VlBounds {
+    def x1:double 0.0
+    def y1:double 0.0
+    def x2:double 0.0
+    def y2:double 0.0
+    ; An empty box is not the box at the origin: a union with it must be a
+    ; no-op, and a legend with no entries must not report that it covers (0,0).
+    def isSet:boolean false
+
+    fn set:void (ax:double ay:double bx:double by:double) {
+        x1 = ax
+        y1 = ay
+        x2 = bx
+        y2 = by
+        isSet = true
+    }
+
+    fn add:void (x:double y:double) {
+        if (! isSet) {
+            this.set(x y x y)
+            return
+        }
+        if (x < x1) {
+            x1 = x
+        }
+        if (y < y1) {
+            y1 = y
+        }
+        if (x > x2) {
+            x2 = x
+        }
+        if (y > y2) {
+            y2 = y
+        }
+    }
+
+    fn union:void (other:VlBounds) {
+        if (! other.isSet) {
+            return
+        }
+        this.add(other.x1 other.y1)
+        this.add(other.x2 other.y2)
+    }
+
+    fn translate:void (dx:double dy:double) {
+        if (! isSet) {
+            return
+        }
+        x1 = (x1 + dx)
+        y1 = (y1 + dy)
+        x2 = (x2 + dx)
+        y2 = (y2 + dy)
+    }
+
+    fn expand:void (d:double) {
+        if (! isSet) {
+            return
+        }
+        x1 = (x1 - d)
+        y1 = (y1 - d)
+        x2 = (x2 + d)
+        y2 = (y2 + d)
+    }
+
+    fn width:double () {
+        if (! isSet) {
+            return 0.0
+        }
+        return (x2 - x1)
+    }
+
+    fn height:double () {
+        if (! isSet) {
+            return 0.0
+        }
+        return (y2 - y1)
+    }
+
+    fn clone:VlBounds () {
+        def out (new VlBounds())
+        if isSet {
+            out.set(x1 y1 x2 y2)
+        }
+        return out
+    }
+
+    ; JavaScript's Math.round, which rounds a half UP rather than away from
+    ; zero. The reference rounds the text offset with it, and -8.5 landing on -8
+    ; instead of -9 is a whole pixel of difference in a legend row.
+    sfn roundHalfUp:double (v:double) {
+        return (to_double (floor (v + 0.5)))
+    }
+
+    sfn ceilTo:double (v:double) {
+        return (to_double (ceil v))
+    }
+
+    ; How far the text's own top edge sits from its anchor point, per baseline.
+    ; The reference calls this `offset` and computes it rather than trusting a
+    ; renderer's baseline handling, so that every target agrees.
+    sfn baselineOffset:double (baseline:string fontSize:double) {
+        if (baseline == "top") {
+            return (VlBounds.roundHalfUp((0.79 * fontSize)))
+        }
+        if (baseline == "middle") {
+            return (VlBounds.roundHalfUp((0.30 * fontSize)))
+        }
+        if (baseline == "bottom") {
+            return (VlBounds.roundHalfUp((0.0 - (0.21 * fontSize))))
+        }
+        ; 'alphabetic' and anything unrecognised: the anchor IS the baseline.
+        return 0.0
+    }
+
+    ; One line of text. A multi-line string would add `lineHeight` per extra
+    ; line; nothing here produces one yet, and a wrong guess would be worse than
+    ; the missing case.
+    sfn ofText:VlBounds (text:string fontSize:double align:string baseline:string x:double y:double) {
+        def w:double (VlText.estimateWidth(text fontSize))
+        def h:double fontSize
+        def dy:double ((VlBounds.baselineOffset(baseline fontSize)) - (VlBounds.roundHalfUp((0.8 * h))))
+        def dx:double 0.0
+        if (align == "center") {
+            dx = (0.0 - (w / 2.0))
+        }
+        if (align == "right") {
+            dx = (0.0 - w)
+        }
+        def out (new VlBounds())
+        out.set((x + dx) (y + dy) ((x + dx) + w) ((y + dy) + h))
+        return out
+    }
+
+    ; A symbol's `size` is an area, but the shape that draws it is not a disc of
+    ; that area: vega's circle and square are both `sqrt(size)` across, so their
+    ; boxes are identical and this one formula covers the shapes a legend uses.
+    ; A triangle or a cross fills its box differently; until one appears in a
+    ; legend, treating them as the same square is a stated approximation rather
+    ; than a silent one.
+    sfn ofSymbol:VlBounds (x:double y:double size:double strokeWidth:double stroked:boolean) {
+        def area:double size
+        if (area < 0.0) {
+            area = 0.0
+        }
+        def r:double ((sqrt area) / 2.0)
+        def out (new VlBounds())
+        out.set((x - r) (y - r) (x + r) (y + r))
+        ; A stroke is centred on the path, but the reference expands by the
+        ; MITER allowance — miterLimit (4) times half the stroke width — because
+        ; a generic path may have a spike at a vertex. A circle has no vertices
+        ; and is still expanded, so a legend symbol's box is wider than the ink.
+        if stroked {
+            if (strokeWidth > 0.0) {
+                def half:double (strokeWidth / 2.0)
+                def miter:double (4.0 * half)
+                def e:double half
+                if (miter > e) {
+                    e = miter
+                }
+                out.expand(e)
+            }
+        }
+        return out
+    }
+}

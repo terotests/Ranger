@@ -17,6 +17,7 @@ Import "VlJson.rgr"
 Import "VlScale.rgr"
 Import "VlScene.rgr"
 Import "VlText.rgr"
+Import "VlBounds.rgr"
 
 class VlAxisTickValue {
     def value:VlJson (new VlJson)
@@ -55,11 +56,25 @@ class VlAxis {
     ; `tickRound`, on by default. Labels are not rounded: text has no pixel
     ; grid to align to.
     def tickRound:boolean true
-    ; The first and last label of a continuous axis are pulled inside the plot
-    ; instead of hanging over its edge (`labelFlush`), and labels that would
-    ; collide are hidden rather than overprinted (`labelOverlap`).
-    def labelFlush:boolean false
-    def labelOverlap:boolean false
+    ; A label within `labelFlush` pixels of the end of the scale's range is
+    ; pulled inside the plot instead of hanging over its edge. The threshold
+    ; matters: `true` means ONE pixel, not "the first and last label", so a last
+    ; tick that does not land exactly on the range end is still centred.
+    def labelFlushSet:boolean false
+    def labelFlushThreshold:double 1.0
+    ; How labels that would collide are thinned: "" not at all, "parity" by
+    ; hiding every second one until they fit, "greedy" by hiding each one that
+    ; runs into the last one kept. Vega-Lite asks for greedy on a log axis,
+    ; where the ticks are unevenly spaced and halving removes the wrong ones.
+    def labelOverlapMode:string ""
+    ; Opacities are stroke opacities, and only exist when a spec sets them: the
+    ; reference leaves `opacity` at 1 and puts the number on `strokeOpacity`,
+    ; which is a different thing to a renderer that strokes and fills.
+    def gridOpacitySet:boolean false
+    def tickOpacitySet:boolean false
+    def tickOpacity:double 1.0
+    def domainOpacitySet:boolean false
+    def domainOpacity:double 1.0
     ; A spec may turn the labels and say how they should then sit. Vega-Lite
     ; emits all three together when it rotates labels to fit.
     def labelAngle:double 0.0
@@ -93,11 +108,75 @@ class VlAxis {
         gridWidth = (adef.doubleOr("gridWidth" gridWidth))
         gridOpacity = (adef.doubleOr("gridOpacity" gridOpacity))
         tickRound = (adef.boolOr("tickRound" tickRound))
-        labelFlush = (adef.boolOr("labelFlush" labelFlush))
-        labelOverlap = (adef.boolOr("labelOverlap" labelOverlap))
+        gridOpacitySet = (adef.has("gridOpacity"))
+        tickOpacitySet = (adef.has("tickOpacity"))
+        tickOpacity = (adef.doubleOr("tickOpacity" tickOpacity))
+        domainOpacitySet = (adef.has("domainOpacity"))
+        domainOpacity = (adef.doubleOr("domainOpacity" domainOpacity))
+        this.readFlush((adef.get("labelFlush")))
+        this.readOverlap((adef.get("labelOverlap")))
         labelAngle = (adef.doubleOr("labelAngle" labelAngle))
         labelAlign = (adef.stringOr("labelAlign" labelAlign))
         labelBaseline = (adef.stringOr("labelBaseline" labelBaseline))
+    }
+
+    ; `labelFlush` is a threshold in pixels, and `true` is the number one — the
+    ; reference passes it straight into a numeric comparison. A spec may state
+    ; the threshold instead, and zero is a real threshold ("only a label exactly
+    ; on the end"), so the flag records that it was given at all.
+    fn readFlush:void (v:VlJson) {
+        if (v.isBool()) {
+            labelFlushSet = (v.asBool())
+            labelFlushThreshold = 1.0
+            return
+        }
+        if (v.isNumber()) {
+            labelFlushSet = true
+            labelFlushThreshold = v.num
+        }
+    }
+
+    fn readOverlap:void (v:VlJson) {
+        if (v.isBool()) {
+            labelOverlapMode = ""
+            if (v.asBool()) {
+                labelOverlapMode = "parity"
+            }
+            return
+        }
+        if (v.isString()) {
+            labelOverlapMode = (v.asString())
+        }
+    }
+
+    ; Which end of the range a position is close enough to. The reference's
+    ; `flush()`: the nearer end wins, and only if it is within the threshold.
+    fn flushSide:string (position:double rangeFrom:double rangeTo:double) {
+        if (! labelFlushSet) {
+            return ""
+        }
+        def lo:double rangeFrom
+        def hi:double rangeTo
+        if (hi < lo) {
+            def swap:double lo
+            lo = hi
+            hi = swap
+        }
+        def toStart:double (position - lo)
+        if (toStart < 0.0) {
+            toStart = (0.0 - toStart)
+        }
+        def toEnd:double (hi - position)
+        if (toEnd < 0.0) {
+            toEnd = (0.0 - toEnd)
+        }
+        if ((toStart < toEnd) && (toStart <= labelFlushThreshold)) {
+            return "start"
+        }
+        if (toEnd <= labelFlushThreshold) {
+            return "end"
+        }
+        return ""
     }
 
     ; Labels turned on their side take their WIDTH out of the axis' extent
@@ -153,7 +232,13 @@ class VlAxis {
             return out
         }
         def values:[double] (sc.ticks(tickCount))
+        ; A log axis labels only some of the ticks it draws, and formats those
+        ; with grouped digits rather than to one shared precision — its ticks
+        ; have no shared step to take a precision from.
         def labels:[string] (VlScale.tickLabels(values))
+        if (sc.isLog()) {
+            labels = (sc.logLabels(values tickCount))
+        }
         for values v:double idx {
             def tv (new VlAxisTickValue())
             tv.value = (VlJson.numberValue(v))
@@ -226,7 +311,16 @@ class VlAxis {
         def widest:double (VlText.widestLabel(labels labelFontSize))
         labelExtent = 0.0
         if wantLabels {
-            push group.marks (this.buildLabels(ticks orient vertical))
+            ; The ends a flushed label is measured against are the scale's own
+            ; range, which for a discrete scale is the plot's extent rather
+            ; than the band positions.
+            def flushFrom:double sc.rangeMin
+            def flushTo:double sc.rangeMax
+            if ((sc.scaleType == "band") || (sc.scaleType == "point")) {
+                flushFrom = 0.0
+                flushTo = range
+            }
+            push group.marks (this.buildLabels(ticks orient vertical flushFrom flushTo))
             def turned:boolean (this.labelsAreTurned())
             if vertical {
                 def alongV:double widest
@@ -278,10 +372,13 @@ class VlAxis {
         mark.role = "axis-grid"
         for ticks tv:VlAxisTickValue idx {
             def item:VlSceneItem (mark.addItem())
-            item.setNumber("opacity" gridOpacity)
+            item.setNumber("opacity" 1.0)
+            if gridOpacitySet {
+                item.setNumber("strokeOpacity" gridOpacity)
+            }
             item.setString("stroke" gridColor)
             item.setNumber("strokeWidth" gridWidth)
-            def at:double tv.position
+            def at:double tv.labelPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
             }
@@ -309,9 +406,12 @@ class VlAxis {
         for ticks tv:VlAxisTickValue idx {
             def item:VlSceneItem (mark.addItem())
             item.setNumber("opacity" 1.0)
+            if tickOpacitySet {
+                item.setNumber("strokeOpacity" tickOpacity)
+            }
             item.setString("stroke" tickColor)
             item.setNumber("strokeWidth" tickWidth)
-            def at:double tv.position
+            def at:double tv.labelPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
             }
@@ -329,12 +429,11 @@ class VlAxis {
         return mark
     }
 
-    fn buildLabels:VlSceneMark (ticks:[VlAxisTickValue] orient:string vertical:boolean) {
+    fn buildLabels:VlSceneMark (ticks:[VlAxisTickValue] orient:string vertical:boolean flushFrom:double flushTo:double) {
         def mark (new VlSceneMark())
         mark.markType = "text"
         mark.role = "axis-label"
         def away:double (tickSize + labelPadding)
-        def last:int ((array_length ticks) - 1)
         for ticks tv:VlAxisTickValue idx {
             def item:VlSceneItem (mark.addItem())
             item.setString("fill" labelColor)
@@ -353,7 +452,15 @@ class VlAxis {
                     item.setNumber("x" away)
                     item.setString("align" "left")
                 }
-                item.setString("baseline" "middle")
+                def baseline:string "middle"
+                def sideV:string (this.flushSide(tv.position flushFrom flushTo))
+                if (sideV == "start") {
+                    baseline = "top"
+                }
+                if (sideV == "end") {
+                    baseline = "bottom"
+                }
+                item.setString("baseline" baseline)
                 if ((strlen labelAlign) > 0) {
                     item.setString("align" labelAlign)
                 }
@@ -370,13 +477,12 @@ class VlAxis {
                     item.setString("baseline" "bottom")
                 }
                 def align:string "center"
-                if labelFlush {
-                    if (idx == 0) {
-                        align = "left"
-                    }
-                    if (idx == last) {
-                        align = "right"
-                    }
+                def side:string (this.flushSide(tv.position flushFrom flushTo))
+                if (side == "start") {
+                    align = "left"
+                }
+                if (side == "end") {
+                    align = "right"
                 }
                 item.setString("align" align)
                 if ((strlen labelAlign) > 0) {
@@ -387,24 +493,42 @@ class VlAxis {
                 }
             }
         }
-        if labelOverlap {
-            this.hideOverlappingLabels(mark vertical)
+        if ((strlen labelOverlapMode) > 0) {
+            this.hideOverlappingLabels(mark)
         }
         return mark
     }
 
-    ; Labels that would print on top of each other are thinned by halving:
-    ; hide every second one, look again, repeat. That is the reference's
-    ; `parity` strategy — it keeps the axis readable and, because it always
-    ; keeps the first, keeps the labels evenly spaced.
+    ; Labels that would print on top of each other are hidden rather than
+    ; overprinted, in one of the reference's two strategies:
+    ;
+    ;   parity  hide every second one, look again, repeat. Evenly spaced ticks
+    ;           stay evenly spaced.
+    ;   greedy  keep the first, then hide each label that runs into the last one
+    ;           kept. Vega-Lite asks for this on a log axis, where the ticks are
+    ;           unevenly spaced and halving would drop the readable ones and
+    ;           keep the crowded ones.
+    ;
+    ; A label with nothing in it takes part in neither: it has no box to collide
+    ; with, and it must not be spent as one of the hidden ones. That matters on
+    ; a log axis, where most of the labels are deliberately blank already.
     ;
     ; The flush alignment has already moved the end labels inward by then, and
     ; it has to: pulling the last label back over the axis is often what makes
     ; it collide with its neighbour in the first place.
-    fn hideOverlappingLabels:void (mark:VlSceneMark vertical:boolean) {
+    fn hideOverlappingLabels:void (mark:VlSceneMark) {
         def visible:[int]
         for mark.items item:VlSceneItem idx {
-            push visible idx
+            if ((strlen (item.text("text"))) > 0) {
+                push visible idx
+            }
+        }
+        if ((array_length visible) < 3) {
+            return
+        }
+        if (labelOverlapMode == "greedy") {
+            this.thinGreedy(mark visible)
+            return
         }
         def go:boolean true
         def guard:int 0
@@ -413,7 +537,7 @@ class VlAxis {
             if ((array_length visible) < 3) {
                 go = false
             } {
-                if (this.labelsOverlap(mark visible vertical)) {
+                if (this.labelsOverlap(mark visible)) {
                     def kept:[int]
                     for visible index:int position {
                         if (((position % 2) == 0)) {
@@ -431,43 +555,61 @@ class VlAxis {
         }
     }
 
-    fn labelsOverlap:boolean (mark:VlSceneMark visible:[int] vertical:boolean) {
-        def previousStart:double 0.0
-        def previousEnd:double 0.0
-        def havePrevious:boolean false
+    fn thinGreedy:void (mark:VlSceneMark visible:[int]) {
+        def keptBox (new VlBounds())
+        def first:boolean true
         for visible index:int position {
             def item:VlSceneItem (itemAt mark.items index)
-            def start:double 0.0
-            def end:double 0.0
-            if vertical {
-                def half:double (labelFontSize / 2.0)
-                start = ((item.number("y")) - half)
-                end = ((item.number("y")) + half)
+            def box:VlBounds (this.labelBox(item))
+            if first {
+                keptBox = box
+                first = false
             } {
-                def width:double (VlText.estimateWidth((item.text("text")) labelFontSize))
-                def at:double (item.number("x"))
-                def align:string (item.text("align"))
-                start = (at - (width / 2.0))
-                end = (at + (width / 2.0))
-                if (align == "left") {
-                    start = at
-                    end = (at + width)
-                }
-                if (align == "right") {
-                    start = (at - width)
-                    end = at
+                if (VlAxis.boxesOverlap(keptBox box)) {
+                    item.setNumber("opacity" 0.0)
+                } {
+                    keptBox = box
                 }
             }
+        }
+    }
+
+    ; A label's box, as the renderer would draw it — the same measurement the
+    ; legend's rows are laid out with, so an axis and a legend agree on how big
+    ; a piece of text is.
+    fn labelBox:VlBounds (item:VlSceneItem) {
+        return (VlBounds.ofText((item.text("text")) (item.number("fontSize")) (item.text("align")) (item.text("baseline")) (item.number("x")) (item.number("y"))))
+    }
+
+    ; The reference's intersection test, which is strict: boxes that merely
+    ; touch do not overlap, and a gap in EITHER axis is enough to separate them.
+    sfn boxesOverlap:boolean (a:VlBounds b:VlBounds) {
+        if ((b.x1 - a.x2) >= 0.0) {
+            return false
+        }
+        if ((a.x1 - b.x2) >= 0.0) {
+            return false
+        }
+        if ((b.y1 - a.y2) >= 0.0) {
+            return false
+        }
+        if ((a.y1 - b.y2) >= 0.0) {
+            return false
+        }
+        return true
+    }
+
+    fn labelsOverlap:boolean (mark:VlSceneMark visible:[int]) {
+        def previous (new VlBounds())
+        def havePrevious:boolean false
+        for visible index:int position {
+            def box:VlBounds (this.labelBox((itemAt mark.items index)))
             if havePrevious {
-                ; A real intersection, tested in both directions: an axis whose
-                ; values run downward (every y axis) has each label BEFORE the
-                ; previous one, and a one-sided test calls that an overlap.
-                if ((start < previousEnd) && (previousStart < end)) {
+                if (VlAxis.boxesOverlap(previous box)) {
                     return true
                 }
             }
-            previousStart = start
-            previousEnd = end
+            previous = box
             havePrevious = true
         }
         return false
@@ -482,6 +624,9 @@ class VlAxis {
         mark.role = "axis-domain"
         def item:VlSceneItem (mark.addItem())
         item.setNumber("opacity" 1.0)
+        if domainOpacitySet {
+            item.setNumber("strokeOpacity" domainOpacity)
+        }
         item.setString("stroke" domainColor)
         item.setNumber("strokeWidth" domainWidth)
         if vertical {

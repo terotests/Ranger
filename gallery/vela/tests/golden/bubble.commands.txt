@@ -84,5 +84,30 @@ symbol x=200 y=141 size=211.923 shape=circle stroke=#4c78a8 strokeWidth=2 opacit
 symbol x=266.667 y=243 size=78.538 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
 symbol x=33.333 y=39 size=345.308 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
 symbol x=100 y=144 size=208 shape=circle stroke=#4c78a8 strokeWidth=2 opacity=0.7
+group-begin
+group-begin
+group-begin
+symbol x=328 y=21 size=4 shape=circle stroke=#4c78a8 strokeWidth=1.5 opacity=0.7
+text x=342 y=21 size=10 align=left text=0 fill=#000
+group-end
+group-begin
+symbol x=328 y=36.5 size=82.462 shape=circle stroke=#4c78a8 strokeWidth=1.5 opacity=0.7
+text x=342 y=36.5 size=10 align=left text=20 fill=#000
+group-end
+group-begin
+symbol x=328 y=56.5 size=160.923 shape=circle stroke=#4c78a8 strokeWidth=1.5 opacity=0.7
+text x=342 y=56.5 size=10 align=left text=40 fill=#000
+group-end
+group-begin
+symbol x=328 y=79.5 size=239.385 shape=circle stroke=#4c78a8 strokeWidth=1.5 opacity=0.7
+text x=342 y=79.5 size=10 align=left text=60 fill=#000
+group-end
+group-begin
+symbol x=328 y=105 size=317.846 shape=circle stroke=#4c78a8 strokeWidth=1.5 opacity=0.7
+text x=342 y=105 size=10 align=left text=80 fill=#000
+group-end
+group-end
+text x=318 y=0 size=11 align=left text=b fill=#000
+group-end
 group-end
 

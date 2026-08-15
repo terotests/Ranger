@@ -44,5 +44,46 @@ rect x=21 y=160 w=18 h=53 fill=#eeca3b
 rect x=1 y=229 w=18 h=19 fill=#b279a2
 rect x=21 y=213 w=18 h=87 fill=#ff9da6
 rect x=1 y=248 w=18 h=52 fill=#9d755d
+group-begin
+group-begin
+group-begin
+symbol x=64 y=22 size=100 shape=square fill=#4c78a8
+text x=74 y=22 size=10 align=left text=A fill=#000
+group-end
+group-begin
+symbol x=64 y=35 size=100 shape=square fill=#f58518
+text x=74 y=35 size=10 align=left text=B fill=#000
+group-end
+group-begin
+symbol x=64 y=48 size=100 shape=square fill=#e45756
+text x=74 y=48 size=10 align=left text=C fill=#000
+group-end
+group-begin
+symbol x=64 y=61 size=100 shape=square fill=#72b7b2
+text x=74 y=61 size=10 align=left text=D fill=#000
+group-end
+group-begin
+symbol x=64 y=74 size=100 shape=square fill=#54a24b
+text x=74 y=74 size=10 align=left text=E fill=#000
+group-end
+group-begin
+symbol x=64 y=87 size=100 shape=square fill=#eeca3b
+text x=74 y=87 size=10 align=left text=F fill=#000
+group-end
+group-begin
+symbol x=64 y=100 size=100 shape=square fill=#b279a2
+text x=74 y=100 size=10 align=left text=G fill=#000
+group-end
+group-begin
+symbol x=64 y=113 size=100 shape=square fill=#ff9da6
+text x=74 y=113 size=10 align=left text=H fill=#000
+group-end
+group-begin
+symbol x=64 y=126 size=100 shape=square fill=#9d755d
+text x=74 y=126 size=10 align=left text=I fill=#000
+group-end
+group-end
+text x=58 y=0 size=11 align=left text=a fill=#000
+group-end
 group-end
 

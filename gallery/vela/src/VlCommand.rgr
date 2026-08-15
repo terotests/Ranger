@@ -252,9 +252,16 @@ class VlSceneCommands {
         def gx:double (offsetX + (item.number("x")))
         def gy:double (offsetY + (item.number("y")))
 
-        ; A group with a fill paints its own rectangle first — the chart
+        ; A group that paints paints its own rectangle first — the chart
         ; background, and the frame around a cell.
-        if (item.has("fill")) {
+        ;
+        ; "Paints" means a fill or a stroke that is actually drawn. A group
+        ; styled `fill: transparent` with no stroke — which is what a chart with
+        ; no plotting frame carries — asks for nothing to be drawn, and emitting
+        ; the rectangle anyway handed a backend a shape it could style: the pie
+        ; chart came out inside a box because the theme's stylesheet found a
+        ; frame to stroke.
+        if ((item.has("fill")) || (item.has("stroke"))) {
             def bg (new VlDrawCommand())
             bg.op = "rect"
             bg.markType = "group"
@@ -264,7 +271,9 @@ class VlSceneCommands {
             bg.width = (item.number("width"))
             bg.height = (item.number("height"))
             VlSceneCommands.applyStyle(bg item)
-            push list.commands bg
+            if (bg.hasFill || bg.hasStroke) {
+                push list.commands bg
+            }
         }
 
         def begin (new VlDrawCommand())

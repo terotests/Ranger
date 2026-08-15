@@ -290,9 +290,33 @@ class VlEvgWriter {
             this.noteChrome("chartTitle" "color" cmd.fill)
             return "chartTitle"
         }
+        ; A legend's text is chrome and themes with the axes'; its symbols are
+        ; not — they stand for the data and have to keep the series colour the
+        ; chart drew, so they fall through to the palette slots below.
+        if (role == "legend-label") {
+            this.noteChrome("chartLabel" "color" cmd.fill)
+            return "chartLabel"
+        }
+        if (role == "legend-title") {
+            this.noteChrome("chartTitle" "color" cmd.fill)
+            return "chartTitle"
+        }
         if (role == "frame") {
             this.noteChrome("chartFrame" "stroke" cmd.stroke)
             return "chartFrame"
+        }
+        ; A data mark that is TEXT — a value printed beside its point — is
+        ; painted by `color`, not by `fill`: `fill` styles a shape, and a label
+        ; is not one. It still takes a palette slot, so a chart that labels its
+        ; series keeps them apart, but the rule the slot writes is the one that
+        ; reaches a label in all three targets.
+        if (cmd.op == "text") {
+            if cmd.hasFill {
+                def slot:string (VlJson.intToText((this.slotOf(cmd.fill))))
+                this.noteChrome(("chartText" + slot) "color" cmd.fill)
+                return ("chartText" + slot)
+            }
+            return ""
         }
         def out:string ""
         if cmd.hasFill {
@@ -434,6 +458,14 @@ class VlEvgWriter {
 
     ; A symbol's `size` is an AREA, which is what makes two symbols of size 30
     ; and 120 read as twice as big rather than four times.
+    ;
+    ; `sqrt(size)` is the SIDE of the square that area would make, and the
+    ; reference draws every one of its built-in shapes inside that square —
+    ; including the circle, whose radius is therefore `sqrt(size)/2` and not the
+    ; `sqrt(size/PI)` that would give it the stated area. That is a real
+    ; difference: a size-30 point is 2.74 across the radius in Vega and was 3.09
+    ; here, which is twelve per cent too big on every scatter plot, and it would
+    ; have made every legend symbol disagree with the key it stands for.
     fn appendSymbol:void (builder:PathBuilder cmd:VlDrawCommand ox:double oy:double) {
         def area:double cmd.size
         if (area < 0.0) {
@@ -441,13 +473,12 @@ class VlEvgWriter {
         }
         def cx:double (cmd.x + ox)
         def cy:double (cmd.y + oy)
+        def side:double (sqrt area)
         if (cmd.shape == "square") {
-            def side:double (sqrt area)
             builder.addRect((cx - (side / 2.0)) (cy - (side / 2.0)) side side)
             return
         }
-        def r:double (sqrt (area / 3.141592653589793))
-        builder.addCircle(cx cy r)
+        builder.addCircle(cx cy (side / 2.0))
     }
 
     ; A wedge: out along the start angle, round the outer radius, back down the

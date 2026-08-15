@@ -66,8 +66,16 @@ const PAGES = [
     id: "charts",
     title: "Charts",
     blurb:
-      "Unmodified Vega specifications, compiled from Vega-Lite examples and run by the Vela runtime in this repository: every gridline, bar, wedge and label is geometry Ranger computed and the EVG vector layer drew. The page is generated, and its colours are not in it — the series are numbered and the stylesheet paints them, so the same charts come out in three palettes.",
-    shows: ["generated path data", "series colours from CSS", "one path per paint", "arcs and symbols"],
+      "Unmodified Vega specifications, compiled from Vega-Lite examples and run by the Vela runtime in this repository: every gridline, bar, wedge, key and label is geometry Ranger computed and the EVG vector layer drew. The page is generated, and its colours are not in it — the series are numbered and the stylesheet paints them, so the same charts come out in three palettes, legends included.",
+    shows: ["generated path data", "series colours from CSS", "one path per paint", "arcs, symbols and legends"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "plots",
+    title: "Chart types",
+    blurb:
+      "The rest of the runtime's chart types, and the features only some charts have: a size legend whose rows are all different heights, a stroke legend, a log axis that labels only some of the ticks it draws, two marks sharing one plot, and text as a mark. Generated from the same specifications the parity harness compares against official Vega.",
+    shows: ["size and colour legends", "log scale", "layered marks", "text marks", "grouped bands"],
     themes: ["editorial", "studio", "autumn"],
   },
   {
@@ -116,6 +124,7 @@ const PAGE_CSS = {
   // scoped chart rules override them and a build with no chart theme still
   // draws the chart the spec described.
   charts: [path.join(HERE, "themes/charts-default.css")],
+  plots: [path.join(HERE, "themes/plots-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {

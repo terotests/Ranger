@@ -8,12 +8,14 @@ It is an independent implementation of the Vega grammar's semantics, not a port
 of the Vega JavaScript sources and not affiliated with the Vega project. See
 [Attribution and licensing](#attribution-and-licensing).
 
-**Status:** it draws. Marks, scales, transforms, signals, expressions, axes and
-layout produce a scene that matches the reference implementation item for item
-on **129 of 129 marks** across 13 chart types, and the EVG backend renders that
-scene to **PDF, PNG and HTML** — six charts are on the project's
-[EVG showcase](https://terotests.github.io/Ranger/evg/). Legends are the
-remaining piece; see [What is not there yet](#what-is-not-there-yet).
+**Status:** it draws. Marks, scales, transforms, signals, expressions, axes,
+legends and layout produce a scene that matches the reference implementation
+item for item on **550 of 550 marks** across 14 chart types at three sizes, and
+the EVG backend renders that scene to **PDF, PNG and HTML** — fourteen charts on
+two pages of the project's
+[EVG showcase](https://terotests.github.io/Ranger/evg/). Time scales and faceted
+layout are the largest remaining pieces; see
+[What is not there yet](#what-is-not-there-yet).
 
 ```
                    Vega-Lite JSON
@@ -27,10 +29,12 @@ remaining piece; see [What is not there yet](#what-is-not-there-yet).
    │  VlJson      spec + data as one value type │
    │  VlExpr      the Vega expression language  │
    │  VlTransform filter formula stack bin …    │
-   │  VlScale     band point linear ordinal     │
+   │  VlScale     band point linear log ordinal │
    │  VlRuntime   signals → data → scales →     │
    │              encode                        │
    │  VlAxis      ticks, labels, grid, title    │
+   │  VlLegend    symbols, keys, title          │
+   │  VlBounds    how big a drawn thing is      │
    │  VlScene     mark / item tree              │
    │  VlCommand   flat draw commands            │
    │  VlEvg       commands → EVG path data      │
@@ -112,6 +116,14 @@ channel of every item. `tools/reference/compile_specs.mjs` generates the specs
 themselves with the official compiler, so the inputs cannot drift into
 something convenient either.
 
+Every spec under `tests/specs` is compared, **including the smaller copies the
+showcase draws**. Those are the same charts at the size a printed page needs,
+and size is what the awkward parts of an axis depend on: which labels collide,
+which tick lands on a half pixel, whether the last label is close enough to the
+end of the scale to be pulled inside it. Four of the defects in the table below
+were sitting in specs the comparison did not reach until the showcase pages
+brought them in.
+
 The reference is an **optional** dev dependency. Without it the parity step says
 that nothing was compared and the rest of the suite still runs — a silent skip
 would read as a pass.
@@ -139,6 +151,13 @@ Each of these was found by the harness, not by reading the spec:
 | Every second y-axis label vanished | the overlap test compared one-sidedly, and a y axis runs downward |
 | An axis read 0, 0.5, 1 | a tick *set* shares one precision, chosen from its step: 0.0, 0.5, 1.0 |
 | A binned histogram invented its own ticks | a binned scale is labelled at its bin boundaries |
+| Every symbol was drawn an eighth too big | `size` is an area, but the circle vega draws in it has radius `sqrt(size)/2`, not `sqrt(size/PI)` |
+| A pie came out inside a box | a chart with no plotting frame carries `style: "view"` — transparent, and *not* the `cell` style's border |
+| A legend could have been drawn in the wrong corner and still "matched" | the harness walked through group marks instead of comparing them, and a group is what holds the coordinates |
+| A grid line drawn at `gridOpacity` faded the whole line | the opacity of a *stroke* is `strokeOpacity`; `opacity` stays at 1 |
+| A log axis printed ten labels on top of each other | `labelOverlap` is `"greedy"` there, not `true` — hide each label that runs into the last one KEPT, since halving drops the readable ticks and keeps the crowded ones |
+| The last label of an axis was pulled inside the plot when it did not need to be | `labelFlush` is a threshold in PIXELS, and `true` means one pixel — not "the first and last label" |
+| A band tick sat one pixel right of its own label | ticks and labels share the axis group's half-pixel offset; only the label was taking it |
 
 ## Compatibility
 
@@ -155,30 +174,89 @@ Measured by `tests/run.sh`: does the mark geometry match the reference?
 | scatter | `scatter.vg.json` | ✓ |
 | bubble (size) | `bubble.vg.json` | ✓ |
 | coloured scatter | `scatter_colored.vg.json` | ✓ |
+| log scale | `scatter_log.vg.json` | ✓ |
 | tick | `tick.vg.json` | ✓ |
 | text labels | `text_labels.vg.json` | ✓ |
 | pie / arc | `pie.vg.json` | ✓ |
 | layered | `layered.vg.json` | ✓ (both layers) |
 
-**129 / 129 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks and every
-axis grid, tick, label, domain line and title in all thirteen charts.
+**550 / 550 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
+grid, tick, label, domain line and title, every legend symbol, key and title,
+and the groups that place all of them, in all fourteen charts, at the parity
+size and at both of the sizes the showcase draws them.
+
+The groups are the newer half of that number. A group carries the coordinates
+that *place* what is inside it, and the harness used to walk straight through
+them: a legend whose every symbol matched could still have been drawn in the
+wrong corner of the page and nothing would have said so. They are compared now,
+which is also what pins the legend's own size and position.
 
 | Area | State |
 | --- | --- |
 | Marks | rect, rule, symbol, text, line, area, arc, path, image — encoded; group marks are not nested yet |
-| Scales | band, point, linear, ordinal · `nice`, `zero`, `clamp`, `round`, step ranges, colour schemes |
+| Scales | band, point, linear, log, ordinal · `nice`, `zero`, `clamp`, `round`, `base`, step ranges, colour schemes |
 | Transforms | filter, formula, stack (with sort), aggregate, bin, extent, impute, project, collect (unsorted) |
 | Expressions | the documented expression profile: operators, member access, calls, array and object literals |
 | Signals | literal values and `update` expressions, settled against the scales |
 | Data | inline `values` and `source`; a `url` is refused rather than fetched |
 | Axes | ticks, grid, labels, domain, title · `tickCount`, `tickRound`, `labelAngle`, `labelFlush`, `labelOverlap`, band and binned ticks |
-| Legends | **not built** |
+| Legends | symbol legends for fill, stroke, size, shape and opacity · title, per-row layout from the drawn bounds, and the spec's own `encode` blocks. Gradient legends for continuous colour are not built; `orient` other than `right` is drawn but not placed |
 | Layout | axis extents, view size and plot origin (`autosize: pad`); no group or facet layout |
 | Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
 | Theming | colours from the spec, or from a stylesheet by class; `config.axis` and `config.style` are read |
 | Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
-| Rendering | **not built** — the command layer exists, the backends do not |
 | Interaction | **not built** |
+
+## Legends: a layout that measures its own ink
+
+An axis is placed by arithmetic. Tick size plus label padding plus the widest
+label is the extent, the plot is pushed in by that much, and no part of it needs
+to know what was actually drawn.
+
+A legend cannot work that way, and this is the interesting difference. Each row
+is as tall as `max(ceil(sqrt(symbolSize) + strokeWidth), fontSize)` — whichever
+of the symbol and the label wins — the next row starts below the previous row's
+**box**, and a symbol large enough to spill above its own origin pushes its row
+down by the spill. In a size legend, whose symbols grow down the column, that is
+five different row heights and five different gaps, none of which is a constant.
+
+So `VlBounds` answers the question the axes never had to ask: how much room does
+this drawn thing take. Two of its numbers are worth knowing because both are
+surprising, and both come from the reference rather than from first principles:
+
+* a line of text is `fontSize` tall — not the line height — and its top edge
+  sits at `baselineOffset − round(0.8 × fontSize)` from the anchor;
+* vega's own circle has radius `sqrt(size)/2`, not the `sqrt(size/PI)` that
+  would give it the stated area, and a stroked path is expanded by the *miter*
+  allowance (four half-widths), not by half a stroke width.
+
+The second one was a rendering bug here as well as a layout one: every symbol
+this backend drew was an eighth too big, on every scatter plot, until a legend
+symbol had to agree with the mark it stands for.
+
+The spec's own `encode` block is applied to the symbols and labels *before*
+anything is measured, because it changes what there is to measure — a legend
+that strokes its symbols makes every row taller.
+
+## A log axis prints fewer labels than it draws ticks
+
+A log scale's ticks are every whole multiple inside each decade — 10, 20 … 90,
+100 — so a domain of two decades has twenty of them and nowhere near room for
+twenty labels. The reference does not thin the ticks; it thins the *labels*,
+keeping the ones near the front of each decade and blanking the rest. On
+[10, 100] with room for eight, 10 through 80 are printed and 90 is not.
+
+The test is d3's, and the surprising half of it is that a value just below a
+power of the base counts as the *ninth* step of the decade below rather than
+the first of its own: 90 divided by its nearest power is 0.9, which is folded
+up to 9, and 9 is one too many. Getting that backwards prints every label or
+none.
+
+The labels themselves are grouped rather than abbreviated — a thousand is
+"1,000", not "1k" — and the domain nices to whole powers of the base, because
+there is no even step to round to. `[19, 91]` becomes `[10, 100]`, and a domain
+reaching below one nices *downward*, never to zero, which a log scale cannot
+reach.
 
 ## Drawing: the EVG backend
 
@@ -200,7 +278,9 @@ chart carries its own colours, written as `fill` and `stroke` attributes — the
 specification decided them and a chart drawn on its own should look like the
 chart it describes. In class mode (`useClasses`) the writer emits class names
 instead: `chartFill0`, `chartStroke0`, `chartGrid`, `chartLabel`, `chartTitle`
-and so on, with series numbered in the order the chart draws them. The
+and so on, with series numbered in the order the chart draws them. A data mark
+that is TEXT gets `chartText0` and a `color` rule rather than a `fill` one,
+because `fill` styles a shape and a label is not one. The
 specification's colours are then written out as an unscoped stylesheet, so they
 remain the default, and a theme's scoped rules override them. That is how the
 showcase renders one generated page in three palettes without regenerating it.
@@ -232,27 +312,41 @@ with no fill was emitted as `fill="currentColor"` — the inherited text colour 
 which filled each plot frame and gridline solid black. `run_vector.sh` now
 checks both on a fixture built for them.
 
-The chart page on the showcase is generated:
+Two pages of the showcase are generated: **Charts**, the six types most people
+mean by the word, and **Chart types**, the rest — and the features only some
+charts have, which is what makes it worth having as a page of its own. A size
+legend whose rows are all different heights, a stroke legend, a log axis that
+labels only some of the ticks it draws, two marks sharing one plot, and text as
+a mark.
 
 ```bash
-npm run vela:showcase     # -> pages/charts.tsx + themes/charts-default.css
+npm run vela:showcase     # -> pages/charts.tsx, pages/plots.tsx + their CSS
 npm run showcase          # -> PDF, PNG and HTML in three palettes
 ```
 
-Both files are committed, so the Pages build renders them like any other page
-and does not need the Vela toolchain. The page follows the gallery's own rule —
-the tree says what is drawn, the stylesheet says how it looks — so the same six
-charts come out in **Editorial**, **Studio** and **Autumn**, and with no chart
-theme at all they come out in the colours their specifications asked for.
+Both pages are committed with their stylesheets, so the Pages build renders them
+like any other page and does not need the Vela toolchain. They follow the
+gallery's own rule — the tree says what is drawn, the stylesheet says how it
+looks — so the same fourteen charts come out in **Editorial**, **Studio** and
+**Autumn**, and with no chart theme at all they come out in the colours their
+specifications asked for.
+
+The second page paid for itself before it was finished: four defects had been
+sitting in charts that only differ from the parity specs by being smaller, and
+they are the four at the end of the table above.
 
 ## What is not there yet
 
-* **Legends.** The reference builds them as marks inside legend groups, the
-  same way it builds axes. The parity harness counts them separately, so what
-  it reports as matching does not include them. A chart that encodes colour is
-  drawn correctly and has no key.
-* **Time and log scales**, and a Ranger Vega-Lite compiler — none of which a
-  static chart needs, and all of which are named in the table below.
+* **Gradient legends.** A legend over a *continuous* colour scale is a gradient
+  bar with labels down its side, which is a different mark and a different
+  layout from the symbol legend built here. A spec that asks for one is
+  reported rather than drawn wrong.
+* **Legends anywhere but the right.** `orient` is carried into the scene and a
+  legend is drawn correctly whatever it says, but only the right-hand edge is
+  placed. The reference resolves the other seven anchors against the view
+  bounds; that is layout work, not legend work.
+* **Time scales**, and a Ranger Vega-Lite compiler — neither of which a static
+  chart needs, and both of which are named in the table below.
 * **Two width estimates, on purpose.** `VlText.estimateWidth` is the
   reference's canvas-free 0.8 em per character and sizes the axis extents,
   because matching the reference's layout is what the comparison measures.
@@ -260,15 +354,17 @@ theme at all they come out in the colours their specifications asked for.
   this repository ships, and sizes the box a label is drawn in. Neither has to
   be exact: the box only has to be wide enough, and the alignment inside it —
   resolved by the renderer's own metrics — is what positions the string.
-* **Bounds-based layout.** The view is sized from what the axes ask for, which
-  agrees with the reference exactly on the charts whose marks stay inside the
-  plot (a bar chart is 236×347 with the plot at 51,10 in both). The reference
-  measures the true bounds of everything drawn, so a chart with a symbol or a
-  label hanging over the plot edge can differ by a few pixels — a backend
-  should not clip to the plot rectangle.
+* **Bounds-based layout, outside a legend.** The view is sized from what the
+  axes ask for, which agrees with the reference exactly on the charts whose
+  marks stay inside the plot (a bar chart is 236×347 with the plot at 51,10 in
+  both, and every chart with a legend now agrees to the pixel because the
+  legend's own box is measured). The reference measures the true bounds of
+  *everything* drawn, so a chart with a symbol or a label hanging over the plot
+  edge can still differ by a few pixels — a backend should not clip to the plot
+  rectangle. `VlBounds` is what that fix would be built on.
 * **Time scales and the date/time layer.** No temporal axis.
-* **Log and power scales.** `VlMath` has the `ln`/`exp`/`pow` they need; the
-  scale types are not wired up.
+* **Power scales.** `VlMath` has the `pow` they need; the scale type is not
+  wired up. `log` is built.
 * **Incremental dataflow.** Everything recomputes. The transform signatures are
   per-transform so an incremental core can go underneath without rewriting them.
 * **A Ranger Vega-Lite compiler.** The Vega-Lite → Vega step is still the
@@ -283,11 +379,13 @@ gallery/vela/
 │   ├── VlJson.rgr        value model, parser, canonical writer
 │   ├── VlMath.rgr        ln / exp / pow, which Ranger's operators lack
 │   ├── VlText.rgr        label width estimate, for axis extents
+│   ├── VlBounds.rgr      how much room a drawn thing takes
 │   ├── VlAxis.rgr        an axis spec becomes rules and text
+│   ├── VlLegend.rgr      a legend spec becomes symbols and text
 │   ├── VlEvg.rgr         the EVG backend: commands → path data
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
-│   ├── VlScale.rgr       band / point / linear / ordinal, ticks, nice
+│   ├── VlScale.rgr       band / point / linear / log / ordinal, ticks
 │   ├── VlTransform.rgr   data transforms
 │   ├── VlConfig.rgr      the defaults a mark inherits
 │   ├── VlScene.rgr       scene graph + canonical JSON
