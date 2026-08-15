@@ -44,6 +44,25 @@ class EVGParentFrame {
         return p
     }
 
+    ; Where a child sits inside this frame.
+    ;
+    ; Every calculated coordinate the layout produces is a PAGE coordinate —
+    ; absolutely positioned elements included, since they are laid out at the
+    ; origin and then translated into place as a subtree. HTML asks for
+    ; something else: a child of a positioned box is placed relative to THAT
+    ; box, so the offset has to come off. Absolute children used to be exempt
+    ; from this subtraction, on the belief that their coordinates were already
+    ; parent-relative; they were not, and the parent's offset was applied a
+    ; second time by the browser. On the charts page that put every path and
+    ; label tens of pixels down and to the right of the box it belonged to.
+    fn relX:double (el:EVGElement) {
+        return (el.calculatedX - x)
+    }
+
+    fn relY:double (el:EVGElement) {
+        return (el.calculatedY - y)
+    }
+
     sfn of:EVGParentFrame (el:EVGElement) {
         def p (new EVGParentFrame())
         p.x = el.calculatedX
@@ -755,19 +774,10 @@ class EVGHTMLRenderer {
             html = html + " class=\"evg-view\""
         }
         
-        ; Add inline styles - calculate position relative to parent
-        ; For absolute elements, calculatedX/Y are already relative to parent
-        ; For flow elements, we need to subtract parent's absolute position
-        def relX:double 0.0
-        def relY:double 0.0
-        if el.isAbsolute {
-            relX = el.calculatedX
-            relY = el.calculatedY
-        } {
-            relX = (el.calculatedX - pf.x)
-            relY = (el.calculatedY - pf.y)
-        }
-        
+        ; Add inline styles - position relative to the parent box (see relX)
+        def relX:double (pf.relX(el))
+        def relY:double (pf.relY(el))
+
         html = html + " style=\""
         html = html + (this.generateViewStylesRelative(el relX relY))
         html = html + "\""
@@ -945,19 +955,10 @@ class EVGHTMLRenderer {
         ; Add class
         html = html + " class=\"evg-label\""
         
-        ; Calculate position relative to parent
-        ; For absolute elements, calculatedX/Y are already relative to parent
-        ; For flow elements, we need to subtract parent's absolute position
-        def relX:double 0.0
-        def relY:double 0.0
-        if el.isAbsolute {
-            relX = el.calculatedX
-            relY = el.calculatedY
-        } {
-            relX = (el.calculatedX - pf.x)
-            relY = (el.calculatedY - pf.y)
-        }
-        
+        ; Position relative to the parent box (see EVGParentFrame.relX)
+        def relX:double (pf.relX(el))
+        def relY:double (pf.relY(el))
+
         ; Add inline styles
         html = html + " style=\""
         html = html + (this.generateLabelStylesRelative(el relX relY pf))
@@ -1002,17 +1003,16 @@ class EVGHTMLRenderer {
         css = css + "left: " + (this.formatPx(px)) + "; "
         css = css + "top: " + (this.formatPx(py)) + "; "
 
-        ; The box the label was laid out in. Without it the span is as wide as
-        ; its own text, so `text-align` has nothing to align within and a
-        ; rotation turns about a different centre than the other two targets
-        ; use — both of which showed up as labels landing in the wrong place.
-        if el.width.isSet {
-            css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
-        }
-
         ; Rotation, which this target was not applying to labels at all while
-        ; the PDF and raster targets both were.
+        ; the PDF and raster targets both were. Both of those turn the label
+        ; about the centre of its laid-out box, which is also what CSS does by
+        ; default — but only once the box has a height to find a centre in, so
+        ; the laid-out height is declared alongside it. An absolutely
+        ; positioned span is block-level, so both dimensions apply.
         if ((el.rotate == 0.0) == false) {
+            if (el.calculatedHeight > 0.0) {
+                css = css + "height: " + (this.formatPx(el.calculatedHeight)) + "; "
+            }
             css = css + "transform: rotate(" + (to_string el.rotate) + "deg); "
         }
 
@@ -1044,7 +1044,10 @@ class EVGHTMLRenderer {
             css = css + "line-height: " + (to_string el.lineHeight) + "; "
         }
         
-        ; Dimensions (if set)
+        ; The box the label was laid out in. Without it the span is only as wide
+        ; as its own text, so `text-align` has nothing to align within and a
+        ; rotation turns about a different centre than the other two targets
+        ; use — both of which showed up as labels landing in the wrong place.
         if (el.calculatedWidth > 0.0) {
             css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
         }
@@ -1119,19 +1122,10 @@ class EVGHTMLRenderer {
     fn renderImageWithParent:string (el:EVGElement elementId:string depth:int pf:EVGParentFrame) {
         def html:string ""
         
-        ; Calculate position relative to parent
-        ; For absolute elements, calculatedX/Y are already relative to parent
-        ; For flow elements, we need to subtract parent's absolute position
-        def relX:double 0.0
-        def relY:double 0.0
-        if el.isAbsolute {
-            relX = el.calculatedX
-            relY = el.calculatedY
-        } {
-            relX = (el.calculatedX - pf.x)
-            relY = (el.calculatedY - pf.y)
-        }
-        
+        ; Position relative to the parent box (see EVGParentFrame.relX)
+        def relX:double (pf.relX(el))
+        def relY:double (pf.relY(el))
+
         ; If imageViewBox is set, use special viewBox rendering
         if el.imageViewBoxSet {
             return (this.renderImageWithViewBox(el elementId depth relX relY))
@@ -1535,18 +1529,10 @@ class EVGHTMLRenderer {
             h = 24.0
         }
         
-        ; Calculate position relative to parent
-        ; Use the same logic as View elements
-        def relX:double 0.0
-        def relY:double 0.0
-        if el.isAbsolute {
-            relX = el.calculatedX
-            relY = el.calculatedY
-        } {
-            relX = (el.calculatedX - pf.x)
-            relY = (el.calculatedY - pf.y)
-        }
-        
+        ; Position relative to the parent box, as View elements do
+        def relX:double (pf.relX(el))
+        def relY:double (pf.relY(el))
+
         html = html + (this.indent(depth)) + "<svg"
         
         ; Add id if element has one
@@ -1588,14 +1574,21 @@ class EVGHTMLRenderer {
         ; Add path element
         html = html + (this.indent(depth + 1)) + "<path d=\"" + el.svgPath + "\""
         
-        ; Fill color
+        ; Fill color.
+        ;
+        ; A path with no fill is not filled. This used to fall back to
+        ; `currentColor`, which is the text colour: a stroked-only path — a
+        ; gridline, an axis, a plot frame, a line series — came out as a solid
+        ; block of whatever colour the surrounding text happened to be, while
+        ; the PDF and raster targets, which emit no fill operator at all when
+        ; there is no fill colour, drew the outline the document asked for.
         if el.fillColor.isSet {
             html = html + " fill=\"" + (el.fillColor.toCSSString()) + "\""
         } {
             if el.backgroundColor.isSet {
                 html = html + " fill=\"" + (el.backgroundColor.toCSSString()) + "\""
             } {
-                html = html + " fill=\"currentColor\""
+                html = html + " fill=\"none\""
             }
         }
         
