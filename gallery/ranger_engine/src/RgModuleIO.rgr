@@ -1,0 +1,1012 @@
+; =============================================================================
+; RgModuleIO — bytecode as a file
+; =============================================================================
+; The module model is the whole interface between the two halves of the engine,
+; and this is what lets them live in different processes — or on different
+; machines. `rg_build` writes a `.rgb`; `rangercli`, which has no compiler in
+; it at all, reads one and runs it.
+;
+; The format is line-oriented text, one tag character per line. Binary would be
+; smaller and this is not the place to save bytes: a bytecode file you can read
+; in a terminal, diff, and paste into a bug report is worth more right now than
+; one that is 40% shorter. The tags:
+;
+;   rgb <version>              header, first line
+;   c <name>                   a class; the lines under it are its members
+;   n <default> <field>        numeric field, in layout order
+;   r <init> <field>           reference field, in layout order (init: 0 null,
+;                              1 empty string, 2 numeric array, 3 ref array)
+;   m <fnId> <method>          method slot
+;   k <fnId>                   the constructor
+;   f <name>                   a function; functions appear in id order
+;   s <static> <ret> <numRegs> <refRegs> <tier>
+;   p <kind>                   one parameter, in declaration order
+;   d <value>                  numeric constant, in pool order
+;   t <text>                   string constant, escaped
+;   o <OP> <a> <b> <c>         one instruction
+;   b <reason>                 why this function did not lower
+;
+; Opcodes are written by NAME. The number an enum happens to have is an
+; implementation detail that a recompile can shift; a name cannot drift
+; silently, and it makes the file readable, which is the point.
+
+Import "RgBytecode.rgr"
+
+class RgModuleIO {
+
+  sfn formatVersion:int () {
+    return 1
+  }
+
+  ; ---- opcode names --------------------------------------------------------
+  ; Mechanically mirrors the RgOp enum. A name the reader does not know is a
+  ; hard error rather than a NOP: silently skipping an instruction would run a
+  ; different program from the one that was compiled.
+
+  sfn opName:string (op:RgOp) {
+    switch op {
+      case RgOp.NOP {
+        return "NOP"
+      }
+      case RgOp.KNUM {
+        return "KNUM"
+      }
+      case RgOp.KSTR {
+        return "KSTR"
+      }
+      case RgOp.KNULL {
+        return "KNULL"
+      }
+      case RgOp.MOVN {
+        return "MOVN"
+      }
+      case RgOp.MOVR {
+        return "MOVR"
+      }
+      case RgOp.ADD {
+        return "ADD"
+      }
+      case RgOp.SUB {
+        return "SUB"
+      }
+      case RgOp.MUL {
+        return "MUL"
+      }
+      case RgOp.DIV {
+        return "DIV"
+      }
+      case RgOp.IDIV {
+        return "IDIV"
+      }
+      case RgOp.MOD {
+        return "MOD"
+      }
+      case RgOp.NEG {
+        return "NEG"
+      }
+      case RgOp.LT {
+        return "LT"
+      }
+      case RgOp.LE {
+        return "LE"
+      }
+      case RgOp.GT {
+        return "GT"
+      }
+      case RgOp.GE {
+        return "GE"
+      }
+      case RgOp.EQ {
+        return "EQ"
+      }
+      case RgOp.NEQ {
+        return "NEQ"
+      }
+      case RgOp.NOT {
+        return "NOT"
+      }
+      case RgOp.JMP {
+        return "JMP"
+      }
+      case RgOp.JZ {
+        return "JZ"
+      }
+      case RgOp.JNZ {
+        return "JNZ"
+      }
+      case RgOp.RETN {
+        return "RETN"
+      }
+      case RgOp.RETR {
+        return "RETR"
+      }
+      case RgOp.RETV {
+        return "RETV"
+      }
+      case RgOp.ARGN {
+        return "ARGN"
+      }
+      case RgOp.ARGR {
+        return "ARGR"
+      }
+      case RgOp.CALLN {
+        return "CALLN"
+      }
+      case RgOp.CALLR {
+        return "CALLR"
+      }
+      case RgOp.CALLV {
+        return "CALLV"
+      }
+      case RgOp.MCALLN {
+        return "MCALLN"
+      }
+      case RgOp.MCALLR {
+        return "MCALLR"
+      }
+      case RgOp.MCALLV {
+        return "MCALLV"
+      }
+      case RgOp.NEWOBJ {
+        return "NEWOBJ"
+      }
+      case RgOp.GETFN {
+        return "GETFN"
+      }
+      case RgOp.GETFR {
+        return "GETFR"
+      }
+      case RgOp.SETFN {
+        return "SETFN"
+      }
+      case RgOp.SETFR {
+        return "SETFR"
+      }
+      case RgOp.ANEWN {
+        return "ANEWN"
+      }
+      case RgOp.ANEWR {
+        return "ANEWR"
+      }
+      case RgOp.APUSHN {
+        return "APUSHN"
+      }
+      case RgOp.APUSHR {
+        return "APUSHR"
+      }
+      case RgOp.AGETN {
+        return "AGETN"
+      }
+      case RgOp.AGETR {
+        return "AGETR"
+      }
+      case RgOp.ASETN {
+        return "ASETN"
+      }
+      case RgOp.ASETR {
+        return "ASETR"
+      }
+      case RgOp.ALEN {
+        return "ALEN"
+      }
+      case RgOp.SCAT {
+        return "SCAT"
+      }
+      case RgOp.SLEN {
+        return "SLEN"
+      }
+      case RgOp.SEQ {
+        return "SEQ"
+      }
+      case RgOp.SUBSTR {
+        return "SUBSTR"
+      }
+      case RgOp.CHARAT {
+        return "CHARAT"
+      }
+      case RgOp.N2S {
+        return "N2S"
+      }
+      case RgOp.S2N {
+        return "S2N"
+      }
+      case RgOp.PRINTN {
+        return "PRINTN"
+      }
+      case RgOp.PRINTR {
+        return "PRINTR"
+      }
+      case RgOp.TRUNC {
+        return "TRUNC"
+      }
+      case RgOp.ISNULL {
+        return "ISNULL"
+      }
+      case RgOp.OEQ {
+        return "OEQ"
+      }
+      case RgOp.ARGC {
+        return "ARGC"
+      }
+      case RgOp.ARGV {
+        return "ARGV"
+      }
+      case RgOp.RDFILE {
+        return "RDFILE"
+      }
+      case RgOp.WRFILE {
+        return "WRFILE"
+      }
+      case RgOp.FEXISTS {
+        return "FEXISTS"
+      }
+      case RgOp.CLOCK {
+        return "CLOCK"
+      }
+      case RgOp.SPLIT {
+        return "SPLIT"
+      }
+      case RgOp.TRIM {
+        return "TRIM"
+      }
+    }
+    ; Not "NOP": an opcode this table has not caught up with would be written
+    ; as a legal instruction and read back as one, which is a program that
+    ; silently does something else. The writer turns "" into a refusal.
+    return ""
+  }
+
+  sfn opFromName:RgOp (name:string) {
+    switch name {
+      case "NOP" {
+        return RgOp.NOP
+      }
+      case "KNUM" {
+        return RgOp.KNUM
+      }
+      case "KSTR" {
+        return RgOp.KSTR
+      }
+      case "KNULL" {
+        return RgOp.KNULL
+      }
+      case "MOVN" {
+        return RgOp.MOVN
+      }
+      case "MOVR" {
+        return RgOp.MOVR
+      }
+      case "ADD" {
+        return RgOp.ADD
+      }
+      case "SUB" {
+        return RgOp.SUB
+      }
+      case "MUL" {
+        return RgOp.MUL
+      }
+      case "DIV" {
+        return RgOp.DIV
+      }
+      case "IDIV" {
+        return RgOp.IDIV
+      }
+      case "MOD" {
+        return RgOp.MOD
+      }
+      case "NEG" {
+        return RgOp.NEG
+      }
+      case "LT" {
+        return RgOp.LT
+      }
+      case "LE" {
+        return RgOp.LE
+      }
+      case "GT" {
+        return RgOp.GT
+      }
+      case "GE" {
+        return RgOp.GE
+      }
+      case "EQ" {
+        return RgOp.EQ
+      }
+      case "NEQ" {
+        return RgOp.NEQ
+      }
+      case "NOT" {
+        return RgOp.NOT
+      }
+      case "JMP" {
+        return RgOp.JMP
+      }
+      case "JZ" {
+        return RgOp.JZ
+      }
+      case "JNZ" {
+        return RgOp.JNZ
+      }
+      case "RETN" {
+        return RgOp.RETN
+      }
+      case "RETR" {
+        return RgOp.RETR
+      }
+      case "RETV" {
+        return RgOp.RETV
+      }
+      case "ARGN" {
+        return RgOp.ARGN
+      }
+      case "ARGR" {
+        return RgOp.ARGR
+      }
+      case "CALLN" {
+        return RgOp.CALLN
+      }
+      case "CALLR" {
+        return RgOp.CALLR
+      }
+      case "CALLV" {
+        return RgOp.CALLV
+      }
+      case "MCALLN" {
+        return RgOp.MCALLN
+      }
+      case "MCALLR" {
+        return RgOp.MCALLR
+      }
+      case "MCALLV" {
+        return RgOp.MCALLV
+      }
+      case "NEWOBJ" {
+        return RgOp.NEWOBJ
+      }
+      case "GETFN" {
+        return RgOp.GETFN
+      }
+      case "GETFR" {
+        return RgOp.GETFR
+      }
+      case "SETFN" {
+        return RgOp.SETFN
+      }
+      case "SETFR" {
+        return RgOp.SETFR
+      }
+      case "ANEWN" {
+        return RgOp.ANEWN
+      }
+      case "ANEWR" {
+        return RgOp.ANEWR
+      }
+      case "APUSHN" {
+        return RgOp.APUSHN
+      }
+      case "APUSHR" {
+        return RgOp.APUSHR
+      }
+      case "AGETN" {
+        return RgOp.AGETN
+      }
+      case "AGETR" {
+        return RgOp.AGETR
+      }
+      case "ASETN" {
+        return RgOp.ASETN
+      }
+      case "ASETR" {
+        return RgOp.ASETR
+      }
+      case "ALEN" {
+        return RgOp.ALEN
+      }
+      case "SCAT" {
+        return RgOp.SCAT
+      }
+      case "SLEN" {
+        return RgOp.SLEN
+      }
+      case "SEQ" {
+        return RgOp.SEQ
+      }
+      case "SUBSTR" {
+        return RgOp.SUBSTR
+      }
+      case "CHARAT" {
+        return RgOp.CHARAT
+      }
+      case "N2S" {
+        return RgOp.N2S
+      }
+      case "S2N" {
+        return RgOp.S2N
+      }
+      case "PRINTN" {
+        return RgOp.PRINTN
+      }
+      case "PRINTR" {
+        return RgOp.PRINTR
+      }
+      case "TRUNC" {
+        return RgOp.TRUNC
+      }
+      case "ISNULL" {
+        return RgOp.ISNULL
+      }
+      case "OEQ" {
+        return RgOp.OEQ
+      }
+      case "ARGC" {
+        return RgOp.ARGC
+      }
+      case "ARGV" {
+        return RgOp.ARGV
+      }
+      case "RDFILE" {
+        return RgOp.RDFILE
+      }
+      case "WRFILE" {
+        return RgOp.WRFILE
+      }
+      case "FEXISTS" {
+        return RgOp.FEXISTS
+      }
+      case "CLOCK" {
+        return RgOp.CLOCK
+      }
+      case "SPLIT" {
+        return RgOp.SPLIT
+      }
+      case "TRIM" {
+        return RgOp.TRIM
+      }
+    }
+    return RgOp.NOP
+  }
+
+  sfn isKnownOp:boolean (name:string) {
+    switch name {
+      case "NOP" {
+        return true
+      }
+      case "KNUM" {
+        return true
+      }
+      case "KSTR" {
+        return true
+      }
+      case "KNULL" {
+        return true
+      }
+      case "MOVN" {
+        return true
+      }
+      case "MOVR" {
+        return true
+      }
+      case "ADD" {
+        return true
+      }
+      case "SUB" {
+        return true
+      }
+      case "MUL" {
+        return true
+      }
+      case "DIV" {
+        return true
+      }
+      case "IDIV" {
+        return true
+      }
+      case "MOD" {
+        return true
+      }
+      case "NEG" {
+        return true
+      }
+      case "LT" {
+        return true
+      }
+      case "LE" {
+        return true
+      }
+      case "GT" {
+        return true
+      }
+      case "GE" {
+        return true
+      }
+      case "EQ" {
+        return true
+      }
+      case "NEQ" {
+        return true
+      }
+      case "NOT" {
+        return true
+      }
+      case "JMP" {
+        return true
+      }
+      case "JZ" {
+        return true
+      }
+      case "JNZ" {
+        return true
+      }
+      case "RETN" {
+        return true
+      }
+      case "RETR" {
+        return true
+      }
+      case "RETV" {
+        return true
+      }
+      case "ARGN" {
+        return true
+      }
+      case "ARGR" {
+        return true
+      }
+      case "CALLN" {
+        return true
+      }
+      case "CALLR" {
+        return true
+      }
+      case "CALLV" {
+        return true
+      }
+      case "MCALLN" {
+        return true
+      }
+      case "MCALLR" {
+        return true
+      }
+      case "MCALLV" {
+        return true
+      }
+      case "NEWOBJ" {
+        return true
+      }
+      case "GETFN" {
+        return true
+      }
+      case "GETFR" {
+        return true
+      }
+      case "SETFN" {
+        return true
+      }
+      case "SETFR" {
+        return true
+      }
+      case "ANEWN" {
+        return true
+      }
+      case "ANEWR" {
+        return true
+      }
+      case "APUSHN" {
+        return true
+      }
+      case "APUSHR" {
+        return true
+      }
+      case "AGETN" {
+        return true
+      }
+      case "AGETR" {
+        return true
+      }
+      case "ASETN" {
+        return true
+      }
+      case "ASETR" {
+        return true
+      }
+      case "ALEN" {
+        return true
+      }
+      case "SCAT" {
+        return true
+      }
+      case "SLEN" {
+        return true
+      }
+      case "SEQ" {
+        return true
+      }
+      case "SUBSTR" {
+        return true
+      }
+      case "CHARAT" {
+        return true
+      }
+      case "N2S" {
+        return true
+      }
+      case "S2N" {
+        return true
+      }
+      case "PRINTN" {
+        return true
+      }
+      case "PRINTR" {
+        return true
+      }
+      case "TRUNC" {
+        return true
+      }
+      case "ISNULL" {
+        return true
+      }
+      case "OEQ" {
+        return true
+      }
+      case "ARGC" {
+        return true
+      }
+      case "ARGV" {
+        return true
+      }
+      case "RDFILE" {
+        return true
+      }
+      case "WRFILE" {
+        return true
+      }
+      case "FEXISTS" {
+        return true
+      }
+      case "CLOCK" {
+        return true
+      }
+      case "SPLIT" {
+        return true
+      }
+      case "TRIM" {
+        return true
+      }
+    }
+    return false
+  }
+
+  sfn kindName:string (k:RgKind) {
+    switch k {
+      case RgKind.Num {
+        return "N"
+      }
+      case RgKind.Ref {
+        return "R"
+      }
+    }
+    return "V"
+  }
+
+  sfn kindFromName:RgKind (s:string) {
+    if (s == "N") {
+      return RgKind.Num
+    }
+    if (s == "R") {
+      return RgKind.Ref
+    }
+    return RgKind.Void
+  }
+
+  sfn tierName:string (t:RgTier) {
+    switch t {
+      case RgTier.Jit {
+        return "J"
+      }
+      case RgTier.Unsupported {
+        return "U"
+      }
+    }
+    return "B"
+  }
+
+  sfn tierFromName:RgTier (s:string) {
+    if (s == "U") {
+      return RgTier.Unsupported
+    }
+    ; A file never asks for the JIT tier: whether a function is compiled is a
+    ; decision the run makes, not the build.
+    return RgTier.Bytecode
+  }
+
+  ; ---- text escaping -------------------------------------------------------
+  ; A string constant is the rest of its line, so only the characters that
+  ; would end the line (and the escape character itself) need hiding.
+
+  sfn escape:string (s:string) {
+    def out:[string]
+    def i:int 0
+    def len:int (strlen s)
+    while (i < len) {
+      def ch:int (charAt s i)
+      if (ch == 92) {
+        push out "\\\\"
+      } {
+        if (ch == 10) {
+          push out "\\n"
+        } {
+          if (ch == 13) {
+            push out "\\r"
+          } {
+            push out (substring s i (i + 1))
+          }
+        }
+      }
+      i = (i + 1)
+    }
+    return (join out "")
+  }
+
+  sfn unescape:string (s:string) {
+    def out:[string]
+    def i:int 0
+    def len:int (strlen s)
+    while (i < len) {
+      def ch:int (charAt s i)
+      if ((ch == 92) && ((i + 1) < len)) {
+        def nx:int (charAt s (i + 1))
+        if (nx == 110) {
+          push out (strfromcode 10)
+        } {
+          if (nx == 114) {
+            push out (strfromcode 13)
+          } {
+            push out (substring s (i + 1) (i + 2))
+          }
+        }
+        i = (i + 2)
+      } {
+        push out (substring s i (i + 1))
+        i = (i + 1)
+      }
+    }
+    return (join out "")
+  }
+
+  ; A whole number keeps its exact spelling; anything else goes through the
+  ; host's own double formatting.
+  sfn numText:string (v:double) {
+    def asInt:int (to_int v)
+    if ((to_double asInt) == v) {
+      return ("" + asInt)
+    }
+    return (double2str v)
+  }
+
+  sfn intOf:int (s:string) {
+    return (?? (str2int s) 0)
+  }
+
+  sfn doubleOf:double (s:string) {
+    return (?? (str2double s) 0.0)
+  }
+
+  ; ---- writing -------------------------------------------------------------
+
+  sfn toText:string (m:RgModule err:RgIOError) {
+    def out:[string]
+    push out ("rgb " + (RgModuleIO.formatVersion()))
+    for m.classes cl:RgClassDef ci {
+      push out ("c " + cl.name)
+      def ni:int 0
+      while (ni < (array_length cl.numFieldNames)) {
+        push out ("n " + (RgModuleIO.numText((itemAt cl.numFieldDefaults ni))) + " " + (itemAt cl.numFieldNames ni))
+        ni = (ni + 1)
+      }
+      def ri:int 0
+      while (ri < (array_length cl.refFieldNames)) {
+        push out ("r " + (itemAt cl.refFieldInit ri) + " " + (itemAt cl.refFieldNames ri))
+        ri = (ri + 1)
+      }
+      def mi:int 0
+      while (mi < (array_length cl.methodNames)) {
+        push out ("m " + (itemAt cl.methodIds mi) + " " + (itemAt cl.methodNames mi))
+        mi = (mi + 1)
+      }
+      push out ("k " + cl.ctorId)
+    }
+    for m.functions f:RgFunction fi {
+      push out ("f " + f.name)
+      def st:string "0"
+      if f.isStatic {
+        st = "1"
+      }
+      push out ("s " + st + " " + (RgModuleIO.kindName(f.retKind)) + " " + f.numRegs + " " + f.refRegs + " " + (RgModuleIO.tierName(f.tier)))
+      for f.paramKinds pk:RgKind pi {
+        push out ("p " + (RgModuleIO.kindName(pk)))
+      }
+      for f.nums d:double di {
+        push out ("d " + (RgModuleIO.numText(d)))
+      }
+      for f.strings t:string ti {
+        push out ("t " + (RgModuleIO.escape(t)))
+      }
+      if ((strlen f.bailReason) > 0) {
+        push out ("b " + (RgModuleIO.escape(f.bailReason)))
+      }
+      def oi:int 0
+      while (oi < (array_length f.ops)) {
+        def opText:string (RgModuleIO.opName((itemAt f.ops oi)))
+        if ((strlen opText) == 0) {
+          err.message = ("instruction " + oi + " of " + f.name + " has an opcode this writer cannot name — the name table in RgModuleIO is behind the RgOp enum")
+          return ""
+        }
+        push out ("o " + opText + " " + (itemAt f.ra oi) + " " + (itemAt f.rb oi) + " " + (itemAt f.rc oi))
+        oi = (oi + 1)
+      }
+    }
+    return (join out (strfromcode 10))
+  }
+
+  ; ---- reading -------------------------------------------------------------
+  ; `errorText` is empty when the module came back intact. A malformed file is
+  ; reported, never half-loaded: a runtime that guesses at a broken instruction
+  ; stream is worse than one that refuses to start.
+
+  sfn fromText:RgModule (text:string errorOut:RgIOError) {
+    def m:RgModule (new RgModule())
+    def lines:[string] (strsplit text (strfromcode 10))
+    def cl:RgClassDef (new RgClassDef())
+    def f:RgFunction (new RgFunction())
+    def haveClass:boolean false
+    def haveFn:boolean false
+    def lineNo:int 0
+    for lines rawLine:string li {
+      lineNo = (lineNo + 1)
+      ; Only a carriage return comes off: a string constant is the rest of its
+      ; line, trailing spaces included, and trimming the line ate the space in
+      ; "fib(20) = ".
+      def line:string rawLine
+      def lineLen:int (strlen line)
+      if (lineLen > 0) {
+        if ((charAt line (lineLen - 1)) == 13) {
+          line = (substring line 0 (lineLen - 1))
+        }
+      }
+      if ((strlen line) == 0) {
+        continue
+      }
+      def tag:string (substring line 0 1)
+      def rest:string ""
+      if ((strlen line) > 2) {
+        rest = (substring line 2 (strlen line))
+      }
+      if (lineNo == 1) {
+        if ((substring line 0 3) != "rgb") {
+          errorOut.message = "not a bytecode file: the first line is not a header"
+          return m
+        }
+        def ver:int (RgModuleIO.intOf((trim (substring line 3 (strlen line)))))
+        if (ver != (RgModuleIO.formatVersion())) {
+          errorOut.message = ("bytecode format version " + ver + ", this runtime reads " + (RgModuleIO.formatVersion()))
+          return m
+        }
+        continue
+      }
+      switch tag {
+        case "c" {
+          cl = (new RgClassDef())
+          cl.name = rest
+          cl.ctorId = (0 - 1)
+          haveClass = true
+          m.addClass(cl)
+        }
+        case "n" {
+          if (false == haveClass) {
+            errorOut.message = ("line " + lineNo + ": a field outside a class")
+            return m
+          }
+          def parts:[string] (strsplit rest " ")
+          if ((array_length parts) < 2) {
+            errorOut.message = ("line " + lineNo + ": a numeric field needs a default and a name")
+            return m
+          }
+          push cl.numFieldDefaults (RgModuleIO.doubleOf((itemAt parts 0)))
+          push cl.numFieldNames (itemAt parts 1)
+        }
+        case "r" {
+          if (false == haveClass) {
+            errorOut.message = ("line " + lineNo + ": a field outside a class")
+            return m
+          }
+          def rparts:[string] (strsplit rest " ")
+          if ((array_length rparts) < 2) {
+            errorOut.message = ("line " + lineNo + ": a reference field needs an init and a name")
+            return m
+          }
+          push cl.refFieldInit (RgModuleIO.intOf((itemAt rparts 0)))
+          push cl.refFieldNames (itemAt rparts 1)
+        }
+        case "m" {
+          def mparts:[string] (strsplit rest " ")
+          if ((array_length mparts) < 2) {
+            errorOut.message = ("line " + lineNo + ": a method slot needs an id and a name")
+            return m
+          }
+          push cl.methodIds (RgModuleIO.intOf((itemAt mparts 0)))
+          push cl.methodNames (itemAt mparts 1)
+        }
+        case "k" {
+          cl.ctorId = (RgModuleIO.intOf(rest))
+        }
+        case "f" {
+          f = (new RgFunction())
+          f.name = rest
+          def dot:int (indexOf rest ".")
+          if (dot > 0) {
+            f.className = (substring rest 0 dot)
+            f.methodName = (substring rest (dot + 1) (strlen rest))
+          }
+          haveFn = true
+          m.addFunction(f)
+        }
+        case "s" {
+          if (false == haveFn) {
+            errorOut.message = ("line " + lineNo + ": a signature outside a function")
+            return m
+          }
+          def sparts:[string] (strsplit rest " ")
+          if ((array_length sparts) < 5) {
+            errorOut.message = ("line " + lineNo + ": a signature needs five fields")
+            return m
+          }
+          f.isStatic = ((itemAt sparts 0) == "1")
+          f.retKind = (RgModuleIO.kindFromName((itemAt sparts 1)))
+          f.numRegs = (RgModuleIO.intOf((itemAt sparts 2)))
+          f.refRegs = (RgModuleIO.intOf((itemAt sparts 3)))
+          f.tier = (RgModuleIO.tierFromName((itemAt sparts 4)))
+        }
+        case "p" {
+          push f.paramKinds (RgModuleIO.kindFromName(rest))
+        }
+        case "d" {
+          push f.nums (RgModuleIO.doubleOf(rest))
+        }
+        case "t" {
+          push f.strings (RgModuleIO.unescape(rest))
+        }
+        case "b" {
+          f.bailReason = (RgModuleIO.unescape(rest))
+        }
+        case "o" {
+          if (false == haveFn) {
+            errorOut.message = ("line " + lineNo + ": an instruction outside a function")
+            return m
+          }
+          def oparts:[string] (strsplit rest " ")
+          if ((array_length oparts) < 4) {
+            errorOut.message = ("line " + lineNo + ": an instruction needs an opcode and three operands")
+            return m
+          }
+          def opText:string (itemAt oparts 0)
+          if (false == (RgModuleIO.isKnownOp(opText))) {
+            errorOut.message = ("line " + lineNo + ": unknown opcode " + opText)
+            return m
+          }
+          f.addOp((RgModuleIO.opFromName(opText)) (RgModuleIO.intOf((itemAt oparts 1))) (RgModuleIO.intOf((itemAt oparts 2))) (RgModuleIO.intOf((itemAt oparts 3))))
+        }
+        default {
+          errorOut.message = ("line " + lineNo + ": unknown tag `" + tag + "`")
+          return m
+        }
+      }
+    }
+    return m
+  }
+}
+
+; A place for `fromText` to put the reason a file was refused. The reader returns
+; the module it managed to build so a tool can still show what it saw.
+class RgIOError {
+  def message:string ""
+}

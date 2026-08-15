@@ -101,3 +101,6 @@ gallery/evg/showcase/dist/
 
 # scratch
 .chk/
+
+# Ranger engine: generated hosts (npm run engine:build)
+gallery/ranger_engine/bin/

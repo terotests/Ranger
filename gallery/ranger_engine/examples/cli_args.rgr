@@ -1,0 +1,16 @@
+; The smallest useful command-line program: what did the host pass in?
+
+class Args {
+  sfn main:void () {
+    def n:int (shell_arg_cnt)
+    print "arguments: " + n
+    def i:int 0
+    while (i < n) {
+      print "  " + i + " = " + (shell_arg i)
+      i = (i + 1)
+    }
+    if (n > 0) {
+      print "hello, " + (shell_arg 0)
+    }
+  }
+}

@@ -1,0 +1,545 @@
+; =============================================================================
+; RgJsJit — tier 2: bytecode to host source, compiled by the host
+; =============================================================================
+; The engine's answer to "can a Ranger program stop being interpreted?". When a
+; function has been entered often enough, this hook translates its bytecode
+; into JavaScript source and asks the host to compile it. From the next call
+; on, the interpreter loop is out of the picture: the register file becomes
+; ordinary JavaScript locals, and V8 compiles the result to machine code the
+; same way it would any other function.
+;
+; It is a real JIT in the sense that matters — code is compiled while the
+; program runs, from a profile the program produced — and a cheap one in the
+; sense that the machine-code generator is the host's, not ours. On a target
+; with no `eval` the hook reports itself unavailable and everything keeps
+; running as bytecode.
+;
+; The subset compiled here is deliberately the numeric one: numeric registers,
+; arithmetic, comparisons, jumps, and calls to static functions with numeric
+; parameters. That is the shape where interpretation costs the most (a loop or
+; a recursion doing arithmetic), and it needs no agreement with the host about
+; how RgRef is laid out. Anything else keeps running in tier 1.
+
+Import "RgVM.rgr"
+
+; The host's own function type. Opaque to Ranger: it is produced by the host
+; compiler and only ever handed back to it.
+systemclass RgHostFn {
+  es6 Function
+}
+
+operators {
+  ; Whether this host can compile source at runtime at all.
+  rg_jit_available _:boolean () {
+    templates {
+      es6 ( "true" )
+      * ( "false" )
+    }
+  }
+  ; Compile a function body. The generated source takes the VM as its only
+  ; parameter and communicates through the VM's argument and return channels.
+  rg_jit_compile _:RgHostFn ( src:string ) {
+    templates {
+      es6 ( "(new Function(" (e 1) ")())" )
+      * ( "null" )
+    }
+  }
+  rg_jit_call _:void ( f:RgHostFn vm:RgVM ) {
+    templates {
+      es6 ( "(" (e 1) ")(" (e 2) ")" )
+      * ( "" )
+    }
+  }
+}
+
+class RgJsJit {
+  Extends (RgJitHook)
+
+  def handles:[RgHostFn]
+  ; Functions this hook has already looked at and refused, so a hot function
+  ; outside the compilable subset is not re-examined on every call.
+  def refused:[int:boolean]
+  ; The last source it generated, for tests and for `--dump-jit`.
+  def lastSource:string ""
+
+  fn shouldCompile:boolean (f:RgFunction) {
+    if (false == enabled) {
+      return false
+    }
+    if (false == (rg_jit_available)) {
+      return false
+    }
+    if (f.tier != RgTier.Bytecode) {
+      return false
+    }
+    return (f.callCount > threshold)
+  }
+
+  ; ---- the compilable subset ----------------------------------------------
+
+  fn canCompile:boolean (f:RgFunction) {
+    if (f.refRegs > 0) {
+      return false
+    }
+    for f.paramKinds pk:RgKind i {
+      if (pk != RgKind.Num) {
+        return false
+      }
+    }
+    if (f.retKind == RgKind.Ref) {
+      return false
+    }
+    for f.ops op:RgOp i {
+      if (false == (this.opSupported(op))) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn opSupported:boolean (op:RgOp) {
+    switch op {
+      case RgOp.NOP {
+        return true
+      }
+      case RgOp.KNUM {
+        return true
+      }
+      case RgOp.MOVN {
+        return true
+      }
+      case RgOp.ADD {
+        return true
+      }
+      case RgOp.SUB {
+        return true
+      }
+      case RgOp.MUL {
+        return true
+      }
+      case RgOp.DIV {
+        return true
+      }
+      case RgOp.IDIV {
+        return true
+      }
+      case RgOp.MOD {
+        return true
+      }
+      case RgOp.NEG {
+        return true
+      }
+      case RgOp.LT {
+        return true
+      }
+      case RgOp.LE {
+        return true
+      }
+      case RgOp.GT {
+        return true
+      }
+      case RgOp.GE {
+        return true
+      }
+      case RgOp.EQ {
+        return true
+      }
+      case RgOp.NEQ {
+        return true
+      }
+      case RgOp.NOT {
+        return true
+      }
+      case RgOp.JMP {
+        return true
+      }
+      case RgOp.JZ {
+        return true
+      }
+      case RgOp.JNZ {
+        return true
+      }
+      case RgOp.RETN {
+        return true
+      }
+      case RgOp.RETV {
+        return true
+      }
+      case RgOp.ARGN {
+        return true
+      }
+      case RgOp.CALLN {
+        return true
+      }
+      case RgOp.CALLV {
+        return true
+      }
+      case RgOp.TRUNC {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; ---- source generation ---------------------------------------------------
+
+  fn reg:string (i:int) {
+    return ("n" + i)
+  }
+
+  fn numLit:string (v:double) {
+    def asInt:int (to_int v)
+    if ((to_double asInt) == v) {
+      return ("" + asInt)
+    }
+    return ("" + v)
+  }
+
+  ; One JavaScript statement per bytecode instruction, each behind its own
+  ; `case`. Sequential flow is switch fall-through; a jump assigns `pc` and
+  ; re-enters the dispatch. It is not the prettiest control flow a compiler can
+  ; emit, but it costs about 30% over ordinary structured JavaScript on this
+  ; host, because everything between the branches is still straight-line code
+  ; the optimiser can see through.
+  ;
+  ; What DID cost an order of magnitude was the calling convention. A compiled
+  ; function that reached another one through `vm.callFunction` paid for an
+  ; argument array, a tier test and a return slot on every call — measured at
+  ; ~11x on `fib`, against ~1.3x for the dispatch shape. So a compiled body is
+  ; generated in two forms:
+  ;
+  ;   direct(vm, a0, a1, …)   arguments as parameters, result as a return value
+  ;   entry(vm)               what the VM calls: drains the argument buffer,
+  ;                           runs `direct`, parks the result in vm.retNum
+  ;
+  ; A call site emits `direct` when it can and keeps the buffer path as the
+  ; fallback. Self-recursion is always direct. A call to another function links
+  ; itself the first time it finds the callee compiled — an inline cache in the
+  ; factory's scope, one null test per call once it is warm — because the
+  ; callee may well be promoted after its caller was.
+  fn generate:string (f:RgFunction fnId:int module:RgModule) {
+    def n:int (array_length f.ops)
+    ; Jump targets: a call sequence can only be rewritten into a direct call if
+    ; nothing jumps into the middle of it.
+    def isTarget:[int:boolean]
+    def i0:int 0
+    while (i0 < n) {
+      def op0 (itemAt f.ops i0)
+      if (op0 == RgOp.JMP) {
+        set isTarget (itemAt f.ra i0) true
+      }
+      if (op0 == RgOp.JZ) {
+        set isTarget (itemAt f.rb i0) true
+      }
+      if (op0 == RgOp.JNZ) {
+        set isTarget (itemAt f.rb i0) true
+      }
+      i0 = (i0 + 1)
+    }
+    ; Per instruction: the argument list of a direct call, and whether an ARGN
+    ; was folded into the call that follows it.
+    def directArgs:[string]
+    def folded:[boolean]
+    def k:int 0
+    while (k < n) {
+      push directArgs ""
+      push folded false
+      k = (k + 1)
+    }
+    def linkedIds:[int]
+    def pc0:int 0
+    while (pc0 < n) {
+      def op1 (itemAt f.ops pc0)
+      if ((op1 == RgOp.CALLN) || (op1 == RgOp.CALLV)) {
+        def calleeId:int (itemAt f.rb pc0)
+        def callee:RgFunction (itemAt module.functions calleeId)
+        def wanted:int (array_length callee.paramKinds)
+        def allNum:boolean true
+        for callee.paramKinds pk:RgKind pki {
+          if (pk != RgKind.Num) {
+            allNum = false
+          }
+        }
+        if (allNum && (callee.retKind != RgKind.Ref)) {
+          def regs:[string]
+          def at:int (pc0 - 1)
+          def taken:int 0
+          def ok:boolean true
+          while (taken < wanted) {
+            if (at < 0) {
+              ok = false
+              taken = wanted
+            } {
+              def opA (itemAt f.ops at)
+              if (opA != RgOp.ARGN) {
+                ok = false
+                taken = wanted
+              } {
+                if (has isTarget at) {
+                  ok = false
+                  taken = wanted
+                } {
+                  push regs (this.reg((itemAt f.ra at)))
+                  at = (at - 1)
+                  taken = (taken + 1)
+                }
+              }
+            }
+          }
+          if ok {
+            ; collected backwards, so put them back in declaration order
+            def ordered:[string]
+            def ri:int ((array_length regs) - 1)
+            while (ri >= 0) {
+              push ordered (itemAt regs ri)
+              ri = (ri - 1)
+            }
+            def argText:string "vm"
+            for ordered r:string rix {
+              argText = (argText + ", " + r)
+            }
+            set_at directArgs pc0 argText
+            def fi:int (pc0 - 1)
+            def cnt:int 0
+            while (cnt < wanted) {
+              set_at folded fi true
+              fi = (fi - 1)
+              cnt = (cnt + 1)
+            }
+            if (calleeId != fnId) {
+              if ((indexOf linkedIds calleeId) < 0) {
+                push linkedIds calleeId
+              }
+            }
+          }
+        }
+      }
+      pc0 = (pc0 + 1)
+    }
+
+    def out:[string]
+    ; Factory scope: the link caches live here, so they survive between calls.
+    for linkedIds lid:int li {
+      push out ("var l" + lid + " = null;")
+    }
+    push out ("var direct = function(vm" + (this.paramList(f)) + ") {")
+    push out "var pc = 0;"
+    def i:int (array_length f.paramKinds)
+    while (i < f.numRegs) {
+      push out ("var " + (this.reg(i)) + " = 0;")
+      i = (i + 1)
+    }
+    push out "rgl: for(;;) { switch(pc) {"
+    def pc:int 0
+    while (pc < n) {
+      push out ("case " + pc + ":")
+      if (itemAt folded pc) {
+        push out "  ;"
+      } {
+        push out ("  " + (this.instruction(f pc fnId (itemAt directArgs pc))))
+      }
+      pc = (pc + 1)
+    }
+    push out "}"
+    push out "return 0;"
+    push out "}"
+    push out "};"
+    ; The VM's entry point: same body, arguments taken from the buffer.
+    def callArgs:string "vm"
+    def p:int 0
+    while (p < (array_length f.paramKinds)) {
+      callArgs = (callArgs + ", A[" + p + "]")
+      p = (p + 1)
+    }
+    push out "var entry = function(vm) {"
+    push out "var A = vm.argNums;"
+    push out "vm.argNums = [];"
+    push out ("vm.retNum = direct(" + callArgs + ");")
+    push out "};"
+    push out "entry.direct = direct;"
+    push out "return entry;"
+    return (join out "\n")
+  }
+
+  ; `, n0, n1` — the compiled body's parameters, which are its low registers.
+  fn paramList:string (f:RgFunction) {
+    def out:string ""
+    def p:int 0
+    while (p < (array_length f.paramKinds)) {
+      out = (out + ", " + (this.reg(p)))
+      p = (p + 1)
+    }
+    return out
+  }
+
+  ; The inline cache for a call to another compiled function: look the callee
+  ; up once, keep it, and fall back to the VM until it exists.
+  fn linkedCall:string (calleeId:int dst:string args:string) {
+    def cache:string ("l" + calleeId)
+    def probe:string ("if (" + cache + " === null) { var fd = vm.module.functions[" + calleeId + "]; if (fd.tier === 1 && fd.jitSlot >= 0) { var hd = vm.jit.handles[fd.jitSlot]; if (hd.direct) { " + cache + " = hd.direct; } } } ")
+    def fast:string (dst + cache + "(" + args + "); if (vm.failed) { return 0; }")
+    return (probe + "if (" + cache + " !== null) { " + fast + " } else { ")
+  }
+
+  ; The ARGN instructions before a direct call emit nothing, so the fallback
+  ; path has to fill the buffer itself.
+  fn pushArgs:string (f:RgFunction callPc:int) {
+    def out:string ""
+    def start:int (callPc - 1)
+    def regs:[string]
+    while (start >= 0) {
+      def opA (itemAt f.ops start)
+      if (opA != RgOp.ARGN) {
+        start = (0 - 1)
+      } {
+        push regs (this.reg((itemAt f.ra start)))
+        start = (start - 1)
+      }
+    }
+    def ri:int ((array_length regs) - 1)
+    while (ri >= 0) {
+      out = (out + "vm.argNums.push(" + (itemAt regs ri) + "); ")
+      ri = (ri - 1)
+    }
+    return out
+  }
+
+  fn instruction:string (f:RgFunction pc:int fnId:int directArgs:string) {
+    def op (itemAt f.ops pc)
+    def a:int (itemAt f.ra pc)
+    def b:int (itemAt f.rb pc)
+    def c:int (itemAt f.rc pc)
+    def ra:string (this.reg(a))
+    def rb:string (this.reg(b))
+    def rc:string (this.reg(c))
+    switch op {
+      case RgOp.NOP {
+        return ";"
+      }
+      case RgOp.KNUM {
+        return (ra + " = " + (this.numLit((itemAt f.nums b))) + ";")
+      }
+      case RgOp.MOVN {
+        return (ra + " = " + rb + ";")
+      }
+      case RgOp.ADD {
+        return (ra + " = " + rb + " + " + rc + ";")
+      }
+      case RgOp.SUB {
+        return (ra + " = " + rb + " - " + rc + ";")
+      }
+      case RgOp.MUL {
+        return (ra + " = " + rb + " * " + rc + ";")
+      }
+      case RgOp.DIV {
+        ; The interpreter fails the program on a zero divisor rather than
+        ; producing Infinity, so the compiled form has to do the same.
+        return ("if (" + rc + " === 0) { vm.failed = true; vm.errorText = 'division by zero in " + f.name + "'; return 0; } " + ra + " = " + rb + " / " + rc + ";")
+      }
+      case RgOp.IDIV {
+        return ("if (" + rc + " === 0) { vm.failed = true; vm.errorText = 'integer division by zero in " + f.name + "'; return 0; } " + ra + " = Math.trunc(" + rb + " / " + rc + ");")
+      }
+      case RgOp.MOD {
+        return ("if (" + rc + " === 0) { vm.failed = true; vm.errorText = 'modulo by zero in " + f.name + "'; return 0; } " + ra + " = " + rb + " % " + rc + ";")
+      }
+      case RgOp.NEG {
+        return (ra + " = -" + rb + ";")
+      }
+      case RgOp.LT {
+        return (ra + " = (" + rb + " < " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.LE {
+        return (ra + " = (" + rb + " <= " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.GT {
+        return (ra + " = (" + rb + " > " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.GE {
+        return (ra + " = (" + rb + " >= " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.EQ {
+        return (ra + " = (" + rb + " === " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.NEQ {
+        return (ra + " = (" + rb + " !== " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.NOT {
+        return (ra + " = (" + rb + " === 0) ? 1 : 0;")
+      }
+      case RgOp.JMP {
+        return ("pc = " + a + "; continue rgl;")
+      }
+      case RgOp.JZ {
+        return ("if (" + ra + " === 0) { pc = " + b + "; continue rgl; }")
+      }
+      case RgOp.JNZ {
+        return ("if (" + ra + " !== 0) { pc = " + b + "; continue rgl; }")
+      }
+      case RgOp.RETN {
+        return ("return " + ra + ";")
+      }
+      case RgOp.RETV {
+        return "return 0;"
+      }
+      case RgOp.ARGN {
+        return ("vm.argNums.push(" + ra + ");")
+      }
+      case RgOp.CALLN {
+        def slow:string ("vm.callFunction(" + b + "); if (vm.failed) { return 0; } " + ra + " = vm.retNum;")
+        if ((strlen directArgs) == 0) {
+          return slow
+        }
+        if (b == fnId) {
+          ; Self-recursion: the body is right here, no lookup and no cache.
+          return (ra + " = direct(" + directArgs + "); if (vm.failed) { return 0; }")
+        }
+        return ((this.linkedCall(b (ra + " = ") directArgs)) + (this.pushArgs(f pc)) + slow + " }")
+      }
+      case RgOp.CALLV {
+        def slowV:string ("vm.callFunction(" + b + "); if (vm.failed) { return 0; }")
+        if ((strlen directArgs) == 0) {
+          return slowV
+        }
+        if (b == fnId) {
+          return ("direct(" + directArgs + "); if (vm.failed) { return 0; }")
+        }
+        return ((this.linkedCall(b "" directArgs)) + (this.pushArgs(f pc)) + slowV + " }")
+      }
+      case RgOp.TRUNC {
+        ; `to_int` is Math.floor on this host; the interpreter goes through the
+        ; same operator, so the compiled form follows it rather than truncating.
+        return (ra + " = Math.floor(" + rb + ");")
+      }
+    }
+    return ("vm.failed = true; vm.errorText = 'jit: unsupported opcode'; return 0;")
+  }
+
+  ; ---- installation --------------------------------------------------------
+
+  fn compile:void (vm:RgVM f:RgFunction fnId:int) {
+    if (has refused fnId) {
+      return
+    }
+    if (false == (this.canCompile(f))) {
+      set refused fnId true
+      return
+    }
+    def src:string (this.generate(f fnId (unwrap vm.module)))
+    lastSource = src
+    f.jitSource = src
+    def handle:RgHostFn (rg_jit_compile src)
+    push handles handle
+    f.jitSlot = ((array_length handles) - 1)
+    f.tier = RgTier.Jit
+    compiled = (compiled + 1)
+  }
+
+  fn invoke:void (vm:RgVM f:RgFunction fnId:int) {
+    if (f.jitSlot < 0) {
+      vm.fail("jit: no compiled body for " + f.name)
+      return
+    }
+    def handle:RgHostFn (itemAt handles f.jitSlot)
+    rg_jit_call handle vm
+  }
+}

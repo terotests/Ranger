@@ -1,0 +1,22 @@
+; A program the engine only partly understands. `tally` uses a map, which the
+; lowering pass does not cover yet, so that one function is marked unsupported
+; with a reason — and everything else in the file still runs.
+
+class Partial {
+
+  sfn triple:int (n:int) {
+    return (n * 3)
+  }
+
+  sfn tally:int (words:[string]) {
+    def counts:[string:int]
+    for words w:string i {
+      set counts w 1
+    }
+    return (array_length (keys counts))
+  }
+
+  sfn main:void () {
+    print "triple(14) = " + (Partial.triple(14))
+  }
+}

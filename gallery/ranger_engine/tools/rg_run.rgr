@@ -1,0 +1,106 @@
+; =============================================================================
+; rg_run — the engine's command line
+; =============================================================================
+;   node bin/rg_run.js program.rgr [options]
+;
+;   -entry=Class     class whose `main` is the entry point (default: the one
+;                    that has a `main`)
+;   -jit=N           promote a function to the host JIT after N calls
+;                    (default: off)
+;   -report          print the per-function tier report after the run
+;   -dumpjit         print the JavaScript the JIT generated
+;
+; The frontend prints its own progress while it parses and analyzes; that is
+; the compiler talking, not the engine.
+
+Import "../src/RgEngine.rgr"
+
+class RgRun {
+
+  sfn hasFlag:boolean (name:string) {
+    def i:int 0
+    while (i < (shell_arg_cnt)) {
+      if ((shell_arg i) == name) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  sfn optionValue:string (prefix:string) {
+    def i:int 0
+    while (i < (shell_arg_cnt)) {
+      def a:string (shell_arg i)
+      if ((strlen a) > (strlen prefix)) {
+        if ((substring a 0 (strlen prefix)) == prefix) {
+          return (substring a (strlen prefix) (strlen a))
+        }
+      }
+      i = (i + 1)
+    }
+    return ""
+  }
+
+  ; The entry class: the one whose `main` the engine should call. Without
+  ; `-entry=` the first class that has a `main` wins, which is what a single
+  ; file program means by it.
+  sfn findEntry:string (engine:RgEngine) {
+    for engine.module.functions f:RgFunction i {
+      if (f.methodName == "main") {
+        return f.className
+      }
+    }
+    return ""
+  }
+
+  sfn main:void () {
+    if ((shell_arg_cnt) < 1) {
+      print "usage: rg_run <program.rgr> [-entry=Class] [-jit=N] [-report] [-dumpjit]"
+      return
+    }
+    def file:string (shell_arg 0)
+    def engine:RgEngine (new RgEngine())
+    def jitOpt:string (RgRun.optionValue("-jit="))
+    if ((strlen jitOpt) > 0) {
+      engine.enableJit((?? (str2int jitOpt) 1))
+    }
+    if (false == (engine.loadFile(file))) {
+      print "engine: could not load " + file
+      print "  " + engine.errorText
+      return
+    }
+    def entry:string (RgRun.optionValue("-entry="))
+    if ((strlen entry) == 0) {
+      entry = (RgRun.findEntry(engine))
+    }
+    if ((strlen entry) == 0) {
+      print "engine: the program has no main"
+      engine.printReport()
+      return
+    }
+    print ""
+    print "--- " + entry + ".main ---"
+    def t0:double (wall_clock_ms)
+    def ok:boolean (engine.runMain(entry))
+    def t1:double (wall_clock_ms)
+    if (false == ok) {
+      print ""
+      print "engine: " + engine.errorText
+    }
+    print "--- " + (to_int (t1 - t0)) + " ms ---"
+    if (RgRun.hasFlag("-report")) {
+      print ""
+      engine.printReport()
+    }
+    if (RgRun.hasFlag("-dumpjit")) {
+      for engine.module.functions f:RgFunction i {
+        if ((strlen f.jitSource) > 0) {
+          print ""
+          print "--- jit source for " + f.name + " ---"
+          print f.jitSource
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,808 @@
+; =============================================================================
+; RgVM — the bytecode interpreter
+; =============================================================================
+; Tier 1 of the engine. Imports RgBytecode and nothing else: this file plus
+; RgBytecode is the whole runtime a program needs once its bytecode exists, so
+; the interpreter can be compiled and shipped without the megabytes of compiler
+; that produced the bytecode.
+;
+; The register file is a pair of shared stacks rather than per-frame arrays. A
+; call does not allocate: it takes the next free window of the numeric and the
+; reference stack, and `nbase` / `rbase` turn a register number into an index.
+; Frames themselves live on the host's call stack, because `execute` recurses —
+; simple, and it makes a Ranger `return` inside a nested block just a `return`.
+
+Import "RgBytecode.rgr"
+
+Enum RgRefKind:int (
+  Null
+  Str
+  NumArr
+  RefArr
+  Obj
+)
+
+; -----------------------------------------------------------------------------
+; RgRef — everything that is not a number.
+; -----------------------------------------------------------------------------
+; One class for strings, arrays and objects instead of a shape with a case per
+; kind: the reference bank is `[RgRef]`, and a single concrete element type is
+; what keeps every access in the interpreter loop to one array read. The unused
+; fields of a given kind cost a few empty arrays per value; the JIT tier, where
+; speed actually comes from, does not use this representation at all.
+;
+; `kind` 0 is the null reference. The VM keeps one shared instance of it so the
+; reference bank never holds a host null and no access site needs an unwrap.
+class RgRef {
+  def kind:RgRefKind RgRefKind.Null
+  def s:string ""
+  def na:[double]
+  def ra:[RgRef]
+  ; Object payload: `classId` names the layout, the two arrays are the fields
+  ; in the same two banks as registers.
+  def classId:int 0
+  def numFields:[double]
+  def refFields:[RgRef]
+}
+
+; -----------------------------------------------------------------------------
+class RgVM {
+  def module:RgModule
+  ; Argument buffers. A call site fills these with ARGN / ARGR immediately
+  ; before CALL*, and the callee's prologue drains them in parameter order.
+  ; Nested calls are safe because the inner call completes — and empties the
+  ; buffers — before the outer call site starts filling them.
+  def argNums:[double]
+  def argRefs:[RgRef]
+  def numStack:[double]
+  def refStack:[RgRef]
+  def numTop:int 0
+  def refTop:int 0
+  def theNull:RgRef (new RgRef())
+  ; Return channels of the most recent call.
+  def retNum:double 0.0
+  def retRef:RgRef (new RgRef())
+  ; The command-line arguments the program sees, host-supplied: the CLI passes
+  ; what followed the bytecode file, a test passes whatever it wants to try.
+  def hostArgs:[string]
+  ; Everything `print` produced, so a test can assert on program output without
+  ; capturing the host's stdout.
+  def output:[string]
+  def echo:boolean true
+  ; Interpreted instructions, the honest measure of how much work tier 1 did.
+  def steps:int 0
+  def depth:int 0
+  def maxDepth:int 4000
+  def failed:boolean false
+  def errorText:string ""
+  ; Set by the engine when a JIT tier is installed; the interpreter asks it
+  ; before entering a function, which is where a hot function switches tier.
+  def jit:RgJitHook (new RgJitHook())
+
+  fn reset:void () {
+    def emptyNums:[double]
+    def emptyRefs:[RgRef]
+    argNums = emptyNums
+    argRefs = emptyRefs
+    numTop = 0
+    refTop = 0
+    steps = 0
+    depth = 0
+    failed = false
+    errorText = ""
+  }
+
+  fn fail:void (msg:string) {
+    if failed {
+      return
+    }
+    failed = true
+    errorText = msg
+  }
+
+  ; ---- heap constructors ---------------------------------------------------
+
+  fn newStr:RgRef (s:string) {
+    def r:RgRef (new RgRef())
+    r.kind = RgRefKind.Str
+    r.s = s
+    return r
+  }
+
+  fn newNumArr:RgRef () {
+    def r:RgRef (new RgRef())
+    r.kind = RgRefKind.NumArr
+    return r
+  }
+
+  fn newRefArr:RgRef () {
+    def r:RgRef (new RgRef())
+    r.kind = RgRefKind.RefArr
+    return r
+  }
+
+  ; A fresh instance with its declared field defaults already in place, so a
+  ; constructor only has to write what it actually assigns.
+  fn newObject:RgRef (classId:int) {
+    def r:RgRef (new RgRef())
+    r.kind = RgRefKind.Obj
+    r.classId = classId
+    def cl:RgClassDef (itemAt module.classes classId)
+    for cl.numFieldDefaults d:double i {
+      push r.numFields d
+    }
+    for cl.refFieldInit init:int i {
+      if (init == 1) {
+        push r.refFields (this.newStr(""))
+      } {
+        if (init == 2) {
+          push r.refFields (this.newNumArr())
+        } {
+          if (init == 3) {
+            push r.refFields (this.newRefArr())
+          } {
+            push r.refFields theNull
+          }
+        }
+      }
+    }
+    return r
+  }
+
+  ; ---- register stacks -----------------------------------------------------
+
+  fn ensureNum:void (top:int) {
+    while ((array_length numStack) < top) {
+      push numStack 0.0
+    }
+  }
+
+  fn ensureRef:void (top:int) {
+    while ((array_length refStack) < top) {
+      push refStack theNull
+    }
+  }
+
+  ; ---- text helpers --------------------------------------------------------
+
+  ; Ranger has one numeric register bank, so an int and a double are the same
+  ; value here. Printing has to tell them apart again, or every loop counter
+  ; comes out as "10.0" on the targets whose to_string keeps the fraction.
+  ; Truncation towards zero. `to_int` is floor on the JavaScript host, which
+  ; disagrees with it for negative values, and `idiv` / `%` in Ranger truncate.
+  fn truncToward0:double (v:double) {
+    if (v < 0.0) {
+      return (0.0 - (to_double (to_int (0.0 - v))))
+    }
+    return (to_double (to_int v))
+  }
+
+  fn numText:string (v:double) {
+    def asInt:int (to_int v)
+    def back:double (to_double asInt)
+    if (back == v) {
+      return (to_string asInt)
+    }
+    return (to_string v)
+  }
+
+  fn refText:string (r:RgRef) {
+    switch r.kind {
+      case RgRefKind.Str {
+        return r.s
+      }
+      case RgRefKind.Null {
+        return "null"
+      }
+      case RgRefKind.NumArr {
+        def parts:[string]
+        for r.na d:double i {
+          push parts (this.numText(d))
+        }
+        return ("[" + (join parts ", ") + "]")
+      }
+      case RgRefKind.RefArr {
+        def parts2:[string]
+        for r.ra item:RgRef i {
+          push parts2 (this.refText(item))
+        }
+        return ("[" + (join parts2 ", ") + "]")
+      }
+      case RgRefKind.Obj {
+        def cl:RgClassDef (itemAt module.classes r.classId)
+        return ("<" + cl.name + ">")
+      }
+    }
+    return "?"
+  }
+
+  fn emit:void (line:string) {
+    push output line
+    if echo {
+      print line
+    }
+  }
+
+  ; ---- calling -------------------------------------------------------------
+
+  ; Enter `fnId` with the argument buffers already filled. The result lands in
+  ; `retNum` / `retRef`, matching the function's declared return kind.
+  fn callFunction:void (fnId:int) {
+    if failed {
+      return
+    }
+    if ((fnId < 0) || (fnId >= (array_length module.functions))) {
+      this.fail("call to unknown function id " + fnId)
+      return
+    }
+    def f:RgFunction (itemAt module.functions fnId)
+    f.callCount = (f.callCount + 1)
+    if (f.tier == RgTier.Unsupported) {
+      this.fail("function " + f.name + " was not lowered: " + f.bailReason)
+      return
+    }
+    ; The tier decision happens here, once per entry, and never inside the
+    ; instruction loop: a function that is already running keeps running in the
+    ; tier it started in, and the next call picks up the compiled form. The
+    ; already-compiled case is tested first, because it is the one on the hot
+    ; path once a program has warmed up.
+    if (f.tier == RgTier.Jit) {
+      this.jit.invoke(this f fnId)
+      return
+    }
+    if (this.jit.shouldCompile(f)) {
+      this.jit.compile(this f fnId)
+      if (f.tier == RgTier.Jit) {
+        this.jit.invoke(this f fnId)
+        return
+      }
+    }
+    depth = (depth + 1)
+    if (depth > maxDepth) {
+      this.fail("call stack exceeded " + maxDepth + " frames in " + f.name)
+      depth = (depth - 1)
+      return
+    }
+    def nbase:int numTop
+    def rbase:int refTop
+    numTop = (numTop + f.numRegs)
+    refTop = (refTop + f.refRegs)
+    this.ensureNum(numTop)
+    this.ensureRef(refTop)
+    ; Prologue: drain the argument buffers into the low registers of each bank,
+    ; in declaration order. `this` is ref register 0 of an instance method and
+    ; the caller pushes it first.
+    def ni:int 0
+    def ri:int 0
+    for f.paramKinds pk:RgKind i {
+      if (pk == RgKind.Num) {
+        if (ni < (array_length argNums)) {
+          set_at numStack (nbase + ni) (itemAt argNums ni)
+        }
+        ni = (ni + 1)
+      } {
+        if (ri < (array_length argRefs)) {
+          set_at refStack (rbase + ri) (itemAt argRefs ri)
+        }
+        ri = (ri + 1)
+      }
+    }
+    def emptyNums:[double]
+    def emptyRefs:[RgRef]
+    argNums = emptyNums
+    argRefs = emptyRefs
+    this.execute(f nbase rbase)
+    numTop = nbase
+    refTop = rbase
+    depth = (depth - 1)
+  }
+
+  ; ---- the instruction loop ------------------------------------------------
+
+  fn execute:void (f:RgFunction nbase:int rbase:int) {
+    def len:int (array_length f.ops)
+    def pc:int 0
+    while (pc < len) {
+      if failed {
+        return
+      }
+      steps = (steps + 1)
+      def op (itemAt f.ops pc)
+      def a:int (itemAt f.ra pc)
+      def b:int (itemAt f.rb pc)
+      def c:int (itemAt f.rc pc)
+      pc = (pc + 1)
+      switch op {
+        case RgOp.NOP {
+        }
+        case RgOp.KNUM {
+          set_at numStack (nbase + a) (itemAt f.nums b)
+        }
+        case RgOp.KSTR {
+          set_at refStack (rbase + a) (this.newStr((itemAt f.strings b)))
+        }
+        case RgOp.KNULL {
+          set_at refStack (rbase + a) theNull
+        }
+        case RgOp.MOVN {
+          set_at numStack (nbase + a) (itemAt numStack (nbase + b))
+        }
+        case RgOp.MOVR {
+          set_at refStack (rbase + a) (itemAt refStack (rbase + b))
+        }
+        case RgOp.ADD {
+          set_at numStack (nbase + a) ((itemAt numStack (nbase + b)) + (itemAt numStack (nbase + c)))
+        }
+        case RgOp.SUB {
+          set_at numStack (nbase + a) ((itemAt numStack (nbase + b)) - (itemAt numStack (nbase + c)))
+        }
+        case RgOp.MUL {
+          set_at numStack (nbase + a) ((itemAt numStack (nbase + b)) * (itemAt numStack (nbase + c)))
+        }
+        case RgOp.DIV {
+          def dv:double (itemAt numStack (nbase + c))
+          if (dv == 0.0) {
+            this.fail("division by zero in " + f.name)
+            return
+          }
+          set_at numStack (nbase + a) ((itemAt numStack (nbase + b)) / dv)
+        }
+        case RgOp.IDIV {
+          def iv:double (itemAt numStack (nbase + c))
+          if (iv == 0.0) {
+            this.fail("integer division by zero in " + f.name)
+            return
+          }
+          def q:double ((itemAt numStack (nbase + b)) / iv)
+          set_at numStack (nbase + a) (this.truncToward0(q))
+        }
+        case RgOp.MOD {
+          def mv:double (itemAt numStack (nbase + c))
+          if (mv == 0.0) {
+            this.fail("modulo by zero in " + f.name)
+            return
+          }
+          ; Ranger's own `%` is an int operator, so both operands are whole
+          ; numbers here; going through it keeps the interpreter and the
+          ; compiled form on exactly the same remainder instead of on two
+          ; formulas that agree until floating-point rounding says otherwise.
+          def lv:int (to_int (itemAt numStack (nbase + b)))
+          def rv:int (to_int mv)
+          set_at numStack (nbase + a) (to_double (lv % rv))
+        }
+        case RgOp.NEG {
+          set_at numStack (nbase + a) (0.0 - (itemAt numStack (nbase + b)))
+        }
+        case RgOp.LT {
+          def r1:double 0.0
+          if ((itemAt numStack (nbase + b)) < (itemAt numStack (nbase + c))) {
+            r1 = 1.0
+          }
+          set_at numStack (nbase + a) r1
+        }
+        case RgOp.LE {
+          def r2:double 0.0
+          if ((itemAt numStack (nbase + b)) <= (itemAt numStack (nbase + c))) {
+            r2 = 1.0
+          }
+          set_at numStack (nbase + a) r2
+        }
+        case RgOp.GT {
+          def r3:double 0.0
+          if ((itemAt numStack (nbase + b)) > (itemAt numStack (nbase + c))) {
+            r3 = 1.0
+          }
+          set_at numStack (nbase + a) r3
+        }
+        case RgOp.GE {
+          def r4:double 0.0
+          if ((itemAt numStack (nbase + b)) >= (itemAt numStack (nbase + c))) {
+            r4 = 1.0
+          }
+          set_at numStack (nbase + a) r4
+        }
+        case RgOp.EQ {
+          def r5:double 0.0
+          if ((itemAt numStack (nbase + b)) == (itemAt numStack (nbase + c))) {
+            r5 = 1.0
+          }
+          set_at numStack (nbase + a) r5
+        }
+        case RgOp.NEQ {
+          def r6:double 0.0
+          if ((itemAt numStack (nbase + b)) != (itemAt numStack (nbase + c))) {
+            r6 = 1.0
+          }
+          set_at numStack (nbase + a) r6
+        }
+        case RgOp.NOT {
+          def r7:double 0.0
+          if ((itemAt numStack (nbase + b)) == 0.0) {
+            r7 = 1.0
+          }
+          set_at numStack (nbase + a) r7
+        }
+        case RgOp.JMP {
+          pc = a
+        }
+        case RgOp.JZ {
+          if ((itemAt numStack (nbase + a)) == 0.0) {
+            pc = b
+          }
+        }
+        case RgOp.JNZ {
+          if ((itemAt numStack (nbase + a)) != 0.0) {
+            pc = b
+          }
+        }
+        case RgOp.RETN {
+          retNum = (itemAt numStack (nbase + a))
+          return
+        }
+        case RgOp.RETR {
+          retRef = (itemAt refStack (rbase + a))
+          return
+        }
+        case RgOp.RETV {
+          return
+        }
+        case RgOp.ARGN {
+          push argNums (itemAt numStack (nbase + a))
+        }
+        case RgOp.ARGR {
+          push argRefs (itemAt refStack (rbase + a))
+        }
+        case RgOp.CALLN {
+          this.callFunction(b)
+          if failed {
+            return
+          }
+          set_at numStack (nbase + a) retNum
+        }
+        case RgOp.CALLR {
+          this.callFunction(b)
+          if failed {
+            return
+          }
+          set_at refStack (rbase + a) retRef
+        }
+        case RgOp.CALLV {
+          this.callFunction(b)
+          if failed {
+            return
+          }
+        }
+        case RgOp.MCALLN {
+          def recv1:RgRef (itemAt refStack (rbase + c))
+          if (recv1.kind != RgRefKind.Obj) {
+            this.fail("method call on a non-object in " + f.name)
+            return
+          }
+          def na1:[double] argNums
+          def ra1:[RgRef] argRefs
+          def newRefs1:[RgRef]
+          push newRefs1 recv1
+          for ra1 x:RgRef i {
+            push newRefs1 x
+          }
+          argRefs = newRefs1
+          argNums = na1
+          this.callFunction(b)
+          if failed {
+            return
+          }
+          set_at numStack (nbase + a) retNum
+        }
+        case RgOp.MCALLR {
+          def recv2:RgRef (itemAt refStack (rbase + c))
+          if (recv2.kind != RgRefKind.Obj) {
+            this.fail("method call on a non-object in " + f.name)
+            return
+          }
+          def na2:[double] argNums
+          def ra2:[RgRef] argRefs
+          def newRefs2:[RgRef]
+          push newRefs2 recv2
+          for ra2 x2:RgRef i {
+            push newRefs2 x2
+          }
+          argRefs = newRefs2
+          argNums = na2
+          this.callFunction(b)
+          if failed {
+            return
+          }
+          set_at refStack (rbase + a) retRef
+        }
+        case RgOp.MCALLV {
+          def recv3:RgRef (itemAt refStack (rbase + c))
+          if (recv3.kind != RgRefKind.Obj) {
+            this.fail("method call on a non-object in " + f.name)
+            return
+          }
+          def na3:[double] argNums
+          def ra3:[RgRef] argRefs
+          def newRefs3:[RgRef]
+          push newRefs3 recv3
+          for ra3 x3:RgRef i {
+            push newRefs3 x3
+          }
+          argRefs = newRefs3
+          argNums = na3
+          this.callFunction(b)
+          if failed {
+            return
+          }
+        }
+        case RgOp.NEWOBJ {
+          set_at refStack (rbase + a) (this.newObject(b))
+        }
+        case RgOp.GETFN {
+          def o1:RgRef (itemAt refStack (rbase + b))
+          if (o1.kind != RgRefKind.Obj) {
+            this.fail("field read on a non-object in " + f.name)
+            return
+          }
+          set_at numStack (nbase + a) (itemAt o1.numFields c)
+        }
+        case RgOp.GETFR {
+          def o2:RgRef (itemAt refStack (rbase + b))
+          if (o2.kind != RgRefKind.Obj) {
+            this.fail("field read on a non-object in " + f.name)
+            return
+          }
+          set_at refStack (rbase + a) (itemAt o2.refFields c)
+        }
+        case RgOp.SETFN {
+          def o3:RgRef (itemAt refStack (rbase + a))
+          if (o3.kind != RgRefKind.Obj) {
+            this.fail("field write on a non-object in " + f.name)
+            return
+          }
+          set_at o3.numFields b (itemAt numStack (nbase + c))
+        }
+        case RgOp.SETFR {
+          def o4:RgRef (itemAt refStack (rbase + a))
+          if (o4.kind != RgRefKind.Obj) {
+            this.fail("field write on a non-object in " + f.name)
+            return
+          }
+          set_at o4.refFields b (itemAt refStack (rbase + c))
+        }
+        case RgOp.ANEWN {
+          set_at refStack (rbase + a) (this.newNumArr())
+        }
+        case RgOp.ANEWR {
+          set_at refStack (rbase + a) (this.newRefArr())
+        }
+        case RgOp.APUSHN {
+          def arr1:RgRef (itemAt refStack (rbase + a))
+          push arr1.na (itemAt numStack (nbase + b))
+        }
+        case RgOp.APUSHR {
+          def arr2:RgRef (itemAt refStack (rbase + a))
+          push arr2.ra (itemAt refStack (rbase + b))
+        }
+        case RgOp.AGETN {
+          def arr3:RgRef (itemAt refStack (rbase + b))
+          def idx1:int (to_int (itemAt numStack (nbase + c)))
+          if ((idx1 < 0) || (idx1 >= (array_length arr3.na))) {
+            this.fail("array index " + idx1 + " out of range in " + f.name)
+            return
+          }
+          set_at numStack (nbase + a) (itemAt arr3.na idx1)
+        }
+        case RgOp.AGETR {
+          def arr4:RgRef (itemAt refStack (rbase + b))
+          def idx2:int (to_int (itemAt numStack (nbase + c)))
+          if ((idx2 < 0) || (idx2 >= (array_length arr4.ra))) {
+            this.fail("array index " + idx2 + " out of range in " + f.name)
+            return
+          }
+          set_at refStack (rbase + a) (itemAt arr4.ra idx2)
+        }
+        case RgOp.ASETN {
+          def arr5:RgRef (itemAt refStack (rbase + a))
+          def idx3:int (to_int (itemAt numStack (nbase + b)))
+          if ((idx3 < 0) || (idx3 >= (array_length arr5.na))) {
+            this.fail("array index " + idx3 + " out of range in " + f.name)
+            return
+          }
+          set_at arr5.na idx3 (itemAt numStack (nbase + c))
+        }
+        case RgOp.ASETR {
+          def arr6:RgRef (itemAt refStack (rbase + a))
+          def idx4:int (to_int (itemAt numStack (nbase + b)))
+          if ((idx4 < 0) || (idx4 >= (array_length arr6.ra))) {
+            this.fail("array index " + idx4 + " out of range in " + f.name)
+            return
+          }
+          set_at arr6.ra idx4 (itemAt refStack (rbase + c))
+        }
+        case RgOp.ALEN {
+          def arr7:RgRef (itemAt refStack (rbase + b))
+          if (arr7.kind == RgRefKind.RefArr) {
+            set_at numStack (nbase + a) (to_double (array_length arr7.ra))
+          } {
+            set_at numStack (nbase + a) (to_double (array_length arr7.na))
+          }
+        }
+        case RgOp.SCAT {
+          def s1:RgRef (itemAt refStack (rbase + b))
+          def s2:RgRef (itemAt refStack (rbase + c))
+          set_at refStack (rbase + a) (this.newStr(s1.s + s2.s))
+        }
+        case RgOp.SLEN {
+          def s3:RgRef (itemAt refStack (rbase + b))
+          set_at numStack (nbase + a) (to_double (strlen s3.s))
+        }
+        case RgOp.SEQ {
+          def s4:RgRef (itemAt refStack (rbase + b))
+          def s5:RgRef (itemAt refStack (rbase + c))
+          def eqv:double 0.0
+          if (s4.s == s5.s) {
+            eqv = 1.0
+          }
+          set_at numStack (nbase + a) eqv
+        }
+        case RgOp.SUBSTR {
+          def s6:RgRef (itemAt refStack (rbase + b))
+          def from1:int (to_int (itemAt numStack (nbase + c)))
+          def to1:int (to_int (itemAt numStack (nbase + c + 1)))
+          set_at refStack (rbase + a) (this.newStr((substring s6.s from1 to1)))
+        }
+        case RgOp.CHARAT {
+          def s7:RgRef (itemAt refStack (rbase + b))
+          def at1:int (to_int (itemAt numStack (nbase + c)))
+          set_at numStack (nbase + a) (to_double (charAt s7.s at1))
+        }
+        case RgOp.N2S {
+          set_at refStack (rbase + a) (this.newStr((this.numText((itemAt numStack (nbase + b))))))
+        }
+        case RgOp.S2N {
+          def s8:RgRef (itemAt refStack (rbase + b))
+          set_at numStack (nbase + a) (to_double (?? (str2int s8.s) 0))
+        }
+        case RgOp.PRINTN {
+          this.emit((this.numText((itemAt numStack (nbase + a)))))
+        }
+        case RgOp.PRINTR {
+          this.emit((this.refText((itemAt refStack (rbase + a)))))
+        }
+        case RgOp.TRUNC {
+          set_at numStack (nbase + a) (to_double (to_int (itemAt numStack (nbase + b))))
+        }
+        case RgOp.ISNULL {
+          def nr:RgRef (itemAt refStack (rbase + b))
+          def nv:double 0.0
+          if (nr.kind == RgRefKind.Null) {
+            nv = 1.0
+          }
+          set_at numStack (nbase + a) nv
+        }
+        case RgOp.OEQ {
+          def oa:RgRef (itemAt refStack (rbase + b))
+          def ob:RgRef (itemAt refStack (rbase + c))
+          def ov:double 0.0
+          if (oa == ob) {
+            ov = 1.0
+          }
+          set_at numStack (nbase + a) ov
+        }
+        case RgOp.ARGC {
+          set_at numStack (nbase + a) (to_double (array_length hostArgs))
+        }
+        case RgOp.ARGV {
+          def ai:int (to_int (itemAt numStack (nbase + b)))
+          if ((ai < 0) || (ai >= (array_length hostArgs))) {
+            set_at refStack (rbase + a) (this.newStr(""))
+          } {
+            set_at refStack (rbase + a) (this.newStr((itemAt hostArgs ai)))
+          }
+        }
+        case RgOp.RDFILE {
+          def rp:RgRef (itemAt refStack (rbase + b))
+          def rn:RgRef (itemAt refStack (rbase + c))
+          def content:string (?? (read_file rp.s rn.s) "")
+          set_at refStack (rbase + a) (this.newStr(content))
+        }
+        case RgOp.WRFILE {
+          def wp:RgRef (itemAt refStack (rbase + a))
+          def wn:RgRef (itemAt refStack (rbase + b))
+          def wd:RgRef (itemAt refStack (rbase + c))
+          write_file wp.s wn.s wd.s
+        }
+        case RgOp.FEXISTS {
+          def ep:RgRef (itemAt refStack (rbase + b))
+          def en:RgRef (itemAt refStack (rbase + c))
+          def ev:double 0.0
+          if (file_exists ep.s en.s) {
+            ev = 1.0
+          }
+          set_at numStack (nbase + a) ev
+        }
+        case RgOp.CLOCK {
+          set_at numStack (nbase + a) (wall_clock_ms)
+        }
+        case RgOp.SPLIT {
+          def sp:RgRef (itemAt refStack (rbase + b))
+          def sep:RgRef (itemAt refStack (rbase + c))
+          def parts:[string] (strsplit sp.s sep.s)
+          def arr:RgRef (this.newRefArr())
+          for parts part:string pi {
+            push arr.ra (this.newStr(part))
+          }
+          set_at refStack (rbase + a) arr
+        }
+        case RgOp.TRIM {
+          def tr:RgRef (itemAt refStack (rbase + b))
+          set_at refStack (rbase + a) (this.newStr((trim tr.s)))
+        }
+        default {
+          this.fail("unknown opcode at " + pc + " in " + f.name)
+          return
+        }
+      }
+    }
+  }
+
+  ; ---- entry points --------------------------------------------------------
+
+  fn callStaticNum:double (name:string args:[double]) {
+    def fnId:int (module.findFunction(name))
+    if (fnId < 0) {
+      this.fail("no such function: " + name)
+      return 0.0
+    }
+    for args v:double i {
+      push argNums v
+    }
+    this.callFunction(fnId)
+    return retNum
+  }
+
+  fn callStaticText:string (name:string args:[double]) {
+    def fnId:int (module.findFunction(name))
+    if (fnId < 0) {
+      this.fail("no such function: " + name)
+      return ""
+    }
+    for args v:double i {
+      push argNums v
+    }
+    this.callFunction(fnId)
+    return (this.refText(retRef))
+  }
+
+  fn callStaticVoid:void (name:string) {
+    def fnId:int (module.findFunction(name))
+    if (fnId < 0) {
+      this.fail("no such function: " + name)
+      return
+    }
+    this.callFunction(fnId)
+  }
+}
+
+; -----------------------------------------------------------------------------
+; RgJitHook — the seam between the interpreter and a faster tier.
+; -----------------------------------------------------------------------------
+; The base class never promotes anything, which is what makes a VM-only build
+; possible: nothing in RgVM knows how a host compiles code. RgJsJit overrides
+; these three methods; on a target with no way to run generated code the base
+; class stays, and every function keeps running as bytecode.
+class RgJitHook {
+  def enabled:boolean false
+  def threshold:int 0
+  def compiled:int 0
+
+  fn shouldCompile:boolean (f:RgFunction) {
+    return false
+  }
+
+  fn compile:void (vm:RgVM f:RgFunction fnId:int) {
+  }
+
+  fn invoke:void (vm:RgVM f:RgFunction fnId:int) {
+  }
+}

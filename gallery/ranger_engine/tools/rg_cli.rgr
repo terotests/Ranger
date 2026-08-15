@@ -1,0 +1,152 @@
+; =============================================================================
+; rangercli — run a Ranger program with no compiler present
+; =============================================================================
+;   rangercli [options] program.rgb [program arguments…]
+;
+;   -steps     print the instruction count and the elapsed time afterwards
+;   -entry=C   run C.main instead of the first main the module has
+;   -dump      print the module's functions and their sizes, then run
+;
+; Options come BEFORE the bytecode file; everything after it belongs to the
+; program and shows up in its `shell_arg`.
+;
+; This is the runtime half on its own: RgVM and the bytecode reader, and not
+; one line of the compiler. It compiles to C++ into a ~200 KB binary, and to
+; JavaScript into ~40 KB. The `.rgb` it reads comes from `rg_build`, which is
+; where the compiler lives.
+
+Import "../src/RgVM.rgr"
+Import "../src/RgModuleIO.rgr"
+
+class RangerCli {
+
+  ; The index of the bytecode file: the first argument that is not an option.
+  sfn programArgIndex:int () {
+    def i:int 0
+    while (i < (shell_arg_cnt)) {
+      def a:string (shell_arg i)
+      if ((strlen a) > 0) {
+        if ((substring a 0 1) != "-") {
+          return i
+        }
+      }
+      i = (i + 1)
+    }
+    return (0 - 1)
+  }
+
+  sfn hasFlag:boolean (name:string limit:int) {
+    def i:int 0
+    while (i < limit) {
+      if ((shell_arg i) == name) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  sfn optionValue:string (prefix:string limit:int) {
+    def i:int 0
+    while (i < limit) {
+      def a:string (shell_arg i)
+      if ((strlen a) > (strlen prefix)) {
+        if ((substring a 0 (strlen prefix)) == prefix) {
+          return (substring a (strlen prefix) (strlen a))
+        }
+      }
+      i = (i + 1)
+    }
+    return ""
+  }
+
+  sfn findEntry:string (m:RgModule) {
+    for m.functions f:RgFunction i {
+      if (f.methodName == "main") {
+        return f.className
+      }
+    }
+    return ""
+  }
+
+  sfn usage:void () {
+    print "rangercli — run Ranger bytecode"
+    print ""
+    print "  rangercli [options] program.rgb [program arguments...]"
+    print ""
+    print "  -steps      print instructions executed and elapsed time"
+    print "  -entry=C    run C.main instead of the first main in the module"
+    print "  -dump       list the module's functions before running"
+    print ""
+    print "Build a .rgb with:  node rg_build.js program.rgr -o=program.rgb"
+  }
+
+  sfn main:void () {
+    def fileAt:int (RangerCli.programArgIndex())
+    if (fileAt < 0) {
+      RangerCli.usage()
+      return
+    }
+    def file:string (shell_arg fileAt)
+    def showSteps:boolean (RangerCli.hasFlag("-steps" fileAt))
+    def showDump:boolean (RangerCli.hasFlag("-dump" fileAt))
+    def entry:string (RangerCli.optionValue("-entry=" fileAt))
+
+    if ((file_exists "." file) == false) {
+      print "rangercli: no such file: " + file
+      exit 1
+    }
+    def text:string (?? (read_file "." file) "")
+    if ((strlen text) == 0) {
+      print "rangercli: " + file + " is empty"
+      exit 1
+    }
+    def err:RgIOError (new RgIOError())
+    def m:RgModule (RgModuleIO.fromText(text err))
+    if ((strlen err.message) > 0) {
+      print "rangercli: " + file + ": " + err.message
+      exit 1
+    }
+
+    def vm:RgVM (new RgVM())
+    vm.module = m
+    ; Everything after the bytecode file is the program's own argument list.
+    def ai:int (fileAt + 1)
+    while (ai < (shell_arg_cnt)) {
+      push vm.hostArgs (shell_arg ai)
+      ai = (ai + 1)
+    }
+
+    if showDump {
+      print "module: " + (array_length m.classes) + " classes, " + (array_length m.functions) + " functions"
+      for m.functions f:RgFunction fi {
+        def line:string ("  " + f.name + "  " + (array_length f.ops) + " ops")
+        if (f.tier == RgTier.Unsupported) {
+          line = ("  " + f.name + "  unsupported: " + f.bailReason)
+        }
+        print line
+      }
+      print ""
+    }
+
+    if ((strlen entry) == 0) {
+      entry = (RangerCli.findEntry(m))
+    }
+    if ((strlen entry) == 0) {
+      print "rangercli: the module has no main"
+      exit 1
+    }
+
+    def t0:double (wall_clock_ms)
+    vm.callStaticVoid((entry + ".main"))
+    def t1:double (wall_clock_ms)
+    if vm.failed {
+      print "rangercli: " + vm.errorText
+      exit 1
+    }
+    if showSteps {
+      print ""
+      print ("[" + vm.steps + " instructions, " + (to_int (t1 - t0)) + " ms]")
+    }
+  }
+}

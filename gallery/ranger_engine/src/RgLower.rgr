@@ -1,0 +1,2188 @@
+; =============================================================================
+; RgLower — analyzed Ranger to engine bytecode
+; =============================================================================
+; The build-machine half of the engine. It walks the tree the ordinary compiler
+; frontend produces — the same `RangerAppClassDesc` / `RangerAppFunctionDesc` /
+; `CodeNode` shapes every language writer walks — and emits an RgModule.
+;
+; Nothing here runs at execution time, which is the point of the split: the
+; compiler is megabytes, the VM is not, and a program that arrives as bytecode
+; needs only the second half.
+;
+; Coverage is deliberately partial and the gate is explicit. Anything the pass
+; does not understand sets `bailed` with a reason, that one function is marked
+; RgTier.Unsupported, and the rest of the module still lowers. A bail is a
+; missing feature with a name, never a silently wrong program.
+;
+; What lowers today:
+;   * static functions and instance methods of plain classes
+;   * int / double / boolean / char / string values, `[int]`-style arrays of
+;     primitives, arrays of objects, class instances
+;   * def, assignment, if / else, while, for-over-array, break, continue,
+;     return, print
+;   * arithmetic, comparison, boolean (short-circuit), string concatenation
+;   * calls: static, instance, `this.method()`, constructors
+;
+; What bails (each with its own message):
+;   * maps `[K:V]`, lambdas, closures, traits, unions, enums, inheritance,
+;     try/throw, optionals beyond `null?`, generics, operator overloads
+
+Import "RgBytecode.rgr"
+Import "../../../compiler/VirtualCompiler.rgr"
+
+; -----------------------------------------------------------------------------
+; One name visible inside a function body: a parameter, a local, or a field of
+; the enclosing class. Locals hold a register; fields hold an index into the
+; object's numeric or reference field array.
+; -----------------------------------------------------------------------------
+class RgLocal {
+  def name:string ""
+  def kind:RgKind RgKind.Num
+  def reg:int 0
+  def typeName:string ""
+  ; Element type name for an array-typed local, "" otherwise.
+  def elemType:string ""
+  def isField:boolean false
+  def fieldIndex:int 0
+}
+
+; -----------------------------------------------------------------------------
+; Lowering state for one function.
+; -----------------------------------------------------------------------------
+; Registers come from a bump allocator per bank. Locals grow the low watermark
+; and keep their register for the whole body; expression temporaries are taken
+; above the watermark and released at every statement boundary, so a long
+; method does not need a register per subexpression it ever evaluated.
+class RgFnCtx {
+  def out:RgFunction
+  def locals:[string:RgLocal]
+  def numLocalTop:int 0
+  def refLocalTop:int 0
+  def numTemp:int 0
+  def refTemp:int 0
+  def className:string ""
+  def isInstance:boolean false
+  def bailed:boolean false
+  def bailReason:string ""
+  ; Jump instructions waiting for the end of the innermost loop / for its next
+  ; iteration. Saved and restored around a nested loop by the caller.
+  def breakPatches:[int]
+  def continuePatches:[int]
+  def inLoop:boolean false
+  ; Serial number for the hidden locals a `for` loop needs (list, index,
+  ; length), so nested loops cannot collide on a name.
+  def hiddenCounter:int 0
+
+  fn hiddenName:string (base:string) {
+    hiddenCounter = (hiddenCounter + 1)
+    return (base + hiddenCounter)
+  }
+
+  fn allocNum:int () {
+    def r:int numLocalTop
+    numLocalTop = (numLocalTop + 1)
+    if (numTemp < numLocalTop) {
+      numTemp = numLocalTop
+    }
+    if (out.numRegs < numLocalTop) {
+      out.numRegs = numLocalTop
+    }
+    return r
+  }
+
+  fn allocRef:int () {
+    def r:int refLocalTop
+    refLocalTop = (refLocalTop + 1)
+    if (refTemp < refLocalTop) {
+      refTemp = refLocalTop
+    }
+    if (out.refRegs < refLocalTop) {
+      out.refRegs = refLocalTop
+    }
+    return r
+  }
+
+  fn tempNum:int () {
+    def r:int numTemp
+    numTemp = (numTemp + 1)
+    if (out.numRegs < numTemp) {
+      out.numRegs = numTemp
+    }
+    return r
+  }
+
+  fn tempRef:int () {
+    def r:int refTemp
+    refTemp = (refTemp + 1)
+    if (out.refRegs < refTemp) {
+      out.refRegs = refTemp
+    }
+    return r
+  }
+
+  fn resetTemps:void () {
+    numTemp = numLocalTop
+    refTemp = refLocalTop
+  }
+
+  fn declare:RgLocal (name:string kind:RgKind typeName:string elemType:string) {
+    def l:RgLocal (new RgLocal())
+    l.name = name
+    l.kind = kind
+    l.typeName = typeName
+    l.elemType = elemType
+    if (kind == RgKind.Num) {
+      l.reg = (this.allocNum())
+    } {
+      l.reg = (this.allocRef())
+    }
+    set locals name l
+    return l
+  }
+
+  fn find:RgLocal (name:string) {
+    if (has locals name) {
+      return (unwrap (get locals name))
+    }
+    def missing:RgLocal (new RgLocal())
+    missing.name = ""
+    return missing
+  }
+}
+
+; -----------------------------------------------------------------------------
+class RgLower {
+  def module:RgModule (new RgModule())
+  def ctx@(weak):RangerAppWriterContext
+  ; Class descriptor by name, for resolving the class of a receiver and telling
+  ; a class-qualified static call apart from a field access.
+  def classDescs:[string:RangerAppClassDesc]
+  def classNames:[string:boolean]
+  ; Diagnostics for the engine's report: one line per function that bailed.
+  def bails:[string]
+
+  ; ---- type mapping --------------------------------------------------------
+
+  fn kindOfTypeName:RgKind (t:string) {
+    if (t == "int") {
+      return RgKind.Num
+    }
+    if (t == "double") {
+      return RgKind.Num
+    }
+    if (t == "boolean") {
+      return RgKind.Num
+    }
+    if (t == "char") {
+      return RgKind.Num
+    }
+    if (t == "void") {
+      return RgKind.Void
+    }
+    if (t == "") {
+      return RgKind.Void
+    }
+    return RgKind.Ref
+  }
+
+  fn isNumTypeName:boolean (t:string) {
+    return ((this.kindOfTypeName(t)) == RgKind.Num)
+  }
+
+  ; The declared type of a `def`/parameter name node. An array's own type_name
+  ; is empty and the element type lives in array_type, so the two are read
+  ; apart and the caller gets both.
+  fn nameNodeKind:RgKind (n:CodeNode) {
+    if (n.value_type == RangerNodeType.Array) {
+      return RgKind.Ref
+    }
+    if (n.value_type == RangerNodeType.Hash) {
+      return RgKind.Ref
+    }
+    return (this.kindOfTypeName(n.type_name))
+  }
+
+  ; ---- class layout --------------------------------------------------------
+
+  fn buildClass:RgClassDef (cl:RangerAppClassDesc) {
+    def out:RgClassDef (new RgClassDef())
+    out.name = cl.name
+    out.ctorId = (0 - 1)
+    for cl.variables v:RangerAppParamDesc i {
+      if (null? v.nameNode) {
+        continue
+      }
+      def vn (unwrap v.nameNode)
+      def kind:RgKind (this.nameNodeKind(vn))
+      if (kind == RgKind.Num) {
+        push out.numFieldNames vn.vref
+        push out.numFieldDefaults (this.defaultNumOf(v vn))
+      } {
+        push out.refFieldNames vn.vref
+        push out.refFieldInit (this.refInitOf(vn))
+      }
+    }
+    return out
+  }
+
+  ; A numeric field's declared initial value. `def total:int 0` keeps the 0 on
+  ; the name node itself, which is where the frontend puts a literal default.
+  fn defaultNumOf:double (v:RangerAppParamDesc vn:CodeNode) {
+    if (!null? v.def_value) {
+      def dv (unwrap v.def_value)
+      switch dv.value_type {
+        case RangerNodeType.Integer {
+          return (to_double dv.int_value)
+        }
+        case RangerNodeType.Double {
+          return dv.double_value
+        }
+        case RangerNodeType.Boolean {
+          if dv.boolean_value {
+            return 1.0
+          }
+          return 0.0
+        }
+      }
+    }
+    switch vn.value_type {
+      case RangerNodeType.Integer {
+        return (to_double vn.int_value)
+      }
+      case RangerNodeType.Double {
+        return vn.double_value
+      }
+      case RangerNodeType.Boolean {
+        if vn.boolean_value {
+          return 1.0
+        }
+        return 0.0
+      }
+    }
+    return 0.0
+  }
+
+  ; How NEWOBJ should initialise a reference field: 1 empty string, 2 empty
+  ; numeric array, 3 empty reference array, 0 null.
+  fn refInitOf:int (vn:CodeNode) {
+    if (vn.value_type == RangerNodeType.Array) {
+      if (this.isNumTypeName(vn.array_type)) {
+        return 2
+      }
+      return 3
+    }
+    if (vn.type_name == "string") {
+      return 1
+    }
+    return 0
+  }
+
+  ; ---- module ---------------------------------------------------------------
+
+  fn lowerModule:RgModule (appCtx:RangerAppWriterContext) {
+    ctx = appCtx
+    ; Pass 1: class layouts. Every layout has to exist before any body lowers,
+    ; because a body can construct a class declared later in the file.
+    for appCtx.definedClassList cName:string i {
+      if (cName == "RangerStaticMethods") {
+        continue
+      }
+      def cl (unwrap (get appCtx.definedClasses cName))
+      if (cl.is_operator_class || cl.is_trait || cl.is_system || cl.is_union) {
+        continue
+      }
+      if (cl.is_generic_instance || cl.is_template || cl.is_interface) {
+        continue
+      }
+      set classDescs cName cl
+      set classNames cName true
+      this.module.addClass((this.buildClass(cl)))
+    }
+    ; Pass 2: declare every function so a call can resolve an id before the
+    ; callee's body exists — that is what makes mutual recursion work.
+    for appCtx.definedClassList cName2:string i2 {
+      if (false == (has classDescs cName2)) {
+        continue
+      }
+      def cl2 (unwrap (get classDescs cName2))
+      for cl2.static_methods m:RangerAppFunctionDesc mi {
+        this.declareFunction(cl2 m true)
+      }
+      for cl2.methods m2:RangerAppFunctionDesc mi2 {
+        this.declareFunction(cl2 m2 false)
+      }
+    }
+    ; Pass 3: bodies.
+    for appCtx.definedClassList cName3:string i3 {
+      if (false == (has classDescs cName3)) {
+        continue
+      }
+      def cl3 (unwrap (get classDescs cName3))
+      for cl3.static_methods m3:RangerAppFunctionDesc mi3 {
+        this.lowerFunction(cl3 m3 true)
+      }
+      for cl3.methods m4:RangerAppFunctionDesc mi4 {
+        this.lowerFunction(cl3 m4 false)
+      }
+    }
+    return this.module
+  }
+
+  fn functionKey:string (className:string methodName:string) {
+    return (className + "." + methodName)
+  }
+
+  ; Pass 2 settles every SIGNATURE — parameter banks and return bank — before
+  ; pass 3 lowers a single body. A call site reads the callee's signature to
+  ; decide CALLN / CALLR / CALLV and which bank each argument goes in, and a
+  ; program is under no obligation to define a function before it calls it: a
+  ; return kind still defaulting to void when the caller lowers turned
+  ; `def v:int (Back.doubled(n))` into a call whose result was dropped, with the
+  ; destination register left holding whatever was in it.
+  fn declareFunction:void (cl:RangerAppClassDesc fnDesc:RangerAppFunctionDesc isStatic:boolean) {
+    def key:string (this.functionKey(cl.name fnDesc.name))
+    if ((this.module.findFunction(key)) >= 0) {
+      ; An overloaded name: the engine keys functions by name alone, so the
+      ; second variant would silently replace the first.
+      return
+    }
+    def f:RgFunction (new RgFunction())
+    f.name = key
+    f.className = cl.name
+    f.methodName = fnDesc.name
+    f.isStatic = isStatic
+    if (false == isStatic) {
+      ; `this` is the first reference parameter; the VM's MCALL puts the
+      ; receiver there before the declared arguments.
+      push f.paramKinds RgKind.Ref
+    }
+    for fnDesc.params p:RangerAppParamDesc pi {
+      if (null? p.nameNode) {
+        f.tier = RgTier.Unsupported
+        f.bailReason = "a parameter without a name node"
+        push f.paramKinds RgKind.Num
+        continue
+      }
+      def pn (unwrap p.nameNode)
+      def pkind:RgKind (this.nameNodeKind(pn))
+      if (pn.value_type == RangerNodeType.Hash) {
+        f.tier = RgTier.Unsupported
+        f.bailReason = "map parameters are not supported yet"
+      }
+      if (pkind == RgKind.Void) {
+        f.tier = RgTier.Unsupported
+        f.bailReason = ("parameter " + pn.vref + " has an unsupported type")
+        pkind = RgKind.Num
+      }
+      push f.paramKinds pkind
+    }
+    if (fnDesc.name == "Constructor") {
+      f.retKind = RgKind.Void
+    } {
+      if (!null? fnDesc.nameNode) {
+        def rn (unwrap fnDesc.nameNode)
+        if (rn.value_type == RangerNodeType.Array) {
+          f.retKind = RgKind.Ref
+        } {
+          f.retKind = (this.kindOfTypeName(rn.type_name))
+        }
+      }
+    }
+    def fnId:int (this.module.addFunction(f))
+    if (fnDesc.name == "Constructor") {
+      def clDef:RgClassDef (itemAt this.module.classes (this.module.findClass(cl.name)))
+      clDef.ctorId = fnId
+    }
+    def clDef2:RgClassDef (itemAt this.module.classes (this.module.findClass(cl.name)))
+    push clDef2.methodNames fnDesc.name
+    push clDef2.methodIds fnId
+  }
+
+  fn lowerFunction:void (cl:RangerAppClassDesc fnDesc:RangerAppFunctionDesc isStatic:boolean) {
+    def key:string (this.functionKey(cl.name fnDesc.name))
+    def fnId:int (this.module.findFunction(key))
+    if (fnId < 0) {
+      return
+    }
+    def f:RgFunction (itemAt this.module.functions fnId)
+    if ((array_length f.ops) > 0) {
+      return
+    }
+    if (f.tier == RgTier.Unsupported) {
+      ; The signature pass already refused it.
+      push this.bails (f.name + ": " + f.bailReason)
+      return
+    }
+    def c:RgFnCtx (new RgFnCtx())
+    c.out = f
+    c.className = cl.name
+    c.isInstance = (false == isStatic)
+    if c.isInstance {
+      def selfLocal:RgLocal (c.declare("this" RgKind.Ref cl.name ""))
+    }
+    ; Fields of the enclosing class are visible under their bare names.
+    def clDefIdx:int (this.module.findClass(cl.name))
+    def clDef:RgClassDef (itemAt this.module.classes clDefIdx)
+    for cl.variables v:RangerAppParamDesc vi {
+      if (null? v.nameNode) {
+        continue
+      }
+      def vn (unwrap v.nameNode)
+      def fl:RgLocal (new RgLocal())
+      fl.name = vn.vref
+      fl.isField = true
+      fl.typeName = vn.type_name
+      if (vn.value_type == RangerNodeType.Array) {
+        fl.kind = RgKind.Ref
+        fl.elemType = vn.array_type
+        fl.fieldIndex = (clDef.refFieldIndex(vn.vref))
+      } {
+        fl.kind = (this.kindOfTypeName(vn.type_name))
+        if (fl.kind == RgKind.Num) {
+          fl.fieldIndex = (clDef.numFieldIndex(vn.vref))
+        } {
+          fl.fieldIndex = (clDef.refFieldIndex(vn.vref))
+        }
+      }
+      if (false == (has c.locals vn.vref)) {
+        set c.locals vn.vref fl
+      }
+    }
+    ; The banks were settled in the declaration pass; here the parameters only
+    ; need registers, in the same order.
+    for fnDesc.params p:RangerAppParamDesc pi {
+      def pn (unwrap p.nameNode)
+      def pkind:RgKind (this.nameNodeKind(pn))
+      def elem:string ""
+      if (pn.value_type == RangerNodeType.Array) {
+        elem = pn.array_type
+      }
+      def pl:RgLocal (c.declare(pn.vref pkind pn.type_name elem))
+    }
+    if (null? fnDesc.fnBody) {
+      this.bail(c "no body")
+    } {
+      if (false == c.bailed) {
+        this.lowerBlock((unwrap fnDesc.fnBody) c)
+      }
+    }
+    if c.bailed {
+      f.tier = RgTier.Unsupported
+      f.bailReason = c.bailReason
+      def emptyOps:[RgOp]
+      def emptyA:[int]
+      def emptyB:[int]
+      def emptyC:[int]
+      f.ops = emptyOps
+      f.ra = emptyA
+      f.rb = emptyB
+      f.rc = emptyC
+      push this.bails (f.name + ": " + c.bailReason)
+      return
+    }
+    ; Every path has to end in a return, including the fall-through one.
+    this.emitDefaultReturn(c)
+  }
+
+  fn emitDefaultReturn:void (c:RgFnCtx) {
+    def f:RgFunction c.out
+    switch f.retKind {
+      case RgKind.Num {
+        def r:int (c.tempNum())
+        f.addOp(RgOp.KNUM r (f.addNum(0.0)) 0)
+        f.addOp(RgOp.RETN r 0 0)
+      }
+      case RgKind.Ref {
+        def r2:int (c.tempRef())
+        f.addOp(RgOp.KNULL r2 0 0)
+        f.addOp(RgOp.RETR r2 0 0)
+      }
+      default {
+        f.addOp(RgOp.RETV 0 0 0)
+      }
+    }
+  }
+
+  fn bail:void (c:RgFnCtx reason:string) {
+    if c.bailed {
+      return
+    }
+    c.bailed = true
+    c.bailReason = reason
+  }
+
+  ; ---- node helpers --------------------------------------------------------
+
+  ; Strip the wrappers the frontend leaves around a value: an infix node keeps
+  ; its operator form in `infix_node`, and a parenthesised subexpression is an
+  ; `expression` node with a single child.
+  fn resolve:CodeNode (node:CodeNode) {
+    def n:CodeNode node
+    def guard:int 0
+    while (guard < 32) {
+      guard = (guard + 1)
+      if n.infix_operator {
+        if (!null? n.infix_node) {
+          n = (unwrap n.infix_node)
+          continue
+        }
+      }
+      if n.has_operator {
+        return n
+      }
+      if n.hasFnCall {
+        return n
+      }
+      if n.has_call {
+        return n
+      }
+      if n.hasNewOper {
+        return n
+      }
+      if n.expression {
+        if ((array_length n.children) == 1) {
+          n = (itemAt n.children 0)
+          continue
+        }
+      }
+      return n
+    }
+    return n
+  }
+
+  fn opNameOf:string (node:CodeNode) {
+    if node.has_operator {
+      return (node.getOperator())
+    }
+    return ""
+  }
+
+  ; What bank a value ends up in. Everything that reaches the emitters has gone
+  ; through here first, so the two banks never mix.
+  fn nodeKind:RgKind (node:CodeNode c:RgFnCtx) {
+    def n:CodeNode (this.resolve(node))
+    switch n.value_type {
+      case RangerNodeType.Integer {
+        return RgKind.Num
+      }
+      case RangerNodeType.Double {
+        return RgKind.Num
+      }
+      case RangerNodeType.Boolean {
+        return RgKind.Num
+      }
+      case RangerNodeType.Char {
+        return RgKind.Num
+      }
+      case RangerNodeType.String {
+        return RgKind.Ref
+      }
+    }
+    if n.hasNewOper {
+      return RgKind.Ref
+    }
+    if (n.value_type == RangerNodeType.VRef) {
+      if (false == n.has_operator) {
+        def viaName:RgKind (this.kindOfName(n.vref c))
+        if (viaName != RgKind.Void) {
+          return viaName
+        }
+      }
+    }
+    def opName:string (this.opNameOf(n))
+    if ((strlen opName) > 0) {
+      if (opName == "itemAt") {
+        def arrNode (n.getSecond())
+        def elem:string (this.elemTypeOf(arrNode c))
+        return (this.kindOfTypeName(elem))
+      }
+      if (opName == "substring") {
+        return RgKind.Ref
+      }
+      if (opName == "shell_arg") {
+        return RgKind.Ref
+      }
+      if (opName == "read_file") {
+        return RgKind.Ref
+      }
+      if (opName == "strsplit") {
+        return RgKind.Ref
+      }
+      if (opName == "unwrap") {
+        return (this.nodeKind((n.getSecond()) c))
+      }
+      if (opName == "!!") {
+        return (this.nodeKind((n.getSecond()) c))
+      }
+      if (opName == "to_string") {
+        return RgKind.Ref
+      }
+      if (opName == "trim") {
+        return RgKind.Ref
+      }
+    }
+    if ((strlen n.eval_type_name) > 0) {
+      return (this.kindOfTypeName(n.eval_type_name))
+    }
+    if (n.hasFnCall) {
+      def fnId:int (this.resolveCallTarget(n c))
+      if (fnId >= 0) {
+        def callee:RgFunction (itemAt this.module.functions fnId)
+        return callee.retKind
+      }
+    }
+    return RgKind.Void
+  }
+
+  fn kindOfName:RgKind (name:string c:RgFnCtx) {
+    def parts:[string] (strsplit name ".")
+    def head:string (itemAt parts 0)
+    def l:RgLocal (c.find(head))
+    if ((strlen l.name) == 0) {
+      return RgKind.Void
+    }
+    if ((array_length parts) == 1) {
+      return l.kind
+    }
+    if ((array_length parts) == 2) {
+      def ownerClass:string l.typeName
+      if (head == "this") {
+        ownerClass = c.className
+      }
+      def clIdx:int (this.module.findClass(ownerClass))
+      if (clIdx < 0) {
+        return RgKind.Void
+      }
+      def clDef:RgClassDef (itemAt this.module.classes clIdx)
+      def fieldName:string (itemAt parts 1)
+      if ((clDef.numFieldIndex(fieldName)) >= 0) {
+        return RgKind.Num
+      }
+      if ((clDef.refFieldIndex(fieldName)) >= 0) {
+        return RgKind.Ref
+      }
+    }
+    return RgKind.Void
+  }
+
+  ; Element type name of an array expression, "" when it is not an array this
+  ; pass can see through.
+  fn elemTypeOf:string (node:CodeNode c:RgFnCtx) {
+    def n:CodeNode (this.resolve(node))
+    if (n.value_type == RangerNodeType.VRef) {
+      def l:RgLocal (c.find(n.vref))
+      if ((strlen l.name) > 0) {
+        return l.elemType
+      }
+      def parts:[string] (strsplit n.vref ".")
+      if ((array_length parts) == 2) {
+        def owner:RgLocal (c.find((itemAt parts 0)))
+        if ((strlen owner.name) > 0) {
+          def ownerClass:string owner.typeName
+          if ((itemAt parts 0) == "this") {
+            ownerClass = c.className
+          }
+          def fieldDesc:RangerAppClassDesc (unwrap (get this.classDescs ownerClass))
+          for fieldDesc.variables v:RangerAppParamDesc vi {
+            if (null? v.nameNode) {
+              continue
+            }
+            def vn (unwrap v.nameNode)
+            if (vn.vref == (itemAt parts 1)) {
+              return vn.array_type
+            }
+          }
+        }
+      }
+    }
+    if ((strlen n.eval_array_type) > 0) {
+      return n.eval_array_type
+    }
+    if ((strlen n.array_type) > 0) {
+      return n.array_type
+    }
+    return ""
+  }
+
+  ; ---- statements ----------------------------------------------------------
+
+  fn lowerBlock:void (block:CodeNode c:RgFnCtx) {
+    if c.bailed {
+      return
+    }
+    for block.children stmt:CodeNode i {
+      this.lowerStmt(stmt c)
+      if c.bailed {
+        return
+      }
+    }
+  }
+
+  fn lowerStmt:void (node:CodeNode c:RgFnCtx) {
+    if c.bailed {
+      return
+    }
+    if node.disabled_node {
+      return
+    }
+    c.resetTemps()
+    def f:RgFunction c.out
+    if node.hasVarDef {
+      this.lowerVarDef(node c)
+      return
+    }
+    def n:CodeNode node
+    if n.infix_operator {
+      if (!null? n.infix_node) {
+        n = (unwrap n.infix_node)
+      }
+    }
+    if n.is_block_node {
+      this.lowerBlock(n c)
+      return
+    }
+    def opName:string (this.opNameOf(n))
+    switch opName {
+      case "=" {
+        this.lowerAssign(n c)
+        return
+      }
+      case "if" {
+        this.lowerIf(n c)
+        return
+      }
+      case "if!" {
+        this.lowerIfNot(n c)
+        return
+      }
+      case "while" {
+        this.lowerWhile(n c)
+        return
+      }
+      case "for" {
+        this.lowerFor(n c)
+        return
+      }
+      case "return" {
+        this.lowerReturn(n c)
+        return
+      }
+      case "break" {
+        def at:int (f.addOp(RgOp.JMP 0 0 0))
+        push c.breakPatches at
+        return
+      }
+      case "continue" {
+        def at2:int (f.addOp(RgOp.JMP 0 0 0))
+        push c.continuePatches at2
+        return
+      }
+      case "print" {
+        this.lowerPrint(n c)
+        return
+      }
+      case "push" {
+        this.lowerPush(n c)
+        return
+      }
+      case "set_at" {
+        this.lowerSetAt(n c)
+        return
+      }
+      case "write_file" {
+        this.lowerWriteFile(n c)
+        return
+      }
+      case "set" {
+        this.lowerSetAt(n c)
+        return
+      }
+    }
+    if ((strlen opName) > 0) {
+      this.bail(c ("statement operator `" + opName + "` is not supported"))
+      return
+    }
+    if (n.hasFnCall || n.has_call) {
+      this.lowerCallStmt(n c)
+      return
+    }
+    if n.expression {
+      for n.children ch:CodeNode ci {
+        this.lowerStmt(ch c)
+        if c.bailed {
+          return
+        }
+      }
+      return
+    }
+    if (n.value_type == RangerNodeType.VRef) {
+      ; A bare name as a statement is dead code in every target; ignore it
+      ; rather than bail, because the frontend leaves them behind.
+      return
+    }
+    this.bail(c "a statement shape the engine does not know")
+  }
+
+  fn lowerVarDef:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def nameNode (node.getSecond())
+    def cnt:int (array_length node.children)
+    def kind:RgKind (this.nameNodeKind(nameNode))
+    if (nameNode.value_type == RangerNodeType.Hash) {
+      this.bail(c "maps are not supported yet")
+      return
+    }
+    if (kind == RgKind.Void) {
+      this.bail(c ("local " + nameNode.vref + " has an unsupported type"))
+      return
+    }
+    def elem:string ""
+    if (nameNode.value_type == RangerNodeType.Array) {
+      elem = nameNode.array_type
+    }
+    def typeName:string nameNode.type_name
+    if ((strlen typeName) == 0) {
+      typeName = nameNode.eval_type_name
+    }
+    ; The initialiser is evaluated BEFORE the local exists, so `def x (x)` can
+    ; not read the register it is about to write.
+    def hasInit:boolean false
+    def srcReg:int 0
+    if (cnt > 2) {
+      def valNode (itemAt node.children (cnt - 1))
+      hasInit = true
+      if (kind == RgKind.Num) {
+        srcReg = (this.lowerNum(valNode c))
+      } {
+        srcReg = (this.lowerRef(valNode c))
+      }
+      if c.bailed {
+        return
+      }
+    }
+    def l:RgLocal (c.declare(nameNode.vref kind typeName elem))
+    if hasInit {
+      if (kind == RgKind.Num) {
+        f.addOp(RgOp.MOVN l.reg srcReg 0)
+      } {
+        f.addOp(RgOp.MOVR l.reg srcReg 0)
+      }
+      return
+    }
+    ; No initialiser: an array starts empty, a string empty, a number zero.
+    if (kind == RgKind.Num) {
+      f.addOp(RgOp.KNUM l.reg (f.addNum(0.0)) 0)
+      return
+    }
+    if (nameNode.value_type == RangerNodeType.Array) {
+      if (this.isNumTypeName(elem)) {
+        f.addOp(RgOp.ANEWN l.reg 0 0)
+      } {
+        f.addOp(RgOp.ANEWR l.reg 0 0)
+      }
+      return
+    }
+    if (typeName == "string") {
+      f.addOp(RgOp.KSTR l.reg (f.addString("")) 0)
+      return
+    }
+    f.addOp(RgOp.KNULL l.reg 0 0)
+  }
+
+  fn lowerAssign:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def target (node.getSecond())
+    def valNode (node.getThird())
+    def name:string target.vref
+    def parts:[string] (strsplit name ".")
+    def head:string (itemAt parts 0)
+    def l:RgLocal (c.find(head))
+    if ((strlen l.name) == 0) {
+      this.bail(c ("assignment to unknown name `" + name + "`"))
+      return
+    }
+    if ((array_length parts) == 1) {
+      if l.isField {
+        this.storeField("this" l.name valNode c)
+        return
+      }
+      if (l.kind == RgKind.Num) {
+        def src:int (this.lowerNum(valNode c))
+        if c.bailed {
+          return
+        }
+        f.addOp(RgOp.MOVN l.reg src 0)
+        return
+      }
+      def srcR:int (this.lowerRef(valNode c))
+      if c.bailed {
+        return
+      }
+      f.addOp(RgOp.MOVR l.reg srcR 0)
+      return
+    }
+    if ((array_length parts) == 2) {
+      this.storeField(head (itemAt parts 1) valNode c)
+      return
+    }
+    this.bail(c ("assignment to `" + name + "` is too deep for the engine"))
+  }
+
+  ; `objName.fieldName = value`, with objName == "this" meaning the receiver.
+  fn storeField:void (objName:string fieldName:string valNode:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def objReg:int (this.objectRegisterOf(objName c))
+    if c.bailed {
+      return
+    }
+    def ownerClass:string (this.classOfName(objName c))
+    def clIdx:int (this.module.findClass(ownerClass))
+    if (clIdx < 0) {
+      this.bail(c ("cannot resolve the class of `" + objName + "`"))
+      return
+    }
+    def clDef:RgClassDef (itemAt this.module.classes clIdx)
+    def ni:int (clDef.numFieldIndex(fieldName))
+    if (ni >= 0) {
+      def src:int (this.lowerNum(valNode c))
+      if c.bailed {
+        return
+      }
+      f.addOp(RgOp.SETFN objReg ni src)
+      return
+    }
+    def ri:int (clDef.refFieldIndex(fieldName))
+    if (ri >= 0) {
+      def srcR:int (this.lowerRef(valNode c))
+      if c.bailed {
+        return
+      }
+      f.addOp(RgOp.SETFR objReg ri srcR)
+      return
+    }
+    this.bail(c ("class " + ownerClass + " has no field " + fieldName))
+  }
+
+  fn classOfName:string (objName:string c:RgFnCtx) {
+    if (objName == "this") {
+      return c.className
+    }
+    def l:RgLocal (c.find(objName))
+    if ((strlen l.name) == 0) {
+      return ""
+    }
+    return l.typeName
+  }
+
+  ; The reference register holding an object named by a local, a field, or
+  ; `this`.
+  fn objectRegisterOf:int (objName:string c:RgFnCtx) {
+    def f:RgFunction c.out
+    if (objName == "this") {
+      def selfLocal:RgLocal (c.find("this"))
+      if ((strlen selfLocal.name) == 0) {
+        this.bail(c "`this` used in a static function")
+        return 0
+      }
+      return selfLocal.reg
+    }
+    def l:RgLocal (c.find(objName))
+    if ((strlen l.name) == 0) {
+      this.bail(c ("unknown object `" + objName + "`"))
+      return 0
+    }
+    if l.isField {
+      def selfLocal2:RgLocal (c.find("this"))
+      if ((strlen selfLocal2.name) == 0) {
+        this.bail(c ("field `" + objName + "` read outside an instance method"))
+        return 0
+      }
+      def dst:int (c.tempRef())
+      f.addOp(RgOp.GETFR dst selfLocal2.reg l.fieldIndex)
+      return dst
+    }
+    return l.reg
+  }
+
+  fn lowerIf:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def cond (node.getSecond())
+    def condReg:int (this.lowerNum(cond c))
+    if c.bailed {
+      return
+    }
+    def jumpFalse:int (f.addOp(RgOp.JZ condReg 0 0))
+    def thenBlock (node.getThird())
+    this.lowerBlock(thenBlock c)
+    if c.bailed {
+      return
+    }
+    if ((array_length node.children) > 3) {
+      def jumpEnd:int (f.addOp(RgOp.JMP 0 0 0))
+      f.patchB(jumpFalse (f.here()))
+      def elseBlock (itemAt node.children 3)
+      this.lowerBlock(elseBlock c)
+      if c.bailed {
+        return
+      }
+      f.patchA(jumpEnd (f.here()))
+      return
+    }
+    f.patchB(jumpFalse (f.here()))
+  }
+
+  fn lowerIfNot:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def cond (node.getSecond())
+    def condReg:int (this.lowerNum(cond c))
+    if c.bailed {
+      return
+    }
+    def jumpTrue:int (f.addOp(RgOp.JNZ condReg 0 0))
+    def thenBlock (node.getThird())
+    this.lowerBlock(thenBlock c)
+    if c.bailed {
+      return
+    }
+    f.patchB(jumpTrue (f.here()))
+  }
+
+  fn lowerWhile:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def savedBreaks:[int] c.breakPatches
+    def savedContinues:[int] c.continuePatches
+    def freshBreaks:[int]
+    def freshContinues:[int]
+    c.breakPatches = freshBreaks
+    c.continuePatches = freshContinues
+    def top:int (f.here())
+    def cond (node.getSecond())
+    def condReg:int (this.lowerNum(cond c))
+    if c.bailed {
+      return
+    }
+    def exitJump:int (f.addOp(RgOp.JZ condReg 0 0))
+    def body (node.getThird())
+    this.lowerBlock(body c)
+    if c.bailed {
+      return
+    }
+    for c.continuePatches at:int ci {
+      f.patchA(at top)
+    }
+    f.addOp(RgOp.JMP top 0 0)
+    def endPc:int (f.here())
+    f.patchB(exitJump endPc)
+    for c.breakPatches at2:int bi {
+      f.patchA(at2 endPc)
+    }
+    c.breakPatches = savedBreaks
+    c.continuePatches = savedContinues
+  }
+
+  ; `for list item:T index { … }` over an array. The index and the length live
+  ; in locals rather than temporaries, because the body resets the temporary
+  ; watermark on every statement.
+  fn lowerFor:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    if ((array_length node.children) < 5) {
+      this.bail(c "for over something that is not an array")
+      return
+    }
+    def listNode (node.getSecond())
+    def itemNode (node.getThird())
+    def idxNode (itemAt node.children 3)
+    def body (itemAt node.children 4)
+    def listReg:int (this.lowerRef(listNode c))
+    if c.bailed {
+      return
+    }
+    def elem:string (this.elemTypeOf(listNode c))
+    if ((strlen elem) == 0) {
+      this.bail(c "for over a collection whose element type is unknown")
+      return
+    }
+    def elemKind:RgKind (this.kindOfTypeName(elem))
+    ; Keep the list in a local so a temporary reset cannot clobber it.
+    def listLocal:RgLocal (c.declare((c.hiddenName("__for_list_")) RgKind.Ref "" elem))
+    f.addOp(RgOp.MOVR listLocal.reg listReg 0)
+    def idxName:string idxNode.vref
+    if ((strlen idxName) == 0) {
+      idxName = (c.hiddenName("__for_i_"))
+    }
+    def idxLocal:RgLocal (c.declare(idxName RgKind.Num "int" ""))
+    f.addOp(RgOp.KNUM idxLocal.reg (f.addNum(0.0)) 0)
+    def lenLocal:RgLocal (c.declare((c.hiddenName("__for_len_")) RgKind.Num "int" ""))
+    f.addOp(RgOp.ALEN lenLocal.reg listLocal.reg 0)
+    def itemLocal:RgLocal (c.declare(itemNode.vref elemKind elem ""))
+    def savedBreaks:[int] c.breakPatches
+    def savedContinues:[int] c.continuePatches
+    def freshBreaks:[int]
+    def freshContinues:[int]
+    c.breakPatches = freshBreaks
+    c.continuePatches = freshContinues
+    def top:int (f.here())
+    def condReg:int (c.tempNum())
+    f.addOp(RgOp.LT condReg idxLocal.reg lenLocal.reg)
+    def exitJump:int (f.addOp(RgOp.JZ condReg 0 0))
+    if (elemKind == RgKind.Num) {
+      f.addOp(RgOp.AGETN itemLocal.reg listLocal.reg idxLocal.reg)
+    } {
+      f.addOp(RgOp.AGETR itemLocal.reg listLocal.reg idxLocal.reg)
+    }
+    this.lowerBlock(body c)
+    if c.bailed {
+      return
+    }
+    def stepPc:int (f.here())
+    for c.continuePatches at:int ci {
+      f.patchA(at stepPc)
+    }
+    def oneReg:int (c.tempNum())
+    f.addOp(RgOp.KNUM oneReg (f.addNum(1.0)) 0)
+    f.addOp(RgOp.ADD idxLocal.reg idxLocal.reg oneReg)
+    f.addOp(RgOp.JMP top 0 0)
+    def endPc:int (f.here())
+    f.patchB(exitJump endPc)
+    for c.breakPatches at2:int bi {
+      f.patchA(at2 endPc)
+    }
+    c.breakPatches = savedBreaks
+    c.continuePatches = savedContinues
+  }
+
+  fn lowerReturn:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    if ((array_length node.children) < 2) {
+      f.addOp(RgOp.RETV 0 0 0)
+      return
+    }
+    def valNode (node.getSecond())
+    switch f.retKind {
+      case RgKind.Num {
+        def r:int (this.lowerNum(valNode c))
+        if c.bailed {
+          return
+        }
+        f.addOp(RgOp.RETN r 0 0)
+      }
+      case RgKind.Ref {
+        def r2:int (this.lowerRef(valNode c))
+        if c.bailed {
+          return
+        }
+        f.addOp(RgOp.RETR r2 0 0)
+      }
+      default {
+        f.addOp(RgOp.RETV 0 0 0)
+      }
+    }
+  }
+
+  fn lowerPrint:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    if ((array_length node.children) < 2) {
+      return
+    }
+    def valNode (node.getSecond())
+    def kind:RgKind (this.nodeKind(valNode c))
+    if (kind == RgKind.Num) {
+      def r:int (this.lowerNum(valNode c))
+      if c.bailed {
+        return
+      }
+      f.addOp(RgOp.PRINTN r 0 0)
+      return
+    }
+    def r2:int (this.lowerRef(valNode c))
+    if c.bailed {
+      return
+    }
+    f.addOp(RgOp.PRINTR r2 0 0)
+  }
+
+  fn lowerPush:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def arrNode (node.getSecond())
+    def valNode (node.getThird())
+    def arrReg:int (this.lowerRef(arrNode c))
+    if c.bailed {
+      return
+    }
+    def elem:string (this.elemTypeOf(arrNode c))
+    if ((strlen elem) == 0) {
+      this.bail(c "push into a collection whose element type is unknown")
+      return
+    }
+    if (this.isNumTypeName(elem)) {
+      def r:int (this.lowerNum(valNode c))
+      if c.bailed {
+        return
+      }
+      f.addOp(RgOp.APUSHN arrReg r 0)
+      return
+    }
+    def r2:int (this.lowerRef(valNode c))
+    if c.bailed {
+      return
+    }
+    f.addOp(RgOp.APUSHR arrReg r2 0)
+  }
+
+  fn lowerSetAt:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    if ((array_length node.children) < 4) {
+      this.bail(c "set with a shape the engine does not know (maps are unsupported)")
+      return
+    }
+    def arrNode (node.getSecond())
+    def idxNode (node.getThird())
+    def valNode (itemAt node.children 3)
+    def elem:string (this.elemTypeOf(arrNode c))
+    if ((strlen elem) == 0) {
+      this.bail(c "set into a collection whose element type is unknown (maps are unsupported)")
+      return
+    }
+    def arrReg:int (this.lowerRef(arrNode c))
+    if c.bailed {
+      return
+    }
+    def idxReg:int (this.lowerNum(idxNode c))
+    if c.bailed {
+      return
+    }
+    if (this.isNumTypeName(elem)) {
+      def r:int (this.lowerNum(valNode c))
+      if c.bailed {
+        return
+      }
+      f.addOp(RgOp.ASETN arrReg idxReg r)
+      return
+    }
+    def r2:int (this.lowerRef(valNode c))
+    if c.bailed {
+      return
+    }
+    f.addOp(RgOp.ASETR arrReg idxReg r2)
+  }
+
+  fn lowerWriteFile:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    if ((array_length node.children) < 4) {
+      this.bail(c "write_file needs a path, a name and the data")
+      return
+    }
+    def p1:int (this.lowerRef((node.getSecond()) c))
+    if c.bailed {
+      return
+    }
+    def p2:int (this.lowerRef((node.getThird()) c))
+    if c.bailed {
+      return
+    }
+    def p3:int (this.lowerRef((itemAt node.children 3) c))
+    if c.bailed {
+      return
+    }
+    f.addOp(RgOp.WRFILE p1 p2 p3)
+  }
+
+  fn lowerCallStmt:void (node:CodeNode c:RgFnCtx) {
+    this.lowerCall(node c RgKind.Void)
+  }
+
+  ; ---- expressions ---------------------------------------------------------
+
+  fn lowerNum:int (node:CodeNode c:RgFnCtx) {
+    if c.bailed {
+      return 0
+    }
+    def f:RgFunction c.out
+    def n:CodeNode (this.resolve(node))
+    switch n.value_type {
+      case RangerNodeType.Integer {
+        def r:int (c.tempNum())
+        f.addOp(RgOp.KNUM r (f.addNum((to_double n.int_value))) 0)
+        return r
+      }
+      case RangerNodeType.Double {
+        def r2:int (c.tempNum())
+        f.addOp(RgOp.KNUM r2 (f.addNum(n.double_value)) 0)
+        return r2
+      }
+      case RangerNodeType.Char {
+        def r3:int (c.tempNum())
+        f.addOp(RgOp.KNUM r3 (f.addNum((to_double n.int_value))) 0)
+        return r3
+      }
+      case RangerNodeType.Boolean {
+        def r4:int (c.tempNum())
+        def bv:double 0.0
+        if n.boolean_value {
+          bv = 1.0
+        }
+        f.addOp(RgOp.KNUM r4 (f.addNum(bv)) 0)
+        return r4
+      }
+    }
+    if (n.value_type == RangerNodeType.VRef) {
+      if (false == n.has_operator) {
+        return (this.loadNumName(n.vref c))
+      }
+    }
+    if n.hasFnCall {
+      return (this.lowerCall(n c RgKind.Num))
+    }
+    def opName:string (this.opNameOf(n))
+    if ((strlen opName) > 0) {
+      return (this.lowerNumOperator(opName n c))
+    }
+    this.bail(c "a numeric expression shape the engine does not know")
+    return 0
+  }
+
+  fn loadNumName:int (name:string c:RgFnCtx) {
+    def f:RgFunction c.out
+    def parts:[string] (strsplit name ".")
+    def head:string (itemAt parts 0)
+    def l:RgLocal (c.find(head))
+    if ((strlen l.name) == 0) {
+      this.bail(c ("unknown value `" + name + "`"))
+      return 0
+    }
+    if ((array_length parts) == 1) {
+      if l.isField {
+        def selfLocal:RgLocal (c.find("this"))
+        if ((strlen selfLocal.name) == 0) {
+          this.bail(c ("field `" + name + "` read outside an instance method"))
+          return 0
+        }
+        def dst:int (c.tempNum())
+        f.addOp(RgOp.GETFN dst selfLocal.reg l.fieldIndex)
+        return dst
+      }
+      return l.reg
+    }
+    if ((array_length parts) == 2) {
+      def objReg:int (this.objectRegisterOf(head c))
+      if c.bailed {
+        return 0
+      }
+      def ownerClass:string (this.classOfName(head c))
+      def clIdx:int (this.module.findClass(ownerClass))
+      if (clIdx < 0) {
+        this.bail(c ("cannot resolve the class of `" + head + "`"))
+        return 0
+      }
+      def clDef:RgClassDef (itemAt this.module.classes clIdx)
+      def fi:int (clDef.numFieldIndex((itemAt parts 1)))
+      if (fi < 0) {
+        this.bail(c (ownerClass + " has no numeric field " + (itemAt parts 1)))
+        return 0
+      }
+      def dst2:int (c.tempNum())
+      f.addOp(RgOp.GETFN dst2 objReg fi)
+      return dst2
+    }
+    this.bail(c ("`" + name + "` is too deep a path for the engine"))
+    return 0
+  }
+
+  fn lowerNumOperator:int (opName:string n:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    ; Arithmetic and comparison: two operands, one destination.
+    def binOp:RgOp RgOp.NOP
+    def isBin:boolean true
+    switch opName {
+      case "+" {
+        binOp = RgOp.ADD
+      }
+      case "-" {
+        binOp = RgOp.SUB
+      }
+      case "*" {
+        binOp = RgOp.MUL
+      }
+      case "/" {
+        binOp = RgOp.DIV
+      }
+      case "idiv" {
+        binOp = RgOp.IDIV
+      }
+      case "%" {
+        binOp = RgOp.MOD
+      }
+      case "<" {
+        binOp = RgOp.LT
+      }
+      case "<=" {
+        binOp = RgOp.LE
+      }
+      case ">" {
+        binOp = RgOp.GT
+      }
+      case ">=" {
+        binOp = RgOp.GE
+      }
+      default {
+        isBin = false
+      }
+    }
+    if isBin {
+      ; `-` with a single operand is negation, not subtraction.
+      if ((array_length n.children) == 2) {
+        if (opName == "-") {
+          def only:int (this.lowerNum((n.getSecond()) c))
+          if c.bailed {
+            return 0
+          }
+          def dstNeg:int (c.tempNum())
+          f.addOp(RgOp.NEG dstNeg only 0)
+          return dstNeg
+        }
+      }
+      def leftNode (n.getSecond())
+      def rightNode (n.getThird())
+      def left:int (this.lowerNum(leftNode c))
+      if c.bailed {
+        return 0
+      }
+      def right:int (this.lowerNum(rightNode c))
+      if c.bailed {
+        return 0
+      }
+      def dst:int (c.tempNum())
+      f.addOp(binOp dst left right)
+      ; A chain such as `(a + b + c)` arrives as one node with four children:
+      ; the operator and three operands.
+      def extra:int 3
+      while (extra < (array_length n.children)) {
+        def more:int (this.lowerNum((itemAt n.children extra) c))
+        if c.bailed {
+          return 0
+        }
+        def dst2:int (c.tempNum())
+        f.addOp(binOp dst2 dst more)
+        dst = dst2
+        extra = (extra + 1)
+      }
+      return dst
+    }
+    switch opName {
+      case "==" {
+        return (this.lowerEquality(n c false))
+      }
+      case "!=" {
+        return (this.lowerEquality(n c true))
+      }
+      case "&&" {
+        return (this.lowerAndOr(n c true))
+      }
+      case "||" {
+        return (this.lowerAndOr(n c false))
+      }
+      case "!" {
+        def v:int (this.lowerNum((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst:int (c.tempNum())
+        f.addOp(RgOp.NOT dst v 0)
+        return dst
+      }
+      case "array_length" {
+        def arr:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst2:int (c.tempNum())
+        f.addOp(RgOp.ALEN dst2 arr 0)
+        return dst2
+      }
+      case "length" {
+        def arr2:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst3:int (c.tempNum())
+        f.addOp(RgOp.ALEN dst3 arr2 0)
+        return dst3
+      }
+      case "strlen" {
+        def s:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst4:int (c.tempNum())
+        f.addOp(RgOp.SLEN dst4 s 0)
+        return dst4
+      }
+      case "charAt" {
+        def s2:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def idx:int (this.lowerNum((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst5:int (c.tempNum())
+        f.addOp(RgOp.CHARAT dst5 s2 idx)
+        return dst5
+      }
+      case "itemAt" {
+        def arr3:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def idx2:int (this.lowerNum((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst6:int (c.tempNum())
+        f.addOp(RgOp.AGETN dst6 arr3 idx2)
+        return dst6
+      }
+      case "to_int" {
+        def v2:int (this.lowerNum((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst7:int (c.tempNum())
+        f.addOp(RgOp.TRUNC dst7 v2 0)
+        return dst7
+      }
+      case "to_double" {
+        return (this.lowerNum((n.getSecond()) c))
+      }
+      case "str2int" {
+        def s3:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst8:int (c.tempNum())
+        f.addOp(RgOp.S2N dst8 s3 0)
+        return dst8
+      }
+      case "shell_arg_cnt" {
+        def dstArgc:int (c.tempNum())
+        f.addOp(RgOp.ARGC dstArgc 0 0)
+        return dstArgc
+      }
+      case "wall_clock_ms" {
+        def dstClock:int (c.tempNum())
+        f.addOp(RgOp.CLOCK dstClock 0 0)
+        return dstClock
+      }
+      case "current_time_ms" {
+        def dstClock2:int (c.tempNum())
+        f.addOp(RgOp.CLOCK dstClock2 0 0)
+        return dstClock2
+      }
+      case "file_exists" {
+        def fp:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def fn2:int (this.lowerRef((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstEx:int (c.tempNum())
+        f.addOp(RgOp.FEXISTS dstEx fp fn2)
+        return dstEx
+      }
+      case "null?" {
+        def r:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst9:int (c.tempNum())
+        f.addOp(RgOp.ISNULL dst9 r 0)
+        return dst9
+      }
+      case "!null?" {
+        def r2:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def tmp:int (c.tempNum())
+        f.addOp(RgOp.ISNULL tmp r2 0)
+        def dst10:int (c.tempNum())
+        f.addOp(RgOp.NOT dst10 tmp 0)
+        return dst10
+      }
+    }
+    this.bail(c ("operator `" + opName + "` is not supported"))
+    return 0
+  }
+
+  ; `==` / `!=` pick their instruction from the operand bank: numbers compare
+  ; with EQ, strings with SEQ, objects by identity.
+  fn lowerEquality:int (n:CodeNode c:RgFnCtx negate:boolean) {
+    def f:RgFunction c.out
+    def leftNode (n.getSecond())
+    def rightNode (n.getThird())
+    def lk:RgKind (this.nodeKind(leftNode c))
+    def rk:RgKind (this.nodeKind(rightNode c))
+    def kind:RgKind lk
+    if (lk == RgKind.Void) {
+      kind = rk
+    }
+    def dst:int 0
+    if (kind == RgKind.Num) {
+      def a:int (this.lowerNum(leftNode c))
+      if c.bailed {
+        return 0
+      }
+      def b:int (this.lowerNum(rightNode c))
+      if c.bailed {
+        return 0
+      }
+      dst = (c.tempNum())
+      f.addOp(RgOp.EQ dst a b)
+    } {
+      def a2:int (this.lowerRef(leftNode c))
+      if c.bailed {
+        return 0
+      }
+      def b2:int (this.lowerRef(rightNode c))
+      if c.bailed {
+        return 0
+      }
+      dst = (c.tempNum())
+      def leftIsString:boolean ((this.refIsString(leftNode c)) || (this.refIsString(rightNode c)))
+      if leftIsString {
+        f.addOp(RgOp.SEQ dst a2 b2)
+      } {
+        f.addOp(RgOp.OEQ dst a2 b2)
+      }
+    }
+    if negate {
+      def neg:int (c.tempNum())
+      f.addOp(RgOp.NOT neg dst 0)
+      return neg
+    }
+    return dst
+  }
+
+  fn refIsString:boolean (node:CodeNode c:RgFnCtx) {
+    def n:CodeNode (this.resolve(node))
+    if (n.value_type == RangerNodeType.String) {
+      return true
+    }
+    if (n.eval_type_name == "string") {
+      return true
+    }
+    if (n.value_type == RangerNodeType.VRef) {
+      def l:RgLocal (c.find(n.vref))
+      if (l.typeName == "string") {
+        return true
+      }
+    }
+    def opName:string (this.opNameOf(n))
+    if (opName == "substring") {
+      return true
+    }
+    if (opName == "to_string") {
+      return true
+    }
+    return false
+  }
+
+  ; Short-circuit `&&` / `||`: evaluate the left side into the destination and
+  ; skip the right side when the answer is already known.
+  fn lowerAndOr:int (n:CodeNode c:RgFnCtx isAnd:boolean) {
+    def f:RgFunction c.out
+    def dst:int (c.tempNum())
+    def left:int (this.lowerNum((n.getSecond()) c))
+    if c.bailed {
+      return 0
+    }
+    f.addOp(RgOp.MOVN dst left 0)
+    def skip:int 0
+    if isAnd {
+      skip = (f.addOp(RgOp.JZ dst 0 0))
+    } {
+      skip = (f.addOp(RgOp.JNZ dst 0 0))
+    }
+    def right:int (this.lowerNum((n.getThird()) c))
+    if c.bailed {
+      return 0
+    }
+    f.addOp(RgOp.MOVN dst right 0)
+    f.patchB(skip (f.here()))
+    return dst
+  }
+
+  fn lowerRef:int (node:CodeNode c:RgFnCtx) {
+    if c.bailed {
+      return 0
+    }
+    def f:RgFunction c.out
+    def n:CodeNode (this.resolve(node))
+    if (n.value_type == RangerNodeType.String) {
+      def r:int (c.tempRef())
+      f.addOp(RgOp.KSTR r (f.addString(n.string_value)) 0)
+      return r
+    }
+    if (n.value_type == RangerNodeType.Null) {
+      def rn:int (c.tempRef())
+      f.addOp(RgOp.KNULL rn 0 0)
+      return rn
+    }
+    if n.hasNewOper {
+      return (this.lowerNew(n c))
+    }
+    if (n.value_type == RangerNodeType.VRef) {
+      if (false == n.has_operator) {
+        return (this.loadRefName(n.vref c))
+      }
+    }
+    if n.hasFnCall {
+      return (this.lowerCall(n c RgKind.Ref))
+    }
+    def opName:string (this.opNameOf(n))
+    switch opName {
+      case "+" {
+        return (this.lowerConcat(n c))
+      }
+      case "substring" {
+        def s:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        ; SUBSTR reads its two bounds from consecutive numeric registers, so
+        ; they are materialised side by side even when they are already in
+        ; registers of their own.
+        def fromV:int (this.lowerNum((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def toV:int (this.lowerNum((itemAt n.children 3) c))
+        if c.bailed {
+          return 0
+        }
+        def slotA:int (c.tempNum())
+        def slotB:int (c.tempNum())
+        f.addOp(RgOp.MOVN slotA fromV 0)
+        f.addOp(RgOp.MOVN slotB toV 0)
+        def dst:int (c.tempRef())
+        f.addOp(RgOp.SUBSTR dst s slotA)
+        return dst
+      }
+      case "to_string" {
+        def valNode (n.getSecond())
+        def k:RgKind (this.nodeKind(valNode c))
+        if (k == RgKind.Ref) {
+          return (this.lowerRef(valNode c))
+        }
+        def v:int (this.lowerNum(valNode c))
+        if c.bailed {
+          return 0
+        }
+        def dst2:int (c.tempRef())
+        f.addOp(RgOp.N2S dst2 v 0)
+        return dst2
+      }
+      case "itemAt" {
+        def arr:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def idx:int (this.lowerNum((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dst3:int (c.tempRef())
+        f.addOp(RgOp.AGETR dst3 arr idx)
+        return dst3
+      }
+      case "shell_arg" {
+        def ai:int (this.lowerNum((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstArg:int (c.tempRef())
+        f.addOp(RgOp.ARGV dstArg ai 0)
+        return dstArg
+      }
+      case "strsplit" {
+        def ss:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def sep:int (this.lowerRef((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstSplit:int (c.tempRef())
+        f.addOp(RgOp.SPLIT dstSplit ss sep)
+        return dstSplit
+      }
+      case "trim" {
+        def ts:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstTrim:int (c.tempRef())
+        f.addOp(RgOp.TRIM dstTrim ts 0)
+        return dstTrim
+      }
+      case "read_file" {
+        def rp:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def rn:int (this.lowerRef((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstRd:int (c.tempRef())
+        f.addOp(RgOp.RDFILE dstRd rp rn)
+        return dstRd
+      }
+      ; `unwrap` on a value the engine already keeps unconditionally: the
+      ; engine has no optionals, a missing file reads as "", and `(unwrap x)`
+      ; is therefore x. Anything whose absence actually matters bails earlier,
+      ; at the operator that would have produced the optional.
+      case "unwrap" {
+        return (this.lowerRef((n.getSecond()) c))
+      }
+      case "!!" {
+        return (this.lowerRef((n.getSecond()) c))
+      }
+    }
+    if ((strlen opName) > 0) {
+      this.bail(c ("operator `" + opName + "` does not produce a value the engine can hold"))
+      return 0
+    }
+    this.bail(c "a reference expression shape the engine does not know")
+    return 0
+  }
+
+  fn loadRefName:int (name:string c:RgFnCtx) {
+    def f:RgFunction c.out
+    def parts:[string] (strsplit name ".")
+    def head:string (itemAt parts 0)
+    def l:RgLocal (c.find(head))
+    if ((strlen l.name) == 0) {
+      this.bail(c ("unknown value `" + name + "`"))
+      return 0
+    }
+    if ((array_length parts) == 1) {
+      if l.isField {
+        def selfLocal:RgLocal (c.find("this"))
+        if ((strlen selfLocal.name) == 0) {
+          this.bail(c ("field `" + name + "` read outside an instance method"))
+          return 0
+        }
+        def dst:int (c.tempRef())
+        f.addOp(RgOp.GETFR dst selfLocal.reg l.fieldIndex)
+        return dst
+      }
+      return l.reg
+    }
+    if ((array_length parts) == 2) {
+      def objReg:int (this.objectRegisterOf(head c))
+      if c.bailed {
+        return 0
+      }
+      def ownerClass:string (this.classOfName(head c))
+      def clIdx:int (this.module.findClass(ownerClass))
+      if (clIdx < 0) {
+        this.bail(c ("cannot resolve the class of `" + head + "`"))
+        return 0
+      }
+      def clDef:RgClassDef (itemAt this.module.classes clIdx)
+      def fi:int (clDef.refFieldIndex((itemAt parts 1)))
+      if (fi < 0) {
+        this.bail(c (ownerClass + " has no reference field " + (itemAt parts 1)))
+        return 0
+      }
+      def dst2:int (c.tempRef())
+      f.addOp(RgOp.GETFR dst2 objReg fi)
+      return dst2
+    }
+    this.bail(c ("`" + name + "` is too deep a path for the engine"))
+    return 0
+  }
+
+  ; String building. Ranger's `+` is overloaded on strings, and a numeric
+  ; operand is converted where it appears rather than by a runtime check.
+  fn lowerConcat:int (n:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def acc:int (0 - 1)
+    def i:int 1
+    while (i < (array_length n.children)) {
+      def part (itemAt n.children i)
+      def k:RgKind (this.nodeKind(part c))
+      def partReg:int 0
+      if (k == RgKind.Num) {
+        def v:int (this.lowerNum(part c))
+        if c.bailed {
+          return 0
+        }
+        partReg = (c.tempRef())
+        f.addOp(RgOp.N2S partReg v 0)
+      } {
+        partReg = (this.lowerRef(part c))
+        if c.bailed {
+          return 0
+        }
+      }
+      if (acc < 0) {
+        acc = partReg
+      } {
+        def dst:int (c.tempRef())
+        f.addOp(RgOp.SCAT dst acc partReg)
+        acc = dst
+      }
+      i = (i + 1)
+    }
+    if (acc < 0) {
+      def empty:int (c.tempRef())
+      f.addOp(RgOp.KSTR empty (f.addString("")) 0)
+      return empty
+    }
+    return acc
+  }
+
+  fn lowerNew:int (n:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    def clNode (n.getSecond())
+    def className:string clNode.vref
+    def clIdx:int (this.module.findClass(className))
+    if (clIdx < 0) {
+      this.bail(c ("cannot construct unknown class " + className))
+      return 0
+    }
+    def dst:int (c.tempRef())
+    f.addOp(RgOp.NEWOBJ dst clIdx 0)
+    def clDef:RgClassDef (itemAt this.module.classes clIdx)
+    ; String fields with a literal default are written after allocation: the
+    ; layout only carries "empty string".
+    this.applyStringDefaults(className dst c)
+    if (clDef.ctorId >= 0) {
+      def argNodes:[CodeNode] (this.callArgNodes(n 2))
+      def ctorFn:RgFunction (itemAt this.module.functions clDef.ctorId)
+      this.emitArgs(argNodes ctorFn c)
+      if c.bailed {
+        return 0
+      }
+      f.addOp(RgOp.MCALLV 0 clDef.ctorId dst)
+    }
+    return dst
+  }
+
+  fn applyStringDefaults:void (className:string objReg:int c:RgFnCtx) {
+    def f:RgFunction c.out
+    if (false == (has this.classDescs className)) {
+      return
+    }
+    def cl:RangerAppClassDesc (unwrap (get this.classDescs className))
+    def clIdx:int (this.module.findClass(className))
+    def clDef:RgClassDef (itemAt this.module.classes clIdx)
+    for cl.variables v:RangerAppParamDesc vi {
+      if (null? v.nameNode) {
+        continue
+      }
+      def vn (unwrap v.nameNode)
+      if (vn.type_name != "string") {
+        continue
+      }
+      def text:string ""
+      if (!null? v.def_value) {
+        def dv (unwrap v.def_value)
+        if (dv.value_type == RangerNodeType.String) {
+          text = dv.string_value
+        }
+      }
+      if ((strlen text) == 0) {
+        if (vn.value_type == RangerNodeType.String) {
+          text = vn.string_value
+        }
+      }
+      if ((strlen text) == 0) {
+        continue
+      }
+      def fi:int (clDef.refFieldIndex(vn.vref))
+      if (fi < 0) {
+        continue
+      }
+      def sreg:int (c.tempRef())
+      f.addOp(RgOp.KSTR sreg (f.addString(text)) 0)
+      f.addOp(RgOp.SETFR objReg fi sreg)
+    }
+  }
+
+  ; ---- calls ---------------------------------------------------------------
+
+  fn callArgNodes:[CodeNode] (n:CodeNode from:int) {
+    def out:[CodeNode]
+    def cnt:int (array_length n.children)
+    if (cnt <= from) {
+      return out
+    }
+    def argHolder (itemAt n.children from)
+    if argHolder.expression {
+      if (false == argHolder.has_operator) {
+        for argHolder.children a:CodeNode ai {
+          push out a
+        }
+        return out
+      }
+    }
+    def i:int from
+    while (i < cnt) {
+      push out (itemAt n.children i)
+      i = (i + 1)
+    }
+    return out
+  }
+
+  ; Which function a call node names: `Class.method(…)`, `obj.method(…)`,
+  ; `this.method(…)`. Returns -1 when nothing resolves.
+  fn resolveCallTarget:int (n:CodeNode c:RgFnCtx) {
+    def head (n.getFirst())
+    def name:string head.vref
+    def parts:[string] (strsplit name ".")
+    if ((array_length parts) != 2) {
+      return (0 - 1)
+    }
+    def prefix:string (itemAt parts 0)
+    def method:string (itemAt parts 1)
+    if (has this.classNames prefix) {
+      return (this.module.findFunction((prefix + "." + method)))
+    }
+    def recvClass:string (this.classOfName(prefix c))
+    if ((strlen recvClass) == 0) {
+      return (0 - 1)
+    }
+    return (this.module.findFunction((recvClass + "." + method)))
+  }
+
+  fn emitArgs:void (argNodes:[CodeNode] callee:RgFunction c:RgFnCtx) {
+    def f:RgFunction c.out
+    ; The callee's parameter list starts with `this` for an instance method;
+    ; the receiver is not one of the argument nodes, so it is skipped here.
+    def kindOffset:int 0
+    if (false == callee.isStatic) {
+      kindOffset = 1
+    }
+    ; Evaluate every argument into a register FIRST, then push them. An
+    ; argument that is itself a call would otherwise interleave its own ARG
+    ; sequence with this one.
+    def regs:[int]
+    def kinds:[RgKind]
+    def i:int 0
+    while (i < (array_length argNodes)) {
+      def argNode (itemAt argNodes i)
+      def kIdx:int (i + kindOffset)
+      def k:RgKind RgKind.Num
+      if (kIdx < (array_length callee.paramKinds)) {
+        k = (itemAt callee.paramKinds kIdx)
+      } {
+        k = (this.nodeKind(argNode c))
+      }
+      if (k == RgKind.Num) {
+        def r:int (this.lowerNum(argNode c))
+        if c.bailed {
+          return
+        }
+        push regs r
+        push kinds RgKind.Num
+      } {
+        def r2:int (this.lowerRef(argNode c))
+        if c.bailed {
+          return
+        }
+        push regs r2
+        push kinds RgKind.Ref
+      }
+      i = (i + 1)
+    }
+    def j:int 0
+    while (j < (array_length regs)) {
+      def kk (itemAt kinds j)
+      if (kk == RgKind.Num) {
+        f.addOp(RgOp.ARGN (itemAt regs j) 0 0)
+      } {
+        f.addOp(RgOp.ARGR (itemAt regs j) 0 0)
+      }
+      j = (j + 1)
+    }
+  }
+
+  fn lowerCall:int (n:CodeNode c:RgFnCtx want:RgKind) {
+    def f:RgFunction c.out
+    def head (n.getFirst())
+    def name:string head.vref
+    def parts:[string] (strsplit name ".")
+    if ((array_length parts) != 2) {
+      this.bail(c ("call to `" + name + "` is not a static or instance method call"))
+      return 0
+    }
+    def prefix:string (itemAt parts 0)
+    def method:string (itemAt parts 1)
+    def fnId:int (this.resolveCallTarget(n c))
+    if (fnId < 0) {
+      this.bail(c ("cannot resolve the call `" + name + "`"))
+      return 0
+    }
+    def callee:RgFunction (itemAt this.module.functions fnId)
+    if (callee.tier == RgTier.Unsupported) {
+      this.bail(c ("calls " + callee.name + ", which did not lower"))
+      return 0
+    }
+    def argNodes:[CodeNode] (this.callArgNodes(n 1))
+    def isStaticCall:boolean (has this.classNames prefix)
+    def recvReg:int 0
+    if (false == isStaticCall) {
+      recvReg = (this.objectRegisterOf(prefix c))
+      if c.bailed {
+        return 0
+      }
+    }
+    this.emitArgs(argNodes callee c)
+    if c.bailed {
+      return 0
+    }
+    def retKind:RgKind callee.retKind
+    if isStaticCall {
+      switch retKind {
+        case RgKind.Num {
+          def dst:int (c.tempNum())
+          f.addOp(RgOp.CALLN dst fnId 0)
+          return dst
+        }
+        case RgKind.Ref {
+          def dst2:int (c.tempRef())
+          f.addOp(RgOp.CALLR dst2 fnId 0)
+          return dst2
+        }
+        default {
+          f.addOp(RgOp.CALLV 0 fnId 0)
+          return 0
+        }
+      }
+    }
+    switch retKind {
+      case RgKind.Num {
+        def dst3:int (c.tempNum())
+        f.addOp(RgOp.MCALLN dst3 fnId recvReg)
+        return dst3
+      }
+      case RgKind.Ref {
+        def dst4:int (c.tempRef())
+        f.addOp(RgOp.MCALLR dst4 fnId recvReg)
+        return dst4
+      }
+      default {
+        f.addOp(RgOp.MCALLV 0 fnId recvReg)
+        return 0
+      }
+    }
+    return 0
+  }
+}
