@@ -87,7 +87,7 @@ Based on current progress, here are the most impactful next items:
 - [x] **PNG 0.6** Box shadows with blur - *DONE*
 - [x] **PNG 0.7** EVGGradient shared parsing - *DONE*
 - [ ] **PNG 0.8** Image rendering - *TODO*
-- [ ] **PNG 0.9** SVG path rasterization - *TODO*
+- [x] **PNG 0.9** SVG path rasterization - *DONE (shared VectorRasterizer; fill + approximated stroke)*
 
 **New Files Created:**
 ```
@@ -436,7 +436,7 @@ For PDF, consider using the PNG renderer to generate shadow images, then embed.
 
 ### 📋 NEXT: PNG Renderer Completion
 1. **Image rendering** - Embed images in raster output
-2. **SVG path rasterization** - Bezier curve rendering
+2. ~~**SVG path rasterization** - Bezier curve rendering~~ - *DONE, see gallery/evg/PLAN_VECTOR_IR.md*
 
 ---
 
