@@ -9831,7 +9831,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
     };
     async WalkNode (node, ctx, wr) {
-      const line_index = node.getLine();
       if ( node.flow_done ) {
         return true;
       }
@@ -16832,7 +16831,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         ctx.removeOpNs(added_ns);
         ctx.addOpNs(fc.vref);
         added_ns = fc.vref;
-        const line_index = callArgs.getLine();
         const callerArgCnt = call_arg_cnt - 1;
         const fnArgCnt = args.children.length;
         let has_eval_ctx = false;
