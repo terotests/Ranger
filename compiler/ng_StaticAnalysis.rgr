@@ -2778,6 +2778,19 @@ class StaticAnalyzer {
       return
     }
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    ; NOTE: a class that is extended by children is written as
+    ; Rc<RefCell<dyn XTrait>> whatever the ownership analysis made of it,
+    ; so in principle it should carry reference semantics too -- and then
+    ; `this` inside one is the receiver Rc, which is what lets it be
+    ; passed to a trait-typed parameter instead of the panic! the writer
+    ; emits today. Marking it (plus its subclasses, which share the
+    ; slots) was measured at 155 -> 159 rustc errors: it fixes 16 sites
+    ; and uncovers a signature disagreement between a trait method and
+    ; the inherent method each impl forwards to. Aligning those needs
+    ; was tried in both directions and moved nothing (parent to child) or
+    ; made it worse (159 -> 166, both ways), because the descriptors the
+    ; writer emits from are not the ones cl.methods holds. Left as it is
+    ; until the emit path and the analysis agree on one descriptor.
     for root.definedClasses cl:RangerAppClassDesc ci {
       for cl.variables cv:RangerAppParamDesc vi {
         this.markDescRcWrap(cv)

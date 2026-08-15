@@ -27616,7 +27616,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             if ( is_passing_this_to_trait ) {
-                              wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")", false);
+                              let thisTraitName = "";
+                              const ttNN = arg_4.nameNode;
+                              if ( (typeof(ttNN) !== "undefined" && ttNN != null )  ) {
+                                const ttN = ttNN;
+                                thisTraitName = ttN.type_name;
+                              }
+                              let haveSelfRc = false;
+                              const ttM = ctx.getCurrentMethod();
+                              if ( (typeof(ttM) !== "undefined" && ttM != null )  ) {
+                                const ttF = this.rustEnclosingMethod((ttM));
+                                if ( ttF.rust_needs_self_rc ) {
+                                  haveSelfRc = true;
+                                }
+                              }
+                              if ( haveSelfRc && ((thisTraitName.length) > 0) ) {
+                                wr.out(("(__self_rc.clone() as Rc<RefCell<dyn " + thisTraitName) + "Trait>>)", false);
+                              } else {
+                                wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")", false);
+                              }
                             } else {
                               const needs_rc_wrap = arg_4.rust_needs_rc_wrap;
                               let value_already_rc_wrapped = false;

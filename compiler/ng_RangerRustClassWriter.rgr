@@ -4882,9 +4882,32 @@ class RangerRustClassWriter {
               }
             }
             if is_passing_this_to_trait {
-              ; Cannot pass `this` to a trait-type parameter in Rust
-              ; The object would need to be wrapped in Rc at construction time
-              wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")" false)
+              ; The receiver's own Rc is available as __self_rc wherever the
+              ; method uses `this` as a value -- and passing it to a
+              ; trait-typed parameter is exactly that use, so
+              ; computeSelfRcNeeds has marked the method. The clone coerces
+              ; from Rc<RefCell<Concrete>> to Rc<RefCell<dyn XTrait>> at the
+              ; argument, which is a coercion site. Without an Rc to hand
+              ; over there is still nothing that can be done.
+              def thisTraitName:string ""
+              def ttNN@(optional):CodeNode arg.nameNode
+              if (!null? ttNN) {
+                def ttN:CodeNode (unwrap ttNN)
+                thisTraitName = ttN.type_name
+              }
+              def haveSelfRc:boolean false
+              def ttM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+              if (!null? ttM) {
+                def ttF:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap ttM)))
+                if ttF.rust_needs_self_rc {
+                  haveSelfRc = true
+                }
+              }
+              if ((haveSelfRc && ((strlen thisTraitName) > 0))) {
+                wr.out((("(__self_rc.clone() as Rc<RefCell<dyn " + thisTraitName) + "Trait>>)") false)
+              } {
+                wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")" false)
+              }
             } {
               ; Check if parameter needs Rc<RefCell<T>> wrap (for weak ref pattern)
               def needs_rc_wrap:boolean arg.rust_needs_rc_wrap
@@ -5963,7 +5986,13 @@ class RangerRustClassWriter {
                 ; Determine if we should use the child's version or inherited version
                 ; and whether the method is static
                 def isStatic:boolean variant.rust_can_be_static
-                ; If child has this method, check child's version for static
+                ; NOTE: the call goes to the CHILD's inherent method, but the
+                ; forwarding uses the PARENT's descriptor for the argument
+                ; list -- the impl's own signature came from the parent too,
+                ; and __self_rc is only in scope when the parent declared it.
+                ; Switching to the child's descriptor at this one site costs
+                ; more than it saves (159 -> 165); the two are made to agree
+                ; in the analysis instead, by alignTraitSelfRcNeeds.
                 if (has cl.defined_methods variant.name) {
                   ; Child overrides - check child's method for static status
                   if (has cl.method_variants variant.name) {
