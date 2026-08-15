@@ -2430,7 +2430,27 @@ class RangerRustClassWriter {
         wr.out(", " false)
       }
       def scc:RangerAppClassDesc (unwrap fnDesc.container_class)
-      wr.out((("__self_rc : &Rc<RefCell<" + scc.name) + ">>") false)
+      ; A method of a TRAIT interface is declared once and implemented by
+      ; every subclass, and each impl forwards to its own inherent method —
+      ; so the hidden argument cannot be typed as the container class or the
+      ; two disagree (`&Rc<RefCell<Parent>>` against `&Rc<RefCell<Child>>`).
+      ; The trait object is the one type all of them share.
+      def sccName:string scc.name
+      if scc.is_extended_by_children {
+        sccName = (("dyn " + scc.name) + "Trait")
+      } {
+        for scc.extends_classes sccP:string sccPi {
+          if (ctx.isDefinedClass(sccP)) {
+            def sccPC:RangerAppClassDesc (ctx.findClass(sccP))
+            if sccPC.is_extended_by_children {
+              if (has sccPC.defined_methods fnDesc.name) {
+                sccName = (("dyn " + sccPC.name) + "Trait")
+              }
+            }
+          }
+        }
+      }
+      wr.out((("__self_rc : &Rc<RefCell<" + sccName) + ">>") false)
       wrote_selfrc = true
     }
     for pms arg:RangerAppParamDesc i {
@@ -5461,6 +5481,32 @@ class RangerRustClassWriter {
         ; writer said `self.m(…)` for a method emitted without a receiver.
         ; It is a property of the body alone, so it is settled here for
         ; every class, ahead of the first call site.
+        ; A trait method and the inherent method each impl forwards to share
+        ; one signature. The forwarding is written from the PARENT's variant,
+        ; so a parent that takes the hidden __self_rc while the child's own
+        ; variant does not passes an argument too many. These are the
+        ; descriptors the writer emits from -- cl.methods holds different
+        ; ones, which is why aligning through those changed nothing.
+        for mcl.extends_classes mclParent:string mclPi {
+          if (ctx.isDefinedClass(mclParent)) {
+            def mclPC:RangerAppClassDesc (ctx.findClass(mclParent))
+            if mclPC.is_extended_by_children {
+              for mclPC.defined_variants pvName:string pvi {
+                if (has mcl.method_variants pvName) {
+                  def pMVs:RangerAppMethodVariants (get mclPC.method_variants pvName)
+                  def cMVs:RangerAppMethodVariants (get mcl.method_variants pvName)
+                  for pMVs.variants pV:RangerAppFunctionDesc pvj {
+                    for cMVs.variants cV:RangerAppFunctionDesc cvj {
+                      if pV.rust_needs_self_rc {
+                        cV.rust_needs_self_rc = true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
         for mcl.methods scm:RangerAppFunctionDesc scmi {
           def scmB@(optional):CodeNode scm.fnBody
           if (!null? scmB) {

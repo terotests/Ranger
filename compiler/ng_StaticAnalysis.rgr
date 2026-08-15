@@ -2778,26 +2778,26 @@ class StaticAnalyzer {
       return
     }
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
-    ; NOTE: a class that is extended by children is written as
-    ; Rc<RefCell<dyn XTrait>> whatever the ownership analysis made of it,
-    ; so it SHOULD carry reference semantics -- and then `this` inside one
-    ; is the receiver Rc, which is what lets it be passed to a trait-typed
-    ; parameter instead of the panic! the writer emits today. Marking it,
-    ; with its subclasses (they share the slots), makes the smallest
-    ; program that shows the shape -- a base class handing `this` to a
-    ; method that takes the base type, plus one subclass -- compile
-    ; cleanly, where it cannot today.
-    ;
-    ; On the compiler itself it measures 143 -> 147, and the residue is
-    ; one thing: the hidden __self_rc is typed as the CONTAINER class, so
-    ; a trait method declares `&Rc<RefCell<Parent>>` while the inherent
-    ; method each impl forwards to wants `&Rc<RefCell<Child>>`. Aligning
-    ; which methods TAKE the argument is not enough and was tried: through
-    ; cl.methods it changes nothing (those are not the descriptors the
-    ; writer emits from), and through cl.method_variants it trades the 15
-    ; argument-count errors for 7 type errors of the same origin. The
-    ; hidden argument has to be typed as the trait object for a trait
-    ; method, and that is the change to make before this marking pays.
+    ; A class that is extended by children is written as
+    ; Rc<RefCell<dyn XTrait>> whatever the ownership analysis made of it
+    ; -- the trait object IS a shared handle -- so it carries reference
+    ; semantics, and so does anything that extends one, since a subclass
+    ; goes into the same trait-typed slots. Without this, `this` inside
+    ; such a class is `self` where the writer needs the receiver Rc, and
+    ; passing it to a trait-typed parameter could not be written at all.
+    for root.definedClasses tcl:RangerAppClassDesc tci {
+      if tcl.is_extended_by_children {
+        this.markClassShared(tcl.name "extended by children")
+      }
+      for tcl.extends_classes tclP:string tclPi {
+        if ((unwrap ctx).isDefinedClass(tclP)) {
+          def tclPC:RangerAppClassDesc ((unwrap ctx).findClass(tclP))
+          if tclPC.is_extended_by_children {
+            this.markClassShared(tcl.name "extends a class with children")
+          }
+        }
+      }
+    }
     for root.definedClasses cl:RangerAppClassDesc ci {
       for cl.variables cv:RangerAppParamDesc vi {
         this.markDescRcWrap(cv)
