@@ -9,6 +9,9 @@ Import "../jsx/JSXToEVG.rgr"
 Import "../raster/EVGRasterRenderer.rgr"
 Import "../raster/RasterText.rgr"
 Import "../raster/PNGEncoder.rgr"
+Import "../raster/VectorRasterizer.rgr"
+Import "../../../evg/SVGPathParser.rgr"
+Import "../../../evg/VectorViewBox.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../fonts/TrueTypeFont.rgr"
@@ -490,6 +493,13 @@ class EVGPNGTool {
             this.renderImage(el x y w h)
         }
 
+        ; Vector paths. PLAN_VECTOR_IR.md Stage 2 / TODO_EVG "PNG 0.9": the
+        ; raster target had no path support at all, so a <Path> that appeared
+        ; in PDF and HTML was simply missing from the PNG.
+        if (el.tagName == "path") {
+            this.renderPath(el x y w h)
+        }
+
         ; Render text content (for Label elements)
         if (el.textContent != "") {
             this.renderText(el x y w h padLeft padTop padRight)
@@ -501,6 +511,133 @@ class EVGPNGTool {
         }
     }
     
+    ; --------------------------------------------------------------------------
+    ; Vector paths
+    ; --------------------------------------------------------------------------
+    ; The same three steps as the PDF renderer, and deliberately the same
+    ; sources for each: SVGPathParser for the geometry, VectorViewBox for where
+    ; it lands, VectorRasterizer for the fill. Anywhere this file made its own
+    ; decision instead, PNG would drift from PDF and HTML again.
+    fn renderPath:void (el:EVGElement x:double y:double w:double h:double) {
+        def pathData:string el.svgPath
+        if ((strlen pathData) == 0) {
+            return
+        }
+
+        def parser (new SVGPathParser())
+        parser.parse(pathData)
+
+        ; A malformed path still draws what it can, per SVG 1.1 §8.3 — but it
+        ; says so, rather than looking like art that stops there.
+        if (parser.hasErrors()) {
+            print ("  Path: " + (parser.errorSummary()))
+        }
+
+        def b:PathBounds (parser.getBounds())
+        def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
+        def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
+
+        ; Curve subdivision is chosen from the size the path is actually drawn
+        ; at, so a big shape does not show facets and a small one does not pay
+        ; for detail no pixel can show.
+        def span:double w
+        if (h > span) {
+            span = h
+        }
+        def steps:int (to_int (span / 6.0))
+        if (steps < 4) {
+            steps = 4
+        }
+        if (steps > 48) {
+            steps = 48
+        }
+
+        ; The transform includes the element's position, so the rings come out
+        ; already in device space.
+        def rings:[PathRing] (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
+
+        def buf:RasterBuffer (renderer.getBuffer())
+
+        def fillColor:EVGColor el.fillColor
+        if (fillColor.isSet == false) {
+            fillColor = el.backgroundColor
+        }
+
+        if fillColor.isSet {
+            ; Every ring in ONE fill: that is what makes a counter a hole
+            ; instead of a second solid blob.
+            def raster (new VectorRasterizer())
+            def k:int 0
+            while (k < (array_length rings)) {
+                def ring:PathRing (itemAt rings k)
+                raster.addRing(ring.pts)
+                k = (k + 1)
+            }
+
+            def rule:int (VectorRasterizer.nonZero())
+            if (el.fillRule == "evenodd") {
+                rule = (VectorRasterizer.evenOdd())
+            }
+
+            def alpha:int (to_int (fillColor.a * 255.0))
+            if (alpha > 255) {
+                alpha = 255
+            }
+            raster.fillAA(buf (fillColor.red()) (fillColor.green()) (fillColor.blue()) alpha rule)
+        }
+
+        ; Stroke. Approximated as fillable geometry — see
+        ; VectorRasterizer.addStroke. Without this an icon drawn as an outline
+        ; (fill: none, stroke: ...) is simply invisible in the raster target
+        ; while appearing in PDF and HTML, which is the same class of silent
+        ; divergence this plan exists to remove.
+        if el.strokeColor.isSet {
+            if (el.strokeWidth > 0.0) {
+                ; stroke-width is in user units, so it scales with the viewBox
+                ; transform exactly like the geometry does.
+                def scale:double m.a
+                if (scale < 0.0) {
+                    scale = (0.0 - scale)
+                }
+                def deviceWidth:double (el.strokeWidth * scale)
+
+                def stroker (new VectorRasterizer())
+                def closed:boolean (this.pathIsClosed(parser))
+                def sk:int 0
+                while (sk < (array_length rings)) {
+                    def sring:PathRing (itemAt rings sk)
+                    stroker.addStroke(sring.pts deviceWidth closed)
+                    sk = (sk + 1)
+                }
+
+                def sAlpha:int (to_int (el.strokeColor.a * 255.0))
+                if (sAlpha > 255) {
+                    sAlpha = 255
+                }
+                ; Always non-zero: the quads and joint discs overlap, and
+                ; even-odd would punch holes where they do.
+                def sRule:int (VectorRasterizer.nonZero())
+                stroker.fillAA(buf (el.strokeColor.red()) (el.strokeColor.green()) (el.strokeColor.blue()) sAlpha sRule)
+            }
+        }
+    }
+
+    ; Whether the path's subpaths were closed with Z. A stroke follows the
+    ; closing segment only if the author asked for it — an open polyline drawn
+    ; with a phantom closing edge is a very visible wrong answer.
+    fn pathIsClosed:boolean (parser:SVGPathParser) {
+        def cmds:[PathCommand] (parser.getCommands())
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if (c.type == "Z") {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
     fn renderGradient:void (el:EVGElement x:double y:double w:double h:double radius:int) {
         ; Use the pre-parsed gradient from EVGElement
         def grad:EVGGradient el.gradient
