@@ -566,6 +566,36 @@ class RangerRustClassWriter {
     return ""
   }
 
+  ; The trait the hidden receiver argument is typed with in the method being
+  ; written, or "" when it is typed with the container class itself. Mirrors
+  ; the choice writeArgsDef makes.
+  fn rustSelfRcTraitName:string (ctx:RangerAppWriterContext) {
+    def scCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (null? scCls) {
+      return ""
+    }
+    def scc:RangerAppClassDesc (unwrap scCls)
+    if scc.is_extended_by_children {
+      return scc.name
+    }
+    def scM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? scM) {
+      return ""
+    }
+    def scF:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap scM)))
+    for scc.extends_classes sccP:string sccPi {
+      if (ctx.isDefinedClass(sccP)) {
+        def sccPC:RangerAppClassDesc (ctx.findClass(sccP))
+        if sccPC.is_extended_by_children {
+          if (has sccPC.defined_methods scF.name) {
+            return sccPC.name
+          }
+        }
+      }
+    }
+    return ""
+  }
+
   fn rustTypeIsOwnHandle:boolean (type_name:string ctx:RangerAppWriterContext) {
     def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(type_name))
     if (null? tcOpt) {
@@ -5392,6 +5422,22 @@ class RangerRustClassWriter {
             ctx.unsetInExpr()
             wr.out(".clone()" false)
           } {
+            ; `this` handed to a parameter of a CONCRETE class, from a method
+            ; whose hidden receiver is typed as the trait object: the two are
+            ; a downcast apart, and the value is known to be this very class.
+            if (nVal.vref == "this") {
+              if (arg_is_trait_type == false) {
+                def thisDownTrait:string (this.rustSelfRcTraitName(ctx))
+                if ((strlen thisDownTrait) > 0) {
+                  if (this.rustClassIsShared(argNameN.type_name ctx)) {
+                    if (argNameN.type_name != thisDownTrait) {
+                      wr.out((((("rg_downcast::<" + argNameN.type_name) + ", dyn ") + thisDownTrait) + "Trait>(__self_rc)") false)
+                      continue _
+                    }
+                  }
+                }
+              }
+            }
             ; Check if passing `this` to a trait-type parameter - this isn't supported
             ; because we can't create Rc<RefCell<Self>> from &mut self
             def is_passing_this_to_trait:boolean false

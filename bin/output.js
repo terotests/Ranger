@@ -24073,6 +24073,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return "";
             };
+            rustSelfRcTraitName (ctx) {
+              const scCls = ctx.getCurrentClass();
+              if ( typeof(scCls) === "undefined" ) {
+                return "";
+              }
+              const scc = scCls;
+              if ( scc.is_extended_by_children ) {
+                return scc.name;
+              }
+              const scM = ctx.getCurrentMethod();
+              if ( typeof(scM) === "undefined" ) {
+                return "";
+              }
+              const scF = this.rustEnclosingMethod((scM));
+              for ( let sccPi = 0; sccPi < scc.extends_classes.length; sccPi++) {
+                var sccP = scc.extends_classes[sccPi];
+                if ( ctx.isDefinedClass(sccP) ) {
+                  const sccPC = ctx.findClass(sccP);
+                  if ( sccPC.is_extended_by_children ) {
+                    if ( ( typeof(sccPC.defined_methods[scF.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(sccPC.defined_methods, scF.name) ) ) {
+                      return sccPC.name;
+                    }
+                  }
+                }
+              };
+              return "";
+            };
             rustTypeIsOwnHandle (type_name, ctx) {
               const tcOpt = ctx.findClass(type_name);
               if ( typeof(tcOpt) === "undefined" ) {
@@ -28020,6 +28047,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             ctx.unsetInExpr();
                             wr.out(".clone()", false);
                           } else {
+                            if ( nVal_4.vref == "this" ) {
+                              if ( arg_is_trait_type == false ) {
+                                const thisDownTrait = this.rustSelfRcTraitName(ctx);
+                                if ( (thisDownTrait.length) > 0 ) {
+                                  if ( this.rustClassIsShared(argNameN_3.type_name, ctx) ) {
+                                    if ( argNameN_3.type_name != thisDownTrait ) {
+                                      wr.out(((("rg_downcast::<" + argNameN_3.type_name) + ", dyn ") + thisDownTrait) + "Trait>(__self_rc)", false);
+                                      continue;
+                                    }
+                                  }
+                                }
+                              }
+                            }
                             let is_passing_this_to_trait = false;
                             if ( arg_is_trait_type ) {
                               if ( nVal_4.vref == "this" ) {
