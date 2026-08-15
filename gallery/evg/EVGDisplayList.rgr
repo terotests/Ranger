@@ -26,6 +26,7 @@
 
 Import "EVGElement.rgr"
 Import "EVGColor.rgr"
+Import "EVGTextEngine.rgr"
 
 ; Command kinds. Kept as ints so a backend can switch on them cheaply.
 ;   0 RECT   filled box, possibly rounded
@@ -78,8 +79,17 @@ class EVGDrawCmd {
 
 class EVGDisplayList {
     def cmds:[EVGDrawCmd]
+    ; The same engine layout measured with. A paragraph is emitted one command
+    ; per LINE, broken exactly where layout broke it — a backend that got the
+    ; whole string would draw one long run straight out of its box, which is
+    ; the disagreement between measure and paint this engine exists to avoid.
+    def textEngine:EVGTextEngine (new EVGTextEngine())
 
     Constructor () {
+    }
+
+    fn setTextEngine:void (e:EVGTextEngine) {
+        textEngine = e
     }
 
     fn count:int () {
@@ -162,26 +172,49 @@ class EVGDisplayList {
         ; re-break, and one that does not can ask EVGTextEngine for the same
         ; lines layout used.
         if ((strlen el.textContent) > 0) {
-            def c4 (new EVGDrawCmd())
-            c4.kind = 3
-            c4.x = (x + el.box.paddingLeftPx)
-            c4.y = (y + el.box.paddingTopPx)
-            c4.w = w
-            c4.h = h
-            c4.text = el.textContent
-            c4.fontFamily = (el.effectiveFontFamily())
-            c4.fontSize = el.inheritedFontSize
+            def face:string (el.effectiveFontFamily())
+            def fs:double el.inheritedFontSize
             if el.fontSize.isSet {
-                c4.fontSize = el.fontSize.pixels
+                fs = el.fontSize.pixels
             }
+            if (fs <= 0.0) {
+                fs = 14.0
+            }
+            def lh:double el.lineHeight
+            if (lh <= 0.0) {
+                lh = 1.2
+            }
+            def avail:double (el.box.getInnerWidth(w))
+            def lines:[string] (textEngine.breakToStrings(el.textContent face fs avail))
+            def tr:int 0
+            def tg:int 0
+            def tb:int 0
+            def ta:double 1.0
             if el.color {
                 def tc:EVGColor (unwrap el.color)
-                c4.r = (tc.red())
-                c4.g = (tc.green())
-                c4.b = (tc.blue())
-                c4.a = (tc.alpha())
+                tr = (tc.red())
+                tg = (tc.green())
+                tb = (tc.blue())
+                ta = (tc.alpha())
             }
-            push cmds c4
+            def li:int 0
+            while (li < (array_length lines)) {
+                def c4 (new EVGDrawCmd())
+                c4.kind = 3
+                c4.x = (x + el.box.paddingLeftPx)
+                c4.y = ((y + el.box.paddingTopPx) + ((to_double li) * (fs * lh)))
+                c4.w = avail
+                c4.h = (fs * lh)
+                c4.text = (itemAt lines li)
+                c4.fontFamily = face
+                c4.fontSize = fs
+                c4.r = tr
+                c4.g = tg
+                c4.b = tb
+                c4.a = ta
+                push cmds c4
+                li = (li + 1)
+            }
         }
 
         ; Children, clipped when the element says so.

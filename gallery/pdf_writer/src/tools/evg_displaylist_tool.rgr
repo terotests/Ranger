@@ -132,6 +132,8 @@ class EVGDisplayListTool {
         }
 
         def dl (new EVGDisplayList())
+        ; Break paragraphs exactly where layout broke them.
+        dl.setTextEngine((lay.getTextEngine()))
         dl.build(root)
 
         ; The page size travels with the list: a backend has to know how big
