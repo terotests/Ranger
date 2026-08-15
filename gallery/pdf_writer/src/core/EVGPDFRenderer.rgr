@@ -12,6 +12,7 @@ Import "../../../evg/EVGImageMeasurer.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
 Import "../../../evg/SVGPathParser.rgr"
+Import "../../../evg/VectorViewBox.rgr"
 Import "Buffer.rgr"
 Import "Utf8.rgr"
 Import "../fonts/FontManager.rgr"
@@ -1752,6 +1753,17 @@ class EVGPDFRenderer {
         streamBuffer.writeString("Q\n")
     }
     
+    ; The transform taking this element's path coordinates onto its layout box.
+    ;
+    ; Kept as its own method so the HTML renderer can agree with it by
+    ; construction: both ask VectorViewBox the same question and neither owns
+    ; the answer.
+    fn pathViewBoxMatrix:Matrix2D (el:EVGElement parser:SVGPathParser w:double h:double) {
+        def b:PathBounds (parser.getBounds())
+        def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
+        return (VectorViewBox.resolve(vb w h "xMidYMid meet"))
+    }
+
     fn renderPath:void (el:EVGElement x:double y:double w:double h:double) {
         def pathData:string el.svgPath
         if ((strlen pathData) == 0) {
@@ -1761,33 +1773,48 @@ class EVGPDFRenderer {
         ; Parse SVG path
         def parser (new SVGPathParser())
         parser.parse(pathData)
-        
-        ; Get scaled commands
-        def commands:[PathCommand] (parser.getScaledCommands(w h))
-        
+
+        ; Commands stay in USER UNITS. What maps them onto the element box is
+        ; the viewBox transform below, shared with every other renderer — see
+        ; PLAN_VECTOR_IR.md §2.1. This used to be `getScaledCommands(w h)`,
+        ; which fitted the path's ink to the box with independent x and y
+        ; scales: it stretched non-square art and ate the padding an icon had
+        ; been designed with, and no other renderer did the same thing.
+        def commands:[PathCommand] (parser.getCommands())
+
         ; Determine fill and stroke colors
         def fillColor:EVGColor el.fillColor
         def strokeColor:EVGColor el.strokeColor
-        
+
         ; Default to backgroundColor if fill not set
         if (fillColor.isSet == false) {
             fillColor = el.backgroundColor
         }
-        
+
+        def m:Matrix2D (this.pathViewBoxMatrix(el parser w h))
+
         ; Start path
         streamBuffer.writeString("q\n")
-        
+
         ; Translate to element position
         streamBuffer.writeString("1 0 0 1 " + (this.formatNum(x)) + " " + (this.formatNum(y)) + " cm\n")
-        
+
         ; Flip Y axis for path coordinates (SVG uses top-left, PDF uses bottom-left)
         streamBuffer.writeString("1 0 0 -1 0 " + (this.formatNum(h)) + " cm\n")
-        
+
+        ; viewBox -> element box. Same six numbers in the same order as an SVG
+        ; matrix(...), so this is a straight hand-off with no reordering.
+        streamBuffer.writeString((this.formatNum(m.a)) + " " + (this.formatNum(m.b)) + " " + (this.formatNum(m.c)) + " " + (this.formatNum(m.d)) + " " + (this.formatNum(m.e)) + " " + (this.formatNum(m.f)) + " cm\n")
+
         ; Build path commands
+        def curX:double 0.0
+        def curY:double 0.0
+        def startX:double 0.0
+        def startY:double 0.0
         def i:int 0
         while (i < (array_length commands)) {
             def cmd:PathCommand (itemAt commands i)
-            
+
             if (cmd.type == "M") {
                 ; Move to
                 streamBuffer.writeString((this.formatNum(cmd.x)) + " " + (this.formatNum(cmd.y)) + " m\n")
@@ -1804,17 +1831,38 @@ class EVGPDFRenderer {
             }
             
             if (cmd.type == "Q") {
-                ; Quadratic Bezier - convert to cubic
-                ; Control point is at 2/3 between current and q control point
-                ; For simplicity, approximate with cubic
-                streamBuffer.writeString((this.formatNum(cmd.x1)) + " " + (this.formatNum(cmd.y1)) + " " + (this.formatNum(cmd.x1)) + " " + (this.formatNum(cmd.y1)) + " " + (this.formatNum(cmd.x)) + " " + (this.formatNum(cmd.y)) + " c\n")
+                ; Quadratic -> cubic, by exact degree elevation:
+                ;   C1 = P0 + 2/3 (C - P0)
+                ;   C2 = P3 + 2/3 (C - P3)
+                ; This used to emit the quadratic control point as BOTH cubic
+                ; controls, which is not the same curve — it pulls far too
+                ; weakly and rendered visibly flatter than the identical path in
+                ; HTML, where the browser elevates correctly.
+                def c1x:double (curX + ((2.0 / 3.0) * (cmd.x1 - curX)))
+                def c1y:double (curY + ((2.0 / 3.0) * (cmd.y1 - curY)))
+                def c2x:double (cmd.x + ((2.0 / 3.0) * (cmd.x1 - cmd.x)))
+                def c2y:double (cmd.y + ((2.0 / 3.0) * (cmd.y1 - cmd.y)))
+                streamBuffer.writeString((this.formatNum(c1x)) + " " + (this.formatNum(c1y)) + " " + (this.formatNum(c2x)) + " " + (this.formatNum(c2y)) + " " + (this.formatNum(cmd.x)) + " " + (this.formatNum(cmd.y)) + " c\n")
             }
-            
+
             if (cmd.type == "Z") {
                 ; Close path
                 streamBuffer.writeString("h\n")
+                curX = startX
+                curY = startY
             }
-            
+
+            ; Degree elevation needs the segment's start point, so track the pen
+            ; the same way the path grammar does.
+            if (cmd.type == "M") {
+                startX = cmd.x
+                startY = cmd.y
+            }
+            if ((cmd.type == "Z") == false) {
+                curX = cmd.x
+                curY = cmd.y
+            }
+
             i = i + 1
         }
         

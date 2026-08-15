@@ -1,0 +1,39 @@
+# EVG viewBox transform snapshot v1
+#
+# What Chromium computes for viewBox / preserveAspectRatio, recorded so the
+# vector gate can check VectorViewBox against a real SVG implementation with
+# no browser and no network.
+# Regenerate with: node gallery/pdf_writer/test/browser_viewbox_snapshot.js --write
+#
+# Measured as getCTM() on a <g> directly inside the <svg>, i.e. the transform
+# from user space to viewport space, in SVG matrix(a b c d e f) order.
+# A preserveAspectRatio of `-` means the attribute was left off, so the
+# browser applied its own default.
+#
+# viewBox<TAB>width<TAB>height<TAB>preserveAspectRatio<TAB>a<TAB>b<TAB>c<TAB>d<TAB>e<TAB>f
+0 0 100 50	200	200	xMinYMin meet	2	0	0	2	0	0
+0 0 100 50	200	200	xMidYMin meet	2	0	0	2	0	0
+0 0 100 50	200	200	xMaxYMin meet	2	0	0	2	0	0
+0 0 100 50	200	200	xMinYMid meet	2	0	0	2	0	50
+0 0 100 50	200	200	xMidYMid meet	2	0	0	2	0	50
+0 0 100 50	200	200	xMaxYMid meet	2	0	0	2	0	50
+0 0 100 50	200	200	xMinYMax meet	2	0	0	2	0	100
+0 0 100 50	200	200	xMidYMax meet	2	0	0	2	0	100
+0 0 100 50	200	200	xMaxYMax meet	2	0	0	2	0	100
+0 0 50 100	200	200	xMinYMid meet	2	0	0	2	0	0
+0 0 50 100	200	200	xMidYMid meet	2	0	0	2	50	0
+0 0 50 100	200	200	xMaxYMid meet	2	0	0	2	100	0
+0 0 100 50	200	200	xMidYMid slice	4	0	0	4	-100	0
+0 0 100 50	200	200	xMinYMin slice	4	0	0	4	0	0
+0 0 50 100	200	200	xMaxYMax slice	4	0	0	4	0	-200
+0 0 100 50	200	200	none	2	0	0	4	0	0
+0 0 33 17	120	90	none	3.6363636363636362	0	0	5.294117647058823	0	0
+10 20 100 50	200	200	xMidYMid meet	2	0	0	2	-20	10
+-5 -5 10 10	100	60	xMidYMid meet	6	0	0	6	50	30
+-5 -5 10 10	100	60	xMinYMax meet	6	0	0	6	30	30
+0 0 33 17	120	90	xMidYMid meet	3.6363636363636362	0	0	3.6363636363636362	0	14.09090909090909
+0 0 33 17	120	90	xMidYMid slice	5.294117647058823	0	0	5.294117647058823	-27.352941176470583	0
+0 0 7 3	100	100	xMaxYMin meet	14.285714285714286	0	0	14.285714285714286	0	0
+0 0 24 24	64	64	-	2.6666666666666665	0	0	2.6666666666666665	0	0
+0 0 24 24	24	24	-	1	0	0	1	0	0
+0 0 16 16	48	24	-	1.5	0	0	1.5	12	0
