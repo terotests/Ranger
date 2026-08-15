@@ -18,6 +18,14 @@
  * edge. Antialiasing is one fwidth() smoothstep, which is why the corners come
  * out clean at any radius without multisampling.
  *
+ * Paint order
+ * -----------
+ * The list is in paint order and must stay that way, so it is split into RUNS:
+ * consecutive quads that share the atlas are one instanced draw, and an image
+ * — which needs its own texture bound — breaks the run and is drawn on its
+ * own. Every run reads the same instance buffers, offset to its first
+ * instance, because WebGL 2 has no base-instance parameter.
+ *
  * Text
  * ----
  * The list carries the run, the face and the size — the positions are EVG's,
@@ -26,25 +34,36 @@
  * is what a browser gives us for free. The SDL2 backend swaps that one piece
  * for the engine's own RasterText and keeps everything else.
  *
- * Not yet implemented: IMAGE commands (kind 2) and nested clips beyond a
- * single scissor rectangle. Both are noted where they would go.
+ * Images
+ * ------
+ * `object-fit: cover` is the only fit EVG's raster and PDF targets implement,
+ * and it is done here the same way they do it — by cropping, not by squashing.
+ * The crop is a UV rectangle computed from the source and box aspect ratios,
+ * so the GPU samples the covered region directly and the quad stays two
+ * triangles. A radius on the element clips the photo through the same distance
+ * field the rectangles use.
+ *
+ * Not yet implemented: nested clips beyond a single scissor rectangle.
  */
 
 const KIND = { RECT: 0, BORDER: 1, IMAGE: 2, TEXT: 3, PUSH_CLIP: 4, POP_CLIP: 5 };
+
+// aShape.z — what the fragment shader should do with this instance.
+const MODE = { SHAPE: 0, TEXT: 1, IMAGE: 2 };
 
 const VERT = `#version 300 es
 in vec2 aCorner;          // unit quad, 0..1
 in vec4 aRect;            // x, y, w, h in page pixels
 in vec4 aColor;           // rgba, 0..1
-in vec3 aShape;           // radius, thickness (0 = fill), isText
-in vec4 aUV;              // atlas u0,v0,u1,v1 for text
+in vec3 aShape;           // radius, thickness (0 = fill), mode
+in vec4 aUV;              // u0,v0,u1,v1 — atlas slot, or the image's cover crop
 uniform vec2 uPage;
 out vec4 vColor;
 out vec2 vLocal;          // position within the rect, in pixels
 out vec2 vHalf;
 out float vRadius;
 out float vThickness;
-out float vIsText;
+out float vMode;
 out vec2 vUV;
 void main() {
   vec2 p = aRect.xy + aCorner * aRect.zw;
@@ -56,7 +75,7 @@ void main() {
   vLocal = (aCorner - 0.5) * aRect.zw;
   vRadius = aShape.x;
   vThickness = aShape.y;
-  vIsText = aShape.z;
+  vMode = aShape.z;
   vUV = mix(aUV.xy, aUV.zw, aCorner);
 }`;
 
@@ -67,9 +86,10 @@ in vec2 vLocal;
 in vec2 vHalf;
 in float vRadius;
 in float vThickness;
-in float vIsText;
+in float vMode;
 in vec2 vUV;
 uniform sampler2D uAtlas;
+uniform sampler2D uImage;
 out vec4 outColor;
 
 float sdRoundedBox(vec2 p, vec2 b, float r) {
@@ -77,28 +97,45 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
+// The rounded-box coverage of this fragment, 0..1.
+//
+// fwidth() is a screen-space derivative, and it jumps across the diagonal seam
+// of the triangle strip on a very large quad — which drew a visible hairline
+// across the page background. Clamping keeps the edge one pixel soft no matter
+// how big the quad is.
+float boxCoverage(out float d) {
+  float r = min(vRadius, min(vHalf.x, vHalf.y));
+  d = sdRoundedBox(vLocal, vHalf, r);
+  float aa = clamp(fwidth(d), 0.35, 1.5);
+  return smoothstep(aa, -aa, d);
+}
+
 void main() {
-  if (vIsText > 0.5) {
+  if (vMode > 1.5) {
+    // Image: the UV rectangle already carries the object-fit crop, so this is
+    // a plain sample. The radius still applies — a photo in a rounded box is
+    // clipped by the same distance field the box itself is drawn with.
+    vec4 tex = texture(uImage, vUV);
+    float d;
+    float cov = boxCoverage(d);
+    if (cov <= 0.001) discard;
+    outColor = vec4(tex.rgb, tex.a * cov);
+    return;
+  }
+  if (vMode > 0.5) {
     // The atlas holds coverage in the alpha channel; the colour is the run's.
     float cov = texture(uAtlas, vUV).a;
     if (cov <= 0.001) discard;
     outColor = vec4(vColor.rgb, vColor.a * cov);
     return;
   }
-  float r = min(vRadius, min(vHalf.x, vHalf.y));
-  float d = sdRoundedBox(vLocal, vHalf, r);
-  // fwidth() is a screen-space derivative, and it jumps across the diagonal
-  // seam of the triangle strip on a very large quad — which drew a visible
-  // hairline across the page background. Clamping keeps the edge one pixel
-  // soft no matter how big the quad is.
-  float aa = clamp(fwidth(d), 0.35, 1.5);
-  float alpha;
+  float d;
+  float alpha = boxCoverage(d);
   if (vThickness > 0.0) {
     // Keep a band just inside the edge.
     float inner = -vThickness;
-    alpha = smoothstep(aa, -aa, d) * smoothstep(inner - aa, inner + aa, d);
-  } else {
-    alpha = smoothstep(aa, -aa, d);
+    float aa = clamp(fwidth(d), 0.35, 1.5);
+    alpha = alpha * smoothstep(inner - aa, inner + aa, d);
   }
   if (alpha <= 0.001) discard;
   outColor = vec4(vColor.rgb, vColor.a * alpha);
@@ -112,6 +149,41 @@ function compile(gl, type, src) {
     throw new Error("shader: " + gl.getShaderInfoLog(s));
   }
   return s;
+}
+
+/**
+ * Fetch and upload every distinct image the list refers to.
+ *
+ * Separate from rendering, and async, because a texture cannot be bound until
+ * its bytes have arrived — and the whole page would otherwise draw once with
+ * holes where the photos go. Call it, await it, then render.
+ *
+ * A `src` that will not load resolves to null rather than rejecting: one
+ * missing photo should leave a gap in the page, not an empty canvas.
+ */
+export async function loadImages(doc, opts = {}) {
+  const base = opts.base || "";
+  const srcs = [...new Set(doc.list.cmds.filter((c) => c.k === KIND.IMAGE && c.src).map((c) => c.src))];
+  const out = new Map();
+  await Promise.all(
+    srcs.map(
+      (src) =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            out.set(src, img);
+            resolve();
+          };
+          img.onerror = () => {
+            out.set(src, null);
+            resolve();
+          };
+          img.src = base + src;
+        })
+    )
+  );
+  return out;
 }
 
 /**
@@ -165,8 +237,39 @@ function buildTextAtlas(cmds, dpr) {
 
 const nextPow2 = (n) => { let p = 1; while (p < n) p *= 2; return p; };
 
+/**
+ * The UV rectangle that makes a source of `sw`×`sh` cover a box of `bw`×`bh`.
+ *
+ * This is `object-fit: cover`: fill the box and crop the overflow, centred,
+ * rather than distort the picture. Cropping in UV space means the GPU samples
+ * only what is shown, so the quad stays two triangles whatever the aspect
+ * mismatch.
+ */
+function coverUV(sw, sh, bw, bh) {
+  if (!sw || !sh || !bw || !bh) return [0, 0, 1, 1];
+  const src = sw / sh, box = bw / bh;
+  if (src > box) {
+    const f = box / src;          // source is wider: crop left and right
+    return [(1 - f) / 2, 0, 1 - (1 - f) / 2, 1];
+  }
+  const f = src / box;            // source is taller: crop top and bottom
+  return [0, (1 - f) / 2, 1, 1 - (1 - f) / 2];
+}
+
+function makeTexture(gl, source) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+
 export function renderDisplayList(gl, doc, opts = {}) {
   const dpr = opts.dpr || 1;
+  const images = opts.images || new Map();
   const cmds = doc.list.cmds;
 
   const prog = gl.createProgram();
@@ -179,24 +282,50 @@ export function renderDisplayList(gl, doc, opts = {}) {
   gl.useProgram(prog);
 
   const { canvas: atlasCanvas, slots } = buildTextAtlas(cmds, dpr);
-  const atlas = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, atlas);
-  if (atlasCanvas) {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlasCanvas);
-  } else {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-  }
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const atlas = atlasCanvas
+    ? makeTexture(gl, atlasCanvas)
+    : makeTexture(gl, new ImageData(1, 1));
 
-  // One instance per drawable command.
+  // One texture per distinct source, uploaded once however many quads use it.
+  const textures = new Map();
+  for (const [src, img] of images) {
+    if (img) textures.set(src, { tex: makeTexture(gl, img), w: img.naturalWidth, h: img.naturalHeight });
+  }
+
+  // Instances in paint order, plus the runs that must be drawn separately.
+  // A run is a stretch of instances that share a texture binding; an image
+  // ends the run before it and forms one of its own.
   const rects = [], colors = [], shapes = [], uvs = [];
-  let skippedImages = 0;
+  const runs = [];
+  let missingImages = 0, drawnImages = 0;
+  const pushRun = (start, count, tex) => {
+    if (count > 0) runs.push({ start, count, tex });
+  };
+  let runStart = 0;
+  const flush = () => {
+    const n = rects.length / 4;
+    pushRun(runStart, n - runStart, null);
+    runStart = n;
+  };
+
   for (const c of cmds) {
     if (c.k === KIND.PUSH_CLIP || c.k === KIND.POP_CLIP) continue;   // TODO: scissor stack
-    if (c.k === KIND.IMAGE) { skippedImages += 1; continue; }        // TODO: texture per src
+    if (c.k === KIND.IMAGE) {
+      const t = c.src && textures.get(c.src);
+      if (!t) { missingImages += 1; continue; }
+      // Everything queued so far has to be drawn BEFORE this photo, or the
+      // page paints out of order.
+      flush();
+      const uv = coverUV(t.w, t.h, c.w, c.h);
+      rects.push(c.x, c.y, c.w, c.h);
+      uvs.push(uv[0], uv[1], uv[2], uv[3]);
+      shapes.push(c.r || 0, 0, MODE.IMAGE);
+      colors.push(1, 1, 1, 1);
+      pushRun(runStart, 1, t.tex);
+      runStart = rects.length / 4;
+      drawnImages += 1;
+      continue;
+    }
     if (c.k === KIND.TEXT) {
       const s = slots.get(c);
       if (!s) continue;
@@ -204,39 +333,59 @@ export function renderDisplayList(gl, doc, opts = {}) {
       // ascent so the baseline lands in the same place it did in the PDF.
       rects.push(c.x - s.pad, c.y, s.w, s.h);
       uvs.push(s.u0, s.v0, s.u1, s.v1);
-      shapes.push(0, 0, 1);
+      shapes.push(0, 0, MODE.TEXT);
     } else {
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(0, 0, 0, 0);
-      shapes.push(c.r || 0, c.k === KIND.BORDER ? (c.t || 1) : 0, 0);
+      shapes.push(c.r || 0, c.k === KIND.BORDER ? (c.t || 1) : 0, MODE.SHAPE);
     }
     const col = c.c || [0, 0, 0, 1];
     colors.push(col[0] / 255, col[1] / 255, col[2] / 255, col[3]);
   }
+  flush();
   const count = rects.length / 4;
 
   const quad = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
 
-  const bind = (name, data, size, divisor) => {
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, name);
-    if (loc < 0) return;
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
-    gl.vertexAttribDivisor(loc, divisor);
+  // Attribute locations and buffers are set up once; a run re-points the
+  // per-instance attributes at its own first instance, which is how the base
+  // instance WebGL 2 does not have is emulated.
+  const cornerBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+  const cornerLoc = gl.getAttribLocation(prog, "aCorner");
+  gl.enableVertexAttribArray(cornerLoc);
+  gl.vertexAttribPointer(cornerLoc, 2, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(cornerLoc, 0);
+
+  const instanced = [
+    { name: "aRect", data: rects, size: 4 },
+    { name: "aColor", data: colors, size: 4 },
+    { name: "aShape", data: shapes, size: 3 },
+    { name: "aUV", data: uvs, size: 4 },
+  ];
+  for (const a of instanced) {
+    a.buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, a.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(a.data), gl.STATIC_DRAW);
+    a.loc = gl.getAttribLocation(prog, a.name);
+    if (a.loc < 0) continue;
+    gl.enableVertexAttribArray(a.loc);
+    gl.vertexAttribDivisor(a.loc, 1);
+  }
+  const pointAt = (first) => {
+    for (const a of instanced) {
+      if (a.loc < 0) continue;
+      gl.bindBuffer(gl.ARRAY_BUFFER, a.buf);
+      gl.vertexAttribPointer(a.loc, a.size, gl.FLOAT, false, 0, first * a.size * 4);
+    }
   };
-  bind("aCorner", quad, 2, 0);
-  bind("aRect", rects, 4, 1);
-  bind("aColor", colors, 4, 1);
-  bind("aShape", shapes, 3, 1);
-  bind("aUV", uvs, 4, 1);
 
   gl.uniform2f(gl.getUniformLocation(prog, "uPage"), doc.width, doc.height);
   gl.uniform1i(gl.getUniformLocation(prog, "uAtlas"), 0);
+  gl.uniform1i(gl.getUniformLocation(prog, "uImage"), 1);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, atlas);
 
@@ -246,7 +395,15 @@ export function renderDisplayList(gl, doc, opts = {}) {
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
 
-  return { drawn: count, textRuns: slots.size, skippedImages };
+  for (const run of runs) {
+    if (run.tex) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, run.tex);
+    }
+    pointAt(run.start);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, run.count);
+  }
+
+  return { drawn: count, textRuns: slots.size, images: drawnImages, missingImages, runs: runs.length };
 }
