@@ -184,13 +184,31 @@ class AppState@(immutable) {
 ```
 
 `@(immutable)` generates a `set_<field>` per field, each returning a **new**
-instance sharing everything it did not change:
+instance sharing everything it did not change, and `with` updates several at
+once:
 
 ```ranger
 def s1 (s0.set_loading(true))
-def s2 (s1.set_rows(rows2))
+def s2 (with s1 phase "ready" total 5 errorText "")
 ; s1.rows == s2.rows when rows did not change — a renderer can skip that branch
 ```
+
+`with` takes space-separated `field value` pairs, the same spelling the keyword
+form of record construction uses (`(new Point xpos 3 ypos 4)`) — a colon there
+would parse as a type annotation. Values may be any expression:
+
+```ranger
+def s3 (with s2 epoch (s2.epoch + 1) title ("Notes: " + name))
+```
+
+It lowers to the chain it stands for, so nothing new reaches the backends:
+
+```ranger
+((s2.set_epoch((s2.epoch + 1))).set_title(("Notes: " + name)))
+```
+
+Nested paths (`with state user.name "Ada"`) are not supported yet — update the
+inner value first and set it as a field.
 
 Cost: `conj` / `assoc` on a vector share structure; `removeAt` rebuilds, and
 every `Map` operation copies the whole map (copy-on-write, not a HAMT).

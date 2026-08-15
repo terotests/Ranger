@@ -42,18 +42,18 @@ async function drive(app: NotesApp, label: string): Promise<void> {
   console.log(`in flight before any answer: ${app.runtime.pendingCount}`);
   await app.idle();
   console.log(
-    `count=${app.page.total} shortest=${app.page.shortest} longest=${app.page.longest}`,
+    `count=${app.page.state.total} shortest=${app.page.state.shortest} longest=${app.page.state.longest}`,
   );
 
   console.log("-- stream in chunks of 2 ---------------------------------------");
   app.send((p) => p.onStreamAll(2));
   await app.idle();
-  console.log(`${app.page.streamChunks} chunks, ${app.page.streamRows} rows`);
+  console.log(`${app.page.state.streamChunks} chunks, ${app.page.state.streamRows} rows`);
 
   console.log("-- ask for a capability nobody granted --------------------------");
   app.send((p) => p.onTryForbidden());
   await app.idle();
-  console.log(`denied: ${app.page.deniedCount}  (${app.page.errorText})`);
+  console.log(`denied: ${app.page.state.deniedCount}  (${app.page.state.errorText})`);
 
   console.log("-- close the page while a query is running ----------------------");
   app.send((p) => p.onSearch("owner"));

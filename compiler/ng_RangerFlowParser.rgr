@@ -5963,6 +5963,97 @@ class RangerFlowParser {
   ; runs (S0). The arms are mutually exclusive, so a chain and a switch mean the
   ; same thing.
   ; ---------------------------------------------------------------------------
+  ; ---------------------------------------------------------------------------
+  ; `with` — update several fields of an @(immutable) value at once.
+  ;
+  ;     def s2 (with s1 loading true selectedId "42")
+  ;
+  ; lowers to the chain it stands for:
+  ;
+  ;     def s2 ((s1.set_loading(true)).set_selectedId("42"))
+  ;
+  ; Field/value pairs are space separated, the same spelling the keyword form of
+  ; record construction already uses — `(new Point xpos 3 ypos 4)`. A colon there
+  ; would parse as a type annotation, not as a pair.
+  ;
+  ; Doing this as a desugar rather than as an operator is what makes it variadic:
+  ; an operator would have to declare a fixed arity, and `with` takes as many
+  ; pairs as the value has fields. It runs before method collection, so every
+  ; stage after this one sees ordinary method calls.
+  ; ---------------------------------------------------------------------------
+  fn isWithExpression:boolean (node:CodeNode) {
+    def cnt:int (array_length node.children)
+    ; head + subject + at least one (field value) pair, pairs complete
+    if (cnt < 4) {
+      return false
+    }
+    if (((cnt - 2) % 2) != 0) {
+      return false
+    }
+    def head:CodeNode (node.getFirst())
+    if (head.vref != "with") {
+      return false
+    }
+    ; `with` is an ordinary identifier elsewhere; a dotted `a.with` is not this.
+    if ((array_length head.ns) > 1) {
+      return false
+    }
+    return true
+  }
+
+  fn expandWithIn:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; depth first: a `with` nested inside another one is rewritten before the
+    ; outer node serialises its children back to source.
+    for node.children ch@(lives):CodeNode i {
+      this.expandWithIn(ch ctx wr)
+    }
+    if (this.isWithExpression(node)) {
+      this.expandWith(node ctx wr)
+    }
+  }
+
+  fn expandWith:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def cnt:int (array_length node.children)
+    def subject:CodeNode (at node.children 1)
+    def code@(mutable):string (subject.getCode())
+
+    def i@(mutable):int 2
+    while (i < cnt) {
+      def fieldNode:CodeNode (at node.children i)
+      def valueNode:CodeNode (at node.children (i + 1))
+      def fieldName:string fieldNode.vref
+      if ((strlen fieldName) == 0) {
+        ctx.addError(node "with: expected a field name")
+        return
+      }
+      ; Wrapping each step keeps the chain a nest of complete expressions, which
+      ; is the form the parser accepts for a call on a call's result:
+      ;   s1  ->  (s1.set_a(1))  ->  ((s1.set_a(1)).set_b(2))
+      def opened:string (((("(" + code) + ".set_") + fieldName) + "(")
+      def valueCode:string (valueNode.getCode())
+      code = ((opened + valueCode) + "))")
+      i = (i + 2)
+    }
+
+    def src:SourceCode (new SourceCode (code))
+    src.filename = "with_expansion.rgr"
+    def parser:RangerLispParser (new RangerLispParser (src))
+    parser.parse(false)
+    def rn@(optional):CodeNode parser.rootNode
+    if (null? rn) {
+      ctx.addError(node "with: could not expand")
+      return
+    }
+    def root:CodeNode (unwrap rn)
+    if ((array_length root.children) == 0) {
+      ctx.addError(node "with: could not expand")
+      return
+    }
+    def expanded:CodeNode (first root.children)
+    node.getChildrenFrom(expanded)
+    node.expression = true
+  }
+
   fn isMatchStatement:boolean (node:CodeNode) {
     if ((array_length node.children) != 3) {
       return false
@@ -6369,6 +6460,8 @@ class RangerFlowParser {
 
     ; shapes first: everything below this line sees ordinary records and unions
     this.DesugarShapes(node ctx wr)
+    ; …and `with` reads as the chain of set_ calls it stands for
+    this.expandWithIn(node ctx wr)
     this.WalkCollectMethods(node ctx wr)
     def allTypes:[string]
 

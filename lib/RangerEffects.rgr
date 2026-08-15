@@ -196,6 +196,69 @@ class CapabilityManifest {
 }
 
 ; ----------------------------------------------------------------------------
+; Pure builders. These construct an EffectRequest and submit nothing, so a
+; reducer can name the I/O it wants while staying a function of its arguments:
+;
+;     fn update:Update (state:S event:E)   ->  new state + [EffectRequest]
+;
+; The process that owns the state submits the list afterwards. EffectQueue has
+; the same builders in submitting form, for code that has not been split that
+; way yet.
+; ----------------------------------------------------------------------------
+class EffectRequests {
+  sfn query:EffectRequest (owner:string sql:string args:[string] epoch:int label:string) {
+    def r:EffectRequest (new EffectRequest)
+    r.capability = "db"
+    r.op = "query"
+    r.ownerPath = owner
+    r.sql = sql
+    r.args = args
+    r.epoch = epoch
+    r.label = label
+    return r
+  }
+
+  sfn exec:EffectRequest (owner:string sql:string args:[string] epoch:int label:string) {
+    def r:EffectRequest (new EffectRequest)
+    r.capability = "db"
+    r.op = "exec"
+    r.ownerPath = owner
+    r.sql = sql
+    r.args = args
+    r.epoch = epoch
+    r.label = label
+    return r
+  }
+
+  sfn stream:EffectRequest (owner:string sql:string chunkSize:int epoch:int label:string) {
+    def r:EffectRequest (new EffectRequest)
+    def noArgs:[string]
+    r.capability = "db"
+    r.op = "stream"
+    r.ownerPath = owner
+    r.sql = sql
+    r.args = noArgs
+    r.chunkSize = chunkSize
+    r.epoch = epoch
+    r.label = label
+    return r
+  }
+
+  sfn delay:EffectRequest (owner:string ms:int epoch:int label:string) {
+    def r:EffectRequest (new EffectRequest)
+    def noArgs:[string]
+    r.capability = "clock"
+    r.op = "delay"
+    r.ownerPath = owner
+    r.args = noArgs
+    r.delayMs = ms
+    r.epoch = epoch
+    r.label = label
+    return r
+  }
+}
+
+; ----------------------------------------------------------------------------
 ; The queue itself. Handlers submit; the host drains it once per dispatch turn.
 ;
 ; It is a singleton for the same reason ProcessUiHost is: it is the one seam

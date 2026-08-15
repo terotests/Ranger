@@ -24,6 +24,8 @@ import {
   EffectQueue,
   EffectPayload,
   NotesPage,
+  NotesReducer,
+  NotesState,
   NotesViewModelBuilder,
   ProcessRuntime,
   ProcessUiHost,
@@ -92,8 +94,8 @@ describe("the model performs no I/O", () => {
 
     // The handler ran to completion, state moved, and the database was never
     // touched: the effect is sitting in the queue as data.
-    expect(page.phase).toBe("loading");
-    expect(page.epoch).toBe(1);
+    expect(page.state.phase).toBe("loading");
+    expect(page.state.epoch).toBe(1);
     expect(db.seen).toEqual([]);
 
     const queued = EffectQueue.__singleton().drain();
@@ -113,13 +115,84 @@ describe("the model performs no I/O", () => {
   });
 });
 
+describe("the reducer is a function", () => {
+  // No process, no runtime, no queue, no adapter — values in, values out.
+  it("computes a transition from a bare state value", () => {
+    const s0 = new NotesState();
+    const u = NotesReducer.search(s0, "app.notes", "scope");
+
+    expect(u.state.searchText).toBe("scope");
+    expect(u.state.phase).toBe("loading");
+    expect(u.state.epoch).toBe(1);
+    expect(u.state.inFlight).toBe(1);
+
+    // The effect is a value it returned, not something it did.
+    expect(u.effects).toHaveLength(1);
+    expect(u.effects[0].capability).toBe("db");
+    expect(u.effects[0].args).toEqual(["%scope%", "%scope%"]);
+    expect(EffectQueue.__singleton().depth()).toBe(0);
+  });
+
+  it("leaves the state it was given untouched", () => {
+    const s0 = new NotesState();
+    NotesReducer.search(s0, "app.notes", "scope");
+    NotesReducer.loadStats(s0, "app.notes");
+    NotesReducer.open(s0, "app.notes");
+
+    expect(s0.searchText).toBe("");
+    expect(s0.phase).toBe("idle");
+    expect(s0.epoch).toBe(0);
+    expect(s0.inFlight).toBe(0);
+    expect(s0.statsPending).toBe(0);
+  });
+
+  it("gives the same answer every time it is asked", () => {
+    const s0 = new NotesState();
+    const a = NotesReducer.search(s0, "app.notes", "scope");
+    const b = NotesReducer.search(s0, "app.notes", "scope");
+
+    expect(a.state).not.toBe(b.state); // distinct values...
+    expect(a.state).toEqual(b.state); // ...that are equal
+  });
+
+  it("shares the branches a transition did not change", () => {
+    // The payoff for a view layer: `notes` was not touched by these three
+    // transitions, so all four states carry the SAME array. A renderer can
+    // compare the branch by identity instead of diffing it.
+    const s0 = new NotesState();
+    const s1 = NotesReducer.open(s0, "app.notes").state;
+    const s2 = NotesReducer.seed(s1, "app.notes").state;
+    const s3 = NotesReducer.loadStats(s2, "app.notes").state;
+
+    expect(s1.notes).toBe(s0.notes);
+    expect(s3.notes).toBe(s0.notes);
+  });
+
+  it("keeps the previous state available after a live transition", async () => {
+    const app = await openedApp();
+    const before = app.page.state;
+
+    app.send((p) => p.onSearch("scope"));
+
+    // The old value is not a snapshot that had to be copied — it is the object
+    // that was already there, still valid.
+    expect(app.page.previous).toBe(before);
+    expect(app.page.previous.searchText).toBe("");
+    expect(app.page.state.searchText).toBe("scope");
+    expect(app.page.previous.notes).toHaveLength(5);
+
+    await app.idle();
+    app.stop();
+  });
+});
+
 describe("event chaining", () => {
   it("walks schema -> seed -> list, each step driven by the previous answer", async () => {
     const db = seededDb();
     const app = await openedApp(db);
 
-    expect(app.page.phase).toBe("ready");
-    expect(app.page.notes.map((n) => n.title)).toEqual([
+    expect(app.page.state.phase).toBe("ready");
+    expect(app.page.state.notes.map((n) => n.title)).toEqual([
       "Effects",
       "Scopes",
       "Capabilities",
@@ -128,7 +201,7 @@ describe("event chaining", () => {
     ]);
     // Three round trips, in order, none of them arranged by the host.
     expect(app.runtime.traceLabels("resolve")).toEqual(["schema", "seed", "search"]);
-    expect(app.page.inFlight).toBe(0);
+    expect(app.page.state.inFlight).toBe(0);
 
     app.stop();
   });
@@ -170,11 +243,11 @@ describe("concurrency", () => {
 
     await app.idle();
 
-    expect(app.page.total).toBe(5);
-    expect(app.page.shortest).toBe(19);
-    expect(app.page.longest).toBe(31);
-    expect(app.page.statsPending).toBe(0);
-    expect(app.page.phase).toBe("ready");
+    expect(app.page.state.total).toBe(5);
+    expect(app.page.state.shortest).toBe(19);
+    expect(app.page.state.longest).toBe(31);
+    expect(app.page.state.statsPending).toBe(0);
+    expect(app.page.state.phase).toBe("ready");
 
     app.stop();
   });
@@ -204,10 +277,10 @@ describe("staleness", () => {
     await app.idle();
 
     // Newest question wins; the older answer was dropped before touching state.
-    expect(app.page.searchText).toBe("ui");
-    expect(app.page.notes.map((n) => n.title)).toEqual(["Staleness"]);
-    expect(app.page.staleDropped).toBe(1);
-    expect(app.page.epoch).toBe(3); // list-all + two searches
+    expect(app.page.state.searchText).toBe("ui");
+    expect(app.page.state.notes.map((n) => n.title)).toEqual(["Staleness"]);
+    expect(app.page.state.staleDropped).toBe(1);
+    expect(app.page.state.epoch).toBe(3); // list-all + two searches
 
     app.stop();
   });
@@ -217,7 +290,7 @@ describe("structured concurrency", () => {
   it("abandons in-flight work when the owning process stops", async () => {
     const db = seededDb({ searchDelayMs: 40 });
     const app = await openedApp(db);
-    const before = app.page.notes.length;
+    const before = app.page.state.notes.length;
 
     app.send((p) => p.onSearch("scope"));
     expect(app.runtime.pendingCount).toBe(1);
@@ -235,8 +308,8 @@ describe("structured concurrency", () => {
 
     // Nothing was delivered to the stopped process: no late state change, no
     // handler running against a torn-down owner.
-    expect(app.page.notes.length).toBe(before);
-    expect(app.page.cancelledCount).toBe(0);
+    expect(app.page.state.notes.length).toBe(before);
+    expect(app.page.state.cancelledCount).toBe(0);
     expect(db.aborted.length).toBeGreaterThan(0);
     expect(app.runtime.trace.some((t) => t.kind === "drop")).toBe(true);
   });
@@ -252,8 +325,8 @@ describe("structured concurrency", () => {
     await app.idle();
 
     // Still attached, so it hears about it and can react.
-    expect(app.page.cancelledCount).toBe(1);
-    expect(app.page.inFlight).toBe(0);
+    expect(app.page.state.cancelledCount).toBe(1);
+    expect(app.page.state.inFlight).toBe(0);
 
     app.stop();
   });
@@ -285,8 +358,8 @@ describe("capabilities", () => {
     app.send((p) => p.onTryForbidden());
     await app.idle();
 
-    expect(app.page.deniedCount).toBe(1);
-    expect(app.page.errorText).toBe("capability denied: filesystem");
+    expect(app.page.state.deniedCount).toBe(1);
+    expect(app.page.state.errorText).toBe("capability denied: filesystem");
     expect(db.seen.length).toBe(seenBefore); // the request never became I/O
     expect(app.runtime.trace.some((t) => t.kind === "deny")).toBe(true);
 
@@ -302,8 +375,8 @@ describe("capabilities", () => {
   it("runs the whole application against a database that does not exist", async () => {
     // The point of the capability seam: this test touches no OS resource.
     const app = await openedApp();
-    expect(app.page.phase).toBe("ready");
-    expect(app.page.notes).toHaveLength(5);
+    expect(app.page.state.phase).toBe("ready");
+    expect(app.page.state.notes).toHaveLength(5);
     app.stop();
   });
 });
@@ -318,10 +391,10 @@ describe("streams", () => {
     await app.idle();
 
     // 5 rows in chunks of 2 => 3 chunks, the last one closing the stream.
-    expect(app.page.streamChunks).toBe(3);
-    expect(app.page.streamRows).toBe(5);
-    expect(app.page.phase).toBe("ready");
-    expect(app.page.inFlight).toBe(0);
+    expect(app.page.state.streamChunks).toBe(3);
+    expect(app.page.state.streamRows).toBe(5);
+    expect(app.page.state.phase).toBe("ready");
+    expect(app.page.state.inFlight).toBe(0);
     expect(app.runtime.trace.filter((t) => t.kind === "chunk")).toHaveLength(3);
 
     app.stop();

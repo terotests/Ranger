@@ -559,6 +559,57 @@ export class CapabilityManifest  {
     return this.names.length;
   };
 }
+export class EffectRequests  {
+  constructor() {
+  }
+  static query (owner : string, sql : string, args : Array<string>, epoch : number, label : string) : EffectRequest  {
+    const r : EffectRequest  = new EffectRequest();
+    r.capability = "db";
+    r.op = "query";
+    r.ownerPath = owner;
+    r.sql = sql;
+    r.args = args;
+    r.epoch = epoch;
+    r.label = label;
+    return r;
+  };
+  static exec (owner : string, sql : string, args : Array<string>, epoch : number, label : string) : EffectRequest  {
+    const r : EffectRequest  = new EffectRequest();
+    r.capability = "db";
+    r.op = "exec";
+    r.ownerPath = owner;
+    r.sql = sql;
+    r.args = args;
+    r.epoch = epoch;
+    r.label = label;
+    return r;
+  };
+  static stream (owner : string, sql : string, chunkSize : number, epoch : number, label : string) : EffectRequest  {
+    const r : EffectRequest  = new EffectRequest();
+    let noArgs : Array<string> | undefined  = [];
+    r.capability = "db";
+    r.op = "stream";
+    r.ownerPath = owner;
+    r.sql = sql;
+    r.args = noArgs;
+    r.chunkSize = chunkSize;
+    r.epoch = epoch;
+    r.label = label;
+    return r;
+  };
+  static delay (owner : string, ms : number, epoch : number, label : string) : EffectRequest  {
+    const r : EffectRequest  = new EffectRequest();
+    let noArgs : Array<string> | undefined  = [];
+    r.capability = "clock";
+    r.op = "delay";
+    r.ownerPath = owner;
+    r.args = noArgs;
+    r.delayMs = ms;
+    r.epoch = epoch;
+    r.label = label;
+    return r;
+  };
+}
 export class EffectQueue  {
   nextId!: number;
   pending!: Array<EffectRequest>;
@@ -813,7 +864,7 @@ export class Note  {
     this.tag = "";
   }
 }
-export class NotesPage  extends RangerProcessBase {
+export class NotesState  {
   phase!: string;
   searchText!: string;
   notes!: Array<Note>;
@@ -831,7 +882,6 @@ export class NotesPage  extends RangerProcessBase {
   streamRows!: number;
   lastElapsedMs!: number;
   constructor() {
-    super()
     this.phase = "idle";
     this.searchText = "";
     this.notes = [];
@@ -849,185 +899,279 @@ export class NotesPage  extends RangerProcessBase {
     this.streamRows = 0;
     this.lastElapsedMs = 0;
   }
-  start () : void  {
+  __CopySelf () : NotesState  {
+    const res : NotesState  = new NotesState();
+    res.phase = this.phase;
+    res.searchText = this.searchText;
+    res.notes = this.notes;
+    res.total = this.total;
+    res.shortest = this.shortest;
+    res.longest = this.longest;
+    res.errorText = this.errorText;
+    res.epoch = this.epoch;
+    res.staleDropped = this.staleDropped;
+    res.inFlight = this.inFlight;
+    res.deniedCount = this.deniedCount;
+    res.cancelledCount = this.cancelledCount;
+    res.statsPending = this.statsPending;
+    res.streamChunks = this.streamChunks;
+    res.streamRows = this.streamRows;
+    res.lastElapsedMs = this.lastElapsedMs;
+    return res;
   };
-  stop () : void  {
+  set_phase (new_value_of_phase : string) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.phase = new_value_of_phase;
+    return res;
   };
-  capabilities () : CapabilityManifest  {
-    const m : CapabilityManifest  = new CapabilityManifest();
-    m.require("db");
-    m.require("clock");
-    return m;
+  set_searchText (new_value_of_searchText : string) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.searchText = new_value_of_searchText;
+    return res;
   };
-  queue () : EffectQueue  {
-    return EffectQueue.__singleton();
+  set_notes (new_value_of_notes : Array<Note>) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.notes = new_value_of_notes;
+    return res;
   };
-  owner () : string  {
-    return this.__rangerPath;
+  set_total (new_value_of_total : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.total = new_value_of_total;
+    return res;
   };
-  onOpen () : void  {
-    this.phase = "schema";
-    this.errorText = "";
-    const q : EffectQueue  = this.queue();
-    const own : string  = this.owner();
-    let noArgs : Array<string> | undefined  = [];
+  set_shortest (new_value_of_shortest : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.shortest = new_value_of_shortest;
+    return res;
+  };
+  set_longest (new_value_of_longest : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.longest = new_value_of_longest;
+    return res;
+  };
+  set_errorText (new_value_of_errorText : string) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.errorText = new_value_of_errorText;
+    return res;
+  };
+  set_epoch (new_value_of_epoch : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.epoch = new_value_of_epoch;
+    return res;
+  };
+  set_staleDropped (new_value_of_staleDropped : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.staleDropped = new_value_of_staleDropped;
+    return res;
+  };
+  set_inFlight (new_value_of_inFlight : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.inFlight = new_value_of_inFlight;
+    return res;
+  };
+  set_deniedCount (new_value_of_deniedCount : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.deniedCount = new_value_of_deniedCount;
+    return res;
+  };
+  set_cancelledCount (new_value_of_cancelledCount : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.cancelledCount = new_value_of_cancelledCount;
+    return res;
+  };
+  set_statsPending (new_value_of_statsPending : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.statsPending = new_value_of_statsPending;
+    return res;
+  };
+  set_streamChunks (new_value_of_streamChunks : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.streamChunks = new_value_of_streamChunks;
+    return res;
+  };
+  set_streamRows (new_value_of_streamRows : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.streamRows = new_value_of_streamRows;
+    return res;
+  };
+  set_lastElapsedMs (new_value_of_lastElapsedMs : number) : NotesState  {
+    const res : NotesState  = this.__CopySelf();
+    res.lastElapsedMs = new_value_of_lastElapsedMs;
+    return res;
+  };
+}
+export class NotesUpdate  {
+  state!: NotesState;
+  effects!: Array<EffectRequest>;
+  constructor() {
+    this.state = new NotesState();
+    this.effects = [];
+  }
+  __CopySelf () : NotesUpdate  {
+    const res : NotesUpdate  = new NotesUpdate();
+    res.state = this.state;
+    res.effects = this.effects;
+    return res;
+  };
+  set_state (new_value_of_state : NotesState) : NotesUpdate  {
+    const res : NotesUpdate  = this.__CopySelf();
+    res.state = new_value_of_state;
+    return res;
+  };
+  set_effects (new_value_of_effects : Array<EffectRequest>) : NotesUpdate  {
+    const res : NotesUpdate  = this.__CopySelf();
+    res.effects = new_value_of_effects;
+    return res;
+  };
+}
+export class NotesReducer  {
+  constructor() {
+  }
+  static noEffects (s : NotesState) : NotesUpdate  {
+    const u : NotesUpdate  = new NotesUpdate();
+    let none : Array<EffectRequest> | undefined  = [];
+    return (u.set_state(s)).set_effects(none);
+  };
+  static oneEffect (s : NotesState, e : EffectRequest) : NotesUpdate  {
+    const u : NotesUpdate  = new NotesUpdate();
+    let list : Array<EffectRequest> | undefined  = [];
+    list.push(e);
+    return (u.set_state(s)).set_effects(list);
+  };
+  static open (s : NotesState, owner : string) : NotesUpdate  {
     const sql : string  = "CREATE TABLE IF NOT EXISTS notes (id INTEGER, title VARCHAR, body VARCHAR, tag VARCHAR)";
-    this.inFlight = this.inFlight + 1;
-    q.exec(own, sql, noArgs, this.epoch, "schema");
-    this.markStateDirty();
-  };
-  onSeed () : void  {
-    this.phase = "seeding";
-    const q : EffectQueue  = this.queue();
-    const own : string  = this.owner();
     let noArgs : Array<string> | undefined  = [];
+    const next : NotesState  = ((s.set_phase("schema")).set_errorText("")).set_inFlight((s.inFlight + 1));
+    const eff : EffectRequest  = EffectRequests.exec(owner, sql, noArgs, s.epoch, "schema");
+    return NotesReducer.oneEffect(next, eff);
+  };
+  static seed (s : NotesState, owner : string) : NotesUpdate  {
     const sql : string  = "INSERT INTO notes VALUES (1,'Effects','I/O is described, not performed','core'), (2,'Scopes','Every task has a lifecycle owner','core'), (3,'Capabilities','No grant, no socket','security'), (4,'Streams','Zero to n values over time','core'), (5,'Staleness','Newer questions win','ui')";
-    this.inFlight = this.inFlight + 1;
-    q.exec(own, sql, noArgs, this.epoch, "seed");
-    this.markStateDirty();
+    let noArgs : Array<string> | undefined  = [];
+    const next : NotesState  = (s.set_phase("seeding")).set_inFlight((s.inFlight + 1));
+    const eff : EffectRequest  = EffectRequests.exec(owner, sql, noArgs, s.epoch, "seed");
+    return NotesReducer.oneEffect(next, eff);
   };
-  onSearch (text : string) : void  {
-    this.searchText = text;
-    this.phase = "loading";
-    this.epoch = this.epoch + 1;
-    const q : EffectQueue  = this.queue();
-    const own : string  = this.owner();
+  static search (s : NotesState, owner : string, text : string) : NotesUpdate  {
+    const nextEpoch : number  = s.epoch + 1;
+    const next : NotesState  = (((s.set_searchText(text)).set_phase("loading")).set_epoch(nextEpoch)).set_inFlight((s.inFlight + 1));
     let args : Array<string> | undefined  = [];
-    args.push(("%" + text) + "%");
+    const pattern : string  = ("%" + text) + "%";
+    args.push(pattern);
+    args.push(pattern);
     const sql : string  = "SELECT id, title, body, tag FROM notes WHERE title ILIKE ? OR body ILIKE ? ORDER BY id";
-    args.push(("%" + text) + "%");
-    this.inFlight = this.inFlight + 1;
-    q.query(own, sql, args, this.epoch, "search");
-    this.markStateDirty();
+    const eff : EffectRequest  = EffectRequests.query(owner, sql, args, nextEpoch, "search");
+    return NotesReducer.oneEffect(next, eff);
   };
-  onListAll () : void  {
-    this.phase = "loading";
-    this.epoch = this.epoch + 1;
-    const q : EffectQueue  = this.queue();
-    const own : string  = this.owner();
+  static listAll (s : NotesState, owner : string) : NotesUpdate  {
+    const nextEpoch : number  = s.epoch + 1;
+    const next : NotesState  = ((s.set_phase("loading")).set_epoch(nextEpoch)).set_inFlight((s.inFlight + 1));
     let noArgs : Array<string> | undefined  = [];
     const sql : string  = "SELECT id, title, body, tag FROM notes ORDER BY id";
-    this.inFlight = this.inFlight + 1;
-    q.query(own, sql, noArgs, this.epoch, "search");
-    this.markStateDirty();
+    const eff : EffectRequest  = EffectRequests.query(owner, sql, noArgs, nextEpoch, "search");
+    return NotesReducer.oneEffect(next, eff);
   };
-  onLoadStats () : void  {
-    const q : EffectQueue  = this.queue();
-    const own : string  = this.owner();
+  static loadStats (s : NotesState, owner : string) : NotesUpdate  {
+    const next : NotesState  = (s.set_statsPending(3)).set_inFlight((s.inFlight + 3));
     let noArgs : Array<string> | undefined  = [];
-    this.statsPending = 3;
-    this.inFlight = this.inFlight + 3;
-    q.query(own, "SELECT count(*) AS n FROM notes", noArgs, this.epoch, "stat.count");
-    q.query(own, "SELECT min(length(body)) AS n FROM notes", noArgs, this.epoch, "stat.min");
-    q.query(own, "SELECT max(length(body)) AS n FROM notes", noArgs, this.epoch, "stat.max");
-    this.markStateDirty();
+    let list : Array<EffectRequest> | undefined  = [];
+    list.push(EffectRequests.query(owner, "SELECT count(*) AS n FROM notes", noArgs, s.epoch, "stat.count"));
+    list.push(EffectRequests.query(owner, "SELECT min(length(body)) AS n FROM notes", noArgs, s.epoch, "stat.min"));
+    list.push(EffectRequests.query(owner, "SELECT max(length(body)) AS n FROM notes", noArgs, s.epoch, "stat.max"));
+    const u : NotesUpdate  = new NotesUpdate();
+    return (u.set_state(next)).set_effects(list);
   };
-  onStreamAll (chunk : number) : void  {
-    this.streamChunks = 0;
-    this.streamRows = 0;
-    const q : EffectQueue  = this.queue();
-    const own : string  = this.owner();
-    this.inFlight = this.inFlight + 1;
-    q.stream(own, "SELECT id, title, body, tag FROM notes ORDER BY id", chunk, this.epoch, "stream");
-    this.markStateDirty();
+  static streamAll (s : NotesState, owner : string, chunk : number) : NotesUpdate  {
+    const next : NotesState  = ((s.set_streamChunks(0)).set_streamRows(0)).set_inFlight((s.inFlight + 1));
+    const sql : string  = "SELECT id, title, body, tag FROM notes ORDER BY id";
+    const eff : EffectRequest  = EffectRequests.stream(owner, sql, chunk, s.epoch, "stream");
+    return NotesReducer.oneEffect(next, eff);
   };
-  onTryForbidden () : void  {
-    const q : EffectQueue  = this.queue();
-    const own : string  = this.owner();
+  static tryForbidden (s : NotesState, owner : string) : NotesUpdate  {
+    const next : NotesState  = s.set_inFlight((s.inFlight + 1));
     const r : EffectRequest  = new EffectRequest();
     let noArgs : Array<string> | undefined  = [];
     r.capability = "filesystem";
     r.op = "read";
-    r.ownerPath = own;
+    r.ownerPath = owner;
     r.sql = "/etc/passwd";
     r.args = noArgs;
-    r.epoch = this.epoch;
+    r.epoch = s.epoch;
     r.label = "forbidden";
-    this.inFlight = this.inFlight + 1;
-    q.submit(r);
-    this.markStateDirty();
+    return NotesReducer.oneEffect(next, r);
   };
-  onEffectResult (r : EffectResult) : void  {
+  static result (s : NotesState, owner : string, r : EffectResult) : NotesUpdate  {
+    let base : NotesState  = s;
     if ( r.more == false ) {
-      this.inFlight = this.inFlight - 1;
+      base = s.set_inFlight((s.inFlight - 1));
     }
     if ( r.isCancelled() ) {
-      this.cancelledCount = this.cancelledCount + 1;
-      this.markStateDirty();
-      return;
+      const cancelled : NotesState  = base.set_cancelledCount((base.cancelledCount + 1));
+      return NotesReducer.noEffects(cancelled);
     }
     if ( r.isDenied() ) {
-      this.deniedCount = this.deniedCount + 1;
-      this.errorText = "capability denied: " + r.capability;
-      this.markStateDirty();
-      return;
+      const deniedText : string  = "capability denied: " + r.capability;
+      const denied : NotesState  = (base.set_deniedCount((base.deniedCount + 1))).set_errorText(deniedText);
+      return NotesReducer.noEffects(denied);
     }
-    if ( r.isStale(this.epoch) ) {
-      this.staleDropped = this.staleDropped + 1;
-      this.markStateDirty();
-      return;
+    if ( r.isStale(base.epoch) ) {
+      const stale : NotesState  = base.set_staleDropped((base.staleDropped + 1));
+      return NotesReducer.noEffects(stale);
     }
     if ( r.ok == false ) {
-      this.phase = "failed";
-      this.errorText = r.errorMessage;
-      this.markStateDirty();
-      return;
+      const failed : NotesState  = (base.set_phase("failed")).set_errorText(r.errorMessage);
+      return NotesReducer.noEffects(failed);
     }
-    this.lastElapsedMs = r.elapsedMs;
+    const timed : NotesState  = base.set_lastElapsedMs(r.elapsedMs);
     if ( r.label == "schema" ) {
-      this.onSeed();
-      return;
+      return NotesReducer.seed(timed, owner);
     }
     if ( r.label == "seed" ) {
-      this.onListAll();
-      return;
+      return NotesReducer.listAll(timed, owner);
     }
     if ( r.label == "search" ) {
-      this.applyRows(r.payload);
-      this.total = this.notes.length;
-      this.phase = "ready";
-      this.markStateDirty();
-      return;
+      const rows : Array<Note>  = NotesReducer.parseNotes(r.payload);
+      const listed : NotesState  = ((timed.set_notes(rows)).set_total((rows.length))).set_phase("ready");
+      return NotesReducer.noEffects(listed);
     }
     if ( r.label == "stream" ) {
-      this.applyStreamChunk(r);
-      return;
+      return NotesReducer.applyStreamChunk(timed, r);
     }
     if ( r.label == "stat.count" ) {
-      this.total = this.firstNumber(r.payload);
-      this.settleStat();
-      return;
+      const counted : NotesState  = timed.set_total(NotesReducer.firstNumber(r.payload));
+      return NotesReducer.settleStat(counted);
     }
     if ( r.label == "stat.min" ) {
-      this.shortest = this.firstNumber(r.payload);
-      this.settleStat();
-      return;
+      const shortestS : NotesState  = timed.set_shortest(NotesReducer.firstNumber(r.payload));
+      return NotesReducer.settleStat(shortestS);
     }
     if ( r.label == "stat.max" ) {
-      this.longest = this.firstNumber(r.payload);
-      this.settleStat();
-      return;
+      const longestS : NotesState  = timed.set_longest(NotesReducer.firstNumber(r.payload));
+      return NotesReducer.settleStat(longestS);
     }
-    this.markStateDirty();
+    return NotesReducer.noEffects(timed);
   };
-  settleStat () : void  {
-    this.statsPending = this.statsPending - 1;
-    if ( this.statsPending <= 0 ) {
-      this.statsPending = 0;
-      this.phase = "ready";
+  static settleStat (s : NotesState) : NotesUpdate  {
+    const left : number  = s.statsPending - 1;
+    if ( left <= 0 ) {
+      const done : NotesState  = (s.set_statsPending(0)).set_phase("ready");
+      return NotesReducer.noEffects(done);
     }
-    this.markStateDirty();
+    const pending : NotesState  = s.set_statsPending(left);
+    return NotesReducer.noEffects(pending);
   };
-  applyStreamChunk (r : EffectResult) : void  {
+  static applyStreamChunk (s : NotesState, r : EffectResult) : NotesUpdate  {
     const chunkRows : Array<EffectRow>  = EffectPayload.parseRows(r.payload);
-    this.streamChunks = this.streamChunks + 1;
-    this.streamRows = this.streamRows + (chunkRows.length);
+    const chunks : number  = s.streamChunks + 1;
+    const rows : number  = s.streamRows + (chunkRows.length);
     if ( r.more == false ) {
-      this.phase = "ready";
+      const finished : NotesState  = ((s.set_streamChunks(chunks)).set_streamRows(rows)).set_phase("ready");
+      return NotesReducer.noEffects(finished);
     }
-    this.markStateDirty();
+    const more : NotesState  = (s.set_streamChunks(chunks)).set_streamRows(rows);
+    return NotesReducer.noEffects(more);
   };
-  applyRows (payload : string) : void  {
+  static parseNotes (payload : string) : Array<Note>  {
     const parsed : Array<EffectRow>  = EffectPayload.parseRows(payload);
     let fresh : Array<Note> | undefined  = [];
     for ( let i = 0; i < parsed.length; i++) {
@@ -1039,15 +1183,82 @@ export class NotesPage  extends RangerProcessBase {
       n.tag = (row).get("tag");
       fresh.push(n);
     };
-    this.notes = fresh;
+    return fresh;
   };
-  firstNumber (payload : string) : number  {
+  static firstNumber (payload : string) : number  {
     const parsed : Array<EffectRow>  = EffectPayload.parseRows(payload);
     if ( (parsed.length) == 0 ) {
       return 0;
     }
     const row : EffectRow  = parsed[0];
     return (row).getInt("n");
+  };
+}
+export class NotesPage  extends RangerProcessBase {
+  state!: NotesState;
+  previous!: NotesState;
+  constructor() {
+    super()
+    this.state = new NotesState();
+    this.previous = new NotesState();
+  }
+  start () : void  {
+  };
+  stop () : void  {
+  };
+  capabilities () : CapabilityManifest  {
+    const m : CapabilityManifest  = new CapabilityManifest();
+    m.require("db");
+    m.require("clock");
+    return m;
+  };
+  owner () : string  {
+    return this.__rangerPath;
+  };
+  applyUpdate (u : NotesUpdate) : void  {
+    this.previous = this.state;
+    this.state = u.state;
+    const q : EffectQueue  = EffectQueue.__singleton();
+    for ( let i = 0; i < u.effects.length; i++) {
+      var e = u.effects[i];
+      q.submit(e);
+    };
+    this.markStateDirty();
+  };
+  onOpen () : void  {
+    const own : string  = this.owner();
+    const u : NotesUpdate  = NotesReducer.open(this.state, own);
+    this.applyUpdate(u);
+  };
+  onSearch (text : string) : void  {
+    const own : string  = this.owner();
+    const u : NotesUpdate  = NotesReducer.search(this.state, own, text);
+    this.applyUpdate(u);
+  };
+  onListAll () : void  {
+    const own : string  = this.owner();
+    const u : NotesUpdate  = NotesReducer.listAll(this.state, own);
+    this.applyUpdate(u);
+  };
+  onLoadStats () : void  {
+    const own : string  = this.owner();
+    const u : NotesUpdate  = NotesReducer.loadStats(this.state, own);
+    this.applyUpdate(u);
+  };
+  onStreamAll (chunk : number) : void  {
+    const own : string  = this.owner();
+    const u : NotesUpdate  = NotesReducer.streamAll(this.state, own, chunk);
+    this.applyUpdate(u);
+  };
+  onTryForbidden () : void  {
+    const own : string  = this.owner();
+    const u : NotesUpdate  = NotesReducer.tryForbidden(this.state, own);
+    this.applyUpdate(u);
+  };
+  onEffectResult (r : EffectResult) : void  {
+    const own : string  = this.owner();
+    const u : NotesUpdate  = NotesReducer.result(this.state, own, r);
+    this.applyUpdate(u);
   };
   __rangerRegisterRoot () : void  {
     this.__rangerClassName = "NotesPage";
@@ -1164,7 +1375,7 @@ export class NotesViewModel  {
 export class NotesViewModelBuilder  {
   constructor() {
   }
-  static build (m : NotesPage) : NotesViewModel  {
+  static fromState (m : NotesState) : NotesViewModel  {
     const vm : NotesViewModel  = new NotesViewModel();
     vm.title = "Notes";
     if ( (m.searchText.length) > 0 ) {
@@ -1195,6 +1406,9 @@ export class NotesViewModelBuilder  {
     }
     vm.footer = (((("epoch " + ((m.epoch.toString()))) + " · stale dropped ") + ((m.staleDropped.toString()))) + " · cancelled ") + ((m.cancelledCount.toString()));
     return vm;
+  };
+  static build (p : NotesPage) : NotesViewModel  {
+    return NotesViewModelBuilder.fromState(p.state);
   };
   static renderText (vm : NotesViewModel) : string  {
     let out : string  = "";

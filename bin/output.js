@@ -14698,6 +14698,68 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         console.log(((("  union " + shapeName) + " over ") + ("" + (caseNames.length))) + " cases");
       }
     };
+    isWithExpression (node) {
+      const cnt = node.children.length;
+      if ( cnt < 4 ) {
+        return false;
+      }
+      if ( ((cnt - 2) % 2) != 0 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( head.vref != "with" ) {
+        return false;
+      }
+      if ( (head.ns.length) > 1 ) {
+        return false;
+      }
+      return true;
+    };
+    expandWithIn (node, ctx, wr) {
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.expandWithIn(ch, ctx, wr);
+      };
+      if ( this.isWithExpression(node) ) {
+        this.expandWith(node, ctx, wr);
+      }
+    };
+    expandWith (node, ctx, wr) {
+      const cnt = node.children.length;
+      const subject = node.children[1];
+      let code = subject.getCode();
+      let i = 2;
+      while (i < cnt) {
+        const fieldNode = node.children[i];
+        const valueNode = node.children[(i + 1)];
+        const fieldName = fieldNode.vref;
+        if ( (fieldName.length) == 0 ) {
+          ctx.addError(node, "with: expected a field name");
+          return;
+        }
+        const opened = ((("(" + code) + ".set_") + fieldName) + "(";
+        const valueCode = valueNode.getCode();
+        code = (opened + valueCode) + "))";
+        i = i + 2;
+      };
+      const src = new SourceCode(code);
+      src.filename = "with_expansion.rgr";
+      const parser = new RangerLispParser(src);
+      parser.parse(false);
+      const rn = parser.rootNode;
+      if ( typeof(rn) === "undefined" ) {
+        ctx.addError(node, "with: could not expand");
+        return;
+      }
+      const root = rn;
+      if ( (root.children.length) == 0 ) {
+        ctx.addError(node, "with: could not expand");
+        return;
+      }
+      const expanded = root.children[0];
+      node.getChildrenFrom(expanded);
+      node.expression = true;
+    };
     isMatchStatement (node) {
       if ( (node.children.length) != 3 ) {
         return false;
@@ -15063,6 +15125,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     async CollectMethods (node, ctx, wr) {
       this.DesugarShapes(node, ctx, wr);
+      this.expandWithIn(node, ctx, wr);
       await this.WalkCollectMethods(node, ctx, wr);
       let allTypes = [];
       const serviceBuilder = new RangerServiceBuilder();

@@ -1,6 +1,6 @@
 # Ranger I/O effects, capabilities and the application model
 
-**Status:** milestone 1 implemented and tested — [`lib/RangerEffects.rgr`](lib/RangerEffects.rgr),
+**Status:** milestones 1 and 4 implemented and tested — [`lib/RangerEffects.rgr`](lib/RangerEffects.rgr),
 [`gallery/process_db_effects`](gallery/process_db_effects/README.md),
 [`tests/io-effects.test.ts`](tests/io-effects.test.ts).
 
@@ -95,9 +95,9 @@ foundation.
               └──────┬───────┘                      │
                      ▼                              │
               ┌──────────────┐                      │
-              │  handler /   │   pure: mutates      │
-              │   update()   │   state, submits     │
-              └──────┬───────┘   requests           │
+              │   update()   │   pure: (state,      │
+              │              │   event) -> state',  │
+              └──────┬───────┘   [EffectRequest]    │
           ┌──────────┴──────────┐                   │
           ▼                     ▼                   │
        State               EffectRequest[]          │
@@ -283,18 +283,30 @@ The capability model doubles as the sandbox story for embedded JS/TS: a script
 gets `storage`, `clock`, `http`, `documents` and simply has no name for
 `filesystem` or `process`.
 
-### Milestone 4 — `update()` as a returned value
+### Milestone 4 — `update()` as a returned value — done
 
-Today a handler mutates fields and submits requests. The reducer form —
+The model no longer mutates fields. State is an `@(immutable)` value, and every
+transition is a pure function returning the next state together with the I/O it
+wants:
 
 ```ranger
-fn update:Update (state:UserState event:UserEvent)
+sfn search:NotesUpdate (s:NotesState owner:string text:string) {
+  def nextEpoch:int (s.epoch + 1)
+  def next:NotesState (with s searchText text phase "loading" epoch nextEpoch)
+  def eff:EffectRequest (EffectRequests.query(owner sql args nextEpoch "search"))
+  return (NotesReducer.oneEffect(next eff))
+}
 ```
 
-— returning both the new state and the effects, is a better fit for replay,
-time-travel and testing. What it needs first is cheap immutable copying, and
-**that part is now in place** (see below); what is still missing is the
-ergonomics — `with`, nested update, and a transient builder.
+`NotesReducer` touches no queue, no clock, no database and no process — values
+in, values out, and a test calls it with a bare `new NotesState()` and no
+runtime at all. `NotesPage` shrank to what a process should be: it owns the
+current state, hands events to the reducer, stores what comes back, and submits
+the effects. It also keeps the state it was showing before, which an immutable
+value makes free — the previous state is not a copy, it is the object that was
+already there.
+
+The pieces that made it possible:
 
 #### Cheap immutable copying — done
 
@@ -357,12 +369,31 @@ copies the whole map — the `Map` here is copy-on-write, not a HAMT. For an
 application state holding tens of keys that is the right trade; for tens of
 thousands it is not, and replacing it is the first thing on the list below.
 
+#### `with`
+
+Updating one field at a time is workable; updating twelve is not. `with` takes
+space-separated `field value` pairs — the spelling the keyword form of record
+construction already uses, since a colon there would parse as a type annotation:
+
+```ranger
+def next (with s searchText text phase "loading" epoch (s.epoch + 1))
+```
+
+and lowers, before method collection, to the chain it stands for:
+
+```ranger
+((s.set_searchText(text)).set_phase("loading")).set_epoch((s.epoch + 1))
+```
+
+It is a desugar rather than an operator because an operator has to declare a
+fixed arity and `with` takes as many pairs as the value has fields. Nothing new
+reaches the backends, so it works everywhere `set_<field>` does.
+
 #### What is still missing
 
-- **`with`, including nested paths.** `(with state user.name:"Ada")` rebuilding
-  only the spine and sharing every other branch. Today it is one
-  `set_<field>` call per field, which is workable for flat state and turns into
-  copy-constructor misery for nested state.
+- **Nested paths in `with`.** `(with state user.name "Ada")` rebuilding only the
+  spine and sharing every other branch. Today the inner value is updated first
+  and set as a field, which is fine two levels deep and tiring at four.
 - **A transient builder.** `(mutate empty { for rows row { push it row } })` —
   a locally mutable builder that cannot escape its block and is frozen back into
   a persistent value at the end. Building a query result one `conj` at a time is

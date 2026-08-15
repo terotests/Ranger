@@ -11,6 +11,7 @@ import { describe, it, expect, afterEach } from "vitest";
 
 import { createNotesApp, type NotesApp } from "../src/app.js";
 import { DuckDBDatabase } from "../src/adapters/duckdbDatabase.js";
+import { EffectQueue, EffectRequests } from "../src/generated/notes_model.js";
 
 let app: NotesApp | null = null;
 let db: DuckDBDatabase | null = null;
@@ -33,10 +34,10 @@ describe("DuckDB as a granted capability", () => {
   it("runs the schema -> seed -> list chain end to end", async () => {
     const a = await openApp();
 
-    expect(a.page.phase).toBe("ready");
-    expect(a.page.notes).toHaveLength(5);
-    expect(a.page.notes[0].title).toBe("Effects");
-    expect(a.page.notes[2].tag).toBe("security");
+    expect(a.page.state.phase).toBe("ready");
+    expect(a.page.state.notes).toHaveLength(5);
+    expect(a.page.state.notes[0].title).toBe("Effects");
+    expect(a.page.state.notes[2].tag).toBe("security");
     expect(a.runtime.traceLabels("resolve")).toEqual(["schema", "seed", "search"]);
   });
 
@@ -46,18 +47,18 @@ describe("DuckDB as a granted capability", () => {
     a.send((p) => p.onSearch("owner"));
     await a.idle();
 
-    expect(a.page.notes.map((n) => n.title)).toEqual(["Scopes"]);
+    expect(a.page.state.notes.map((n) => n.title)).toEqual(["Scopes"]);
 
     // A value that would end the string literal if it were interpolated.
     a.send((p) => p.onSearch("'; DROP TABLE notes; --"));
     await a.idle();
 
-    expect(a.page.notes).toHaveLength(0);
-    expect(a.page.phase).toBe("ready");
+    expect(a.page.state.notes).toHaveLength(0);
+    expect(a.page.state.phase).toBe("ready");
 
     a.send((p) => p.onListAll());
     await a.idle();
-    expect(a.page.notes).toHaveLength(5); // the table is still there
+    expect(a.page.state.notes).toHaveLength(5); // the table is still there
   });
 
   it("really overlaps the fanned-out queries", async () => {
@@ -67,9 +68,9 @@ describe("DuckDB as a granted capability", () => {
     expect(a.runtime.pendingCount).toBe(3);
     await a.idle();
 
-    expect(a.page.total).toBe(5);
-    expect(a.page.shortest).toBeGreaterThan(0);
-    expect(a.page.longest).toBeGreaterThanOrEqual(a.page.shortest);
+    expect(a.page.state.total).toBe(5);
+    expect(a.page.state.shortest).toBeGreaterThan(0);
+    expect(a.page.state.longest).toBeGreaterThanOrEqual(a.page.state.shortest);
     // More than one connection was busy at the same moment: the concurrency is
     // in the database, not simulated by the runtime.
     expect(db!.peakConcurrency).toBeGreaterThan(1);
@@ -83,10 +84,10 @@ describe("DuckDB as a granted capability", () => {
 
     // Same 3 chunks as the fake adapter produces: chunkSize is honoured by the
     // adapter, not left to whatever vector size DuckDB happens to return.
-    expect(a.page.streamRows).toBe(5);
-    expect(a.page.streamChunks).toBe(3);
-    expect(a.page.phase).toBe("ready");
-    expect(a.page.inFlight).toBe(0);
+    expect(a.page.state.streamRows).toBe(5);
+    expect(a.page.state.streamChunks).toBe(3);
+    expect(a.page.state.phase).toBe("ready");
+    expect(a.page.state.inFlight).toBe(0);
   });
 
   it("interrupts a running query when its scope dies", async () => {
@@ -95,21 +96,31 @@ describe("DuckDB as a granted capability", () => {
     app.send((p) => p.onOpen());
     await app.idle();
 
-    // A query long enough to still be running when the owner stops.
+    // A query long enough to still be running when the owner stops. Submitted
+    // straight to the queue rather than through the reducer: the model has no
+    // event for "run something slow", and inventing one would only test the
+    // reducer, not the interrupt.
     app.send((p) => {
-      const q = (p as any).queue();
-      q.query(p.__rangerPath, "SELECT count(*) AS n FROM range(4000000000)", [], p.epoch, "slow");
+      EffectQueue.__singleton().submit(
+        EffectRequests.query(
+          p.__rangerPath,
+          "SELECT count(*) AS n FROM range(4000000000)",
+          [],
+          p.state.epoch,
+          "slow",
+        ),
+      );
     });
     expect(app.runtime.pendingCount).toBe(1);
 
-    const before = app.page.total;
+    const before = app.page.state.total;
     app.stop();
 
     await new Promise((r) => setTimeout(r, 400));
 
     // The process never heard back, and the query did not keep a thread busy
     // for the rest of the run.
-    expect(app.page.total).toBe(before);
+    expect(app.page.state.total).toBe(before);
     expect(app.runtime.pendingCount).toBe(0);
     expect(app.runtime.trace.some((t) => t.kind === "drop")).toBe(true);
   });
@@ -121,7 +132,7 @@ describe("DuckDB as a granted capability", () => {
     a.send((p) => p.onTryForbidden());
     await a.idle();
 
-    expect(a.page.deniedCount).toBe(1);
+    expect(a.page.state.deniedCount).toBe(1);
     expect(a.runtime.traceLabels("resolve").length).toBe(resolvedBefore);
   });
 });

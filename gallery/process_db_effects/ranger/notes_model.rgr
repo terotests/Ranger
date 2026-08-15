@@ -2,17 +2,26 @@
 ; ============================================================================
 ; notes_model.rgr — a Model layer written entirely in Ranger, with no I/O.
 ;
-; Everything below is pure, deterministic, portable state. There is no DuckDB
-; here, no promise, no thread, no callback: handlers mutate state and submit
-; EffectRequest values. The host runtime (src/runtime) executes them against
-; whichever capability it was granted and feeds answers back in as events.
+; Three things live here, and the split is the point:
 ;
-;     onOpen        -> exec  "CREATE TABLE ..."   -> schemaReady
-;     schemaReady   -> exec  "INSERT ..."         -> seeded
-;     seeded        -> query "SELECT ..."         -> listed
-;     onSearch(t)   -> epoch+1, query             -> listed (older epochs stale)
-;     onLoadStats   -> 3 queries at once          -> ready when all 3 land
-;     onStreamAll   -> stream, chunked            -> 1..n results, last more=0
+;   NotesState    an @(immutable) value. Every transition returns a new one and
+;                 leaves the old one valid, so the previous state is always
+;                 available to compare against.
+;
+;   NotesReducer  pure functions of (state, event) -> (new state, effects).
+;                 They perform no I/O, touch no queue, and read no clock: an
+;                 effect is a value they return. Testable with nothing but
+;                 values on both sides.
+;
+;   NotesPage     the @process. It owns the current state, hands events to the
+;                 reducer, stores the state it gets back, and submits the
+;                 effects. That is all it does.
+;
+;     event -> reducer -> (state', [EffectRequest])
+;                              |
+;                        host effect runtime
+;                              |
+;                        EffectResult -> reducer -> (state'', ...)
 ;
 ; Compile: npm run build:ranger  (from gallery/process_db_effects)
 ; ============================================================================
@@ -31,12 +40,14 @@ class Note {
 }
 
 ; ----------------------------------------------------------------------------
-; The model. `@process` gives it identity, a lifecycle and a place in the tree;
-; the effect queue gives it I/O without letting it perform any.
+; State — one immutable value.
+;
+; `@(immutable)` generates __CopySelf and a set_<field> per field, and `with`
+; updates several fields at once while sharing everything it did not change.
+; `notes` is a plain `[Note]` because a query replaces the whole list; a `#[Note]`
+; would buy structural sharing that nothing here would use.
 ; ----------------------------------------------------------------------------
-class NotesPage @process(true) @name("app.notes") extends RangerProcessBase {
-
-  ; ---- state ---------------------------------------------------------------
+class NotesState@(immutable) {
   def phase:string "idle"        ; idle | schema | seeding | loading | ready | failed
   def searchText:string ""
   def notes:[Note]
@@ -58,227 +69,197 @@ class NotesPage @process(true) @name("app.notes") extends RangerProcessBase {
   def streamChunks:int 0
   def streamRows:int 0
   def lastElapsedMs:int 0
+}
 
-  fn start:void () {
+; What a transition produced: the next state, and the I/O it is asking for.
+class NotesUpdate@(immutable) {
+  def state:NotesState (new NotesState)
+  def effects:[EffectRequest]
+}
+
+; ----------------------------------------------------------------------------
+; The reducer. Every function here is (state, …) -> NotesUpdate and nothing
+; else: no queue, no clock, no database, no process.
+; ----------------------------------------------------------------------------
+class NotesReducer {
+
+  sfn noEffects:NotesUpdate (s:NotesState) {
+    def u:NotesUpdate (new NotesUpdate)
+    def none:[EffectRequest]
+    return (with u state s effects none)
   }
 
-  fn stop:void () {
-    ; Nothing to unwind by hand. The host cancels the scope that owns this
-    ; process, and every request still in flight under it dies with it. That
-    ; is the whole point of tying effects to a lifecycle owner.
+  sfn oneEffect:NotesUpdate (s:NotesState e:EffectRequest) {
+    def u:NotesUpdate (new NotesUpdate)
+    def list:[EffectRequest]
+    push list e
+    return (with u state s effects list)
   }
-
-  ; ---- what this process is allowed to reach -------------------------------
-  fn capabilities:CapabilityManifest () {
-    def m:CapabilityManifest (new CapabilityManifest)
-    m.require("db")
-    m.require("clock")
-    return m
-  }
-
-  fn queue:EffectQueue () {
-    return (EffectQueue.__singleton())
-  }
-
-  fn owner:string () {
-    return this.__rangerPath
-  }
-
-  ; ---- events --------------------------------------------------------------
 
   ; Open the page: create the schema, then seed, then list. Each step is an
   ; event, so the sequencing is visible in the model instead of hidden in a
   ; chain of awaits somewhere in the host.
-  fn onOpen:void () {
-    phase = "schema"
-    errorText = ""
-    def q:EffectQueue (this.queue())
-    def own:string (this.owner())
-    def noArgs:[string]
+  sfn open:NotesUpdate (s:NotesState owner:string) {
     def sql:string "CREATE TABLE IF NOT EXISTS notes (id INTEGER, title VARCHAR, body VARCHAR, tag VARCHAR)"
-    inFlight = (inFlight + 1)
-    q.exec(own sql noArgs epoch "schema")
-    this.markStateDirty()
+    def noArgs:[string]
+    def next:NotesState (with s phase "schema" errorText "" inFlight (s.inFlight + 1))
+    def eff:EffectRequest (EffectRequests.exec(owner sql noArgs s.epoch "schema"))
+    return (NotesReducer.oneEffect(next eff))
   }
 
-  fn onSeed:void () {
-    phase = "seeding"
-    def q:EffectQueue (this.queue())
-    def own:string (this.owner())
-    def noArgs:[string]
+  sfn seed:NotesUpdate (s:NotesState owner:string) {
     def sql:string "INSERT INTO notes VALUES (1,'Effects','I/O is described, not performed','core'), (2,'Scopes','Every task has a lifecycle owner','core'), (3,'Capabilities','No grant, no socket','security'), (4,'Streams','Zero to n values over time','core'), (5,'Staleness','Newer questions win','ui')"
-    inFlight = (inFlight + 1)
-    q.exec(own sql noArgs epoch "seed")
-    this.markStateDirty()
+    def noArgs:[string]
+    def next:NotesState (with s phase "seeding" inFlight (s.inFlight + 1))
+    def eff:EffectRequest (EffectRequests.exec(owner sql noArgs s.epoch "seed"))
+    return (NotesReducer.oneEffect(next eff))
   }
 
   ; A new search supersedes every search still in flight.
-  fn onSearch:void (text:string) {
-    searchText = text
-    phase = "loading"
-    epoch = (epoch + 1)
-    def q:EffectQueue (this.queue())
-    def own:string (this.owner())
+  sfn search:NotesUpdate (s:NotesState owner:string text:string) {
+    def nextEpoch:int (s.epoch + 1)
+    def next:NotesState (with s searchText text phase "loading" epoch nextEpoch inFlight (s.inFlight + 1))
     def args:[string]
-    push args ("%" + text + "%")
+    def pattern:string (("%" + text) + "%")
+    push args pattern
+    push args pattern
     def sql:string "SELECT id, title, body, tag FROM notes WHERE title ILIKE ? OR body ILIKE ? ORDER BY id"
-    push args ("%" + text + "%")
-    inFlight = (inFlight + 1)
-    q.query(own sql args epoch "search")
-    this.markStateDirty()
+    def eff:EffectRequest (EffectRequests.query(owner sql args nextEpoch "search"))
+    return (NotesReducer.oneEffect(next eff))
   }
 
-  fn onListAll:void () {
-    phase = "loading"
-    epoch = (epoch + 1)
-    def q:EffectQueue (this.queue())
-    def own:string (this.owner())
+  sfn listAll:NotesUpdate (s:NotesState owner:string) {
+    def nextEpoch:int (s.epoch + 1)
+    def next:NotesState (with s phase "loading" epoch nextEpoch inFlight (s.inFlight + 1))
     def noArgs:[string]
     def sql:string "SELECT id, title, body, tag FROM notes ORDER BY id"
-    inFlight = (inFlight + 1)
-    q.query(own sql noArgs epoch "search")
-    this.markStateDirty()
+    def eff:EffectRequest (EffectRequests.query(owner sql noArgs nextEpoch "search"))
+    return (NotesReducer.oneEffect(next eff))
   }
 
-  ; Fan out: three independent questions, submitted together, answered in
-  ; whatever order the database gets to them. The model does not wait; it
-  ; counts down.
-  fn onLoadStats:void () {
-    def q:EffectQueue (this.queue())
-    def own:string (this.owner())
+  ; Fan out: three independent questions, returned together, answered in
+  ; whatever order the database gets to them. The reducer does not wait; the
+  ; state counts down.
+  sfn loadStats:NotesUpdate (s:NotesState owner:string) {
+    def next:NotesState (with s statsPending 3 inFlight (s.inFlight + 3))
     def noArgs:[string]
-    statsPending = 3
-    inFlight = (inFlight + 3)
-    q.query(own "SELECT count(*) AS n FROM notes" noArgs epoch "stat.count")
-    q.query(own "SELECT min(length(body)) AS n FROM notes" noArgs epoch "stat.min")
-    q.query(own "SELECT max(length(body)) AS n FROM notes" noArgs epoch "stat.max")
-    this.markStateDirty()
+    def list:[EffectRequest]
+    push list (EffectRequests.query(owner "SELECT count(*) AS n FROM notes" noArgs s.epoch "stat.count"))
+    push list (EffectRequests.query(owner "SELECT min(length(body)) AS n FROM notes" noArgs s.epoch "stat.min"))
+    push list (EffectRequests.query(owner "SELECT max(length(body)) AS n FROM notes" noArgs s.epoch "stat.max"))
+    def u:NotesUpdate (new NotesUpdate)
+    return (with u state next effects list)
   }
 
   ; A Stream, not a Task: one request, many results.
-  fn onStreamAll:void (chunk:int) {
-    streamChunks = 0
-    streamRows = 0
-    def q:EffectQueue (this.queue())
-    def own:string (this.owner())
-    inFlight = (inFlight + 1)
-    q.stream(own "SELECT id, title, body, tag FROM notes ORDER BY id" chunk epoch "stream")
-    this.markStateDirty()
+  sfn streamAll:NotesUpdate (s:NotesState owner:string chunk:int) {
+    def next:NotesState (with s streamChunks 0 streamRows 0 inFlight (s.inFlight + 1))
+    def sql:string "SELECT id, title, body, tag FROM notes ORDER BY id"
+    def eff:EffectRequest (EffectRequests.stream(owner sql chunk s.epoch "stream"))
+    return (NotesReducer.oneEffect(next eff))
   }
 
   ; A deliberately ungranted capability, to show what refusal looks like.
-  fn onTryForbidden:void () {
-    def q:EffectQueue (this.queue())
-    def own:string (this.owner())
+  sfn tryForbidden:NotesUpdate (s:NotesState owner:string) {
+    def next:NotesState (with s inFlight (s.inFlight + 1))
     def r:EffectRequest (new EffectRequest)
     def noArgs:[string]
     r.capability = "filesystem"
     r.op = "read"
-    r.ownerPath = own
+    r.ownerPath = owner
     r.sql = "/etc/passwd"
     r.args = noArgs
-    r.epoch = epoch
+    r.epoch = s.epoch
     r.label = "forbidden"
-    inFlight = (inFlight + 1)
-    q.submit(r)
-    this.markStateDirty()
+    return (NotesReducer.oneEffect(next r))
   }
 
   ; ---- the single entry point for every answer ------------------------------
   ;
-  ; One typed method rather than name-based dispatch, so this works on targets
+  ; One typed function rather than name-based dispatch, so this works on targets
   ; without reflection (Go, Swift, C++, Rust) exactly as it does on JavaScript.
-  fn onEffectResult:void (r:EffectResult) {
+  sfn result:NotesUpdate (s:NotesState owner:string r:EffectResult) {
+    def base@(mutable):NotesState s
     if (r.more == false) {
-      inFlight = (inFlight - 1)
+      base = (with s inFlight (s.inFlight - 1))
     }
 
     if (r.isCancelled()) {
-      cancelledCount = (cancelledCount + 1)
-      this.markStateDirty()
-      return
+      def cancelled:NotesState (with base cancelledCount (base.cancelledCount + 1))
+      return (NotesReducer.noEffects(cancelled))
     }
     if (r.isDenied()) {
-      deniedCount = (deniedCount + 1)
-      errorText = ("capability denied: " + r.capability)
-      this.markStateDirty()
-      return
+      def deniedText:string ("capability denied: " + r.capability)
+      def denied:NotesState (with base deniedCount (base.deniedCount + 1) errorText deniedText)
+      return (NotesReducer.noEffects(denied))
     }
 
     ; Stale answers are dropped before they can touch state. This is the bug
     ; class where a slow first search overwrites a fast second one.
-    if (r.isStale(epoch)) {
-      staleDropped = (staleDropped + 1)
-      this.markStateDirty()
-      return
+    if (r.isStale(base.epoch)) {
+      def stale:NotesState (with base staleDropped (base.staleDropped + 1))
+      return (NotesReducer.noEffects(stale))
     }
 
     if (r.ok == false) {
-      phase = "failed"
-      errorText = r.errorMessage
-      this.markStateDirty()
-      return
+      def failed:NotesState (with base phase "failed" errorText r.errorMessage)
+      return (NotesReducer.noEffects(failed))
     }
 
-    lastElapsedMs = r.elapsedMs
+    def timed:NotesState (with base lastElapsedMs r.elapsedMs)
 
     if (r.label == "schema") {
-      this.onSeed()
-      return
+      return (NotesReducer.seed(timed owner))
     }
     if (r.label == "seed") {
-      this.onListAll()
-      return
+      return (NotesReducer.listAll(timed owner))
     }
     if (r.label == "search") {
-      this.applyRows(r.payload)
-      total = (array_length notes)
-      phase = "ready"
-      this.markStateDirty()
-      return
+      def rows:[Note] (NotesReducer.parseNotes(r.payload))
+      def listed:NotesState (with timed notes rows total (array_length rows) phase "ready")
+      return (NotesReducer.noEffects(listed))
     }
     if (r.label == "stream") {
-      this.applyStreamChunk(r)
-      return
+      return (NotesReducer.applyStreamChunk(timed r))
     }
     if (r.label == "stat.count") {
-      total = (this.firstNumber(r.payload))
-      this.settleStat()
-      return
+      def counted:NotesState (with timed total (NotesReducer.firstNumber(r.payload)))
+      return (NotesReducer.settleStat(counted))
     }
     if (r.label == "stat.min") {
-      shortest = (this.firstNumber(r.payload))
-      this.settleStat()
-      return
+      def shortestS:NotesState (with timed shortest (NotesReducer.firstNumber(r.payload)))
+      return (NotesReducer.settleStat(shortestS))
     }
     if (r.label == "stat.max") {
-      longest = (this.firstNumber(r.payload))
-      this.settleStat()
-      return
+      def longestS:NotesState (with timed longest (NotesReducer.firstNumber(r.payload)))
+      return (NotesReducer.settleStat(longestS))
     }
-    this.markStateDirty()
+    return (NotesReducer.noEffects(timed))
   }
 
-  fn settleStat:void () {
-    statsPending = (statsPending - 1)
-    if (statsPending <= 0) {
-      statsPending = 0
-      phase = "ready"
+  sfn settleStat:NotesUpdate (s:NotesState) {
+    def left:int (s.statsPending - 1)
+    if (left <= 0) {
+      def done:NotesState (with s statsPending 0 phase "ready")
+      return (NotesReducer.noEffects(done))
     }
-    this.markStateDirty()
+    def pending:NotesState (with s statsPending left)
+    return (NotesReducer.noEffects(pending))
   }
 
-  fn applyStreamChunk:void (r:EffectResult) {
+  sfn applyStreamChunk:NotesUpdate (s:NotesState r:EffectResult) {
     def chunkRows:[EffectRow] (EffectPayload.parseRows(r.payload))
-    streamChunks = (streamChunks + 1)
-    streamRows = (streamRows + (array_length chunkRows))
+    def chunks:int (s.streamChunks + 1)
+    def rows:int (s.streamRows + (array_length chunkRows))
     if (r.more == false) {
-      phase = "ready"
+      def finished:NotesState (with s streamChunks chunks streamRows rows phase "ready")
+      return (NotesReducer.noEffects(finished))
     }
-    this.markStateDirty()
+    def more:NotesState (with s streamChunks chunks streamRows rows)
+    return (NotesReducer.noEffects(more))
   }
 
-  fn applyRows:void (payload:string) {
+  sfn parseNotes:[Note] (payload:string) {
     def parsed:[EffectRow] (EffectPayload.parseRows(payload))
     def fresh:[Note]
     for parsed row:EffectRow i {
@@ -289,10 +270,10 @@ class NotesPage @process(true) @name("app.notes") extends RangerProcessBase {
       n.tag = (row.get("tag"))
       push fresh n
     }
-    notes = fresh
+    return fresh
   }
 
-  fn firstNumber:int (payload:string) {
+  sfn firstNumber:int (payload:string) {
     def parsed:[EffectRow] (EffectPayload.parseRows(payload))
     if ((array_length parsed) == 0) {
       return 0
@@ -303,7 +284,96 @@ class NotesPage @process(true) @name("app.notes") extends RangerProcessBase {
 }
 
 ; ----------------------------------------------------------------------------
-; ViewModel — a pure projection of model state. No process handle, no I/O, no
+; The process. It owns the state value and the identity; it does not compute
+; transitions and it does not perform I/O.
+; ----------------------------------------------------------------------------
+class NotesPage @process(true) @name("app.notes") extends RangerProcessBase {
+
+  def state:NotesState (new NotesState)
+
+  ; The state this page was showing before the last transition. Kept because an
+  ; immutable value makes it free: the previous state is not a copy, it is the
+  ; object that was already there.
+  def previous:NotesState (new NotesState)
+
+  fn start:void () {
+  }
+
+  fn stop:void () {
+    ; Nothing to unwind by hand. The host cancels the scope that owns this
+    ; process, and every request still in flight under it dies with it.
+  }
+
+  ; ---- what this process is allowed to reach -------------------------------
+  fn capabilities:CapabilityManifest () {
+    def m:CapabilityManifest (new CapabilityManifest)
+    m.require("db")
+    m.require("clock")
+    return m
+  }
+
+  fn owner:string () {
+    return this.__rangerPath
+  }
+
+  ; The one place a transition is stored and its effects are handed on.
+  fn applyUpdate:void (u:NotesUpdate) {
+    previous = state
+    state = u.state
+    def q:EffectQueue (EffectQueue.__singleton())
+    for u.effects e:EffectRequest i {
+      q.submit(e)
+    }
+    this.markStateDirty()
+  }
+
+  ; ---- events --------------------------------------------------------------
+
+  fn onOpen:void () {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.open(state own))
+    this.applyUpdate(u)
+  }
+
+  fn onSearch:void (text:string) {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.search(state own text))
+    this.applyUpdate(u)
+  }
+
+  fn onListAll:void () {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.listAll(state own))
+    this.applyUpdate(u)
+  }
+
+  fn onLoadStats:void () {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.loadStats(state own))
+    this.applyUpdate(u)
+  }
+
+  fn onStreamAll:void (chunk:int) {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.streamAll(state own chunk))
+    this.applyUpdate(u)
+  }
+
+  fn onTryForbidden:void () {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.tryForbidden(state own))
+    this.applyUpdate(u)
+  }
+
+  fn onEffectResult:void (r:EffectResult) {
+    def own:string (this.owner())
+    def u:NotesUpdate (NotesReducer.result(state own r))
+    this.applyUpdate(u)
+  }
+}
+
+; ----------------------------------------------------------------------------
+; ViewModel — a pure projection of state. No process handle, no I/O, no
 ; framework: the same value renders in React, on a terminal, in a test.
 ; ----------------------------------------------------------------------------
 class NoteRowView {
@@ -324,11 +394,14 @@ class NotesViewModel {
 }
 
 class NotesViewModelBuilder {
-  sfn build:NotesViewModel (m:NotesPage) {
+
+  ; State in, view model out. Takes the value, not the process, so a test can
+  ; build one without starting anything.
+  sfn fromState:NotesViewModel (m:NotesState) {
     def vm:NotesViewModel (new NotesViewModel)
     vm.title = "Notes"
     if ((strlen m.searchText) > 0) {
-      vm.title = ("Notes matching \"" + m.searchText + "\"")
+      vm.title = (("Notes matching \"" + m.searchText) + "\"")
     }
     vm.showSpinner = (m.inFlight > 0)
     vm.errorText = m.errorText
@@ -357,6 +430,10 @@ class NotesViewModelBuilder {
 
     vm.footer = ((((("epoch " + (to_string m.epoch)) + " · stale dropped ") + (to_string m.staleDropped)) + " · cancelled ") + (to_string m.cancelledCount))
     return vm
+  }
+
+  sfn build:NotesViewModel (p:NotesPage) {
+    return (NotesViewModelBuilder.fromState(p.state))
   }
 
   ; Terminal renderer, so the same ViewModel has a second consumer from day one.

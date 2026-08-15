@@ -5,10 +5,14 @@ performs no I/O, driven by a host runtime that performs all of it. The same
 model runs against DuckDB and against a database that does not exist, without a
 build flag or a branch.
 
-This is milestone 1 of [PLAN_IO_EFFECTS.md](../../PLAN_IO_EFFECTS.md).
+This is milestones 1 and 4 of [PLAN_IO_EFFECTS.md](../../PLAN_IO_EFFECTS.md).
 
 ```text
-ranger/notes_model.rgr        state · events · effects · view model   (portable, no I/O)
+ranger/notes_model.rgr
+   NotesState    an @(immutable) value — every transition returns a new one
+   NotesReducer  pure (state, event) -> (state', [EffectRequest]); no queue,
+                 no clock, no database, no process
+   NotesPage     the @process: owns the state, runs the reducer, submits
         │  EffectRequest
         ▼
 src/runtime/effectRuntime.ts  drain → check capability → run → deliver → drain
@@ -40,38 +44,48 @@ npx vitest run --config tests/vitest.config.ts io-effects
 ## What the model may and may not do
 
 `ranger/notes_model.rgr` contains no promise, no callback, no driver and no
-`await`. A handler mutates its own state and submits a request:
+`await`. A transition is a function: state in, new state and the I/O it wants
+out.
 
 ```ranger
-fn onSearch:void (text:string) {
-  searchText = text
-  phase = "loading"
-  epoch = (epoch + 1)                       ; supersede every search in flight
-  def q:EffectQueue (this.queue())
-  def own:string (this.owner())
+sfn search:NotesUpdate (s:NotesState owner:string text:string) {
+  def nextEpoch:int (s.epoch + 1)           ; supersede every search in flight
+  def next:NotesState (with s searchText text phase "loading" epoch nextEpoch)
   def args:[string]
-  push args ("%" + text + "%")
-  def sql:string "SELECT id, title, body, tag FROM notes WHERE title ILIKE ? ..."
-  push args ("%" + text + "%")
-  inFlight = (inFlight + 1)
-  q.query(own sql args epoch "search")      ; described, not performed
-  this.markStateDirty()
+  ...
+  def eff:EffectRequest (EffectRequests.query(owner sql args nextEpoch "search"))
+  return (NotesReducer.oneEffect(next eff))  ; described, not performed
 }
 ```
 
-and every answer arrives through one typed entry point:
+Nothing here submits anything, so a test calls it with a bare `new NotesState()`
+and no runtime at all. Every answer arrives through one typed function:
 
 ```ranger
-fn onEffectResult:void (r:EffectResult) {
-  if (r.isCancelled())   { ... }            ; the owner outlived the work
-  if (r.isDenied())      { ... }            ; no grant, no I/O
-  if (r.isStale(epoch))  { ... }            ; a newer question already won
+sfn result:NotesUpdate (s:NotesState owner:string r:EffectResult) {
+  if (r.isCancelled())        { ... }       ; the owner outlived the work
+  if (r.isDenied())           { ... }       ; no grant, no I/O
+  if (r.isStale(base.epoch))  { ... }       ; a newer question already won
   ...
 }
 ```
 
-One method rather than name-based dispatch, so this compiles unchanged for Go,
-Swift, C++ and Rust, none of which has reflection to dispatch by string.
+and the process is left with the small part:
+
+```ranger
+fn applyUpdate:void (u:NotesUpdate) {
+  previous = state                          ; free: the old value is still there
+  state = u.state
+  def q:EffectQueue (EffectQueue.__singleton())
+  for u.effects e:EffectRequest i {
+    q.submit(e)
+  }
+  this.markStateDirty()
+}
+```
+
+One typed function rather than name-based dispatch, so this compiles unchanged
+for Go, Swift, C++ and Rust, none of which has reflection to dispatch by string.
 
 ## What the demo shows
 
