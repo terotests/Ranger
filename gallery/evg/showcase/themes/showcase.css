@@ -118,6 +118,10 @@
    the tree — they were computed from the data, not chosen. The charts are drawn
    on a TRANSPARENT background: the page shows through. */
 .chart     { }
+/* A chart keeps its own width — the drawing's, not the column's — so the
+   wrapper is what centres it. Without this a pie, which has no axis to make
+   room for, sits against the left edge of a column sized for a bar chart. */
+.chartBox  { width: 100%; align-items: center; }
 .chartRow  { align-items: flex-start; }
 .chartCell { flex: 1; }
 

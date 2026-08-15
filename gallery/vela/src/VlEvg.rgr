@@ -32,7 +32,7 @@ Import "VlText.rgr"
 Import "../../evg/PathBuilder.rgr"
 
 class VlEvgWriter {
-    def indentText:string "          "
+    def indentText:string "        "
 
     ; Where a chart's colours come from.
     ;
@@ -67,6 +67,12 @@ class VlEvgWriter {
         ; would land at a negative offset is clamped by the container, which
         ; moves it rather than clipping it, so the drawing is shifted right and
         ; the view widened to hold it instead.
+        ; A turned label is drawn upright above the plot instead — see
+        ; `turnedBand`. That needs a band of its own at the top of the drawing.
+        def band:double (this.turnedBand(list))
+        def oy:double (originY + band)
+        def height:double (viewHeight + band)
+
         def spill:double (this.leftSpill(list originX))
         def ox:double (originX + spill)
         def width:double (viewWidth + spill)
@@ -75,8 +81,14 @@ class VlEvgWriter {
             width = right
         }
 
+        ; A chart is exactly as wide as the drawing needs, which is narrower
+        ; than the column it sits in whenever it has no axis to make room for —
+        ; a pie is the obvious case. The wrapper is what a stylesheet can centre
+        ; it in; the chart itself keeps its own size, because that size is the
+        ; drawing's and not the page's.
         def out:string ""
-        out = (((((out + indentText) + "<View className=\"chart\" position=\"relative\" width=\"") + (VlEvgWriter.px(width))) + "\" height=\"") + (VlEvgWriter.px(viewHeight)))
+        out = (((out + indentText) + "<View className=\"chartBox\">") + (strfromcode 10))
+        out = (((((out + indentText) + "  <View className=\"chart\" position=\"relative\" width=\"") + (VlEvgWriter.px(width))) + "\" height=\"") + (VlEvgWriter.px(height)))
         out = ((out + "\">") + (strfromcode 10))
 
         def total:int (array_length list.commands)
@@ -84,7 +96,7 @@ class VlEvgWriter {
         while (index < total) {
             def cmd:VlDrawCommand (itemAt list.commands index)
             if (cmd.op == "text") {
-                out = (out + (this.textElement(cmd ox originY width viewHeight)))
+                out = (out + (this.textElement(cmd ox oy width height)))
                 index = (index + 1)
             } {
                 if (VlEvgWriter.isGeometry(cmd)) {
@@ -105,7 +117,7 @@ class VlEvgWriter {
                             scanning = false
                         }
                     }
-                    out = (out + (this.pathElement(list index last ox originY width viewHeight)))
+                    out = (out + (this.pathElement(list index last ox oy width height)))
                     index = (last + 1)
                 } {
                     ; group-begin / group-end: the command layer already put
@@ -116,8 +128,35 @@ class VlEvgWriter {
             }
         }
 
+        out = (((out + indentText) + "  </View>") + (strfromcode 10))
         out = (((out + indentText) + "</View>") + (strfromcode 10))
         return out
+    }
+
+    ; A y-axis title is written on its side, and EVG's three targets do not
+    ; agree about what that means: the raster target turns a label about the
+    ; top-left corner of a box whose width layout never measured, the HTML
+    ; target does not turn labels at all, and the drawing would come out
+    ; differently in each. Rather than build a chart on a primitive that means
+    ; three things, a turned label is drawn UPRIGHT in a band above the plot —
+    ; the same in every target, and a placement charts use anyway.
+    ;
+    ; This is a deliberate difference from the reference, which keeps the title
+    ; on its side beside the axis. It is worth revisiting when a label's box is
+    ; measured and all three targets turn it alike.
+    fn turnedBand:double (list:VlCommandList) {
+        def band:double 0.0
+        for list.commands cmd:VlDrawCommand idx {
+            if (cmd.op == "text") {
+                if (cmd.angle != 0.0) {
+                    def needed:double ((VlText.lineHeight(cmd.fontSize)) + 4.0)
+                    if (needed > band) {
+                        band = needed
+                    }
+                }
+            }
+        }
+        return band
     }
 
     ; How far left of the view any label reaches, as a positive number.
@@ -141,7 +180,7 @@ class VlEvgWriter {
         for list.commands cmd:VlDrawCommand idx {
             if (cmd.op == "text") {
                 if (cmd.opacity > 0.0) {
-                    def edge:double ((this.textLeft(cmd originX)) + (VlText.estimateWidth(cmd.text cmd.fontSize)))
+                    def edge:double ((this.textLeft(cmd originX)) + (VlText.drawWidth(cmd.text cmd.fontSize)))
                     if (edge > right) {
                         right = edge
                     }
@@ -155,9 +194,11 @@ class VlEvgWriter {
     ; element and to work out how much room the drawing really needs.
     fn textLeft:double (cmd:VlDrawCommand originX:double) {
         def x:double (cmd.x + originX)
-        def textWidth:double (VlText.estimateWidth(cmd.text cmd.fontSize))
+        def textWidth:double (VlText.drawWidth(cmd.text cmd.fontSize))
         if (cmd.angle != 0.0) {
-            return (x - (textWidth / 2.0))
+            ; Drawn upright at the plot's left edge, so it never reaches left
+            ; of the drawing and needs no room made for it.
+            return originX
         }
         if (cmd.align == "center") {
             return (x - (textWidth / 2.0))
@@ -328,7 +369,7 @@ class VlEvgWriter {
         }
 
         def head:VlDrawCommand (itemAt list.commands from)
-        def out:string ((indentText + "  ") + "<Path")
+        def out:string ((indentText + "    ") + "<Path")
         if useClasses {
             def classes:string (this.classesFor(head))
             if ((strlen classes) > 0) {
@@ -497,7 +538,7 @@ class VlEvgWriter {
         ; Resolve the anchor: `x` is where the string's left edge, centre or
         ; right edge belongs, so the box's left edge is x less the part of the
         ; string that sits before the anchor.
-        def textWidth:double (VlText.estimateWidth(cmd.text cmd.fontSize))
+        def textWidth:double (VlText.drawWidth(cmd.text cmd.fontSize))
         def left:double (this.textLeft(cmd originX))
 
         ; The vertical anchor: EVG places a label by the top of its line box.
@@ -512,16 +553,14 @@ class VlEvgWriter {
             top = (y - (cmd.fontSize * 0.8))
         }
 
-        ; A turned label — an axis title on its side — rotates about its own
-        ; centre, so the box is placed by its centre rather than by the edge
-        ; the alignment names. Resolving the alignment first and rotating
-        ; afterwards moves the string away from the point it was measured to.
+        ; A turned label is drawn upright in the band at the top of the
+        ; drawing, starting at the plot's left edge.
         if (cmd.angle != 0.0) {
-            left = (x - (textWidth / 2.0))
-            top = (y - (cmd.fontSize / 2.0))
+            left = originX
+            top = 0.0
         }
 
-        def out:string ((indentText + "  ") + "<Label")
+        def out:string ((indentText + "    ") + "<Label")
         if useClasses {
             def classes:string (this.classesFor(cmd))
             if ((strlen classes) > 0) {
@@ -539,9 +578,7 @@ class VlEvgWriter {
                 out = ((((out + " color=\"") + cmd.fill) + "\""))
             }
         }
-        if (cmd.angle != 0.0) {
-            out = ((((out + " rotate=\"") + (VlJson.formatNumber(cmd.angle 3))) + "\""))
-        }
+
         out = ((((out + ">") + (VlEvgWriter.escapeText(cmd.text))) + "</Label>") + (strfromcode 10))
         return out
     }
