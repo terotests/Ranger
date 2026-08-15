@@ -24671,6 +24671,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 await this.writeTypeDef(vnn, ctx, wr);
               };
+              rustExprReadsThrough (node, name) {
+                if ( (node.ns.length) >= 2 ) {
+                  if ( (node.ns[0]) == name ) {
+                    return true;
+                  }
+                }
+                for ( let i = 0; i < node.children.length; i++) {
+                  var ch = node.children[i];
+                  if ( this.rustExprReadsThrough(ch, name) ) {
+                    return true;
+                  }
+                };
+                return false;
+              };
               rustRhsReadsSharedCell (node) {
                 if ( (node.ns.length) >= 2 ) {
                   if ( (node.nsp.length) > 0 ) {
@@ -29913,6 +29927,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     if ( this.rustRhsReadsSharedCell(right) ) {
                                       preeval_rhs = true;
                                     }
+                                  }
+                                }
+                              }
+                            }
+                            if ( (preeval_rhs == false) && (is_weak == false) ) {
+                              if ( (left_is_trait_type == false) && preeval_opt_ok ) {
+                                if ( (left.ns.length) == 1 ) {
+                                  if ( this.rustExprReadsThrough(right, (left.ns[0])) ) {
+                                    preeval_rhs = true;
                                   }
                                 }
                               }

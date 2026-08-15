@@ -1327,6 +1327,24 @@ class RangerRustClassWriter {
   ; Does this expression read through a shared cell (a field path rooted in
   ; an Rc<RefCell> name) or call anything that might? Used to decide whether
   ; an assignment must pre-evaluate its right side.
+  ; Does this expression read a FIELD out of `name` — `cc.parent`, not the
+  ; bare `cc`? Such a read borrows the cell `name` holds, and a store into
+  ; `name` in the same statement would end that borrow while it is still
+  ; live (E0506).
+  fn rustExprReadsThrough:boolean (node:CodeNode name:string) {
+    if ((array_length node.ns) >= 2) {
+      if ((itemAt node.ns 0) == name) {
+        return true
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustExprReadsThrough(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn rustRhsReadsSharedCell:boolean (node:CodeNode) {
     if ((array_length node.ns) >= 2) {
       if ((array_length node.nsp) > 0) {
@@ -7603,6 +7621,18 @@ class RangerRustClassWriter {
               if (this.rustRhsReadsSharedCell(right)) {
                 preeval_rhs = true
               }
+            }
+          }
+        }
+      }
+      ; …and a walk that steps a name onto its own field — `cc = cc.parent`
+      ; — has to go through a temporary whatever the optionality: the Ref
+      ; taken to read `cc.parent` is still live when `cc` is stored into.
+      if ((preeval_rhs == false) && (is_weak == false)) {
+        if ((left_is_trait_type == false) && preeval_opt_ok) {
+          if ((array_length left.ns) == 1) {
+            if (this.rustExprReadsThrough(right (itemAt left.ns 0))) {
+              preeval_rhs = true
             }
           }
         }
