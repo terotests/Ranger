@@ -26,13 +26,16 @@ class VlScaleTick {
 }
 
 class VlScale {
-    ; "band" | "point" | "linear" | "log" | "ordinal"
+    ; "band" | "point" | "linear" | "log" | "pow" | "sqrt" | "ordinal"
     def scaleType:string "linear"
     def name:string ""
     ; A log scale's base. Ten unless the spec says otherwise; the tick algorithm
     ; below treats a whole-number base differently from a fractional one, which
     ; is d3's own distinction and not a shortcut.
     def logBase:double 10.0
+    ; A power scale's exponent. `sqrt` is the same scale with the exponent a
+    ; half, which is what a bubble's radius or a radial chart's is written as.
+    def powExponent:double 1.0
 
     ; Quantitative domain / range.
     def domainMin:double 0.0
@@ -186,6 +189,29 @@ class VlScale {
         return (scaleType == "log")
     }
 
+    fn isPow:boolean () {
+        return ((scaleType == "pow") || (scaleType == "sqrt"))
+    }
+
+    ; A power scale's own exponent: `sqrt` names one rather than stating it.
+    fn exponent:double () {
+        if (scaleType == "sqrt") {
+            return 0.5
+        }
+        return powExponent
+    }
+
+    ; The transform a power scale interpolates in. Negative values keep their
+    ; sign — d3 raises the magnitude and puts the sign back, so a domain that
+    ; crosses zero still runs the right way.
+    fn powTransform:double (value:double) {
+        def k:double (this.exponent())
+        if (value < 0.0) {
+            return (0.0 - (VlMath.pow((0.0 - value) k)))
+        }
+        return (VlMath.pow(value k))
+    }
+
     ; Where a value sits between the domain's ends, from 0 to 1. A log scale
     ; interpolates the LOGARITHMS, which is the whole of what makes it one; the
     ; base cancels in the ratio, so a natural log serves every base.
@@ -200,6 +226,14 @@ class VlScale {
                 return 0.0
             }
             return (((VlMath.ln(value)) - lo) / (hi - lo))
+        }
+        if (this.isPow()) {
+            def lo:double (this.powTransform(domainMin))
+            def hi:double (this.powTransform(domainMax))
+            if (hi == lo) {
+                return 0.0
+            }
+            return (((this.powTransform(value)) - lo) / (hi - lo))
         }
         def span:double (domainMax - domainMin)
         if (span == 0.0) {

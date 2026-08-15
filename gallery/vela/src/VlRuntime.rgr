@@ -277,6 +277,16 @@ class VlRuntime {
             def asNames:[string] (VlRuntime.stringList((tdef.get("as"))))
             return (VlTransform.aggregate(rows groupby ops fields asNames))
         }
+        ; The same aggregation joined back onto the rows it came from, which is
+        ; how a row is compared with its own group — a box plot's outliers are
+        ; the points outside their group's own quartiles.
+        if (ttype == "joinaggregate") {
+            def groupby:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            def ops:[string] (VlRuntime.stringList((tdef.get("ops"))))
+            def fields:[string] (VlRuntime.stringList((tdef.get("fields"))))
+            def asNames:[string] (VlRuntime.stringList((tdef.get("as"))))
+            return (VlTransform.joinaggregate(rows groupby ops fields asNames))
+        }
         if (ttype == "extent") {
             def ext:[double] (VlTransform.extent(rows (tdef.stringOr("field" ""))))
             def signalName:string (tdef.stringOr("signal" ""))
@@ -416,6 +426,7 @@ class VlRuntime {
         sc.round = (sdef.boolOr("round" false))
         sc.clamp = (sdef.boolOr("clamp" false))
         sc.logBase = (sdef.doubleOr("base" 10.0))
+        sc.powExponent = (sdef.doubleOr("exponent" 1.0))
 
         this.readBins(sc (sdef.get("bins")))
         this.readDomain(sc (sdef.get("domain")) sdef)
@@ -804,7 +815,7 @@ class VlRuntime {
                 def axis (new VlAxis())
                 axis.readConfig(adef)
                 def tickCount:int (this.axisTickCount(adef))
-                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition)))
+                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat))
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))

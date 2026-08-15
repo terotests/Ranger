@@ -14,6 +14,7 @@
 ; ==============================================================================
 
 Import "VlJson.rgr"
+Import "VlFormat.rgr"
 Import "VlExpr.rgr"
 Import "VlScale.rgr"
 
@@ -570,32 +571,10 @@ class VlExprEval {
     ; d3-format, only as far as the specs here need: an empty specifier prints
     ; the shortest decimal, and `.<n>f` fixes the decimals. Anything else falls
     ; back to the empty behaviour rather than pretending to support it.
-    ; `format(value, spec)`. An empty specifier is not "no formatting": the
-    ; reference's default prints twelve significant digits, which is how a mean
-    ; ends up as 56.5555555556 in a tooltip rather than 56.555556.
+    ; `format(value, spec)` — the specification's own number formatting, which
+    ; is d3's specifier grammar and not a keyword. VlFormat reads it.
     sfn formatNumber:string (value:double spec:string) {
-        def n:int (strlen spec)
-        if (n == 0) {
-            return (VlJson.withMinusSign((VlJson.formatSignificant(value 12))))
-        }
-        if ((substring spec (n - 1) n) == "f") {
-            def dot:int -1
-            def k:int 0
-            while (k < n) {
-                if ((substring spec k (k + 1)) == ".") {
-                    dot = k
-                }
-                k = (k + 1)
-            }
-            if (dot >= 0) {
-                def digitsText:string (substring spec (dot + 1) (n - 1))
-                def d@(optional):int (str2int digitsText)
-                if d {
-                    return (VlJson.withMinusSign((VlExprEval.fixedDecimals(value (unwrap d)))))
-                }
-            }
-        }
-        return (VlJson.withMinusSign((VlJson.formatSignificant(value 12))))
+        return (VlFormat.apply(value spec))
     }
 
     sfn fixedDecimals:string (value:double digits:int) {

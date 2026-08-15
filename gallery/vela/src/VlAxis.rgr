@@ -18,6 +18,7 @@ Import "VlScale.rgr"
 Import "VlScene.rgr"
 Import "VlText.rgr"
 Import "VlBounds.rgr"
+Import "VlFormat.rgr"
 
 class VlAxisTickValue {
     def value:VlJson (new VlJson)
@@ -82,6 +83,12 @@ class VlAxis {
     def labelBaseline:string ""
     def minExtent:double 0.0
     def maxExtent:double 200.0
+    ; A specification may name the number format its labels use — `".0%"` on a
+    ; normalized bar chart. Without one a tick SET shares a precision chosen
+    ; from its own step, which is the reference's behaviour for an unformatted
+    ; axis and a different rule entirely.
+    def labelFormat:string ""
+    def labelFormatSet:boolean false
 
     ; Filled in by build(), read by the layout step.
     def labelExtent:double 0.0
@@ -113,6 +120,8 @@ class VlAxis {
         tickOpacity = (adef.doubleOr("tickOpacity" tickOpacity))
         domainOpacitySet = (adef.has("domainOpacity"))
         domainOpacity = (adef.doubleOr("domainOpacity" domainOpacity))
+        labelFormatSet = (adef.has("format"))
+        labelFormat = (adef.stringOr("format" ""))
         this.readFlush((adef.get("labelFlush")))
         this.readOverlap((adef.get("labelOverlap")))
         labelAngle = (adef.doubleOr("labelAngle" labelAngle))
@@ -203,13 +212,13 @@ class VlAxis {
     ; --------------------------------------------------------------- ticks ----
     ; A band or point scale is labelled by its domain; a quantitative one by the
     ; tick algorithm. `bandPosition` centres a band's label under its band.
-    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double) {
+    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string) {
         def out:[VlAxisTickValue]
         ; A binned scale is labelled at its bin boundaries. Asking the tick
         ; algorithm instead gives a tick count that has nothing to do with the
         ; bins the data was actually put in.
         if ((array_length sc.binValues) > 0) {
-            def labels:[string] (VlScale.tickLabels(sc.binValues))
+            def labels:[string] (VlAxis.labelSet(sc.binValues format))
             for sc.binValues v:double idx {
                 def tvb (new VlAxisTickValue())
                 tvb.value = (VlJson.numberValue(v))
@@ -235,7 +244,7 @@ class VlAxis {
         ; A log axis labels only some of the ticks it draws, and formats those
         ; with grouped digits rather than to one shared precision — its ticks
         ; have no shared step to take a precision from.
-        def labels:[string] (VlScale.tickLabels(values))
+        def labels:[string] (VlAxis.labelSet(values format))
         if (sc.isLog()) {
             labels = (sc.logLabels(values tickCount))
         }
@@ -246,6 +255,20 @@ class VlAxis {
             tv.labelPosition = tv.position
             tv.label = (itemAt labels idx)
             push out tv
+        }
+        return out
+    }
+
+    ; The text of a tick set. A specification's own format applies to each value
+    ; on its own; without one the set shares a precision chosen from its step,
+    ; which is why an unformatted axis reads 0.0, 0.5, 1.0 rather than 0, 0.5, 1.
+    sfn labelSet:[string] (values:[double] format:string) {
+        if ((strlen format) == 0) {
+            return (VlScale.tickLabels(values))
+        }
+        def out:[string]
+        for values v:double idx {
+            push out (VlFormat.apply(v format))
         }
         return out
     }
@@ -274,6 +297,9 @@ class VlAxis {
         group.setNumber("minExtent" minExtent)
         group.setNumber("maxExtent" maxExtent)
         group.setNumber("range" range)
+        if labelFormatSet {
+            group.setString("format" labelFormat)
+        }
 
         ; Half-pixel translate: a one-pixel line drawn on an integer coordinate
         ; straddles two device pixels and comes out grey. The reference offsets
