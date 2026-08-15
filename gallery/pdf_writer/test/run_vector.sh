@@ -2,7 +2,7 @@
 # ==============================================================================
 # pdf_writer/test/run_vector.sh — vector geometry means the same thing everywhere
 # ==============================================================================
-# PLAN_VECTOR_IR.md Stages 0-2. Four gates:
+# PLAN_VECTOR_IR.md Stages 0-3. Five gates:
 #
 #   path_parser     the SVG 1.1 §8.3 path grammar: every command letter,
 #                   implicit repetition, S/T reflection, arcs, and the spec's
@@ -10,6 +10,8 @@
 #   vector_viewbox  the viewBox transform against the SVG rule worked out by
 #                   hand, AND against Chromium's own implementation recorded in
 #                   fixtures/viewbox.snapshot
+#   vector_shapes   rect/circle/ellipse/line/polyline/polygon as paths, checked
+#                   geometrically and round-tripped through the parser
 #   vector_raster   contours and the shared scanline rasterizer: fill rules,
 #                   holes, and glyph rendering unchanged by the extraction
 #   renderer parity the PDF and HTML renderers actually USE that transform, on
@@ -56,6 +58,21 @@ fi
 pp_out="$(node "$OUT/path_parser_test.js" 2>&1)"
 echo "$pp_out" | grep -E "FAIL |passed="
 if ! echo "$pp_out" | grep -q "ALL PASS"; then
+  status=1
+fi
+
+echo
+echo "### pdf_writer/vector_shapes (basic shapes as paths)"
+if ! node bin/output.js -es6 gallery/pdf_writer/test/vector_shapes_test.rgr \
+      -d="$OUT" -o=vector_shapes_test.js >"$OUT/shapes.log" 2>&1; then
+  echo "  COMPILE FAIL vector_shapes_test"
+  tail -25 "$OUT/shapes.log"
+  exit 1
+fi
+
+vs_out="$(node "$OUT/vector_shapes_test.js" 2>&1)"
+echo "$vs_out" | grep -E "FAIL |passed="
+if ! echo "$vs_out" | grep -q "ALL PASS"; then
   status=1
 fi
 
