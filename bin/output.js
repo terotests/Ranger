@@ -1131,24 +1131,20 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
       var cname = this.extends_classes[i];
       const cDesc = this.ctx.findClass(cname);
       if ( cDesc.hasMethod(m_name) ) {
-        return cDesc.hasMethod(m_name);
+        return true;
       }
     };
     return false;
   };
   findMethod (f_name) {
     let res;
-    const vNames = Object.keys(this.method_variants);
-    for ( let i = 0; i < vNames.length; i++) {
-      var mname = vNames[i];
-      if ( mname == f_name ) {
-        const list = (( Object.prototype.hasOwnProperty.call(this.method_variants, mname) ? this.method_variants[mname] : undefined ));
-        res = list.variants[0];
-        return res;
-      }
-    };
-    for ( let i_1 = 0; i_1 < this.extends_classes.length; i_1++) {
-      var cname = this.extends_classes[i_1];
+    if ( ( typeof(this.method_variants[f_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.method_variants, f_name) ) ) {
+      const list = (( Object.prototype.hasOwnProperty.call(this.method_variants, f_name) ? this.method_variants[f_name] : undefined ));
+      res = list.variants[0];
+      return res;
+    }
+    for ( let i = 0; i < this.extends_classes.length; i++) {
+      var cname = this.extends_classes[i];
       const cDesc = this.ctx.findClass(cname);
       if ( cDesc.hasMethod(f_name) ) {
         return cDesc.findMethod(f_name);

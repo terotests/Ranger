@@ -1,0 +1,53 @@
+; The three string primitives -- strlen, charAt and substring -- have to agree
+; on what an index means. A scanner walks a string with charAt and then slices
+; out what it found with substring, so if one of them counts bytes and another
+; counts code points the slice lands in the wrong place. That only shows up on
+; non-ASCII text, which is exactly where nobody looks.
+;
+; The reference is the ES6 target: JavaScript counts UTF-16 code units in all
+; three. Every other target has to be self-consistent in whatever unit it uses,
+; so that a scan followed by a slice reproduces the scanned text.
+
+class StringIndexSemantics {
+    sfn m@(main):void () {
+        ; an em dash (U+2014) followed by an ASCII letter
+        def text:string "—b"
+
+        ; 1. a scan: find the 'b' by code unit, then slice it back out
+        def i:int 0
+        def len:int (strlen text)
+        def found:string ""
+        while (i < len) {
+            def c:int (charAt text i)
+            if (c == 98) {
+                found = (substring text i (i + 1))
+            }
+            i = i + 1
+        }
+        print ("scan: [" + found + "]")
+
+        ; 2. a rebuild: slicing one index at a time and concatenating has to
+        ;    give the original text back, whatever the unit is
+        def rebuilt:string ""
+        def j:int 0
+        while (j < len) {
+            rebuilt = rebuilt + (substring text j (j + 1))
+            j = j + 1
+        }
+        if (rebuilt == text) {
+            print "rebuild: same"
+        } {
+            print "rebuild: different"
+        }
+
+        ; 3. a prefix/suffix split at a scanned index also has to round-trip
+        def cut:int (- len 1)
+        def head:string (substring text 0 cut)
+        def tail:string (substring text cut len)
+        if ((head + tail) == text) {
+            print "split: same"
+        } {
+            print "split: different"
+        }
+    }
+}
