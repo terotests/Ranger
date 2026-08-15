@@ -23870,7 +23870,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 if ( (((arg.type_name.length) > 0) && ((arg.array_type.length) == 0)) && ((arg.key_type.length) == 0) ) {
                   if ( this.rustClassIsShared(arg.type_name, ctx) ) {
-                    wr.out(this.rustSharedTypeString(arg.type_name, ctx), false);
+                    if ( arg.hasFlag("optional") ) {
+                      wr.out(("Option<" + this.rustSharedTypeString(arg.type_name, ctx)) + ">", false);
+                    } else {
+                      wr.out(this.rustSharedTypeString(arg.type_name, ctx), false);
+                    }
                   } else {
                     await this.writeTypeDef(arg, ctx, wr);
                   }

@@ -306,7 +306,14 @@ class RangerRustClassWriter {
       ; marks a lambda's parameters too — both sides had to move together.
       if ((((strlen arg.type_name) > 0) && ((strlen arg.array_type) == 0)) && ((strlen arg.key_type) == 0)) {
         if (this.rustClassIsShared(arg.type_name ctx)) {
-          wr.out((this.rustSharedTypeString(arg.type_name ctx)) false)
+          ; an `@(optional)` callback parameter keeps its Option around the
+          ; handle, the same shape a field or a local takes — the body asks
+          ; it `is_some()` and unwraps it
+          if (arg.hasFlag("optional")) {
+            wr.out((("Option<" + (this.rustSharedTypeString(arg.type_name ctx))) + ">") false)
+          } {
+            wr.out((this.rustSharedTypeString(arg.type_name ctx)) false)
+          }
         } {
           this.writeTypeDef(arg ctx wr)
         }
@@ -3816,7 +3823,16 @@ class RangerRustClassWriter {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
       def part:string (itemAt fc.ns 0)
-      
+
+      ; NOTE: a method whose body never touches `this` is emitted as an
+      ; associated function, with no receiver, so calling it as `self.m(…)`
+      ; is "an associated function, not a method" -- 12 errors. Writing
+      ; `Class::m(args)` here with a plain argument walk costs far more than
+      ; it saves (173 -> 424): the ordinary call path applies borrows,
+      ; clones and temporaries to each argument, and none of that is
+      ; optional. The repair is to reuse that path with a different
+      ; receiver, not to write a second one.
+
       ; DEBUG: Print all method calls to trace huffman.parseDHT
       if ((strlen part) > 0) {
         def methodName:string ""
