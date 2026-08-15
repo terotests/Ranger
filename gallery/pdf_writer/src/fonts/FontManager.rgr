@@ -14,6 +14,11 @@ class FontManager {
     def fontNames:[string]
     def fontsDirectory:string "./Fonts"
     def fontsDirectories:[string]  ; Multiple search directories
+    ; The directory a face was actually loaded from. Several candidates are
+    ; tried, and anything that needs to point at the font FILES — the HTML
+    ; renderer's @font-face rules, for one — has to know which one won rather
+    ; than guess a path of its own.
+    def resolvedDirectory:string ""
     def defaultFont:TrueTypeFont (new TrueTypeFont())
     def hasDefaultFont:boolean false
     
@@ -78,6 +83,9 @@ class FontManager {
             if ((font.loadFromFile(fullPath)) == true) {
                 push fonts font
                 push fontNames font.fontFamily
+                if ((strlen resolvedDirectory) == 0) {
+                    resolvedDirectory = dir
+                }
                 if (hasDefaultFont == false) {
                     defaultFont = font
                     hasDefaultFont = true

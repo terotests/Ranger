@@ -32,6 +32,16 @@ class EVGFontSetup {
         return manager
     }
 
+    ; Where the faces actually came from, with a trailing slash — for callers
+    ; that must reference the font FILES rather than measure them. Empty when
+    ; nothing loaded.
+    fn fontsRoot:string () {
+        if ((strlen manager.resolvedDirectory) == 0) {
+            return ""
+        }
+        return (manager.resolvedDirectory + "/")
+    }
+
     fn loadedCount:int () {
         return (array_length loaded)
     }

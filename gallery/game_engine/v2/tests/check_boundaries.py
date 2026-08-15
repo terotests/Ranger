@@ -6,8 +6,9 @@
 # scan — does not compile Ranger. Exit 0 only when:
 #
 #   1. No .rgr files live under games/ (games are TSX-only).
-#   2. Every Import "…" that resolves OUTSIDE v2/ is listed in
-#      boundary_import_allowlist.txt (shrink the list; do not grow it).
+#   2. Every Import "…" that resolves OUTSIDE v2/ is either a sanctioned
+#      shared root (SHARED_ROOTS) or listed in boundary_import_allowlist.txt
+#      (shrink the list; do not grow it).
 #   3. Live-core .rgr files contain no game-title identifiers (discovered
 #      from games/*/game.info folder names + classic forbidden titles).
 #
@@ -27,6 +28,21 @@ REPO_ROOT = os.path.abspath(os.path.join(V2_ROOT, "..", "..", ".."))
 ALLOWLIST_PATH = os.path.join(os.path.dirname(__file__), "boundary_import_allowlist.txt")
 
 IMPORT_RE = re.compile(r'Import\s+"([^"]+)"')
+
+# Roots outside v2/ that v2 is MEANT to depend on.
+#
+# gallery/evg/ is the single EVG layout engine. v2 used to carry its own copy;
+# it drifted about 200 lines ahead of the other one, and the two disagreeing
+# was a source of real bugs, so the fork was deleted on purpose and everything
+# now compiles against one set of files (see gallery/evg/
+# PLAN_CSS_LAYOUT_AND_FONTS.md §11.1 "One engine, one location").
+#
+# That makes these Imports the intended shape rather than staged debt, which is
+# what the allowlist is for — the allowlist says "shrink this", and there is
+# nothing here to shrink. Anything genuinely temporary still belongs there.
+SHARED_ROOTS = (
+    os.path.join(REPO_ROOT, "gallery", "evg"),
+)
 
 # Classic titles that must stay out of core even when not present under games/.
 CLASSIC_TITLES = (
@@ -148,6 +164,15 @@ def check_no_rgr_in_games() -> list[str]:
     return bad
 
 
+def is_shared_root(path: str) -> bool:
+    """True for a dependency v2 is meant to have (see SHARED_ROOTS)."""
+    ap = os.path.abspath(path)
+    for root in SHARED_ROOTS:
+        if ap == root or ap.startswith(root + os.sep):
+            return True
+    return False
+
+
 def check_out_of_v2_imports(allowlist: set[str]) -> tuple[list[str], list[str]]:
     """Returns (new_violations, stale_allowlist_entries)."""
     found: set[str] = set()
@@ -160,7 +185,7 @@ def check_out_of_v2_imports(allowlist: set[str]) -> tuple[list[str], list[str]]:
                     continue
                 imp = m.group(1)
                 abs_p = resolve_import(fp, imp)
-                if is_inside_v2(abs_p):
+                if is_inside_v2(abs_p) or is_shared_root(abs_p):
                     continue
                 key = f"{rel}:{imp}"
                 found.add(key)

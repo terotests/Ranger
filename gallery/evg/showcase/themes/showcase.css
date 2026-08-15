@@ -93,7 +93,7 @@
 .bordered { padding: 10px; border-width: 3px; }
 .inner    { width: 100%; height: 22px; }
 .marA     { margin-bottom: 10px; }
-.marB     { margin-top: 10px; margin-left: 24px; }
+.marB     { margin-top: 10px; margin-left: 24px; width: 80%; }
 .nest     { padding: 12px; width: 100%; }
 .l4       { height: 24px; }
 
