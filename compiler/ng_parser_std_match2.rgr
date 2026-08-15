@@ -529,7 +529,8 @@ extension RangerFlowParser {
                 if( (item.hasFlag('ignore')) || (item.hasFlag('noeval')) ) {
                   return
                 }
-                def opName ((item.getSecond()).int_value)
+                def opSecond:CodeNode (item.getSecond())
+                def opName (opSecond.int_value)
                 def opArg (at args.children (opName - 1))
                 if( (has opCnts opName ) ) {
                   ; print (langOper.getCode())

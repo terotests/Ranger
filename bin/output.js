@@ -16998,7 +16998,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( item.hasFlag("ignore") || item.hasFlag("noeval") ) {
                     return;
                   }
-                  const opName_1 = (item.getSecond()).int_value;
+                  const opSecond = item.getSecond();
+                  const opName_1 = opSecond.int_value;
                   const opArg_1 = args.children[(opName_1 - 1)];
                   if ( ( typeof(opCnts[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(opCnts, opName_1) ) ) {
                     let regName_2 = "";
