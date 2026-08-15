@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { execFileSync } from "child_process";
 import { createRequire } from "module";
 import * as fs from "fs";
@@ -24,6 +24,7 @@ const API = path.join(ENGINE, "bin/rg_api.js");
 const VM_ONLY = path.join(ENGINE, "bin/rg_vm.js");
 
 let api: any;
+let previousRangerLib: string | undefined;
 
 /** The frontend prints its progress; tests do not need to see it. */
 async function quiet<T>(run: () => T | Promise<T>): Promise<T> {
@@ -61,9 +62,21 @@ describe("Ranger engine", () => {
         stdio: "pipe",
       });
     }
+    // The engine embeds the compiler, so it reads RANGER_LIB from this process
+    // rather than from a child's environment. The whole suite shares one fork,
+    // so the previous value goes back afterwards.
+    previousRangerLib = process.env.RANGER_LIB;
     process.env.RANGER_LIB = `${path.join(ROOT, "compiler")}/;${path.join(ROOT, "lib")}/`;
     api = require(API);
   }, 180000);
+
+  afterAll(() => {
+    if (previousRangerLib === undefined) {
+      delete process.env.RANGER_LIB;
+    } else {
+      process.env.RANGER_LIB = previousRangerLib;
+    }
+  });
 
   it("runs a program from Ranger source with no target file in between", async () => {
     const engine = await load("demo.rgr");
