@@ -238,6 +238,18 @@ theme at all they come out in the colours their specifications asked for.
   drawn correctly and has no key.
 * **Time and log scales**, and a Ranger Vega-Lite compiler — none of which a
   static chart needs, and all of which are named in the table below.
+* **A turned axis title.** The reference writes a y-axis title on its side
+  beside the axis; Vela draws it upright in a band above the plot. EVG's three
+  targets do not agree about what `rotate` means on a label — the raster target
+  turns it about the top-left of a box whose width layout never measured, and
+  the HTML target does not turn labels at all — so a chart built on it comes
+  out differently in each. Worth revisiting when a label's box is measured.
+* **Two width estimates, on purpose.** `VlText.estimateWidth` is the
+  reference's canvas-free 0.8 em per character and sizes the axis extents,
+  because matching the reference's layout is what the comparison measures.
+  `VlText.drawWidth` is a per-character-class table measured from the faces
+  this repository ships, and places the text. A backend with real font metrics
+  should replace the second and nothing else.
 * **Bounds-based layout.** The view is sized from what the axes ask for, which
   agrees with the reference exactly on the charts whose marks stay inside the
   plot (a bar chart is 236×347 with the plot at 51,10 in both). The reference
