@@ -5000,6 +5000,7 @@ class RangerRustClassWriter {
                       wr.out(".clone()" false)
                     }
                   }
+                }
               }
               ; Close the Rc::new(RefCell::new()) if we opened it
               if arg_is_trait_type {

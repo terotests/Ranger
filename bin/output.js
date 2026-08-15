@@ -27709,16 +27709,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       wr.out(".clone()", false);
                                     }
                                   }
-                                } else {
-                                  if ( argNameN_3.type_name == "string" ) {
-                                    if ( (argNameN_3.array_type.length) == 0 ) {
-                                      if ( arg_4.rust_borrow_type == 0 ) {
-                                        if ( this.rustStrRefRead(nVal_4) ) {
-                                          wr.out(".to_string()", false);
-                                        }
-                                      }
-                                    }
-                                  }
                                 }
                               }
                               if ( arg_is_trait_type ) {
