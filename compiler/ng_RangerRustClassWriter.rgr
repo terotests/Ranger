@@ -241,6 +241,22 @@ class RangerRustClassWriter {
   ; method that carries the hidden argument is written `__self_rc`, which is
   ; `&Rc<RefCell<T>>`, and a proven-borrowed parameter is the same shape.
   ; Either one flowing into an owned position takes a clone.
+  ; Does the target of this assignment hold an Rc? The last segment of the
+  ; path answers — a shared-class name carries rust_needs_rc_wrap, and a
+  ; plain struct local of the same class does not.
+  fn rustLhsHoldsRc:boolean (left:CodeNode) {
+    def nspLen:int (array_length left.nsp)
+    if (nspLen > 0) {
+      def lastD:RangerAppParamDesc (itemAt left.nsp (nspLen - 1))
+      return lastD.rust_needs_rc_wrap
+    }
+    if left.hasParamDesc {
+      def lp:RangerAppParamDesc left.paramDesc
+      return lp.rust_needs_rc_wrap
+    }
+    return false
+  }
+
   fn rustValueIsBorrowedHandle:boolean (node:CodeNode ctx:RangerAppWriterContext) {
     def bv:CodeNode (this.rustUnwrapParens(node))
     if (bv.vref == "this") {
@@ -8056,6 +8072,19 @@ class RangerRustClassWriter {
             return
           }
         }
+        ; A shared-class target holds the Rc, so a RAW value on the right —
+        ; `module = (new LowIRModule)` hands back the bare struct — takes its
+        ; cell here, exactly as the optional branch does.
+        def plainAssignRcWrap:boolean false
+        if ((preeval_rhs == false) && (left_is_trait_type == false)) {
+          if (this.rustClassIsShared(field_type_name ctx)) {
+            if (this.rustLhsHoldsRc(left)) {
+              if ((this.rustInitRcState(right ctx)) == 0) {
+                plainAssignRcWrap = true
+              }
+            }
+          }
+        }
         if left_is_trait_type {
           if rhs_is_already_boxed_trait {
             ; RHS is already Rc<RefCell<dyn Trait>>, clone for shared ownership
@@ -8073,6 +8102,9 @@ class RangerRustClassWriter {
           if preeval_rhs {
             wr.out(preeval_name false)
           } {
+            if plainAssignRcWrap {
+              wr.out("Rc::new(RefCell::new(" false)
+            }
             this.WalkNode(right ctx wr)
             if should_clone_rhs {
               if rhs_str_ref {
@@ -8080,6 +8112,9 @@ class RangerRustClassWriter {
               } {
                 wr.out(".clone()" false)
               }
+            }
+            if plainAssignRcWrap {
+              wr.out("))" false)
             }
           }
         }

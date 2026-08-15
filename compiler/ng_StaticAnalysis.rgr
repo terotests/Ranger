@@ -2641,7 +2641,10 @@ class StaticAnalyzer {
     if node.expression {
       if ((array_length node.children) >= 2) {
         def first:CodeNode (node.getFirst())
-        if (first.vref == "def") {
+        ; `let` and `var` bind a local exactly as `def` does — a `let` of a
+        ; shared class was left holding the bare struct while its
+        ; initializer handed back the Rc
+        if (((first.vref == "def") || (first.vref == "let")) || (first.vref == "var")) {
           def nameNode:CodeNode (node.getSecond())
           if (!null? nameNode.paramDesc) {
             this.markDescRcWrap((unwrap nameNode.paramDesc))

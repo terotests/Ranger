@@ -23811,6 +23811,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return false;
             };
+            rustLhsHoldsRc (left) {
+              const nspLen = left.nsp.length;
+              if ( nspLen > 0 ) {
+                const lastD = left.nsp[(nspLen - 1)];
+                return lastD.rust_needs_rc_wrap;
+              }
+              if ( left.hasParamDesc ) {
+                const lp = left.paramDesc;
+                return lp.rust_needs_rc_wrap;
+              }
+              return false;
+            };
             rustValueIsBorrowedHandle (node, ctx) {
               const bv = this.rustUnwrapParens(node);
               if ( bv.vref == "this" ) {
@@ -30269,6 +30281,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   return;
                                 }
                               }
+                              let plainAssignRcWrap = false;
+                              if ( (preeval_rhs == false) && (left_is_trait_type == false) ) {
+                                if ( this.rustClassIsShared(field_type_name, ctx) ) {
+                                  if ( this.rustLhsHoldsRc(left) ) {
+                                    if ( this.rustInitRcState(right, ctx) == 0 ) {
+                                      plainAssignRcWrap = true;
+                                    }
+                                  }
+                                }
+                              }
                               if ( left_is_trait_type ) {
                                 if ( rhs_is_already_boxed_trait ) {
                                   await this.WalkNode(right, ctx, wr);
@@ -30285,6 +30307,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( preeval_rhs ) {
                                   wr.out(preeval_name, false);
                                 } else {
+                                  if ( plainAssignRcWrap ) {
+                                    wr.out("Rc::new(RefCell::new(", false);
+                                  }
                                   await this.WalkNode(right, ctx, wr);
                                   if ( should_clone_rhs ) {
                                     if ( rhs_str_ref ) {
@@ -30292,6 +30317,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     } else {
                                       wr.out(".clone()", false);
                                     }
+                                  }
+                                  if ( plainAssignRcWrap ) {
+                                    wr.out("))", false);
                                   }
                                 }
                               }
@@ -53867,7 +53895,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( node.expression ) {
                                   if ( (node.children.length) >= 2 ) {
                                     const first = node.getFirst();
-                                    if ( first.vref == "def" ) {
+                                    if ( ((first.vref == "def") || (first.vref == "let")) || (first.vref == "var") ) {
                                       const nameNode = node.getSecond();
                                       if ( (typeof(nameNode.paramDesc) !== "undefined" && nameNode.paramDesc != null )  ) {
                                         this.markDescRcWrap(nameNode.paramDesc);
