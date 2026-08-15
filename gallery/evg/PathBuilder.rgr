@@ -1,0 +1,293 @@
+Import "SVGPathParser.rgr"
+Import "VectorShapes.rgr"
+
+; ==============================================================================
+; PathBuilder.rgr — build a path from data, the way the parser reads one
+; ==============================================================================
+; PLAN_VECTOR_IR.md Stage 3.5.
+;
+; SVGPathParser turns `d` into commands. This is the other direction, and it is
+; the direction a chart, a diagram or any generated drawing actually needs: the
+; shape comes from data, not from a string somebody typed.
+;
+; Without it the only way to draw computed geometry is to concatenate `d` by
+; hand —
+;
+;     d = d + "L" + (to_string x) + "," + (to_string y) + " "
+;
+; — which puts number formatting, separator rules and command syntax into every
+; caller, and hands the result straight back to the parser to be taken apart
+; again. Building commands directly skips the round trip entirely: a renderer
+; can consume `getCommands()` as-is, and `asPathData()` is there only for the
+; targets that speak `d`, like an inline <svg>.
+;
+; The basic shapes are here too, so a whole scene — axes, gridlines, a series,
+; its markers — can accumulate into ONE path with one fill and one stroke,
+; rather than one element per line.
+; ==============================================================================
+
+class PathBuilder {
+    def commands:[PathCommand]
+
+    ; The pen, so the relative moves know where they are starting from.
+    def curX:double 0.0
+    def curY:double 0.0
+    ; Where the current subpath began, which is where `close` returns to.
+    def startX:double 0.0
+    def startY:double 0.0
+    ; Whether anything has been drawn yet. A relative move as the very first
+    ; command has no pen position to be relative TO, so it is treated as
+    ; absolute rather than silently measured from (0, 0).
+    def started:boolean false
+
+    Constructor () {
+        def c:[PathCommand]
+        commands = c
+    }
+
+    fn reset:void () {
+        def c:[PathCommand]
+        commands = c
+        curX = 0.0
+        curY = 0.0
+        startX = 0.0
+        startY = 0.0
+        started = false
+    }
+
+    fn isEmpty:boolean () {
+        return ((array_length commands) == 0)
+    }
+
+    fn commandCount:int () {
+        return (array_length commands)
+    }
+
+    fn getCommands:[PathCommand] () {
+        return commands
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Absolute moves
+    ; --------------------------------------------------------------------------
+
+    fn moveTo:void (x:double y:double) {
+        push commands (VectorShapes.moveTo(x y))
+        curX = x
+        curY = y
+        startX = x
+        startY = y
+        started = true
+    }
+
+    fn lineTo:void (x:double y:double) {
+        ; A lineto with no preceding moveto has no start point. Promoting it to
+        ; a moveto is what the path grammar would require anyway, and it keeps
+        ; a caller that loops over data from producing an unusable path when
+        ; the first point arrives through the same code as the rest.
+        if (started == false) {
+            this.moveTo(x y)
+            return
+        }
+        push commands (VectorShapes.lineTo(x y))
+        curX = x
+        curY = y
+    }
+
+    fn cubicTo:void (x1:double y1:double x2:double y2:double x:double y:double) {
+        if (started == false) {
+            this.moveTo(x1 y1)
+        }
+        push commands (VectorShapes.cubicTo(x1 y1 x2 y2 x y))
+        curX = x
+        curY = y
+    }
+
+    fn quadTo:void (x1:double y1:double x:double y:double) {
+        if (started == false) {
+            this.moveTo(x1 y1)
+        }
+        def c (new PathCommand())
+        c.type = "Q"
+        c.x1 = x1
+        c.y1 = y1
+        c.x = x
+        c.y = y
+        push commands c
+        curX = x
+        curY = y
+    }
+
+    fn close:void () {
+        if (started == false) {
+            return
+        }
+        push commands (VectorShapes.closePath())
+        curX = startX
+        curY = startY
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Relative moves
+    ; --------------------------------------------------------------------------
+    ; Convenient for stepping along a series, and for the small offsets that
+    ; make up a tick or a marker.
+
+    fn moveBy:void (dx:double dy:double) {
+        if (started == false) {
+            this.moveTo(dx dy)
+            return
+        }
+        this.moveTo((curX + dx) (curY + dy))
+    }
+
+    fn lineBy:void (dx:double dy:double) {
+        if (started == false) {
+            this.moveTo(dx dy)
+            return
+        }
+        this.lineTo((curX + dx) (curY + dy))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Whole shapes
+    ; --------------------------------------------------------------------------
+    ; Each of these is its own subpath, so they accumulate into one path that
+    ; is filled and stroked once. That is the difference between a chart with
+    ; forty gridlines as forty elements and one with a single gridline path.
+
+    fn addCommands:void (cmds:[PathCommand]) {
+        def n:int (array_length cmds)
+        def k:int 0
+        while (k < n) {
+            def c:PathCommand (itemAt cmds k)
+            push commands c
+            ; Keep the pen in step with what was appended, so a relative move
+            ; after an appended shape starts from the right place.
+            if ((c.type == "M")) {
+                startX = c.x
+                startY = c.y
+                started = true
+            }
+            if ((c.type == "Z") == false) {
+                curX = c.x
+                curY = c.y
+            } {
+                curX = startX
+                curY = startY
+            }
+            k = (k + 1)
+        }
+        if (n > 0) {
+            started = true
+        }
+    }
+
+    fn addRect:void (x:double y:double w:double h:double) {
+        def negOne:double (0.0 - 1.0)
+        def cmds:[PathCommand] (VectorShapes.rect(x y w h negOne negOne))
+        this.addCommands(cmds)
+    }
+
+    fn addRoundedRect:void (x:double y:double w:double h:double rx:double ry:double) {
+        def cmds:[PathCommand] (VectorShapes.rect(x y w h rx ry))
+        this.addCommands(cmds)
+    }
+
+    fn addCircle:void (cx:double cy:double r:double) {
+        def cmds:[PathCommand] (VectorShapes.circle(cx cy r))
+        this.addCommands(cmds)
+    }
+
+    fn addEllipse:void (cx:double cy:double rx:double ry:double) {
+        def cmds:[PathCommand] (VectorShapes.ellipse(cx cy rx ry))
+        this.addCommands(cmds)
+    }
+
+    fn addLine:void (x1:double y1:double x2:double y2:double) {
+        def cmds:[PathCommand] (VectorShapes.line(x1 y1 x2 y2))
+        this.addCommands(cmds)
+    }
+
+    fn addPolyline:void (pts:[double]) {
+        def cmds:[PathCommand] (VectorShapes.polyline(pts))
+        this.addCommands(cmds)
+    }
+
+    fn addPolygon:void (pts:[double]) {
+        def cmds:[PathCommand] (VectorShapes.polygon(pts))
+        this.addCommands(cmds)
+    }
+
+    ; Append a path written as `d`. The bridge back from the string form, for
+    ; an icon or a marker glyph that already exists as path data. Malformed
+    ; data follows the parser's rule: what parses is appended, and the caller
+    ; can ask the parser itself for the diagnostic.
+    fn addPathData:void (d:string) {
+        def p (new SVGPathParser())
+        p.parse(d)
+        def cmds:[PathCommand] (p.getCommands())
+        this.addCommands(cmds)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Output
+    ; --------------------------------------------------------------------------
+
+    fn asPathData:string () {
+        return (VectorShapes.asPathData(commands))
+    }
+
+    ; The extent of everything built so far, for callers that need to frame it
+    ; — a viewBox, a legend box, a hit region.
+    fn bounds:PathBounds () {
+        def b (new PathBounds())
+        def n:int (array_length commands)
+        def seen:boolean false
+        def k:int 0
+        while (k < n) {
+            def c:PathCommand (itemAt commands k)
+            if ((c.type == "Z") == false) {
+                ; Control points are included: a curve can bulge past its
+                ; endpoints, and a box that cropped it would be wrong for
+                ; exactly the shapes curves are used for.
+                def xs:[double]
+                def ys:[double]
+                push xs c.x
+                push ys c.y
+                if (c.type == "C") {
+                    push xs c.x1
+                    push ys c.y1
+                    push xs c.x2
+                    push ys c.y2
+                }
+                if (c.type == "Q") {
+                    push xs c.x1
+                    push ys c.y1
+                }
+                def j:int 0
+                while (j < (array_length xs)) {
+                    def vx:double (itemAt xs j)
+                    def vy:double (itemAt ys j)
+                    if (seen == false) {
+                        b.minX = vx
+                        b.maxX = vx
+                        b.minY = vy
+                        b.maxY = vy
+                        seen = true
+                    } {
+                        if (vx < b.minX) { b.minX = vx }
+                        if (vx > b.maxX) { b.maxX = vx }
+                        if (vy < b.minY) { b.minY = vy }
+                        if (vy > b.maxY) { b.maxY = vy }
+                    }
+                    j = (j + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        b.width = (b.maxX - b.minX)
+        b.height = (b.maxY - b.minY)
+        return b
+    }
+}
