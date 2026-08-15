@@ -18,28 +18,28 @@ function render() {
         <View className="chartCell">
           <Label className="subhead">Pylväskaavio</Label>
         <View className="chartBox">
-          <View className="chart" position="relative" width="226px" height="164.2px">
-            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51,27.2 L221,27.2 L221,127.2 L51,127.2 Z" />
-            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" opacity="0.25" d="M51.5,127.7 L221.5,127.7 M51.5,77.7 L221.5,77.7 M51.5,27.7 L221.5,27.7" />
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M60.5,127.7 L60.5,132.7 M79.5,127.7 L79.5,132.7 M98.5,127.7 L98.5,132.7 M117.5,127.7 L117.5,132.7 M136.5,127.7 L136.5,132.7 M155.5,127.7 L155.5,132.7 M174.5,127.7 L174.5,132.7 M193.5,127.7 L193.5,132.7 M212.5,127.7 L212.5,132.7" />
-            <Label className="chartLabel" position="absolute" left="57.194px" top="134.7px" fontSize="10px">A</Label>
-            <Label className="chartLabel" position="absolute" left="76.083px" top="134.7px" fontSize="10px">B</Label>
-            <Label className="chartLabel" position="absolute" left="94.972px" top="134.7px" fontSize="10px">C</Label>
-            <Label className="chartLabel" position="absolute" left="113.861px" top="134.7px" fontSize="10px">D</Label>
-            <Label className="chartLabel" position="absolute" left="132.75px" top="134.7px" fontSize="10px">E</Label>
-            <Label className="chartLabel" position="absolute" left="151.639px" top="134.7px" fontSize="10px">F</Label>
-            <Label className="chartLabel" position="absolute" left="170.528px" top="134.7px" fontSize="10px">G</Label>
-            <Label className="chartLabel" position="absolute" left="189.417px" top="134.7px" fontSize="10px">H</Label>
-            <Label className="chartLabel" position="absolute" left="208.306px" top="134.7px" fontSize="10px">I</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L221.5,127.7" />
-            <Label className="chartTitle" position="absolute" left="133.64px" top="148.7px" fontSize="11px" fontWeight="bold">a</Label>
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L46.5,127.7 M51.5,77.7 L46.5,77.7 M51.5,27.7 L46.5,27.7" />
-            <Label className="chartLabel" position="absolute" left="39.2px" top="122.7px" fontSize="10px">0</Label>
-            <Label className="chartLabel" position="absolute" left="33.9px" top="72.7px" fontSize="10px">50</Label>
-            <Label className="chartLabel" position="absolute" left="28.6px" top="22.7px" fontSize="10px">100</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L51.5,27.7" />
-            <Label className="chartTitle" position="absolute" left="51px" top="0px" fontSize="11px" fontWeight="bold">b</Label>
-            <Path className="chartFill0" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" d="M51.9444,99.2 L68.9444,99.2 L68.9444,127.2 L51.9444,127.2 Z M70.8333,72.2 L87.8333,72.2 L87.8333,127.2 L70.8333,127.2 Z M89.7222,84.2 L106.7222,84.2 L106.7222,127.2 L89.7222,127.2 Z M108.6111,36.2 L125.6111,36.2 L125.6111,127.2 L108.6111,127.2 Z M127.5,46.2 L144.5,46.2 L144.5,127.2 L127.5,127.2 Z M146.3889,74.2 L163.3889,74.2 L163.3889,127.2 L146.3889,127.2 Z M165.2778,108.2 L182.2778,108.2 L182.2778,127.2 L165.2778,127.2 Z M184.1667,40.2 L201.1667,40.2 L201.1667,127.2 L184.1667,127.2 Z M203.0556,75.2 L220.0556,75.2 L220.0556,127.2 L203.0556,127.2 Z" />
+          <View className="chart" position="relative" width="226px" height="147px">
+            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51,10 L221,10 L221,110 L51,110 Z" />
+            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" opacity="0.25" d="M51.5,110.5 L221.5,110.5 M51.5,60.5 L221.5,60.5 M51.5,10.5 L221.5,10.5" />
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M60.5,110.5 L60.5,115.5 M79.5,110.5 L79.5,115.5 M98.5,110.5 L98.5,115.5 M117.5,110.5 L117.5,115.5 M136.5,110.5 L136.5,115.5 M155.5,110.5 L155.5,115.5 M174.5,110.5 L174.5,115.5 M193.5,110.5 L193.5,115.5 M212.5,110.5 L212.5,115.5" />
+            <Label className="chartLabel" position="absolute" left="53.382px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">A</Label>
+            <Label className="chartLabel" position="absolute" left="72.271px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">B</Label>
+            <Label className="chartLabel" position="absolute" left="91.16px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">C</Label>
+            <Label className="chartLabel" position="absolute" left="110.049px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">D</Label>
+            <Label className="chartLabel" position="absolute" left="128.938px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">E</Label>
+            <Label className="chartLabel" position="absolute" left="147.826px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">F</Label>
+            <Label className="chartLabel" position="absolute" left="166.715px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">G</Label>
+            <Label className="chartLabel" position="absolute" left="185.604px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">H</Label>
+            <Label className="chartLabel" position="absolute" left="204.493px" top="117.5px" width="14.125px" textAlign="center" fontSize="10px">I</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L221.5,110.5" />
+            <Label className="chartTitle" position="absolute" left="129.925px" top="131.5px" width="13.15px" textAlign="center" fontSize="11px" fontWeight="bold">a</Label>
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L46.5,110.5 M51.5,60.5 L46.5,60.5 M51.5,10.5 L46.5,10.5" />
+            <Label className="chartLabel" position="absolute" left="31.875px" top="105.5px" width="12.625px" textAlign="right" fontSize="10px">0</Label>
+            <Label className="chartLabel" position="absolute" left="25.25px" top="55.5px" width="19.25px" textAlign="right" fontSize="10px">50</Label>
+            <Label className="chartLabel" position="absolute" left="18.625px" top="5.5px" width="25.875px" textAlign="right" fontSize="10px">100</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L51.5,10.5" />
+            <Label className="chartTitle" position="absolute" left="3.325px" top="53.9px" width="13.15px" textAlign="center" fontSize="11px" fontWeight="bold" rotate="-90">b</Label>
+            <Path className="chartFill0" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" d="M51.9444,82 L68.9444,82 L68.9444,110 L51.9444,110 Z M70.8333,55 L87.8333,55 L87.8333,110 L70.8333,110 Z M89.7222,67 L106.7222,67 L106.7222,110 L89.7222,110 Z M108.6111,19 L125.6111,19 L125.6111,110 L108.6111,110 Z M127.5,29 L144.5,29 L144.5,110 L127.5,110 Z M146.3889,57 L163.3889,57 L163.3889,110 L146.3889,110 Z M165.2778,91 L182.2778,91 L182.2778,110 L165.2778,110 Z M184.1667,23 L201.1667,23 L201.1667,110 L184.1667,110 Z M203.0556,58 L220.0556,58 L220.0556,110 L203.0556,110 Z" />
           </View>
         </View>
           <Label className="caption">49 piirtokomentoa · bar.vg.json</Label>
@@ -47,30 +47,30 @@ function render() {
         <View className="chartCell">
           <Label className="subhead">Pinottu pylväskaavio</Label>
         <View className="chartBox">
-          <View className="chart" position="relative" width="226px" height="162.2px">
-            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" strokeWidth="1" d="M51,27.2 L221,27.2 L221,127.2 L51,127.2 Z" />
-            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" strokeWidth="1" opacity="0.25" d="M51.5,127.7 L221.5,127.7 M51.5,94.7 L221.5,94.7 M51.5,60.7 L221.5,60.7 M51.5,27.7 L221.5,27.7" />
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" strokeWidth="1" d="M94.5,127.7 L94.5,132.7 M179.5,127.7 L179.5,132.7" />
-            <Label className="chartLabel" position="absolute" left="51px" top="0px" fontSize="10px">x</Label>
-            <Label className="chartLabel" position="absolute" left="51px" top="0px" fontSize="10px">y</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" strokeWidth="1" d="M51.5,127.7 L221.5,127.7" />
-            <Label className="chartTitle" position="absolute" left="133.64px" top="146.7px" fontSize="11px" fontWeight="bold">g</Label>
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" strokeWidth="1" d="M51.5,127.7 L46.5,127.7 M51.5,94.7 L46.5,94.7 M51.5,60.7 L46.5,60.7 M51.5,27.7 L46.5,27.7" />
-            <Label className="chartLabel" position="absolute" left="39.2px" top="122.7px" fontSize="10px">0</Label>
-            <Label className="chartLabel" position="absolute" left="28.6px" top="89.367px" fontSize="10px">100</Label>
-            <Label className="chartLabel" position="absolute" left="28.6px" top="56.033px" fontSize="10px">200</Label>
-            <Label className="chartLabel" position="absolute" left="28.6px" top="22.7px" fontSize="10px">300</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" strokeWidth="1" d="M51.5,127.7 L51.5,27.7" />
-            <Label className="chartTitle" position="absolute" left="51px" top="0px" fontSize="11px" fontWeight="bold">Sum of b</Label>
-            <Path className="chartFill0" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M55.25,52.8667 L131.75,52.8667 L131.75,62.2 L55.25,62.2 Z" />
-            <Path className="chartFill1" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M140.25,31.8667 L216.75,31.8667 L216.75,50.2 L140.25,50.2 Z" />
-            <Path className="chartFill2" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M55.25,62.2 L131.75,62.2 L131.75,76.5333 L55.25,76.5333 Z" />
-            <Path className="chartFill3" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M140.25,50.2 L216.75,50.2 L216.75,80.5333 L140.25,80.5333 Z" />
-            <Path className="chartFill4" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M55.25,76.5333 L131.75,76.5333 L131.75,103.5333 L55.25,103.5333 Z" />
-            <Path className="chartFill5" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M140.25,80.5333 L216.75,80.5333 L216.75,98.2 L140.25,98.2 Z" />
-            <Path className="chartFill6" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M55.25,103.5333 L131.75,103.5333 L131.75,109.8667 L55.25,109.8667 Z" />
-            <Path className="chartFill7" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M140.25,98.2 L216.75,98.2 L216.75,127.2 L140.25,127.2 Z" />
-            <Path className="chartFill8" position="absolute" left="0px" top="0px" width="226px" height="162.2px" viewBox="0 0 226 162.2" d="M55.25,109.8667 L131.75,109.8667 L131.75,127.2 L55.25,127.2 Z" />
+          <View className="chart" position="relative" width="244.881px" height="145px">
+            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" strokeWidth="1" d="M69.8813,10 L239.8813,10 L239.8813,110 L69.8813,110 Z" />
+            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" strokeWidth="1" opacity="0.25" d="M70.3813,110.5 L240.3813,110.5 M70.3813,77.5 L240.3813,77.5 M70.3813,43.5 L240.3813,43.5 M70.3813,10.5 L240.3813,10.5" />
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" strokeWidth="1" d="M113.3813,110.5 L113.3813,115.5 M198.3813,110.5 L198.3813,115.5" />
+            <Label className="chartLabel" position="absolute" left="106.131px" top="111.5px" width="12.5px" textAlign="center" fontSize="10px" rotate="270">x</Label>
+            <Label className="chartLabel" position="absolute" left="191.131px" top="111.5px" width="12.5px" textAlign="center" fontSize="10px" rotate="270">y</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" strokeWidth="1" d="M70.3813,110.5 L240.3813,110.5" />
+            <Label className="chartTitle" position="absolute" left="148.806px" top="129.5px" width="13.15px" textAlign="center" fontSize="11px" fontWeight="bold">g</Label>
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" strokeWidth="1" d="M70.3813,110.5 L65.3813,110.5 M70.3813,77.5 L65.3813,77.5 M70.3813,43.5 L65.3813,43.5 M70.3813,10.5 L65.3813,10.5" />
+            <Label className="chartLabel" position="absolute" left="50.756px" top="105.5px" width="12.625px" textAlign="right" fontSize="10px">0</Label>
+            <Label className="chartLabel" position="absolute" left="37.506px" top="72.167px" width="25.875px" textAlign="right" fontSize="10px">100</Label>
+            <Label className="chartLabel" position="absolute" left="37.506px" top="38.833px" width="25.875px" textAlign="right" fontSize="10px">200</Label>
+            <Label className="chartLabel" position="absolute" left="37.506px" top="5.5px" width="25.875px" textAlign="right" fontSize="10px">300</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" strokeWidth="1" d="M70.3813,110.5 L70.3813,10.5" />
+            <Label className="chartTitle" position="absolute" left="-0px" top="53.9px" width="57.563px" textAlign="center" fontSize="11px" fontWeight="bold" rotate="-90">Sum of b</Label>
+            <Path className="chartFill0" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M74.1313,35.6667 L150.6313,35.6667 L150.6313,45 L74.1313,45 Z" />
+            <Path className="chartFill1" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M159.1313,14.6667 L235.6313,14.6667 L235.6313,33 L159.1313,33 Z" />
+            <Path className="chartFill2" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M74.1313,45 L150.6313,45 L150.6313,59.3333 L74.1313,59.3333 Z" />
+            <Path className="chartFill3" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M159.1313,33 L235.6313,33 L235.6313,63.3333 L159.1313,63.3333 Z" />
+            <Path className="chartFill4" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M74.1313,59.3333 L150.6313,59.3333 L150.6313,86.3333 L74.1313,86.3333 Z" />
+            <Path className="chartFill5" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M159.1313,63.3333 L235.6313,63.3333 L235.6313,81 L159.1313,81 Z" />
+            <Path className="chartFill6" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M74.1313,86.3333 L150.6313,86.3333 L150.6313,92.6667 L74.1313,92.6667 Z" />
+            <Path className="chartFill7" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M159.1313,81 L235.6313,81 L235.6313,110 L159.1313,110 Z" />
+            <Path className="chartFill8" position="absolute" left="0px" top="0px" width="244.881px" height="145px" viewBox="0 0 244.881 145" d="M74.1313,92.6667 L150.6313,92.6667 L150.6313,110 L74.1313,110 Z" />
           </View>
         </View>
           <Label className="caption">38 piirtokomentoa · bar_stacked.vg.json</Label>
@@ -80,24 +80,24 @@ function render() {
         <View className="chartCell">
           <Label className="subhead">Viivakaavio</Label>
         <View className="chartBox">
-          <View className="chart" position="relative" width="226px" height="164.2px">
-            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51,27.2 L221,27.2 L221,127.2 L51,127.2 Z" />
-            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" opacity="0.25" d="M72.5,27.7 L72.5,127.7 M115.5,27.7 L115.5,127.7 M157.5,27.7 L157.5,127.7 M200.5,27.7 L200.5,127.7" />
-            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" opacity="0.25" d="M51.5,127.7 L221.5,127.7 M51.5,77.7 L221.5,77.7 M51.5,27.7 L221.5,27.7" />
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M72.5,127.7 L72.5,132.7 M115.5,127.7 L115.5,132.7 M157.5,127.7 L157.5,132.7 M200.5,127.7 L200.5,132.7" />
-            <Label className="chartLabel" position="absolute" left="72.75px" top="134.7px" fontSize="10px">2</Label>
-            <Label className="chartLabel" position="absolute" left="112.6px" top="134.7px" fontSize="10px">4</Label>
-            <Label className="chartLabel" position="absolute" left="155.1px" top="134.7px" fontSize="10px">6</Label>
-            <Label className="chartLabel" position="absolute" left="194.95px" top="134.7px" fontSize="10px">8</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L221.5,127.7" />
-            <Label className="chartTitle" position="absolute" left="133.64px" top="148.7px" fontSize="11px" fontWeight="bold">c</Label>
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L46.5,127.7 M51.5,77.7 L46.5,77.7 M51.5,27.7 L46.5,27.7" />
-            <Label className="chartLabel" position="absolute" left="39.2px" top="122.7px" fontSize="10px">0</Label>
-            <Label className="chartLabel" position="absolute" left="33.9px" top="72.7px" fontSize="10px">50</Label>
-            <Label className="chartLabel" position="absolute" left="28.6px" top="22.7px" fontSize="10px">100</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L51.5,27.7" />
-            <Label className="chartTitle" position="absolute" left="51px" top="0px" fontSize="11px" fontWeight="bold">b</Label>
-            <Path className="chartStroke0" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="2" d="M51,40.2 L72.25,84.2 L93.5,75.2 L114.75,46.2 L136,99.2 L157.25,74.2 L178.5,36.2 L199.75,108.2 L221,72.2" />
+          <View className="chart" position="relative" width="226px" height="147px">
+            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51,10 L221,10 L221,110 L51,110 Z" />
+            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" opacity="0.25" d="M72.5,10.5 L72.5,110.5 M115.5,10.5 L115.5,110.5 M157.5,10.5 L157.5,110.5 M200.5,10.5 L200.5,110.5" />
+            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" opacity="0.25" d="M51.5,110.5 L221.5,110.5 M51.5,60.5 L221.5,60.5 M51.5,10.5 L221.5,10.5" />
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M72.5,110.5 L72.5,115.5 M115.5,110.5 L115.5,115.5 M157.5,110.5 L157.5,115.5 M200.5,110.5 L200.5,115.5" />
+            <Label className="chartLabel" position="absolute" left="72.75px" top="117.5px" width="12.625px" textAlign="left" fontSize="10px">2</Label>
+            <Label className="chartLabel" position="absolute" left="108.938px" top="117.5px" width="12.625px" textAlign="center" fontSize="10px">4</Label>
+            <Label className="chartLabel" position="absolute" left="151.438px" top="117.5px" width="12.625px" textAlign="center" fontSize="10px">6</Label>
+            <Label className="chartLabel" position="absolute" left="187.625px" top="117.5px" width="12.625px" textAlign="right" fontSize="10px">8</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L221.5,110.5" />
+            <Label className="chartTitle" position="absolute" left="129.925px" top="131.5px" width="13.15px" textAlign="center" fontSize="11px" fontWeight="bold">c</Label>
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L46.5,110.5 M51.5,60.5 L46.5,60.5 M51.5,10.5 L46.5,10.5" />
+            <Label className="chartLabel" position="absolute" left="31.875px" top="105.5px" width="12.625px" textAlign="right" fontSize="10px">0</Label>
+            <Label className="chartLabel" position="absolute" left="25.25px" top="55.5px" width="19.25px" textAlign="right" fontSize="10px">50</Label>
+            <Label className="chartLabel" position="absolute" left="18.625px" top="5.5px" width="25.875px" textAlign="right" fontSize="10px">100</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L51.5,10.5" />
+            <Label className="chartTitle" position="absolute" left="3.325px" top="53.9px" width="13.15px" textAlign="center" fontSize="11px" fontWeight="bold" rotate="-90">b</Label>
+            <Path className="chartStroke0" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="2" d="M51,23 L72.25,67 L93.5,58 L114.75,29 L136,82 L157.25,57 L178.5,19 L199.75,91 L221,55" />
           </View>
         </View>
           <Label className="caption">37 piirtokomentoa · line.vg.json</Label>
@@ -105,25 +105,25 @@ function render() {
         <View className="chartCell">
           <Label className="subhead">Hajontakaavio</Label>
         <View className="chartBox">
-          <View className="chart" position="relative" width="226px" height="164.2px">
-            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51,27.2 L221,27.2 L221,127.2 L51,127.2 Z" />
-            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" opacity="0.25" d="M51.5,27.7 L51.5,127.7 M89.5,27.7 L89.5,127.7 M127.5,27.7 L127.5,127.7 M164.5,27.7 L164.5,127.7 M202.5,27.7 L202.5,127.7" />
-            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" opacity="0.25" d="M51.5,127.7 L221.5,127.7 M51.5,77.7 L221.5,77.7 M51.5,27.7 L221.5,27.7" />
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L51.5,132.7 M89.5,127.7 L89.5,132.7 M127.5,127.7 L127.5,132.7 M164.5,127.7 L164.5,132.7 M202.5,127.7 L202.5,132.7" />
-            <Label className="chartLabel" position="absolute" left="51.5px" top="134.7px" fontSize="10px">0</Label>
-            <Label className="chartLabel" position="absolute" left="86.628px" top="134.7px" fontSize="10px">2</Label>
-            <Label className="chartLabel" position="absolute" left="124.406px" top="134.7px" fontSize="10px">4</Label>
-            <Label className="chartLabel" position="absolute" left="162.183px" top="134.7px" fontSize="10px">6</Label>
-            <Label className="chartLabel" position="absolute" left="197.311px" top="134.7px" fontSize="10px">8</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L221.5,127.7" />
-            <Label className="chartTitle" position="absolute" left="133.64px" top="148.7px" fontSize="11px" fontWeight="bold">c</Label>
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L46.5,127.7 M51.5,77.7 L46.5,77.7 M51.5,27.7 L46.5,27.7" />
-            <Label className="chartLabel" position="absolute" left="39.2px" top="122.7px" fontSize="10px">0</Label>
-            <Label className="chartLabel" position="absolute" left="33.9px" top="72.7px" fontSize="10px">50</Label>
-            <Label className="chartLabel" position="absolute" left="28.6px" top="22.7px" fontSize="10px">100</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="1" d="M51.5,127.7 L51.5,27.7" />
-            <Label className="chartTitle" position="absolute" left="51px" top="0px" fontSize="11px" fontWeight="bold">b</Label>
-            <Path className="chartStroke0" position="absolute" left="0px" top="0px" width="226px" height="164.2px" viewBox="0 0 226 164.2" strokeWidth="2" opacity="0.7" d="M148.5346,99.2 C148.5346,100.9067 147.1511,102.2902 145.4444,102.2902 C143.7378,102.2902 142.3543,100.9067 142.3543,99.2 C142.3543,97.4933 143.7378,96.1098 145.4444,96.1098 C147.1511,96.1098 148.5346,97.4933 148.5346,99.2 Z M224.0902,72.2 C224.0902,73.9067 222.7067,75.2902 221,75.2902 C219.2933,75.2902 217.9098,73.9067 217.9098,72.2 C217.9098,70.4933 219.2933,69.1098 221,69.1098 C222.7067,69.1098 224.0902,70.4933 224.0902,72.2 Z M91.868,84.2 C91.868,85.9067 90.4844,87.2902 88.7778,87.2902 C87.0711,87.2902 85.6876,85.9067 85.6876,84.2 C85.6876,82.4933 87.0711,81.1098 88.7778,81.1098 C90.4844,81.1098 91.868,82.4933 91.868,84.2 Z M186.3124,36.2 C186.3124,37.9067 184.9289,39.2902 183.2222,39.2902 C181.5156,39.2902 180.132,37.9067 180.132,36.2 C180.132,34.4933 181.5156,33.1098 183.2222,33.1098 C184.9289,33.1098 186.3124,34.4933 186.3124,36.2 Z M129.6457,46.2 C129.6457,47.9067 128.2622,49.2902 126.5556,49.2902 C124.8489,49.2902 123.4654,47.9067 123.4654,46.2 C123.4654,44.4933 124.8489,43.1098 126.5556,43.1098 C128.2622,43.1098 129.6457,44.4933 129.6457,46.2 Z M167.4235,74.2 C167.4235,75.9067 166.04,77.2902 164.3333,77.2902 C162.6267,77.2902 161.2431,75.9067 161.2431,74.2 C161.2431,72.4933 162.6267,71.1098 164.3333,71.1098 C166.04,71.1098 167.4235,72.4933 167.4235,74.2 Z M205.2013,108.2 C205.2013,109.9067 203.8178,111.2902 202.1111,111.2902 C200.4044,111.2902 199.0209,109.9067 199.0209,108.2 C199.0209,106.4933 200.4044,105.1098 202.1111,105.1098 C203.8178,105.1098 205.2013,106.4933 205.2013,108.2 Z M72.9791,40.2 C72.9791,41.9067 71.5956,43.2902 69.8889,43.2902 C68.1822,43.2902 66.7987,41.9067 66.7987,40.2 C66.7987,38.4933 68.1822,37.1098 69.8889,37.1098 C71.5956,37.1098 72.9791,38.4933 72.9791,40.2 Z M110.7569,75.2 C110.7569,76.9067 109.3733,78.2902 107.6667,78.2902 C105.96,78.2902 104.5765,76.9067 104.5765,75.2 C104.5765,73.4933 105.96,72.1098 107.6667,72.1098 C109.3733,72.1098 110.7569,73.4933 110.7569,75.2 Z" />
+          <View className="chart" position="relative" width="226px" height="147px">
+            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51,10 L221,10 L221,110 L51,110 Z" />
+            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" opacity="0.25" d="M51.5,10.5 L51.5,110.5 M89.5,10.5 L89.5,110.5 M127.5,10.5 L127.5,110.5 M164.5,10.5 L164.5,110.5 M202.5,10.5 L202.5,110.5" />
+            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" opacity="0.25" d="M51.5,110.5 L221.5,110.5 M51.5,60.5 L221.5,60.5 M51.5,10.5 L221.5,10.5" />
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L51.5,115.5 M89.5,110.5 L89.5,115.5 M127.5,110.5 L127.5,115.5 M164.5,110.5 L164.5,115.5 M202.5,110.5 L202.5,115.5" />
+            <Label className="chartLabel" position="absolute" left="51.5px" top="117.5px" width="12.625px" textAlign="left" fontSize="10px">0</Label>
+            <Label className="chartLabel" position="absolute" left="82.965px" top="117.5px" width="12.625px" textAlign="center" fontSize="10px">2</Label>
+            <Label className="chartLabel" position="absolute" left="120.743px" top="117.5px" width="12.625px" textAlign="center" fontSize="10px">4</Label>
+            <Label className="chartLabel" position="absolute" left="158.521px" top="117.5px" width="12.625px" textAlign="center" fontSize="10px">6</Label>
+            <Label className="chartLabel" position="absolute" left="189.986px" top="117.5px" width="12.625px" textAlign="right" fontSize="10px">8</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L221.5,110.5" />
+            <Label className="chartTitle" position="absolute" left="129.925px" top="131.5px" width="13.15px" textAlign="center" fontSize="11px" fontWeight="bold">c</Label>
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L46.5,110.5 M51.5,60.5 L46.5,60.5 M51.5,10.5 L46.5,10.5" />
+            <Label className="chartLabel" position="absolute" left="31.875px" top="105.5px" width="12.625px" textAlign="right" fontSize="10px">0</Label>
+            <Label className="chartLabel" position="absolute" left="25.25px" top="55.5px" width="19.25px" textAlign="right" fontSize="10px">50</Label>
+            <Label className="chartLabel" position="absolute" left="18.625px" top="5.5px" width="25.875px" textAlign="right" fontSize="10px">100</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="1" d="M51.5,110.5 L51.5,10.5" />
+            <Label className="chartTitle" position="absolute" left="3.325px" top="53.9px" width="13.15px" textAlign="center" fontSize="11px" fontWeight="bold" rotate="-90">b</Label>
+            <Path className="chartStroke0" position="absolute" left="0px" top="0px" width="226px" height="147px" viewBox="0 0 226 147" strokeWidth="2" opacity="0.7" d="M148.5346,82 C148.5346,83.7067 147.1511,85.0902 145.4444,85.0902 C143.7378,85.0902 142.3543,83.7067 142.3543,82 C142.3543,80.2933 143.7378,78.9098 145.4444,78.9098 C147.1511,78.9098 148.5346,80.2933 148.5346,82 Z M224.0902,55 C224.0902,56.7067 222.7067,58.0902 221,58.0902 C219.2933,58.0902 217.9098,56.7067 217.9098,55 C217.9098,53.2933 219.2933,51.9098 221,51.9098 C222.7067,51.9098 224.0902,53.2933 224.0902,55 Z M91.868,67 C91.868,68.7067 90.4844,70.0902 88.7778,70.0902 C87.0711,70.0902 85.6876,68.7067 85.6876,67 C85.6876,65.2933 87.0711,63.9098 88.7778,63.9098 C90.4844,63.9098 91.868,65.2933 91.868,67 Z M186.3124,19 C186.3124,20.7067 184.9289,22.0902 183.2222,22.0902 C181.5156,22.0902 180.132,20.7067 180.132,19 C180.132,17.2933 181.5156,15.9098 183.2222,15.9098 C184.9289,15.9098 186.3124,17.2933 186.3124,19 Z M129.6457,29 C129.6457,30.7067 128.2622,32.0902 126.5556,32.0902 C124.8489,32.0902 123.4654,30.7067 123.4654,29 C123.4654,27.2933 124.8489,25.9098 126.5556,25.9098 C128.2622,25.9098 129.6457,27.2933 129.6457,29 Z M167.4235,57 C167.4235,58.7067 166.04,60.0902 164.3333,60.0902 C162.6267,60.0902 161.2431,58.7067 161.2431,57 C161.2431,55.2933 162.6267,53.9098 164.3333,53.9098 C166.04,53.9098 167.4235,55.2933 167.4235,57 Z M205.2013,91 C205.2013,92.7067 203.8178,94.0902 202.1111,94.0902 C200.4044,94.0902 199.0209,92.7067 199.0209,91 C199.0209,89.2933 200.4044,87.9098 202.1111,87.9098 C203.8178,87.9098 205.2013,89.2933 205.2013,91 Z M72.9791,23 C72.9791,24.7067 71.5956,26.0902 69.8889,26.0902 C68.1822,26.0902 66.7987,24.7067 66.7987,23 C66.7987,21.2933 68.1822,19.9098 69.8889,19.9098 C71.5956,19.9098 72.9791,21.2933 72.9791,23 Z M110.7569,58 C110.7569,59.7067 109.3733,61.0902 107.6667,61.0902 C105.96,61.0902 104.5765,59.7067 104.5765,58 C104.5765,56.2933 105.96,54.9098 107.6667,54.9098 C109.3733,54.9098 110.7569,56.2933 110.7569,58 Z" />
           </View>
         </View>
           <Label className="caption">48 piirtokomentoa · scatter.vg.json</Label>
@@ -133,25 +133,25 @@ function render() {
         <View className="chartCell">
           <Label className="subhead">Histogrammi</Label>
         <View className="chartBox">
-          <View className="chart" position="relative" width="210px" height="164.2px">
-            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="210px" height="164.2px" viewBox="0 0 210 164.2" strokeWidth="1" d="M35,27.2 L205,27.2 L205,127.2 L35,127.2 Z" />
-            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="210px" height="164.2px" viewBox="0 0 210 164.2" strokeWidth="1" opacity="0.25" d="M35.5,127.7 L205.5,127.7 M35.5,94.7 L205.5,94.7 M35.5,60.7 L205.5,60.7 M35.5,27.7 L205.5,27.7" />
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="210px" height="164.2px" viewBox="0 0 210 164.2" strokeWidth="1" d="M35.5,127.7 L35.5,132.7 M54.5,127.7 L54.5,132.7 M73.5,127.7 L73.5,132.7 M92.5,127.7 L92.5,132.7 M111.5,127.7 L111.5,132.7 M129.5,127.7 L129.5,132.7 M148.5,127.7 L148.5,132.7 M167.5,127.7 L167.5,132.7 M186.5,127.7 L186.5,132.7 M205.5,127.7 L205.5,132.7" />
-            <Label className="chartLabel" position="absolute" left="35.5px" top="134.7px" fontSize="10px">10</Label>
-            <Label className="chartLabel" position="absolute" left="67.978px" top="134.7px" fontSize="10px">30</Label>
-            <Label className="chartLabel" position="absolute" left="105.756px" top="134.7px" fontSize="10px">50</Label>
-            <Label className="chartLabel" position="absolute" left="143.533px" top="134.7px" fontSize="10px">70</Label>
-            <Label className="chartLabel" position="absolute" left="181.311px" top="134.7px" fontSize="10px">90</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="210px" height="164.2px" viewBox="0 0 210 164.2" strokeWidth="1" d="M35.5,127.7 L205.5,127.7" />
-            <Label className="chartTitle" position="absolute" left="95.805px" top="148.7px" fontSize="11px" fontWeight="bold">b (binned)</Label>
-            <Path className="chartTick" position="absolute" left="0px" top="0px" width="210px" height="164.2px" viewBox="0 0 210 164.2" strokeWidth="1" d="M35.5,127.7 L30.5,127.7 M35.5,94.7 L30.5,94.7 M35.5,60.7 L30.5,60.7 M35.5,27.7 L30.5,27.7" />
-            <Label className="chartLabel" position="absolute" left="23.2px" top="122.7px" fontSize="10px">0</Label>
-            <Label className="chartLabel" position="absolute" left="23.2px" top="89.367px" fontSize="10px">1</Label>
-            <Label className="chartLabel" position="absolute" left="23.2px" top="56.033px" fontSize="10px">2</Label>
-            <Label className="chartLabel" position="absolute" left="23.2px" top="22.7px" fontSize="10px">3</Label>
-            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="210px" height="164.2px" viewBox="0 0 210 164.2" strokeWidth="1" d="M35.5,127.7 L35.5,27.7" />
-            <Label className="chartTitle" position="absolute" left="35px" top="0px" fontSize="11px" fontWeight="bold">Count of Records</Label>
-            <Path className="chartFill0" position="absolute" left="0px" top="0px" width="210px" height="164.2px" viewBox="0 0 210 164.2" d="M54.8889,93.8667 L72.7778,93.8667 L72.7778,127.2 L54.8889,127.2 Z M111.5556,27.2 L129.4444,27.2 L129.4444,127.2 L111.5556,127.2 Z M92.6667,93.8667 L110.5556,93.8667 L110.5556,127.2 L92.6667,127.2 Z M187.1111,93.8667 L205,93.8667 L205,127.2 L187.1111,127.2 Z M168.2222,60.5333 L186.1111,60.5333 L186.1111,127.2 L168.2222,127.2 Z M36,93.8667 L53.8889,93.8667 L53.8889,127.2 L36,127.2 Z" />
+          <View className="chart" position="relative" width="258.375px" height="147px">
+            <Path className="chartFrame" position="absolute" left="0px" top="0px" width="258.375px" height="147px" viewBox="0 0 258.375 147" strokeWidth="1" d="M83.375,10 L253.375,10 L253.375,110 L83.375,110 Z" />
+            <Path className="chartGrid" position="absolute" left="0px" top="0px" width="258.375px" height="147px" viewBox="0 0 258.375 147" strokeWidth="1" opacity="0.25" d="M83.875,110.5 L253.875,110.5 M83.875,77.5 L253.875,77.5 M83.875,43.5 L253.875,43.5 M83.875,10.5 L253.875,10.5" />
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="258.375px" height="147px" viewBox="0 0 258.375 147" strokeWidth="1" d="M83.875,110.5 L83.875,115.5 M102.875,110.5 L102.875,115.5 M121.875,110.5 L121.875,115.5 M140.875,110.5 L140.875,115.5 M159.875,110.5 L159.875,115.5 M177.875,110.5 L177.875,115.5 M196.875,110.5 L196.875,115.5 M215.875,110.5 L215.875,115.5 M234.875,110.5 L234.875,115.5 M253.875,110.5 L253.875,115.5" />
+            <Label className="chartLabel" position="absolute" left="83.875px" top="117.5px" width="19.25px" textAlign="left" fontSize="10px">10</Label>
+            <Label className="chartLabel" position="absolute" left="112.028px" top="117.5px" width="19.25px" textAlign="center" fontSize="10px">30</Label>
+            <Label className="chartLabel" position="absolute" left="149.806px" top="117.5px" width="19.25px" textAlign="center" fontSize="10px">50</Label>
+            <Label className="chartLabel" position="absolute" left="187.583px" top="117.5px" width="19.25px" textAlign="center" fontSize="10px">70</Label>
+            <Label className="chartLabel" position="absolute" left="225.361px" top="117.5px" width="19.25px" textAlign="center" fontSize="10px">90</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="258.375px" height="147px" viewBox="0 0 258.375 147" strokeWidth="1" d="M83.875,110.5 L253.875,110.5" />
+            <Label className="chartTitle" position="absolute" left="135.006px" top="131.5px" width="67.737px" textAlign="center" fontSize="11px" fontWeight="bold">b (binned)</Label>
+            <Path className="chartTick" position="absolute" left="0px" top="0px" width="258.375px" height="147px" viewBox="0 0 258.375 147" strokeWidth="1" d="M83.875,110.5 L78.875,110.5 M83.875,77.5 L78.875,77.5 M83.875,43.5 L78.875,43.5 M83.875,10.5 L78.875,10.5" />
+            <Label className="chartLabel" position="absolute" left="64.25px" top="105.5px" width="12.625px" textAlign="right" fontSize="10px">0</Label>
+            <Label className="chartLabel" position="absolute" left="64.25px" top="72.167px" width="12.625px" textAlign="right" fontSize="10px">1</Label>
+            <Label className="chartLabel" position="absolute" left="64.25px" top="38.833px" width="12.625px" textAlign="right" fontSize="10px">2</Label>
+            <Label className="chartLabel" position="absolute" left="64.25px" top="5.5px" width="12.625px" textAlign="right" fontSize="10px">3</Label>
+            <Path className="chartDomain" position="absolute" left="0px" top="0px" width="258.375px" height="147px" viewBox="0 0 258.375 147" strokeWidth="1" d="M83.875,110.5 L83.875,10.5" />
+            <Label className="chartTitle" position="absolute" left="-0px" top="53.9px" width="116.55px" textAlign="center" fontSize="11px" fontWeight="bold" rotate="-90">Count of Records</Label>
+            <Path className="chartFill0" position="absolute" left="0px" top="0px" width="258.375px" height="147px" viewBox="0 0 258.375 147" d="M103.2639,76.6667 L121.1528,76.6667 L121.1528,110 L103.2639,110 Z M159.9306,10 L177.8194,10 L177.8194,110 L159.9306,110 Z M141.0417,76.6667 L158.9306,76.6667 L158.9306,110 L141.0417,110 Z M235.4861,76.6667 L253.375,76.6667 L253.375,110 L235.4861,110 Z M216.5972,43.3333 L234.4861,43.3333 L234.4861,110 L216.5972,110 Z M84.375,76.6667 L102.2639,76.6667 L102.2639,110 L84.375,110 Z" />
           </View>
         </View>
           <Label className="caption">51 piirtokomentoa · histogram.vg.json</Label>

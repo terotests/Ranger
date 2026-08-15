@@ -207,15 +207,20 @@ showcase renders one generated page in three palettes without regenerating it.
 Only colour moves: stroke widths, opacities and every coordinate stay in the
 tree, because they were computed from the data and are not a matter of taste.
 
-**Text is placed by measurement, not by alignment.** The first attempt gave each
-label a box and a `textAlign` and let the renderer's own font metrics centre the
-string in it. That is the better design and it does not work: EVG's label
-styling does not carry a width out to the target, so the box is auto-width, the
-alignment has nothing to align within, and every label lands at its box's left
-edge — which put a bar chart's category labels progressively further right than
-their ticks. The anchor is resolved here instead, with the same width estimate
-the axis extents use. A proportional face differs from that estimate by a pixel
-or two; the alternative was labels tens of pixels out.
+**Text is placed by a box and an alignment.** A label is given a box wide enough
+for its string and told which edge of it the anchor is; the renderer's own font
+metrics then decide where inside that box the glyphs sit, so nothing here has to
+know how wide the text really is. The same box is what makes a turned axis title
+land correctly — all three targets rotate about the element's box centre.
+
+That design did not work at first, and the reason was in EVG rather than here:
+an absolutely positioned element's size was never computed. `layoutChildren`
+called `layoutAbsolute`, which sets x and y and nothing else, so
+`calculatedWidth` stayed 0 for every one of them — a label had no box for
+`text-align` to align in, a rotation "about its centre" turned about its left
+edge, and the HTML target was not rotating labels at all. Charts are what
+surfaced it; the fix is in `EVGLayout` and `EVGHTMLRenderer` and applies to
+anything absolutely positioned.
 
 The chart page on the showcase is generated:
 
@@ -238,18 +243,13 @@ theme at all they come out in the colours their specifications asked for.
   drawn correctly and has no key.
 * **Time and log scales**, and a Ranger Vega-Lite compiler — none of which a
   static chart needs, and all of which are named in the table below.
-* **A turned axis title.** The reference writes a y-axis title on its side
-  beside the axis; Vela draws it upright in a band above the plot. EVG's three
-  targets do not agree about what `rotate` means on a label — the raster target
-  turns it about the top-left of a box whose width layout never measured, and
-  the HTML target does not turn labels at all — so a chart built on it comes
-  out differently in each. Worth revisiting when a label's box is measured.
 * **Two width estimates, on purpose.** `VlText.estimateWidth` is the
   reference's canvas-free 0.8 em per character and sizes the axis extents,
   because matching the reference's layout is what the comparison measures.
   `VlText.drawWidth` is a per-character-class table measured from the faces
-  this repository ships, and places the text. A backend with real font metrics
-  should replace the second and nothing else.
+  this repository ships, and sizes the box a label is drawn in. Neither has to
+  be exact: the box only has to be wide enough, and the alignment inside it —
+  resolved by the renderer's own metrics — is what positions the string.
 * **Bounds-based layout.** The view is sized from what the axes ask for, which
   agrees with the reference exactly on the charts whose marks stay inside the
   plot (a bar chart is 236×347 with the plot at 51,10 in both). The reference
