@@ -1,0 +1,225 @@
+; =============================================================================
+; rg_dump — print the analyzed tree the engine lowers from
+; =============================================================================
+; A development tool, not part of the engine. It runs the ordinary compiler
+; frontend over a file and prints each method body as the flow parser left it:
+; node kinds, the flags the lowering pass switches on, and the resolved types.
+; When RgLower does not understand a construct, this is what shows why.
+;
+;   node bin/rg_dump.js path/to/file.rgr [ClassName]
+
+Import "../../../compiler/VirtualCompiler.rgr"
+
+class RgDump {
+
+  sfn typeName:string (t:RangerNodeType) {
+    switch t {
+      case RangerNodeType.NoType {
+        return "NoType"
+      }
+      case RangerNodeType.Double {
+        return "Double"
+      }
+      case RangerNodeType.Integer {
+        return "Integer"
+      }
+      case RangerNodeType.String {
+        return "String"
+      }
+      case RangerNodeType.Boolean {
+        return "Boolean"
+      }
+      case RangerNodeType.Array {
+        return "Array"
+      }
+      case RangerNodeType.Hash {
+        return "Hash"
+      }
+      case RangerNodeType.Object {
+        return "Object"
+      }
+      case RangerNodeType.VRef {
+        return "VRef"
+      }
+      case RangerNodeType.Char {
+        return "Char"
+      }
+      case RangerNodeType.Expression {
+        return "Expression"
+      }
+      case RangerNodeType.ExpressionType {
+        return "ExpressionType"
+      }
+      case RangerNodeType.Lambda {
+        return "Lambda"
+      }
+      case RangerNodeType.Class {
+        return "Class"
+      }
+      case RangerNodeType.Enum {
+        return "Enum"
+      }
+      case RangerNodeType.Null {
+        return "Null"
+      }
+      case RangerNodeType.ArrayLiteral {
+        return "ArrayLiteral"
+      }
+    }
+    return "t?"
+  }
+
+  sfn flags:string (node:CodeNode) {
+    def parts:[string]
+    if node.expression {
+      push parts "expr"
+    }
+    if node.is_block_node {
+      push parts "block"
+    }
+    if node.has_operator {
+      push parts ("op=" + (node.getOperator()))
+    }
+    if node.has_call {
+      push parts "call"
+    }
+    if node.is_direct_method_call {
+      push parts "directcall"
+    }
+    if node.hasVarDef {
+      push parts "vardef"
+    }
+    if node.hasFnCall {
+      push parts "fncall"
+    }
+    if node.hasNewOper {
+      push parts "new"
+    }
+    if node.infix_operator {
+      push parts "infix"
+    }
+    if node.has_lambda {
+      push parts "lambda"
+    }
+    if node.is_array_literal {
+      push parts "arraylit"
+    }
+    return (join parts " ")
+  }
+
+  sfn dumpNode:void (node:CodeNode indent:string) {
+    def line:string (indent + (RgDump.typeName(node.value_type)))
+    if ((strlen node.vref) > 0) {
+      line = (line + " vref=" + node.vref)
+    }
+    if ((strlen node.type_name) > 0) {
+      line = (line + " type=" + node.type_name)
+    }
+    if ((strlen node.eval_type_name) > 0) {
+      line = (line + " eval=" + node.eval_type_name)
+    }
+    if ((strlen node.array_type) > 0) {
+      line = (line + " of=" + node.array_type)
+    }
+    switch node.value_type {
+      case RangerNodeType.Integer {
+        line = (line + " = " + node.int_value)
+      }
+      case RangerNodeType.Double {
+        line = (line + " = " + node.double_value)
+      }
+      case RangerNodeType.String {
+        line = (line + " = '" + node.string_value + "'")
+      }
+      case RangerNodeType.Boolean {
+        def bv:string "false"
+        if node.boolean_value {
+          bv = "true"
+        }
+        line = (line + " = " + bv)
+      }
+    }
+    def fl:string (RgDump.flags(node))
+    if ((strlen fl) > 0) {
+      line = (line + "   [" + fl + "]")
+    }
+    print line
+    if (!null? node.infix_node) {
+      print (indent + "  infix_node:")
+      RgDump.dumpNode((unwrap node.infix_node) (indent + "    "))
+    }
+    for node.children ch:CodeNode i {
+      RgDump.dumpNode(ch (indent + "  "))
+    }
+  }
+
+  sfn dumpFunction:void (fnDesc:RangerAppFunctionDesc prefix:string) {
+    def sig:[string]
+    for fnDesc.params p:RangerAppParamDesc i {
+      def pn (unwrap p.nameNode)
+      push sig (pn.vref + ":" + pn.type_name)
+    }
+    def retName:string "void"
+    if (!null? fnDesc.nameNode) {
+      def nn (unwrap fnDesc.nameNode)
+      retName = nn.type_name
+    }
+    print ""
+    print (prefix + fnDesc.name + " (" + (join sig " ") + ") : " + retName)
+    if (null? fnDesc.fnBody) {
+      print "    <no body>"
+      return
+    }
+    RgDump.dumpNode((unwrap fnDesc.fnBody) "    ")
+  }
+
+  sfn main:void () {
+    if ((shell_arg_cnt) < 1) {
+      print "usage: rg_dump <file.rgr> [ClassName]"
+      return
+    }
+    def file:string (shell_arg 0)
+    def onlyClass:string ""
+    if ((shell_arg_cnt) > 1) {
+      onlyClass = (shell_arg 1)
+    }
+    def env:InputEnv (new InputEnv())
+    env.use_real = true
+    def params:CmdParams (new CmdParams())
+    push params.values file
+    set params.params "l" "es6"
+    set params.params "o" "rg_dump_ignored.js"
+    set params.flags "no-color" true
+    env.commandLine = params
+    def vc:VirtualCompiler (new VirtualCompiler())
+    def res:CompilerResults (vc.run(env))
+    if res.hasErrors {
+      print "compilation failed: " + res.errorMessage
+      return
+    }
+    def ctx:RangerAppWriterContext res.ctx
+    for ctx.definedClassList cName:string i {
+      if ((strlen onlyClass) > 0) {
+        if (cName != onlyClass) {
+          continue
+        }
+      }
+      def cl:RangerAppClassDesc (unwrap (get ctx.definedClasses cName))
+      if (cl.is_operator_class || cl.is_trait || cl.is_system) {
+        continue
+      }
+      print ""
+      print "=== class " + cl.name + " ==="
+      for cl.variables v:RangerAppParamDesc vi {
+        def vn (unwrap v.nameNode)
+        print ("  field " + vn.vref + ":" + vn.type_name + " (" + (RgDump.typeName(vn.value_type)) + ")")
+      }
+      for cl.static_methods m:RangerAppFunctionDesc mi {
+        RgDump.dumpFunction(m "  sfn ")
+      }
+      for cl.methods m2:RangerAppFunctionDesc mi2 {
+        RgDump.dumpFunction(m2 "  fn ")
+      }
+    }
+  }
+}

@@ -1,0 +1,287 @@
+; =============================================================================
+; RgBytecode — the instruction set and module model of the Ranger engine
+; =============================================================================
+; This file has NO dependency on the compiler. It is the half of the engine
+; that has to ship with the program: a module of bytecode plus the VM that
+; runs it. The other half — the lowering pass that turns analyzed Ranger into
+; one of these modules — imports the whole compiler and stays on the build
+; machine (or on Node, where the compiler is just another module).
+;
+; The machine is a REGISTER machine, not a stack machine, and its registers
+; are split in two banks:
+;
+;   * numeric registers, `[double]`  — int, double, boolean and char all live
+;     here. Ranger is statically typed, so the lowering pass always knows which
+;     bank a value belongs to; no runtime tag is ever consulted.
+;   * reference registers, `[RgRef]` — strings, arrays, maps and objects.
+;
+; Two banks instead of one boxed value type is what keeps the interpreter from
+; allocating on every arithmetic step, and it is also what makes the JIT tier
+; trivial: each register becomes one JavaScript local of a known kind, so
+; `n3 = n1 + n2` comes out as itself rather than as a tagged-value dance.
+;
+; Every instruction is an opcode plus three int operands — a, b, c — held in
+; four parallel arrays. A fixed width costs a little space and buys a decoder
+; that is the same four array reads in every target language.
+
+; -----------------------------------------------------------------------------
+; The instruction set.
+; -----------------------------------------------------------------------------
+; Operand naming below: `n[x]` is numeric register x, `r[x]` is reference
+; register x, `K` is an index into the function's constant pool.
+Enum RgOp:int (
+  NOP        ; -               do nothing
+  KNUM       ; a k             n[a] = nums[k]
+  KSTR       ; a k             r[a] = strings[k]
+  KNULL      ; a               r[a] = null
+  MOVN       ; a b             n[a] = n[b]
+  MOVR       ; a b             r[a] = r[b]
+  ADD        ; a b c           n[a] = n[b] + n[c]
+  SUB
+  MUL
+  DIV        ; real division
+  IDIV       ; truncating integer division
+  MOD
+  NEG        ; a b             n[a] = -n[b]
+  LT         ; a b c           n[a] = (n[b] <  n[c]) ? 1 : 0
+  LE
+  GT
+  GE
+  EQ
+  NEQ
+  NOT        ; a b             n[a] = (n[b] == 0) ? 1 : 0
+  JMP        ; a               pc = a
+  JZ         ; a b             if n[a] == 0 then pc = b
+  JNZ        ; a b             if n[a] != 0 then pc = b
+  RETN       ; a               return n[a]
+  RETR       ; a               return r[a]
+  RETV       ; -               return void
+  ARGN       ; a               push n[a] onto the argument buffer
+  ARGR       ; a               push r[a] onto the argument buffer
+  CALLN      ; a b             n[a] = call function b with the argument buffer
+  CALLR      ; a b             r[a] = call function b
+  CALLV      ; - b             call function b, drop the result
+  MCALLN     ; a b c           n[a] = call method slot b on the object in r[c]
+  MCALLR     ; a b c           r[a] = call method slot b on r[c]
+  MCALLV     ; - b c           call method slot b on r[c], drop the result
+  NEWOBJ     ; a b             r[a] = a fresh instance of class b
+  GETFN      ; a b c           n[a] = r[b].numFields[c]
+  GETFR      ; a b c           r[a] = r[b].refFields[c]
+  SETFN      ; a b c           r[a].numFields[b] = n[c]
+  SETFR      ; a b c           r[a].refFields[b] = r[c]
+  ANEWN      ; a               r[a] = new numeric array
+  ANEWR      ; a               r[a] = new reference array
+  APUSHN     ; a b             push n[b] to the array in r[a]
+  APUSHR     ; a b             push r[b] to the array in r[a]
+  AGETN      ; a b c           n[a] = r[b][ n[c] ]
+  AGETR      ; a b c           r[a] = r[b][ n[c] ]
+  ASETN      ; a b c           r[a][ n[b] ] = n[c]
+  ASETR      ; a b c           r[a][ n[b] ] = r[c]
+  ALEN       ; a b             n[a] = length of the array in r[b]
+  SCAT       ; a b c           r[a] = r[b] + r[c]        (string concatenation)
+  SLEN       ; a b             n[a] = length of string r[b]
+  SEQ        ; a b c           n[a] = (r[b] == r[c]) ? 1 : 0   (string equality)
+  SUBSTR     ; a b c           r[a] = substring of r[b] from n[c] to n[c+1]
+  CHARAT     ; a b c           n[a] = character code of r[b] at n[c]
+  N2S        ; a b             r[a] = string of n[b]
+  S2N        ; a b             n[a] = number parsed from r[b]
+  PRINTN     ; a               print n[a]
+  PRINTR     ; a               print r[a]
+  TRUNC      ; a b             n[a] = n[b] truncated towards zero
+  ISNULL     ; a b             n[a] = (r[b] is null) ? 1 : 0
+  OEQ        ; a b c           n[a] = (r[b] is the same object as r[c]) ? 1 : 0
+)
+
+; Register banks. A value is either numeric or a reference; the lowering pass
+; decides once, at compile time, and the choice is baked into the opcode.
+Enum RgKind:int (
+  Void
+  Num
+  Ref
+)
+
+; Execution tier of one function, reported by the engine so a benchmark can
+; show what actually ran.
+Enum RgTier:int (
+  Bytecode     ; the VM below interpreted it
+  Jit          ; the host compiled it to native code from generated source
+  Unsupported  ; lowering bailed out; the engine cannot run this one
+)
+
+; -----------------------------------------------------------------------------
+; RgFunction — one lowered Ranger method.
+; -----------------------------------------------------------------------------
+class RgFunction {
+  ; "Class.method", the name the engine is called with.
+  def name:string ""
+  def className:string ""
+  def methodName:string ""
+  def isStatic:boolean true
+  ; Parameter kinds in declaration order. The prologue drains the argument
+  ; buffer in this order, so a call site's ARGN / ARGR sequence has to follow
+  ; the same order.
+  def paramKinds:[RgKind]
+  def retKind:RgKind RgKind.Void
+  def numRegs:int 0
+  def refRegs:int 0
+  ; The instruction stream, four parallel arrays rather than one interleaved
+  ; `[int]`. Ranger enums lower to plain integer constants, so keeping the
+  ; opcode column its own enum-typed array is what lets the interpreter's
+  ; `switch` compile to a jump table instead of a chain of comparisons — and a
+  ; jump target is then an instruction index, not a word offset.
+  def ops:[RgOp]
+  def ra:[int]
+  def rb:[int]
+  def rc:[int]
+  def nums:[double]
+  def strings:[string]
+  ; How many times the engine has entered this function. The JIT tier watches
+  ; this counter.
+  def callCount:int 0
+  def tier:RgTier RgTier.Bytecode
+  ; Set when lowering gave up. The reason is kept so the engine can report why
+  ; a method is not runnable instead of failing with a blank error.
+  def bailReason:string ""
+  ; Generated host source for the JIT tier, kept for inspection and tests.
+  def jitSource:string ""
+
+  fn addOp:int (op:RgOp a:int b:int c:int) {
+    def at:int (array_length ops)
+    push ops op
+    push ra a
+    push rb b
+    push rc c
+    return at
+  }
+
+  ; Patch a jump target that was emitted before its destination existed.
+  ; JMP keeps the target in operand a, JZ / JNZ in operand b.
+  fn patchA:void (at:int target:int) {
+    set_at ra at target
+  }
+
+  fn patchB:void (at:int target:int) {
+    set_at rb at target
+  }
+
+  fn here:int () {
+    return (array_length ops)
+  }
+
+  fn addNum:int (v:double) {
+    def i:int 0
+    while (i < (array_length nums)) {
+      if ((itemAt nums i) == v) {
+        return i
+      }
+      i = (i + 1)
+    }
+    push nums v
+    return ((array_length nums) - 1)
+  }
+
+  fn addString:int (v:string) {
+    def i:int 0
+    while (i < (array_length strings)) {
+      if ((itemAt strings i) == v) {
+        return i
+      }
+      i = (i + 1)
+    }
+    push strings v
+    return ((array_length strings) - 1)
+  }
+}
+
+; -----------------------------------------------------------------------------
+; RgClassDef — the runtime layout of one Ranger class.
+; -----------------------------------------------------------------------------
+; Fields are split into the same two banks as registers, so an object is two
+; flat arrays and a field access is one indexed read. Method slots are resolved
+; at lowering time; `methodIds` maps a slot to a function index, which is what
+; makes MCALL* a direct index rather than a name lookup.
+class RgClassDef {
+  def name:string ""
+  def numFieldNames:[string]
+  def refFieldNames:[string]
+  ; Default values for the numeric fields, applied by NEWOBJ.
+  def numFieldDefaults:[double]
+  ; Reference field defaults: 0 = null, 1 = empty string, 2 = empty numeric
+  ; array, 3 = empty reference array.
+  def refFieldInit:[int]
+  def methodNames:[string]
+  def methodIds:[int]
+  ; Index of the Constructor in `methodIds`, or -1.
+  def ctorId:int 0
+
+  fn numFieldIndex:int (n:string) {
+    def i:int 0
+    while (i < (array_length numFieldNames)) {
+      if ((itemAt numFieldNames i) == n) {
+        return i
+      }
+      i = (i + 1)
+    }
+    return (0 - 1)
+  }
+
+  fn refFieldIndex:int (n:string) {
+    def i:int 0
+    while (i < (array_length refFieldNames)) {
+      if ((itemAt refFieldNames i) == n) {
+        return i
+      }
+      i = (i + 1)
+    }
+    return (0 - 1)
+  }
+
+  fn methodSlot:int (n:string) {
+    def i:int 0
+    while (i < (array_length methodNames)) {
+      if ((itemAt methodNames i) == n) {
+        return i
+      }
+      i = (i + 1)
+    }
+    return (0 - 1)
+  }
+}
+
+; -----------------------------------------------------------------------------
+; RgModule — everything the VM needs and nothing else.
+; -----------------------------------------------------------------------------
+class RgModule {
+  def functions:[RgFunction]
+  def classes:[RgClassDef]
+  def fnIndex:[string:int]
+  def classIndex:[string:int]
+
+  fn addFunction:int (f:RgFunction) {
+    push functions f
+    def id:int ((array_length functions) - 1)
+    set fnIndex f.name id
+    return id
+  }
+
+  fn addClass:int (c:RgClassDef) {
+    push classes c
+    def id:int ((array_length classes) - 1)
+    set classIndex c.name id
+    return id
+  }
+
+  fn findFunction:int (name:string) {
+    if (has fnIndex name) {
+      return (unwrap (get fnIndex name))
+    }
+    return (0 - 1)
+  }
+
+  fn findClass:int (name:string) {
+    if (has classIndex name) {
+      return (unwrap (get classIndex name))
+    }
+    return (0 - 1)
+  }
+}

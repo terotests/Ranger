@@ -1,0 +1,74 @@
+; A small program covering what the engine's first version understands:
+; static functions, recursion, loops, classes with fields, instance methods,
+; arrays and strings.
+
+class Counter {
+  def total:int 0
+  def label:string "counter"
+
+  fn add:int (n:int) {
+    total = (total + n)
+    return total
+  }
+
+  fn describe:string () {
+    return (label + " = " + total)
+  }
+}
+
+class Demo {
+
+  sfn fib:int (n:int) {
+    if (n < 2) {
+      return n
+    }
+    def a:int (Demo.fib((n - 1)))
+    def b:int (Demo.fib((n - 2)))
+    return (a + b)
+  }
+
+  sfn sumTo:int (n:int) {
+    def i:int 0
+    def total:int 0
+    while (i <= n) {
+      total = (total + i)
+      i = (i + 1)
+    }
+    return total
+  }
+
+  sfn arraySum:int (n:int) {
+    def values:[int]
+    def i:int 0
+    while (i < n) {
+      push values (i * 2)
+      i = (i + 1)
+    }
+    def total:int 0
+    def k:int 0
+    while (k < (array_length values)) {
+      total = (total + (itemAt values k))
+      k = (k + 1)
+    }
+    return total
+  }
+
+  sfn counterDemo:string () {
+    def c:Counter (new Counter())
+    c.add(5)
+    c.add(37)
+    return (c.describe())
+  }
+
+  sfn greet:string (name:string) {
+    return ("hello, " + name)
+  }
+
+  sfn main:void () {
+    print "fib(20)     = " + (Demo.fib(20))
+    print "sumTo(100)  = " + (Demo.sumTo(100))
+    print "arraySum(5) = " + (Demo.arraySum(5))
+    print (Demo.counterDemo())
+    print (Demo.greet("ranger"))
+  }
+}

@@ -1,0 +1,164 @@
+; =============================================================================
+; RgEngine — the front door: Ranger source in, program running
+; =============================================================================
+; This is the piece that makes the two halves one thing. Give it a path to a
+; `.rgr` file and it runs the ordinary compiler frontend over it, lowers the
+; analyzed tree to bytecode, and executes it — no output file, no second
+; process, no target language in between.
+;
+; The tiering is what the engine exists to try out:
+;
+;   tier 1  every function starts as bytecode in RgVM
+;   tier 2  a function the program keeps calling is handed to the JIT hook,
+;           which on Node compiles it to a host function (RgJsJit)
+;
+; A function the lowering pass could not handle is not a crash: it is marked
+; unsupported with a reason, and `report()` lists them. That way the engine is
+; honest about the size of the language subset it covers instead of failing
+; somewhere deep in a call.
+
+Import "RgLower.rgr"
+Import "RgVM.rgr"
+Import "RgJsJit.rgr"
+
+class RgEngine {
+  def module:RgModule (new RgModule())
+  def vm:RgVM (new RgVM())
+  def lower:RgLower (new RgLower())
+  def loaded:boolean false
+  def errorText:string ""
+  ; Wall-clock split of a load, so "how much of this is the compiler?" has an
+  ; answer rather than a guess.
+  def frontendMs:double 0.0
+  def lowerMs:double 0.0
+
+  ; Turn on the host JIT tier: after `threshold` calls a function is compiled
+  ; to host source and run natively from then on.
+  fn enableJit:void (threshold:int) {
+    def hook:RgJsJit (new RgJsJit())
+    hook.enabled = true
+    hook.threshold = threshold
+    vm.jit = hook
+  }
+
+  fn loadFile:boolean (path:string) {
+    def t0:double (wall_clock_ms)
+    def env:InputEnv (new InputEnv())
+    env.use_real = true
+    def params:CmdParams (new CmdParams())
+    push params.values path
+    set params.params "l" "es6"
+    ; The frontend still runs its JavaScript writer; nothing reads the result,
+    ; because the engine never saves the file system it produces.
+    set params.params "o" "rg_engine_unused.js"
+    set params.flags "no-color" true
+    env.commandLine = params
+    def vc:VirtualCompiler (new VirtualCompiler())
+    def res:CompilerResults (vc.run(env))
+    if res.hasErrors {
+      errorText = res.errorMessage
+      return false
+    }
+    def t1:double (wall_clock_ms)
+    frontendMs = (t1 - t0)
+    module = (lower.lowerModule((unwrap res.ctx)))
+    vm.module = module
+    def t2:double (wall_clock_ms)
+    lowerMs = (t2 - t1)
+    loaded = true
+    return true
+  }
+
+  ; ---- running -------------------------------------------------------------
+
+  fn runMain:boolean (className:string) {
+    return (this.callVoid((className + ".main")))
+  }
+
+  fn callVoid:boolean (name:string) {
+    if (false == loaded) {
+      errorText = "no program loaded"
+      return false
+    }
+    vm.callStaticVoid(name)
+    if vm.failed {
+      errorText = vm.errorText
+      return false
+    }
+    return true
+  }
+
+  fn callNum:double (name:string args:[double]) {
+    if (false == loaded) {
+      errorText = "no program loaded"
+      return 0.0
+    }
+    def v:double (vm.callStaticNum(name args))
+    if vm.failed {
+      errorText = vm.errorText
+    }
+    return v
+  }
+
+  fn callText:string (name:string args:[double]) {
+    if (false == loaded) {
+      errorText = "no program loaded"
+      return ""
+    }
+    def v:string (vm.callStaticText(name args))
+    if vm.failed {
+      errorText = vm.errorText
+    }
+    return v
+  }
+
+  ; ---- reporting -----------------------------------------------------------
+
+  fn loweredCount:int () {
+    def n:int 0
+    for module.functions f:RgFunction i {
+      if (f.tier != RgTier.Unsupported) {
+        n = (n + 1)
+      }
+    }
+    return n
+  }
+
+  fn tierName:string (t:RgTier) {
+    switch t {
+      case RgTier.Bytecode {
+        return "bytecode"
+      }
+      case RgTier.Jit {
+        return "jit"
+      }
+      case RgTier.Unsupported {
+        return "unsupported"
+      }
+    }
+    return "?"
+  }
+
+  ; One line per function: how it ran and how often. This is the output that
+  ; makes the tiering visible in a benchmark.
+  fn report:[string] () {
+    def out:[string]
+    push out ("classes: " + (array_length module.classes) + "   functions: " + (array_length module.functions) + " (" + (this.loweredCount()) + " lowered)")
+    push out ("frontend: " + (to_int frontendMs) + " ms   lowering: " + (to_int lowerMs) + " ms   interpreted steps: " + vm.steps)
+    for module.functions f:RgFunction i {
+      def line:string ("  " + f.name + "  " + (this.tierName(f.tier)) + "  calls=" + f.callCount)
+      if (f.tier == RgTier.Unsupported) {
+        line = ("  " + f.name + "  unsupported: " + f.bailReason)
+      }
+      push out line
+    }
+    return out
+  }
+
+  fn printReport:void () {
+    def lines:[string] (this.report())
+    for lines l:string i {
+      print l
+    }
+  }
+}
