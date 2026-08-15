@@ -240,13 +240,19 @@ class RgVM {
     }
     ; The tier decision happens here, once per entry, and never inside the
     ; instruction loop: a function that is already running keeps running in the
-    ; tier it started in, and the next call picks up the compiled form.
-    if (this.jit.shouldCompile(f)) {
-      this.jit.compile(this f fnId)
-    }
+    ; tier it started in, and the next call picks up the compiled form. The
+    ; already-compiled case is tested first, because it is the one on the hot
+    ; path once a program has warmed up.
     if (f.tier == RgTier.Jit) {
       this.jit.invoke(this f fnId)
       return
+    }
+    if (this.jit.shouldCompile(f)) {
+      this.jit.compile(this f fnId)
+      if (f.tier == RgTier.Jit) {
+        this.jit.invoke(this f fnId)
+        return
+      }
     }
     depth = (depth + 1)
     if (depth > maxDepth) {

@@ -1,0 +1,75 @@
+; Benchmark program for the engine's tiers. Everything here is numeric on
+; purpose: that is the shape the JIT tier compiles, and the shape where an
+; interpreter loses the most.
+
+class Bench {
+
+  ; Recursion: one call per node of the call tree, so the tier decision shows
+  ; up immediately.
+  sfn fib:int (n:int) {
+    if (n < 2) {
+      return n
+    }
+    def a:int (Bench.fib((n - 1)))
+    def b:int (Bench.fib((n - 2)))
+    return (a + b)
+  }
+
+  ; A tight loop inside ONE call. The engine promotes whole functions between
+  ; calls and never mid-loop, so this one only speeds up once it has been
+  ; entered often enough — which is what `loopChunks` below arranges.
+  sfn loopSum:int (n:int) {
+    def i:int 0
+    def total:int 0
+    while (i < n) {
+      total = (total + (i % 7))
+      i = (i + 1)
+    }
+    return total
+  }
+
+  sfn loopChunks:int (chunks:int size:int) {
+    def total:int 0
+    def i:int 0
+    while (i < chunks) {
+      total = (total + (Bench.loopSum(size)))
+      i = (i + 1)
+    }
+    return total
+  }
+
+  ; Integer math with a divide and a modulo, to exercise the paths where the
+  ; interpreter and the compiled form have to agree on rounding.
+  sfn collatzSteps:int (n:int) {
+    def steps:int 0
+    def v:int n
+    while (v > 1) {
+      if ((v % 2) == 0) {
+        v = (idiv v 2)
+      } {
+        v = ((3 * v) + 1)
+      }
+      steps = (steps + 1)
+    }
+    return steps
+  }
+
+  sfn collatzMax:int (limit:int) {
+    def best:int 0
+    def i:int 1
+    while (i <= limit) {
+      def s:int (Bench.collatzSteps(i))
+      if (s > best) {
+        best = s
+      }
+      i = (i + 1)
+    }
+    return best
+  }
+
+  sfn main:void () {
+    print "fib(24)          = " + (Bench.fib(24))
+    print "loopChunks(8,50000) = " + (Bench.loopChunks(8 50000))
+    print "collatzMax(3000) = " + (Bench.collatzMax(3000))
+  }
+}

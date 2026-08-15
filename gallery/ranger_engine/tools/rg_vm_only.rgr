@@ -1,0 +1,10 @@
+; =============================================================================
+; rg_vm_only — the runtime half on its own
+; =============================================================================
+; Imports the VM and the JIT tier and nothing else: no frontend, no lowering
+; pass, no compiler. Building this is how the engine measures the size of what
+; a program would actually have to ship if its bytecode were produced ahead of
+; time.
+
+Import "../src/RgVM.rgr"
+Import "../src/RgJsJit.rgr"

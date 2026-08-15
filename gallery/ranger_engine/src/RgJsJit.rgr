@@ -56,8 +56,6 @@ class RgJsJit {
   Extends (RgJitHook)
 
   def handles:[RgHostFn]
-  ; function id -> index into `handles`
-  def slots:[int:int]
   ; Functions this hook has already looked at and refused, so a hot function
   ; outside the compilable subset is not re-examined on every call.
   def refused:[int:boolean]
@@ -341,18 +339,17 @@ class RgJsJit {
     f.jitSource = src
     def handle:RgHostFn (rg_jit_compile src)
     push handles handle
-    set slots fnId ((array_length handles) - 1)
+    f.jitSlot = ((array_length handles) - 1)
     f.tier = RgTier.Jit
     compiled = (compiled + 1)
   }
 
   fn invoke:void (vm:RgVM f:RgFunction fnId:int) {
-    if (false == (has slots fnId)) {
+    if (f.jitSlot < 0) {
       vm.fail("jit: no compiled body for " + f.name)
       return
     }
-    def slot:int (unwrap (get slots fnId))
-    def handle:RgHostFn (itemAt handles slot)
+    def handle:RgHostFn (itemAt handles f.jitSlot)
     rg_jit_call handle vm
   }
 }

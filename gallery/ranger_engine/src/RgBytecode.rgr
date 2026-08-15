@@ -144,6 +144,10 @@ class RgFunction {
   def bailReason:string ""
   ; Generated host source for the JIT tier, kept for inspection and tests.
   def jitSource:string ""
+  ; Where the JIT tier parked this function's compiled body. Cached on the
+  ; function rather than looked up per call: a map lookup on every entry is
+  ; exactly the overhead the tier is supposed to remove.
+  def jitSlot:int (0 - 1)
 
   fn addOp:int (op:RgOp a:int b:int c:int) {
     def at:int (array_length ops)

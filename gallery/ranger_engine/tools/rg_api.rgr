@@ -1,0 +1,16 @@
+; =============================================================================
+; rg_api — the engine as a Node module
+; =============================================================================
+; Compiled with `-nodemodule`, this exposes RgEngine, RgVM, RgModule and the
+; rest to any JavaScript host:
+;
+;   const { RgEngine } = require("./bin/rg_api.js");
+;   const engine = new RgEngine();
+;   engine.enableJit(100);
+;   engine.loadFile("program.rgr");
+;   engine.runMain("Demo");
+;
+; It exists so the test suite and the benchmark can drive the engine in
+; process, without going through the command line.
+
+Import "../src/RgEngine.rgr"
