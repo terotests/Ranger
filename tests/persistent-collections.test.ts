@@ -16,6 +16,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { execFileSync } from "child_process";
 import * as path from "path";
+import * as fs from "fs";
 import { fileURLToPath } from "url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -41,6 +42,37 @@ function compile(target: string, outName: string): string {
       },
     },
   );
+}
+
+/** Compile a source string, returning the compiler's output (errors included). */
+function compileSource(src: string, name: string): string {
+  const dir = path.join(ROOT, "tests", ".output-persistent", "src");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, src, "utf8");
+  try {
+    return execFileSync(
+      process.execPath,
+      [
+        path.join(ROOT, "bin", "output.js"),
+        "-l=es6",
+        `./tests/.output-persistent/src/${name}`,
+        `-d=${OUT_DIR}/src`,
+        `-o=${name}.js`,
+      ],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          RANGER_LIB: `${path.join(ROOT, "compiler", "Lang.rgr")}:${path.join(ROOT, "lib", "stdops.rgr")}`,
+        },
+      },
+    );
+  } catch (err: any) {
+    // A failing compile exits non-zero; its diagnostics are what we want.
+    return String(err.stdout ?? "") + String(err.stderr ?? "");
+  }
 }
 
 let output: string;
@@ -100,6 +132,76 @@ describe("value classes", () => {
     // swap-everything behaviour made impossible.
     expect(output).toContain("tag plain");
   });
+});
+
+describe("with", () => {
+  it("keeps a string literal intact through the expansion", () => {
+    // The desugar used to write each value back out as source and re-parse it.
+    // The Ranger writer does not re-escape string literals, so a quote inside
+    // one ended the string early and the generated source failed to parse — or,
+    // with the right contents, would have parsed as something else. Values are
+    // spliced as nodes now, so this is a literal, not a round trip.
+    expect(output).toContain('quoted [he said "hi" \\ done]');
+    expect(output).toContain("loading true");
+  });
+
+  it("takes any expression as a value and leaves the old value alone", () => {
+    expect(output).toContain("computed id-21 false");
+    expect(output).toContain('old still he said "hi" \\ done');
+  });
+
+  it("refuses a nested path with an explanation rather than a set_ error", () => {
+    const src = [
+      "class Inner@(immutable) {",
+      "  def name:string \"\"",
+      "}",
+      "class S@(immutable) {",
+      "  def inner:Inner (new Inner)",
+      "}",
+      "class M {",
+      "  sfn main:void () {",
+      "    def s0 (new S)",
+      "    def s1 (with s0 inner.name \"Ada\")",
+      "    print s1.inner.name",
+      "  }",
+      "}",
+    ].join("\n");
+    const out = compileSource(src, "with_nested.rgr");
+    expect(out).toContain("nested paths are not supported yet");
+  });
+});
+
+describe("immutability is enforced, not just documented", () => {
+  // push / set_at / removeLast were already rejected against an @(immutable)
+  // class's field. `clear` was not: its operator declaration was the only one
+  // of the four missing @(mutates), so it reached through and emptied the array
+  // in place — wiping every other state value that shared it, silently, since
+  // clear returns void.
+  const MUTATORS: Array<[string, string]> = [
+    ["push", 'push s0.rows "x"'],
+    ["set_at", 'set_at s0.rows 0 "x"'],
+    ["removeLast", "removeLast s0.rows"],
+    ["clear", "clear s0.rows"],
+  ];
+
+  for (const [name, stmt] of MUTATORS) {
+    it(`rejects ${name} against an immutable field`, () => {
+      const src = [
+        "class S@(immutable) {",
+        "  def rows:[string]",
+        "}",
+        "class M {",
+        "  sfn main:void () {",
+        "    def s0 (new S)",
+        `    ${stmt}`,
+        "    print (to_string (array_length s0.rows))",
+        "  }",
+        "}",
+      ].join("\n");
+      const out = compileSource(src, `mutator_${name}.rgr`);
+      expect(out).toContain("[FAIL]");
+    });
+  }
 });
 
 describe("portability", () => {

@@ -75,9 +75,27 @@ class PersistentDemo {
     }
   }
 
+  ; `with` takes any expression as a value, and a string literal survives the
+  ; expansion. It did not always: the desugar used to write the value back out
+  ; as source and re-parse it, and the Ranger writer does not re-escape string
+  ; literals, so a quote inside one ended the string early.
+  sfn withKeepsValuesIntact:void () {
+    def s0 (new AppState)
+    def s1 (with s0 selectedId "he said \"hi\" \\ done" loading true)
+    print ("quoted [" + s1.selectedId + "]")
+    print ("loading " + (to_string s1.loading))
+
+    ; …and any expression, not just a literal.
+    def n:int 20
+    def s2 (with s1 selectedId ("id-" + (to_string (n + 1))) loading (n > 100))
+    print ("computed " + s2.selectedId + " " + (to_string s2.loading))
+    print ("old still " + s1.selectedId)
+  }
+
   sfn main:void () {
     PersistentDemo.vectorKeepsTheOldValue()
     PersistentDemo.mapKeepsTheOldValue()
     PersistentDemo.stateTransition()
+    PersistentDemo.withKeepsValuesIntact()
   }
 }

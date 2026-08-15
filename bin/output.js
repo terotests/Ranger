@@ -14726,8 +14726,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     expandWith (node, ctx, wr) {
       const cnt = node.children.length;
-      const subject = node.children[1];
-      let code = subject.getCode();
+      let holes = {};
+      const subjectHole = "__rg_with_subject";
+      holes[subjectHole] = node.children[1];
+      let code = ("(" + subjectHole) + ")";
       let i = 2;
       while (i < cnt) {
         const fieldNode = node.children[i];
@@ -14737,9 +14739,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.addError(node, "with: expected a field name");
           return;
         }
+        if ( (fieldNode.ns.length) > 1 ) {
+          ctx.addError(node, ("with: nested paths are not supported yet (" + fieldName) + ") — update the inner value first");
+          return;
+        }
+        const holeName = "__rg_with_v" + ((i.toString()));
+        holes[holeName] = valueNode;
         const opened = ((("(" + code) + ".set_") + fieldName) + "(";
-        const valueCode = valueNode.getCode();
-        code = (opened + valueCode) + "))";
+        code = (opened + holeName) + "))";
         i = i + 2;
       };
       const src = new SourceCode(code);
@@ -14757,8 +14764,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return;
       }
       const expanded = root.children[0];
+      this.substituteWithHoles(expanded, holes);
       node.getChildrenFrom(expanded);
       node.expression = true;
+    };
+    substituteWithHoles (node, holes) {
+      const cnt = node.children.length;
+      let i = 0;
+      while (i < cnt) {
+        const ch = node.children[i];
+        if ( ( typeof(holes[ch.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(holes, ch.vref) ) ) {
+          const repl = (( Object.prototype.hasOwnProperty.call(holes, ch.vref) ? holes[ch.vref] : undefined ));
+          node.children[i] = repl;
+          repl.parent = node;
+        } else {
+          this.substituteWithHoles(ch, holes);
+        }
+        i = i + 1;
+      };
     };
     isMatchStatement (node) {
       if ( (node.children.length) != 3 ) {

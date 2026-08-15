@@ -6012,11 +6012,23 @@ class RangerFlowParser {
     }
   }
 
+  ; Only the SHAPE of the chain is built as source; the subject and the values
+  ; are spliced back in as the nodes they already were.
+  ;
+  ; Writing them out with getCode() and re-parsing looked simpler and was wrong:
+  ; the Ranger writer does not re-escape string literals, so
+  ; `(with s txt "he said \"hi\"")` round-tripped into source with bare quotes
+  ; in the middle of a string and failed to parse — or, with the right contents,
+  ; would have parsed into something else entirely. Splicing keeps every value
+  ; expression untouched, which also keeps its source positions, so an error
+  ; inside one still points at the line the author wrote.
   fn expandWith:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def cnt:int (array_length node.children)
-    def subject:CodeNode (at node.children 1)
-    def code@(mutable):string (subject.getCode())
+    def holes:[string:CodeNode]
+    def subjectHole:string "__rg_with_subject"
+    set holes subjectHole (at node.children 1)
 
+    def code@(mutable):string ("(" + subjectHole + ")")
     def i@(mutable):int 2
     while (i < cnt) {
       def fieldNode:CodeNode (at node.children i)
@@ -6026,12 +6038,17 @@ class RangerFlowParser {
         ctx.addError(node "with: expected a field name")
         return
       }
+      if ((array_length fieldNode.ns) > 1) {
+        ctx.addError(node ("with: nested paths are not supported yet (" + fieldName + ") — update the inner value first"))
+        return
+      }
+      def holeName:string ("__rg_with_v" + (to_string i))
+      set holes holeName valueNode
       ; Wrapping each step keeps the chain a nest of complete expressions, which
       ; is the form the parser accepts for a call on a call's result:
-      ;   s1  ->  (s1.set_a(1))  ->  ((s1.set_a(1)).set_b(2))
+      ;   (s1)  ->  ((s1).set_a(v0))  ->  (((s1).set_a(v0)).set_b(v1))
       def opened:string (((("(" + code) + ".set_") + fieldName) + "(")
-      def valueCode:string (valueNode.getCode())
-      code = ((opened + valueCode) + "))")
+      code = ((opened + holeName) + "))")
       i = (i + 2)
     }
 
@@ -6050,8 +6067,26 @@ class RangerFlowParser {
       return
     }
     def expanded:CodeNode (first root.children)
+    this.substituteWithHoles(expanded holes)
     node.getChildrenFrom(expanded)
     node.expression = true
+  }
+
+  ; Put the original nodes back where the placeholders stand.
+  fn substituteWithHoles:void (node@(lives):CodeNode holes:[string:CodeNode]) {
+    def cnt:int (array_length node.children)
+    def i@(mutable):int 0
+    while (i < cnt) {
+      def ch:CodeNode (at node.children i)
+      if (has holes ch.vref) {
+        def repl:CodeNode (unwrap (get holes ch.vref))
+        set node.children i repl
+        repl.parent = node
+      } {
+        this.substituteWithHoles(ch holes)
+      }
+      i = (i + 1)
+    }
   }
 
   fn isMatchStatement:boolean (node:CodeNode) {
