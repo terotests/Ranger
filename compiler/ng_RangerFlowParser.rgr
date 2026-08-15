@@ -2744,8 +2744,17 @@ class RangerFlowParser {
           def currC (ctx.getCurrentClass())
           if( (unwrap currC) == (unwrap propC) ) {
             if( (at target.ns 0) == "this" ) {
-              ; ctx.addError( node "Assigment to immutable class this variable")            
-              do_transform = true
+              ; A constructor is where an immutable value is BUILT, before
+              ; anything can observe it, so `this.x = x` there is an ordinary
+              ; assignment. Rewriting it into `this = (this).set_x(x)` emitted
+              ; an assignment to `this`, which no target accepts — and it made
+              ; `record R@(immutable)` impossible to compile at all, because a
+              ; record's generated constructor is nothing but such assignments.
+              def curM@(weak):RangerAppFunctionDesc (ctx.getCurrentMethod())
+              if (curM.name != "Constructor") {
+                ; ctx.addError( node "Assigment to immutable class this variable")
+                do_transform = true
+              }
             }
           } {
             ; ctx.addError( node "Assigment to immutable class node")

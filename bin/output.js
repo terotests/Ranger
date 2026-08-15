@@ -8707,11 +8707,53 @@ class RangerImmutableExtension  {
     }
     wr.out(("fn __CopySelf:" + cl.name) + " () {", true);
     wr.indent(1);
-    wr.out(("def res (new " + cl.name) + ")", true);
-    for ( let ii = 0; ii < cl.variables.length; ii++) {
-      var ivar = cl.variables[ii];
-      wr.out((("res." + ivar.compiledName) + " = this.") + ivar.compiledName, true);
-    };
+    let ctorArgs = "";
+    let ctorArity = 0;
+    let ctorUnknown = "";
+    if ( cl.is_record ) {
+      for ( let ii = 0; ii < cl.variables.length; ii++) {
+        var ivar = cl.variables[ii];
+        if ( ctorArity > 0 ) {
+          ctorArgs = ctorArgs + " ";
+        }
+        ctorArgs = (ctorArgs + "this.") + ivar.compiledName;
+        ctorArity = ctorArity + 1;
+      };
+    } else {
+      if ( cl.has_constructor ) {
+        const cfn = cl.constructor_fn;
+        for ( let pi = 0; pi < cfn.params.length; pi++) {
+          var p = cfn.params[pi];
+          let matched = false;
+          for ( let ii_1 = 0; ii_1 < cl.variables.length; ii_1++) {
+            var ivar_1 = cl.variables[ii_1];
+            if ( ivar_1.name == p.name ) {
+              matched = true;
+            }
+          };
+          if ( matched == false ) {
+            ctorUnknown = p.name;
+          }
+          if ( ctorArity > 0 ) {
+            ctorArgs = ctorArgs + " ";
+          }
+          ctorArgs = (ctorArgs + "this.") + p.name;
+          ctorArity = ctorArity + 1;
+        };
+      }
+    }
+    if ( (ctorUnknown.length) > 0 ) {
+      ctx.addError(cl.nameNode, ((("@(immutable) class " + cl.name) + " has a constructor parameter that names no field (") + ctorUnknown) + ") — a copy cannot reconstruct it. Name the parameter after the field, or drop the constructor.");
+    }
+    if ( ctorArity > 0 ) {
+      wr.out(((("def res (new " + cl.name) + "(") + ctorArgs) + "))", true);
+    } else {
+      wr.out(("def res (new " + cl.name) + ")", true);
+      for ( let ii_2 = 0; ii_2 < cl.variables.length; ii_2++) {
+        var ivar_2 = cl.variables[ii_2];
+        wr.out((("res." + ivar_2.compiledName) + " = this.") + ivar_2.compiledName, true);
+      };
+    }
     wr.out("return res", true);
     wr.indent(-1);
     wr.out("}", true);
@@ -8725,9 +8767,9 @@ class RangerImmutableExtension  {
         wr.out(((((((("fn set_" + pvar_1.name) + ":") + cl.name) + " (new_value_of_") + pvar_1.name) + ":") + this.typeDefOf(pvar_1)) + ") {", true);
         wr.indent(1);
         wr.out("def res (this.__CopySelf())", true);
-        for ( let ii_1 = 0; ii_1 < cl.variables.length; ii_1++) {
-          var ivar_1 = cl.variables[ii_1];
-          if ( ivar_1 == pvar_1 ) {
+        for ( let ii_3 = 0; ii_3 < cl.variables.length; ii_3++) {
+          var ivar_3 = cl.variables[ii_3];
+          if ( ivar_3 == pvar_1 ) {
             wr.out((("res." + pvar_1.compiledName) + " = new_value_of_") + pvar_1.name, true);
           }
         };
@@ -11879,7 +11921,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const currC = ctx.getCurrentClass();
             if ( (currC) == (propC) ) {
               if ( (target.ns[0]) == "this" ) {
-                do_transform = true;
+                const curM = ctx.getCurrentMethod();
+                if ( curM.name != "Constructor" ) {
+                  do_transform = true;
+                }
               }
             } else {
               do_transform = true;

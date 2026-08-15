@@ -145,6 +145,47 @@ set map "k" 1
 remove map "k"
 ```
 
+## Values and mutation
+
+Four ways to declare data. The difference is not how you read them — `p.x` is
+`p.x` in all four — but what you may do to them.
+
+```ranger
+class  User          { def name:string "" }   ; mutable, reference semantics
+class  User@(immutable) { def name:string "" } ; value: set_/with, no mutation
+record Point         { def x:int 0 }          ; mutable + positional ctor
+record Point@(immutable) { def x:int 0 }      ; value + positional ctor
+```
+
+```ranger
+; mutable
+def u (new User)
+u.name = "Ada"
+push u.tags "admin"
+
+; value
+def p0 (new Point(1 2))
+def p1 (with p0 x 9)          ; p0 is still (1 2)
+def p2 (p1.set_y(4))          ; one field
+```
+
+On a value the compiler **refuses** in-place mutation — `push`, `set_at`,
+`removeLast` and `clear` against a value's field are all compile errors, not
+conventions. A constructor is the exception: `this.x = x` there is an ordinary
+assignment, since the value is still being built.
+
+`obj.field = v` from outside the class is rewritten to `obj = (obj).set_field(v)`
+— it rebinds the *variable*, and any other reference to the old value keeps it:
+
+```ranger
+def keep p0
+p0.x = 9                      ; p0 moved; keep.x is still 1
+```
+
+An `@(immutable)` class with a hand-written constructor is copied by calling it,
+matching each parameter to the field of the same name; a parameter naming no
+field is a compile error.
+
 ## Persistent collections
 
 Two worlds, spelled differently. `[T]` is the mutable array it has always been;
