@@ -19,6 +19,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { compileRgr } from "../../build-support/rgr-compile.mjs";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const V2 = path.dirname(HERE); // gallery/game_engine/v2
@@ -117,9 +118,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const rawDir = path.join(OUT, "_raw");
 fs.mkdirSync(rawDir, { recursive: true });
 log("compiling host:", HOST_RGR);
-sh("node", ["bin/output.js", "-es6", HOST_RGR, "-d=" + path.relative(ROOT, rawDir), "-o=host.raw.js", "-nodecli"], {
-  env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
-});
+compileRgr({ root: ROOT, src: HOST_RGR, outDir: path.relative(ROOT, rawDir), outName: "host.raw.js", log });
 let src = fs.readFileSync(path.join(rawDir, "host.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
 src = src.replace(/\n__js_main\(\);\s*$/, "\n").replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
 src += "\n;return { WebLive2dHost };\n";
