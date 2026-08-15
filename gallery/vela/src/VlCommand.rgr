@@ -26,6 +26,11 @@ Import "VlScene.rgr"
 class VlDrawCommand {
     def op:string "rect"
     def markType:string ""
+    ; What the scene called this mark — "mark" for data, "axis-grid",
+    ; "axis-label", "frame" and so on for the chrome. A backend that themes a
+    ; chart needs to tell a gridline from a bar, and the colour cannot tell it:
+    ; both are whatever the specification said.
+    def role:string ""
 
     def x:double 0.0
     def y:double 0.0
@@ -190,6 +195,7 @@ class VlSceneCommands {
         def cmd (new VlDrawCommand())
         cmd.op = "polyline"
         cmd.markType = mark.markType
+        cmd.role = mark.role
         for mark.items item:VlSceneItem idx {
             push cmd.points (offsetX + (item.number("x")))
             push cmd.points (offsetY + (item.number("y")))
@@ -213,6 +219,7 @@ class VlSceneCommands {
         def cmd (new VlDrawCommand())
         cmd.op = "polygon"
         cmd.markType = mark.markType
+        cmd.role = mark.role
         def horizontal:boolean false
         def first:VlSceneItem (itemAt mark.items 0)
         if (first.has("x2")) {
@@ -251,6 +258,7 @@ class VlSceneCommands {
             def bg (new VlDrawCommand())
             bg.op = "rect"
             bg.markType = "group"
+            bg.role = mark.role
             bg.x = gx
             bg.y = gy
             bg.width = (item.number("width"))
@@ -281,6 +289,7 @@ class VlSceneCommands {
     sfn emitItem:void (list:VlCommandList mark:VlSceneMark item:VlSceneItem offsetX:double offsetY:double) {
         def cmd (new VlDrawCommand())
         cmd.markType = mark.markType
+        cmd.role = mark.role
 
         if (mark.markType == "rect") {
             cmd.op = "rect"

@@ -110,12 +110,23 @@
 .shape   { }
 .evenodd { fill-rule: evenodd; }
 
-/* ---- charts: the page frames them, the data paints them ---------------- */
-/* A chart's own colours come from its Vega specification, so unlike every
-   other page here the theme styles the frame and not the drawing. */
+/* ---- charts: geometry from the data, colour from the theme ------------- */
+/* The one generated page in this gallery, and it follows the same rule as the
+   hand-written ones: the tree says what is drawn, the theme says how it looks.
+   A chart's series are numbered in the order it draws them, so `chartFill0` is
+   whatever the first series happens to be. Stroke widths and opacities stay in
+   the tree — they were computed from the data, not chosen. The charts are drawn
+   on a TRANSPARENT background: the page shows through. */
 .chart     { }
 .chartRow  { align-items: flex-start; }
 .chartCell { flex: 1; }
+
+/* A stroked path must say so, or the outline is filled in as a shape. */
+.chartGrid, .chartTick, .chartDomain, .chartFrame,
+.chartStroke0, .chartStroke1, .chartStroke2, .chartStroke3, .chartStroke4,
+.chartStroke5, .chartStroke6, .chartStroke7, .chartStroke8, .chartStroke9 {
+  fill: none;
+}
 
 /* ==== theme: editorial — warm paper, serif display ====================== */
 
@@ -159,7 +170,32 @@
 .theme-editorial .iconMd { width: 52px;  height: 52px; }
 .theme-editorial .iconLg { width: 84px;  height: 84px; }
 .theme-editorial .shape  { width: 76px; height: 76px; fill: #3b2f2a; }
-.theme-editorial .chart  { margin-top: 8px; margin-bottom: 4px; background-color: #fffdf7; }
+/* charts */
+.theme-editorial .chart      { margin-top: 8px; margin-bottom: 4px; }
+.theme-editorial .chartGrid  { stroke: #d8cfbd; }
+.theme-editorial .chartTick,
+.theme-editorial .chartDomain,
+.theme-editorial .chartFrame { stroke: #b8ac97; }
+.theme-editorial .chartLabel { color: #6b5f52; }
+.theme-editorial .chartTitle { color: #3b2f2a; }
+.theme-editorial .chartFill0   { fill: #4c78a8; }
+.theme-editorial .chartStroke0 { stroke: #4c78a8; }
+.theme-editorial .chartFill1   { fill: #c47f3d; }
+.theme-editorial .chartStroke1 { stroke: #c47f3d; }
+.theme-editorial .chartFill2   { fill: #a34a4a; }
+.theme-editorial .chartStroke2 { stroke: #a34a4a; }
+.theme-editorial .chartFill3   { fill: #5f9ea0; }
+.theme-editorial .chartStroke3 { stroke: #5f9ea0; }
+.theme-editorial .chartFill4   { fill: #5a8a4a; }
+.theme-editorial .chartStroke4 { stroke: #5a8a4a; }
+.theme-editorial .chartFill5   { fill: #c9a227; }
+.theme-editorial .chartStroke5 { stroke: #c9a227; }
+.theme-editorial .chartFill6   { fill: #8a6ba2; }
+.theme-editorial .chartStroke6 { stroke: #8a6ba2; }
+.theme-editorial .chartFill7   { fill: #c98f9b; }
+.theme-editorial .chartStroke7 { stroke: #c98f9b; }
+.theme-editorial .chartFill8   { fill: #8a6f5d; }
+.theme-editorial .chartStroke8 { stroke: #8a6f5d; }
 
 .theme-editorial .spread { gap: 16px; margin-top: 24px; }
 .theme-editorial .cell   { border-radius: 10px; }
@@ -252,7 +288,32 @@
 .theme-studio .iconMd { width: 56px;  height: 56px; }
 .theme-studio .iconLg { width: 92px;  height: 92px; }
 .theme-studio .shape  { width: 80px; height: 80px; fill: #e8e8ea; }
-.theme-studio .chart  { margin-top: 8px; margin-bottom: 4px; background-color: #ffffff; }
+/* charts */
+.theme-studio .chart      { margin-top: 8px; margin-bottom: 4px; }
+.theme-studio .chartGrid  { stroke: #3a4048; }
+.theme-studio .chartTick,
+.theme-studio .chartDomain,
+.theme-studio .chartFrame { stroke: #6f7681; }
+.theme-studio .chartLabel { color: #aab2bd; }
+.theme-studio .chartTitle { color: #e8e8ea; }
+.theme-studio .chartFill0   { fill: #4ea3ff; }
+.theme-studio .chartStroke0 { stroke: #4ea3ff; }
+.theme-studio .chartFill1   { fill: #ffa657; }
+.theme-studio .chartStroke1 { stroke: #ffa657; }
+.theme-studio .chartFill2   { fill: #ff7b72; }
+.theme-studio .chartStroke2 { stroke: #ff7b72; }
+.theme-studio .chartFill3   { fill: #56d4c4; }
+.theme-studio .chartStroke3 { stroke: #56d4c4; }
+.theme-studio .chartFill4   { fill: #7ee787; }
+.theme-studio .chartStroke4 { stroke: #7ee787; }
+.theme-studio .chartFill5   { fill: #f2cc60; }
+.theme-studio .chartStroke5 { stroke: #f2cc60; }
+.theme-studio .chartFill6   { fill: #c08cff; }
+.theme-studio .chartStroke6 { stroke: #c08cff; }
+.theme-studio .chartFill7   { fill: #ff9bb3; }
+.theme-studio .chartStroke7 { stroke: #ff9bb3; }
+.theme-studio .chartFill8   { fill: #c4a48a; }
+.theme-studio .chartStroke8 { stroke: #c4a48a; }
 
 .theme-studio .cell   { border-radius: 2px; }
 .theme-studio .deck   { gap: 10px; margin-top: 18px; }
@@ -297,3 +358,89 @@
 .theme-studio .tintRose  { emoji-color: #ff6b6b; }
 .theme-studio .tintBlue  { emoji-color: #4ea3ff; }
 .theme-studio .tintGreen { emoji-color: #5fd08a; }
+
+/* ==== theme: autumn — muted, broken tones on warm grey ================== */
+/* Nothing here is a saturated colour. The palette is built from ochre, rust,
+   olive and clay knocked back toward grey, which is what keeps nine series
+   apart without any of them shouting. */
+
+.theme-autumn .page {
+  background-color: #ece5d8;
+  padding: 44px;
+  font-family: Noto Sans;
+}
+.theme-autumn .eyebrow {
+  font-size: 11px;
+  color: #8a7660;
+  font-family: Noto Sans;
+}
+.theme-autumn .title {
+  font-size: 32px;
+  font-family: Cinzel;
+  color: #4a3b2c;
+  line-height: 1.15;
+}
+.theme-autumn .rule {
+  background-color: #a6603c;
+  height: 2px;
+  width: 120px;
+  margin-top: 13px;
+}
+.theme-autumn .subhead {
+  font-size: 12px;
+  font-family: Noto Sans;
+  color: #8a7660;
+  margin-top: 22px;
+  margin-bottom: 6px;
+}
+.theme-autumn .caption,
+.theme-autumn .body {
+  font-size: 12px;
+  color: #6d5c4c;
+  line-height: 1.45;
+  margin-top: 12px;
+}
+.theme-autumn .spread { gap: 12px; margin-top: 20px; }
+.theme-autumn .cell   { background-color: #e0d6c4; }
+.theme-autumn .deck   { gap: 14px; margin-top: 18px; }
+.theme-autumn .card   { background-color: #e0d6c4; padding: 12px; }
+.theme-autumn .shot   { height: 120px; }
+.theme-autumn .bar    { background-color: #a6603c; }
+.theme-autumn .demo   { background-color: #d8cbb5; }
+.theme-autumn .inner  { background-color: #a6603c; }
+.theme-autumn .bordered { border-color: #8a7660; }
+.theme-autumn .nest   { background-color: #d8cbb5; }
+.theme-autumn .chip,
+.theme-autumn .tile   { background-color: #c9b699; }
+.theme-autumn .vecRow { gap: 20px; margin-top: 6px; }
+.theme-autumn .icon   { stroke: #a6603c; stroke-width: 2.5; fill: none; }
+.theme-autumn .iconSm { width: 28px;  height: 28px; }
+.theme-autumn .iconMd { width: 52px;  height: 52px; }
+.theme-autumn .iconLg { width: 84px;  height: 84px; }
+.theme-autumn .shape  { width: 78px; height: 78px; fill: #4a3b2c; }
+/* charts */
+.theme-autumn .chart      { margin-top: 8px; margin-bottom: 4px; }
+.theme-autumn .chartGrid  { stroke: #cbbca7; }
+.theme-autumn .chartTick,
+.theme-autumn .chartDomain,
+.theme-autumn .chartFrame { stroke: #a2907a; }
+.theme-autumn .chartLabel { color: #6d5c4c; }
+.theme-autumn .chartTitle { color: #43362a; }
+.theme-autumn .chartFill0   { fill: #a6603c; }
+.theme-autumn .chartStroke0 { stroke: #a6603c; }
+.theme-autumn .chartFill1   { fill: #c98c4e; }
+.theme-autumn .chartStroke1 { stroke: #c98c4e; }
+.theme-autumn .chartFill2   { fill: #8c6239; }
+.theme-autumn .chartStroke2 { stroke: #8c6239; }
+.theme-autumn .chartFill3   { fill: #6f7d4e; }
+.theme-autumn .chartStroke3 { stroke: #6f7d4e; }
+.theme-autumn .chartFill4   { fill: #9c6b5a; }
+.theme-autumn .chartStroke4 { stroke: #9c6b5a; }
+.theme-autumn .chartFill5   { fill: #c2a04b; }
+.theme-autumn .chartStroke5 { stroke: #c2a04b; }
+.theme-autumn .chartFill6   { fill: #7a5c48; }
+.theme-autumn .chartStroke6 { stroke: #7a5c48; }
+.theme-autumn .chartFill7   { fill: #b58463; }
+.theme-autumn .chartStroke7 { stroke: #b58463; }
+.theme-autumn .chartFill8   { fill: #5f6b52; }
+.theme-autumn .chartStroke8 { stroke: #5f6b52; }

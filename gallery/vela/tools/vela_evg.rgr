@@ -15,6 +15,14 @@ Import "../src/VlEvg.rgr"
 
 class VelaEvgTool {
 
+    ; One writer for the whole page, so the palette slots are numbered once
+    ; across every chart on it and the generated stylesheet matches.
+    sfn sharedWriter:VlEvgWriter () {
+        def w (new VlEvgWriter())
+        w.useClasses = true
+        return w
+    }
+
     sfn dirOf:string (path:string) {
         def lastSep:int (lastIndexOf path "/")
         if (lastSep >= 0) {
@@ -38,6 +46,7 @@ class VelaEvgTool {
             return
         }
         def outputPath:string (shell_arg 0)
+        def writer:VlEvgWriter (VelaEvgTool.sharedWriter())
 
         def nl:string (strfromcode 10)
         def page:string ""
@@ -76,7 +85,7 @@ class VelaEvgTool {
             if (inRow == 0) {
                 page = ((page + "      <View className=\"row chartRow\">") + nl)
             }
-            page = (page + (VelaEvgTool.chartSection(specPath caption)))
+            page = (page + (VelaEvgTool.chartSection(writer specPath caption)))
             inRow = (inRow + 1)
             if (inRow == 2) {
                 page = ((page + "      </View>") + nl)
@@ -96,6 +105,30 @@ class VelaEvgTool {
 
         write_file (VelaEvgTool.dirOf(outputPath)) (VelaEvgTool.nameOf(outputPath)) page
         print ("wrote " + outputPath)
+
+        ; The colours the specs asked for, as the stylesheet's default layer.
+        if (argCount > 1) {
+            def cssPath:string (VelaEvgTool.cssPathFor(outputPath))
+            write_file (VelaEvgTool.dirOf(cssPath)) (VelaEvgTool.nameOf(cssPath)) (writer.defaultCss())
+            print ("wrote " + cssPath)
+        }
+    }
+
+    ; pages/charts.tsx  ->  themes/charts-default.css
+    sfn cssPathFor:string (pagePath:string) {
+        def dir:string (VelaEvgTool.dirOf(pagePath))
+        def name:string (VelaEvgTool.nameOf(pagePath))
+        def stem:string name
+        def dot:int (lastIndexOf name ".")
+        if (dot > 0) {
+            stem = (substring name 0 dot)
+        }
+        def parent:string dir
+        def cut:int (lastIndexOf (substring dir 0 ((strlen dir) - 1)) "/")
+        if (cut >= 0) {
+            parent = (substring dir 0 (cut + 1))
+        }
+        return (((parent + "themes/") + stem) + "-default.css")
     }
 
     sfn looksLikePath:boolean (text:string) {
@@ -106,7 +139,7 @@ class VelaEvgTool {
         return ((substring text (n - 5) n) == ".json")
     }
 
-    sfn chartSection:string (specPath:string caption:string) {
+    sfn chartSection:string (writer:VlEvgWriter specPath:string caption:string) {
         def nl:string (strfromcode 10)
         def text@(optional):string (read_file (VelaEvgTool.dirOf(specPath)) (VelaEvgTool.nameOf(specPath)))
         if (null? text) {
@@ -131,7 +164,6 @@ class VelaEvgTool {
 
         def list:VlCommandList (VlSceneCommands.build(scene))
         def root:VlSceneItem (itemAt scene.items 0)
-        def writer (new VlEvgWriter())
         def chart:string (writer.writeChart(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY"))))
 
         def out:string ((("        <View className=\"chartCell\">") + nl))

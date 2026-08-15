@@ -175,6 +175,7 @@ axis grid, tick, label, domain line and title in all thirteen charts.
 | Legends | **not built** |
 | Layout | axis extents, view size and plot origin (`autosize: pad`); no group or facet layout |
 | Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
+| Theming | colours from the spec, or from a stylesheet by class; `config.axis` and `config.style` are read |
 | Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
 | Rendering | **not built** — the command layer exists, the backends do not |
 | Interaction | **not built** |
@@ -194,6 +195,18 @@ elements. Only *consecutive* commands merge, so the drawing order survives —
 grid under bars under labels. A bar chart with axes comes out as six paths and
 twenty-two labels.
 
+**Colour can come from the specification or from a stylesheet.** By default a
+chart carries its own colours, written as `fill` and `stroke` attributes — the
+specification decided them and a chart drawn on its own should look like the
+chart it describes. In class mode (`useClasses`) the writer emits class names
+instead: `chartFill0`, `chartStroke0`, `chartGrid`, `chartLabel`, `chartTitle`
+and so on, with series numbered in the order the chart draws them. The
+specification's colours are then written out as an unscoped stylesheet, so they
+remain the default, and a theme's scoped rules override them. That is how the
+showcase renders one generated page in three palettes without regenerating it.
+Only colour moves: stroke widths, opacities and every coordinate stay in the
+tree, because they were computed from the data and are not a matter of taste.
+
 **Text is placed by measurement, not by alignment.** The first attempt gave each
 label a box and a `textAlign` and let the renderer's own font metrics centre the
 string in it. That is the better design and it does not work: EVG's label
@@ -207,14 +220,15 @@ or two; the alternative was labels tens of pixels out.
 The chart page on the showcase is generated:
 
 ```bash
-npm run vela:showcase     # -> gallery/evg/showcase/pages/charts.tsx
-npm run showcase          # -> PDF, PNG and HTML in two themes
+npm run vela:showcase     # -> pages/charts.tsx + themes/charts-default.css
+npm run showcase          # -> PDF, PNG and HTML in three palettes
 ```
 
-The page is committed, so the Pages build renders it like any other page and
-does not need the Vela toolchain. It is also the one showcase page that carries
-visual attributes: a chart's colours and geometry come from its specification,
-so the theme styles the frame and not the drawing.
+Both files are committed, so the Pages build renders them like any other page
+and does not need the Vela toolchain. The page follows the gallery's own rule —
+the tree says what is drawn, the stylesheet says how it looks — so the same six
+charts come out in **Editorial**, **Studio** and **Autumn**, and with no chart
+theme at all they come out in the colours their specifications asked for.
 
 ## What is not there yet
 

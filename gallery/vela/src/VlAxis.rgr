@@ -45,6 +45,7 @@ class VlAxis {
     def domainWidth:double 1.0
     def gridColor:string "#ddd"
     def gridWidth:double 1.0
+    def gridOpacity:double 1.0
     def titlePadding:double 4.0
     def titleFontSize:double 11.0
     def titleColor:string "#000"
@@ -80,6 +81,17 @@ class VlAxis {
         bandPosition = (adef.doubleOr("bandPosition" bandPosition))
         minExtent = (adef.doubleOr("minExtent" minExtent))
         maxExtent = (adef.doubleOr("maxExtent" maxExtent))
+        tickColor = (adef.stringOr("tickColor" tickColor))
+        labelColor = (adef.stringOr("labelColor" labelColor))
+        labelFont = (adef.stringOr("labelFont" labelFont))
+        domainColor = (adef.stringOr("domainColor" domainColor))
+        gridColor = (adef.stringOr("gridColor" gridColor))
+        titleColor = (adef.stringOr("titleColor" titleColor))
+        titleFontWeight = (adef.stringOr("titleFontWeight" titleFontWeight))
+        tickWidth = (adef.doubleOr("tickWidth" tickWidth))
+        domainWidth = (adef.doubleOr("domainWidth" domainWidth))
+        gridWidth = (adef.doubleOr("gridWidth" gridWidth))
+        gridOpacity = (adef.doubleOr("gridOpacity" gridOpacity))
         tickRound = (adef.boolOr("tickRound" tickRound))
         labelFlush = (adef.boolOr("labelFlush" labelFlush))
         labelOverlap = (adef.boolOr("labelOverlap" labelOverlap))
@@ -266,7 +278,7 @@ class VlAxis {
         mark.role = "axis-grid"
         for ticks tv:VlAxisTickValue idx {
             def item:VlSceneItem (mark.addItem())
-            item.setNumber("opacity" 1.0)
+            item.setNumber("opacity" gridOpacity)
             item.setString("stroke" gridColor)
             item.setNumber("strokeWidth" gridWidth)
             def at:double tv.position

@@ -161,6 +161,23 @@ const SHOWCASE = {
   width: 170,
   height: 100,
   charts: ['bar', 'bar_stacked', 'line', 'area', 'scatter', 'histogram', 'pie'],
+  // The showcase draws its charts on a transparent background, over a page that
+  // is cream in one theme and near-black in the other. The default guide colour
+  // is #000, which disappears against the dark one, so these specs ask for a
+  // mid grey that reads on both. It is a property of the chart, not of the
+  // theme — a chart carries its own colours — so it belongs in the spec.
+  config: {
+    axis: {
+      labelColor: '#8a8f98',
+      titleColor: '#8a8f98',
+      domainColor: '#8a8f98',
+      tickColor: '#8a8f98',
+      gridColor: '#8a8f98',
+      gridOpacity: 0.25,
+    },
+    // The plot frame is a style, not an axis.
+    style: { cell: { stroke: '#8a8f98', strokeOpacity: 0.4 } },
+  },
 };
 
 fs.mkdirSync(SPEC_DIR, { recursive: true });
@@ -175,9 +192,11 @@ for (const [name, spec] of Object.entries(SPECS)) {
 }
 
 for (const name of SHOWCASE.charts) {
-  const spec = { ...SPECS[name], width: SHOWCASE.width, height: SHOWCASE.height };
+  const spec = { ...SPECS[name], width: SHOWCASE.width, height: SHOWCASE.height, config: SHOWCASE.config };
   // An arc chart is square: its radius is min(width, height) / 2.
   if (name === 'pie') { spec.width = 130; spec.height = 130; }
+  // The page paints the background, so the chart does not.
+  spec.background = null;
   const compiled = vl.compile(spec).spec;
   fs.writeFileSync(path.join(SHOWCASE_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
   console.log(`showcase/${name}.vg.json`);

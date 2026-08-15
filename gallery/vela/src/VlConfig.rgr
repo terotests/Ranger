@@ -22,6 +22,10 @@ class VlConfig {
     def markTypes:[string:VlJson]
     ; `config.mark` applies to every mark type; empty by default.
     def markAll:VlJson (VlJson.objectValue())
+    ; `config.axis`: what every axis starts from before its own spec is read.
+    ; A spec that wants its guides in a different colour says so once here
+    ; rather than on each of its axes, and the reference reads it the same way.
+    def axisAll:VlJson (VlJson.objectValue())
 
     ; --- the built-in table ---------------------------------------------------
     fn loadDefaults:void () {
@@ -133,6 +137,9 @@ class VlConfig {
         if (config.get("mark").isObject()) {
             markAll = (config.get("mark"))
         }
+        if (config.get("axis").isObject()) {
+            axisAll = (config.get("axis"))
+        }
         for config.keys name:string ci {
             if (has markTypes name) {
                 def incomingMark:VlJson (config.get(name))
@@ -169,6 +176,21 @@ class VlConfig {
                 set styles name merged
             }
         }
+    }
+
+    ; One axis' settings: the config's defaults with the axis' own on top.
+    fn mergedAxis:VlJson (adef:VlJson) {
+        if ((array_length axisAll.keys) == 0) {
+            return adef
+        }
+        def out:VlJson (VlJson.objectValue())
+        for axisAll.keys key:string ai {
+            out.setMember(key (axisAll.get(key)))
+        }
+        for adef.keys key:string di {
+            out.setMember(key (adef.get(key)))
+        }
+        return out
     }
 
     fn hasStyle:boolean (name:string) {

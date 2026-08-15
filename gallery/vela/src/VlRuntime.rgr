@@ -788,7 +788,7 @@ class VlRuntime {
         def total:int (axes.count())
         def k:int 0
         while (k < total) {
-            def adef:VlJson (axes.at(k))
+            def adef:VlJson (config.mergedAxis((axes.at(k))))
             def scaleName:string (adef.stringOr("scale" ""))
             if (! (scope.hasScale(scaleName))) {
                 this.fail(("axis refers to scale '" + scaleName) + "' which the spec does not define")
