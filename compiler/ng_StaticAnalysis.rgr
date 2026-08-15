@@ -2730,10 +2730,34 @@ class StaticAnalyzer {
       if (cl.rust_needs_ref_semantics == false) {
         continue
       }
+      ; …but not in a TRAIT FAMILY. There the hidden argument is typed as the
+      ; trait object for the methods the trait declares and as the class for
+      ; the rest, so making every method carry one puts the two spellings in
+      ; the same body and neither converts to the other.
+      def inTraitFamily:boolean cl.is_extended_by_children
+      for cl.extends_classes clP:string clPi {
+        if ((unwrap ctx).isDefinedClass(clP)) {
+          def clPC:RangerAppClassDesc ((unwrap ctx).findClass(clP))
+          if clPC.is_extended_by_children {
+            inTraitFamily = true
+          }
+        }
+      }
       for cl.methods m:RangerAppFunctionDesc i {
         if (m.is_lambda == false) {
-          if (this.fnUsesThisValue(m)) {
+          ; EVERY instance method of a shared class carries the handle, not
+          ; just the ones that pass `this` on. A shared object is reached
+          ; through its cell, so a `&self` receiver is a borrow held for the
+          ; whole call — and anything the body calls can come back to the same
+          ; object, which is what the walkers here do all day. Carrying the
+          ; handle instead lets the writer drop the receiver and borrow one
+          ; statement at a time.
+          if ((m.is_static == false) && (inTraitFamily == false)) {
             m.rust_needs_self_rc = true
+          } {
+            if (this.fnUsesThisValue(m)) {
+              m.rust_needs_self_rc = true
+            }
           }
         }
       }

@@ -875,15 +875,16 @@ extension CodeNode {
       value_type = RangerNodeType.ExpressionType
       eval_type = RangerNodeType.ExpressionType
     }
+    def myArrayType:string array_type
     if (value_type == RangerNodeType.Array) {
       eval_type = RangerNodeType.Array
       eval_type_name = myTypeName
-      eval_array_type = array_type
+      eval_array_type = myArrayType
     }
     if (value_type == RangerNodeType.Hash) {
       eval_type = RangerNodeType.Hash
       eval_type_name = myTypeName
-      eval_array_type = array_type
+      eval_array_type = myArrayType
     }
     if (value_type == RangerNodeType.Enum) {
       eval_type = RangerNodeType.Enum

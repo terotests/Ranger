@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | **0** | `rustc` clean; the binary runs stages 1-2, see below |
+| Rust | **0** | `rustc` clean; the binary runs stages 1-3 and enters 4, see below |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -799,67 +799,95 @@ next pass starts from the number rather than the guess.
 ### Running it: the re-entrancy work
 
 The compile being clean is not the same as the binary working. Every method
-call in the output is `x.borrow_mut().m(…)`, which holds the cell for the whole
-call, so any method that reaches its own object again panics —
+call in the output used to be `x.borrow_mut().m(…)`, which holds the cell for
+the whole call, so any method that reaches its own object again panics —
 `already borrowed`. The compiler does that constantly: `RangerAppWriterContext`
 alone has 48 methods that fetch `this.getRoot()` and then read or write through
 it, and for the root context that handle IS `this`.
 
-The binary now gets through **method collection and code analysis** — stages 1
-and 2 of five — with no panics at all, where it used to abort on the first file
-it opened. What moved it:
+The binary now gets through **method collection, code analysis and type
+checking** — stages 1 to 3 of five — and enters code generation, where it used
+to abort on the first file it opened. What moved it:
 
-- **A method that reaches itself only through its handle is emitted with no
-  receiver.** The borrow then lasts one statement instead of the whole call,
-  which is what lets `def root (this.getRoot())` followed by a write through
-  `root` run when the root IS this object. Applied only where it buys
-  something — a body that fetches another handle of its own class — and only
-  when that handle is the concrete class, since a trait object cannot carry a
-  method the trait does not declare. Widening it further was measured and
-  backed out: it moves the problem to the caller, which then holds the cell.
-- **The receiver borrow follows the callee.** Shared wherever the callee is
-  provably `&self`, mutable otherwise. Guessing shared wrong is a compile
-  error; guessing mutable wrong is a panic, so the shared form is used only
-  where it is provable.
-- **The three descriptor copies of a method were made to agree.** The receiver
-  pre-pass now asks the same question the signature writer asks, records its
-  verdict on both descriptor sets, and the emission writes its own verdict
-  back. They used to disagree about the borrow, which is a panic rather than a
-  diagnostic.
+- **Every instance method of a shared class is emitted with no receiver.** It
+  takes the object's handle instead and borrows one statement at a time. This
+  is the change that mattered: a `&self` receiver is a borrow of the cell held
+  for the whole call, and anything the body then calls can come back to the
+  same object. The narrower rules tried before — only methods that pass `this`
+  on, only bodies that fetch another handle of their own class — each fixed the
+  panic in front of them and left the next one.
+- **A field READ takes a shared borrow and a field WRITE the mutable one.**
+  Shared borrows nest, so two field reads in one statement are two live `Ref`s
+  and nothing more; the mutable form there is what turned them into a panic.
+  The write side is already marked for the writer: assignment sets it, and the
+  template expander sets the same flag for the target of a mutating operator
+  (`push`, `set`, `insert`, …). Compound assignment (`x += 1`) had to be taught
+  to set it too.
+- **`this` at the head of a PATH is always a read.** `this.langWriter.write(…)`
+  borrows the writer's cell for the call, not this one, so the navigation to
+  the field takes the shared form. The mutable question belongs to the last
+  cell in the path.
+- **A `switch` subject lands in a `let` first.** `match x.borrow().f { … }`
+  keeps the `Ref` alive for the whole match, so every arm that touched the same
+  cell panicked. The string overload already did this; the integer and enum
+  ones did not.
+- **A static-spelled call takes the LAST segment of the path as the method
+  name**, wraps a raw value handed to a borrowed shared parameter, and honours
+  an argument that was hoisted to a temporary. That last one is the sharpest:
+  the hoisting ran, wrote its `let`, and this emission path ignored it — which
+  is exactly the double borrow the hoisting exists to prevent.
+- **Argument hoisting also runs for a call node that carries `has_call` but is
+  spelled `(fnRef args)`.** No argument of such a call was examined before.
 - **A read through a weak field takes a shared borrow.** It was always
-  `borrow_mut()`, so two reads of one parent in a single expression —
-  `a.parent.children.len() == 1 + indexOf(a.parent.children, x)` — panicked.
-- **An argument that reads through another argument, or through the receiver,
-  goes to a temporary first.** `f(&item.borrow().name, item)` holds a shared
-  borrow that is still live when the callee takes a mutable one. The hoist
-  stops at closure boundaries and never lifts a closure literal.
-- **Two mutation tests counted a write or read through ANOTHER object as a use
-  of this object's struct**, because a field's descriptor says "class
-  variable" whoever owns it. `new_ctx.parent = this` made every factory method
-  `&mut self`.
+  `borrow_mut()`, so two reads of one parent in a single expression panicked.
+- **The receiver handle is unsized where the callee declares the trait
+  object.** A method of a trait family declares its hidden argument as
+  `dyn XTrait`, and a call site holding the concrete class now writes the
+  coercion.
 
-Seven source sites were changed where the fix was one line and the alternative
-was a codegen special case: `changeStrengthSelf` records the receiver's own
-name node without reading its cell inside its own call, `getTargetLangName`
-answers without going through the handle, and `getRootFile`, `setRootFile`,
-`addError`, `addParserError` and `transformWord` use their own field when they
-ARE the root.
+Source sites were changed where the fix was one line and the alternative was a
+codegen special case — always the same shape, reading one field while writing
+another in a single statement:
+
+- `defineNodeTypeToSelf` is the aliasing form of `defineNodeTypeTo`, which was
+  called as `cn.defineNodeTypeTo(cn ctx)` — one object read and written at once.
+- `CodeNode.setFlag`, `cloneWithType`, `rebuildWithType`, `getLine` and
+  `getColumnStr` bind `code`, `sp` and `ep` before constructing.
+- `CodeWriter.createTag`, `addIndent`, `syncColumnFromCurrentLine` and
+  `writeSlice` bind the value they are about to append to.
+- `RangerAppEnum.add` and the three signature counters take the counter into a
+  local before storing it.
+- `changeStrengthSelf`, `getTargetLangName`, `getRootFile`, `setRootFile`,
+  `addError`, `addParserError` and `transformWord` from the earlier pass.
 
 ### Where it stops now
 
 ```
 [1/5] Collecting methods...
 [2/5] Analyzing code...
-  [FAIL] Unknown type:  type ID : 11
+[3/5] Type checking...
+[4/5] Generating code...
+thread 'main' panicked: RefCell already borrowed
+  LiveCompiler::WriteScalarValue
+  LiveCompiler::WalkNode
+  RangerJavaScriptClassWriter::WalkNode
 ```
 
-No panic — an ordinary compiler diagnostic, which means the Rust build is
-running the pipeline and reaching a different answer than the JavaScript build
-does. Type ID 11 is `RangerNodeType.Enum`, and the node carrying it has an
-empty `type_name`: something that should have been written into a shared node
-went into a copy of it instead. That is the *other* limit this file opens
-with — "an object is a value" — met somewhere in the analyzer, and it is a
-semantic-parity hunt rather than a borrow-checking one.
+The remaining wall is the **trait families** — the language writers. A class
+that is extended by children is reached as `Rc<RefCell<dyn XTrait>>`, and a
+trait method cannot be called without a receiver, so `wr.borrow_mut().WalkNode(…)`
+holds the writer's cell for the whole call. `LiveCompiler` then calls back into
+the same writer and finds it borrowed. The receiverless rule above cannot be
+applied there: within one class the hidden argument would be typed `dyn XTrait`
+for the methods the trait declares and as the class for the rest, and neither
+spelling converts to the other — measured at 497 `E0308`s. Making it uniform
+means every own-field access in those classes going through trait accessors,
+which exist only for fields the parent declares. Trait families are excluded
+from the widening for now, and that is where the binary stops.
+
+Everything up to it runs: the parser, the flow analyser, the type checker and
+the whole descriptor machinery execute in Rust and reach the same answers the
+JavaScript build does, on the same input.
 
 One conflict is worth naming because no codegen change can settle it:
 `RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and

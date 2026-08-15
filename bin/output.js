@@ -1934,7 +1934,10 @@ class CodeNode  {
   };
   setFlag (flagName) {
     if ( false == this.has_vref_annotation ) {
-      this.vref_annotation = new CodeNode(this.code, this.sp, this.ep);
+      const annCode = this.code;
+      const annSp = this.sp;
+      const annEp = this.ep;
+      this.vref_annotation = new CodeNode(annCode, annSp, annEp);
     }
     if ( this.hasFlag(flagName) ) {
       return;
@@ -2059,13 +2062,15 @@ class CodeNode  {
     return s;
   };
   getLine () {
-    return this.code.getLine(this.sp);
+    const lnSp = this.sp;
+    return this.code.getLine(lnSp);
   };
   getLineString (line_index) {
     return this.code.getLineString(line_index);
   };
   getColStartString () {
-    return this.code.getColumnStr(this.sp);
+    const colSp = this.sp;
+    return this.code.getColumnStr(colSp);
   };
   getLineAsString () {
     const idx = this.getLine();
@@ -3023,15 +3028,16 @@ class CodeNode  {
       this.value_type = 20;
       this.eval_type = 20;
     }
+    const myArrayType = this.array_type;
     if ( this.value_type == 6 ) {
       this.eval_type = 6;
       this.eval_type_name = myTypeName;
-      this.eval_array_type = this.array_type;
+      this.eval_array_type = myArrayType;
     }
     if ( this.value_type == 7 ) {
       this.eval_type = 7;
       this.eval_type_name = myTypeName;
-      this.eval_array_type = this.array_type;
+      this.eval_array_type = myArrayType;
     }
     if ( this.value_type == 13 ) {
       this.eval_type = 13;
@@ -3443,7 +3449,8 @@ class RangerAppEnum  {
     this.values = {};
   }
   add (n) {
-    this.values[n] = this.cnt;
+    const nextVal = this.cnt;
+    this.values[n] = nextVal;
     this.cnt = this.cnt + 1;
   };
 }
@@ -5716,8 +5723,10 @@ class CodeWriter  {
   addIndent () {
     let i = 0;
     if ( 0 == (this.currentLine.length) ) {
+      const indentStep = this.tabStr;
       while (i < this.indentAmount) {
-        this.currentLine = this.currentLine + this.tabStr;
+        const lineSoFar = this.currentLine;
+        this.currentLine = lineSoFar + indentStep;
         i = i + 1;
       };
     }
@@ -5807,7 +5816,8 @@ class CodeWriter  {
     };
   };
   syncColumnFromCurrentLine () {
-    this.columnNumber = this.currentLine.length;
+    const lineLen = this.currentLine.length;
+    this.columnNumber = lineLen;
   };
   writeSlice (str, newLine) {
     this.addIndent();
@@ -5815,7 +5825,8 @@ class CodeWriter  {
     if ( (str.length) > 0 ) {
       this.recordCurrentMapping();
     }
-    this.currentLine = this.currentLine + str;
+    const lineBefore = this.currentLine;
+    this.currentLine = lineBefore + str;
     this.advanceColumnForString(str);
     if ( newLine ) {
       this.current_slice.code = (this.current_slice.code + this.currentLine) + this.nlStr;
@@ -10172,7 +10183,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return "void_" + cc;
       }
       this.signatureCnt = this.signatureCnt + 1;
-      this.isDefinedSignature[s] = this.signatureCnt;
+      const voidSigNo = this.signatureCnt;
+      this.isDefinedSignature[s] = voidSigNo;
       return "void_" + this.signatureCnt;
     };
     getNameSignature (node) {
@@ -10185,7 +10197,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return "_" + cc;
       }
       this.signatureCnt = this.signatureCnt + 1;
-      this.isDefinedSignature[s] = this.signatureCnt;
+      const nameSigNo = this.signatureCnt;
+      this.isDefinedSignature[s] = nameSigNo;
       if ( this.signatureCnt == 1 ) {
         return node.type_name;
       }
@@ -10206,7 +10219,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return "_" + cc;
       }
       this.signatureCnt = this.signatureCnt + 1;
-      this.isDefinedArgSignature[exp_s] = this.signatureCnt;
+      const argSigNo = this.signatureCnt;
+      this.isDefinedArgSignature[exp_s] = argSigNo;
       if ( this.signatureCnt == 1 ) {
         return "";
       }
@@ -24684,19 +24698,34 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return true;
             };
-            rustThisPrefix () {
+            rustThisPrefix (ctx) {
               if ( this.rust_receiverless_method ) {
-                if ( this.rust_receiver_shared_known ) {
-                  return "__self_rc.borrow()";
+                if ( this.rust_writing_call_receiver ) {
+                  if ( this.rust_receiver_shared_known ) {
+                    return "__self_rc.borrow()";
+                  }
+                  return "__self_rc.borrow_mut()";
                 }
-                return "__self_rc.borrow_mut()";
+                if ( ctx.in_lhs_of_assignment ) {
+                  return "__self_rc.borrow_mut()";
+                }
+                return "__self_rc.borrow()";
+              }
+              return this.thisName;
+            };
+            rustThisPathPrefix (ctx) {
+              if ( this.rust_receiverless_method ) {
+                if ( ctx.in_lhs_of_assignment ) {
+                  return "__self_rc.borrow_mut()";
+                }
+                return "__self_rc.borrow()";
               }
               return this.thisName;
             };
             async WriteVRef (node, ctx, wr) {
               if ( node.vref == "this" ) {
                 if ( this.rust_writing_call_receiver && this.rust_receiverless_method ) {
-                  wr.out(this.rustThisPrefix(), false);
+                  wr.out(this.rustThisPrefix(ctx), false);
                   return;
                 }
                 if ( this.rust_writing_call_receiver == false ) {
@@ -24713,7 +24742,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   }
                 }
-                wr.out(this.thisName, false);
+                wr.out(this.rustThisPrefix(ctx), false);
                 return;
               }
               if ( (node.vref.length) > 1 ) {
@@ -24786,7 +24815,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( i == 0 ) {
                       const part = node.ns[0];
                       if ( part == "this" ) {
-                        wr.out(this.thisName, false);
+                        wr.out(this.rustThisPathPrefix(ctx), false);
                         continue;
                       }
                     }
@@ -24805,7 +24834,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const up = currC.findVariable(part_1);
                         if ( (typeof(up) !== "undefined" && up != null )  ) {
                           if ( false == ctx.isInStatic() ) {
-                            wr.out(this.rustThisPrefix() + ".", false);
+                            wr.out(this.rustThisPathPrefix(ctx) + ".", false);
                           }
                         }
                       }
@@ -25012,7 +25041,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const up_1 = currC_1.findVariable(part_2);
                     if ( (typeof(up_1) !== "undefined" && up_1 != null )  ) {
                       if ( false == ctx.isInStatic() ) {
-                        wr.out(this.rustThisPrefix() + ".", false);
+                        wr.out(this.rustThisPathPrefix(ctx) + ".", false);
                       }
                     }
                   }
@@ -25042,7 +25071,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       const up_2 = currC_2.findVariable(part_3);
                       if ( (typeof(up_2) !== "undefined" && up_2 != null )  ) {
                         if ( false == ctx.isInStatic() ) {
-                          wr.out(this.rustThisPrefix() + ".", false);
+                          wr.out(this.rustThisPathPrefix(ctx) + ".", false);
                         }
                       }
                     }
@@ -25892,6 +25921,74 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   return 0;
                 };
+                rustSelfRcParamType (fnDesc, ctx) {
+                  if ( typeof(fnDesc.container_class) === "undefined" ) {
+                    return "";
+                  }
+                  const scc = fnDesc.container_class;
+                  let sccName = scc.name;
+                  if ( scc.is_extended_by_children ) {
+                    return ("dyn " + scc.name) + "Trait";
+                  }
+                  for ( let sccPi = 0; sccPi < scc.extends_classes.length; sccPi++) {
+                    var sccP = scc.extends_classes[sccPi];
+                    if ( ctx.isDefinedClass(sccP) ) {
+                      const sccPC = ctx.findClass(sccP);
+                      if ( sccPC.is_extended_by_children ) {
+                        if ( ( typeof(sccPC.defined_methods[fnDesc.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(sccPC.defined_methods, fnDesc.name) ) ) {
+                          sccName = ("dyn " + sccPC.name) + "Trait";
+                        }
+                      }
+                    }
+                  };
+                  return sccName;
+                };
+                rustSelfRcCoerceTo (fc, fnDesc, ctx) {
+                  const want = this.rustSelfRcParamType(fnDesc, ctx);
+                  if ( (want.length) < 5 ) {
+                    return "";
+                  }
+                  if ( (want.substring(0, 4 )) != "dyn " ) {
+                    return "";
+                  }
+                  const nsLen = fc.ns.length;
+                  if ( nsLen < 2 ) {
+                    return "";
+                  }
+                  let rcvType = "";
+                  if ( ((fc.ns[0]) == "this") && (nsLen == 2) ) {
+                    const ccOpt = ctx.getCurrentClass();
+                    if ( typeof(ccOpt) === "undefined" ) {
+                      return "";
+                    }
+                    const ccCls = ccOpt;
+                    rcvType = ccCls.name;
+                  } else {
+                    if ( (fc.nsp.length) < (nsLen - 1) ) {
+                      return "";
+                    }
+                    const rcvD = fc.nsp[(nsLen - 2)];
+                    const rcvNN = rcvD.nameNode;
+                    if ( typeof(rcvNN) === "undefined" ) {
+                      return "";
+                    }
+                    const rcvN = rcvNN;
+                    if ( ((rcvN.array_type.length) > 0) || ((rcvN.key_type.length) > 0) ) {
+                      return "";
+                    }
+                    rcvType = rcvN.type_name;
+                  }
+                  if ( (rcvType.length) == 0 ) {
+                    return "";
+                  }
+                  if ( this.rustTypeIsOwnHandle(rcvType, ctx) ) {
+                    return "";
+                  }
+                  if ( this.rustClassIsShared(rcvType, ctx) == false ) {
+                    return "";
+                  }
+                  return want;
+                };
                 writeSelfRcReceiverArg (node, fc, ctx, wr) {
                   if ( typeof(node.fnDesc) === "undefined" ) {
                     return false;
@@ -25914,13 +26011,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         return false;
                       }
                     }
-                    wr.out("__self_rc", false);
+                    const selfCoerce = this.rustSelfRcCoerceTo(fc, (node.fnDesc), ctx);
+                    if ( (selfCoerce.length) > 0 ) {
+                      wr.out(("&(__self_rc.clone() as Rc<RefCell<" + selfCoerce) + ">>)", false);
+                    } else {
+                      wr.out("__self_rc", false);
+                    }
                     return true;
                   }
                   let path = "";
                   let segIdx = 0;
                   if ( root == "this" ) {
-                    path = this.thisName;
+                    path = this.rustThisPathPrefix(ctx);
                     segIdx = 1;
                   }
                   while (segIdx < (nsLen - 1)) {
@@ -25954,7 +26056,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     if ( (path.length) == 0 ) {
                       if ( segMember ) {
-                        path = (this.thisName + ".") + segName;
+                        path = (this.rustThisPathPrefix(ctx) + ".") + segName;
                       } else {
                         path = segName;
                       }
@@ -25994,7 +26096,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     segIdx = segIdx + 1;
                   };
-                  wr.out("&" + path, false);
+                  const pathCoerce = this.rustSelfRcCoerceTo(fc, (node.fnDesc), ctx);
+                  if ( (pathCoerce.length) > 0 ) {
+                    wr.out(((("&(" + path) + ".clone() as Rc<RefCell<") + pathCoerce) + ">>)", false);
+                  } else {
+                    wr.out("&" + path, false);
+                  }
                   return true;
                 };
                 writeRustReceiver (mutSelf, wr) {
@@ -26040,23 +26147,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( lead_comma ) {
                       wr.out(", ", false);
                     }
-                    const scc = fnDesc.container_class;
-                    let sccName = scc.name;
-                    if ( scc.is_extended_by_children ) {
-                      sccName = ("dyn " + scc.name) + "Trait";
-                    } else {
-                      for ( let sccPi = 0; sccPi < scc.extends_classes.length; sccPi++) {
-                        var sccP = scc.extends_classes[sccPi];
-                        if ( ctx.isDefinedClass(sccP) ) {
-                          const sccPC = ctx.findClass(sccP);
-                          if ( sccPC.is_extended_by_children ) {
-                            if ( ( typeof(sccPC.defined_methods[fnDesc.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(sccPC.defined_methods, fnDesc.name) ) ) {
-                              sccName = ("dyn " + sccPC.name) + "Trait";
-                            }
-                          }
-                        }
-                      };
-                    }
+                    const sccName = this.rustSelfRcParamType(fnDesc, ctx);
                     wr.out(("__self_rc : &Rc<RefCell<" + sccName) + ">>", false);
                     wrote_selfrc = true;
                   }
@@ -27057,7 +27148,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                       } else {
                         if ( exprThisRecv ) {
-                          wr.out(this.rustThisPrefix() + ".", false);
+                          wr.out(this.rustThisPrefix(ctx) + ".", false);
                         } else {
                           if ( exprSelfRcNeeded && obj.expression ) {
                             exprSelfRcTmp = ctx.rustGetTempVar();
@@ -30157,7 +30248,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return false;
                             }
                           };
+                          ctx.setInLhs();
                           await this.WriteVRef(left, ctx, wr);
+                          ctx.unsetInLhs();
                           wr.out((" " + op) + "= ", false);
                           ctx.setInExpr();
                           await this.WalkNode(rr.getThird(), ctx, wr);
@@ -54889,11 +54982,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     if ( cl.rust_needs_ref_semantics == false ) {
                                       continue;
                                     }
+                                    let inTraitFamily = cl.is_extended_by_children;
+                                    for ( let clPi = 0; clPi < cl.extends_classes.length; clPi++) {
+                                      var clP = cl.extends_classes[clPi];
+                                      if ( ((this.ctx)).isDefinedClass(clP) ) {
+                                        const clPC = ((this.ctx)).findClass(clP);
+                                        if ( clPC.is_extended_by_children ) {
+                                          inTraitFamily = true;
+                                        }
+                                      }
+                                    };
                                     for ( let i = 0; i < cl.methods.length; i++) {
                                       var m = cl.methods[i];
                                       if ( m.is_lambda == false ) {
-                                        if ( await this.fnUsesThisValue(m) ) {
+                                        if ( (m.is_static == false) && (inTraitFamily == false) ) {
                                           m.rust_needs_self_rc = true;
+                                        } else {
+                                          if ( await this.fnUsesThisValue(m) ) {
+                                            m.rust_needs_self_rc = true;
+                                          }
                                         }
                                       }
                                     };

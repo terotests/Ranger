@@ -28,7 +28,10 @@ class RangerAppEnum {
   def values:[string:int]
   def node:CodeNode
   fn add:void (n:string) {
-    set values n cnt
+    ; the counter first: writing one own field while reading another in the
+    ; same statement is a mutable and a shared borrow of one object at once
+    def nextVal:int cnt
+    set values n nextVal
     cnt = (cnt + 1)
   }
 }

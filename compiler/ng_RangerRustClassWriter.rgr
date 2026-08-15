@@ -1202,16 +1202,42 @@ class RangerRustClassWriter {
     return true
   }
 
-  fn rustThisPrefix:string () {
+  fn rustThisPrefix:string (ctx:RangerAppWriterContext) {
     if rust_receiverless_method {
-      ; the shared form only where the callee is POSITIVELY known to take
-      ; `&self`. Guessing that wrong is a rustc error; guessing the mutable
-      ; form wrong is a panic the first time the path runs, so the shared
-      ; form is preferred wherever it is provable.
-      if rust_receiver_shared_known {
-        return "__self_rc.borrow()"
+      ; A CALL RECEIVER takes the borrow the callee needs: the shared form
+      ; only where the callee is POSITIVELY known to take `&self`. Guessing
+      ; that wrong is a rustc error; guessing the mutable form wrong is a
+      ; panic the first time the path runs.
+      if rust_writing_call_receiver {
+        if rust_receiver_shared_known {
+          return "__self_rc.borrow()"
+        }
+        return "__self_rc.borrow_mut()"
       }
-      return "__self_rc.borrow_mut()"
+      ; a field being WRITTEN: the left of an assignment, or the target of a
+      ; mutating operator — the template expander marks both the same way
+      if ctx.in_lhs_of_assignment {
+        return "__self_rc.borrow_mut()"
+      }
+      ; …and everything else is a READ. Shared borrows nest, so two field
+      ; reads in one statement are two live Refs and nothing more; the
+      ; mutable form there is what turns them into a panic.
+      return "__self_rc.borrow()"
+    }
+    return thisName
+  }
+
+  ; `this` as the HEAD OF A PATH — `this.langWriter.writeFnCall(…)`. Reaching
+  ; a field is a read of this object whatever happens further along: the call
+  ; at the end borrows the field's own cell, not this one. Taking the mutable
+  ; form here held this object for the whole call, and the walkers call back
+  ; into it.
+  fn rustThisPathPrefix:string (ctx:RangerAppWriterContext) {
+    if rust_receiverless_method {
+      if ctx.in_lhs_of_assignment {
+        return "__self_rc.borrow_mut()"
+      }
+      return "__self_rc.borrow()"
     }
     return thisName
   }
@@ -1224,7 +1250,7 @@ class RangerRustClassWriter {
       ; a receiver in a method with no `self`: the handle is the only way in,
       ; and the borrow lasts exactly as long as the call it prefixes
       if (rust_writing_call_receiver && rust_receiverless_method) {
-        wr.out((this.rustThisPrefix()) false)
+        wr.out((this.rustThisPrefix(ctx)) false)
         return
       }
       if (rust_writing_call_receiver == false) {
@@ -1241,7 +1267,7 @@ class RangerRustClassWriter {
           }
         }
       }
-      wr.out(thisName false)
+      wr.out((this.rustThisPrefix(ctx)) false)
       return
     }
 
@@ -1330,7 +1356,7 @@ class RangerRustClassWriter {
         if (i == 0) {
           def part:string (itemAt node.ns 0)
           if(part == "this") {
-            wr.out(thisName false)
+            wr.out((this.rustThisPathPrefix(ctx)) false)
             continue
           }
         }
@@ -1352,7 +1378,7 @@ class RangerRustClassWriter {
             def up@(optional):RangerAppParamDesc (currC.findVariable(part))
             if (!null? up) {
               if( false == (ctx.isInStatic()) ) {
-                wr.out(((this.rustThisPrefix()) + ".") false)
+                wr.out(((this.rustThisPathPrefix(ctx)) + ".") false)
               }               
             }
           }
@@ -1622,7 +1648,7 @@ class RangerRustClassWriter {
         def up@(optional):RangerAppParamDesc (currC.findVariable(part))
         if (!null? up) {
           if( false == (ctx.isInStatic()) ) {
-            wr.out(((this.rustThisPrefix()) + ".") false)
+            wr.out(((this.rustThisPathPrefix(ctx)) + ".") false)
           }
         }
       }
@@ -1656,7 +1682,7 @@ class RangerRustClassWriter {
           def up@(optional):RangerAppParamDesc (currC.findVariable(part))
           if (!null? up) {
             if( false == (ctx.isInStatic()) ) {
-              wr.out(((this.rustThisPrefix()) + ".") false)
+              wr.out(((this.rustThisPathPrefix(ctx)) + ".") false)
             }
           }
         }
@@ -2792,6 +2818,89 @@ class RangerRustClassWriter {
 
   ; Write the receiver's Rc as the hidden first argument of a call to a
   ; method that needs it. True when something was written.
+  ; The type the hidden receiver argument is declared with. A method of a
+  ; TRAIT interface is declared once and implemented by every subclass, and
+  ; each impl forwards to its own inherent method — so the hidden argument
+  ; cannot be typed as the container class or the two disagree
+  ; (`&Rc<RefCell<Parent>>` against `&Rc<RefCell<Child>>`). The trait object
+  ; is the one type all of them share.
+  fn rustSelfRcParamType:string (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (null? fnDesc.container_class) {
+      return ""
+    }
+    def scc:RangerAppClassDesc (unwrap fnDesc.container_class)
+    def sccName:string scc.name
+    if scc.is_extended_by_children {
+      return (("dyn " + scc.name) + "Trait")
+    }
+    for scc.extends_classes sccP:string sccPi {
+      if (ctx.isDefinedClass(sccP)) {
+        def sccPC:RangerAppClassDesc (ctx.findClass(sccP))
+        if sccPC.is_extended_by_children {
+          if (has sccPC.defined_methods fnDesc.name) {
+            sccName = (("dyn " + sccPC.name) + "Trait")
+          }
+        }
+      }
+    }
+    return sccName
+  }
+
+  ; …and the handle a call site holds is the CONCRETE class wherever the
+  ; receiver was declared as one. Rust will not pass `&Rc<RefCell<Child>>`
+  ; where `&Rc<RefCell<dyn ParentTrait>>` is declared, so the unsizing goes in
+  ; here. An empty answer means the two already agree.
+  fn rustSelfRcCoerceTo:string (fc:CodeNode fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    def want:string (this.rustSelfRcParamType(fnDesc ctx))
+    if ((strlen want) < 5) {
+      return ""
+    }
+    if ((substring want 0 4) != "dyn ") {
+      return ""
+    }
+    def nsLen:int (array_length fc.ns)
+    if (nsLen < 2) {
+      return ""
+    }
+    ; the class the receiver is declared as: `this` is the enclosing class,
+    ; anything else is the desc of the segment the method hangs off
+    def rcvType:string ""
+    if (((itemAt fc.ns 0) == "this") && (nsLen == 2)) {
+      def ccOpt@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      if (null? ccOpt) {
+        return ""
+      }
+      def ccCls:RangerAppClassDesc (unwrap ccOpt)
+      rcvType = ccCls.name
+    } {
+      if ((array_length fc.nsp) < (nsLen - 1)) {
+        return ""
+      }
+      def rcvD:RangerAppParamDesc (itemAt fc.nsp (nsLen - 2))
+      def rcvNN@(optional):CodeNode rcvD.nameNode
+      if (null? rcvNN) {
+        return ""
+      }
+      def rcvN:CodeNode (unwrap rcvNN)
+      if (((strlen rcvN.array_type) > 0) || ((strlen rcvN.key_type) > 0)) {
+        return ""
+      }
+      rcvType = rcvN.type_name
+    }
+    if ((strlen rcvType) == 0) {
+      return ""
+    }
+    ; a receiver that is ITSELF written as a trait object already has the
+    ; declared type — nothing to coerce
+    if (this.rustTypeIsOwnHandle(rcvType ctx)) {
+      return ""
+    }
+    if ((this.rustClassIsShared(rcvType ctx)) == false) {
+      return ""
+    }
+    return want
+  }
+
   fn writeSelfRcReceiverArg:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (null? node.fnDesc) {
       return false
@@ -2820,7 +2929,12 @@ class RangerRustClassWriter {
           return false
         }
       }
-      wr.out("__self_rc" false)
+      def selfCoerce:string (this.rustSelfRcCoerceTo(fc (unwrap node.fnDesc) ctx))
+      if ((strlen selfCoerce) > 0) {
+        wr.out((("&(__self_rc.clone() as Rc<RefCell<" + selfCoerce) + ">>)") false)
+      } {
+        wr.out("__self_rc" false)
+      }
       return true
     }
     ; build the receiver path: a bare member roots at self, and a strong
@@ -2832,7 +2946,7 @@ class RangerRustClassWriter {
     def path:string ""
     def segIdx:int 0
     if (root == "this") {
-      path = thisName
+      path = (this.rustThisPathPrefix(ctx))
       segIdx = 1
     }
     while (segIdx < (nsLen - 1)) {
@@ -2872,7 +2986,7 @@ class RangerRustClassWriter {
       }
       if ((strlen path) == 0) {
         if segMember {
-          path = ((thisName + ".") + segName)
+          path = (((this.rustThisPathPrefix(ctx)) + ".") + segName)
         } {
           path = segName
         }
@@ -2925,7 +3039,12 @@ class RangerRustClassWriter {
       }
       segIdx = segIdx + 1
     }
-    wr.out(("&" + path) false)
+    def pathCoerce:string (this.rustSelfRcCoerceTo(fc (unwrap node.fnDesc) ctx))
+    if ((strlen pathCoerce) > 0) {
+      wr.out((((("&(" + path) + ".clone() as Rc<RefCell<") + pathCoerce) + ">>)") false)
+    } {
+      wr.out(("&" + path) false)
+    }
     return true
   }
 
@@ -2979,27 +3098,7 @@ class RangerRustClassWriter {
       if lead_comma {
         wr.out(", " false)
       }
-      def scc:RangerAppClassDesc (unwrap fnDesc.container_class)
-      ; A method of a TRAIT interface is declared once and implemented by
-      ; every subclass, and each impl forwards to its own inherent method —
-      ; so the hidden argument cannot be typed as the container class or the
-      ; two disagree (`&Rc<RefCell<Parent>>` against `&Rc<RefCell<Child>>`).
-      ; The trait object is the one type all of them share.
-      def sccName:string scc.name
-      if scc.is_extended_by_children {
-        sccName = (("dyn " + scc.name) + "Trait")
-      } {
-        for scc.extends_classes sccP:string sccPi {
-          if (ctx.isDefinedClass(sccP)) {
-            def sccPC:RangerAppClassDesc (ctx.findClass(sccP))
-            if sccPC.is_extended_by_children {
-              if (has sccPC.defined_methods fnDesc.name) {
-                sccName = (("dyn " + sccPC.name) + "Trait")
-              }
-            }
-          }
-        }
-      }
+      def sccName:string (this.rustSelfRcParamType(fnDesc ctx))
       wr.out((("__self_rc : &Rc<RefCell<" + sccName) + ">>") false)
       wrote_selfrc = true
     }
@@ -4201,7 +4300,7 @@ class RangerRustClassWriter {
         ; Standard case - wrap in parentheses
         if exprThisRecv {
           ; a self-call: the receiver is the already-borrowed struct
-          wr.out(((this.rustThisPrefix()) + ".") false)
+          wr.out(((this.rustThisPrefix(ctx)) + ".") false)
         } {
         if (exprSelfRcNeeded && obj.expression) {
           exprSelfRcTmp = (ctx.rustGetTempVar())
@@ -7826,7 +7925,11 @@ class RangerRustClassWriter {
         return false
       }
     }
+    ; the target of a compound assignment is WRITTEN, so a field of a
+    ; receiverless method's own object takes the mutable borrow here
+    ctx.setInLhs()
     this.WriteVRef(left ctx wr)
+    ctx.unsetInLhs()
     wr.out(((" " + op) + "= ") false)
     ctx.setInExpr()
     this.WalkNode((rr.getThird()) ctx wr)

@@ -381,8 +381,13 @@ class CodeWriter {
     fn addIndent:void () {
         def i:int 0 
         if ( 0 == (strlen currentLine) ) {
+            ; the two reads land in a local first: writing one own field
+            ; while reading another in the same statement is a mutable and a
+            ; shared borrow of one object at once
+            def indentStep:string tabStr
             while (i < indentAmount) {
-                currentLine = currentLine + tabStr
+                def lineSoFar:string currentLine
+                currentLine = lineSoFar + indentStep
                 i = i + 1
             }
         }
@@ -499,7 +504,8 @@ class CodeWriter {
     }
 
     fn syncColumnFromCurrentLine:void () {
-        columnNumber = (strlen currentLine)
+        def lineLen:int (strlen currentLine)
+        columnNumber = lineLen
     }
 
     fn writeSlice:void (str:string newLine:boolean) {
@@ -508,7 +514,8 @@ class CodeWriter {
         if ((strlen str) > 0) {
             this.recordCurrentMapping()
         }
-        currentLine = currentLine + str
+        def lineBefore:string currentLine
+        currentLine = lineBefore + str
         this.advanceColumnForString(str)
         if newLine {
             current_slice.code = current_slice.code + currentLine + nlStr

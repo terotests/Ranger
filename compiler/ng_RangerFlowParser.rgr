@@ -726,7 +726,8 @@ class RangerFlowParser {
         return ("void_" + cc)
       }
       signatureCnt = signatureCnt + 1
-      set isDefinedSignature s signatureCnt
+      def voidSigNo:int signatureCnt
+      set isDefinedSignature s voidSigNo
       return ( "void_" + signatureCnt )
   }  
 
@@ -740,7 +741,8 @@ class RangerFlowParser {
         return ("_" + cc)
       }
       signatureCnt = signatureCnt + 1
-      set isDefinedSignature s signatureCnt
+      def nameSigNo:int signatureCnt
+      set isDefinedSignature s nameSigNo
       if(signatureCnt == 1) {
         return node.type_name
       }
@@ -761,7 +763,8 @@ class RangerFlowParser {
         return ("_" + cc)
       }
       signatureCnt = signatureCnt + 1
-      set isDefinedArgSignature exp_s signatureCnt
+      def argSigNo:int signatureCnt
+      set isDefinedArgSignature exp_s argSigNo
       if(signatureCnt == 1) {
         return ""
       }      
