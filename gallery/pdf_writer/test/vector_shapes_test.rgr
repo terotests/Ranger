@@ -1,0 +1,487 @@
+; ==============================================================================
+; vector_shapes_test.rgr — basic shapes are paths, and the right ones
+; ==============================================================================
+; PLAN_VECTOR_IR.md Stage 3. SVG states a path equivalent for each basic shape,
+; so these are checked against that equivalence and against the geometry the
+; shape claims to be — not against a rendering, and not against the numbers the
+; implementation happens to produce.
+;
+; The strongest check here is the round trip: emit a shape as path data, parse
+; it back with SVGPathParser, and confirm the geometry survived. That exercises
+; the writer and the reader against each other, and it is what makes the
+; emitted `d` safe to hand to a browser or to a future SVG exporter.
+;
+;   bash gallery/pdf_writer/test/run_vector.sh
+; ==============================================================================
+
+Import "../../evg/VectorShapes.rgr"
+Import "../../evg/SVGPathParser.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class VectorShapesTest {
+
+    sfn m@(main):void () {
+        def test (new VectorShapesTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/vector_shapes"))
+        test.testLine(t)
+        test.testPolylineAndPolygon(t)
+        test.testCircleGeometry(t)
+        test.testEllipseGeometry(t)
+        test.testSquareRect(t)
+        test.testRoundedRect(t)
+        test.testRadiusRules(t)
+        test.testDegenerate(t)
+        test.testNumberFormatting(t)
+        test.testRoundTrip(t)
+        t.summary()
+    }
+
+    fn typeAt:string (cmds:[PathCommand] i:int) {
+        def c:PathCommand (itemAt cmds i)
+        return c.type
+    }
+
+    fn countOf:int (cmds:[PathCommand] kind:string) {
+        def n:int 0
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if (c.type == kind) {
+                n = (n + 1)
+            }
+            k = (k + 1)
+        }
+        return n
+    }
+
+    ; --------------------------------------------------------------------------
+
+    fn testLine:void (t:RgTest) {
+        def cmds:[PathCommand] (VectorShapes.line(10.0 20.0 30.0 40.0))
+        t.eqInt("a line is two commands" (array_length cmds) 2)
+        t.eqStr("starting with a moveto" (this.typeAt(cmds 0)) "M")
+        t.eqStr("then a lineto" (this.typeAt(cmds 1)) "L")
+        ; A line is never closed: closing it would give a zero-area shape that
+        ; a fill would then try to paint.
+        t.eqInt("a line is not closed" (this.countOf(cmds "Z")) 0)
+        def last:PathCommand (itemAt cmds 1)
+        t.near("it ends where it was told" last.x 30.0)
+        t.near("and on y" last.y 40.0)
+    }
+
+    fn testPolylineAndPolygon:void (t:RgTest) {
+        def pts:[double]
+        push pts 0.0
+        push pts 0.0
+        push pts 10.0
+        push pts 0.0
+        push pts 10.0
+        push pts 10.0
+
+        def open:[PathCommand] (VectorShapes.polyline(pts))
+        t.eqInt("a polyline is a moveto and two linetos" (array_length open) 3)
+        t.eqInt("and stays open" (this.countOf(open "Z")) 0)
+
+        def shut:[PathCommand] (VectorShapes.polygon(pts))
+        t.eqInt("a polygon adds a closepath" (array_length shut) 4)
+        t.eqStr("which comes last" (this.typeAt(shut 3)) "Z")
+
+        ; Fewer than two points cannot be a line or a shape.
+        def one:[double]
+        push one 5.0
+        push one 5.0
+        def tiny:[PathCommand] (VectorShapes.polyline(one))
+        t.eqInt("a single point produces nothing" (array_length tiny) 0)
+
+        ; An odd coordinate count is an error in SVG. The stray half is
+        ; dropped rather than paired with an invented zero, which would draw a
+        ; line to a place the document never mentions.
+        def odd:[double]
+        push odd 0.0
+        push odd 0.0
+        push odd 10.0
+        push odd 10.0
+        push odd 20.0
+        def ragged:[PathCommand] (VectorShapes.polyline(odd))
+        t.eqInt("a trailing half-point is ignored" (array_length ragged) 2)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Curves, checked as geometry
+    ; --------------------------------------------------------------------------
+
+    fn testCircleGeometry:void (t:RgTest) {
+        def cmds:[PathCommand] (VectorShapes.circle(50.0 50.0 20.0))
+        t.eqInt("a circle is four cubics" (this.countOf(cmds "C")) 4)
+        t.eqStr("opened with a moveto" (this.typeAt(cmds 0)) "M")
+        t.eqInt("and closed" (this.countOf(cmds "Z")) 1)
+
+        ; The four quarter endpoints are the circle's extreme points.
+        def start:PathCommand (itemAt cmds 0)
+        t.near("it starts at the rightmost point" start.x 70.0)
+        t.near("on the centre line" start.y 50.0)
+
+        def q1:PathCommand (itemAt cmds 1)
+        t.near("the first quarter ends at the bottom" q1.x 50.0)
+        t.near("of the circle" q1.y 70.0)
+
+        def q2:PathCommand (itemAt cmds 2)
+        t.near("the second at the leftmost point" q2.x 30.0)
+        t.near("on the centre line" q2.y 50.0)
+
+        def q3:PathCommand (itemAt cmds 3)
+        t.near("the third at the top" q3.x 50.0)
+        t.near("of the circle" q3.y 30.0)
+
+        ; And every control point sits where a quarter-circle cubic needs it:
+        ; sample the curves and check the samples are on the circle. This is
+        ; the assertion that would catch a wrong kappa, which endpoint checks
+        ; alone never would.
+        def worst:double (this.worstRadialError(cmds 50.0 50.0 20.0))
+        t.ok("the cubics follow the circle to under a thousandth" (worst < 0.02))
+    }
+
+    ; Sample each cubic and report the largest deviation from the given circle.
+    fn worstRadialError:double (cmds:[PathCommand] cx:double cy:double r:double) {
+        def worst:double 0.0
+        def curX:double 0.0
+        def curY:double 0.0
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if (c.type == "M") {
+                curX = c.x
+                curY = c.y
+            }
+            if (c.type == "C") {
+                def s:int 1
+                while (s <= 8) {
+                    def tt:double ((to_double s) / 8.0)
+                    def u:double (1.0 - tt)
+                    def b0:double ((u * u) * u)
+                    def b1:double (((3.0 * u) * u) * tt)
+                    def b2:double (((3.0 * u) * tt) * tt)
+                    def b3:double ((tt * tt) * tt)
+                    def px:double ((((b0 * curX) + (b1 * c.x1)) + (b2 * c.x2)) + (b3 * c.x))
+                    def py:double ((((b0 * curY) + (b1 * c.y1)) + (b2 * c.y2)) + (b3 * c.y))
+                    def dx:double (px - cx)
+                    def dy:double (py - cy)
+                    def d:double (sqrt ((dx * dx) + (dy * dy)))
+                    def e:double (d - r)
+                    if (e < 0.0) {
+                        e = (0.0 - e)
+                    }
+                    if (e > worst) {
+                        worst = e
+                    }
+                    s = (s + 1)
+                }
+                curX = c.x
+                curY = c.y
+            }
+            k = (k + 1)
+        }
+        return worst
+    }
+
+    fn testEllipseGeometry:void (t:RgTest) {
+        def cmds:[PathCommand] (VectorShapes.ellipse(0.0 0.0 40.0 10.0))
+        t.eqInt("an ellipse is four cubics" (this.countOf(cmds "C")) 4)
+
+        def start:PathCommand (itemAt cmds 0)
+        t.near("it starts at +rx" start.x 40.0)
+        def q1:PathCommand (itemAt cmds 1)
+        t.near("and reaches +ry a quarter later" q1.y 10.0)
+        t.near("with x back at the centre" q1.x 0.0)
+
+        ; Squash the sampled points back to a circle: dividing by the radii
+        ; turns the ellipse into a unit circle, so the same radial check works
+        ; and a swapped rx/ry would show up immediately.
+        def worst:double (this.worstEllipseError(cmds 0.0 0.0 40.0 10.0))
+        t.ok("the cubics follow the ellipse" (worst < 0.001))
+
+        ; A circle is exactly the rx == ry case, not a separate construction.
+        def asCircle:[PathCommand] (VectorShapes.ellipse(5.0 5.0 3.0 3.0))
+        def realCircle:[PathCommand] (VectorShapes.circle(5.0 5.0 3.0))
+        t.eqInt("circle and equal-radii ellipse agree in length"
+                (array_length asCircle) (array_length realCircle))
+        def a:PathCommand (itemAt asCircle 1)
+        def b:PathCommand (itemAt realCircle 1)
+        t.near("and in their control points" a.x1 b.x1)
+        t.near("and their endpoints" a.y b.y)
+    }
+
+    fn worstEllipseError:double (cmds:[PathCommand] cx:double cy:double rx:double ry:double) {
+        def worst:double 0.0
+        def curX:double 0.0
+        def curY:double 0.0
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if (c.type == "M") {
+                curX = c.x
+                curY = c.y
+            }
+            if (c.type == "C") {
+                def s:int 1
+                while (s <= 8) {
+                    def tt:double ((to_double s) / 8.0)
+                    def u:double (1.0 - tt)
+                    def b0:double ((u * u) * u)
+                    def b1:double (((3.0 * u) * u) * tt)
+                    def b2:double (((3.0 * u) * tt) * tt)
+                    def b3:double ((tt * tt) * tt)
+                    def px:double ((((b0 * curX) + (b1 * c.x1)) + (b2 * c.x2)) + (b3 * c.x))
+                    def py:double ((((b0 * curY) + (b1 * c.y1)) + (b2 * c.y2)) + (b3 * c.y))
+                    def nx:double ((px - cx) / rx)
+                    def ny:double ((py - cy) / ry)
+                    def d:double (sqrt ((nx * nx) + (ny * ny)))
+                    def e:double (d - 1.0)
+                    if (e < 0.0) {
+                        e = (0.0 - e)
+                    }
+                    if (e > worst) {
+                        worst = e
+                    }
+                    s = (s + 1)
+                }
+                curX = c.x
+                curY = c.y
+            }
+            k = (k + 1)
+        }
+        return worst
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Rectangles
+    ; --------------------------------------------------------------------------
+
+    fn testSquareRect:void (t:RgTest) {
+        ; No radius: four lines and no curve maths to get wrong.
+        def cmds:[PathCommand] (VectorShapes.rect(10.0 20.0 100.0 50.0 (0.0 - 1.0) (0.0 - 1.0)))
+        t.eqInt("a plain rect has no curves" (this.countOf(cmds "C")) 0)
+        t.eqInt("it is a moveto, three linetos and a close" (array_length cmds) 5)
+        t.eqStr("and it is closed" (this.typeAt(cmds 4)) "Z")
+
+        def start:PathCommand (itemAt cmds 0)
+        t.near("it starts at the origin corner" start.x 10.0)
+        t.near("and on y" start.y 20.0)
+        def c2:PathCommand (itemAt cmds 2)
+        t.near("the far corner is x + w" c2.x 110.0)
+        t.near("and y + h" c2.y 70.0)
+    }
+
+    fn testRoundedRect:void (t:RgTest) {
+        def cmds:[PathCommand] (VectorShapes.rect(0.0 0.0 100.0 60.0 10.0 10.0))
+        t.eqInt("a rounded rect has four corner curves" (this.countOf(cmds "C")) 4)
+        t.eqInt("and four straight sides" (this.countOf(cmds "L")) 4)
+        t.eqInt("and is closed" (this.countOf(cmds "Z")) 1)
+
+        ; It starts where the top edge begins, one radius in from the corner.
+        def start:PathCommand (itemAt cmds 0)
+        t.near("the path starts one radius along the top" start.x 10.0)
+        t.near("on the top edge" start.y 0.0)
+
+        ; No point may leave the box, and each corner must actually be cut.
+        def maxX:double (this.extreme(cmds true true))
+        def minX:double (this.extreme(cmds true false))
+        def maxY:double (this.extreme(cmds false true))
+        def minY:double (this.extreme(cmds false false))
+        t.near("nothing extends past the right edge" maxX 100.0)
+        t.near("or the left edge" minX 0.0)
+        t.near("or the bottom" maxY 60.0)
+        t.near("or the top" minY 0.0)
+
+        ; The sharp corner itself must NOT be on the path — that is what makes
+        ; it rounded rather than square.
+        t.eqBool("the square corner is cut away" (this.hasPoint(cmds 0.0 0.0)) false)
+        t.eqBool("as is the opposite one" (this.hasPoint(cmds 100.0 60.0)) false)
+    }
+
+    ; Extreme coordinate over all endpoints AND control points, so a corner
+    ; curve that bulges outside the box is caught too.
+    fn extreme:double (cmds:[PathCommand] onX:boolean wantMax:boolean) {
+        def best:double 0.0
+        def seen:boolean false
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if ((c.type == "Z") == false) {
+                def vals:[double]
+                if onX {
+                    push vals c.x
+                    if (c.type == "C") {
+                        push vals c.x1
+                        push vals c.x2
+                    }
+                } {
+                    push vals c.y
+                    if (c.type == "C") {
+                        push vals c.y1
+                        push vals c.y2
+                    }
+                }
+                def j:int 0
+                while (j < (array_length vals)) {
+                    def v:double (itemAt vals j)
+                    if (seen == false) {
+                        best = v
+                        seen = true
+                    } {
+                        if wantMax {
+                            if (v > best) {
+                                best = v
+                            }
+                        } {
+                            if (v < best) {
+                                best = v
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    fn hasPoint:boolean (cmds:[PathCommand] x:double y:double) {
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            if ((c.type == "Z") == false) {
+                def dx:double (c.x - x)
+                def dy:double (c.y - y)
+                if (dx < 0.0) {
+                    dx = (0.0 - dx)
+                }
+                if (dy < 0.0) {
+                    dy = (0.0 - dy)
+                }
+                if ((dx < 0.0001) && (dy < 0.0001)) {
+                    return true
+                }
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    fn testRadiusRules:void (t:RgTest) {
+        ; Only rx given: ry follows it, so rx="8" alone is a circular corner.
+        def onlyRx:[PathCommand] (VectorShapes.rect(0.0 0.0 100.0 100.0 8.0 (0.0 - 1.0)))
+        def onlyRy:[PathCommand] (VectorShapes.rect(0.0 0.0 100.0 100.0 (0.0 - 1.0) 8.0))
+        def both:[PathCommand] (VectorShapes.rect(0.0 0.0 100.0 100.0 8.0 8.0))
+        def a:PathCommand (itemAt onlyRx 0)
+        def b:PathCommand (itemAt onlyRy 0)
+        def c:PathCommand (itemAt both 0)
+        t.near("rx alone implies the same ry" a.x c.x)
+        t.near("and ry alone implies the same rx" b.x c.x)
+
+        ; Each radius is clamped to half its side, so an oversized radius gives
+        ; a stadium rather than a self-crossing shape.
+        def huge:[PathCommand] (VectorShapes.rect(0.0 0.0 40.0 20.0 999.0 999.0))
+        def hugeStart:PathCommand (itemAt huge 0)
+        t.near("an oversized rx clamps to half the width" hugeStart.x 20.0)
+        def maxY:double (this.extreme(huge false true))
+        t.near("and the shape still fits its box" maxY 20.0)
+
+        ; A zero radius is a square corner, not a degenerate curve.
+        def zero:[PathCommand] (VectorShapes.rect(0.0 0.0 10.0 10.0 0.0 0.0))
+        t.eqInt("a zero radius gives square corners" (this.countOf(zero "C")) 0)
+
+        ; One radius zero and the other not: SVG treats that as square corners
+        ; too, since a corner needs both.
+        def half:[PathCommand] (VectorShapes.rect(0.0 0.0 10.0 10.0 5.0 0.0))
+        t.eqInt("a zero ry squares the corners" (this.countOf(half "C")) 0)
+    }
+
+    fn testDegenerate:void (t:RgTest) {
+        ; SVG 1.1: zero disables rendering of the element, negative is an
+        ; error. Either way there is no shape, and producing an empty command
+        ; list means a caller draws nothing rather than a stray dot or line.
+        def zeroW:[PathCommand] (VectorShapes.rect(0.0 0.0 0.0 50.0 0.0 0.0))
+        t.eqInt("a zero-width rect draws nothing" (array_length zeroW) 0)
+        def negH:[PathCommand] (VectorShapes.rect(0.0 0.0 50.0 (0.0 - 5.0) 0.0 0.0))
+        t.eqInt("a negative height draws nothing" (array_length negH) 0)
+        def zeroR:[PathCommand] (VectorShapes.circle(0.0 0.0 0.0))
+        t.eqInt("a zero-radius circle draws nothing" (array_length zeroR) 0)
+        def negR:[PathCommand] (VectorShapes.ellipse(0.0 0.0 5.0 (0.0 - 5.0)))
+        t.eqInt("a negative radius draws nothing" (array_length negR) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Path data output
+    ; --------------------------------------------------------------------------
+
+    fn testNumberFormatting:void (t:RgTest) {
+        t.eqStr("a whole number has no decimal point" (VectorShapes.num(10.0)) "10")
+        t.eqStr("trailing zeros are dropped" (VectorShapes.num(1.5)) "1.5")
+        t.eqStr("four decimals are kept" (VectorShapes.num(0.1235)) "0.1235")
+        t.eqStr("and rounded to, not truncated" (VectorShapes.num(0.12345)) "0.1235")
+        def negA:double (0.0 - 2.5)
+        t.eqStr("negatives keep their sign" (VectorShapes.num(negA)) "-2.5")
+        ; The sign is carried by the integer part, which is zero here — losing
+        ; it would mirror the point across the axis.
+        def negB:double (0.0 - 0.25)
+        t.eqStr("a negative below one keeps its sign" (VectorShapes.num(negB)) "-0.25")
+        t.eqStr("zero is zero" (VectorShapes.num(0.0)) "0")
+    }
+
+    fn testRoundTrip:void (t:RgTest) {
+        ; Emit as path data, parse it back, and confirm the geometry survived.
+        ; This checks the writer and the reader against each other, which is
+        ; what makes the emitted `d` safe to hand to a browser.
+        def cmds:[PathCommand] (VectorShapes.rect(5.0 5.0 90.0 40.0 8.0 8.0))
+        def d:string (VectorShapes.asPathData(cmds))
+        t.ok("the shape emits path data" ((strlen d) > 0))
+
+        def p (new SVGPathParser())
+        p.parse(d)
+        t.eqBool("the emitted path data parses cleanly" (p.hasErrors()) false)
+
+        def back:[PathCommand] (p.getCommands())
+        t.eqInt("the same number of commands comes back" (array_length back) (array_length cmds))
+
+        def worst:double 0.0
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def a:PathCommand (itemAt cmds k)
+            def b:PathCommand (itemAt back k)
+            t.eqStr(("command " + (to_string k) + " keeps its type") b.type a.type)
+            def dx:double (b.x - a.x)
+            if (dx < 0.0) {
+                dx = (0.0 - dx)
+            }
+            if (dx > worst) {
+                worst = dx
+            }
+            def dy:double (b.y - a.y)
+            if (dy < 0.0) {
+                dy = (0.0 - dy)
+            }
+            if (dy > worst) {
+                worst = dy
+            }
+            k = (k + 1)
+        }
+        t.ok("and every coordinate survives the trip" (worst < 0.0002))
+
+        ; A circle too, checked as geometry after the round trip rather than
+        ; coordinate by coordinate.
+        def circ:[PathCommand] (VectorShapes.circle(50.0 50.0 25.0))
+        def cd:string (VectorShapes.asPathData(circ))
+        def cp (new SVGPathParser())
+        cp.parse(cd)
+        t.eqBool("a circle's path data parses" (cp.hasErrors()) false)
+        def parsed:[PathCommand] (cp.getCommands())
+        def radial:double (this.worstRadialError(parsed 50.0 50.0 25.0))
+        t.ok("and it is still a circle afterwards" (radial < 0.03))
+
+        def bounds:PathBounds (cp.getBounds())
+        t.near("with the bounds a circle should have" bounds.width 50.0)
+        t.near("in both directions" bounds.height 50.0)
+    }
+}

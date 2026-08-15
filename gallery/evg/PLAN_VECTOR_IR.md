@@ -290,13 +290,42 @@ shapes `WasmUiSelect` draws today are single-ring chevrons and check marks, so
 it has no live defect from the missing hole support — but it does still lack
 anti-aliasing, and `flatten()` is still what it calls.
 
-### Stage 3 — Shape normalisation — next
+### Stage 3 — Shape normalisation — **DONE**
 
-`rect` / `rounded rect` / `circle` / `ellipse` / `line` / `polyline` / `polygon`
-→ `PathCommand[]`. Pure functions, no renderer changes, fully unit-testable.
-This is where the sketch's "everything is a path" insight pays off.
+`gallery/evg/VectorShapes.rgr`: `rect` (with SVG's rx/ry rules), `circle`,
+`ellipse`, `line`, `polyline`, `polygon` → `PathCommand[]`, plus `asPathData`
+to go back to a `d` string. Pure functions, no renderer changes, no state.
 
-### Stage 4 — `SvgParser` and the `<Svg>` element
+Curves come out as cubics using the exact kappa rather than arcs, so consumers
+need no arc conversion. Checked geometrically — sampled points on a circle must
+lie on that circle, which is what would catch a wrong kappa where endpoint
+comparisons never would — and round-tripped: emit a shape as path data, parse
+it back with `SVGPathParser`, confirm the geometry survived. That last one
+exercises the writer and the reader against each other and is what makes the
+emitted `d` safe to hand to a browser.
+
+**What this makes redundant, as a follow-up.** Three hand-rolled versions of
+the same geometry now exist alongside the derived one:
+
+| Duplicate | Where |
+| --- | --- |
+| `drawRoundedRectPath` | `EVGPDFRenderer.rgr:1966`, 7 call sites, with kappa truncated to `0.5523` |
+| `fillRoundedRect` / `drawRoundedRect` | `RasterPrimitives.rgr:93`, `:129` |
+| `fillCircle` / `fillEllipse` | `RasterPrimitives.rgr:170`, `:326` |
+
+Routing them through `VectorShapes` is the obvious cleanup, and it is
+deliberately NOT part of this stage: `drawRoundedRectPath` works in PDF's
+y-up space and is used for clipping as well as filling, so the winding
+direction of the replacement matters, and no golden test currently covers
+border-radius output. Worth doing with a rendering comparison in hand rather
+than on the way past.
+
+A language note found here, recorded because it will bite again: **`to_int`
+floors rather than truncating toward zero.** Splitting a negative number into
+whole and fractional parts directly gives the wrong pair — -2.5 comes apart as
+whole -3 and fraction 0.4999.
+
+### Stage 4 — `SvgParser` and the `<Svg>` element — next
 
 XML subset → vector display list, with the restricted profile below. `<Svg
 src="…">` as one `EVGElement`.
