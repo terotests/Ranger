@@ -90,6 +90,19 @@ Enum RgOp:int (
   TRUNC      ; a b             n[a] = n[b] truncated towards zero
   ISNULL     ; a b             n[a] = (r[b] is null) ? 1 : 0
   OEQ        ; a b c           n[a] = (r[b] is the same object as r[c]) ? 1 : 0
+  ; ---- host I/O. Small on purpose: enough for a command-line program to read
+  ; its arguments, its input and the clock, and to write its output. Every one
+  ; of them goes through the ordinary Ranger operator of the same name, so a
+  ; VM compiled for C++ gets the C++ implementation without the engine knowing
+  ; anything about the host.
+  ARGC       ; a               n[a] = number of command-line arguments
+  ARGV       ; a b             r[a] = command-line argument n[b]
+  RDFILE     ; a b c           r[a] = contents of file r[b] / r[c] ("" if absent)
+  WRFILE     ; a b c           write r[c] to the file r[a] / r[b]
+  FEXISTS    ; a b c           n[a] = does the file r[b] / r[c] exist
+  CLOCK      ; a               n[a] = wall clock milliseconds
+  SPLIT      ; a b c           r[a] = r[b] split on r[c], an array of strings
+  TRIM       ; a b             r[a] = r[b] with the outer whitespace gone
 )
 
 ; Register banks. A value is either numeric or a reference; the lowering pass

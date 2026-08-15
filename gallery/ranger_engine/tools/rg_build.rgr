@@ -1,0 +1,89 @@
+; =============================================================================
+; rg_build — Ranger source to engine bytecode
+; =============================================================================
+;   node rg_build.js program.rgr [-o=program.rgb] [-quiet]
+;
+; The build side of the split: this one has the whole compiler in it. It runs
+; the frontend, lowers the analyzed tree, and writes a `.rgb` that `rangercli`
+; can run with no compiler present at all.
+
+Import "../src/RgEngine.rgr"
+Import "../src/RgModuleIO.rgr"
+
+class RgBuild {
+
+  sfn optionValue:string (prefix:string) {
+    def i:int 0
+    while (i < (shell_arg_cnt)) {
+      def a:string (shell_arg i)
+      if ((strlen a) > (strlen prefix)) {
+        if ((substring a 0 (strlen prefix)) == prefix) {
+          return (substring a (strlen prefix) (strlen a))
+        }
+      }
+      i = (i + 1)
+    }
+    return ""
+  }
+
+  sfn hasFlag:boolean (name:string) {
+    def i:int 0
+    while (i < (shell_arg_cnt)) {
+      if ((shell_arg i) == name) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  ; `foo/bar.rgr` -> `foo/bar.rgb`
+  sfn defaultOutput:string (input:string) {
+    def dot:int (lastIndexOf input ".")
+    if (dot > 0) {
+      return ((substring input 0 dot) + ".rgb")
+    }
+    return (input + ".rgb")
+  }
+
+  sfn main:void () {
+    if ((shell_arg_cnt) < 1) {
+      print "usage: rg_build <program.rgr> [-o=program.rgb] [-quiet]"
+      return
+    }
+    def input:string (shell_arg 0)
+    def output:string (RgBuild.optionValue("-o="))
+    if ((strlen output) == 0) {
+      output = (RgBuild.defaultOutput(input))
+    }
+    def quiet:boolean (RgBuild.hasFlag("-quiet"))
+
+    def engine:RgEngine (new RgEngine())
+    if (false == (engine.loadFile(input))) {
+      print "rg_build: could not compile " + input
+      print "  " + engine.errorText
+      exit 1
+    }
+    def err:RgIOError (new RgIOError())
+    def text:string (RgModuleIO.toText(engine.module err))
+    if ((strlen err.message) > 0) {
+      print "rg_build: " + err.message
+      exit 1
+    }
+    write_file "." output text
+
+    if quiet {
+      return
+    }
+    def lowered:int (engine.loweredCount())
+    def total:int (array_length engine.module.functions)
+    print ""
+    print "wrote " + output + "  (" + (strlen text) + " bytes)"
+    print "  " + (array_length engine.module.classes) + " classes, " + lowered + " of " + total + " functions lowered"
+    for engine.module.functions f:RgFunction i {
+      if (f.tier == RgTier.Unsupported) {
+        print "  skipped " + f.name + ": " + f.bailReason
+      }
+    }
+  }
+}

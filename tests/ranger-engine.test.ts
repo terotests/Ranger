@@ -22,6 +22,10 @@ const ROOT = path.resolve(__dirname, "..");
 const ENGINE = path.join(ROOT, "gallery/ranger_engine");
 const API = path.join(ENGINE, "bin/rg_api.js");
 const VM_ONLY = path.join(ENGINE, "bin/rg_vm.js");
+const RG_BUILD = path.join(ENGINE, "bin/rg_build.js");
+const RG_CLI = path.join(ENGINE, "bin/rg_cli.js");
+const NATIVE_CLI = path.join(ENGINE, "bin/rangercli");
+const TMP = path.join(ROOT, "tmp/ranger-engine-test");
 
 let api: any;
 let previousRangerLib: string | undefined;
@@ -54,10 +58,10 @@ function tierOf(engine: any, name: string): string {
 
 describe("Ranger engine", () => {
   beforeAll(() => {
-    if (!fs.existsSync(API) || !fs.existsSync(VM_ONLY)) {
+    if (!fs.existsSync(API) || !fs.existsSync(VM_ONLY) || !fs.existsSync(RG_BUILD) || !fs.existsSync(RG_CLI)) {
       // Only the two hosts these tests use; the command line and the dumper
       // are another twenty seconds of compiler for nothing.
-      execFileSync("bash", [path.join(ROOT, "scripts/ranger-engine-build.sh"), "api", "vm"], {
+      execFileSync("bash", [path.join(ROOT, "scripts/ranger-engine-build.sh"), "api", "vm", "build", "cli"], {
         cwd: ROOT,
         stdio: "pipe",
       });
@@ -263,4 +267,113 @@ describe("Ranger engine", () => {
     // The whole point of the split: the runtime is small enough to ship.
     expect(vmOnly.length).toBeLessThan(80 * 1024);
   });
+});
+
+/**
+ * The other half of the split: bytecode as a file, and a runtime that has no
+ * compiler in it. `rg_build` writes a `.rgb`; `rg_cli` (Node) and `rangercli`
+ * (native, via the C++ target) run one.
+ */
+describe("Ranger engine — bytecode files and the CLI", () => {
+  function buildBytecode(program: string): string {
+    fs.mkdirSync(TMP, { recursive: true });
+    const rgb = path.join(TMP, program.replace(".rgr", ".rgb"));
+    execFileSync(
+      "node",
+      [RG_BUILD, path.join(ENGINE, "examples", program), `-o=${path.relative(ROOT, rgb)}`, "-quiet"],
+      {
+        cwd: ROOT,
+        env: { ...process.env, RANGER_LIB: `${path.join(ROOT, "compiler")}/;${path.join(ROOT, "lib")}/` },
+        stdio: "pipe",
+      },
+    );
+    return rgb;
+  }
+
+  function runCli(args: string[]) {
+    return execFileSync("node", [RG_CLI, ...args], { cwd: ROOT, encoding: "utf8" }).trimEnd();
+  }
+
+  it("round-trips a program through a bytecode file", () => {
+    const rgb = buildBytecode("demo.rgr");
+    const text = fs.readFileSync(rgb, "utf8");
+    expect(text.startsWith("rgb 1")).toBe(true);
+    // Opcodes are written by name, which is what makes a stale name table a
+    // build error instead of a program that quietly does something else.
+    expect(text).toContain("o RETN ");
+    expect(runCli([path.relative(ROOT, rgb)]).split("\n")).toEqual([
+      "fib(20)     = 6765",
+      "sumTo(100)  = 5050",
+      "arraySum(5) = 20",
+      "counter = 42",
+      "hello, ranger",
+    ]);
+  }, 120000);
+
+  it("passes the command line through to the program", () => {
+    const rgb = buildBytecode("cli_args.rgr");
+    const out = runCli([path.relative(ROOT, rgb), "world", "42"]);
+    expect(out.split("\n")).toEqual([
+      "arguments: 2",
+      "  0 = world",
+      "  1 = 42",
+      "hello, world",
+    ]);
+  }, 120000);
+
+  it("reads a file, splits it and counts what is in it", () => {
+    const rgb = buildBytecode("cli_wc.rgr");
+    const target = "gallery/ranger_engine/examples/cli_args.rgr";
+    const out = runCli([path.relative(ROOT, rgb), target]);
+    const source = fs.readFileSync(path.join(ROOT, target), "utf8");
+    const lines = source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
+    const words = source.split(/\s+/).filter((w) => w.length > 0).length;
+    expect(out).toBe(`${lines} lines, ${words} words, ${source.length} characters in ${target}`);
+  }, 120000);
+
+  it("refuses a bytecode file it cannot read, instead of running part of it", () => {
+    const rgb = buildBytecode("demo.rgr");
+    const broken = path.join(TMP, "broken.rgb");
+
+    fs.writeFileSync(broken, fs.readFileSync(rgb, "utf8").replace("o RETN ", "o NOTANOP "));
+    expect(() => runCli([path.relative(ROOT, broken)])).toThrow();
+    try {
+      runCli([path.relative(ROOT, broken)]);
+    } catch (e: any) {
+      expect(e.stdout).toContain("unknown opcode NOTANOP");
+    }
+
+    fs.writeFileSync(broken, fs.readFileSync(rgb, "utf8").replace("rgb 1", "rgb 99"));
+    try {
+      runCli([path.relative(ROOT, broken)]);
+      throw new Error("a future format version should have been refused");
+    } catch (e: any) {
+      expect(e.stdout).toContain("bytecode format version 99");
+    }
+  }, 120000);
+
+  it("runs the same bytecode from a native binary with no compiler in it", () => {
+    let haveCompiler = true;
+    try {
+      execFileSync("g++", ["--version"], { stdio: "pipe" });
+    } catch {
+      haveCompiler = false;
+    }
+    if (!haveCompiler) {
+      // Nothing to assert against; the Node runtime is covered above.
+      return;
+    }
+    execFileSync("bash", [path.join(ROOT, "scripts/ranger-engine-build.sh"), "native"], {
+      cwd: ROOT,
+      stdio: "pipe",
+    });
+    const rgb = buildBytecode("demo.rgr");
+    const native = execFileSync(NATIVE_CLI, [path.relative(ROOT, rgb)], {
+      cwd: ROOT,
+      encoding: "utf8",
+    }).trimEnd();
+    expect(native).toBe(runCli([path.relative(ROOT, rgb)]));
+    // The point of the exercise: it is small, and it carries no frontend.
+    expect(fs.statSync(NATIVE_CLI).size).toBeLessThan(1024 * 1024);
+  }, 300000);
 });

@@ -1,0 +1,51 @@
+; A command-line program for the engine: reads a file named on the command
+; line and counts its lines, words and characters. Between them, the three
+; things a CLI needs — arguments, input and output — go through the engine's
+; host I/O opcodes, so this runs the same way under `rangercli` (native) and
+; under the Node host.
+
+class Wc {
+
+  sfn countWords:int (line:string) {
+    def parts:[string] (strsplit line " ")
+    def n:int 0
+    for parts p:string i {
+      def t:string (trim p)
+      if ((strlen t) > 0) {
+        n = (n + 1)
+      }
+    }
+    return n
+  }
+
+  sfn main:void () {
+    if ((shell_arg_cnt) < 1) {
+      print "usage: wc <file>"
+      return
+    }
+    def name:string (shell_arg 0)
+    if ((file_exists "." name) == false) {
+      print "no such file: " + name
+      return
+    }
+    def text:string (unwrap (read_file "." name))
+    def lines:[string] (strsplit text "\n")
+    def words:int 0
+    for lines line:string i {
+      words = (words + (Wc.countWords(line)))
+    }
+    ; A file that ends in a newline splits into a trailing empty piece; `wc -l`
+    ; counts newlines, so drop it to agree with the tool people compare against.
+    def lineCount:int (array_length lines)
+    if (lineCount > 0) {
+      def last:string (itemAt lines (lineCount - 1))
+      if ((strlen last) == 0) {
+        lineCount = (lineCount - 1)
+      }
+    }
+    ; Characters, not bytes — which is why the native build and the Node build
+    ; disagree on a file with non-ASCII in it: Ranger's string is UTF-16 code
+    ; units on JavaScript and bytes on C++.
+    print "" + lineCount + " lines, " + words + " words, " + (strlen text) + " characters in " + name
+  }
+}

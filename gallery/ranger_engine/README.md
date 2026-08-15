@@ -9,6 +9,8 @@ while the program runs.
 npm run engine:build     # build the hosts into gallery/ranger_engine/bin/
 npm run engine:demo      # run examples/demo.rgr through the engine
 npm run engine:bench     # tier 1 vs tier 2 vs the ordinary compiler
+npm run engine:native    # build `rangercli`, the compiler-free native runtime
+npm run engine:cli:demo  # bytecode -> native binary -> Node, side by side
 npm run test:engine      # the vitest suite
 ```
 
@@ -48,12 +50,15 @@ frontend: 225 ms   lowering: 2 ms   interpreted steps: 1133
 | `src/RgBytecode.rgr` | instruction set, module / class / function model | no |
 | `src/RgVM.rgr` | the interpreter, the heap, the calling convention | no |
 | `src/RgJsJit.rgr` | tier 2: bytecode → host source → `new Function` | no |
+| `src/RgModuleIO.rgr` | bytecode as a `.rgb` file: writer and reader | no |
 | `src/RgLower.rgr` | analyzed Ranger → bytecode | **yes** |
 | `src/RgEngine.rgr` | front door: load a file, run it, report tiers | **yes** |
 | `tools/rg_run.rgr` | command line | yes |
 | `tools/rg_api.rgr` | the engine as a Node module | yes |
 | `tools/rg_vm_only.rgr` | VM + JIT alone, to measure the runtime half | no |
 | `tools/rg_dump.rgr` | prints the analyzed tree the pass lowers from | yes |
+| `tools/rg_build.rgr` | source → `.rgb` bytecode | yes |
+| `tools/rg_cli.rgr` | `rangercli`: runs a `.rgb`, native or on Node | no |
 
 The split is the interesting part. `RgBytecode` + `RgVM` + `RgJsJit` compile to
 **33 KB** of JavaScript; the same engine with the frontend linked in is **2.9
@@ -156,6 +161,85 @@ calls.
 once that loops ten million times stays interpreted for the whole run — there
 is no on-stack replacement. `loopChunks` in the benchmark exists to make that
 visible.
+
+## `rangercli`: running a program with no compiler present
+
+The module model is the whole interface between the two halves, so it can be a
+file. `rg_build` writes one, and `rangercli` — the VM, the bytecode reader and
+nothing else — runs it:
+
+```bash
+npm run engine:native
+RANGER_LIB="./compiler/;./lib/" node bin/rg_build.js examples/cli_wc.rgr -o=wc.rgb
+./bin/rangercli wc.rgb README.md          # native
+node bin/rg_cli.js wc.rgb README.md       # the same bytecode on Node
+```
+
+```
+$ ./bin/rangercli -steps examples/../wc.rgb examples/cli_wc.rgr
+51 lines, 284 words, 1680 characters in examples/cli_wc.rgr
+
+[7160 instructions, 0 ms]
+```
+
+| piece | size |
+| --- | --- |
+| `cli_wc.rgb` (the program) | 1.5 KB |
+| `rangercli` (native, `g++ -O2`) | **178 KB** |
+| `rg_cli.js` (the same runtime on Node) | 46 KB |
+| `rg_build.js` (has the compiler in it) | 2.9 MB |
+
+The native runtime is also the fastest tier-1 there is: the same 209k
+instructions of `demo.rgb` take **1 ms** natively against 36 ms in the
+JavaScript-hosted VM. It has no JIT — `RgJsJit` is a JavaScript host feature —
+so this is the interpreter alone.
+
+### Host I/O
+
+Enough for a command-line program, and no more. Each opcode is the ordinary
+Ranger operator of the same name, so the C++ build gets the C++ implementation
+without the engine knowing what a file is:
+
+| Ranger | opcode |
+| --- | --- |
+| `print` | `PRINTN` / `PRINTR` |
+| `(shell_arg_cnt)`, `(shell_arg i)` | `ARGC`, `ARGV` |
+| `(read_file path name)` | `RDFILE` (missing file reads as `""`) |
+| `write_file path name data` | `WRFILE` |
+| `(file_exists path name)` | `FEXISTS` |
+| `(wall_clock_ms)` | `CLOCK` |
+| `(strsplit s sep)`, `(trim s)` | `SPLIT`, `TRIM` |
+
+`examples/cli_args.rgr` and `examples/cli_wc.rgr` use them; `cli_wc` reads a
+file, splits it and counts lines, words and characters.
+
+### The `.rgb` format
+
+Line-oriented text, one tag character per line, opcodes written **by name**:
+
+```
+rgb 1
+c Counter
+n 0 total
+r 1 label
+m 0 add
+f Counter.add
+s 0 N 3 1 B
+p R
+p N
+o GETFN 1 0 0
+o ADD 2 1 0
+o SETFN 0 0 2
+o RETN 2 0 0
+```
+
+Binary would be smaller; a file you can read in a terminal and paste into a bug
+report is worth more at this stage. Names rather than numbers because an enum's
+ordinal shifts when someone inserts an opcode, and a shifted number is a
+program that silently does something else — the writer refuses to emit an
+opcode it cannot name, and the reader refuses a name it does not know. (That
+check earned its place immediately: `SPLIT` was written as `NOP` the first time
+the table lagged behind the enum.)
 
 ## What lowers today
 

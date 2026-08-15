@@ -599,6 +599,21 @@ class RgLower {
       if (opName == "substring") {
         return RgKind.Ref
       }
+      if (opName == "shell_arg") {
+        return RgKind.Ref
+      }
+      if (opName == "read_file") {
+        return RgKind.Ref
+      }
+      if (opName == "strsplit") {
+        return RgKind.Ref
+      }
+      if (opName == "unwrap") {
+        return (this.nodeKind((n.getSecond()) c))
+      }
+      if (opName == "!!") {
+        return (this.nodeKind((n.getSecond()) c))
+      }
       if (opName == "to_string") {
         return RgKind.Ref
       }
@@ -772,6 +787,10 @@ class RgLower {
       }
       case "set_at" {
         this.lowerSetAt(n c)
+        return
+      }
+      case "write_file" {
+        this.lowerWriteFile(n c)
         return
       }
       case "set" {
@@ -1247,6 +1266,27 @@ class RgLower {
     f.addOp(RgOp.ASETR arrReg idxReg r2)
   }
 
+  fn lowerWriteFile:void (node:CodeNode c:RgFnCtx) {
+    def f:RgFunction c.out
+    if ((array_length node.children) < 4) {
+      this.bail(c "write_file needs a path, a name and the data")
+      return
+    }
+    def p1:int (this.lowerRef((node.getSecond()) c))
+    if c.bailed {
+      return
+    }
+    def p2:int (this.lowerRef((node.getThird()) c))
+    if c.bailed {
+      return
+    }
+    def p3:int (this.lowerRef((itemAt node.children 3) c))
+    if c.bailed {
+      return
+    }
+    f.addOp(RgOp.WRFILE p1 p2 p3)
+  }
+
   fn lowerCallStmt:void (node:CodeNode c:RgFnCtx) {
     this.lowerCall(node c RgKind.Void)
   }
@@ -1524,6 +1564,34 @@ class RgLower {
         f.addOp(RgOp.S2N dst8 s3 0)
         return dst8
       }
+      case "shell_arg_cnt" {
+        def dstArgc:int (c.tempNum())
+        f.addOp(RgOp.ARGC dstArgc 0 0)
+        return dstArgc
+      }
+      case "wall_clock_ms" {
+        def dstClock:int (c.tempNum())
+        f.addOp(RgOp.CLOCK dstClock 0 0)
+        return dstClock
+      }
+      case "current_time_ms" {
+        def dstClock2:int (c.tempNum())
+        f.addOp(RgOp.CLOCK dstClock2 0 0)
+        return dstClock2
+      }
+      case "file_exists" {
+        def fp:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def fn2:int (this.lowerRef((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstEx:int (c.tempNum())
+        f.addOp(RgOp.FEXISTS dstEx fp fn2)
+        return dstEx
+      }
       case "null?" {
         def r:int (this.lowerRef((n.getSecond()) c))
         if c.bailed {
@@ -1729,6 +1797,60 @@ class RgLower {
         def dst3:int (c.tempRef())
         f.addOp(RgOp.AGETR dst3 arr idx)
         return dst3
+      }
+      case "shell_arg" {
+        def ai:int (this.lowerNum((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstArg:int (c.tempRef())
+        f.addOp(RgOp.ARGV dstArg ai 0)
+        return dstArg
+      }
+      case "strsplit" {
+        def ss:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def sep:int (this.lowerRef((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstSplit:int (c.tempRef())
+        f.addOp(RgOp.SPLIT dstSplit ss sep)
+        return dstSplit
+      }
+      case "trim" {
+        def ts:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstTrim:int (c.tempRef())
+        f.addOp(RgOp.TRIM dstTrim ts 0)
+        return dstTrim
+      }
+      case "read_file" {
+        def rp:int (this.lowerRef((n.getSecond()) c))
+        if c.bailed {
+          return 0
+        }
+        def rn:int (this.lowerRef((n.getThird()) c))
+        if c.bailed {
+          return 0
+        }
+        def dstRd:int (c.tempRef())
+        f.addOp(RgOp.RDFILE dstRd rp rn)
+        return dstRd
+      }
+      ; `unwrap` on a value the engine already keeps unconditionally: the
+      ; engine has no optionals, a missing file reads as "", and `(unwrap x)`
+      ; is therefore x. Anything whose absence actually matters bails earlier,
+      ; at the operator that would have produced the optional.
+      case "unwrap" {
+        return (this.lowerRef((n.getSecond()) c))
+      }
+      case "!!" {
+        return (this.lowerRef((n.getSecond()) c))
       }
     }
     if ((strlen opName) > 0) {

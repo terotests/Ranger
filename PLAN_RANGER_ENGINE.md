@@ -1,7 +1,8 @@
 # A Ranger engine — running Ranger, compiling the hot parts
 
-Status: **first version works** (`gallery/ranger_engine/`, `npm run engine:demo`).
-Tier 3 (WebAssembly / LLVM) is designed here but not built.
+Status: **works** (`gallery/ranger_engine/`, `npm run engine:demo`). Bytecode is
+a file (`.rgb`) and `rangercli` runs one as a 178 KB native binary with no
+compiler in it. Tier 3 (WebAssembly / LLVM) is designed here but not built.
 
 ## The question
 
@@ -26,6 +27,7 @@ do not depend on each other:
 | Half | What it is | Built size (ES6) |
 | --- | --- | --- |
 | runtime | `RgBytecode` + `RgVM` + `RgJsJit` | **33 KB** |
+| runtime, as a native CLI | the same, `-l=cpp` + `g++ -O2` | **178 KB** |
 | build-time | the compiler frontend + `RgLower` | **2.9 MB** |
 
 The compiler is only large because it parses, analyzes and typechecks Ranger and
@@ -176,15 +178,29 @@ On Node this is unlikely to beat tier 2, because V8 compiles both. It matters
 for the browser (where a compiled wasm module can be cached across loads) and
 for hosts where `eval` is unavailable but `WebAssembly.instantiate` is not.
 
-### 4. Bytecode as a file format
+### 4. Bytecode as a file format — **done**
 
-The module model is already the whole interface between the halves; it has no
-serialization yet. A `.rgb` file — a header, the constant pools, the four
-instruction columns, the class layouts — would let a build step produce bytecode
-and a 29 KB runtime execute it with no compiler anywhere. That is the
-configuration where "how small can a Ranger interpreter be" has a real answer,
-and it is also what a browser playground or an embedded scripting host would
-want.
+`.rgb` is line-oriented text with one tag character per line and opcodes
+written by name; `RgModuleIO` writes and reads it and depends only on
+`RgBytecode`. `rg_build` produces one (it has the compiler), `rangercli`
+consumes one (it does not). Compiled through the C++ target, `rangercli` is a
+**178 KB** binary that runs `demo.rgb`'s 209k instructions in 1 ms against 36 ms
+for the same bytecode on the JavaScript-hosted VM.
+
+Names rather than ordinals in the file, because an enum's number shifts when an
+opcode is inserted and a shifted number is a program that quietly does
+something else. The writer refuses an opcode it cannot name and the reader
+refuses a name it does not know — a check that paid for itself the first time
+the table lagged the enum and `SPLIT` was written as `NOP`.
+
+Host I/O is deliberately small: `print`, the command line, `read_file` /
+`write_file` / `file_exists`, the clock, `strsplit` and `trim`. Each is the
+ordinary Ranger operator of the same name, so a VM compiled for C++ gets the
+C++ implementation and the engine never learns what a file is.
+
+What the format does not do yet: a binary encoding (smaller, but harder to
+debug than the current text), a hash or a signature, source positions for
+runtime errors, and any notion of separate modules linking against each other.
 
 ### 5. Language coverage
 

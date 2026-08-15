@@ -62,6 +62,9 @@ class RgVM {
   ; Return channels of the most recent call.
   def retNum:double 0.0
   def retRef:RgRef (new RgRef())
+  ; The command-line arguments the program sees, host-supplied: the CLI passes
+  ; what followed the bytecode file, a test passes whatever it wants to try.
+  def hostArgs:[string]
   ; Everything `print` produced, so a test can assert on program output without
   ; capturing the host's stdout.
   def output:[string]
@@ -685,6 +688,55 @@ class RgVM {
             ov = 1.0
           }
           set_at numStack (nbase + a) ov
+        }
+        case RgOp.ARGC {
+          set_at numStack (nbase + a) (to_double (array_length hostArgs))
+        }
+        case RgOp.ARGV {
+          def ai:int (to_int (itemAt numStack (nbase + b)))
+          if ((ai < 0) || (ai >= (array_length hostArgs))) {
+            set_at refStack (rbase + a) (this.newStr(""))
+          } {
+            set_at refStack (rbase + a) (this.newStr((itemAt hostArgs ai)))
+          }
+        }
+        case RgOp.RDFILE {
+          def rp:RgRef (itemAt refStack (rbase + b))
+          def rn:RgRef (itemAt refStack (rbase + c))
+          def content:string (?? (read_file rp.s rn.s) "")
+          set_at refStack (rbase + a) (this.newStr(content))
+        }
+        case RgOp.WRFILE {
+          def wp:RgRef (itemAt refStack (rbase + a))
+          def wn:RgRef (itemAt refStack (rbase + b))
+          def wd:RgRef (itemAt refStack (rbase + c))
+          write_file wp.s wn.s wd.s
+        }
+        case RgOp.FEXISTS {
+          def ep:RgRef (itemAt refStack (rbase + b))
+          def en:RgRef (itemAt refStack (rbase + c))
+          def ev:double 0.0
+          if (file_exists ep.s en.s) {
+            ev = 1.0
+          }
+          set_at numStack (nbase + a) ev
+        }
+        case RgOp.CLOCK {
+          set_at numStack (nbase + a) (wall_clock_ms)
+        }
+        case RgOp.SPLIT {
+          def sp:RgRef (itemAt refStack (rbase + b))
+          def sep:RgRef (itemAt refStack (rbase + c))
+          def parts:[string] (strsplit sp.s sep.s)
+          def arr:RgRef (this.newRefArr())
+          for parts part:string pi {
+            push arr.ra (this.newStr(part))
+          }
+          set_at refStack (rbase + a) arr
+        }
+        case RgOp.TRIM {
+          def tr:RgRef (itemAt refStack (rbase + b))
+          set_at refStack (rbase + a) (this.newStr((trim tr.s)))
         }
         default {
           this.fail("unknown opcode at " + pc + " in " + f.name)
