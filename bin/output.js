@@ -23997,6 +23997,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out(">", false);
               }
             };
+            rustTraitCoerceName (targetType, value, ctx) {
+              if ( this.rustTypeIsOwnHandle(targetType, ctx) == false ) {
+                return "";
+              }
+              const vt = this.rustArgValueTypeName(value);
+              if ( (vt.length) == 0 ) {
+                return "";
+              }
+              if ( vt == targetType ) {
+                return "";
+              }
+              if ( this.rustTypeIsOwnHandle(vt, ctx) ) {
+                return "";
+              }
+              if ( this.rustClassIsShared(vt, ctx) == false ) {
+                return "";
+              }
+              return targetType;
+            };
             rustArgValueTypeName (nVal) {
               if ( nVal.value_type == 11 ) {
                 if ( nVal.hasParamDesc ) {
@@ -30278,6 +30297,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   dgOpen = "";
                                   dgClose = ".as_ref().unwrap()";
                                 }
+                                const wkCoerce = this.rustTraitCoerceName(field_type_name, right, ctx);
+                                if ( (wkCoerce.length) > 0 ) {
+                                  dgOpen = "&(";
+                                  dgClose = dgClose + ((".clone() as Rc<RefCell<dyn " + wkCoerce) + "Trait>>)");
+                                }
                                 if ( is_optional ) {
                                   wr.out(" = Some(Rc::downgrade(" + dgOpen, false);
                                   await this.WalkNode(right, ctx, wr);
@@ -30318,9 +30342,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 return;
                               }
                               if ( rhs_is_optional ) {
+                                const optCoerce = this.rustTraitCoerceName(field_type_name, right, ctx);
                                 wr.out(" = ", false);
                                 await this.WalkNode(right, ctx, wr);
-                                wr.out(".clone();", true);
+                                if ( (optCoerce.length) > 0 ) {
+                                  wr.out((".clone().map(|__u| __u as Rc<RefCell<dyn " + optCoerce) + "Trait>>);", true);
+                                } else {
+                                  wr.out(".clone();", true);
+                                }
                               } else {
                                 if ( is_self_ref ) {
                                   if ( this.rustClassIsShared(field_type_name, ctx) ) {

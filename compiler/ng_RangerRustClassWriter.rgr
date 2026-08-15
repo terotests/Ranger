@@ -474,6 +474,31 @@ class RangerRustClassWriter {
   ; extended by children has no struct type a name can hold: it is written
   ; as `Rc<RefCell<dyn XTrait>>`, handle and all. Sites that build the shared
   ; form themselves must ask this first — see rustSharedTypeString.
+  ; The trait a value has to be coerced INTO on its way to this target, or ""
+  ; when nothing is needed. A subclass handle is Rc<RefCell<Sub>>, and a slot
+  ; typed with the trait parent holds Rc<RefCell<dyn ParentTrait>>: the two
+  ; are one unsizing coercion apart, and Rust will not do it implicitly
+  ; through an Option or a Weak.
+  fn rustTraitCoerceName:string (targetType:string value:CodeNode ctx:RangerAppWriterContext) {
+    if ((this.rustTypeIsOwnHandle(targetType ctx)) == false) {
+      return ""
+    }
+    def vt:string (this.rustArgValueTypeName(value))
+    if ((strlen vt) == 0) {
+      return ""
+    }
+    if (vt == targetType) {
+      return ""
+    }
+    if (this.rustTypeIsOwnHandle(vt ctx)) {
+      return ""
+    }
+    if ((this.rustClassIsShared(vt ctx)) == false) {
+      return ""
+    }
+    return targetType
+  }
+
   ; The class an argument expression evaluates to, as far as the writer can
   ; tell. A named value answers from its own declaration — the evaluated type
   ; of a plain name is not always filled in — and everything else from the
@@ -8059,7 +8084,16 @@ class RangerRustClassWriter {
             dgOpen = ""
             dgClose = ".as_ref().unwrap()"
           }
-          ; RHS is already Rc<RefCell<T>>, just downgrade it directly
+          ; RHS is already Rc<RefCell<T>>, just downgrade it directly — and
+          ; a SUBCLASS handle is coerced to the trait object first, or the
+          ; Weak points at the concrete type the field is not declared with.
+          ; Downgrading the coerced temporary is sound: it addresses the same
+          ; allocation the original Rc does.
+          def wkCoerce:string (this.rustTraitCoerceName(field_type_name right ctx))
+          if ((strlen wkCoerce) > 0) {
+            dgOpen = "&("
+            dgClose = (dgClose + (((".clone() as Rc<RefCell<dyn " + wkCoerce) + "Trait>>)")))
+          }
           if is_optional {
             wr.out((" = Some(Rc::downgrade(" + dgOpen) false)
             this.WalkNode(right ctx wr)
@@ -8111,9 +8145,14 @@ class RangerRustClassWriter {
         }
         if rhs_is_optional {
           ; Both sides are optional - just clone the RHS, don't wrap with Some()
+          def optCoerce:string (this.rustTraitCoerceName(field_type_name right ctx))
           wr.out(" = " false)
           this.WalkNode(right ctx wr)
-          wr.out(".clone();" true)
+          if ((strlen optCoerce) > 0) {
+            wr.out(((".clone().map(|__u| __u as Rc<RefCell<dyn " + optCoerce) + "Trait>>);") true)
+          } {
+            wr.out(".clone();" true)
+          }
         } {
           if is_self_ref {
             if (this.rustClassIsShared(field_type_name ctx)) {
