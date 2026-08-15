@@ -4393,7 +4393,12 @@ case class customException(smth:String)  extends Exception
                 ; body compares and arithmetics it against other ints -- a usize
                 ; loop variable made every such comparison a type error. The cast
                 ; back to usize belongs at the one place that indexes.
-                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0..(" (e 1) ".len() as i64) {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize]" (cloneif 2) ";" nl (block 4) nl i "}" )
+                ; the bound is read into a local FIRST: a range expression that
+                ; borrows -- `0..self.m.borrow().items.len()` -- keeps that
+                ; borrow alive for the whole loop, and a body that borrows the
+                ; same thing mutably cannot run. The temporary is named after
+                ; the index, so nested loops do not collide.
+                rust ( (forkctx _ ) (def 2) (def 3) "let __n_" (e 3) " = (" (e 1) ".len() as i64);" nl "for " (e 3) " in 0..__n_" (e 3) " {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize]" (cloneif 2) ";" nl (block 4) nl i "}" )
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
