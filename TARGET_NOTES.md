@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | **0** | `rustc` clean too — builds a binary; does not run yet, see below |
+| Rust | **0** | `rustc` clean; the binary runs stages 1-2, see below |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -796,33 +796,70 @@ The measurements that mattered, including the changes that made things worse and
 were backed out, are recorded in comments at the sites they belong to, so the
 next pass starts from the number rather than the guess.
 
-### What the binary still hits
+### Running it: the re-entrancy work
 
-The compile is clean; the run is not. Every method call in the output is
-`x.borrow_mut().m(…)`, which holds the cell for the whole call, so any method
-that reaches its own object again panics — `already borrowed: BorrowMutError`.
-The compiler does that constantly: `RangerAppWriterContext` alone has 48 methods
-that fetch `this.getRoot()` and then read or write through it, and for the root
-context that handle IS `this`.
+The compile being clean is not the same as the binary working. Every method
+call in the output is `x.borrow_mut().m(…)`, which holds the cell for the whole
+call, so any method that reaches its own object again panics —
+`already borrowed`. The compiler does that constantly: `RangerAppWriterContext`
+alone has 48 methods that fetch `this.getRoot()` and then read or write through
+it, and for the root context that handle IS `this`.
 
-Three were answered where the answer was principled rather than a workaround,
-and each moved the binary further into the run:
+The binary now gets through **method collection and code analysis** — stages 1
+and 2 of five — with no panics at all, where it used to abort on the first file
+it opened. What moved it:
 
-- Reading an `@(optional)` field was counted as a mutation, on the grounds that
-  the path writer might reach for `as_mut()`. It is a read; calling it a
-  mutation made every such getter `&mut self`, which the call site then took
-  with `borrow_mut()`. Now 1001 methods take `&self` and several nested reads
-  of one object work, because `RefCell` allows any number of shared borrows.
-- `CodeFile.initSourceMapsIfNeeded` read `sourceMapsEnabled` back off the file
-  system that was creating it. The flag is passed in.
-- `addError` / `addParserError` push onto the ROOT context's list. When the
-  context is the root, they now push onto their own field instead of going
-  around through the handle.
+- **A method that reaches itself only through its handle is emitted with no
+  receiver.** The borrow then lasts one statement instead of the whole call,
+  which is what lets `def root (this.getRoot())` followed by a write through
+  `root` run when the root IS this object. Applied only where it buys
+  something — a body that fetches another handle of its own class — and only
+  when that handle is the concrete class, since a trait object cannot carry a
+  method the trait does not declare. Widening it further was measured and
+  backed out: it moves the problem to the caller, which then holds the cell.
+- **The receiver borrow follows the callee.** Shared wherever the callee is
+  provably `&self`, mutable otherwise. Guessing shared wrong is a compile
+  error; guessing mutable wrong is a panic, so the shared form is used only
+  where it is provable.
+- **The three descriptor copies of a method were made to agree.** The receiver
+  pre-pass now asks the same question the signature writer asks, records its
+  verdict on both descriptor sets, and the emission writes its own verdict
+  back. They used to disagree about the borrow, which is a panic rather than a
+  diagnostic.
+- **A read through a weak field takes a shared borrow.** It was always
+  `borrow_mut()`, so two reads of one parent in a single expression —
+  `a.parent.children.len() == 1 + indexOf(a.parent.children, x)` — panicked.
+- **An argument that reads through another argument, or through the receiver,
+  goes to a temporary first.** `f(&item.borrow().name, item)` holds a shared
+  borrow that is still live when the callee takes a mutable one. The hoist
+  stops at closure boundaries and never lifts a closure literal.
+- **Two mutation tests counted a write or read through ANOTHER object as a use
+  of this object's struct**, because a field's descriptor says "class
+  variable" whoever owns it. `new_ctx.parent = this` made every factory method
+  `&mut self`.
 
-The general fix is a change of calling convention: a method would take
-`&Rc<RefCell<Self>>` and borrow per access rather than for the duration of the
-call. That is the next milestone, and it is a project of its own — the shape of
-the fix is clear, but it touches every method the writer emits.
+Seven source sites were changed where the fix was one line and the alternative
+was a codegen special case: `changeStrengthSelf` records the receiver's own
+name node without reading its cell inside its own call, `getTargetLangName`
+answers without going through the handle, and `getRootFile`, `setRootFile`,
+`addError`, `addParserError` and `transformWord` use their own field when they
+ARE the root.
+
+### Where it stops now
+
+```
+[1/5] Collecting methods...
+[2/5] Analyzing code...
+  [FAIL] Unknown type:  type ID : 11
+```
+
+No panic — an ordinary compiler diagnostic, which means the Rust build is
+running the pipeline and reaching a different answer than the JavaScript build
+does. Type ID 11 is `RangerNodeType.Enum`, and the node carrying it has an
+empty `type_name`: something that should have been written into a shared node
+went into a copy of it instead. That is the *other* limit this file opens
+with — "an object is a value" — met somewhere in the analyzer, and it is a
+semantic-parity hunt rather than a borrow-checking one.
 
 One conflict is worth naming because no codegen change can settle it:
 `RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and

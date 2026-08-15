@@ -24822,10 +24822,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     if ( field_is_weak ) {
                       if ( i < (nsp_len - 1) ) {
+                        let wkMut = false;
+                        if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
+                          if ( ctx.in_lhs_of_assignment || this.rust_call_receiver_mut ) {
+                            wkMut = true;
+                          }
+                        }
+                        let wkBorrow = ".borrow()";
+                        if ( wkMut ) {
+                          wkBorrow = ".borrow_mut()";
+                        }
                         if ( p.is_optional ) {
-                          wr.out(".as_ref().unwrap().upgrade().unwrap().borrow_mut()", false);
+                          wr.out(".as_ref().unwrap().upgrade().unwrap()" + wkBorrow, false);
                         } else {
-                          wr.out(".upgrade().unwrap().borrow_mut()", false);
+                          wr.out(".upgrade().unwrap()" + wkBorrow, false);
                         }
                       } else {
                         if ( (ctx.in_lhs_of_assignment == false) && (this.rust_in_weak_unwrap == false) ) {

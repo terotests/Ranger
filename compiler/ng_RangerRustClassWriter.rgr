@@ -1454,13 +1454,26 @@ class RangerRustClassWriter {
         ; Handle weak references - need to upgrade() to get strong reference
         if field_is_weak {
           if (i < (nsp_len - 1)) {
-            ; More parts coming - upgrade weak ref and access the inner value
+            ; More parts coming - upgrade weak ref and access the inner value.
+            ; The borrow follows what the path is FOR: a read takes the shared
+            ; form, which nests with any other shared borrow live in the same
+            ; statement — `a.borrow().parent…borrow_mut().children.len()` is a
+            ; read, and the mutable form there panics the moment two of them
+            ; meet in one expression.
+            def wkMut:boolean false
+            if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
+              if (ctx.in_lhs_of_assignment || rust_call_receiver_mut) {
+                wkMut = true
+              }
+            }
+            def wkBorrow:string ".borrow()"
+            if wkMut {
+              wkBorrow = ".borrow_mut()"
+            }
             if p.is_optional {
-              ; Optional weak: .as_ref().unwrap().upgrade().unwrap().borrow_mut()
-              wr.out(".as_ref().unwrap().upgrade().unwrap().borrow_mut()" false)
+              wr.out((".as_ref().unwrap().upgrade().unwrap()" + wkBorrow) false)
             } {
-              ; Non-optional weak: .upgrade().unwrap().borrow_mut()
-              wr.out(".upgrade().unwrap().borrow_mut()" false)
+              wr.out((".upgrade().unwrap()" + wkBorrow) false)
             }
           } {
             ; The last segment: the field IS the value being read, and its
