@@ -5810,6 +5810,19 @@ class RangerRustClassWriter {
       ; inside the tag) and answers on its content.
       ; the trait is written for every program: `identical` on a plain shared
       ; class goes through it too, so one spelling serves both
+      ; A Ranger `cast` from a parent-typed handle down to a subclass one.
+      ; Rust has no dynamic_pointer_cast: Rc<RefCell<dyn Trait>> and
+      ; Rc<RefCell<Concrete>> are different pointer shapes, so the conversion
+      ; checks the concrete type through Any and then rebuilds the Rc around
+      ; the same allocation — which is what Rc::<dyn Any>::downcast does in
+      ; std. Every generated trait carries RgAnyRef so the check is available
+      ; whatever the trait object is.
+      header.out("pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }" true)
+      header.out("fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {" true)
+      header.out("    assert!(v.borrow().rg_as_any().is::<T>(), \"invalid downcast\");" true)
+      header.out("    let p = Rc::into_raw(v.clone()) as *const () as *const RefCell<T>;" true)
+      header.out("    unsafe { Rc::from_raw(p) }" true)
+      header.out("}" true)
       header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }" true)
       header.out("impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {" true)
       header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }" true)
@@ -6532,10 +6545,29 @@ class RangerRustClassWriter {
       }
     }
     
+    ; every class that takes part in a trait family carries the Any handle the
+    ; downcast helper checks — the trait requires it, so this has to be there
+    ; for the parent and for every subclass, and exactly once for each
+    def rgAnyNeeded:boolean cl.is_extended_by_children
+    if (rgAnyNeeded == false) {
+      for cl.extends_classes rgAnyP:string rgAnyPi {
+        if (ctx.isDefinedClass(rgAnyP)) {
+          def rgAnyPC:RangerAppClassDesc (ctx.findClass(rgAnyP))
+          if rgAnyPC.is_extended_by_children {
+            rgAnyNeeded = true
+          }
+        }
+      }
+    }
+    if rgAnyNeeded {
+      wr.out("" true)
+      wr.out((("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+    }
+
     ; Generate trait if this class is extended by other classes (for Rust polymorphism)
     if cl.is_extended_by_children {
       wr.out("" true)
-      wr.out(("pub trait " + cl.name + "Trait {") true)
+      wr.out(("pub trait " + cl.name + "Trait: RgAnyRef {") true)
       wr.indent(1)
       this.writeTraitFieldAccessorDecls(cl ctx wr)
       ; Add method signatures only (no default implementations)
@@ -7163,6 +7195,65 @@ class RangerRustClassWriter {
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    ; `(cast x to:Sub)` where Sub extends a class that has children: the value
+    ; is Rc<RefCell<dyn ParentTrait>> and the name it is bound to declares
+    ; Rc<RefCell<Sub>>. No safe conversion exists between the two, so the
+    ; helper checks the concrete type through Any and rebuilds the Rc. Any
+    ; other cast passes through, as it did before.
+    if (cmd == "cast") {
+      if ((array_length node.children) >= 3) {
+        def castArg:CodeNode (node.getSecond())
+        def castTgt:CodeNode (node.getThird())
+        def castTName:string castTgt.type_name
+        if ((strlen castTName) == 0) {
+          castTName = castTgt.eval_type_name
+        }
+        def castTrait:string ""
+        if ((strlen castTName) > 0) {
+          if (ctx.isDefinedClass(castTName)) {
+            def castTC:RangerAppClassDesc (ctx.findClass(castTName))
+            if ((this.rustTypeIsOwnHandle(castTName ctx)) == false) {
+              for castTC.extends_classes castP:string castPi {
+                if (ctx.isDefinedClass(castP)) {
+                  def castPC:RangerAppClassDesc (ctx.findClass(castP))
+                  if castPC.is_extended_by_children {
+                    castTrait = castPC.name
+                  }
+                }
+              }
+            }
+          }
+        }
+        def castDown:boolean false
+        if ((strlen castTrait) > 0) {
+          def castSrcT:string (this.rustArgValueTypeName(castArg))
+          if (this.rustTypeIsOwnHandle(castSrcT ctx)) {
+            castDown = true
+          }
+        }
+        if castDown {
+          wr.out((((("rg_downcast::<" + castTName) + ", dyn ") + castTrait) + "Trait>(&(") false)
+          ctx.setInExpr()
+          this.WalkNode(castArg ctx wr)
+          ctx.unsetInExpr()
+          wr.out("))" false)
+        } {
+          ; every other cast passes its value through, as the template did
+          ctx.setInExpr()
+          this.WalkNode(castArg ctx wr)
+          ctx.unsetInExpr()
+        }
+        return
+      }
+      ; a malformed cast still has to write something
+      if ((array_length node.children) >= 2) {
+        ctx.setInExpr()
+        this.WalkNode((node.getSecond()) ctx wr)
+        ctx.unsetInExpr()
+      }
+      return
+    }
 
     ; print flattens a string chain into the format string:
     ; `println!("first name {}", names[0])` — not a join of to_strings

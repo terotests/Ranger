@@ -629,12 +629,13 @@ template <class T, class S> inline T rg_cast(const S& v) {
                 ; free and makes the form valid either way.
                 go ( "(interface{}(" (e 1) ")).(" (typeof 2) ")" )
                 php ( (e 1) )
-                ; Python and Rust have no place to write the type: Python is
-                ; dynamic, and a Rust struct is not a subtype of another one.
-                ; The value passes through, which is what the es6 and the php
-                ; entry already did.
+                ; Python has no place to write the type: it is dynamic, and the
+                ; value passes through, which is what the es6 and the php entry
+                ; already did. Rust needs a real conversion when the target is a
+                ; subclass of a class with children — the writer decides, and
+                ; passes the value through otherwise.
                 python ( (e 1) )
-                rust ( (e 1) )
+                rust ( (custom _) )
                 csharp ( "((" (typeof 2) ")" (e 1) ")" )
                 scala ( (e 1) ".asInstanceOf[" (typeof 2) "]" )
             }

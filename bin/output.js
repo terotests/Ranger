@@ -28364,6 +28364,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                         header.out("}", true);
                       };
+                      header.out("pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }", true);
+                      header.out("fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {", true);
+                      header.out("    assert!(v.borrow().rg_as_any().is::<T>(), \"invalid downcast\");", true);
+                      header.out("    let p = Rc::into_raw(v.clone()) as *const () as *const RefCell<T>;", true);
+                      header.out("    unsafe { Rc::from_raw(p) }", true);
+                      header.out("}", true);
                       header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }", true);
                       header.out("impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {", true);
                       header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }", true);
@@ -29008,9 +29014,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                           };
                         }
+                        let rgAnyNeeded = cl.is_extended_by_children;
+                        if ( rgAnyNeeded == false ) {
+                          for ( let rgAnyPi = 0; rgAnyPi < cl.extends_classes.length; rgAnyPi++) {
+                            var rgAnyP = cl.extends_classes[rgAnyPi];
+                            if ( ctx.isDefinedClass(rgAnyP) ) {
+                              const rgAnyPC = ctx.findClass(rgAnyP);
+                              if ( rgAnyPC.is_extended_by_children ) {
+                                rgAnyNeeded = true;
+                              }
+                            }
+                          };
+                        }
+                        if ( rgAnyNeeded ) {
+                          wr.out("", true);
+                          wr.out(("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
+                        }
                         if ( cl.is_extended_by_children ) {
                           wr.out("", true);
-                          wr.out(("pub trait " + cl.name) + "Trait {", true);
+                          wr.out(("pub trait " + cl.name) + "Trait: RgAnyRef {", true);
                           wr.indent(1);
                           await this.writeTraitFieldAccessorDecls(cl, ctx, wr);
                           for ( let i_9 = 0; i_9 < cl.defined_variants.length; i_9++) {
@@ -29557,6 +29579,58 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         async CustomOperator (node, ctx, wr) {
                           const fc = node.getFirst();
                           const cmd = fc.vref;
+                          if ( cmd == "cast" ) {
+                            if ( (node.children.length) >= 3 ) {
+                              const castArg = node.getSecond();
+                              const castTgt = node.getThird();
+                              let castTName = castTgt.type_name;
+                              if ( (castTName.length) == 0 ) {
+                                castTName = castTgt.eval_type_name;
+                              }
+                              let castTrait = "";
+                              if ( (castTName.length) > 0 ) {
+                                if ( ctx.isDefinedClass(castTName) ) {
+                                  const castTC = ctx.findClass(castTName);
+                                  if ( this.rustTypeIsOwnHandle(castTName, ctx) == false ) {
+                                    for ( let castPi = 0; castPi < castTC.extends_classes.length; castPi++) {
+                                      var castP = castTC.extends_classes[castPi];
+                                      if ( ctx.isDefinedClass(castP) ) {
+                                        const castPC = ctx.findClass(castP);
+                                        if ( castPC.is_extended_by_children ) {
+                                          castTrait = castPC.name;
+                                        }
+                                      }
+                                    };
+                                  }
+                                }
+                              }
+                              let castDown = false;
+                              if ( (castTrait.length) > 0 ) {
+                                const castSrcT = this.rustArgValueTypeName(castArg);
+                                if ( this.rustTypeIsOwnHandle(castSrcT, ctx) ) {
+                                  castDown = true;
+                                }
+                              }
+                              if ( castDown ) {
+                                wr.out(((("rg_downcast::<" + castTName) + ", dyn ") + castTrait) + "Trait>(&(", false);
+                                ctx.setInExpr();
+                                await this.WalkNode(castArg, ctx, wr);
+                                ctx.unsetInExpr();
+                                wr.out("))", false);
+                              } else {
+                                ctx.setInExpr();
+                                await this.WalkNode(castArg, ctx, wr);
+                                ctx.unsetInExpr();
+                              }
+                              return;
+                            }
+                            if ( (node.children.length) >= 2 ) {
+                              ctx.setInExpr();
+                              await this.WalkNode(node.getSecond(), ctx, wr);
+                              ctx.unsetInExpr();
+                            }
+                            return;
+                          }
                           if ( cmd == "print" ) {
                             const arg = node.getSecond();
                             let pops = [];
