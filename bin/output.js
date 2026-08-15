@@ -26208,6 +26208,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( n == "removeLast" ) {
                     return true;
                   }
+                  if ( n == "remove_index" ) {
+                    return true;
+                  }
+                  if ( n == "array_extract" ) {
+                    return true;
+                  }
+                  if ( n == "set_at" ) {
+                    return true;
+                  }
+                  if ( n == "pushString" ) {
+                    return true;
+                  }
                   if ( n == "removeFirst" ) {
                     return true;
                   }
@@ -27631,10 +27643,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const methodName2 = fc.ns[((fc.ns.length) - 1)];
                         wr.out((containerClass2.name + "::") + methodName2, false);
                         wr.out("(", false);
+                        const staticSelfRc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
                         for ( let i_3 = 0; i_3 < node.fnDesc.params.length; i_3++) {
                           var arg_3 = node.fnDesc.params[i_3];
                           const n_3 = givenArgs.children[i_3];
-                          if ( i_3 > 0 ) {
+                          if ( (i_3 > 0) || staticSelfRc ) {
                             wr.out(", ", false);
                           }
                           if ( typeof(n_3) === "undefined" ) {

@@ -4884,7 +4884,9 @@ static bool r_regex_test_i(string pattern, string s) {
                 java7 ( (e 1) ".getBytes()" )
                 csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
                 kotlin ( (e 1 ) ".toCharArray()" )
-                rust ( (e 1) ".into_bytes()")
+                ; as_bytes/to_vec, not into_bytes: the source may be a
+                ; borrowed &str, and into_bytes consumes an owned String
+                rust ( (e 1) ".as_bytes().to_vec()")
                 cpp ( (e 1) ".c_str()")
                 dart ( (e 1) ".codeUnits" )
                 php ( (e 1) )
@@ -6840,7 +6842,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  go( (e 1 ) " = append(" (e 1) "[:" (e 2) "], append(" (typeof 1) "{" (e 3) "}, " (e 1) "[" (e 2) ":]...)...)")   
                  php ( "array_splice(" (e 1) ", " (e 2) ", 0, " (e 3) ");")
                  python ( (e 1) ".insert(" (e 2) ", " (e 3) ")" )
-                 rust ( (e 1) ".insert(" (idx 2) ", " (e 3) ");")
+                 rust ( (e 1) ".insert(" (idx 2) ", " (mvarg 3) ");")
                  swift3 ( (e 1) ".insert(" (e 3) ", at:" (e 2) ")")
                  java7 ( (e 1) ".add((int)(" (e 2) "), " (e 3) ");" )
                  csharp ( (e 1) ".Insert((int)(" (e 2) "), " (e 3) ");" )

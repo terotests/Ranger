@@ -3260,6 +3260,12 @@ class RangerRustClassWriter {
     if (n == "remove") { return true }
     if (n == "removeIndex") { return true }
     if (n == "removeLast") { return true }
+    ; the names Lang.rgr actually gives the in-place array operators —
+    ; `remove_index opNs idx` on a member left its method &self
+    if (n == "remove_index") { return true }
+    if (n == "array_extract") { return true }
+    if (n == "set_at") { return true }
+    if (n == "pushString") { return true }
     if (n == "removeFirst") { return true }
     if (n == "nullify") { return true }
     return false
@@ -4937,9 +4943,13 @@ class RangerRustClassWriter {
           def methodName2:string (itemAt fc.ns ((array_length fc.ns) - 1))
           wr.out(((containerClass2.name + "::") + methodName2) false)
           wr.out("(" false)
+          ; a method that stores `this` takes the hidden receiver handle even
+          ; when it is emitted without a `self` — the static SPELLING of the
+          ; call still has to hand it over
+          def staticSelfRc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
           for node.fnDesc.params arg:RangerAppParamDesc i {
             def n@(optional):CodeNode (itemAt givenArgs.children i)
-            if (i > 0) {
+            if ((i > 0) || staticSelfRc) {
               wr.out(", " false)
             }
             if (null? n) {
