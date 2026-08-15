@@ -14,6 +14,7 @@ Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../fonts/EVGFontSetup.rgr"
 Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGGrapheme.rgr"
 
 class EVGHTMLTool {
     def inputFile:string ""
@@ -368,17 +369,22 @@ class EVGHTMLTool {
             def fam:string (el.effectiveFontFamily())
             def primary:TrueTypeFont (fm.getFont(fam))
             if (primary.isLoaded()) {
+                ; By cluster, not by codepoint: a keycap begins with a digit
+                ; the text face has, so a per-codepoint check would say the
+                ; document needs nothing and the browser would be left to
+                ; substitute its own emoji font — with advances that are not
+                ; the ones EVG measured with.
+                def cps:[int] (EVGCodepoint.toArray(el.textContent))
                 def i:int 0
-                while (i < (strlen el.textContent)) {
-                    def cp:int (EVGCodepoint.codeAt(el.textContent i))
-                    def step:int (EVGCodepoint.unitsAt(el.textContent i))
-                    if ((primary.getGlyphIndex(cp)) == 0) {
-                        def fb:TrueTypeFont (fm.fallbackFace(cp))
-                        if (fb.isLoaded()) {
-                            return fb.fontFamily
+                while (i < (array_length cps)) {
+                    def end:int (EVGGrapheme.clusterEnd(cps i))
+                    def face:TrueTypeFont (fm.faceForClusterFrom(primary cps i end))
+                    if (face.isLoaded()) {
+                        if ((face.fontPath == primary.fontPath) == false) {
+                            return face.fontFamily
                         }
                     }
-                    i = (i + step)
+                    i = end
                 }
             }
         }

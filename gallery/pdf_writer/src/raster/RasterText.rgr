@@ -1,4 +1,5 @@
 Import "../../../evg/EVGCodepoint.rgr"
+Import "../../../evg/EVGGrapheme.rgr"
 ; RasterText.rgr - Text rendering for raster buffers
 ; Uses the existing TrueTypeFont class for font loading and metrics,
 ; adds glyph outline parsing for rasterization.
@@ -1055,80 +1056,83 @@ class RasterText {
     ; Render text string
     fn renderText:void (buf:RasterBuffer text:string x:double y:double fontSize:double r:int g:int b:int a:int) {
         def currX:double x
-        def len:int (strlen text)
-        def i:int 0
-        
+
         ; Debug: check if font is loaded
         if (font.unitsPerEm <= 0) {
             if debug { print ("ERROR: Font not loaded in RasterText! unitsPerEm=" + (to_string font.unitsPerEm)) }
             return
         }
-        
+
         ; Get baseline offset (ascender in pixels)
         def baseline:double (font.getAscender(fontSize))
         def renderY:double (y + baseline)
-        
+
         if debug { print ("RasterText.renderText: text='" + text + "' pos=(" + (to_string x) + "," + (to_string y) + ") fontSize=" + (to_string fontSize) + " baseline=" + (to_string baseline) + " renderY=" + (to_string renderY)) }
         if debug { print ("RasterText.renderText: color=RGB(" + (to_string r) + "," + (to_string g) + "," + (to_string b) + ") alpha=" + (to_string a) + " bufSize=" + (to_string buf.width) + "x" + (to_string buf.height)) }
-        
+
+        ; Walked by GRAPHEME CLUSTER, not by code unit and not by codepoint.
+        ; A surrogate half has no glyph, and neither does half of a flag: 🇫🇮 is
+        ; two codepoints that become one glyph, and only the whole cluster
+        ; reaching the shaper together makes that happen.
+        def cps:[int] (EVGCodepoint.toArray(text))
+        def n:int (array_length cps)
+        def i:int 0
         def prevCp:int 0
         def firstCp:boolean true
-        while (i < len) {
-            ; By codepoint: a surrogate half is not a character and has no
-            ; glyph, so stepping in UTF-16 units drew two blanks per emoji.
-            def ch:int (EVGCodepoint.codeAt(text i))
-            def cpStep:int (EVGCodepoint.unitsAt(text i))
-            def glyphIdx:int (font.getGlyphIndex(ch))
+        while (i < n) {
+            def end:int (EVGGrapheme.clusterEnd(cps i))
+            def ch:int (itemAt cps i)
 
-            ; Missing from this face — borrow the glyph from one that has it.
-            ; The baseline stays the primary face's, so a run with an emoji in
-            ; it sits on one line rather than stepping where the face changes.
-            def drewFallback:boolean false
-            if (glyphIdx == 0) {
-                if hasFallbackManager {
-                    def fb:TrueTypeFont (fallbackManager.fallbackFace(ch))
-                    if (fb.isLoaded()) {
-                        def keep:TrueTypeFont font
-                        this.setFont(fb)
-                        def fbOutline:GlyphOutline (this.parseGlyph((fb.getGlyphIndex(ch)) fontSize))
-                        this.renderGlyph(buf fbOutline currX renderY r g b a)
-                        currX = (currX + fbOutline.advanceWidth)
-                        this.setFont((unwrap keep))
-                        drewFallback = true
+            ; Which face draws this cluster. Without a manager the rasterizer
+            ; behaves exactly as it did before and draws .notdef.
+            def face:TrueTypeFont font
+            if hasFallbackManager {
+                face = (fallbackManager.faceForClusterFrom((unwrap font) cps i end))
+            }
+            def isPrimary:boolean (face.fontPath == font.fontPath)
+
+            if isPrimary {
+                ; The path ordinary text has always taken: one glyph per
+                ; codepoint, kerned against the one before it, so the pen
+                ; walks exactly where layout measured.
+                def c:int i
+                while (c < end) {
+                    def cp:int (itemAt cps c)
+                    def outline:GlyphOutline (this.parseGlyph((font.getGlyphIndex(cp)) fontSize))
+                    if (firstCp == false) {
+                        currX = (currX + (font.kernPoints(prevCp cp fontSize)))
                     }
+                    this.renderGlyph(buf outline currX renderY r g b a)
+                    currX = currX + outline.advanceWidth
+                    prevCp = cp
+                    firstCp = false
+                    c = (c + 1)
                 }
+            } {
+                ; A fallback face: shape the cluster first, so a joined
+                ; sequence is drawn as the one glyph it is. The baseline stays
+                ; the PRIMARY face's — a run with an emoji in it must sit on
+                ; one line rather than stepping where the face changes.
+                def keep:TrueTypeFont font
+                this.setFont((unwrap face))
+                def shaped:TTFShapedRun (face.shapeRange(cps i end))
+                def gi:int 0
+                while (gi < (array_length shaped.glyphs)) {
+                    def o:GlyphOutline (this.parseGlyph((itemAt shaped.glyphs gi) fontSize))
+                    this.renderGlyph(buf o currX renderY r g b a)
+                    currX = (currX + o.advanceWidth)
+                    gi = (gi + 1)
+                }
+                this.setFont((unwrap keep))
+                prevCp = ch
+                ; No kern pair spans a face boundary; the next glyph starts
+                ; clean.
+                firstCp = true
             }
-
-            if (drewFallback == false) {
-                def outline:GlyphOutline (this.parseGlyph(glyphIdx fontSize))
-
-                ; Debug first character
-                if (i == 0) {
-                    if debug { print ("  First char: code=" + (to_string ch) + " glyphIdx=" + (to_string glyphIdx) + " numContours=" + (to_string (array_length outline.contours)) + " advanceWidth=" + (to_string outline.advanceWidth)) }
-                }
-
-                ; Kern against the previous glyph before painting this one, so
-                ; the raster pen walks the same path layout measured. Without it
-                ; the raster drew a wider run than the box reserved — the same
-                ; disagreement the PDF side avoids with a TJ array. A pair that
-                ; spans a fallback boundary is skipped: the two glyphs come from
-                ; different files and no kern pair exists for them.
-                if (firstCp == false) {
-                    currX = (currX + (font.kernPoints(prevCp ch fontSize)))
-                }
-
-                this.renderGlyph(buf outline currX renderY r g b a)
-
-                ; Advance
-                currX = currX + outline.advanceWidth
-            }
-
-            prevCp = ch
-            firstCp = drewFallback
-            i = (i + cpStep)
+            i = end
         }
     }
-    
+
     ; Render text with shadow
     fn renderTextWithShadow:void (buf:RasterBuffer text:string x:double y:double fontSize:double textR:int textG:int textB:int textA:int shadowR:int shadowG:int shadowB:int shadowA:int shadowOffX:double shadowOffY:double blurRadius:int) {
         ; First, render shadow to a temporary buffer

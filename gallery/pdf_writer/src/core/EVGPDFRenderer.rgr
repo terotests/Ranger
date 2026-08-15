@@ -16,6 +16,7 @@ Import "Buffer.rgr"
 Import "Utf8.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../fonts/TTFSubset.rgr"
+Import "../../../evg/EVGGrapheme.rgr"
 Import "../jpeg/JPEGReader.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
 Import "../jpeg/JPEGDecoder.rgr"
@@ -138,7 +139,10 @@ class EVGPDFRenderer {
     ; character range to enumerate the way WinAnsi's 32..255 gives one.
     def cidUsedFont:[int]
     def cidUsedGid:[int]
-    def cidUsedCp:[int]
+    ; The TEXT each glyph came from, not a single codepoint: one glyph can be
+    ; five codepoints (a joined family), and a /ToUnicode entry naming only the
+    ; first would hand a reader a fragment when the emoji is copied out.
+    def cidUsedText:[string]
     def embeddedImages:[EmbeddedImage]
     def jpegReader:JPEGReader (new JPEGReader())
     def jpegDecoder:JPEGDecoder (new JPEGDecoder())
@@ -405,7 +409,7 @@ class EVGPDFRenderer {
         return ((array_length usedCidFonts) - 1)
     }
 
-    fn noteCidGlyph:void (fontIdx:int gid:int cp:int) {
+    fn noteCidGlyphCluster:void (fontIdx:int gid:int cps:[int] start:int end:int) {
         def i:int 0
         while (i < (array_length cidUsedGid)) {
             if ((itemAt cidUsedFont i) == fontIdx) {
@@ -415,9 +419,15 @@ class EVGPDFRenderer {
             }
             i = i + 1
         }
+        def text:string ""
+        def c:int start
+        while (c < end) {
+            text = text + (EVGCodepoint.toStr((itemAt cps c)))
+            c = (c + 1)
+        }
         push cidUsedFont fontIdx
         push cidUsedGid gid
-        push cidUsedCp cp
+        push cidUsedText text
     }
 
     ; Cut a line wherever the face has to change.
@@ -430,27 +440,32 @@ class EVGPDFRenderer {
     fn splitLine:[PDFTextSegment] (line:string fontFamily:string fontSize:double startX:double) {
         def segs:[PDFTextSegment]
         def primary:TrueTypeFont (fontManager.getFont(fontFamily))
+        def cps:[int] (EVGCodepoint.toArray(line))
+        def n:int (array_length cps)
         def curText:string ""
         def curFamily:string fontFamily
         def curIsCid:boolean false
         def haveCur:boolean false
         def x:double startX
         def i:int 0
-        while (i < (strlen line)) {
-            def cp:int (EVGCodepoint.codeAt(line i))
-            def step:int (EVGCodepoint.unitsAt(line i))
+        while (i < n) {
+            ; Cut at cluster boundaries, never inside one. Deciding per
+            ; codepoint split a keycap between the text face and the emoji
+            ; face, and the ligature that makes it never saw all three parts.
+            def cEnd:int (EVGGrapheme.clusterEnd(cps i))
 
             def useFamily:string fontFamily
             def useCid:boolean false
             if (primary.isLoaded()) {
-                if ((primary.getGlyphIndex(cp)) == 0) {
-                    def fb:TrueTypeFont (fontManager.fallbackFace(cp))
-                    if (fb.isLoaded()) {
-                        useFamily = fb.fontFamily
+                def face:TrueTypeFont (fontManager.faceForClusterFrom(primary cps i cEnd))
+                if (face.isLoaded()) {
+                    if ((face.fontPath == primary.fontPath) == false) {
+                        useFamily = face.fontFamily
                         useCid = true
                     }
                 }
             }
+
 
             def sameRun:boolean false
             if haveCur {
@@ -468,15 +483,19 @@ class EVGPDFRenderer {
                     done.isCid = curIsCid
                     done.x = x
                     push segs done
-                    x = (x + (measurer.measureTextWidth(curText curFamily fontSize)))
+                    x = (x + (this.segmentWidth(done fontSize)))
                 }
                 curText = ""
                 curFamily = useFamily
                 curIsCid = useCid
                 haveCur = true
             }
-            curText = curText + (EVGCodepoint.toStr(cp))
-            i = (i + step)
+            def c:int i
+            while (c < cEnd) {
+                curText = curText + (EVGCodepoint.toStr((itemAt cps c)))
+                c = (c + 1)
+            }
+            i = cEnd
         }
         if haveCur {
             def last (new PDFTextSegment())
@@ -498,15 +517,32 @@ class EVGPDFRenderer {
     fn cidShowOperator:string (segment:string fontFamily:string) {
         def font:TrueTypeFont (fontManager.getFont(fontFamily))
         def fontIdx:int (this.cidFontIndex(fontFamily))
+        def cps:[int] (EVGCodepoint.toArray(segment))
+        def n:int (array_length cps)
         def out:string "<"
         def i:int 0
-        while (i < (strlen segment)) {
-            def cp:int (EVGCodepoint.codeAt(segment i))
-            def step:int (EVGCodepoint.unitsAt(segment i))
-            def gid:int (font.getGlyphIndex(cp))
-            this.noteCidGlyph(fontIdx gid cp)
-            out = out + (this.toHex4(gid))
-            i = (i + step)
+        while (i < n) {
+            ; Shaped one cluster at a time — the same unit the width was
+            ; measured in, so what is drawn and what was reserved cannot
+            ; disagree, and so a ligature can never reach across a boundary
+            ; the cluster rules drew.
+            def cEnd:int (EVGGrapheme.clusterEnd(cps i))
+            def run:TTFShapedRun (font.shapeRange(cps i cEnd))
+            def gi:int 0
+            while (gi < (array_length run.glyphs)) {
+                def gid:int (itemAt run.glyphs gi)
+                ; The shaper's cluster indices are relative to the slice it
+                ; was handed, so shift them back into the segment.
+                def cs:int (i + (itemAt run.clusterStart gi))
+                def ce:int (i + (itemAt run.clusterEnd gi))
+                if (ce > cEnd) {
+                    ce = cEnd
+                }
+                this.noteCidGlyphCluster(fontIdx gid cps cs ce)
+                out = out + (this.toHex4(gid))
+                gi = (gi + 1)
+            }
+            i = cEnd
         }
         return (out + "> Tj")
     }
@@ -587,7 +623,7 @@ class EVGPDFRenderer {
         clear cidFontObjNums
         clear cidUsedFont
         clear cidUsedGid
-        clear cidUsedCp
+        clear cidUsedText
         clear embeddedFonts
         clear embeddedImages
         
@@ -1084,7 +1120,7 @@ class EVGPDFRenderer {
         clear cidFontObjNums
         clear cidUsedFont
         clear cidUsedGid
-        clear cidUsedCp
+        clear cidUsedText
         clear embeddedFonts
         clear embeddedImages
         
@@ -2537,8 +2573,11 @@ class EVGPDFRenderer {
                 while (wi < (array_length cidUsedGid)) {
                     if ((itemAt cidUsedFont wi) == fi) {
                         def gid:int (itemAt cidUsedGid wi)
-                        def cp:int (itemAt cidUsedCp wi)
-                        def wUnits:int (ttf.getCharWidth(cp))
+                        ; By GLYPH id. Looking the width up by codepoint was
+                        ; wrong the moment a glyph could be a ligature of
+                        ; several — a joined family would have been charged
+                        ; the width of its first member alone.
+                        def wUnits:int (ttf.getGlyphWidth(gid))
                         def scaled:int (to_int (((to_double wUnits) * 1000.0) / (to_double ttf.unitsPerEm)))
                         pdf.writeString(" " + (to_string gid) + " [" + (to_string scaled) + "]")
                     }
@@ -2587,8 +2626,17 @@ class EVGPDFRenderer {
         while (i < (array_length cidUsedGid)) {
             if ((itemAt cidUsedFont i) == fontIdx) {
                 def gid:int (itemAt cidUsedGid i)
-                def cp:int (itemAt cidUsedCp i)
-                push entries ("<" + (this.toHex4(gid)) + "> <" + (this.utf16BeHex(cp)) + ">")
+                def text:string (itemAt cidUsedText i)
+                ; The destination is every codepoint the glyph stands for, in
+                ; UTF-16BE. A bfchar destination may hold a whole sequence,
+                ; which is what makes a joined emoji copy out as itself.
+                def dst:string ""
+                def ci:int 0
+                while (ci < (strlen text)) {
+                    dst = dst + (this.utf16BeHex((EVGCodepoint.codeAt(text ci))))
+                    ci = (ci + (EVGCodepoint.unitsAt(text ci)))
+                }
+                push entries ("<" + (this.toHex4(gid)) + "> <" + dst + ">")
             }
             i = i + 1
         }
@@ -2627,6 +2675,22 @@ class EVGPDFRenderer {
         def hi:int (55296 + (to_int (rel / 1024)))
         def lo:int (56320 + (rel % 1024))
         return ((this.toHex4(hi)) + (this.toHex4(lo)))
+    }
+
+    ; How far a segment moves the pen — measured the way that segment is
+    ; DRAWN, which for a fallback span means shaped.
+    ;
+    ; Measuring it through the ordinary measurer charged a joined family one
+    ; advance per codepoint and drew one glyph, so every segment after it on
+    ; the line started too far right.
+    fn segmentWidth:double (seg:PDFTextSegment fontSize:double) {
+        if seg.isCid {
+            def face:TrueTypeFont (fontManager.getFont(seg.family))
+            if (face.isLoaded()) {
+                return (face.measureShapedText(seg.text fontSize))
+            }
+        }
+        return (measurer.measureTextWidth(seg.text seg.family fontSize))
     }
 
     fn segmentFontName:string (seg:PDFTextSegment) {

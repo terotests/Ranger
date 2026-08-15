@@ -895,10 +895,73 @@ which nothing bundled actually has) came out as `.notdef` drawn from a face
 that had never been opened, with no warning. `TrueTypeFont.isLoaded()` is the
 test now, and the unencodable character is reported again.
 
-Known limits, all narrow and none silent: no colour (COLR/CPAL is the tractable
-next step); no grapheme clustering, so a ZWJ sequence or a skin-tone modifier
-comes out as its parts; and the PDF embeds the whole face rather than a subset,
-so one emoji on a page costs 858 KB.
+### Phase 4.8 — Clusters, ligatures, and a font that is only as big as the page ✅
+
+Two of Phase 4.7's three known limits, closed.
+
+**The embedded font carries the glyphs the page used.** `TTFSubset` keeps head,
+hhea, maxp, hmtx, loca and glyf, and drops everything else — `cmap` included,
+because a Type0/Identity-H font never consults it, which takes GSUB, post,
+name and vmtx with it. It deliberately **keeps glyph ids**: a dense
+renumbering would invalidate every string already written, since Identity-H
+puts glyph ids in the content stream. Composite glyphs pull their components
+in transitively.
+
+| | before | after |
+| --- | --- | --- |
+| a page with three emoji | 1 298 067 | 429 332 |
+| `test_for_loop_simple` | 1 717 604 | 840 059 |
+
+The remainder in each is the WinAnsi text face, which is **not** subset: a
+simple TrueType font is read through its cmap, so that path needs a different
+set of tables kept.
+
+**Text is stepped by grapheme cluster.** A codepoint is not what a reader calls
+a character: 🇫🇮 is two, 👍🏽 is two, 1️⃣ is three, 👨‍👩‍👧 is five, and each is one
+glyph, one advance, and one place a line may not break. Stepping by codepoint
+cost three separate things — the face was chosen per codepoint, so a keycap put
+its digit in the text face and its box in the emoji face and the ligature never
+saw all three parts; the width was the sum of the parts, so a family measured
+four advances wide and drew one; and the `/ToUnicode` entry named one codepoint
+for a glyph made of five.
+
+`EVGGrapheme` is the cluster rule — a deliberate subset of UAX #29: the
+emoji-relevant rules and the combining marks, not the full property tables.
+`TrueTypeFont.shape()` is the shaper: drop the variation selectors, then take
+the longest GSUB **LookupType 4** ligature, with the Extension (type 7) wrapper
+unwrapped. That is not a general OpenType shaper — no contextual lookups, no
+reordering — but it is exactly what emoji sequences need, and it runs only on a
+run already known to belong to one face, so it can never disturb ordinary text.
+Measured on Noto Emoji, it resolves every case that matters:
+
+```
+👨‍👩‍👧  5 codepoints -> 1 glyph      🇫🇮  2 -> 1        1️⃣  3 -> 1
+👍🏽  2 -> 1                          🏳️‍🌈  4 -> 1
+```
+
+A cluster the primary face draws is measured and painted exactly as before —
+per codepoint, with kerning — because those two must not part company. Only a
+cluster handed to a fallback face goes through the shaper. All 28 example PDFs
+re-render **byte-identical** across this change.
+
+One bug it turned up in its own first draft: a fallback segment was *measured*
+through the ordinary per-codepoint path and *drawn* shaped, so a joined family
+was charged five advances and drew one, pushing everything after it on the line
+to the right. A segment's width now comes from the same walk that draws it.
+
+HTML needed one more thing. Chromium treats U+FE0F as an instruction to use its
+own colour emoji font whatever the `font-family` stack says, so keycaps and the
+rainbow flag came out of the system font, in colour, at advances that were not
+the ones EVG measured with. The HTML renderer now writes the text as the engine
+shaped it — selectors dropped — because the engine has already chosen the
+presentation by choosing the face. All three targets agree glyph for glyph.
+
+Still open: **colour**. Noto Color Emoji is COLRv1 with no v0 layer records at
+all, so there is no simple layered-glyph path to take; its 60 000 fills are
+86% `PaintSolid` under `PaintGlyph`/`PaintColrLayers`/transforms, and 14%
+linear and radial gradients. PDF has no COLR support, so colour glyphs would
+have to be drawn as vector artwork with invisible text behind them for
+extraction. Sized, not started.
 
 ## 11. File / module impact (expected)
 

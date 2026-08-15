@@ -1,3 +1,4 @@
+Import "../../../evg/EVGCodepoint.rgr"
 ; EVGHTMLRenderer.rgr - Render EVG elements to HTML/CSS
 ; 
 ; Takes EVG element tree with calculated positions and renders to HTML.
@@ -297,6 +298,35 @@ class EVGHTMLRenderer {
         return css
     }
     
+    ; The text as this engine SHAPED it, for a browser to set.
+    ;
+    ; Variation selectors are dropped once a fallback face is in play, and the
+    ; reason is not tidiness. Chromium treats U+FE0F as an instruction to use
+    ; its OWN colour emoji font, whatever the font-family stack says — so a
+    ; keycap and a rainbow flag came out of the system font, in colour, at
+    ; advances that are not the ones EVG measured with, while everything
+    ; without a selector came correctly out of the declared face. The engine
+    ; has already chosen the presentation by choosing the face; the selector
+    ; has nothing left to ask for.
+    ;
+    ; Documents with no fallback face are left exactly as they were.
+    fn presentationText:string (text:string) {
+        if ((strlen fallbackFamily) == 0) {
+            return text
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def cp:int (EVGCodepoint.codeAt(text i))
+            def step:int (EVGCodepoint.unitsAt(text i))
+            if ((cp < 65038) || (cp > 65039)) {
+                out = out + (EVGCodepoint.toStr(cp))
+            }
+            i = (i + step)
+        }
+        return out
+    }
+
     fn setFallbackFamily:void (f:string) {
         fallbackFamily = f
     }
@@ -827,7 +857,7 @@ class EVGHTMLRenderer {
         html = html + ">"
         
         ; Add text content (escape HTML)
-        html = html + (this.escapeHtml(el.textContent))
+        html = html + (this.escapeHtml((this.presentationText(el.textContent))))
         
         ; Render any children (nested text)
         def i:int 0

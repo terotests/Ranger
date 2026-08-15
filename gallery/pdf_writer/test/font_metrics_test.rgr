@@ -49,6 +49,7 @@ class FontMetricsTest {
         test.testBoldIsMeasured(t fm)
         test.testEmojiFallback(t fm)
         test.testSubset(t fm)
+        test.testShaping(t fm)
         t.summary()
     }
 
@@ -452,6 +453,78 @@ class FontMetricsTest {
             i = (i + 1)
         }
         return 0
+    }
+
+
+    ; A sequence becomes the glyph it is supposed to be.
+    ;
+    ; Without GSUB ligature substitution, 👨‍👩‍👧 is three people and two
+    ; invisible joiners, 👍🏽 is a thumb followed by a colour swatch, and 🇫🇮 is
+    ; two letters in boxes. The face has one glyph for each of them; the
+    ; shaper is what finds it.
+    fn testShaping:void (t:RgTest fm:FontManager) {
+        def emoji:TrueTypeFont (fm.getFont("Noto Emoji"))
+        if ((emoji.isLoaded()) == false) {
+            t.ok("emoji face present for the shaping test" false)
+            return
+        }
+        t.ok("the emoji face carries ligature lookups" emoji.hasShaping)
+
+        ; U+1F468 U+200D U+1F469 U+200D U+1F467
+        def family:[int]
+        push family 128104
+        push family 8205
+        push family 128105
+        push family 8205
+        push family 128103
+        def famRun:TTFShapedRun (emoji.shape(family))
+        t.eqInt("a joined family shapes to one glyph" (famRun.count()) 1)
+        t.eqInt("and that glyph stands for all five codepoints"
+                ((itemAt famRun.clusterEnd 0) - (itemAt famRun.clusterStart 0)) 5)
+
+        ; U+1F1EB U+1F1EE
+        def flag:[int]
+        push flag 127467
+        push flag 127470
+        t.eqInt("a flag shapes to one glyph" ((emoji.shape(flag)).count()) 1)
+
+        ; U+0031 U+FE0F U+20E3 — and the selector must not block the match.
+        def keycap:[int]
+        push keycap 49
+        push keycap 65039
+        push keycap 8419
+        def keyRun:TTFShapedRun (emoji.shape(keycap))
+        t.eqInt("a keycap shapes to one glyph" (keyRun.count()) 1)
+        t.eqInt("with the variation selector inside its cluster"
+                ((itemAt keyRun.clusterEnd 0) - (itemAt keyRun.clusterStart 0)) 3)
+
+        ; The keycap's BASE is a digit, which the text face has. Choosing a
+        ; face per codepoint therefore kept the "1" in the text face and sent
+        ; only the tail to the emoji face, and the ligature never saw all
+        ; three parts.
+        def picked:TrueTypeFont (fm.faceForCluster("Noto Sans" keycap 0 3))
+        t.eqStr("a keycap is drawn entirely from the emoji face"
+                picked.fontFamily "Noto Emoji")
+        def one:[int]
+        push one 49
+        def digit:TrueTypeFont (fm.faceForCluster("Noto Sans" one 0 1))
+        t.eqStr("but a bare digit still comes from the text face"
+                digit.fontFamily "Noto Sans")
+
+        ; Width follows: one glyph, one advance. Measured through the manager
+        ; — the path layout actually uses — against the face's own shaped
+        ; measurement.
+        def famStr:string ""
+        def i:int 0
+        while (i < (array_length family)) {
+            famStr = famStr + (EVGCodepoint.toStr((itemAt family i)))
+            i = (i + 1)
+        }
+        def viaManager:double (fm.measureText(famStr "Noto Sans" 20.0))
+        def viaFace:double (emoji.measureShapedText(famStr 20.0))
+        t.near("a family measures as the one glyph it becomes" viaManager viaFace)
+        t.ok("and that is far less than its parts would be"
+             (viaManager < (viaFace * 2.0)))
     }
 
 }
