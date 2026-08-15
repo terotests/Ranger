@@ -325,6 +325,42 @@ floors rather than truncating toward zero.** Splitting a negative number into
 whole and fractional parts directly gives the wrong pair — -2.5 comes apart as
 whole -3 and fraction 0.4999.
 
+### Stage 3.5 — Chart primitives — **DONE**
+
+Not in the original plan. These came out of asking what a chart engine would
+need on top of the vector layer, and each turned out to be a gap the layer had
+rather than something a chart library could paper over.
+
+1. ✅ `PathBuilder` — the counterpart to the parser. A chart's geometry comes
+   from data, and without this the only way to draw it is to concatenate `d` by
+   hand and hand the result straight back to the parser. The basic shapes are
+   included, so a whole scene accumulates into one path with one fill.
+2. ✅ `stroke-dasharray` / `stroke-dashoffset` in all three targets, parsed
+   once in `VectorStroke`. Gridlines.
+3. ✅ `rotate` rendered. It had been parsed into `EVGElement` all along with no
+   renderer reading it, so a rotated axis label was silently upright. The
+   rasterizer takes a transform, which is what makes it work for glyphs and
+   paths through one implementation.
+4. ✅ Rectangular clipping in the raster target, so a series stops at the plot
+   area. PDF and HTML already clipped; only raster leaked.
+5. ✅ `opacity` in the raster target, per element rather than per group.
+
+**Found on the way, and worth knowing.** `to_string` reaches for exponential
+notation on very small magnitudes — `cos 90°` is `6.123233995736766e-17` — and
+**PDF real numbers have no exponential form**. That was going into content
+streams, where a viewer is within its rights to reject the whole thing. Now
+clamped, with the gate asserting no exponent ever reaches the stream.
+
+**What is left of this group.** Opacity in the PDF target needs an ExtGState
+resource threaded into the page dictionary in two code paths. It is the most
+delicate part of the PDF writer and nothing golden-tests its structure, so it
+was left rather than done in a hurry.
+
+Also still per-target rather than shared: rotation applies in raster to what
+goes through the rasterizer — text and paths. Rectangular backgrounds come from
+`RasterPrimitives` and stay upright. Routing those through `VectorShapes` is the
+same follow-up Stage 3 already records.
+
 ### Stage 4 — `SvgParser` and the `<Svg>` element — next
 
 XML subset → vector display list, with the restricted profile below. `<Svg
