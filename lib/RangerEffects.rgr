@@ -1,0 +1,453 @@
+
+; ============================================================================
+; RangerEffects.rgr — the portable half of Ranger's I/O effect model.
+;
+; The rule this file exists to enforce:
+;
+;     Ranger code DESCRIBES I/O. It never PERFORMS I/O.
+;
+; A @process handler mutates its own state and submits EffectRequest values
+; describing what it wants done. The host runtime drains that queue after the
+; dispatch turn, runs each request against a capability it was granted, and
+; feeds the answer back as an EffectResult — an ordinary event, delivered in a
+; new dispatch turn.
+;
+;     event -> handler -> (new state, [EffectRequest])
+;                                |
+;                          host effect runtime
+;                                |
+;                          EffectResult -> handler -> (new state, ...)
+;
+; Nothing here is async, and nothing here is target-specific: an EffectRequest
+; is a plain data class, so this compiles to every Ranger target, including the
+; ones whose class writers emit no `async` keyword at all. Concurrency,
+; cancellation and scope lifetime live in the host, where each platform already
+; has an answer for them (promises, goroutines, coroutines, tasks, executors).
+;
+; This completes invariant #4 of PROCESS_RUNTIME_INVARIANTS.md ("handlers must
+; not call host timer/storage/network APIs directly") by giving handlers the
+; sanctioned way to ask for those things.
+;
+; See PLAN_IO_EFFECTS.md for the full model and the roadmap.
+; ============================================================================
+
+; Deliberately independent of RangerProcess.rgr: the queue is plain data, so a
+; non-@process program (a CLI, a test harness, a server handler) can use the
+; same effect model. Application code imports both.
+Import "stdops.rgr"
+
+; ----------------------------------------------------------------------------
+; Capability names. I/O is reachable only through a named capability, and the
+; host decides which scope holds which name. A process that was never granted
+; "db" cannot reach a database however it phrases the request.
+; ----------------------------------------------------------------------------
+class EffectCapability {
+  sfn db:string () {
+    return "db"
+  }
+  sfn clock:string () {
+    return "clock"
+  }
+  sfn random:string () {
+    return "random"
+  }
+}
+
+; ----------------------------------------------------------------------------
+; Operation names understood by the reference host runtime.
+; ----------------------------------------------------------------------------
+class EffectOp {
+  ; db: one round trip, rows returned as a JSON array in payload
+  sfn dbQuery:string () {
+    return "query"
+  }
+  ; db: one round trip, affected row count in rowCount
+  sfn dbExec:string () {
+    return "exec"
+  }
+  ; db: 0..n results, each carrying a chunk of rows; last one has more == false
+  sfn dbStream:string () {
+    return "stream"
+  }
+  ; clock: one result after `delayMs`
+  sfn clockDelay:string () {
+    return "delay"
+  }
+}
+
+; ----------------------------------------------------------------------------
+; Error kinds the host reports back. `cancelled` is not a failure of the
+; operation; it means the owning scope died before the answer arrived.
+; ----------------------------------------------------------------------------
+class EffectErrorKind {
+  sfn none:string () {
+    return ""
+  }
+  sfn capabilityDenied:string () {
+    return "capability_denied"
+  }
+  sfn cancelled:string () {
+    return "cancelled"
+  }
+  sfn timeout:string () {
+    return "timeout"
+  }
+  sfn io:string () {
+    return "io"
+  }
+  sfn unsupported:string () {
+    return "unsupported"
+  }
+}
+
+; ----------------------------------------------------------------------------
+; One described-but-not-yet-performed operation.
+;
+; `ownerPath` is the structured-concurrency link: it names the @process that
+; owns the work. When that process stops, the host cancels everything still in
+; flight under it. An effect always has a lifecycle owner.
+; ----------------------------------------------------------------------------
+class EffectRequest {
+  def id:int 0
+  def capability:string ""
+  def op:string ""
+  def ownerPath:string ""
+
+  ; payload of the request itself
+  def sql:string ""
+  def args:[string]
+  def delayMs:int 0
+  def chunkSize:int 0
+
+  ; staleness token: echoed back untouched, so a handler can ignore the answer
+  ; to a question it has already asked again.
+  def epoch:int 0
+
+  ; human-readable tag, used by traces and by cancelById
+  def label:string ""
+
+  ; when > 0 the host fails the request with kind `timeout` after this long
+  def timeoutMs:int 0
+}
+
+; ----------------------------------------------------------------------------
+; The answer. One EffectRequest produces exactly one EffectResult for a Task
+; operation, and 1..n for a Stream operation (every result but the last has
+; `more` set).
+; ----------------------------------------------------------------------------
+class EffectResult {
+  def requestId:int 0
+  def ok:boolean false
+  def more:boolean false
+
+  def capability:string ""
+  def op:string ""
+  def label:string ""
+  def epoch:int 0
+
+  ; rows / value as JSON text — portable across every target without generics
+  def payload:string ""
+  def rowCount:int 0
+  def chunkIndex:int 0
+
+  def errorKind:string ""
+  def errorMessage:string ""
+  def elapsedMs:int 0
+
+  fn isCancelled:boolean () {
+    return (errorKind == "cancelled")
+  }
+  fn isDenied:boolean () {
+    return (errorKind == "capability_denied")
+  }
+  ; True when the answer belongs to a question the caller has since re-asked.
+  fn isStale:boolean (currentEpoch:int) {
+    return (epoch < currentEpoch)
+  }
+}
+
+; ----------------------------------------------------------------------------
+; What a process declares it needs. The host refuses to start a scope whose
+; manifest asks for a capability the host was not itself given, so a missing
+; grant is a startup error rather than a surprise at the first query.
+; ----------------------------------------------------------------------------
+class CapabilityManifest {
+  def names:[string]
+
+  fn require:void (name:string) {
+    if (this.has(name)) {
+      return
+    }
+    push names name
+  }
+
+  fn has:boolean (name:string) {
+    for names n:string i {
+      if (n == name) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn count:int () {
+    return (array_length names)
+  }
+}
+
+; ----------------------------------------------------------------------------
+; The queue itself. Handlers submit; the host drains it once per dispatch turn.
+;
+; It is a singleton for the same reason ProcessUiHost is: it is the one seam
+; between portable Ranger state and the host, and every request names its own
+; owner, so a single queue still preserves per-process ownership.
+; ----------------------------------------------------------------------------
+class EffectQueue @singleton(true) {
+  def nextId:int 1
+  def pending:[EffectRequest]
+
+  ; counters, useful in tests and traces
+  def submittedCount:int 0
+  def drainedCount:int 0
+
+  fn submit:int (req:EffectRequest) {
+    def id:int nextId
+    nextId = (nextId + 1)
+    req.id = id
+    push pending req
+    submittedCount = (submittedCount + 1)
+    return id
+  }
+
+  ; Host: take everything queued so far and leave the queue empty.
+  fn drain:[EffectRequest] () {
+    def out:[EffectRequest] pending
+    def fresh:[EffectRequest]
+    pending = fresh
+    drainedCount = (drainedCount + (array_length out))
+    return out
+  }
+
+  fn depth:int () {
+    return (array_length pending)
+  }
+
+  fn reset:void () {
+    def fresh:[EffectRequest]
+    pending = fresh
+    nextId = 1
+    submittedCount = 0
+    drainedCount = 0
+  }
+
+  ; ---- convenience builders -------------------------------------------------
+
+  fn query:int (owner:string sql:string args:[string] epoch:int label:string) {
+    def r:EffectRequest (new EffectRequest)
+    r.capability = "db"
+    r.op = "query"
+    r.ownerPath = owner
+    r.sql = sql
+    r.args = args
+    r.epoch = epoch
+    r.label = label
+    return (this.submit(r))
+  }
+
+  fn exec:int (owner:string sql:string args:[string] epoch:int label:string) {
+    def r:EffectRequest (new EffectRequest)
+    r.capability = "db"
+    r.op = "exec"
+    r.ownerPath = owner
+    r.sql = sql
+    r.args = args
+    r.epoch = epoch
+    r.label = label
+    return (this.submit(r))
+  }
+
+  fn stream:int (owner:string sql:string chunkSize:int epoch:int label:string) {
+    def r:EffectRequest (new EffectRequest)
+    def noArgs:[string]
+    r.capability = "db"
+    r.op = "stream"
+    r.ownerPath = owner
+    r.sql = sql
+    r.args = noArgs
+    r.chunkSize = chunkSize
+    r.epoch = epoch
+    r.label = label
+    return (this.submit(r))
+  }
+
+  fn delay:int (owner:string ms:int epoch:int label:string) {
+    def r:EffectRequest (new EffectRequest)
+    def noArgs:[string]
+    r.capability = "clock"
+    r.op = "delay"
+    r.ownerPath = owner
+    r.args = noArgs
+    r.delayMs = ms
+    r.epoch = epoch
+    r.label = label
+    return (this.submit(r))
+  }
+}
+
+; ----------------------------------------------------------------------------
+; Small JSON-array reader for effect payloads.
+;
+; The host hands rows back as JSON text so that no target needs generics to
+; carry them. A model that only wants one column should not have to link a full
+; JSON library to read it, so the two shapes the reference runtime emits get a
+; parser here: an array of flat objects with string/number/bool/null values.
+; ----------------------------------------------------------------------------
+class EffectRow {
+  def keys:[string]
+  def values:[string]
+
+  fn get:string (key:string) {
+    for keys k:string i {
+      if (k == key) {
+        return (itemAt values i)
+      }
+    }
+    return ""
+  }
+
+  fn getInt:int (key:string) {
+    def s:string (this.get(key))
+    if ((strlen s) == 0) {
+      return 0
+    }
+    def parsed@(optional):int (str2int s)
+    return (?? parsed 0)
+  }
+
+  fn has:boolean (key:string) {
+    for keys k:string i {
+      if (k == key) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn put:void (key:string value:string) {
+    push keys key
+    push values value
+  }
+}
+
+class EffectPayload {
+  ; Parse `[{"a":1,"b":"x"}, ...]` into rows. Values arrive as strings; a
+  ; quoted string keeps its contents, everything else keeps its literal text.
+  sfn parseRows:[EffectRow] (json:string) {
+    def rows:[EffectRow]
+    def n:int (strlen json)
+    def i@(mutable):int 0
+    def cur:EffectRow (new EffectRow)
+    def inRow@(mutable):boolean false
+    def key@(mutable):string ""
+    def buf@(mutable):string ""
+    def inString@(mutable):boolean false
+    def escaped@(mutable):boolean false
+    def expectKey@(mutable):boolean true
+
+    while (i < n) {
+      def c:string (substring json i (i + 1))
+      if (inString) {
+        if (escaped) {
+          if (c == "n") {
+            buf = (buf + "\n")
+          } {
+            if (c == "t") {
+              buf = (buf + "\t")
+            } {
+              buf = (buf + c)
+            }
+          }
+          escaped = false
+        } {
+          if (c == "\\") {
+            escaped = true
+          } {
+            if (c == "\"") {
+              inString = false
+            } {
+              buf = (buf + c)
+            }
+          }
+        }
+        i = (i + 1)
+        continue
+      }
+      if (c == "\"") {
+        inString = true
+        i = (i + 1)
+        continue
+      }
+      if (c == "{") {
+        cur = (new EffectRow)
+        inRow = true
+        buf = ""
+        expectKey = true
+        i = (i + 1)
+        continue
+      }
+      if (c == ":") {
+        key = (trim buf)
+        buf = ""
+        expectKey = false
+        i = (i + 1)
+        continue
+      }
+      if ((c == ",") || (c == "}")) {
+        if (inRow) {
+          if (expectKey == false) {
+            cur.put(key (trim buf))
+          }
+        }
+        buf = ""
+        key = ""
+        expectKey = true
+        if (c == "}") {
+          if (inRow) {
+            push rows cur
+          }
+          inRow = false
+        }
+        i = (i + 1)
+        continue
+      }
+      buf = (buf + c)
+      i = (i + 1)
+    }
+    return rows
+  }
+
+  ; Escape a value so it can be embedded in a JSON string literal.
+  sfn escape:string (s:string) {
+    def out@(mutable):string ""
+    def n:int (strlen s)
+    def i@(mutable):int 0
+    while (i < n) {
+      def c:string (substring s i (i + 1))
+      if (c == "\"") {
+        out = (out + "\\\"")
+      } {
+        if (c == "\\") {
+          out = (out + "\\\\")
+        } {
+          if (c == "\n") {
+            out = (out + "\\n")
+          } {
+            out = (out + c)
+          }
+        }
+      }
+      i = (i + 1)
+    }
+    return out
+  }
+}

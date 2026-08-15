@@ -58,6 +58,29 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 
 **Docs:** [PROCESS_MVP.md](PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](PROCESS_STATUS.md) (compiler checklist), [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md) (dispatch turn / one notify), [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md) (Vite + React host for `@process`).
 
+### I/O as effects (experimental)
+
+Handlers must not reach for the network or the disk — but they need a way to
+*ask*. [`lib/RangerEffects.rgr`](lib/RangerEffects.rgr) is that way: a handler
+submits an `EffectRequest` (plain data, so it compiles to every target), the
+host drains the queue after the dispatch turn, runs the request against a
+capability it was granted, and delivers an `EffectResult` back as the next event.
+
+```ranger
+q.query(own "SELECT id, title FROM notes WHERE tag = ?" args epoch "search")
+;   ↑ described, not performed — no promise, no driver, no await in the model
+```
+
+Ranger does not abstract the platform's async mechanism; it formalises the
+semantics around it — **ownership** (every request belongs to a `@process`, and
+stopping one cancels its work), **staleness** (a superseded answer is dropped
+before it touches state), **streams** (one request, many results) and
+**capability security** (no grant, no I/O).
+
+**Docs:** [PLAN_IO_EFFECTS.md](PLAN_IO_EFFECTS.md) (model, decisions, roadmap).
+**Gallery:** [process_db_effects](gallery/process_db_effects/README.md) — the same
+Ranger model layer driven against DuckDB and against no database at all.
+
 ## Where To Start
 
 - [Documentation site](https://terotests.github.io/Ranger/docs/) — install, first program, types, optionals, and the **generated operator reference** (838 operators, compiled from the sources of the commit that publishes the site, so it cannot drift)

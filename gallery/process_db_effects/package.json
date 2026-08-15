@@ -1,0 +1,20 @@
+{
+  "name": "ranger-process-db-effects-gallery",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "npm run build:ranger",
+    "build:ranger": "node scripts/build-ranger.mjs",
+    "demo": "npm run build:ranger && vite-node src/main.ts",
+    "test": "npm run build:ranger && vitest run"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "^1.5.5-r.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite-node": "^6.0.0",
+    "vitest": "^3.2.7"
+  }
+}

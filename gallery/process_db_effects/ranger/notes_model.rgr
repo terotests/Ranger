@@ -1,0 +1,380 @@
+
+; ============================================================================
+; notes_model.rgr — a Model layer written entirely in Ranger, with no I/O.
+;
+; Everything below is pure, deterministic, portable state. There is no DuckDB
+; here, no promise, no thread, no callback: handlers mutate state and submit
+; EffectRequest values. The host runtime (src/runtime) executes them against
+; whichever capability it was granted and feeds answers back in as events.
+;
+;     onOpen        -> exec  "CREATE TABLE ..."   -> schemaReady
+;     schemaReady   -> exec  "INSERT ..."         -> seeded
+;     seeded        -> query "SELECT ..."         -> listed
+;     onSearch(t)   -> epoch+1, query             -> listed (older epochs stale)
+;     onLoadStats   -> 3 queries at once          -> ready when all 3 land
+;     onStreamAll   -> stream, chunked            -> 1..n results, last more=0
+;
+; Compile: npm run build:ranger  (from gallery/process_db_effects)
+; ============================================================================
+
+Import "RangerProcess.rgr"
+Import "RangerEffects.rgr"
+
+; ----------------------------------------------------------------------------
+; Domain
+; ----------------------------------------------------------------------------
+class Note {
+  def id:int 0
+  def title:string ""
+  def body:string ""
+  def tag:string ""
+}
+
+; ----------------------------------------------------------------------------
+; The model. `@process` gives it identity, a lifecycle and a place in the tree;
+; the effect queue gives it I/O without letting it perform any.
+; ----------------------------------------------------------------------------
+class NotesPage @process(true) @name("app.notes") extends RangerProcessBase {
+
+  ; ---- state ---------------------------------------------------------------
+  def phase:string "idle"        ; idle | schema | seeding | loading | ready | failed
+  def searchText:string ""
+  def notes:[Note]
+  def total:int 0
+  def shortest:int 0
+  def longest:int 0
+  def errorText:string ""
+
+  ; The staleness token. Every user-visible question bumps it, and an answer
+  ; carrying an older token is dropped instead of overwriting newer data.
+  def epoch:int 0
+  def staleDropped:int 0
+
+  ; observable counters, so tests can assert on behaviour rather than on logs
+  def inFlight:int 0
+  def deniedCount:int 0
+  def cancelledCount:int 0
+  def statsPending:int 0
+  def streamChunks:int 0
+  def streamRows:int 0
+  def lastElapsedMs:int 0
+
+  fn start:void () {
+  }
+
+  fn stop:void () {
+    ; Nothing to unwind by hand. The host cancels the scope that owns this
+    ; process, and every request still in flight under it dies with it. That
+    ; is the whole point of tying effects to a lifecycle owner.
+  }
+
+  ; ---- what this process is allowed to reach -------------------------------
+  fn capabilities:CapabilityManifest () {
+    def m:CapabilityManifest (new CapabilityManifest)
+    m.require("db")
+    m.require("clock")
+    return m
+  }
+
+  fn queue:EffectQueue () {
+    return (EffectQueue.__singleton())
+  }
+
+  fn owner:string () {
+    return this.__rangerPath
+  }
+
+  ; ---- events --------------------------------------------------------------
+
+  ; Open the page: create the schema, then seed, then list. Each step is an
+  ; event, so the sequencing is visible in the model instead of hidden in a
+  ; chain of awaits somewhere in the host.
+  fn onOpen:void () {
+    phase = "schema"
+    errorText = ""
+    def q:EffectQueue (this.queue())
+    def own:string (this.owner())
+    def noArgs:[string]
+    def sql:string "CREATE TABLE IF NOT EXISTS notes (id INTEGER, title VARCHAR, body VARCHAR, tag VARCHAR)"
+    inFlight = (inFlight + 1)
+    q.exec(own sql noArgs epoch "schema")
+    this.markStateDirty()
+  }
+
+  fn onSeed:void () {
+    phase = "seeding"
+    def q:EffectQueue (this.queue())
+    def own:string (this.owner())
+    def noArgs:[string]
+    def sql:string "INSERT INTO notes VALUES (1,'Effects','I/O is described, not performed','core'), (2,'Scopes','Every task has a lifecycle owner','core'), (3,'Capabilities','No grant, no socket','security'), (4,'Streams','Zero to n values over time','core'), (5,'Staleness','Newer questions win','ui')"
+    inFlight = (inFlight + 1)
+    q.exec(own sql noArgs epoch "seed")
+    this.markStateDirty()
+  }
+
+  ; A new search supersedes every search still in flight.
+  fn onSearch:void (text:string) {
+    searchText = text
+    phase = "loading"
+    epoch = (epoch + 1)
+    def q:EffectQueue (this.queue())
+    def own:string (this.owner())
+    def args:[string]
+    push args ("%" + text + "%")
+    def sql:string "SELECT id, title, body, tag FROM notes WHERE title ILIKE ? OR body ILIKE ? ORDER BY id"
+    push args ("%" + text + "%")
+    inFlight = (inFlight + 1)
+    q.query(own sql args epoch "search")
+    this.markStateDirty()
+  }
+
+  fn onListAll:void () {
+    phase = "loading"
+    epoch = (epoch + 1)
+    def q:EffectQueue (this.queue())
+    def own:string (this.owner())
+    def noArgs:[string]
+    def sql:string "SELECT id, title, body, tag FROM notes ORDER BY id"
+    inFlight = (inFlight + 1)
+    q.query(own sql noArgs epoch "search")
+    this.markStateDirty()
+  }
+
+  ; Fan out: three independent questions, submitted together, answered in
+  ; whatever order the database gets to them. The model does not wait; it
+  ; counts down.
+  fn onLoadStats:void () {
+    def q:EffectQueue (this.queue())
+    def own:string (this.owner())
+    def noArgs:[string]
+    statsPending = 3
+    inFlight = (inFlight + 3)
+    q.query(own "SELECT count(*) AS n FROM notes" noArgs epoch "stat.count")
+    q.query(own "SELECT min(length(body)) AS n FROM notes" noArgs epoch "stat.min")
+    q.query(own "SELECT max(length(body)) AS n FROM notes" noArgs epoch "stat.max")
+    this.markStateDirty()
+  }
+
+  ; A Stream, not a Task: one request, many results.
+  fn onStreamAll:void (chunk:int) {
+    streamChunks = 0
+    streamRows = 0
+    def q:EffectQueue (this.queue())
+    def own:string (this.owner())
+    inFlight = (inFlight + 1)
+    q.stream(own "SELECT id, title, body, tag FROM notes ORDER BY id" chunk epoch "stream")
+    this.markStateDirty()
+  }
+
+  ; A deliberately ungranted capability, to show what refusal looks like.
+  fn onTryForbidden:void () {
+    def q:EffectQueue (this.queue())
+    def own:string (this.owner())
+    def r:EffectRequest (new EffectRequest)
+    def noArgs:[string]
+    r.capability = "filesystem"
+    r.op = "read"
+    r.ownerPath = own
+    r.sql = "/etc/passwd"
+    r.args = noArgs
+    r.epoch = epoch
+    r.label = "forbidden"
+    inFlight = (inFlight + 1)
+    q.submit(r)
+    this.markStateDirty()
+  }
+
+  ; ---- the single entry point for every answer ------------------------------
+  ;
+  ; One typed method rather than name-based dispatch, so this works on targets
+  ; without reflection (Go, Swift, C++, Rust) exactly as it does on JavaScript.
+  fn onEffectResult:void (r:EffectResult) {
+    if (r.more == false) {
+      inFlight = (inFlight - 1)
+    }
+
+    if (r.isCancelled()) {
+      cancelledCount = (cancelledCount + 1)
+      this.markStateDirty()
+      return
+    }
+    if (r.isDenied()) {
+      deniedCount = (deniedCount + 1)
+      errorText = ("capability denied: " + r.capability)
+      this.markStateDirty()
+      return
+    }
+
+    ; Stale answers are dropped before they can touch state. This is the bug
+    ; class where a slow first search overwrites a fast second one.
+    if (r.isStale(epoch)) {
+      staleDropped = (staleDropped + 1)
+      this.markStateDirty()
+      return
+    }
+
+    if (r.ok == false) {
+      phase = "failed"
+      errorText = r.errorMessage
+      this.markStateDirty()
+      return
+    }
+
+    lastElapsedMs = r.elapsedMs
+
+    if (r.label == "schema") {
+      this.onSeed()
+      return
+    }
+    if (r.label == "seed") {
+      this.onListAll()
+      return
+    }
+    if (r.label == "search") {
+      this.applyRows(r.payload)
+      total = (array_length notes)
+      phase = "ready"
+      this.markStateDirty()
+      return
+    }
+    if (r.label == "stream") {
+      this.applyStreamChunk(r)
+      return
+    }
+    if (r.label == "stat.count") {
+      total = (this.firstNumber(r.payload))
+      this.settleStat()
+      return
+    }
+    if (r.label == "stat.min") {
+      shortest = (this.firstNumber(r.payload))
+      this.settleStat()
+      return
+    }
+    if (r.label == "stat.max") {
+      longest = (this.firstNumber(r.payload))
+      this.settleStat()
+      return
+    }
+    this.markStateDirty()
+  }
+
+  fn settleStat:void () {
+    statsPending = (statsPending - 1)
+    if (statsPending <= 0) {
+      statsPending = 0
+      phase = "ready"
+    }
+    this.markStateDirty()
+  }
+
+  fn applyStreamChunk:void (r:EffectResult) {
+    def chunkRows:[EffectRow] (EffectPayload.parseRows(r.payload))
+    streamChunks = (streamChunks + 1)
+    streamRows = (streamRows + (array_length chunkRows))
+    if (r.more == false) {
+      phase = "ready"
+    }
+    this.markStateDirty()
+  }
+
+  fn applyRows:void (payload:string) {
+    def parsed:[EffectRow] (EffectPayload.parseRows(payload))
+    def fresh:[Note]
+    for parsed row:EffectRow i {
+      def n:Note (new Note)
+      n.id = (row.getInt("id"))
+      n.title = (row.get("title"))
+      n.body = (row.get("body"))
+      n.tag = (row.get("tag"))
+      push fresh n
+    }
+    notes = fresh
+  }
+
+  fn firstNumber:int (payload:string) {
+    def parsed:[EffectRow] (EffectPayload.parseRows(payload))
+    if ((array_length parsed) == 0) {
+      return 0
+    }
+    def row:EffectRow (itemAt parsed 0)
+    return (row.getInt("n"))
+  }
+}
+
+; ----------------------------------------------------------------------------
+; ViewModel — a pure projection of model state. No process handle, no I/O, no
+; framework: the same value renders in React, on a terminal, in a test.
+; ----------------------------------------------------------------------------
+class NoteRowView {
+  def id:int 0
+  def title:string ""
+  def subtitle:string ""
+  def badge:string ""
+}
+
+class NotesViewModel {
+  def title:string ""
+  def statusLine:string ""
+  def showSpinner:boolean false
+  def showEmpty:boolean false
+  def errorText:string ""
+  def rows:[NoteRowView]
+  def footer:string ""
+}
+
+class NotesViewModelBuilder {
+  sfn build:NotesViewModel (m:NotesPage) {
+    def vm:NotesViewModel (new NotesViewModel)
+    vm.title = "Notes"
+    if ((strlen m.searchText) > 0) {
+      vm.title = ("Notes matching \"" + m.searchText + "\"")
+    }
+    vm.showSpinner = (m.inFlight > 0)
+    vm.errorText = m.errorText
+
+    def rows:[NoteRowView]
+    for m.notes n:Note i {
+      def rv:NoteRowView (new NoteRowView)
+      rv.id = n.id
+      rv.title = n.title
+      rv.subtitle = n.body
+      rv.badge = n.tag
+      push rows rv
+    }
+    vm.rows = rows
+    vm.showEmpty = (((array_length rows) == 0) && (m.phase == "ready"))
+
+    if (m.phase == "failed") {
+      vm.statusLine = ("Failed: " + m.errorText)
+    } {
+      if (m.inFlight > 0) {
+        vm.statusLine = ((("Working (" + (to_string m.inFlight)) + " in flight)"))
+      } {
+        vm.statusLine = ((((to_string (array_length rows)) + " of ") + (to_string m.total)) + " notes")
+      }
+    }
+
+    vm.footer = ((((("epoch " + (to_string m.epoch)) + " · stale dropped ") + (to_string m.staleDropped)) + " · cancelled ") + (to_string m.cancelledCount))
+    return vm
+  }
+
+  ; Terminal renderer, so the same ViewModel has a second consumer from day one.
+  sfn renderText:string (vm:NotesViewModel) {
+    def out@(mutable):string ""
+    out = (out + vm.title + "\n")
+    out = (out + vm.statusLine + "\n")
+    if (vm.showSpinner) {
+      out = (out + "  ... working\n")
+    }
+    if (vm.showEmpty) {
+      out = (out + "  (no notes)\n")
+    }
+    for vm.rows r:NoteRowView i {
+      out = (out + "  [" + (to_string r.id) + "] " + r.title + " (" + r.badge + ")\n")
+      out = (out + "      " + r.subtitle + "\n")
+    }
+    out = (out + vm.footer + "\n")
+    return out
+  }
+}

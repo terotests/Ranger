@@ -92,6 +92,8 @@
     "jsengine:all": "npm run jsengine:build && npm run jsengine:bench && npm run jsengine:octane && npm run jsengine:conformance",
     "test:publish": "cross-env NODE_OPTIONS=--max-old-space-size=8192 vitest run --config tests/vitest.publish.config.ts",
     "test:es6": "vitest run --config tests/vitest.config.ts compiler.test.ts",
+    "test:effects": "vitest run --config tests/vitest.config.ts io-effects.test.ts",
+    "test:effects:duckdb": "npm --prefix gallery/process_db_effects install && npm --prefix gallery/process_db_effects test",
     "test:go": "vitest run --config tests/vitest.config.ts compiler-go.test.ts",
     "test:python": "vitest run --config tests/vitest.config.ts compiler-python.test.ts",
     "test:dart": "vitest run --config tests/vitest.config.ts compiler-dart.test.ts compiler-dart-tsparser.test.ts",
