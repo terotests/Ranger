@@ -11,4 +11,5 @@ if [ ! -f tmp/selfhost-rust/ranger_compiler.rs ]; then
 fi
 rustc --edition 2021 --emit=metadata --crate-type bin \
   -o /dev/null tmp/selfhost-rust/ranger_compiler.rs > tmp/selfhost-rust/rustc.log 2>&1
-grep -cE "^error" tmp/selfhost-rust/rustc.log
+# the trailing "aborting due to N previous errors" line is a summary, not an error
+grep -E "^error" tmp/selfhost-rust/rustc.log | grep -vc "^error: aborting due to"

@@ -767,8 +767,15 @@ They are two structural families and one borrow shape, not a flat tail:
   now written wherever it is needed (argument, return, assignment, weak
   downgrade) as `x as Rc<RefCell<dyn XTrait>>`. The downcast has no expression
   in stable Rust: `Rc<RefCell<dyn Trait>>` cannot become `Rc<RefCell<Concrete>>`
-  without the trait object being `Rc<dyn Any>` to begin with, which is a change
-  to the representation rather than to a call site.
+  by any safe conversion. The route that would work, for whoever picks this up:
+  give every generated trait a supertrait carrying
+  `fn rg_as_any(&self) -> &dyn Any`, emit one `impl` of it per class, and write
+  `cast` as a Rust CustomOperator calling a helper that asserts
+  `v.borrow().rg_as_any().is::<T>()` and then rebuilds the `Rc` around the same
+  allocation through a raw pointer. That is what `Rc::<dyn Any>::downcast` does
+  in std, and it is sound behind the assert — but it puts `unsafe` in the
+  generated output and a supertrait on every trait, so it is a decision to make
+  deliberately rather than a bug to fix.
 - **One E0502**: a self field read through a cell, passed as an argument to a
   `&mut self` call — the `Ref` outlives the point the `&mut` is taken. Hoisting
   every such argument into a temporary was measured at 12 → 88 and reverted; the
