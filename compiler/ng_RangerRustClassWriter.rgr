@@ -5997,6 +5997,15 @@ class RangerRustClassWriter {
             }
           }
         }
+        ; a CLOSURE field is Box<dyn FnMut(…)>, which is no more Clone than a
+        ; trait object is — the derive fails on the whole struct
+        def clFldT:RangerNodeType nn.value_type
+        if (nn.eval_type != RangerNodeType.NoType) {
+          clFldT = nn.eval_type
+        }
+        if (clFldT == RangerNodeType.ExpressionType) {
+          hasTraitObjectField = true
+        }
       }
     }
     

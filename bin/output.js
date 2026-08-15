@@ -28548,6 +28548,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                             }
+                            let clFldT = nn.value_type;
+                            if ( nn.eval_type != 0 ) {
+                              clFldT = nn.eval_type;
+                            }
+                            if ( clFldT == 20 ) {
+                              hasTraitObjectField = true;
+                            }
                           }
                         };
                         if ( hasTraitObjectField ) {

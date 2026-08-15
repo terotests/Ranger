@@ -7099,7 +7099,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 es6 ( (e 1) ".slice().sort(" ( e 2) ")")
                 python ( "sorted(" (e 1) ", key=functools.cmp_to_key(" (e 2) "))" (imp "functools") )
                 php ( "(function($__arr, $__cb) { usort($__arr, $__cb); return $__arr; })(" (e 1) ", " (e 2) ")" )
-                rust ( "{ let mut __v = " (e 1) ".clone(); let __cb = " (e 2) "; __v.sort_by(|__a, __b| __cb(__a.clone(), __b.clone()).cmp(&0)); __v }" )
+                ; __cb carries its declared type: a bare closure literal in a
+                ; let has no expected type for rustc to infer its parameters
+                ; from, and the body then cannot be checked at all (E0282)
+                rust ( "{ let mut __v = " (e 1) ".clone(); let __cb: " (typeof 2) " = " (e 2) "; __v.sort_by(|__a, __b| __cb(__a.clone(), __b.clone()).cmp(&0)); __v }" )
                 cpp ( "[&]() { auto __v = " (e 1) "; auto __cb = " (e 2) "; std::stable_sort(__v.begin(), __v.end(), [&](const auto& __a, const auto& __b) { return __cb(__a, __b) < 0; }); return __v; }()" (imp "<algorithm>") )
                 ; .toMutableList(): sortedWith answers a read only List, and every
                 ; array in the writer is a MutableList
