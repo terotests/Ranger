@@ -202,6 +202,22 @@ else
   check "HTML: quad carries the synthesised viewBox" "$OUT/vector.html" 'viewBox="0 0 50 50"'
   check "HTML: explicit viewBox is passed through" "$OUT/vector.html" 'viewBox="0 0 24 24"'
   check "HTML: the dash pattern reaches the attribute" "$OUT/vector.html" 'stroke-dasharray="6 3"'
+  # A path with no fill is not filled. The fallback used to be `currentColor`,
+  # the inherited TEXT colour, so a stroked-only path — a gridline, an axis, an
+  # outlined check mark — came out as a solid block, while PDF and PNG, which
+  # emit no fill operator without a fill colour, drew the outline asked for.
+  check "HTML: a stroked path is not filled" "$OUT/vector.html" 'fill="none"'
+  # Both children of the absolutely positioned card carry ITS offset off their
+  # page coordinates: the path at page (210, 420) inside a card at (200, 400)
+  # is emitted at (10, 20), not at (210, 420) inside an already-shifted box.
+  check "HTML: a path inside an absolute parent is parent-relative" "$OUT/vector.html" 'left: 10px; top: 20px;'
+  check "HTML: a label inside an absolute parent is parent-relative" "$OUT/vector.html" 'left: 10px; top: 50px;'
+  if grep -qF 'left: 210px; top: 420px;' "$OUT/vector.html"; then
+    echo "  FAIL HTML: a nested child kept its page coordinates"
+    status=1
+  else
+    echo "  PASS HTML: no nested child kept its page coordinates"
+  fi
 fi
 
 # The raster target used to have no path support at all: a <Path> that

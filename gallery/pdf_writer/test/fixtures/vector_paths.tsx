@@ -17,9 +17,16 @@
 //  5. turned   the same check mark rotated 90 degrees about its own centre,
 //              which each target also expresses its own way: a PDF matrix, a
 //              CSS transform, and a transform on the shared rasterizer.
+//  6. nested   a path and a label inside an ABSOLUTELY positioned card. Every
+//              coordinate the layout calculates is a page coordinate; HTML
+//              places a child against its nearest positioned ancestor, so the
+//              card's own offset has to come off both children on the way out.
+//              It did not, and each of them was pushed a second card's-worth
+//              down and to the right of where the other targets drew it.
 //
 // The page is tall enough for all four boxes at their declared size. If it is
 // not, flex squeezes them and every expected transform below changes with it.
+// The card takes no part in that: an absolute element is out of the flow.
 function render() {
   return (
     <View width="300px" height="500px" backgroundColor="#ffffff">
@@ -37,6 +44,10 @@ function render() {
       </View>
       <View width="80px" height="80px" backgroundColor="#bbbbbb">
         <Path viewBox="0 0 24 24" d="M4 12 L10 18 L20 6" width="48px" height="48px" stroke="#000000" strokeWidth="2" rotate="90" />
+      </View>
+      <View position="absolute" left="200px" top="400px" width="70px" height="70px" backgroundColor="#aaaaaa">
+        <Path position="absolute" left="10px" top="20px" viewBox="0 0 24 24" d="M4 12 L10 18 L20 6" width="24px" height="24px" stroke="#000000" strokeWidth="2" />
+        <Label position="absolute" left="10px" top="50px" fontSize="10px">in</Label>
       </View>
     </View>
   );

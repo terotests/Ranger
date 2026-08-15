@@ -222,6 +222,16 @@ edge, and the HTML target was not rotating labels at all. Charts are what
 surfaced it; the fix is in `EVGLayout` and `EVGHTMLRenderer` and applies to
 anything absolutely positioned.
 
+Two more of the same kind turned up once the charts were on a page, and both
+were HTML-only — the PDF and PNG of the same document were already right.
+Every coordinate the layout computes is a page coordinate, but the renderer
+believed an absolute element's were already relative to its parent and left
+them alone, so the browser applied the parent's offset a second time and every
+path and label sat tens of pixels down and to the right of its box. And a path
+with no fill was emitted as `fill="currentColor"` — the inherited text colour —
+which filled each plot frame and gridline solid black. `run_vector.sh` now
+checks both on a fixture built for them.
+
 The chart page on the showcase is generated:
 
 ```bash
