@@ -4586,15 +4586,23 @@ class RangerAppWriterContext  {
     const e = new RangerCompilerMessage();
     e.description = descr;
     e.node = targetnode;
-    const root = this.getRoot();
-    root.compilerErrors.push(e);
+    if ( typeof(this.parent) === "undefined" ) {
+      this.compilerErrors.push(e);
+    } else {
+      const root = this.getRoot();
+      root.compilerErrors.push(e);
+    }
   };
   addParserError (targetnode, descr) {
     const e = new RangerCompilerMessage();
     e.description = descr;
     e.node = targetnode;
-    const root = this.getRoot();
-    root.parserErrors.push(e);
+    if ( typeof(this.parent) === "undefined" ) {
+      this.parserErrors.push(e);
+    } else {
+      const root = this.getRoot();
+      root.parserErrors.push(e);
+    }
   };
   addTemplateClass (name, node) {
     const root = this.getRoot();
@@ -5325,14 +5333,14 @@ class CodeFile  {
     this.writer = new CodeWriter();
     this.writer.createTag("imports");
   }
-  initSourceMapsIfNeeded () {
+  initSourceMapsIfNeeded (mapsEnabled) {
     if ( (typeof(this.sourceMapBuilder) !== "undefined" && this.sourceMapBuilder != null )  ) {
       return;
     }
     if ( typeof(this.fileSystem) === "undefined" ) {
       return;
     }
-    if ( this.fileSystem.sourceMapsEnabled == false ) {
+    if ( mapsEnabled == false ) {
       return;
     }
     this.sourceMapBuilder = new SourceMapBuilder();
@@ -5385,7 +5393,7 @@ class CodeFileSystem  {
     };
     const new_file = new CodeFile(path, name);
     new_file.fileSystem = this;
-    new_file.initSourceMapsIfNeeded();
+    new_file.initSourceMapsIfNeeded(this.sourceMapsEnabled);
     this.files.push(new_file);
     return new_file;
   };
@@ -26082,19 +26090,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       if ( firstPart == "this" ) {
                         if ( (node.ns.length) > 1 ) {
                           const secondPart = node.ns[1];
-                          if ( ctx.isVarDefined(secondPart) ) {
-                            const vDef = ctx.getVariableDef(secondPart);
-                            if ( vDef.is_optional ) {
-                              return true;
-                            }
+                          if ( false ) {
+                            return true;
                           }
                         }
                       }
                       if ( ctx.isVarDefined(firstPart) ) {
-                        const vDef_1 = ctx.getVariableDef(firstPart);
-                        if ( vDef_1.is_optional && vDef_1.is_class_variable ) {
+                        const vDef = ctx.getVariableDef(firstPart);
+                        if ( vDef.is_optional && vDef.is_class_variable ) {
                           let vDefIsColl = false;
-                          const vdNN = vDef_1.nameNode;
+                          const vdNN = vDef.nameNode;
                           if ( (typeof(vdNN) !== "undefined" && vdNN != null )  ) {
                             const vdN = vdNN;
                             if ( ((vdN.array_type.length) > 0) || ((vdN.key_type.length) > 0) ) {
@@ -26102,7 +26107,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                           }
                           if ( vDefIsColl == false ) {
-                            return true;
+                            if ( false ) {
+                              return true;
+                            }
                           }
                         }
                       }

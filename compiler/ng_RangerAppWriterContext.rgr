@@ -1476,15 +1476,27 @@ class RangerAppWriterContext {
     def e:RangerCompilerMessage (new RangerCompilerMessage ())
     e.description = descr
     e.node = targetnode
-    def root:RangerAppWriterContext (this.getRoot())
-    push root.compilerErrors e
+    ; the root may be THIS context, and on Rust reaching it through the
+    ; handle would borrow a cell the call is already inside
+    if (null? parent) {
+      push compilerErrors e
+    } {
+      def root:RangerAppWriterContext (this.getRoot())
+      push root.compilerErrors e
+    }
   }
   fn addParserError:void (targetnode@(weak lives):CodeNode descr:string) {
     def e:RangerCompilerMessage (new RangerCompilerMessage ())
     e.description = descr
     e.node = targetnode
-    def root:RangerAppWriterContext (this.getRoot())
-    push root.parserErrors e
+    ; the root may be THIS context, and on Rust reaching it through the
+    ; handle would borrow a cell the call is already inside
+    if (null? parent) {
+      push parserErrors e
+    } {
+      def root:RangerAppWriterContext (this.getRoot())
+      push root.parserErrors e
+    }
   }
   fn addTemplateClass:void (name:string node@(lives):CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())

@@ -16,14 +16,18 @@ class CodeFile {
         writer.createTag("imports")
     }
 
-    fn initSourceMapsIfNeeded:void () {
+    ; The flag is passed in rather than read back off `fileSystem`: the
+    ; caller is the file system itself, and on Rust it is inside its own
+    ; cell for the duration of the call that creates this file — reaching
+    ; back through the weak reference borrows that cell a second time.
+    fn initSourceMapsIfNeeded:void (mapsEnabled:boolean) {
         if (!null? sourceMapBuilder) {
             return
         }
         if (null? fileSystem) {
             return
         }
-        if (fileSystem.sourceMapsEnabled == false) {
+        if (mapsEnabled == false) {
             return
         }
         sourceMapBuilder = (new SourceMapBuilder ())
@@ -86,7 +90,7 @@ class CodeFileSystem {
         }
         def new_file:CodeFile (new CodeFile (path name))
         new_file.fileSystem = this
-        new_file.initSourceMapsIfNeeded()
+        new_file.initSourceMapsIfNeeded(sourceMapsEnabled)
         push files new_file
         return new_file
     }

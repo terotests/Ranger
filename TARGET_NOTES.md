@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | **0** | `rustc` down from 4981 errors to 155 — see below |
+| Rust | **0** | `rustc` clean too — builds a binary; does not run yet, see below |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -664,9 +664,19 @@ work, and [RUST_TODO.md](RUST_TODO.md).
 
 ### What the compiler's own sources took, and where they still stop
 
-Rust is the one target in this round that does **not** self-host. It is worth
-recording how far it got, because the number in the table above says `0` and
-that number means less here than anywhere else.
+Rust compiles. `rustc --edition 2021` accepts the 67k-line rendering of the
+compiler's own sources with **0 errors** (229 warnings), and `rustc -O` links an
+11 MB binary from it:
+
+```bash
+bash scripts/rust-selfhost-check.sh          # regenerate and count rustc errors
+rustc -O --edition 2021 tmp/selfhost-rust/ranger_compiler.rs \
+  -o tmp/selfhost-rust/ranger_rust
+```
+
+That binary does not yet **run** a compilation to completion — see *What the
+binary still hits* at the end of this section. The rest of this records how the
+compile got there, because the number started at 4981.
 
 `node bin/output.js -l=rust ./compiler/ng_Compiler.rgr` reported 21 errors, and
 all 21 were one writer bug: a `this.method(…)` written inside a `forEach` body
@@ -746,31 +756,34 @@ carried real defects, rather than Rust-specific plumbing:
   every caller (they bind the result to an `Rc` name) and with every body (they
   return one).
 
-### The 7 that are left
+### The last four, and why they were fixed in the sources
 
-They are all one shape — a closure that Rust cannot borrow-check the way the
-Ranger object model uses it:
+The tail ended in two shapes Rust cannot borrow-check at all, and both were
+answered by expressing the lambda as a method — which every other target
+already handles, so nothing was lost:
 
-- **Recursive closures (5).** The compiler declares a lambda in a local and then
-  assigns the real body to it, so the body can call the name — `walk_xml`,
-  `set_async`, `set_called`. A `&mut |…|` literal is a temporary that dies at
-  the end of its statement (E0716), and the fix for that is not local: binding
-  the literal to a `let` first only trades E0716 for E0506, because the body
-  captures the very name being assigned to. Giving such a name the owned
-  `Box<dyn FnMut(…)>` form was written and measured — 25 → 39 — and reverted;
-  it removes the temporaries and replaces them with the same borrow conflict.
+- **Recursive closures.** The compiler declared a lambda in a local and then
+  assigned the real body to it so the body could call the name — `walk_xml`,
+  `set_async`, `set_called`, `just_vref`. A `&mut |…|` literal is a temporary
+  that dies at the end of its statement (E0716), and the fix is not local:
+  binding the literal to a `let` first only trades E0716 for E0506, because the
+  body captures the very name being assigned to. Giving such a name the owned
+  `Box<dyn FnMut(…)>` form was written and measured — 25 → 39 — and reverted.
   The bodies also mutate captured scalars (`currCnt = currCnt + 1`), which rules
   out the `Rc<RefCell<Option<Rc<dyn Fn>>>>` self-reference cell that would
-  otherwise work: `FnMut` cannot be re-entered through a `RefCell`. A real fix
-  is closure conversion — lift the lambda to a function and pass its captured
-  environment explicitly, boxing the mutated captures.
-- **A closure that calls back into its own receiver (2).**
-  `this.EnterFn(node ctx wr { … this.walkFunctionBody(…) … })` hands a closure
-  that needs `&mut self` to a method that already took `&mut self`. Writing the
-  self-call inside the closure through `__self_rc` instead would compile and
-  then panic at runtime, because the outer `&mut self` is a live `borrow_mut`
-  of the same cell. This is the same object model question as the recursive
-  lambdas, seen from the other side.
+  otherwise work: `FnMut` cannot be re-entered through a `RefCell`. So each
+  became a method: `isJustVref` captured nothing, `markCalledFromMain` captured
+  `ctx`, `markAsyncFrom` / `markAsyncFromVariant` captured the visited list, and
+  `walkXmlCreate` threads the register counter through its return value so the
+  generated register names are unchanged.
+- **A closure that calls back into its own receiver.**
+  `this.EnterFn(node ctx wr { … this.walkFunctionBody(…) … })` handed a closure
+  needing `&mut self` to a method that had already taken `&mut self`. `EnterFn`
+  now returns the four parts it used to pass to a callback, so `EnterMethod` and
+  `EnterStaticMethod` call `walkFunctionBody` directly. The parts object is
+  returned non-optional with an `ok` field: an optional return out of a function
+  holding a `try` is a shape the Go writer types from the catch value rather
+  than from the declaration.
 
 Downcasts used to be a third family. They are now written: every generated trait
 carries an `RgAnyRef` supertrait, every participating class implements it in one
@@ -782,6 +795,34 @@ line, and `cast` is a Rust CustomOperator that checks the concrete type through
 The measurements that mattered, including the changes that made things worse and
 were backed out, are recorded in comments at the sites they belong to, so the
 next pass starts from the number rather than the guess.
+
+### What the binary still hits
+
+The compile is clean; the run is not. Every method call in the output is
+`x.borrow_mut().m(…)`, which holds the cell for the whole call, so any method
+that reaches its own object again panics — `already borrowed: BorrowMutError`.
+The compiler does that constantly: `RangerAppWriterContext` alone has 48 methods
+that fetch `this.getRoot()` and then read or write through it, and for the root
+context that handle IS `this`.
+
+Three were answered where the answer was principled rather than a workaround,
+and each moved the binary further into the run:
+
+- Reading an `@(optional)` field was counted as a mutation, on the grounds that
+  the path writer might reach for `as_mut()`. It is a read; calling it a
+  mutation made every such getter `&mut self`, which the call site then took
+  with `borrow_mut()`. Now 1001 methods take `&self` and several nested reads
+  of one object work, because `RefCell` allows any number of shared borrows.
+- `CodeFile.initSourceMapsIfNeeded` read `sourceMapsEnabled` back off the file
+  system that was creating it. The flag is passed in.
+- `addError` / `addParserError` push onto the ROOT context's list. When the
+  context is the root, they now push onto their own field instead of going
+  around through the handle.
+
+The general fix is a change of calling convention: a method would take
+`&Rc<RefCell<Self>>` and borrow per access rather than for the duration of the
+call. That is the next milestone, and it is a project of its own — the shape of
+the fix is clear, but it touches every method the writer emits.
 
 One conflict is worth naming because no codegen change can settle it:
 `RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and

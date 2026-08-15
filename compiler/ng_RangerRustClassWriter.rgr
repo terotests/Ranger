@@ -3155,11 +3155,15 @@ class RangerRustClassWriter {
           ; If there are more parts in ns (like this.field.isSet), check if any field is optional
           if ((array_length node.ns) > 1) {
             def secondPart:string (itemAt node.ns 1)
-            if (ctx.isVarDefined(secondPart)) {
-              def vDef:RangerAppParamDesc (ctx.getVariableDef(secondPart))
-              if vDef.is_optional {
-                return true  ; Access to optional field requires &mut self (due to as_mut())
-              }
+            ; NOTE: reading an optional field used to count as a mutation
+            ; here, on the grounds that the path writer might reach for
+            ; as_mut(). It is only a READ, and calling it a mutation made
+            ; every such getter `&mut self` — which the call site then took
+            ; with borrow_mut(), so any method reaching its own object
+            ; through an Rc panicked at run time. A real write is caught by
+            ; the assignment and mutating-call rules below.
+            if false {
+              return true
             }
           }
         }
@@ -3181,7 +3185,10 @@ class RangerRustClassWriter {
               }
             }
             if (vDefIsColl == false) {
-              return true
+              ; …same here: a bare read of an optional member is a read
+              if false {
+                return true
+              }
             }
           }
         }
