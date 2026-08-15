@@ -1061,7 +1061,12 @@ class RangerRustClassWriter {
       return
     }
     if p.is_optional {
-      wr.out(".as_ref().map(|__w| __w.upgrade().unwrap())" false)
+      ; and_then, not map-then-unwrap: a weak reference whose referent is
+        ; gone reads as NULL, which is what `@(weak)` means everywhere else.
+        ; Unwrapping the upgrade turned a dead reference into a panic — and
+        ; the null test right above it is exactly the code asking whether the
+        ; referent is still there.
+        wr.out(".as_ref().and_then(|__w| __w.upgrade())" false)
     } {
       wr.out(".upgrade().unwrap()" false)
     }
@@ -1627,7 +1632,12 @@ class RangerRustClassWriter {
             ; raw field) and an `unwrap`, which writes its own upgrade.
             if ((ctx.in_lhs_of_assignment == false) && (rust_in_weak_unwrap == false)) {
               if p.is_optional {
-                wr.out(".as_ref().map(|__w| __w.upgrade().unwrap())" false)
+                ; and_then, not map-then-unwrap: a weak reference whose referent is
+        ; gone reads as NULL, which is what `@(weak)` means everywhere else.
+        ; Unwrapping the upgrade turned a dead reference into a panic — and
+        ; the null test right above it is exactly the code asking whether the
+        ; referent is still there.
+        wr.out(".as_ref().and_then(|__w| __w.upgrade())" false)
               } {
                 wr.out(".upgrade().unwrap()" false)
               }
@@ -8039,7 +8049,19 @@ class RangerRustClassWriter {
         ; now survives to the shell instead of failing to compile.
         ; A `main:void` needs none of this and is emitted as before.
         def mainReturns:boolean (((strlen nn.type_name) > 0) && (nn.type_name != "void"))
+        ; The body runs on a thread with a large stack. Rust gives the main
+        ; thread 8MB, and a recursive-descent walk over a real program — which
+        ; is what this language is for — overflows it, with `fatal runtime
+        ; error: stack overflow` and no diagnostic. A spawned thread's stack
+        ; size is ours to choose, so the entry point becomes a shim.
         wr.out("fn main() {" true)
+        wr.indent(1)
+        wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)" true)
+        wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\");" true)
+        wr.out("__rg_main_thread.join().expect(\"main thread panicked\");" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out("fn __rg_main_body() {" true)
         wr.indent(1)
         wr.newline()
         if mainReturns {

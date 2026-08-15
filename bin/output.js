@@ -24587,7 +24587,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return;
               }
               if ( p.is_optional ) {
-                wr.out(".as_ref().map(|__w| __w.upgrade().unwrap())", false);
+                wr.out(".as_ref().and_then(|__w| __w.upgrade())", false);
               } else {
                 wr.out(".upgrade().unwrap()", false);
               }
@@ -25034,7 +25034,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       } else {
                         if ( (ctx.in_lhs_of_assignment == false) && (this.rust_in_weak_unwrap == false) ) {
                           if ( p.is_optional ) {
-                            wr.out(".as_ref().map(|__w| __w.upgrade().unwrap())", false);
+                            wr.out(".as_ref().and_then(|__w| __w.upgrade())", false);
                           } else {
                             wr.out(".upgrade().unwrap()", false);
                           }
@@ -30309,6 +30309,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( nn_2.hasFlag("main") && (nn_2.code.filename == ctx.getRootFile()) ) {
                             const mainReturns = ((nn_2.type_name.length) > 0) && (nn_2.type_name != "void");
                             wr.out("fn main() {", true);
+                            wr.indent(1);
+                            wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)", true);
+                            wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\");", true);
+                            wr.out("__rg_main_thread.join().expect(\"main thread panicked\");", true);
+                            wr.indent(-1);
+                            wr.out("}", true);
+                            wr.out("fn __rg_main_body() {", true);
                             wr.indent(1);
                             wr.newline();
                             if ( mainReturns ) {

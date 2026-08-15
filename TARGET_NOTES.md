@@ -915,6 +915,12 @@ truth took the following, in order, each one uncovered by the next failure:
   are two live `Ref`s, and the mutable form there is a panic rather than a
   borrow error.
 
+**The entry point runs on a thread with a 512MB stack.** Rust gives the main
+thread 8MB, and a recursive-descent walk over a real program overflows it with
+`fatal runtime error: stack overflow` and no diagnostic at all — the compiler's
+own sources do it. A spawned thread's stack size is ours to choose, so `main`
+is a shim that spawns the real body.
+
 Three source sites changed where the fix was one line: the JavaScript writer
 records its ReactNative flag on the context rather than on an inherited map
 field, the Go writer builds its HTTP-server writer per call instead of holding
