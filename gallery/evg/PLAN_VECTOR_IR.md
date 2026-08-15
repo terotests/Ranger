@@ -322,7 +322,84 @@ per-renderer special case. Prerequisites when that happens: N-stop support in
 `RasterGradient` (removing the two-stop truncation), and PDF Type 2/3 shading,
 so all three targets start from the same model.
 
-## 7. Profile for the first SVG version
+## 7. Conformance: lean on the standard, and on the browser
+
+The profile is deliberately small, but **everything inside it should follow
+SVG 1.1 semantics exactly**. Adopt the spec's *semantics*, not its *scope*.
+This matters more than it sounds: it is what turns "the renderers disagree"
+from a design debate into a defect with a right answer. In §2.1, PDF is not an
+alternative convention — it is wrong, and the spec says so.
+
+Three levels of conformance backing, in order of value per effort.
+
+### 7.1 Spec-derived unit assertions (do this from Stage 0)
+
+The parts of SVG 1.1 that are literally formulas or grammar need no images, no
+browser and no rendering — they are pure functions with published expected
+values:
+
+| What | Spec source | Test shape |
+| --- | --- | --- |
+| Path data grammar | §8.3 BNF | path string → `PathCommand[]`, incl. implicit repeats and `S`/`T` reflection |
+| Path error handling | §8.3 | malformed `d` → commands up to the error, plus a diagnostic |
+| Elliptical arc | Appendix F.6.5 (endpoint → centre) and F.6.6 (out-of-range radii correction) | arc params → centre/angles → cubics, numeric comparison |
+| `preserveAspectRatio` | viewBox/viewport section | (viewBox, viewport, align, meet\|slice) → `Matrix2D`, all nine align values |
+| Fill rules | `fill-rule` property | self-intersecting star → nonzero vs even-odd coverage |
+| Shape → path | shape sections (incl. the arc-magic-number for `rect` corners) | `rect`/`circle`/`ellipse`/`polygon` → `PathCommand[]` |
+
+One refinement this forces on Stage 1: the spec **defines** path-data error
+handling — render up to, but not including, the command containing the first
+error. That is better than either today's silent skip or a hard failure. Do
+both halves: truncate per spec *and* surface a diagnostic, and assert both.
+
+### 7.2 The browser as oracle — the harness already exists
+
+`test/browser_parity_snapshot.js` + `browser_parity_test.rgr` already implement
+exactly the right pattern for this, for font metrics: Chromium establishes the
+numbers **once** into a committed snapshot, and the offline gate then checks EVG
+against that snapshot with no browser and no network — because, as that file
+puts it, a correctness gate that can be skipped stops being one.
+
+Extend the same mechanism to vector geometry. The browser is already in the loop
+as a conformance-grade SVG implementation (the HTML renderer delegates to it),
+and the useful outputs are *numbers*, not images:
+
+* `getScreenCTM()` on a `<svg>` with a given `viewBox`/size → the exact
+  viewBox transform `VectorViewBox` must reproduce.
+* `getBBox()` on a `<path>` → geometry after arc/smooth-curve resolution.
+* `getPointAtLength()` sampled along `getTotalLength()` → a curve fingerprint
+  that catches a wrong `Q`→cubic conversion (§2.3) immediately.
+
+This fits the existing snapshot design directly: same recorder shape, same
+committed-fixture gate, no image diffing, no fuzzy comparison. `playwright-core`
+is already a root dependency and Chromium is already pinned by path in the
+recorder.
+
+### 7.3 The W3C SVG 1.1 test suite — later, and curated
+
+Tempting, but not the right backbone right now:
+
+* It is **reference-PNG based**, so it needs a working rasterizer plus fuzzy
+  image comparison — i.e. it cannot help until after Stage 2, and it brings a
+  whole image-diff tolerance problem with it.
+* Most of it exercises features deliberately outside the profile (text, fonts,
+  filters, masks, animation). Those tests would fail for reasons that are not
+  defects, so raw pass rate is meaningless.
+* It carries its own licensing/vendoring question for the repo.
+
+If it is adopted later, adopt it as a **curated subset with an explicit
+out-of-profile expected-fail list**, so the number the suite reports means
+something.
+
+### 7.4 Conformance also defines what "unsupported" must look like
+
+A restricted profile is only coherent if *not implemented* is a defined,
+detectable state rather than silently wrong output. So the profile in §8 should
+be enforced with the same rigour as the features: for anything outside it, the
+assertion is that a **diagnostic is produced**, not that something renders. That
+is what makes it safe to ship a small profile and grow it.
+
+## 8. Profile for the first SVG version
 
 Agreed with the sketch's subset. Explicitly out, and enforced by the parser
 rather than by convention:
@@ -345,7 +422,7 @@ Additions worth making explicit, because imported SVG is untrusted input:
   often contain `<text>`, and a logo that quietly loses its wordmark is the most
   likely "SVG support is broken" report. Detect it and say so.
 
-## 8. Summary
+## 9. Summary
 
 The plan's core decision — *general Vector IR, SVG as an importer* — is correct
 and is the right next big EVG feature. Three adjustments to the sketch:
@@ -358,6 +435,11 @@ and is the right next big EVG feature. Three adjustments to the sketch:
 3. **The raster rasterizer already exists inside `RasterText`.** Extracting it is
    cheaper than writing one and pays out in three places. The genuinely new work
    on the raster side is stroking, not filling.
+
+Conformance backing (§7): follow SVG 1.1 semantics exactly inside the profile,
+starting with spec-derived unit assertions on the pure functions, and extend the
+existing browser-parity snapshot harness to vector geometry. The W3C test suite
+is a later, curated addition — not the backbone.
 
 Gradients are explicitly deferred (§6): they are the one construct where
 cross-target parity cannot be promised — print pipelines rasterize them at their
