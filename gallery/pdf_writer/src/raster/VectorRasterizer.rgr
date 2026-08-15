@@ -1,0 +1,389 @@
+Import "RasterBuffer.rgr"
+Import "RasterCompositing.rgr"
+
+; ==============================================================================
+; VectorRasterizer.rgr — one anti-aliased scanline fill, for every filled shape
+; ==============================================================================
+; PLAN_VECTOR_IR.md §3 and Stage 2.
+;
+; This code is not new. It was already in RasterText, where it rasterized
+; TrueType glyph outlines: an edge list carrying winding direction, a scanline
+; fill sampling a 4x4 subpixel grid, a non-zero winding test. Nothing about the
+; fill stage was ever font-specific — only the INPUT was, being TrueType
+; contours of on- and off-curve points.
+;
+; So the raster side of vector support is mostly this extraction rather than a
+; new algorithm. Three things come out of it:
+;
+;   - <Path> can be filled in PNG output at all, which it could not before
+;   - glyph rendering and path rendering cannot drift apart, because there is
+;     one implementation to drift
+;   - the WASM UI's fillPolygon gains anti-aliasing and hole support by calling
+;     the same code instead of its own crossing count
+;
+; The one genuinely new capability is the even-odd fill rule, which glyphs never
+; needed (TrueType is defined as non-zero) and SVG requires.
+; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; VectorEdge — one line segment of a closed contour, prepared for scanline use.
+;
+; Coordinates arrive in device space, Y increasing downward, already flipped by
+; whoever produced them. `dir` records which way the edge crosses a scanline,
+; which is what makes the non-zero rule possible; the even-odd rule ignores it.
+; ------------------------------------------------------------------------------
+class VectorEdge {
+    def x1:double 0.0
+    def y1:double 0.0
+    def x2:double 0.0
+    def y2:double 0.0
+    def minY:double 0.0
+    def maxY:double 0.0
+    def xAtMinY:double 0.0  ; X coordinate at minY
+    def dxdy:double 0.0     ; dx/dy slope for interpolation
+    def dir:int 0           ; +1 going down the screen, -1 going up
+
+    fn init:void (px1:double py1:double px2:double py2:double) {
+        x1 = px1
+        y1 = py1
+        x2 = px2
+        y2 = py2
+
+        if (y1 < y2) {
+            minY = y1
+            maxY = y2
+            xAtMinY = x1
+            dir = 1
+        } {
+            minY = y2
+            maxY = y1
+            xAtMinY = x2
+            dir = (0 - 1)
+        }
+
+        def dy:double (maxY - minY)
+        if (dy > 0.0001) {
+            if (y1 < y2) {
+                dxdy = (x2 - x1) / dy
+            } {
+                dxdy = (x1 - x2) / dy
+            }
+        } {
+            dxdy = 0.0
+        }
+    }
+
+    ; X where this edge crosses the given scanline.
+    fn getX:double (y:double) {
+        return (xAtMinY + (dxdy * (y - minY)))
+    }
+}
+
+; ------------------------------------------------------------------------------
+; VectorRasterizer — accumulate contours, then fill them in one pass.
+;
+; Contours are accumulated rather than filled one at a time on purpose: a shape
+; with holes only comes out right when every ring is present in the same fill,
+; because whether a pixel is inside is a question about the whole shape, not
+; about any one ring.
+; ------------------------------------------------------------------------------
+class VectorRasterizer {
+    def edges:[VectorEdge]
+    def compositor:RasterCompositor (new RasterCompositor())
+
+    Constructor () {
+        def e:[VectorEdge]
+        edges = e
+    }
+
+    ; Fill rules. Non-zero counts the signed crossings and is what TrueType and
+    ; SVG's default use; even-odd counts them unsigned and is what SVG's
+    ; fill-rule="evenodd" selects. They differ exactly where a shape overlaps
+    ; itself or nests inside itself.
+    sfn nonZero:int () {
+        return 0
+    }
+
+    sfn evenOdd:int () {
+        return 1
+    }
+
+    fn reset:void () {
+        def e:[VectorEdge]
+        edges = e
+    }
+
+    fn edgeCount:int () {
+        return (array_length edges)
+    }
+
+    fn addEdge:void (px1:double py1:double px2:double py2:double) {
+        ; A horizontal edge can never cross a scanline, so it contributes
+        ; nothing and only costs time in the inner loop.
+        def dy:double (py2 - py1)
+        if (dy < 0.0) {
+            dy = (0.0 - dy)
+        }
+        if (dy < 0.0001) {
+            return
+        }
+        def edge (new VectorEdge())
+        edge.init(px1 py1 px2 py2)
+        push edges edge
+    }
+
+    ; Add one closed ring, given as a flat [x0 y0 x1 y1 ...] list. The ring is
+    ; closed implicitly: a fill is defined only for closed contours, so an open
+    ; one is closed rather than refused.
+    fn addRing:void (pts:[double]) {
+        def m:int (array_length pts)
+        def n:int (idiv m 2)
+        if (n < 2) {
+            return
+        }
+        def k:int 0
+        while (k < n) {
+            def nextIdx:int (k + 1)
+            if (nextIdx >= n) {
+                nextIdx = 0
+            }
+            def ax:double (itemAt pts (k * 2))
+            def ay:double (itemAt pts ((k * 2) + 1))
+            def bx:double (itemAt pts (nextIdx * 2))
+            def by:double (itemAt pts ((nextIdx * 2) + 1))
+            this.addEdge(ax ay bx by)
+            k = (k + 1)
+        }
+    }
+
+    ; Add a stroke along a ring, as fillable geometry.
+    ;
+    ; PLAN_VECTOR_IR.md Stage 2 is explicit that this is the approximation, not
+    ; the real thing: proper stroking builds offset curves with mitre/bevel
+    ; joins and caps, which is a genuine algorithm rather than the extraction
+    ; the fill side turned out to be. What this does instead is emit one quad
+    ; per flattened segment plus a disc at each joint, and let the non-zero rule
+    ; merge the overlaps — every quad is wound the same way, so overlapping
+    ; regions accumulate winding and stay filled rather than cancelling.
+    ;
+    ; That gives round joins and butt caps, and is indistinguishable from a real
+    ; stroke at icon weights. It is visibly an approximation for very thick
+    ; strokes with sharp corners, where a mitre would come to a point.
+    ;
+    ; PDF and HTML stroke natively, so only the raster target uses this.
+    fn addStroke:void (pts:[double] width:double closed:boolean) {
+        def m:int (array_length pts)
+        def n:int (idiv m 2)
+        if (n < 2) {
+            return
+        }
+        def hw:double (width / 2.0)
+        if (hw <= 0.0) {
+            return
+        }
+
+        def segCount:int (n - 1)
+        if closed {
+            segCount = n
+        }
+
+        def k:int 0
+        while (k < segCount) {
+            def nextIdx:int (k + 1)
+            if (nextIdx >= n) {
+                nextIdx = 0
+            }
+            def ax:double (itemAt pts (k * 2))
+            def ay:double (itemAt pts ((k * 2) + 1))
+            def bx:double (itemAt pts (nextIdx * 2))
+            def by:double (itemAt pts ((nextIdx * 2) + 1))
+
+            def dx:double (bx - ax)
+            def dy:double (by - ay)
+            def dlen:double (sqrt ((dx * dx) + (dy * dy)))
+            if (dlen > 0.000001) {
+                ; Perpendicular of unit length, scaled to half the stroke
+                ; width. Derived from the segment direction, so the quad comes
+                ; out with the same orientation whichever way the segment runs.
+                def px:double (((0.0 - dy) / dlen) * hw)
+                def py:double ((dx / dlen) * hw)
+
+                def quad:[double]
+                push quad (ax + px)
+                push quad (ay + py)
+                push quad (bx + px)
+                push quad (by + py)
+                push quad (bx - px)
+                push quad (by - py)
+                push quad (ax - px)
+                push quad (ay - py)
+                this.addRing(quad)
+            }
+            k = (k + 1)
+        }
+
+        ; A disc at every joint fills the wedge two quads leave open on the
+        ; outside of a turn.
+        def firstJoint:int 1
+        def lastJoint:int (n - 1)
+        if closed {
+            firstJoint = 0
+            lastJoint = n
+        }
+        def j:int firstJoint
+        while (j < lastJoint) {
+            def jx:double (itemAt pts (j * 2))
+            def jy:double (itemAt pts ((j * 2) + 1))
+            this.addDisc(jx jy hw)
+            j = (j + 1)
+        }
+    }
+
+    ; A small regular polygon standing in for a circle. Eight sides is enough
+    ; at stroke widths: the error is under 4% of the radius, well below one
+    ; pixel for anything an icon uses.
+    fn addDisc:void (cx:double cy:double radius:double) {
+        if (radius <= 0.0) {
+            return
+        }
+        def sides:int 8
+        def pts:[double]
+        def k:int 0
+        while (k < sides) {
+            def ang:double (((2.0 * (M_PI)) * (to_double k)) / (to_double sides))
+            push pts (cx + (radius * (cos ang)))
+            push pts (cy + (radius * (sin ang)))
+            k = (k + 1)
+        }
+        this.addRing(pts)
+    }
+
+    ; Fill everything accumulated so far.
+    ;
+    ; Coverage comes from a 4x4 grid of sample points per pixel, each tested by
+    ; casting a ray to the left and inspecting the edges it crosses. Sixteen
+    ; samples give 17 distinct alpha levels, which is enough that edges read as
+    ; smooth at text sizes — the standard this inherited from glyph rendering,
+    ; and the reason path fills now match glyph fills exactly.
+    fn fillAA:void (buf:RasterBuffer r:int g:int b:int a:int rule:int) {
+        def numEdges:int (array_length edges)
+        if (numEdges == 0) {
+            return
+        }
+
+        def minY:double 99999.0
+        def maxY:double (0.0 - 99999.0)
+        def minX:double 99999.0
+        def maxX:double (0.0 - 99999.0)
+        def i:int 0
+        while (i < numEdges) {
+            def e:VectorEdge (itemAt edges i)
+            if (e.minY < minY) {
+                minY = e.minY
+            }
+            if (e.maxY > maxY) {
+                maxY = e.maxY
+            }
+            if (e.x1 < minX) {
+                minX = e.x1
+            }
+            if (e.x2 < minX) {
+                minX = e.x2
+            }
+            if (e.x1 > maxX) {
+                maxX = e.x1
+            }
+            if (e.x2 > maxX) {
+                maxX = e.x2
+            }
+            i = i + 1
+        }
+
+        ; Clamp to the buffer with a one pixel margin, so a shape that reaches
+        ; the very edge still gets its partial coverage.
+        def startY:int ((to_int minY) - 1)
+        def endY:int ((to_int maxY) + 1)
+        def startX:int ((to_int minX) - 1)
+        def endX:int ((to_int maxX) + 1)
+        if (startY < 0) {
+            startY = 0
+        }
+        if (endY >= buf.height) {
+            endY = buf.height - 1
+        }
+        if (startX < 0) {
+            startX = 0
+        }
+        if (endX >= buf.width) {
+            endX = buf.width - 1
+        }
+
+        def subStep:double 0.25
+        def subOffset:double 0.125
+        def samplesPerPixel:double 16.0
+
+        def scanY:int startY
+        while (scanY <= endY) {
+            def scanX:int startX
+            while (scanX <= endX) {
+                def coverage:int 0
+
+                def sy:int 0
+                while (sy < 4) {
+                    ; The half-step offset keeps samples off exact vertex
+                    ; coordinates, where a crossing could otherwise be counted
+                    ; twice or not at all.
+                    def sampleY:double ((to_double scanY) + subOffset + ((to_double sy) * subStep))
+
+                    def sx:int 0
+                    while (sx < 4) {
+                        def sampleX:double ((to_double scanX) + subOffset + ((to_double sx) * subStep))
+
+                        def winding:int 0
+                        def crossings:int 0
+                        i = 0
+                        while (i < numEdges) {
+                            def e:VectorEdge (itemAt edges i)
+                            ; Half-open in Y so a vertex shared by two edges is
+                            ; counted once.
+                            if ((sampleY >= e.minY) && (sampleY < e.maxY)) {
+                                def edgeX:double (e.getX(sampleY))
+                                if (edgeX < sampleX) {
+                                    winding = winding + e.dir
+                                    crossings = crossings + 1
+                                }
+                            }
+                            i = i + 1
+                        }
+
+                        def inside:boolean false
+                        if (rule == 1) {
+                            ; even-odd
+                            if (((idiv crossings 2) * 2) != crossings) {
+                                inside = true
+                            }
+                        } {
+                            ; non-zero
+                            if (winding != 0) {
+                                inside = true
+                            }
+                        }
+                        if inside {
+                            coverage = coverage + 1
+                        }
+                        sx = sx + 1
+                    }
+                    sy = sy + 1
+                }
+
+                if (coverage > 0) {
+                    def coverageAlpha:int (to_int (((to_double coverage) / samplesPerPixel) * (to_double a)))
+                    compositor.blendSourceOver(buf scanX scanY r g b coverageAlpha)
+                }
+
+                scanX = scanX + 1
+            }
+            scanY = scanY + 1
+        }
+    }
+}

@@ -20,6 +20,26 @@ class PathCommand {
     def sweep:boolean false
 }
 
+; One closed contour of a flattened path, as a flat [x0 y0 x1 y1 ...] list.
+;
+; Rings are the unit a fill is defined over, which is why flattening has to
+; preserve them: `flatten` returns every point of every subpath in one list with
+; no boundary between them, so a consumer can only treat the result as a single
+; polygon. That is why a donut, the letter "O", or any icon with a counter came
+; out solid — the hole and the outline were welded into one ring.
+class PathRing {
+    def pts:[double]
+
+    Constructor () {
+        def p:[double]
+        pts = p
+    }
+
+    fn pointCount:int () {
+        return (idiv (array_length pts) 2)
+    }
+}
+
 class PathBounds {
     def minX:double 0.0
     def minY:double 0.0
@@ -900,6 +920,135 @@ class SVGPathParser {
     ; arcs as a straight line to the endpoint. M starts a new point, Z closes the
     ; ring (the fill closes implicitly, so Z adds no point). Used by a filled-path
     ; renderer (UIContext.fillPolygon) to rasterize <Path> elements.
+    ; Flatten to closed contours, transformed by an affine matrix on the way.
+    ;
+    ; The six matrix arguments are passed as plain numbers rather than a
+    ; Matrix2D so that this file stays free of dependencies — it is imported by
+    ; the PDF renderer, the WASM UI and the game-engine tests alike. They are in
+    ; SVG matrix(a b c d e f) order:
+    ;
+    ;   x' = a*x + c*y + e
+    ;   y' = b*x + d*y + f
+    ;
+    ; `steps` is the number of line segments each curve is split into. Doing the
+    ; transform HERE rather than afterwards matters: the subdivision then
+    ; happens at the size the shape is actually drawn, so a path scaled up does
+    ; not show the facets of a curve flattened at its original scale.
+    fn flattenRings:[PathRing] (steps:int ma:double mb:double mc:double md:double me:double mf:double) {
+        def rings:[PathRing]
+        def current (new PathRing())
+        def started:boolean false
+
+        ; Pen position in USER units — the curve maths runs before the
+        ; transform, so control points and the pen have to agree.
+        def cx:double 0.0
+        def cy:double 0.0
+        def sx:double 0.0
+        def sy:double 0.0
+
+        def n:int (array_length commands)
+        def k:int 0
+        while (k < n) {
+            def cmd:PathCommand (itemAt commands k)
+
+            if (cmd.type == "M") {
+                ; A new subpath closes whatever was open.
+                if started {
+                    if ((current.pointCount()) >= 2) {
+                        push rings current
+                    }
+                }
+                current = (new PathRing())
+                started = true
+                cx = cmd.x
+                cy = cmd.y
+                sx = cmd.x
+                sy = cmd.y
+                push current.pts ((ma * cx) + ((mc * cy) + me))
+                push current.pts ((mb * cx) + ((md * cy) + mf))
+            }
+
+            if (cmd.type == "L") {
+                cx = cmd.x
+                cy = cmd.y
+                push current.pts ((ma * cx) + ((mc * cy) + me))
+                push current.pts ((mb * cx) + ((md * cy) + mf))
+            }
+
+            if (cmd.type == "C") {
+                def s:int 1
+                while (s <= steps) {
+                    def tt:double ((to_double s) / (to_double steps))
+                    def u:double (1.0 - tt)
+                    def b0:double ((u * u) * u)
+                    def b1:double (((3.0 * u) * u) * tt)
+                    def b2:double (((3.0 * u) * tt) * tt)
+                    def b3:double ((tt * tt) * tt)
+                    def px:double ((((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x2)) + (b3 * cmd.x))
+                    def py:double ((((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y2)) + (b3 * cmd.y))
+                    push current.pts ((ma * px) + ((mc * py) + me))
+                    push current.pts ((mb * px) + ((md * py) + mf))
+                    s = (s + 1)
+                }
+                cx = cmd.x
+                cy = cmd.y
+            }
+
+            if (cmd.type == "Q") {
+                def s:int 1
+                while (s <= steps) {
+                    def tt:double ((to_double s) / (to_double steps))
+                    def u:double (1.0 - tt)
+                    def b0:double (u * u)
+                    def b1:double ((2.0 * u) * tt)
+                    def b2:double (tt * tt)
+                    def px:double (((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x))
+                    def py:double (((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y))
+                    push current.pts ((ma * px) + ((mc * py) + me))
+                    push current.pts ((mb * px) + ((md * py) + mf))
+                    s = (s + 1)
+                }
+                cx = cmd.x
+                cy = cmd.y
+            }
+
+            if (cmd.type == "Z") {
+                ; The fill closes the ring itself, so Z adds no point — it ends
+                ; the ring and returns the pen to the subpath start.
+                if started {
+                    if ((current.pointCount()) >= 2) {
+                        push rings current
+                    }
+                }
+                current = (new PathRing())
+                started = false
+                cx = sx
+                cy = sy
+            }
+
+            k = (k + 1)
+        }
+
+        ; An unclosed final subpath still fills — SVG closes it implicitly for
+        ; the purposes of filling.
+        if started {
+            if ((current.pointCount()) >= 2) {
+                push rings current
+            }
+        }
+
+        return rings
+    }
+
+    ; Flatten with no transform.
+    fn flattenRingsPlain:[PathRing] (steps:int) {
+        return (this.flattenRings(steps 1.0 0.0 0.0 1.0 0.0 0.0))
+    }
+
+    ; Older flattening that returns every point of every subpath in ONE list.
+    ; Kept because existing callers depend on the signature, but it cannot
+    ; express a shape with more than one contour: use flattenRings for anything
+    ; that will be filled.
     fn flatten:[double] (steps:int) {
         def pts:[double]
         def cx:double 0.0
