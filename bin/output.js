@@ -953,6 +953,8 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.is_inherited = false;
     this.is_extended_by_children = false;
     this.child_classes = [];
+    this.rust_trait_mut = {};
+    this.rust_trait_mut_ready = false;
     this.rust_needs_ref_semantics = false;
     this.rust_ref_reason = "";
   }
@@ -26823,35 +26825,101 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   };
                 };
-                markTraitIfaceMutations (cl, ctx, directMutations) {
+                rustTraitRootOf (cl, ctx) {
+                  let res;
                   if ( cl.is_extended_by_children ) {
-                    for ( let i = 0; i < cl.defined_variants.length; i++) {
-                      var fnVar = cl.defined_variants[i];
-                      const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-                      for ( let vi = 0; vi < mVs.variants.length; vi++) {
-                        var variant = mVs.variants[vi];
-                        directMutations[variant.name] = true;
-                      };
-                    };
+                    res = cl;
+                    return res;
+                  }
+                  for ( let trPi = 0; trPi < cl.extends_classes.length; trPi++) {
+                    var trParent = cl.extends_classes[trPi];
+                    const trPCO = ctx.findClass(trParent);
+                    if ( (typeof(trPCO) !== "undefined" && trPCO != null )  ) {
+                      const trPC = trPCO;
+                      if ( trPC.is_extended_by_children ) {
+                        res = trPC;
+                      }
+                    }
+                  };
+                  return res;
+                };
+                rustFillTraitMutations (root, ctx) {
+                  if ( root.rust_trait_mut_ready ) {
                     return;
                   }
-                  for ( let epi = 0; epi < cl.extends_classes.length; epi++) {
-                    var extParentName = cl.extends_classes[epi];
-                    const extParentClass = ctx.findClass(extParentName);
-                    if ( (typeof(extParentClass) !== "undefined" && extParentClass != null )  ) {
-                      const epc = extParentClass;
-                      if ( epc.is_extended_by_children ) {
-                        for ( let i_1 = 0; i_1 < cl.defined_variants.length; i_1++) {
-                          var fnVar_1 = cl.defined_variants[i_1];
-                          if ( ( typeof(epc.defined_methods[fnVar_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(epc.defined_methods, fnVar_1) ) ) {
-                            const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
-                            for ( let vi_1 = 0; vi_1 < mVs_1.variants.length; vi_1++) {
-                              var variant_1 = mVs_1.variants[vi_1];
-                              directMutations[variant_1.name] = true;
-                            };
-                          }
-                        };
+                  root.rust_trait_mut_ready = true;
+                  let family = [];
+                  family.push(root);
+                  for ( let chI = 0; chI < root.child_classes.length; chI++) {
+                    var chName = root.child_classes[chI];
+                    if ( ctx.isDefinedClass(chName) ) {
+                      const chC = ctx.findClass(chName);
+                      family.push(chC);
+                    }
+                  };
+                  let famDirect = {};
+                  let famGraph = {};
+                  for ( let famI = 0; famI < family.length; famI++) {
+                    var fam = family[famI];
+                    let memberDirect = {};
+                    this.buildClassMutationGraph(fam, ctx, memberDirect, famGraph);
+                    this.buildInheritedMutationGraph(fam, ctx, memberDirect, famGraph);
+                    for ( let memVi = 0; memVi < fam.defined_variants.length; memVi++) {
+                      var memVar = fam.defined_variants[memVi];
+                      if ( ( typeof(memberDirect[memVar] ) != "undefined" && Object.prototype.hasOwnProperty.call(memberDirect, memVar) ) ) {
+                        const memMut = (( Object.prototype.hasOwnProperty.call(memberDirect, memVar) ? memberDirect[memVar] : undefined ));
+                        if ( memMut ) {
+                          famDirect[memVar] = true;
+                        }
                       }
+                    };
+                    for ( let inhVi = 0; inhVi < root.defined_variants.length; inhVi++) {
+                      var inhVar = root.defined_variants[inhVi];
+                      if ( ( typeof(memberDirect[inhVar] ) != "undefined" && Object.prototype.hasOwnProperty.call(memberDirect, inhVar) ) ) {
+                        const inhMut = (( Object.prototype.hasOwnProperty.call(memberDirect, inhVar) ? memberDirect[inhVar] : undefined ));
+                        if ( inhMut ) {
+                          famDirect[inhVar] = true;
+                        }
+                      }
+                    };
+                  };
+                  for ( let famVi = 0; famVi < root.defined_variants.length; famVi++) {
+                    var famVar = root.defined_variants[famVi];
+                    if ( this.methodMutatesThis(famVar, famDirect, famGraph) ) {
+                      root.rust_trait_mut[famVar] = true;
+                    }
+                  };
+                  for ( let fam2I = 0; fam2I < family.length; fam2I++) {
+                    var fam2 = family[fam2I];
+                    for ( let tmVi = 0; tmVi < root.defined_variants.length; tmVi++) {
+                      var tmVar = root.defined_variants[tmVi];
+                      if ( ( typeof(fam2.method_variants[tmVar] ) != "undefined" && Object.prototype.hasOwnProperty.call(fam2.method_variants, tmVar) ) ) {
+                        const tmMut = ( typeof(root.rust_trait_mut[tmVar] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.rust_trait_mut, tmVar) );
+                        const tmVs = ( Object.prototype.hasOwnProperty.call(fam2.method_variants, tmVar) ? fam2.method_variants[tmVar] : undefined );
+                        for ( let tmVj = 0; tmVj < tmVs.variants.length; tmVj++) {
+                          var tmV = tmVs.variants[tmVj];
+                          tmV.rust_mut_self = tmMut;
+                        };
+                        const tmM = fam2.findMethod(tmVar);
+                        if ( (typeof(tmM) !== "undefined" && tmM != null )  ) {
+                          const tmMD = tmM;
+                          tmMD.rust_mut_self = tmMut;
+                        }
+                      }
+                    };
+                  };
+                };
+                markTraitIfaceMutations (cl, ctx, directMutations) {
+                  const rootO = this.rustTraitRootOf(cl, ctx);
+                  if ( typeof(rootO) === "undefined" ) {
+                    return;
+                  }
+                  const root = rootO;
+                  this.rustFillTraitMutations(root, ctx);
+                  for ( let i = 0; i < root.defined_variants.length; i++) {
+                    var fnVar = root.defined_variants[i];
+                    if ( ( typeof(root.rust_trait_mut[fnVar] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.rust_trait_mut, fnVar) ) ) {
+                      directMutations[fnVar] = true;
                     }
                   };
                 };
@@ -29110,11 +29178,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   mmCtx = mmCtxO;
                                 }
                                 if ( this.rustMethodNeedsReceiver(mm, (mmB), mmCtx, ctx) ) {
-                                  if ( this.rustMethodInTraitIface(mcl, mm.name, ctx) ) {
-                                    mm.rust_mut_self = true;
-                                  } else {
-                                    mm.rust_mut_self = this.methodMutatesThis(mm.name, mDirect, mGraph);
-                                  }
+                                  mm.rust_mut_self = this.methodMutatesThis(mm.name, mDirect, mGraph);
                                 } else {
                                   mm.rust_mut_self = false;
                                 }
@@ -29134,11 +29198,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                   let mvMut = false;
                                   if ( this.rustMethodNeedsReceiver(mv, (mvB), mvCtx, ctx) ) {
-                                    if ( this.rustMethodInTraitIface(mcl, mv.name, ctx) ) {
-                                      mvMut = true;
-                                    } else {
-                                      mvMut = this.methodMutatesThis(mv.name, mDirect, mGraph);
-                                    }
+                                    mvMut = this.methodMutatesThis(mv.name, mDirect, mGraph);
                                   }
                                   mv.rust_mut_self = mvMut;
                                   const mvOther = mcl.findMethod(mv.name);
@@ -29462,13 +29522,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       if ( ( typeof(epc.defined_methods[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(epc.defined_methods, variant_1.name) ) ) {
                                         method_is_in_trait = true;
                                       }
+                                      if ( ( typeof(epc.method_variants[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(epc.method_variants, variant_1.name) ) ) {
+                                        method_is_in_trait = true;
+                                      }
                                     }
                                   }
                                 };
                               }
                               let emittedMut = method_mutates_this;
-                              if ( method_is_in_trait ) {
-                                emittedMut = true;
+                              const emRootO = this.rustTraitRootOf(cl, ctx);
+                              if ( (typeof(emRootO) !== "undefined" && emRootO != null )  ) {
+                                const emRoot = emRootO;
+                                let emInTrait = ( typeof(emRoot.method_variants[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(emRoot.method_variants, variant_1.name) );
+                                if ( ( typeof(emRoot.defined_methods[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(emRoot.defined_methods, variant_1.name) ) ) {
+                                  emInTrait = true;
+                                }
+                                if ( emInTrait ) {
+                                  this.rustFillTraitMutations(emRoot, ctx);
+                                  emittedMut = ( typeof(emRoot.rust_trait_mut[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(emRoot.rust_trait_mut, variant_1.name) );
+                                }
+                              } else {
+                                if ( method_is_in_trait ) {
+                                  emittedMut = true;
+                                }
                               }
                               variant_1.rust_mut_self = emittedMut;
                               const emOther = cl.findMethod(variant_1.name);
@@ -29557,7 +29633,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   wr.out(("fn " + variant_2.name) + "(", false);
                                   if ( method_uses_this_1 ) {
                                     if ( pc.is_extended_by_children ) {
-                                      this.writeRustReceiver(true, wr);
+                                      this.rustFillTraitMutations(pc, ctx);
+                                      this.writeRustReceiver(( typeof(pc.rust_trait_mut[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(pc.rust_trait_mut, variant_2.name) ), wr);
                                     } else {
                                       if ( method_mutates_this_1 ) {
                                         this.writeRustReceiver(true, wr);
@@ -29617,7 +29694,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             for ( let i_10 = 0; i_10 < mVs_2.variants.length; i_10++) {
                               var variant_3 = mVs_2.variants[i_10];
                               wr.out(("fn " + variant_3.name) + "(", false);
-                              this.writeRustReceiver(true, wr);
+                              this.rustFillTraitMutations(cl, ctx);
+                              this.writeRustReceiver(( typeof(cl.rust_trait_mut[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(cl.rust_trait_mut, variant_3.name) ), wr);
                               this.rust_in_trait_decl = true;
                               await this.writeArgsDef(variant_3, ctx, wr);
                               this.rust_in_trait_decl = false;
@@ -29636,7 +29714,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             for ( let i_12 = 0; i_12 < mVs_3.variants.length; i_12++) {
                               var variant_4 = mVs_3.variants[i_12];
                               wr.out(("fn " + variant_4.name) + "(", false);
-                              this.writeRustReceiver(true, wr);
+                              this.writeRustReceiver(( typeof(cl.rust_trait_mut[variant_4.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(cl.rust_trait_mut, variant_4.name) ), wr);
                               await this.writeArgsDef(variant_4, ctx, wr);
                               await this.writeRustFnClose(variant_4, ctx, wr);
                               wr.out(" {", true);
@@ -29672,7 +29750,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   for ( let i_14 = 0; i_14 < mVs_4.variants.length; i_14++) {
                                     var variant_5 = mVs_4.variants[i_14];
                                     wr.out(("fn " + variant_5.name) + "(", false);
-                                    this.writeRustReceiver(true, wr);
+                                    this.rustFillTraitMutations(pc_1, ctx);
+                                    this.writeRustReceiver(( typeof(pc_1.rust_trait_mut[variant_5.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(pc_1.rust_trait_mut, variant_5.name) ), wr);
                                     await this.writeArgsDef(variant_5, ctx, wr);
                                     await this.writeRustFnClose(variant_5, ctx, wr);
                                     wr.out(" {", true);

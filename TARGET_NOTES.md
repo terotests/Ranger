@@ -873,21 +873,43 @@ thread 'main' panicked: RefCell already borrowed
   RangerJavaScriptClassWriter::WalkNode
 ```
 
-The remaining wall is the **trait families** — the language writers. A class
-that is extended by children is reached as `Rc<RefCell<dyn XTrait>>`, and a
-trait method cannot be called without a receiver, so `wr.borrow_mut().WalkNode(…)`
-holds the writer's cell for the whole call. `LiveCompiler` then calls back into
-the same writer and finds it borrowed. The receiverless rule above cannot be
-applied there: within one class the hidden argument would be typed `dyn XTrait`
-for the methods the trait declares and as the class for the rest, and neither
-spelling converts to the other — measured at 497 `E0308`s. Making it uniform
-means every own-field access in those classes going through trait accessors,
-which exist only for fields the parent declares. Trait families are excluded
-from the widening for now, and that is where the binary stops.
+The remaining wall is the **trait families** — the language writers — and it is
+now understood rather than guessed at.
 
-Everything up to it runs: the parser, the flow analyser, the type checker and
-the whole descriptor machinery execute in Rust and reach the same answers the
-JavaScript build does, on the same input.
+A trait method cannot be dispatched without a receiver, so `&mut self` on one
+means `wr.borrow_mut().WalkNode(…)` at every call site, and the borrow is held
+for the whole call. `LiveCompiler` calls back into the same writer partway
+through, and that is the panic. Two SHARED borrows would nest, so the question
+is only which of these methods actually needs to mutate.
+
+The answer used to be "all of them", by fiat: `markTraitIfaceMutations` marked
+every trait-interface method as mutating, because one signature serves the
+declaration and every impl and any implementation that mutates forces the
+mutable form on all of them. That blanket has been replaced by the real union —
+one analysis over the whole family, on one merged mutation graph, cached on the
+family's root and read by every emission site. **848 methods now take `&self`
+where all of them used to take `&mut self`.**
+
+That is not yet enough for the writers, and the measurement says exactly why.
+Forcing the family answer to "never mutates" leaves 302 rustc errors, and they
+are concentrated in the per-emission scratch state the target writers keep on
+themselves — `rust_writing_call_receiver`, `rust_receiver_shared_known`,
+`thisName`, `wrote_header`, `rustFnReturnsUnion` and their Go and Swift
+equivalents. 18 such fields on the Rust writer, 7 on Go, 6 on JavaScript, 3 on
+Swift. One sibling's scratch flag makes `WalkNode` mutable for the whole
+family, which is why the JavaScript writer — which mutates nothing on the hot
+path — still takes `&mut self`.
+
+So the next step is bounded and specific: a field of a trait-family class that
+a trait method mutates goes into the struct as `RefCell<T>`, read as
+`self.field.borrow()` and written as `*self.field.borrow_mut() = v`. Interior
+mutability on those ~34 fields lets every trait method take `&self`, the outer
+cell is then only ever shared-borrowed, and the writer/compiler recursion
+stops conflicting. Nothing else about the representation has to change.
+
+Everything before code generation runs: the parser, the flow analyser, the type
+checker and the whole descriptor machinery execute in Rust and reach the same
+answers the JavaScript build does, on the same input.
 
 One conflict is worth naming because no codegen change can settle it:
 `RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and

@@ -3892,30 +3892,121 @@ class RangerRustClassWriter {
     }
   }
 
-  fn markTraitIfaceMutations:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean]) {
+  ; The root of the trait family a class belongs to: itself when it has
+  ; children, otherwise the parent that does.
+  fn rustTraitRootOf@(optional):RangerAppClassDesc (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def res@(optional):RangerAppClassDesc
     if cl.is_extended_by_children {
-      for cl.defined_variants fnVar:string i {
-        def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
-        for mVs.variants variant:RangerAppFunctionDesc vi {
-          set directMutations variant.name true
+      res = cl
+      return res
+    }
+    for cl.extends_classes trParent:string trPi {
+      def trPCO@(optional):RangerAppClassDesc (ctx.findClass(trParent))
+      if (!null? trPCO) {
+        def trPC:RangerAppClassDesc (unwrap trPCO)
+        if trPC.is_extended_by_children {
+          res = trPC
         }
       }
+    }
+    return res
+  }
+
+  ; One answer per trait method for the whole family, computed once and cached
+  ; on the root. A trait method is `&mut self` if ANY implementation of it
+  ; mutates its own object — the declaration and every impl share one
+  ; signature, so the answer has to be the union. It used to be a blanket
+  ; `true`: every method of every writer took `&mut self`, which means every
+  ; call through a writer handle takes the cell for the whole call, and the
+  ; compiler's writers call back into each other constantly.
+  fn rustFillTraitMutations:void (root:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if root.rust_trait_mut_ready {
       return
     }
-    for cl.extends_classes extParentName:string epi {
-      def extParentClass@(optional):RangerAppClassDesc (ctx.findClass(extParentName))
-      if (!null? extParentClass) {
-        def epc:RangerAppClassDesc (unwrap extParentClass)
-        if epc.is_extended_by_children {
-          for cl.defined_variants fnVar:string i {
-            if (has epc.defined_methods fnVar) {
-              def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
-              for mVs.variants variant:RangerAppFunctionDesc vi {
-                set directMutations variant.name true
-              }
-            }
+    root.rust_trait_mut_ready = true
+    def family:[RangerAppClassDesc]
+    push family root
+    for root.child_classes chName:string chI {
+      if (ctx.isDefinedClass(chName)) {
+        def chC:RangerAppClassDesc (ctx.findClass(chName))
+        push family chC
+      }
+    }
+    ; ONE graph for the whole family. Analysing each member on its own gets
+    ; the transitive step wrong: `WriteEnum` calls `WriteVRef`, `WriteVRef`
+    ; mutates in a SUBCLASS, and the root's own graph cannot see that — so the
+    ; root's `WriteEnum` came out `&self` calling a `&mut self`.
+    def famDirect:[string:boolean]
+    def famGraph:[string:MethodCallList]
+    for family fam:RangerAppClassDesc famI {
+      def memberDirect:[string:boolean]
+      this.buildClassMutationGraph(fam ctx memberDirect famGraph)
+      this.buildInheritedMutationGraph(fam ctx memberDirect famGraph)
+      ; the union of the members' answers: one implementation that mutates
+      ; makes the method mutating for every impl of the same signature
+      for fam.defined_variants memVar:string memVi {
+        if (has memberDirect memVar) {
+          def memMut:boolean (unwrap (get memberDirect memVar))
+          if memMut {
+            set famDirect memVar true
           }
         }
+      }
+      ; …and the names this member only INHERITS, which is where
+      ; buildInheritedMutationGraph put the parent's own answer
+      for root.defined_variants inhVar:string inhVi {
+        if (has memberDirect inhVar) {
+          def inhMut:boolean (unwrap (get memberDirect inhVar))
+          if inhMut {
+            set famDirect inhVar true
+          }
+        }
+      }
+    }
+    for root.defined_variants famVar:string famVi {
+      if (this.methodMutatesThis(famVar famDirect famGraph)) {
+        set root.rust_trait_mut famVar true
+      }
+    }
+    ; …and the answer goes onto every descriptor of every family member, both
+    ; sets of them. The trait DECLARATION and the call site read different
+    ; descriptor sets, and an inherited copy with no body of its own is never
+    ; assigned at all — it keeps the conservative default. Left alone they
+    ; disagree, and a `&mut self` declaration under a `.borrow()` call site is
+    ; a compile error (the other way round is a panic).
+    for family fam2:RangerAppClassDesc fam2I {
+      ; the name set the trait DECLARATION iterates, so the descriptors the
+      ; declaration reads are the ones that get the answer
+      for root.defined_variants tmVar:string tmVi {
+        if (has fam2.method_variants tmVar) {
+          def tmMut:boolean (has root.rust_trait_mut tmVar)
+          def tmVs:RangerAppMethodVariants (get fam2.method_variants tmVar)
+          for tmVs.variants tmV:RangerAppFunctionDesc tmVj {
+            tmV.rust_mut_self = tmMut
+          }
+          def tmM@(optional):RangerAppFunctionDesc (fam2.findMethod(tmVar))
+          if (!null? tmM) {
+            def tmMD:RangerAppFunctionDesc (unwrap tmM)
+            tmMD.rust_mut_self = tmMut
+          }
+        }
+      }
+    }
+  }
+
+  fn markTraitIfaceMutations:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean]) {
+    def rootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(cl ctx))
+    if (null? rootO) {
+      return
+    }
+    def root:RangerAppClassDesc (unwrap rootO)
+    this.rustFillTraitMutations(root ctx)
+    ; every method the TRAIT declares, not just the ones this class restates.
+    ; A subclass that merely inherits one still calls it through `this`, and
+    ; the caller's own receiver has to account for what the callee does.
+    for root.defined_variants fnVar:string i {
+      if (has root.rust_trait_mut fnVar) {
+        set directMutations fnVar true
       }
     }
   }
@@ -6589,11 +6680,9 @@ class RangerRustClassWriter {
               ; whenever the receiver decision was not the strict one, and a
               ; borrow_mut() where the callee takes &self is a run-time panic
               if (this.rustMethodNeedsReceiver(mm (unwrap mmB) mmCtx ctx)) {
-                if (this.rustMethodInTraitIface(mcl mm.name ctx)) {
-                  mm.rust_mut_self = true
-                } {
-                  mm.rust_mut_self = (this.methodMutatesThis(mm.name mDirect mGraph))
-                }
+                ; a trait-interface method reads the family's answer, which
+                ; markTraitIfaceMutations has already put into mDirect
+                mm.rust_mut_self = (this.methodMutatesThis(mm.name mDirect mGraph))
               } {
                 mm.rust_mut_self = false
               }
@@ -6615,11 +6704,7 @@ class RangerRustClassWriter {
                 }
                 def mvMut:boolean false
                 if (this.rustMethodNeedsReceiver(mv (unwrap mvB) mvCtx ctx)) {
-                  if (this.rustMethodInTraitIface(mcl mv.name ctx)) {
-                    mvMut = true
-                  } {
-                    mvMut = (this.methodMutatesThis(mv.name mDirect mGraph))
-                  }
+                  mvMut = (this.methodMutatesThis(mv.name mDirect mGraph))
                 }
                 mv.rust_mut_self = mvMut
                 def mvOther@(optional):RangerAppFunctionDesc (mcl.findMethod(mv.name))
@@ -7004,8 +7089,14 @@ class RangerRustClassWriter {
               if (!null? extParentClass) {
                 def epc:RangerAppClassDesc (unwrap extParentClass)
                 if epc.is_extended_by_children {
-                  ; Check if this method is defined in the parent's trait interface
+                  ; Check if this method is defined in the parent's trait
+                  ; interface. BOTH maps: the trait declaration is written
+                  ; from method_variants, so a name that is only there still
+                  ; gets a trait signature this inherent method must match.
                   if (has epc.defined_methods variant.name) {
+                    method_is_in_trait = true
+                  }
+                  if (has epc.method_variants variant.name) {
                     method_is_in_trait = true
                   }
                 }
@@ -7015,8 +7106,28 @@ class RangerRustClassWriter {
           ; the verdict is recorded on both descriptor sets as it is written,
           ; so a call site reads what the signature actually says
           def emittedMut:boolean method_mutates_this
-          if method_is_in_trait {
-            emittedMut = true
+          ; A method the TRAIT declares takes the family's answer, whatever
+          ; this one body does: the trait signature, the forwarding impl and
+          ; this inherent method are one signature in three places. The root
+          ; is asked directly — scanning extends_classes for the name went
+          ; through a different descriptor map than the trait declaration is
+          ; written from, so the two disagreed for exactly the methods only
+          ; one map had.
+          def emRootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(cl ctx))
+          if (!null? emRootO) {
+            def emRoot:RangerAppClassDesc (unwrap emRootO)
+            def emInTrait:boolean (has emRoot.method_variants variant.name)
+            if (has emRoot.defined_methods variant.name) {
+              emInTrait = true
+            }
+            if emInTrait {
+              this.rustFillTraitMutations(emRoot ctx)
+              emittedMut = (has emRoot.rust_trait_mut variant.name)
+            }
+          } {
+            if method_is_in_trait {
+              emittedMut = true
+            }
           }
           variant.rust_mut_self = emittedMut
           def emOther@(optional):RangerAppFunctionDesc (cl.findMethod(variant.name))
@@ -7119,10 +7230,17 @@ class RangerRustClassWriter {
               
               wr.out((("fn " + variant.name) + "(") false)
               if method_uses_this {
-                ; For trait parent classes (is_extended_by_children), use &mut self
-                ; to allow mutation in the method body
+                ; A trait parent used to force `&mut self` here whatever the
+                ; body does. The family answer is on the descriptor now, and
+                ; the trait declaration reads the same one, so an inherited
+                ; copy and the impl that forwards to it agree.
                 if pc.is_extended_by_children {
-                  this.writeRustReceiver(true wr)
+                  ; ask the ROOT, not the descriptor: this inherited copy can
+                  ; be written before the parent's own emission has settled
+                  ; its descriptors, and the trait declaration this copy has
+                  ; to match is written from the root
+                  this.rustFillTraitMutations(pc ctx)
+                  this.writeRustReceiver((has pc.rust_trait_mut variant.name) wr)
                 } {
                   if method_mutates_this {
                     this.writeRustReceiver(true wr)
@@ -7187,13 +7305,18 @@ class RangerRustClassWriter {
       for cl.defined_variants fnVar:string i {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          ; Use &mut self for trait methods to allow mutation. The parameter
-          ; list comes from writeArgsDef, the same code the inherent method
-          ; uses: a bare writeTypeDef here gave the trait `changer : CodeNode`
-          ; where the method it forwards to takes `Rc<RefCell<CodeNode>>`, and
-          ; every forwarding body was an E0308.
+          ; The receiver follows the FAMILY's answer: `&mut self` only where
+          ; some implementation of this method mutates its own object. It used
+          ; to be `&mut self` unconditionally, which meant every call through
+          ; a trait handle took the cell for the whole call — and the writers
+          ; call back into each other, so that was a panic rather than a
+          ; borrow. The parameter list comes from writeArgsDef, the same code
+          ; the inherent method uses: a bare writeTypeDef here gave the trait
+          ; `changer : CodeNode` where the method it forwards to takes
+          ; `Rc<RefCell<CodeNode>>`, and every forwarding body was an E0308.
           wr.out(("fn " + variant.name + "(") false)
-          this.writeRustReceiver(true wr)
+          this.rustFillTraitMutations(cl ctx)
+          this.writeRustReceiver((has cl.rust_trait_mut variant.name) wr)
           rust_in_trait_decl = true
           this.writeArgsDef(variant ctx wr)
           rust_in_trait_decl = false
@@ -7211,9 +7334,9 @@ class RangerRustClassWriter {
       for cl.defined_variants fnVar:string i {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          ; Use &mut self for trait methods to match trait definition
+          ; …and the impl matches the declaration
           wr.out(("fn " + variant.name + "(") false)
-          this.writeRustReceiver(true wr)
+          this.writeRustReceiver((has cl.rust_trait_mut variant.name) wr)
           this.writeArgsDef(variant ctx wr)
           this.writeRustFnClose(variant ctx wr)
           wr.out(" {" true)
@@ -7250,9 +7373,10 @@ class RangerRustClassWriter {
             for pc.defined_variants fnVar:string i {
               def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
               for mVs.variants variant:RangerAppFunctionDesc i {
-                ; Use &mut self for trait methods to match trait definition
+                ; …and so does a subclass implementing the parent's trait
                 wr.out(("fn " + variant.name + "(") false)
-                this.writeRustReceiver(true wr)
+                this.rustFillTraitMutations(pc ctx)
+                this.writeRustReceiver((has pc.rust_trait_mut variant.name) wr)
                 this.writeArgsDef(variant ctx wr)
                 this.writeRustFnClose(variant ctx wr)
                 wr.out(" {" true)

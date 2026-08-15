@@ -112,6 +112,15 @@ class RangerAppClassDesc {
   def is_extended_by_children:boolean false  ; True if other classes extend this class (for Rust trait generation)
   def child_classes:[string]  ; List of class names that extend this class
 
+  ; Rust: one answer per trait-interface method for the WHOLE family — does
+  ; any implementation of it mutate its own object? The trait declaration and
+  ; every impl have to agree on `&self` against `&mut self`, so the answer is
+  ; computed once on the family's root class and read from there by all of
+  ; them. Computed on the root, so a subclass looks the answer up through its
+  ; parent rather than deciding for itself.
+  def rust_trait_mut:[string:boolean]
+  def rust_trait_mut_ready:boolean false
+
   ; Set by StaticAnalyzer.analyzeClassSharing (PLAN_RUST_OWNERSHIP step 2):
   ; some object of this class is aliased and held — stored into an object
   ; graph, aliased by a def and mutated, or the target of a weak field — so a
