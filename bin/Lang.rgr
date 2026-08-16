@@ -1302,6 +1302,7 @@ func r_io_get_env( name string) *GoNullable {
         ; I/O
         normalize cmdArg:string ( arg:string ) {
             templates {
+                llvm ( "(normalize " (e 1) ")" )
                 python ( "rg_path_normalize(" (e 1) ")" (imp "os")
                 (create_polyfill "
 # Path helpers for the compiler's own file handling. os.path.normpath drops a
@@ -1614,6 +1615,7 @@ fn rg_install_directory() -> String {
 
         path_dirname cmdArg:string ( arg:string ) {
             templates {
+                llvm ( "(path_dirname " (e 1) ")" )
                 python ( "rg_path_dirname(" (e 1) ")" (imp "os")
                 (create_polyfill "
 # Path helpers for the compiler's own file handling. os.path.normpath drops a
@@ -1926,6 +1928,7 @@ fn rg_install_directory() -> String {
 
         install_directory         cmdArg:string () {
             templates {
+                llvm ( "(install_directory)" )
                 python ( "rg_path_dirname(os.path.abspath(sys.argv[0]))" (imp "os") (imp "sys")
                 (create_polyfill "
 # Path helpers for the compiler's own file handling. os.path.normpath drops a
@@ -2240,6 +2243,7 @@ fn rg_install_directory() -> String {
 
         current_directory         cmdArg:string () {
             templates {
+                llvm ( "(current_directory)" )
                 es6 ( "process.cwd()" )
                 rust ( "std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()" )
                 python ( "os.getcwd()" (imp "os") )

@@ -29,6 +29,16 @@ int ranger_shell_arg_cnt(void) {
   return g_argc - 1;
 }
 
+/* argv[0] itself. ranger_shell_arg skips it (a Ranger program's argument 0 is
+ * the first real argument), and install_directory needs the executable. */
+const char *ranger_argv0(void) {
+  static char empty[] = "";
+  if (g_argc <= 0 || g_argv == NULL) {
+    return empty;
+  }
+  return g_argv[0];
+}
+
 const char *ranger_shell_arg(int index) {
   static char empty[] = "";
   int real;
@@ -1628,4 +1638,132 @@ char *ranger_str_trim_right(const char *text) {
   memcpy(out, text, n);
   out[n] = '\0';
   return out;
+}
+
+/* --- Paths --------------------------------------------------------------
+ * `normalize`, `path_dirname`, `install_directory` and `current_directory`.
+ * The same rules the polyfills in Lang.rgr spell out for the other targets:
+ * "." and ".." are resolved textually, a trailing slash is kept unless the
+ * result is the root, and dirname of a bare name is ".". */
+char *ranger_path_normalize(const char *p) {
+  size_t n;
+  int absolute;
+  int trailing;
+  char *work;
+  char **parts;
+  size_t nparts = 0;
+  size_t i;
+  size_t start;
+  size_t outLen;
+  char *out;
+  if (p == NULL || p[0] == '\0') {
+    return ranger_strdup("");
+  }
+  n = strlen(p);
+  absolute = (p[0] == '/');
+  trailing = (n > 1 && p[n - 1] == '/');
+  work = (char *)malloc(n + 1);
+  parts = (char **)malloc((n + 1) * sizeof(char *));
+  if (work == NULL || parts == NULL) {
+    free(work);
+    free(parts);
+    return ranger_strdup(p);
+  }
+  memcpy(work, p, n + 1);
+  start = 0;
+  for (i = 0; i <= n; i++) {
+    if (work[i] == '/' || work[i] == '\0') {
+      work[i] = '\0';
+      if (start < i) {
+        char *seg = work + start;
+        if (strcmp(seg, ".") == 0) {
+          /* drop */
+        } else if (strcmp(seg, "..") == 0) {
+          if (nparts > 0 && strcmp(parts[nparts - 1], "..") != 0) {
+            nparts--;
+          } else if (!absolute) {
+            parts[nparts++] = seg;
+          }
+        } else {
+          parts[nparts++] = seg;
+        }
+      }
+      start = i + 1;
+    }
+  }
+  outLen = 1;
+  for (i = 0; i < nparts; i++) {
+    outLen += strlen(parts[i]) + 1;
+  }
+  outLen += 2;
+  out = (char *)malloc(outLen);
+  if (out == NULL) {
+    free(work);
+    free(parts);
+    return ranger_strdup(p);
+  }
+  out[0] = '\0';
+  if (absolute) {
+    strcat(out, "/");
+  }
+  for (i = 0; i < nparts; i++) {
+    if (i > 0) {
+      strcat(out, "/");
+    }
+    strcat(out, parts[i]);
+  }
+  if (out[0] == '\0') {
+    strcat(out, absolute ? "/" : ".");
+  }
+  if (trailing && strcmp(out, "/") != 0) {
+    strcat(out, "/");
+  }
+  free(work);
+  free(parts);
+  return out;
+}
+
+char *ranger_path_dirname(const char *p) {
+  char *s = ranger_path_normalize(p);
+  size_t n;
+  char *pos;
+  char *out;
+  if (s == NULL) {
+    return ranger_strdup(".");
+  }
+  n = strlen(s);
+  if (n > 1 && s[n - 1] == '/') {
+    s[n - 1] = '\0';
+  }
+  pos = strrchr(s, '/');
+  if (pos == NULL) {
+    free(s);
+    return ranger_strdup(".");
+  }
+  if (pos == s) {
+    free(s);
+    return ranger_strdup("/");
+  }
+  *pos = '\0';
+  out = ranger_strdup(s);
+  free(s);
+  return out;
+}
+
+char *ranger_current_directory(void) {
+  char buf[4096];
+  if (getcwd(buf, sizeof(buf)) == NULL) {
+    return ranger_strdup(".");
+  }
+  return ranger_strdup(buf);
+}
+
+/* The directory of argv[0], which is where the compiler looks for Lang.rgr
+ * and lib/ -- the same rule the C++ build uses. */
+char *ranger_install_directory(void) {
+  const char *argv0 = ranger_argv0();
+  if (argv0 == NULL || argv0[0] == '\0') {
+    return ranger_current_directory();
+  }
+  return ranger_path_dirname(argv0);
 }

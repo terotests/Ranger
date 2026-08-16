@@ -271,6 +271,11 @@ class LowIRBuilder {
   def blockCounter:int 0
   def blocks:[LowIRBlock]
   def currentBlock@(optional weak):LowIRBlock
+  ; SSA name -> the IR type the instruction that defines it produces. Asking
+  ; the SOURCE node what type an expression has is guesswork in a few shapes
+  ; (a parenthesised comparison, a narrowed map read); asking what was actually
+  ; emitted is not.
+  def destTypes:[string:string]
 
   Constructor (module:LowIRModule) {
     irModule = module
@@ -316,7 +321,19 @@ class LowIRBuilder {
   fn emit:LowIRInstr (instr:LowIRInstr) {
     def cur (unwrap this.currentBlock)
     push cur.instrs instr
+    if ((strlen instr.dest) > 0) {
+      set destTypes instr.dest instr.irType
+    }
     return instr
+  }
+
+  ; The IR type of an already-emitted value, or "" for a name this builder did
+  ; not produce (a parameter, a global).
+  fn emittedType:string (value:string) {
+    if (has destTypes value) {
+      return (unwrap (get destTypes value))
+    }
+    return ""
   }
 
   ; Allocas must live in the entry block so their SSA value dominates every

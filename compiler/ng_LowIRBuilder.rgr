@@ -1699,7 +1699,10 @@ class LowIRBuilderPass {
   ; getter returns i64. exprIsObjectPtr only recognises VRefs, so pushing one
   ; array's element into another produced `zext i32 <i64 value> to i64` -- an
   ; operand type clang rejects outright.
-  fn exprIsPtrSizedRead:boolean (itemNode:CodeNode lctx:LowIRLowerContext) {
+  fn exprIsPtrSizedRead:boolean (rawNode:CodeNode lctx:LowIRLowerContext) {
+    ; `( (itemAt xs i) )` -- a parenthesised group is one more node in the way,
+    ; and stopping at it reported "not a pointer read" and widened an i64.
+    def itemNode (this.unwrapCondExpr(rawNode))
     if ((itemNode.has_operator) == false) {
       return false
     }
@@ -1767,6 +1770,14 @@ class LowIRBuilderPass {
     if (this.exprIsF64(itemNode)) {
       return false
     }
+    ; Last resort, from the node's own TYPE: a static call answering a class
+    ; (`CodeNode.fromList(...)`) has no fnDesc for the tests above to read, and
+    ; widening its i64 result emitted `zext i32 <i64 value>`.
+    if ((this.argIrType(itemNode lctx)) == lctx.ptrType) {
+      if (lctx.ptrType != "i32") {
+        return false
+      }
+    }
     return true
   }
 
@@ -1780,10 +1791,15 @@ class LowIRBuilderPass {
       def vr:string arrNode.vref
       if ((indexOf vr ".") >= 0) {
         def parts:[string] (strsplit vr ".")
-        if ((array_length parts) >= 2) {
-          def recv (itemAt parts 0)
-          def fld (itemAt parts 1)
-          def cls (this.resolveObjectClass(recv lctx))
+        def np:int (array_length parts)
+        if (np >= 2) {
+          ; The receiver is everything before the last segment, so a chain such
+          ; as `callArgs.parent.children` resolves. Reading only the first two
+          ; segments answered "" and `indexOf` over it went to the STRING
+          ; helper with an array descriptor.
+          def recv:string (this.joinDotPrefix(parts (np - 1)))
+          def fld (itemAt parts (np - 1))
+          def cls (this.resolveObjectClassChain(recv lctx))
           if ((strlen cls) > 0) {
             return (this.fieldArrayElemType(cls fld lctx))
           }
@@ -1912,6 +1928,110 @@ class LowIRBuilderPass {
     builder.terminateBr(condL)
     builder.startBlock(doneL)
     return (builder.emitLoad("i32" rSlot))
+  }
+
+  ; `([] _:T ( a b c ))` and the untyped `([] a b c)`. The element type comes
+  ; from the declared one when there is one, and otherwise from the first
+  ; element -- the compiler writes `def skip_if ([] "Extends" "operator" …)`
+  ; with no annotation at all. Nothing lowered this: the literal answered its
+  ; FIRST element, so `indexOf skip_if x` searched a string as if it were an
+  ; array descriptor.
+  ; The literal does not always arrive with has_operator set, so the head vref
+  ; is the reliable test.
+  ; `def xs ([] "a" "b")`. By the time the backend sees it the `[]` head is
+  ; gone: the value node IS the array, with the elements as its children and
+  ; nothing on the node itself to say so. What does say so is the DEFINITION --
+  ; the flow parser gave the name an array type. Without this the literal
+  ; lowered to its first element, so `indexOf skip_if x` searched a string as
+  ; if it were an array descriptor.
+  fn isArrayLiteralValue:boolean (nameNode:CodeNode val:CodeNode) {
+    if (nameNode.value_type != RangerNodeType.Array) {
+      return false
+    }
+    if (val.has_operator) { return false }
+    if (val.has_call) { return false }
+    if (val.hasFnCall) { return false }
+    if (val.has_lambda) { return false }
+    if (val.has_lambda_call) { return false }
+    if (val.is_direct_method_call) { return false }
+    if (val.hasNewOper) { return false }
+    if ((strlen val.vref) > 0) { return false }
+    return ((array_length val.children) > 0)
+  }
+
+  fn arrayLiteralElemType:string (nameNode:CodeNode node:CodeNode lctx:LowIRLowerContext) {
+    if ((strlen nameNode.array_type) > 0) {
+      return nameNode.array_type
+    }
+    if ((strlen node.array_type) > 0) {
+      return node.array_type
+    }
+    if ((array_length node.children) > 0) {
+      def first (itemAt node.children 0)
+      if (first.value_type == RangerNodeType.String) {
+        return "string"
+      }
+      if (first.value_type == RangerNodeType.Integer) {
+        return "int"
+      }
+      if (first.value_type == RangerNodeType.Double) {
+        return "double"
+      }
+      if ((strlen first.eval_type_name) > 0) {
+        return first.eval_type_name
+      }
+      if ((strlen first.type_name) > 0) {
+        return first.type_name
+      }
+    }
+    return ""
+  }
+
+  fn lowerArrayLiteral:string (nameNode:CodeNode node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def elemType:string (this.arrayLiteralElemType(nameNode node lctx))
+    def kind:int 1
+    if (LowIRUtil.isStringType(elemType)) {
+      kind = 2
+    }
+    if (elemType == "int") { kind = 0 }
+    if (elemType == "boolean") { kind = 0 }
+    if (elemType == "double") { kind = 0 }
+    if (elemType == "float") { kind = 0 }
+    if (elemType == "char") { kind = 0 }
+    this.usedPtrArrayRuntime = true
+    def desc (this.emitPtrArrayNewEmpty(lctx kind))
+    if true {
+      for node.children el:CodeNode i {
+        def v (this.lowerExpr(el lctx))
+        if (kind == 2) {
+          def owned:string v
+          if (this.memEnabled(lctx)) {
+            owned = (this.emitStrdupExpr(v lctx))
+          }
+          v = (builder.emitPtrToInt(owned))
+        } {
+          if (lctx.ptrType == "i64") {
+            if (this.pushItemNeedsWiden(el lctx)) {
+              if (this.exprProducesI1(el lctx)) {
+                v = (builder.emitCast("zext" "i64" "i1" v))
+              } {
+                v = (builder.emitCast("zext" "i64" "i32" v))
+              }
+            }
+          }
+        }
+        def args:[string]
+        def argTypes:[string]
+        push args desc
+        push argTypes lctx.ptrType
+        push args v
+        push argTypes lctx.ptrType
+        def voidT:string "void"
+        builder.emitCall("RtPtrArray_push" voidT args argTypes)
+      }
+    }
+    return desc
   }
 
   fn lowerPush:void (node:CodeNode lctx:LowIRLowerContext) {
@@ -3513,6 +3633,17 @@ class LowIRBuilderPass {
     return (lctx.builder.emitCall(fnName retType args argTypes))
   }
 
+  ; A no-argument C helper answering a fresh string.
+  fn lowerStr0Fn:string (fnName:string lctx:LowIRLowerContext) {
+    def ps:[string]
+    this.ensureExternDecl(fnName "i8*" ps false)
+    def args:[string]
+    def argTypes:[string]
+    def res (lctx.builder.emitCall(fnName "i8*" args argTypes))
+    this.registerFreshStringTemp(res lctx)
+    return res
+  }
+
   fn lowerStr1Fn:string (node:CodeNode fnName:string lctx:LowIRLowerContext) {
     def aNode (node.getSecond())
     def a (this.lowerExpr(aNode lctx))
@@ -3886,6 +4017,11 @@ class LowIRBuilderPass {
       if ((strlen pdesc) > 0) {
         return (this.emitPtrArrayLen(pdesc lctx))
       }
+    } {
+      ; An EXPRESSION collection: `(array_length (keys m))`. Every lookup below
+      ; is by NAME, and an expression has none -- the descriptor came back
+      ; empty and the length load read offset 8 of nothing.
+      return (this.emitPtrArrayLen((this.lowerExpr(collNode lctx)) lctx))
     }
     def varName:string collNode.vref
     def desc (this.loadCollectionDesc(varName lctx))
@@ -4733,6 +4869,12 @@ class LowIRBuilderPass {
       }
       if (this.arrayElemIsDouble(arrNode lctx)) {
         return (lctx.builder.emitCast("bitcast" "f64" "i64" raw))
+      }
+      ; A `[boolean]` element is stored widened; every consumer of a boolean on
+      ; this backend wants an i1. Without this `def isStatic:boolean (itemAt
+      ; flags i)` stored the raw i64 into an i1 slot.
+      if ((this.arrayElemTypeName(arrNode lctx)) == "boolean") {
+        return (this.toI1((lctx.builder.emitCast("trunc" "i32" "i64" raw)) lctx))
       }
     }
     return raw
@@ -5663,10 +5805,27 @@ class LowIRBuilderPass {
       }
       def paramVal:string ("%" + lpName)
       this.bindSlot(p.name pType paramVal lctx)
-      if (LowIRUtil.isArrayTypeName(paramTypeName)) {
-        set lctx.collectionSlots p.name "ptr_array"
+      ; A MAP parameter also spells its type with a leading "[", so it matched
+      ; the array test and was registered as a ptr-array: `has target alias`
+      ; then went to the int-keyed RtMap runtime and passed it an i8* key.
+      if (this.isStringKeyMapTypeNode(pn)) {
+        this.bindCollectionSlot(p.name "smap" paramVal lctx)
         if ((strlen pn.array_type) > 0) {
-          set lctx.ptrArrayElemTypes p.name pn.array_type
+          set lctx.smapValueTypes p.name pn.array_type
+        }
+      } {
+        if (this.isIntKeyValueMapTypeNode(pn)) {
+          this.bindCollectionSlot(p.name "imap" paramVal lctx)
+          if ((strlen pn.array_type) > 0) {
+            set lctx.imapValueTypes p.name pn.array_type
+          }
+        } {
+          if (LowIRUtil.isArrayTypeName(paramTypeName)) {
+            set lctx.collectionSlots p.name "ptr_array"
+            if ((strlen pn.array_type) > 0) {
+              set lctx.ptrArrayElemTypes p.name pn.array_type
+            }
+          }
         }
       }
       if (this.isObjectTypeName(paramTypeName)) {
@@ -6964,6 +7123,25 @@ class LowIRBuilderPass {
       ; is NULL. Without a slot the name has no LLVM value at all and any later
       ; read (`return none`) emitted a bare %none that is never defined.
       def tnNoInit:string (this.varTypeName(nameNode))
+      ; `def res@(optional):string` with no value: bind a NULL i8* slot now, the
+      ; same way the object case below does. Without a slot the first
+      ; assignment invented one, and the type it guessed was i32 -- so a later
+      ; `res = someString` stored a pointer into a 32-bit slot.
+      if (LowIRUtil.isStringType(tnNoInit)) {
+        this.bindSlot(varName "i8*" "null" lctx)
+        return
+      }
+      ; The same for a declared PRIMITIVE with no value (`def d@(optional):double`):
+      ; the first assignment would otherwise invent an i32 slot for it.
+      if (LowIRUtil.isSupportedPrimitive(tnNoInit)) {
+        def primIr:string (LowIRUtil.typeFromRanger(tnNoInit))
+        def zeroTxt:string "0"
+        if (primIr == "f64") {
+          zeroTxt = "0.0"
+        }
+        this.bindSlot(varName primIr (lctx.builder.emitConst(primIr zeroTxt)) lctx)
+        return
+      }
       if ((strlen tnNoInit) > 0) {
         if (this.isObjectTypeName(tnNoInit)) {
           def nullObj (lctx.builder.emitConst(lctx.ptrType "0"))
@@ -6975,6 +7153,21 @@ class LowIRBuilderPass {
       return
     }
     def val (unwrap valNode)
+    if (this.isArrayLiteralValue(nameNode val)) {
+      def litElem0:string (this.arrayLiteralElemType(nameNode val lctx))
+      def litArr0 (this.lowerArrayLiteral(nameNode val lctx))
+      def litOwned0:boolean true
+      if (litElem0 == "int") { litOwned0 = false }
+      if (litElem0 == "boolean") { litOwned0 = false }
+      if (litElem0 == "double") { litOwned0 = false }
+      if (litElem0 == "float") { litOwned0 = false }
+      if (litElem0 == "char") { litOwned0 = false }
+      this.bindPtrArraySlot(varName litArr0 lctx litOwned0)
+      if ((strlen litElem0) > 0) {
+        set lctx.ptrArrayElemTypes varName litElem0
+      }
+      return
+    }
     if val.has_operator {
       def valOp (val.getOperator())
       ; `def ks:[string] (keys m)` yields a fresh pointer-array of strings. The
@@ -7201,6 +7394,16 @@ class LowIRBuilderPass {
         tmp = (lctx.builder.emitCast("trunc" "i32" "i64" tmp))
       }
     }
+    ; A declared `boolean` local holds an i1. Several sources answer a wider
+    ; integer -- a `[string:boolean]` map read comes back through the int path
+    ; -- so narrow rather than store an i32 into an i1 slot.
+    if (irType == "i1") {
+      if ((lctx.builder.emittedType(tmp)) != "i1") {
+        if ((this.exprProducesI1(val lctx)) == false) {
+          tmp = (this.toI1(tmp lctx))
+        }
+      }
+    }
     this.bindSlot(varName irType tmp lctx)
   }
 
@@ -7371,6 +7574,14 @@ class LowIRBuilderPass {
       if (storeType == "i8*") {
         tmp = (this.emitOwnedStringReassign(varName rhs tmp lctx))
       }
+      ; A boolean SLOT holds an i1. Several right-hand sides answer a wider
+      ; integer -- a `[string:boolean]` map read comes back through the int
+      ; path -- so narrow rather than store an i32 into an i1 slot.
+      if (storeType == "i1") {
+        if ((builder.emittedType(tmp)) != "i1") {
+          tmp = (this.toI1(tmp lctx))
+        }
+      }
       builder.emitStore(storeType tmp slot)
       return
     }
@@ -7465,8 +7676,10 @@ class LowIRBuilderPass {
       ; expressions arrive as i32 -- a `[string:boolean]` map read comes back
       ; through the int path, for one. Narrow rather than emit `ret i1 <i32>`.
       if (retType == "i1") {
-        if ((this.exprProducesI1(valNode lctx)) == false) {
-          tmp = (this.toI1(tmp lctx))
+        if ((builder.emittedType(tmp)) != "i1") {
+          if ((this.exprProducesI1(valNode lctx)) == false) {
+            tmp = (this.toI1(tmp lctx))
+          }
         }
       }
       builder.terminateRet(retType tmp)
@@ -7521,6 +7734,25 @@ class LowIRBuilderPass {
         return (this.unwrapCondExpr((itemAt n.children 0)))
       }
     }
+    ; A parenthesised group does not always carry the `expression` flag, and
+    ; stopping at it hid the comparison inside: `if (isStatic == false)` then
+    ; looked like a scalar and the i1 was wrapped in a second `icmp ne i32`.
+    ; Only a pure wrapper is peeled -- one child, no name, nothing applied.
+    if ((array_length n.children) == 1) {
+      if ((strlen n.vref) == 0) {
+        if ((n.has_operator || n.has_call) == false) {
+          if ((n.hasFnCall || n.is_direct_method_call) == false) {
+            if ((n.has_lambda || n.has_lambda_call) == false) {
+              if (n.hasNewOper == false) {
+                if (n.value_type != RangerNodeType.Array) {
+                  return (this.unwrapCondExpr((itemAt n.children 0)))
+                }
+              }
+            }
+          }
+        }
+      }
+    }
     return n
   }
 
@@ -7551,6 +7783,14 @@ class LowIRBuilderPass {
       if (bOp == "dir_exists") { return true }
       if (bOp == "isArray") { return true }
       if (bOp == "getBoolean") { return true }
+      ; A COMPARISON is an i1 by construction. Leaving this out made
+      ; `if (isStatic == false)` wrap the icmp in a second `icmp ne i32`.
+      if (this.isCompareOp(bOp)) { return true }
+      if (bOp == "&&") { return true }
+      if (bOp == "||") { return true }
+      if (bOp == "!") { return true }
+      if (bOp == "null?") { return true }
+      if (bOp == "!null?") { return true }
     }
     ; A call THROUGH a lambda value: lowerLambdaCall types the call_indirect
     ; from the node's own eval type, so a boolean-returning callback answers i1
@@ -7627,6 +7867,11 @@ class LowIRBuilderPass {
     return ""
   }
 
+  ; An operand of `&&` / `||`, guaranteed to be an i1.
+  fn lowerCondOperand:string (node:CodeNode lctx:LowIRLowerContext) {
+    return (this.lowerCond(node lctx))
+  }
+
   fn lowerCond:string (node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def condNode (this.unwrapCondExpr(node))
@@ -7645,6 +7890,11 @@ class LowIRBuilderPass {
       }
     }
     def v (this.lowerExpr(condNode lctx))
+    ; What was actually EMITTED settles it: a comparison already answers i1,
+    ; and wrapping it in `icmp ne i32` produced IR that would not assemble.
+    if ((builder.emittedType(v)) == "i1") {
+      return v
+    }
     if (this.exprProducesI1(condNode lctx)) {
       return v
     }
@@ -8147,6 +8397,20 @@ class LowIRBuilderPass {
       if (opName == "trim_right") {
         return (this.lowerStr1Fn(node "ranger_str_trim_right" lctx))
       }
+      if (opName == "normalize") {
+        return (this.lowerStr1Fn(node "ranger_path_normalize" lctx))
+      }
+      if (opName == "path_dirname") {
+        return (this.lowerStr1Fn(node "ranger_path_dirname" lctx))
+      }
+      if (opName == "current_directory") {
+        return (this.lowerStr0Fn("ranger_current_directory" lctx))
+      }
+      ; The directory of argv[0]: the compiler looks for Lang.rgr and lib/ next
+      ; to its own executable, the same rule the C++ build follows.
+      if (opName == "install_directory") {
+        return (this.lowerStr0Fn("ranger_install_directory" lctx))
+      }
       if (opName == "to_lowercase") {
         return (this.lowerStr1Fn(node "ranger_str_lower" lctx))
       }
@@ -8558,6 +8822,10 @@ class LowIRBuilderPass {
     ; rejects outright.
     if (op == "trim") { return true }
     if (op == "trim_right") { return true }
+    if (op == "normalize") { return true }
+    if (op == "path_dirname") { return true }
+    if (op == "current_directory") { return true }
+    if (op == "install_directory") { return true }
     if (op == "to_lowercase") { return true }
     if (op == "to_uppercase") { return true }
     if (op == "replace") { return true }
@@ -8909,14 +9177,18 @@ class LowIRBuilderPass {
         }
         return (this.lowerCompareI32(aNode bNode "ne" lctx))
       }
+      ; Both operands have to BE i1. An operand that is a bare reference
+      ; (`if (node.left && …)`) or a widened boolean arrives as an integer, and
+      ; `and i1 <i64 value>, …` does not assemble -- narrow whatever is not
+      ; already an i1.
       case "||" {
-        def a (this.lowerExpr((node.getSecond()) lctx))
-        def b (this.lowerExpr((node.getThird()) lctx))
+        def a (this.lowerCondOperand((node.getSecond()) lctx))
+        def b (this.lowerCondOperand((node.getThird()) lctx))
         return (builder.emitBin("or" "i1" a b))
       }
       case "&&" {
-        def a (this.lowerExpr((node.getSecond()) lctx))
-        def b (this.lowerExpr((node.getThird()) lctx))
+        def a (this.lowerCondOperand((node.getSecond()) lctx))
+        def b (this.lowerCondOperand((node.getThird()) lctx))
         return (builder.emitBin("and" "i1" a b))
       }
     }

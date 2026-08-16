@@ -41653,6 +41653,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.tempCounter = 0;
                           this.blockCounter = 0;
                           this.blocks = [];
+                          this.destTypes = {};
                           this.irModule = module;
                         }
                         freshTemp (prefix) {
@@ -41688,7 +41689,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         emit (instr) {
                           const cur = this.currentBlock;
                           cur.instrs.push(instr);
+                          if ( (instr.dest.length) > 0 ) {
+                            this.destTypes[instr.dest] = instr.irType;
+                          }
                           return instr;
+                        };
+                        emittedType (value) {
+                          if ( ( typeof(this.destTypes[value] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.destTypes, value) ) ) {
+                            return (( Object.prototype.hasOwnProperty.call(this.destTypes, value) ? this.destTypes[value] : undefined ));
+                          }
+                          return "";
                         };
                         emitToEntry (instr) {
                           if ( (this.blocks.length) > 0 ) {
@@ -44693,7 +44703,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return this.lowerExpr(arrNode, lctx);
                         };
-                        exprIsPtrSizedRead (itemNode, lctx) {
+                        exprIsPtrSizedRead (rawNode, lctx) {
+                          const itemNode = this.unwrapCondExpr(rawNode);
                           if ( itemNode.has_operator == false ) {
                             return false;
                           }
@@ -44758,6 +44769,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( this.exprIsF64(itemNode) ) {
                             return false;
                           }
+                          if ( this.argIrType(itemNode, lctx) == lctx.ptrType ) {
+                            if ( lctx.ptrType != "i32" ) {
+                              return false;
+                            }
+                          }
                           return true;
                         };
                         arrayElemTypeName (arrNode, lctx) {
@@ -44768,10 +44784,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             const vr = arrNode.vref;
                             if ( (vr.indexOf(".")) >= 0 ) {
                               const parts = vr.split(".");
-                              if ( (parts.length) >= 2 ) {
-                                const recv = parts[0];
-                                const fld = parts[1];
-                                const cls = this.resolveObjectClass(recv, lctx);
+                              const np = parts.length;
+                              if ( np >= 2 ) {
+                                const recv = this.joinDotPrefix(parts, (np - 1));
+                                const fld = parts[(np - 1)];
+                                const cls = this.resolveObjectClassChain(recv, lctx);
                                 if ( (cls.length) > 0 ) {
                                   return this.fieldArrayElemType(cls, fld, lctx);
                                 }
@@ -44885,6 +44902,120 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           builder.terminateBr(condL);
                           builder.startBlock(doneL);
                           return builder.emitLoad("i32", rSlot);
+                        };
+                        isArrayLiteralValue (nameNode, val) {
+                          if ( nameNode.value_type != 6 ) {
+                            return false;
+                          }
+                          if ( val.has_operator ) {
+                            return false;
+                          }
+                          if ( val.has_call ) {
+                            return false;
+                          }
+                          if ( val.hasFnCall ) {
+                            return false;
+                          }
+                          if ( val.has_lambda ) {
+                            return false;
+                          }
+                          if ( val.has_lambda_call ) {
+                            return false;
+                          }
+                          if ( val.is_direct_method_call ) {
+                            return false;
+                          }
+                          if ( val.hasNewOper ) {
+                            return false;
+                          }
+                          if ( (val.vref.length) > 0 ) {
+                            return false;
+                          }
+                          return (val.children.length) > 0;
+                        };
+                        arrayLiteralElemType (nameNode, node, lctx) {
+                          if ( (nameNode.array_type.length) > 0 ) {
+                            return nameNode.array_type;
+                          }
+                          if ( (node.array_type.length) > 0 ) {
+                            return node.array_type;
+                          }
+                          if ( (node.children.length) > 0 ) {
+                            const first = node.children[0];
+                            if ( first.value_type == 4 ) {
+                              return "string";
+                            }
+                            if ( first.value_type == 3 ) {
+                              return "int";
+                            }
+                            if ( first.value_type == 2 ) {
+                              return "double";
+                            }
+                            if ( (first.eval_type_name.length) > 0 ) {
+                              return first.eval_type_name;
+                            }
+                            if ( (first.type_name.length) > 0 ) {
+                              return first.type_name;
+                            }
+                          }
+                          return "";
+                        };
+                        lowerArrayLiteral (nameNode, node, lctx) {
+                          const builder = lctx.builder;
+                          const elemType = this.arrayLiteralElemType(nameNode, node, lctx);
+                          let kind = 1;
+                          if ( LowIRUtil.isStringType(elemType) ) {
+                            kind = 2;
+                          }
+                          if ( elemType == "int" ) {
+                            kind = 0;
+                          }
+                          if ( elemType == "boolean" ) {
+                            kind = 0;
+                          }
+                          if ( elemType == "double" ) {
+                            kind = 0;
+                          }
+                          if ( elemType == "float" ) {
+                            kind = 0;
+                          }
+                          if ( elemType == "char" ) {
+                            kind = 0;
+                          }
+                          this.usedPtrArrayRuntime = true;
+                          const desc = this.emitPtrArrayNewEmpty(lctx, kind);
+                          if ( true ) {
+                            for ( let i = 0; i < node.children.length; i++) {
+                              var el = node.children[i];
+                              let v = this.lowerExpr(el, lctx);
+                              if ( kind == 2 ) {
+                                let owned = v;
+                                if ( this.memEnabled(lctx) ) {
+                                  owned = this.emitStrdupExpr(v, lctx);
+                                }
+                                v = builder.emitPtrToInt(owned);
+                              } else {
+                                if ( lctx.ptrType == "i64" ) {
+                                  if ( this.pushItemNeedsWiden(el, lctx) ) {
+                                    if ( this.exprProducesI1(el, lctx) ) {
+                                      v = builder.emitCast("zext", "i64", "i1", v);
+                                    } else {
+                                      v = builder.emitCast("zext", "i64", "i32", v);
+                                    }
+                                  }
+                                }
+                              }
+                              let args = [];
+                              let argTypes = [];
+                              args.push(desc);
+                              argTypes.push(lctx.ptrType);
+                              args.push(v);
+                              argTypes.push(lctx.ptrType);
+                              const voidT = "void";
+                              builder.emitCall("RtPtrArray_push", voidT, args, argTypes);
+                            };
+                          }
+                          return desc;
                         };
                         lowerPush (node, lctx) {
                           const arrNode = node.getSecond();
@@ -46303,6 +46434,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           argTypes.push("i8*");
                           return lctx.builder.emitCall(fnName, retType, args, argTypes);
                         };
+                        lowerStr0Fn (fnName, lctx) {
+                          let ps = [];
+                          this.ensureExternDecl(fnName, "i8*", ps, false);
+                          let args = [];
+                          let argTypes = [];
+                          const res = lctx.builder.emitCall(fnName, "i8*", args, argTypes);
+                          this.registerFreshStringTemp(res, lctx);
+                          return res;
+                        };
                         lowerStr1Fn (node, fnName, lctx) {
                           const aNode = node.getSecond();
                           const a = this.lowerExpr(aNode, lctx);
@@ -46624,6 +46764,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( (pdesc.length) > 0 ) {
                               return this.emitPtrArrayLen(pdesc, lctx);
                             }
+                          } else {
+                            return this.emitPtrArrayLen(this.lowerExpr(collNode, lctx), lctx);
                           }
                           const varName = collNode.vref;
                           const desc = this.loadCollectionDesc(varName, lctx);
@@ -47394,6 +47536,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             if ( this.arrayElemIsDouble(arrNode, lctx) ) {
                               return lctx.builder.emitCast("bitcast", "f64", "i64", raw);
+                            }
+                            if ( this.arrayElemTypeName(arrNode, lctx) == "boolean" ) {
+                              return this.toI1(lctx.builder.emitCast("trunc", "i32", "i64", raw), lctx);
                             }
                           }
                           return raw;
@@ -48227,10 +48372,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             const paramVal = "%" + lpName;
                             this.bindSlot(p_1.name, pType, paramVal, lctx);
-                            if ( LowIRUtil.isArrayTypeName(paramTypeName_1) ) {
-                              lctx.collectionSlots[p_1.name] = "ptr_array";
+                            if ( this.isStringKeyMapTypeNode(pn_1) ) {
+                              this.bindCollectionSlot(p_1.name, "smap", paramVal, lctx);
                               if ( (pn_1.array_type.length) > 0 ) {
-                                lctx.ptrArrayElemTypes[p_1.name] = pn_1.array_type;
+                                lctx.smapValueTypes[p_1.name] = pn_1.array_type;
+                              }
+                            } else {
+                              if ( this.isIntKeyValueMapTypeNode(pn_1) ) {
+                                this.bindCollectionSlot(p_1.name, "imap", paramVal, lctx);
+                                if ( (pn_1.array_type.length) > 0 ) {
+                                  lctx.imapValueTypes[p_1.name] = pn_1.array_type;
+                                }
+                              } else {
+                                if ( LowIRUtil.isArrayTypeName(paramTypeName_1) ) {
+                                  lctx.collectionSlots[p_1.name] = "ptr_array";
+                                  if ( (pn_1.array_type.length) > 0 ) {
+                                    lctx.ptrArrayElemTypes[p_1.name] = pn_1.array_type;
+                                  }
+                                }
                               }
                             }
                             if ( this.isObjectTypeName(paramTypeName_1) ) {
@@ -49340,6 +49499,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return;
                             }
                             const tnNoInit = this.varTypeName(nameNode);
+                            if ( LowIRUtil.isStringType(tnNoInit) ) {
+                              this.bindSlot(varName, "i8*", "null", lctx);
+                              return;
+                            }
+                            if ( LowIRUtil.isSupportedPrimitive(tnNoInit) ) {
+                              const primIr = LowIRUtil.typeFromRanger(tnNoInit);
+                              let zeroTxt = "0";
+                              if ( primIr == "f64" ) {
+                                zeroTxt = "0.0";
+                              }
+                              this.bindSlot(varName, primIr, lctx.builder.emitConst(primIr, zeroTxt), lctx);
+                              return;
+                            }
                             if ( (tnNoInit.length) > 0 ) {
                               if ( this.isObjectTypeName(tnNoInit) ) {
                                 const nullObj = lctx.builder.emitConst(lctx.ptrType, "0");
@@ -49351,6 +49523,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return;
                           }
                           const val = valNode;
+                          if ( this.isArrayLiteralValue(nameNode, val) ) {
+                            const litElem0 = this.arrayLiteralElemType(nameNode, val, lctx);
+                            const litArr0 = this.lowerArrayLiteral(nameNode, val, lctx);
+                            let litOwned0 = true;
+                            if ( litElem0 == "int" ) {
+                              litOwned0 = false;
+                            }
+                            if ( litElem0 == "boolean" ) {
+                              litOwned0 = false;
+                            }
+                            if ( litElem0 == "double" ) {
+                              litOwned0 = false;
+                            }
+                            if ( litElem0 == "float" ) {
+                              litOwned0 = false;
+                            }
+                            if ( litElem0 == "char" ) {
+                              litOwned0 = false;
+                            }
+                            this.bindPtrArraySlot(varName, litArr0, lctx, litOwned0);
+                            if ( (litElem0.length) > 0 ) {
+                              lctx.ptrArrayElemTypes[varName] = litElem0;
+                            }
+                            return;
+                          }
                           if ( val.has_operator ) {
                             const valOp = val.getOperator();
                             if ( valOp == "keys" ) {
@@ -49530,6 +49727,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               tmp = lctx.builder.emitCast("trunc", "i32", "i64", tmp);
                             }
                           }
+                          if ( irType == "i1" ) {
+                            if ( lctx.builder.emittedType(tmp) != "i1" ) {
+                              if ( this.exprProducesI1(val, lctx) == false ) {
+                                tmp = this.toI1(tmp, lctx);
+                              }
+                            }
+                          }
                           this.bindSlot(varName, irType, tmp, lctx);
                         };
                         exprIsI64Operator (node) {
@@ -49647,6 +49851,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( storeType == "i8*" ) {
                               tmp = this.emitOwnedStringReassign(varName, rhs, tmp, lctx);
                             }
+                            if ( storeType == "i1" ) {
+                              if ( builder.emittedType(tmp) != "i1" ) {
+                                tmp = this.toI1(tmp, lctx);
+                              }
+                            }
                             builder.emitStore(storeType, tmp, slot);
                             return;
                           }
@@ -49709,8 +49918,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.flushObjectTempsFrom(0, lctx);
                             this.emitReleaseOwnedLocals(lctx);
                             if ( retType == "i1" ) {
-                              if ( this.exprProducesI1(valNode, lctx) == false ) {
-                                tmp = this.toI1(tmp, lctx);
+                              if ( builder.emittedType(tmp) != "i1" ) {
+                                if ( this.exprProducesI1(valNode, lctx) == false ) {
+                                  tmp = this.toI1(tmp, lctx);
+                                }
                               }
                             }
                             builder.terminateRet(retType, tmp);
@@ -49762,6 +49973,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return this.unwrapCondExpr((n.children[0]));
                             }
                           }
+                          if ( (n.children.length) == 1 ) {
+                            if ( (n.vref.length) == 0 ) {
+                              if ( (n.has_operator || n.has_call) == false ) {
+                                if ( (n.hasFnCall || n.is_direct_method_call) == false ) {
+                                  if ( (n.has_lambda || n.has_lambda_call) == false ) {
+                                    if ( n.hasNewOper == false ) {
+                                      if ( n.value_type != 6 ) {
+                                        return this.unwrapCondExpr((n.children[0]));
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
                           return n;
                         };
                         exprProducesI1 (node, lctx) {
@@ -49800,6 +50026,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return true;
                             }
                             if ( bOp == "getBoolean" ) {
+                              return true;
+                            }
+                            if ( this.isCompareOp(bOp) ) {
+                              return true;
+                            }
+                            if ( bOp == "&&" ) {
+                              return true;
+                            }
+                            if ( bOp == "||" ) {
+                              return true;
+                            }
+                            if ( bOp == "!" ) {
+                              return true;
+                            }
+                            if ( bOp == "null?" ) {
+                              return true;
+                            }
+                            if ( bOp == "!null?" ) {
                               return true;
                             }
                           }
@@ -49873,6 +50117,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return "";
                         };
+                        lowerCondOperand (node, lctx) {
+                          return this.lowerCond(node, lctx);
+                        };
                         lowerCond (node, lctx) {
                           const builder = lctx.builder;
                           const condNode = this.unwrapCondExpr(node);
@@ -49891,6 +50138,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                           }
                           const v = this.lowerExpr(condNode, lctx);
+                          if ( builder.emittedType(v) == "i1" ) {
+                            return v;
+                          }
                           if ( this.exprProducesI1(condNode, lctx) ) {
                             return v;
                           }
@@ -50287,6 +50537,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( opName == "trim_right" ) {
                               return this.lowerStr1Fn(node, "ranger_str_trim_right", lctx);
                             }
+                            if ( opName == "normalize" ) {
+                              return this.lowerStr1Fn(node, "ranger_path_normalize", lctx);
+                            }
+                            if ( opName == "path_dirname" ) {
+                              return this.lowerStr1Fn(node, "ranger_path_dirname", lctx);
+                            }
+                            if ( opName == "current_directory" ) {
+                              return this.lowerStr0Fn("ranger_current_directory", lctx);
+                            }
+                            if ( opName == "install_directory" ) {
+                              return this.lowerStr0Fn("ranger_install_directory", lctx);
+                            }
                             if ( opName == "to_lowercase" ) {
                               return this.lowerStr1Fn(node, "ranger_str_lower", lctx);
                             }
@@ -50650,6 +50912,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( op == "trim_right" ) {
                             return true;
                           }
+                          if ( op == "normalize" ) {
+                            return true;
+                          }
+                          if ( op == "path_dirname" ) {
+                            return true;
+                          }
+                          if ( op == "current_directory" ) {
+                            return true;
+                          }
+                          if ( op == "install_directory" ) {
+                            return true;
+                          }
                           if ( op == "to_lowercase" ) {
                             return true;
                           }
@@ -50963,12 +51237,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               return this.lowerCompareI32(aNode_2, bNode_2, "ne", lctx);
                             case "||" : 
-                              const a_9 = this.lowerExpr(node.getSecond(), lctx);
-                              const b_8 = this.lowerExpr(node.getThird(), lctx);
+                              const a_9 = this.lowerCondOperand(node.getSecond(), lctx);
+                              const b_8 = this.lowerCondOperand(node.getThird(), lctx);
                               return builder.emitBin("or", "i1", a_9, b_8);
                             case "&&" : 
-                              const a_10 = this.lowerExpr(node.getSecond(), lctx);
-                              const b_9 = this.lowerExpr(node.getThird(), lctx);
+                              const a_10 = this.lowerCondOperand(node.getSecond(), lctx);
+                              const b_9 = this.lowerCondOperand(node.getThird(), lctx);
                               return builder.emitBin("and", "i1", a_10, b_9);
                           };
                           return "";
