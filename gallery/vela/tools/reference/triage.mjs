@@ -287,6 +287,44 @@ const CANDIDATES = {
       ],
     },
   },
+  facet_rows: {
+    group: 'multi-view',
+    spec: {
+      data: { values },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'a', type: 'nominal' },
+        y: { field: 'b', type: 'quantitative' },
+        row: { field: 'g', type: 'nominal' },
+      },
+    },
+  },
+  facet_wrapped: {
+    group: 'multi-view',
+    spec: {
+      data: { values },
+      mark: 'bar',
+      columns: 2,
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'b', type: 'quantitative' },
+        facet: { field: 'a', type: 'nominal' },
+      },
+    },
+  },
+  facet_grid: {
+    group: 'multi-view',
+    spec: {
+      data: { values },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'a', type: 'nominal' },
+        y: { field: 'b', type: 'quantitative' },
+        row: { field: 'g', type: 'nominal' },
+        column: { field: 'g', type: 'nominal' },
+      },
+    },
+  },
   // --- time -----------------------------------------------------------------
   line_temporal: {
     group: 'time',

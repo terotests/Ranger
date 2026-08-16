@@ -38,6 +38,10 @@ class VlGroupBox {
     def right:double 0.0
     def top:double 0.0
     def bottom:double 0.0
+    ; Half the frame stroke, which the extents above include and a title does
+    ; not: a title is placed clear of the plot rectangle and its guides, not
+    ; clear of the outer edge of the line drawn around them.
+    def frameHalf:double 0.0
 }
 
 class VlRuntime {
@@ -362,6 +366,28 @@ class VlRuntime {
         }
         if (ttype == "identifier") {
             return rows
+        }
+        ; A run of numbers, which is a data set with no data behind it. A
+        ; wrapped facet grid is laid out from two of them: as many row indices
+        ; as `ceil(facets / columns)`, and as many column indices as there are
+        ; columns. Both of those are signals over another data set's length,
+        ; which is why the bounds are resolved rather than read.
+        if (ttype == "sequence") {
+            def start:double (this.numberOrSignal((tdef.get("start")) 0.0))
+            def stop:double (this.numberOrSignal((tdef.get("stop")) 0.0))
+            def step:double (this.numberOrSignal((tdef.get("step")) 1.0))
+            def field:string (tdef.stringOr("as" "data"))
+            def out:[VlJson]
+            if (step > 0.0) {
+                def at:double start
+                while (at < stop) {
+                    def row:VlJson (VlJson.objectValue())
+                    row.setMember(field (VlJson.numberValue(at)))
+                    push out row
+                    at = (at + step)
+                }
+            }
+            return out
         }
         this.fail((("transform '" + ttype) + "' is not implemented (data '") + dataName + "')")
         return rows
@@ -846,13 +872,17 @@ class VlRuntime {
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))
                 this.growExtent(orient (axis.totalExtent))
-                ; A vertical axis' labels are centred on their tick, so the one
-                ; at the top of the scale hangs half a line above the plot and
-                ; the drawing has to make room for it.
+                ; A vertical axis' labels are centred on their tick, so the
+                ; ones at the ends of the scale hang half a line above and
+                ; below the plot and the drawing has to make room for both. The
+                ; lower half only ever shows on a plot with no bottom axis —
+                ; the row header of a faceted view is exactly that, and it is
+                ; what the row title is centred on.
                 if ((orient == "left") || (orient == "right")) {
                     if (adef.boolOr("labels" true)) {
                         def overhang:double (axis.labelFontSize / 2.0)
                         this.growExtent("top" overhang)
+                        this.growExtent("bottom" overhang)
                     }
                 }
             }
@@ -1039,6 +1069,23 @@ class VlRuntime {
         return out
     }
 
+    ; A number a spec may have written as a signal instead, with what to use
+    ; when it wrote neither.
+    fn numberOrSignal:double (v:VlJson fallback:double) {
+        if (v.isNumber()) {
+            return v.num
+        }
+        if (v.isObject()) {
+            if (v.has("signal")) {
+                def out:VlJson (this.evalExpr((v.stringOr("signal" ""))))
+                if (out.isNumber()) {
+                    return out.num
+                }
+            }
+        }
+        return fallback
+    }
+
     ; A guide's own properties may be signals rather than literals — a legend's
     ; gradient is as long as the chart is tall, written as
     ; `{"signal": "clamp(height, 64, 200)"}`. Resolving them here means the
@@ -1204,8 +1251,8 @@ class VlRuntime {
                     rowItem.hasDatum = true
                     this.encodeChannels(rowItem enter row)
                     this.encodeChannels(rowItem update row)
-                    this.encodeGroupTitle(rowItem (mdef.get("title")) row)
-                    this.encodePlotGroup(rowItem (mdef.get("axes")) children mark.role)
+                    def rowBox:VlGroupBox (this.encodePlotGroup(rowItem (mdef.get("axes")) children mark.role))
+                    this.encodeGroupTitle(rowItem (mdef.get("title")) row rowBox)
                 }
                 return
             }
@@ -1219,8 +1266,8 @@ class VlRuntime {
             this.applyDefaults(item "group" "scope" styles noEncoded)
             this.encodeChannels(item enter empty)
             this.encodeChannels(item update empty)
-            this.encodeGroupTitle(item (mdef.get("title")) empty)
-            this.encodePlotGroup(item (mdef.get("axes")) children mark.role)
+            def plainBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role))
+            this.encodeGroupTitle(item (mdef.get("title")) empty plainBox)
             return
         }
 
@@ -1263,8 +1310,8 @@ class VlRuntime {
             this.applyDefaults(item "group" "scope" cellStyles cellEncoded)
             this.encodeChannels(item enter datum)
             this.encodeChannels(item update datum)
-            this.encodeGroupTitle(item (mdef.get("title")) datum)
-            this.encodePlotGroup(item (mdef.get("axes")) children mark.role)
+            def cellBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role))
+            this.encodeGroupTitle(item (mdef.get("title")) datum cellBox)
         }
     }
 
@@ -1276,7 +1323,7 @@ class VlRuntime {
     ; The reference builds it that way and the placement below reads those
     ; fields back, so the two agree about what a title is before they agree
     ; about where it goes.
-    fn encodeGroupTitle:void (item:VlSceneItem titleDef:VlJson parentRow:VlJson) {
+    fn encodeGroupTitle:void (item:VlSceneItem titleDef:VlJson parentRow:VlJson box:VlGroupBox) {
         if (! (titleDef.isObject())) {
             return
         }
@@ -1294,7 +1341,16 @@ class VlRuntime {
         group.setNumber("offset" (titleDef.doubleOr("offset" 0.0)))
         group.setNumber("padding" (titleDef.doubleOr("padding" 3.0)))
         group.setString("align" "center")
-        group.setNumber("angle" 0.0)
+        ; A title on a side is turned to run along it. Left reads bottom-to-top
+        ; and right reads top-to-bottom, which is a quarter turn each way.
+        def angle:double 0.0
+        if (orient == "left") {
+            angle = -90.0
+        }
+        if (orient == "right") {
+            angle = 90.0
+        }
+        group.setNumber("angle" angle)
 
         def styles:[string] (VlConfig.styleNames((titleDef.get("style"))))
         def textMark (new VlSceneMark())
@@ -1312,27 +1368,65 @@ class VlRuntime {
         text.setString("text" (label.asString()))
         text.setString("baseline" "top")
         text.setString("align" "center")
-        text.setNumber("angle" 0.0)
+        text.setNumber("angle" angle)
 
         ; Where the title sits inside the group it names: along the middle of
-        ; the group's own extent, and clear of it by the offset plus its own
-        ; height. A group with no width of its own — a column title, which is
-        ; placed as a whole later — has nothing to centre in and stays at zero.
+        ; the group's own extent, and clear of the group's INK by the offset
+        ; plus its own height. The ink is the point — a row header carries the
+        ; shared y axis, and the title belongs outside the axis labels, not
+        ; outside the plotting rectangle they hang off. A group with no width
+        ; of its own — a column title, which is placed as a whole later — has
+        ; nothing to centre in and stays at zero.
+        def sideways:boolean ((orient == "left") || (orient == "right"))
         def along:double 0.0
         if (frame == "group") {
-            if (orient == "top") {
-                along = ((item.number("width")) / 2.0)
-            } {
+            if sideways {
                 along = ((item.number("height")) / 2.0)
+            } {
+                along = ((item.number("width")) / 2.0)
             }
         }
         def fontSize:double (text.number("fontSize"))
-        def away:double (0.0 - ((titleDef.doubleOr("offset" 0.0)) + fontSize))
-        group.setNumber("x" along)
-        group.setNumber("y" away)
-        if ((orient == "left") || (orient == "right")) {
+        def extent:double box.top
+        if (orient == "bottom") {
+            extent = box.bottom
+        }
+        if (orient == "left") {
+            extent = box.left
+        }
+        if (orient == "right") {
+            extent = box.right
+        }
+        ; The text is drawn from its own edge outward, so the far side needs the
+        ; offset alone and the near side needs the offset plus the line.
+        def gap:double (((titleDef.doubleOr("offset" 0.0)) + extent) - box.frameHalf)
+        ; What the title clears is the ink INSIDE the frame; what the group is
+        ; then worth to the layout is that plus the frame line itself.
+        def away:double (0.0 - (gap + fontSize))
+        if ((orient == "bottom") || (orient == "right")) {
+            away = gap
+        }
+        if sideways {
             group.setNumber("x" away)
             group.setNumber("y" along)
+        } {
+            group.setNumber("x" along)
+            group.setNumber("y" away)
+        }
+        ; The group is that much bigger for having been given a title, and the
+        ; layout places the row of headers by exactly this number.
+        def reach:double ((gap + fontSize) + box.frameHalf)
+        if (orient == "top") {
+            box.top = (VlRuntime.higher(box.top reach))
+        }
+        if (orient == "bottom") {
+            box.bottom = (VlRuntime.higher(box.bottom reach))
+        }
+        if (orient == "left") {
+            box.left = (VlRuntime.higher(box.left reach))
+        }
+        if (orient == "right") {
+            box.right = (VlRuntime.higher(box.right reach))
         }
         push group.marks textMark
         push item.marks mark
@@ -1356,7 +1450,7 @@ class VlRuntime {
     ; The chart-level size and extents are swapped out for the duration. The
     ; axis builder reads them from here, and giving it a second set of fields to
     ; read would be the same state under another name.
-    fn encodePlotGroup:void (item:VlSceneItem axes:VlJson children:VlJson role:string) {
+    fn encodePlotGroup:VlGroupBox (item:VlSceneItem axes:VlJson children:VlJson role:string) {
         if (! (axes.isArray())) {
             this.encodeChildMarks(item children)
             def bare (new VlGroupBox())
@@ -1365,7 +1459,7 @@ class VlRuntime {
             bare.width = (item.number("width"))
             bare.height = (item.number("height"))
             push groupBoxes bare
-            return
+            return bare
         }
         def savedWidth:double chartWidth
         def savedHeight:double chartHeight
@@ -1397,6 +1491,7 @@ class VlRuntime {
             if (item.has("strokeWidth")) {
                 half = ((item.number("strokeWidth")) / 2.0)
             }
+            box.frameHalf = half
             box.left = (box.left + half)
             box.right = (box.right + half)
             box.top = (box.top + half)
@@ -1410,6 +1505,7 @@ class VlRuntime {
         extentRight = savedRight
         extentTop = savedTop
         extentBottom = savedBottom
+        return box
     }
 
     ; Several plots side by side. The reference lays them out on a grid whose
@@ -1449,18 +1545,19 @@ class VlRuntime {
         def gridY2:double 0.0
         def x:double 0.0
         def y:double 0.0
-        def rowTop:double 0.0
-        def rowHeight:double 0.0
+        ; The running edge of the row below which the next one starts, rounded
+        ; outward the same way the horizontal run is. A cell with a frame is
+        ; half a stroke taller than its plotting area, and a row that does not
+        ; round that half pixel out lands the whole next row one pixel high.
+        def rowBottom:double 0.0
         def first:boolean true
         for cells box:VlGroupBox idx {
             def column:int (idx % columns)
             if (column == 0) {
                 x = 0.0
                 if (idx > 0) {
-                    rowTop = (rowTop + rowHeight + gap)
-                    rowHeight = 0.0
+                    y = ((VlBounds.ceilTo(rowBottom)) + gap + (VlBounds.ceilTo(box.top)))
                 }
-                y = rowTop
             } {
                 x = (x + gap + (VlBounds.ceilTo(box.left)))
             }
@@ -1478,8 +1575,10 @@ class VlRuntime {
                 gridX2 = (VlRuntime.higher(gridX2 (x + box.width + box.right)))
                 gridY2 = (VlRuntime.higher(gridY2 (y + box.height + box.bottom)))
             }
-            if ((box.height + box.bottom + box.top) > rowHeight) {
-                rowHeight = (box.height + box.bottom + box.top)
+            if (column == 0) {
+                rowBottom = ((y + box.height) + box.bottom)
+            } {
+                rowBottom = (VlRuntime.higher(rowBottom ((y + box.height) + box.bottom)))
             }
             x = (VlBounds.ceilTo((x + box.width + box.right)))
         }
@@ -1517,6 +1616,7 @@ class VlRuntime {
         def colFooters:[VlGroupBox] (this.boxesWithRole("column-footer"))
         def rowHeaders:[VlGroupBox] (this.boxesWithRole("row-header"))
         def colTitles:[VlGroupBox] (this.boxesWithRole("column-title"))
+        def rowTitles:[VlGroupBox] (this.boxesWithRole("row-title"))
         def offsets:VlJson (layoutDef.get("offset"))
 
         def top:double 0.0
@@ -1573,8 +1673,38 @@ class VlRuntime {
             colTitle.item.setNumber("y" (titleY - (offsets.doubleOr("columnTitle" 0.0))))
         }
 
+        ; The row title is to the whole column of row headers what the column
+        ; title is to the row of column headers: clear of their far edge by the
+        ; layout's offset, and centred on everything they cover between them.
+        def rowTitleX:double rowHeaderX
+        def rowsTop:double 0.0
+        def rowsBottom:double 0.0
+        def sawRow:boolean false
+        for rowHeaders r2:VlGroupBox rj {
+            def rx:double ((r2.item.number("x")) - r2.left)
+            def ry1:double ((r2.item.number("y")) - r2.top)
+            def ry2:double (((r2.item.number("y")) + r2.height) + r2.bottom)
+            if (! sawRow) {
+                rowTitleX = rx
+                rowsTop = ry1
+                rowsBottom = ry2
+                sawRow = true
+            } {
+                rowTitleX = (VlRuntime.lower(rowTitleX rx))
+                rowsTop = (VlRuntime.lower(rowsTop ry1))
+                rowsBottom = (VlRuntime.higher(rowsBottom ry2))
+            }
+        }
+        for rowTitles rowTitle:VlGroupBox tj {
+            rowTitle.item.setNumber("x" (rowTitleX - (offsets.doubleOr("rowTitle" 0.0))))
+            rowTitle.item.setNumber("y" (to_double (floor (((rowsTop + rowsBottom) / 2.0) + 0.5))))
+        }
+
         for colHeaders h3:VlGroupBox hk {
             reach.add((h3.item.number("x")) ((h3.item.number("y")) + (VlRuntime.titleTop(h3.item))))
+        }
+        for rowTitles t4:VlGroupBox tk4 {
+            reach.add(((t4.item.number("x")) - t4.left) (t4.item.number("y")))
         }
         for colFooters f3:VlGroupBox fk {
             reach.add((f3.item.number("x")) ((f3.item.number("y")) + f3.bottom))

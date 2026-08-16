@@ -215,6 +215,29 @@ const SPECS = {
       column: { field: 'g', type: 'nominal' },
     },
   },
+  // The other two ways a trellis can be arranged. A row facet stacks the cells
+  // and turns the shared title on its side; a wrapped facet has neither row
+  // headers nor column headers and titles every cell instead, its grid sized by
+  // a `sequence` over the facet domain.
+  facet_rows: {
+    data: { values },
+    mark: 'bar',
+    encoding: {
+      x: { field: 'a', type: 'nominal' },
+      y: { field: 'b', type: 'quantitative' },
+      row: { field: 'g', type: 'nominal' },
+    },
+  },
+  facet_wrapped: {
+    data: { values },
+    mark: 'bar',
+    columns: 2,
+    encoding: {
+      x: { field: 'g', type: 'nominal' },
+      y: { field: 'b', type: 'quantitative' },
+      facet: { field: 'a', type: 'nominal' },
+    },
+  },
   concat_two: {
     data: { values },
     hconcat: [
