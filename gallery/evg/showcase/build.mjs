@@ -79,6 +79,14 @@ const PAGES = [
     themes: ["editorial", "studio", "autumn"],
   },
   {
+    id: "more",
+    title: "More chart types",
+    blurb:
+      "The chart types the runtime learned most recently, which are also the ones that exercise the most of it: a continuous colour ramp with the gradient key it earns, a series that is a faceted group of its own, a stack centred on a common line, a calendar on an axis, and a box plot whose quartiles are computed rather than approximated.",
+    shows: ["colour ramps", "gradient legends", "faceted series", "time scales", "computed quartiles"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "flex",
     title: "Flex",
     blurb:
@@ -125,6 +133,7 @@ const PAGE_CSS = {
   // draws the chart the spec described.
   charts: [path.join(HERE, "themes/charts-default.css")],
   plots: [path.join(HERE, "themes/plots-default.css")],
+  more: [path.join(HERE, "themes/more-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {
@@ -256,16 +265,26 @@ function indexHtml(entries, warnings) {
           </figcaption>
         </figure>`;
     }).join("");
+    // The first theme's rendered page, which is what "open this page" means.
+    const lead = entries.find((x) => x.page === p.id && x.theme === themesFor(p)[0].id);
     return `
       <section class="page" id="${p.id}">
         <header>
-          <h2>${esc(p.title)}</h2>
+          <h2><a href="${lead.html}">${esc(p.title)}</a> <a class="open" href="${lead.html}">open the page &rsaquo;</a></h2>
           <p>${esc(p.blurb)}</p>
           <ul class="tags">${p.shows.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
           <p class="src"><a href="pages/${p.id}.tsx.txt">${p.id}.tsx</a> — no visual attributes; every rule is in <a href="showcase.css.txt">showcase.css</a></p>
         </header>
         <div class="shots">${shots}</div>
       </section>`;
+  }).join("");
+
+  // A gallery of eleven pages needs a way in that is not scrolling. Each entry
+  // opens the page itself; the small link beside it jumps to that page's
+  // section, where its other themes and targets are.
+  const contents = PAGES.map((p) => {
+    const lead = entries.find((x) => x.page === p.id && x.theme === themesFor(p)[0].id);
+    return `<li><a class="go" href="${lead.html}">${esc(p.title)}</a> <a class="jump" href="#${p.id}" title="details, themes and targets">details</a></li>`;
   }).join("");
 
   const warnBlock = warnings.length
@@ -311,6 +330,21 @@ function indexHtml(entries, warnings) {
   .dl { margin-left: auto; font-size: .78rem; border: 1px solid var(--line);
         border-radius: 6px; padding: 2px 8px; text-decoration: none; }
   .dl + .dl { margin-left: 0; }
+  .toc { border-top: 1px solid var(--line); margin-top: 32px; padding-top: 24px; }
+  .toc h2 { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase;
+            color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  .toc ul { list-style: none; padding: 0; margin: 0;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 20px; }
+  .toc li { display: flex; align-items: baseline; gap: 8px; }
+  .toc .go { font-weight: 600; text-decoration: none; }
+  .toc .go:hover { text-decoration: underline; }
+  .toc .jump { font-size: .72rem; color: var(--muted); text-decoration: none;
+               border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+  .page h2 a { color: inherit; text-decoration: none; }
+  .page h2 a:hover { text-decoration: underline; }
+  .open { font-size: .72rem; font-weight: 400; letter-spacing: .02em; color: var(--accent);
+          border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px;
+          vertical-align: middle; margin-left: 6px; }
   .warnings { border-top: 1px solid var(--line); padding-top: 32px; margin-top: 48px; }
   .warnings pre { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
                   padding: 12px; overflow-x: auto; font-size: .8rem; }
@@ -332,6 +366,11 @@ function indexHtml(entries, warnings) {
     they say what is on the page, and one stylesheet says how it looks.
   </p>
   <p class="meta">Built from <code>gallery/evg/showcase</code>. PDF is the print target; PNG is the raster preview; HTML is the debug view.</p>
+
+  <nav class="toc" aria-label="Pages">
+    <h2>Pages</h2>
+    <ul>${contents}</ul>
+  </nav>
 
   ${cards}
 

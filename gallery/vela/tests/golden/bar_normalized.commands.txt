@@ -1,0 +1,101 @@
+rect x=0 y=0 w=40 h=300 stroke=#ddd strokeWidth=1
+group-begin
+group-begin
+line x=0.5 y=300.5 x2=40.5 y2=300.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=270.5 x2=40.5 y2=270.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=240.5 x2=40.5 y2=240.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=210.5 x2=40.5 y2=210.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=180.5 x2=40.5 y2=180.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=150.5 x2=40.5 y2=150.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=120.5 x2=40.5 y2=120.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=90.5 x2=40.5 y2=90.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=60.5 x2=40.5 y2=60.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=30.5 x2=40.5 y2=30.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=0.5 x2=40.5 y2=0.5 stroke=#ddd strokeWidth=1
+group-end
+group-begin
+line x=10.5 y=300.5 x2=10.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=30.5 y=300.5 x2=30.5 y2=305.5 stroke=#888 strokeWidth=1
+text x=10 y=307.5 size=10 align=right text=x fill=#000
+text x=30 y=307.5 size=10 align=right text=y fill=#000
+line x=0.5 y=300.5 x2=40.5 y2=300.5 stroke=#888 strokeWidth=1
+text x=20.5 y=319.5 size=11 align=center text=g fill=#000
+group-end
+group-begin
+line x=0.5 y=300.5 x2=-4.5 y2=300.5 stroke=#888 strokeWidth=1
+line x=0.5 y=270.5 x2=-4.5 y2=270.5 stroke=#888 strokeWidth=1
+line x=0.5 y=240.5 x2=-4.5 y2=240.5 stroke=#888 strokeWidth=1
+line x=0.5 y=210.5 x2=-4.5 y2=210.5 stroke=#888 strokeWidth=1
+line x=0.5 y=180.5 x2=-4.5 y2=180.5 stroke=#888 strokeWidth=1
+line x=0.5 y=150.5 x2=-4.5 y2=150.5 stroke=#888 strokeWidth=1
+line x=0.5 y=120.5 x2=-4.5 y2=120.5 stroke=#888 strokeWidth=1
+line x=0.5 y=90.5 x2=-4.5 y2=90.5 stroke=#888 strokeWidth=1
+line x=0.5 y=60.5 x2=-4.5 y2=60.5 stroke=#888 strokeWidth=1
+line x=0.5 y=30.5 x2=-4.5 y2=30.5 stroke=#888 strokeWidth=1
+line x=0.5 y=0.5 x2=-4.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-6.5 y=300.5 size=10 align=right text=0% fill=#000
+text x=-6.5 y=270.5 size=10 align=right text=10% fill=#000
+text x=-6.5 y=240.5 size=10 align=right text=20% fill=#000
+text x=-6.5 y=210.5 size=10 align=right text=30% fill=#000
+text x=-6.5 y=180.5 size=10 align=right text=40% fill=#000
+text x=-6.5 y=150.5 size=10 align=right text=50% fill=#000
+text x=-6.5 y=120.5 size=10 align=right text=60% fill=#000
+text x=-6.5 y=90.5 size=10 align=right text=70% fill=#000
+text x=-6.5 y=60.5 size=10 align=right text=80% fill=#000
+text x=-6.5 y=30.5 size=10 align=right text=90% fill=#000
+text x=-6.5 y=0.5 size=10 align=right text=100% fill=#000
+line x=0.5 y=300.5 x2=0.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-42.5 y=150.5 size=11 align=center text=Sum of b fill=#000
+group-end
+rect x=1 y=0 w=18 h=37.668 fill=#4c78a8
+rect x=21 y=0 w=18 h=57.692 fill=#f58518
+rect x=1 y=37.668 w=18 h=57.848 fill=#e45756
+rect x=21 y=57.692 w=18 h=95.455 fill=#72b7b2
+rect x=1 y=95.516 w=18 h=108.969 fill=#54a24b
+rect x=21 y=153.147 w=18 h=55.594 fill=#eeca3b
+rect x=1 y=204.484 w=18 h=25.561 fill=#b279a2
+rect x=21 y=208.741 w=18 h=91.259 fill=#ff9da6
+rect x=1 y=230.045 w=18 h=69.955 fill=#9d755d
+group-begin
+group-begin
+group-begin
+symbol x=64 y=22 size=100 shape=square fill=#4c78a8
+text x=74 y=22 size=10 align=left text=A fill=#000
+group-end
+group-begin
+symbol x=64 y=35 size=100 shape=square fill=#f58518
+text x=74 y=35 size=10 align=left text=B fill=#000
+group-end
+group-begin
+symbol x=64 y=48 size=100 shape=square fill=#e45756
+text x=74 y=48 size=10 align=left text=C fill=#000
+group-end
+group-begin
+symbol x=64 y=61 size=100 shape=square fill=#72b7b2
+text x=74 y=61 size=10 align=left text=D fill=#000
+group-end
+group-begin
+symbol x=64 y=74 size=100 shape=square fill=#54a24b
+text x=74 y=74 size=10 align=left text=E fill=#000
+group-end
+group-begin
+symbol x=64 y=87 size=100 shape=square fill=#eeca3b
+text x=74 y=87 size=10 align=left text=F fill=#000
+group-end
+group-begin
+symbol x=64 y=100 size=100 shape=square fill=#b279a2
+text x=74 y=100 size=10 align=left text=G fill=#000
+group-end
+group-begin
+symbol x=64 y=113 size=100 shape=square fill=#ff9da6
+text x=74 y=113 size=10 align=left text=H fill=#000
+group-end
+group-begin
+symbol x=64 y=126 size=100 shape=square fill=#9d755d
+text x=74 y=126 size=10 align=left text=I fill=#000
+group-end
+group-end
+text x=58 y=0 size=11 align=left text=a fill=#000
+group-end
+group-end
+

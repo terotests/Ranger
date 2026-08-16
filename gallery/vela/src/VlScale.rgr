@@ -11,14 +11,16 @@
 ; data in Vega (it is a JSON object with a `type` field), the set is closed, and
 ; a single class keeps the cross-target output free of dispatch differences.
 ;
-; Numbers only: no time scale yet (it needs the date/time layer), and no power
-; scale. `log` is here — it maps, nices and ticks like d3's, and its labels
-; follow the same rule the reference applies, which is that a log axis prints
-; only the ticks near the front of each decade and leaves the rest blank.
+; The awkward ones are here too. `log` maps, nices and ticks like d3's, and its
+; labels follow the reference's rule that a log axis prints only the ticks near
+; the front of each decade. `pow` raises the magnitude and keeps the sign.
+; `time` maps like a linear scale — an instant is a number — and hands its ticks
+; to the calendar in VlTime, because months are not all the same length.
 ; ==============================================================================
 
 Import "VlJson.rgr"
 Import "VlMath.rgr"
+Import "VlTime.rgr"
 
 class VlScaleTick {
     def value:double 0.0
@@ -26,13 +28,16 @@ class VlScaleTick {
 }
 
 class VlScale {
-    ; "band" | "point" | "linear" | "log" | "ordinal"
+    ; "band" | "point" | "linear" | "log" | "pow" | "sqrt" | "time" | "ordinal"
     def scaleType:string "linear"
     def name:string ""
     ; A log scale's base. Ten unless the spec says otherwise; the tick algorithm
     ; below treats a whole-number base differently from a fractional one, which
     ; is d3's own distinction and not a shortcut.
     def logBase:double 10.0
+    ; A power scale's exponent. `sqrt` is the same scale with the exponent a
+    ; half, which is what a bubble's radius or a radial chart's is written as.
+    def powExponent:double 1.0
 
     ; Quantitative domain / range.
     def domainMin:double 0.0
@@ -186,6 +191,36 @@ class VlScale {
         return (scaleType == "log")
     }
 
+    fn isPow:boolean () {
+        return ((scaleType == "pow") || (scaleType == "sqrt"))
+    }
+
+    ; A time scale maps like a linear one — an instant is a number of
+    ; milliseconds — and differs only in where its ticks fall and what they are
+    ; called, because months and years are not a fixed number of milliseconds.
+    fn isTime:boolean () {
+        return ((scaleType == "time") || (scaleType == "utc"))
+    }
+
+    ; A power scale's own exponent: `sqrt` names one rather than stating it.
+    fn exponent:double () {
+        if (scaleType == "sqrt") {
+            return 0.5
+        }
+        return powExponent
+    }
+
+    ; The transform a power scale interpolates in. Negative values keep their
+    ; sign — d3 raises the magnitude and puts the sign back, so a domain that
+    ; crosses zero still runs the right way.
+    fn powTransform:double (value:double) {
+        def k:double (this.exponent())
+        if (value < 0.0) {
+            return (0.0 - (VlMath.pow((0.0 - value) k)))
+        }
+        return (VlMath.pow(value k))
+    }
+
     ; Where a value sits between the domain's ends, from 0 to 1. A log scale
     ; interpolates the LOGARITHMS, which is the whole of what makes it one; the
     ; base cancels in the ratio, so a natural log serves every base.
@@ -200,6 +235,14 @@ class VlScale {
                 return 0.0
             }
             return (((VlMath.ln(value)) - lo) / (hi - lo))
+        }
+        if (this.isPow()) {
+            def lo:double (this.powTransform(domainMin))
+            def hi:double (this.powTransform(domainMax))
+            if (hi == lo) {
+                return 0.0
+            }
+            return (((this.powTransform(value)) - lo) / (hi - lo))
         }
         def span:double (domainMax - domainMin)
         if (span == 0.0) {
@@ -230,6 +273,69 @@ class VlScale {
         return (this.mapNumber((v.asDouble())))
     }
 
+    ; A CONTINUOUS scale whose range is a colour ramp: the value's position in
+    ; the domain picks a place along the ramp, and the two colours it falls
+    ; between are mixed in proportion. The reference interpolates the same way —
+    ; piecewise and in plain RGB, one segment per pair of adjacent colours —
+    ; and rounds each channel, so `rgb(94, 192, 191)` is arrived at rather than
+    ; approached.
+    fn mapRamp:string (value:double) {
+        def n:int (array_length rangeValues)
+        if (n == 0) {
+            return ""
+        }
+        if (n == 1) {
+            return (itemAt rangeValues 0)
+        }
+        def t:double (this.fraction(value))
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        def scaled:double (t * (to_double (n - 1)))
+        def i:int (floor scaled)
+        if (i > (n - 2)) {
+            i = (n - 2)
+        }
+        def local:double (scaled - (to_double i))
+        def a:string (itemAt rangeValues i)
+        def b:string (itemAt rangeValues (i + 1))
+        def r:int (VlScale.mixChannel((VlScale.hexChannel(a 0)) (VlScale.hexChannel(b 0)) local))
+        def g:int (VlScale.mixChannel((VlScale.hexChannel(a 1)) (VlScale.hexChannel(b 1)) local))
+        def bl:int (VlScale.mixChannel((VlScale.hexChannel(a 2)) (VlScale.hexChannel(b 2)) local))
+        return ((((((("rgb(" + (VlJson.intToText(r))) + ", ") + (VlJson.intToText(g))) + ", ") + (VlJson.intToText(bl))) + ")"))
+    }
+
+    sfn mixChannel:int (from:int to:int t:double) {
+        def v:double ((to_double from) + (((to_double to) - (to_double from)) * t))
+        return (floor (v + 0.5))
+    }
+
+    ; One channel of a "#rrggbb" colour, as a number. Anything else answers
+    ; zero: a ramp is written by this project, not by a document.
+    sfn hexChannel:int (colour:string index:int) {
+        def start:int (1 + (index * 2))
+        if ((strlen colour) < (start + 2)) {
+            return 0
+        }
+        return (((VlScale.hexDigit((charAt colour start))) * 16) + (VlScale.hexDigit((charAt colour (start + 1)))))
+    }
+
+    sfn hexDigit:int (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return (c - 48)
+        }
+        if ((c >= 97) && (c <= 102)) {
+            return ((c - 97) + 10)
+        }
+        if ((c >= 65) && (c <= 70)) {
+            return ((c - 65) + 10)
+        }
+        return 0
+    }
+
     fn mapOrdinal:string (v:VlJson) {
         def total:int (array_length rangeValues)
         if (total == 0) {
@@ -255,6 +361,19 @@ class VlScale {
         ; A log domain is extended to whole powers of the base — [19, 91]
         ; becomes [10, 100] — rather than to a tick step, because its ticks are
         ; not evenly spaced and there is no step to round to.
+        ; A time domain nices to the boundary of whatever unit its ticks step
+        ; by: a monthly axis starts on the first of a month, not on whatever
+        ; day the data happened to begin.
+        if (this.isTime()) {
+            def unit:string (VlTime.unitOfTicks((this.timeTicks(count))))
+            domainMin = (VlTime.floorTo(start unit))
+            def end:double (VlTime.floorTo(stop unit))
+            if (end < stop) {
+                end = (VlTime.addUnit(end unit))
+            }
+            domainMax = end
+            return
+        }
         if (this.isLog()) {
             if (start > 0.0) {
                 domainMin = (VlMath.pow(logBase (to_double (floor (this.logOf(start))))))
@@ -301,7 +420,24 @@ class VlScale {
         if (this.isLog()) {
             return (this.logTicks(count))
         }
+        if (this.isTime()) {
+            return (this.timeTicks(count))
+        }
         return (VlScale.linearTicks(domainMin domainMax count))
+    }
+
+    ; The calendar decides these, not arithmetic. The two ends of its interval
+    ; table — finer than a second, longer than a year — fall back on the linear
+    ; tick algorithm, which is computed here and handed over so that the date
+    ; layer knows about the calendar and nothing else.
+    fn timeTicks:[double] (count:int) {
+        def n:int count
+        if (n < 1) {
+            n = 1
+        }
+        def msStep:double (VlScale.tickIncrement(domainMin domainMax n))
+        def yearStep:double (VlScale.tickIncrement((domainMin / (VlTime.msPerYear())) (domainMax / (VlTime.msPerYear())) n))
+        return (VlTime.ticks(domainMin domainMax n msStep yearStep))
     }
 
     ; The ticks a LOG scale asks for, which are not evenly spaced: every whole
@@ -498,7 +634,7 @@ class VlScale {
     ; The label Vega prints for a tick with no explicit format: the shortest
     ; decimal that still names the value.
     sfn tickLabel:string (value:double) {
-        return (VlJson.formatNumber(value 6))
+        return (VlJson.withMinusSign((VlJson.formatNumber(value 6))))
     }
 
     ; A log axis does not label every tick it draws. With ten ticks to a decade
@@ -550,7 +686,7 @@ class VlScale {
     ; A number with its integer digits grouped in threes, which is what the
     ; reference prints on a log axis.
     sfn groupedLabel:string (value:double) {
-        def text:string (VlJson.formatNumber(value 12))
+        def text:string (VlJson.formatSignificant(value 12))
         def sign:string ""
         def body:string text
         if ((strlen text) > 0) {
@@ -587,7 +723,8 @@ class VlScale {
             grouped = (grouped + (substring whole i (i + 1)))
             i = (i + 1)
         }
-        return ((sign + grouped) + rest)
+        def out:string ((sign + grouped) + rest)
+        return (VlJson.withMinusSign(out))
     }
 
     ; A tick SET is formatted to one shared precision, chosen from the step —
@@ -608,7 +745,7 @@ class VlScale {
         if (decimals > 0) {
             text = (VlScale.padDecimals(text decimals))
         }
-        push out text
+        push out (VlJson.withMinusSign(text))
         return out
     }
 

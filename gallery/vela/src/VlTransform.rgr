@@ -26,6 +26,20 @@ class VlDataSet {
     }
 }
 
+; A list of numbers a group contributed to one aggregate op. It is a class
+; rather than a bare array because the collection is a map of them, and a map
+; of arrays is not a type this language spells.
+class VlNumberList {
+    def values:[double]
+}
+
+class VlAggregateGroup {
+    def key:string ""
+    def keyRow:VlJson (new VlJson)
+    def count:double 0.0
+    def slots:[VlNumberList]
+}
+
 class VlTransform {
 
     ; A shallow copy: the members are shared, the object is not, which is all a
@@ -153,18 +167,33 @@ class VlTransform {
         }
 
         ; Group totals first: normalize and center both need the sum before any
-        ; row can be given its place.
+        ; row can be given its place, and center needs the LARGEST of them —
+        ; every group is centred on the same line, which is what turns a stack
+        ; into a stream.
+        ;
+        ; Those two totals are of the MAGNITUDES: a negative value adds to the
+        ; height of a normalized or centred stack rather than cancelling out.
+        ; Only the plain zero offset keeps the sign, and it runs positives up
+        ; from the baseline and negatives down.
         def groupSum:[string:double]
         def groupRun:[string:double]
+        def widest:double 0.0
         for rows row:VlJson idx {
             def key:string (VlTransform.groupKey(row groupby))
             def v:double (VlTransform.stackValue(row field))
+            if (v < 0.0) {
+                v = (0.0 - v)
+            }
             def sum:double 0.0
             if (has groupSum key) {
                 sum = (unwrap (get groupSum key))
             }
-            set groupSum key (sum + v)
+            def grown:double (sum + v)
+            set groupSum key grown
             set groupRun key 0.0
+            if (grown > widest) {
+                widest = grown
+            }
         }
 
         ; The accumulation order is the SORT order, but the rows come out in the
@@ -190,20 +219,32 @@ class VlTransform {
             if (has groupSum key) {
                 total = (unwrap (get groupSum key))
             }
+            def magnitude:double v
+            if (magnitude < 0.0) {
+                magnitude = (0.0 - magnitude)
+            }
             def lo:double run
             def hi:double (run + v)
-            set groupRun key hi
 
             if (offset == "normalize") {
+                lo = run
+                hi = (run + magnitude)
+                set groupRun key hi
                 if (total != 0.0) {
                     lo = (lo / total)
                     hi = (hi / total)
                 }
-            }
-            if (offset == "center") {
-                def shift:double (total / 2.0)
-                lo = (lo - shift)
-                hi = (hi - shift)
+            } {
+                if (offset == "center") {
+                    ; Each group starts half its own shortfall below the widest
+                    ; one, so all of them share a centre line.
+                    def start:double ((widest - total) / 2.0)
+                    lo = (start + run)
+                    hi = (lo + magnitude)
+                    set groupRun key (run + magnitude)
+                } {
+                    set groupRun key hi
+                }
             }
             set_at starts rowIndex lo
             set_at ends rowIndex hi
@@ -485,117 +526,253 @@ class VlTransform {
     ; One row per group, carrying the group fields plus one column per measure.
     ; `ops` and `fields` are parallel; `asNames` may be shorter, in which case
     ; the reference implementation's default name (`op_field`) is used.
+    ; Every value a group contributed to one op, kept rather than folded away.
+    ; A sum can be accumulated as it goes; a median cannot — it needs the whole
+    ; set — and the sets a chart aggregates are small enough that keeping them
+    ; costs nothing and makes every op available on the same footing.
     sfn aggregate:[VlJson] (rows:[VlJson] groupby:[string] ops:[string] fields:[string] asNames:[string]) {
-        def keys:[string]
-        def keyRows:[string:VlJson]
-        def counts:[string:double]
-        def sums:[string:double]
-        def mins:[string:double]
-        def maxs:[string:double]
-        def seenValue:[string:int]
-
-        def opCount:int (array_length ops)
-        for rows row:VlJson idx {
-            def key:string (VlTransform.groupKey(row groupby))
-            if (! (has keyRows key)) {
-                push keys key
-                def base:VlJson (VlJson.objectValue())
-                for groupby field:string gi {
-                    base.setMember(field (row.get(field)))
-                }
-                set keyRows key base
-                set counts key 0.0
-            }
-            def c:double (unwrap (get counts key))
-            set counts key (c + 1.0)
-
-            def k:int 0
-            while (k < opCount) {
-                def field:string ""
-                if (k < (array_length fields)) {
-                    field = (itemAt fields k)
-                }
-                def slot:string ((key + (strfromcode 30)) + (VlJson.intToText(k)))
-                def v:VlJson (row.get(field))
-                if (v.isNumber()) {
-                    def d:double v.num
-                    def prev:double 0.0
-                    if (has sums slot) {
-                        prev = (unwrap (get sums slot))
-                    }
-                    set sums slot (prev + d)
-                    if (! (has seenValue slot)) {
-                        set seenValue slot 1
-                        set mins slot d
-                        set maxs slot d
-                    } {
-                        def lo:double (unwrap (get mins slot))
-                        def hi:double (unwrap (get maxs slot))
-                        if (d < lo) {
-                            set mins slot d
-                        }
-                        if (d > hi) {
-                            set maxs slot d
-                        }
-                    }
-                }
-                k = (k + 1)
-            }
-        }
-
+        def groups:[VlAggregateGroup] (VlTransform.collectGroups(rows groupby ops fields))
         def out:[VlJson]
-        for keys key:string ki {
-            def base:VlJson (unwrap (get keyRows key))
-            def n:double (unwrap (get counts key))
+        for groups group:VlAggregateGroup gi {
+            def base:VlJson group.keyRow
+            def opCount:int (array_length ops)
             def k:int 0
             while (k < opCount) {
-                def op:string (itemAt ops k)
-                def field:string ""
-                if (k < (array_length fields)) {
-                    field = (itemAt fields k)
-                }
-                def name:string ((op + "_") + field)
-                if (k < (array_length asNames)) {
-                    name = (itemAt asNames k)
-                }
-                def slot:string ((key + (strfromcode 30)) + (VlJson.intToText(k)))
-                def value:double 0.0
-                if (op == "count") {
-                    value = n
-                } {
-                    def sum:double 0.0
-                    if (has sums slot) {
-                        sum = (unwrap (get sums slot))
-                    }
-                    if (op == "sum") {
-                        value = sum
-                    }
-                    if (op == "mean") {
-                        if (n != 0.0) {
-                            value = (sum / n)
-                        }
-                    }
-                    if (op == "average") {
-                        if (n != 0.0) {
-                            value = (sum / n)
-                        }
-                    }
-                    if (op == "min") {
-                        if (has mins slot) {
-                            value = (unwrap (get mins slot))
-                        }
-                    }
-                    if (op == "max") {
-                        if (has maxs slot) {
-                            value = (unwrap (get maxs slot))
-                        }
-                    }
-                }
-                base.setMember(name (VlJson.numberValue(value)))
+                base.setMember((VlTransform.aggregateName(ops fields asNames k)) (VlJson.numberValue((VlTransform.applyOp(group k (itemAt ops k))))))
                 k = (k + 1)
             }
             push out base
         }
         return out
+    }
+
+    ; The same aggregation joined BACK onto every row it came from, which is how
+    ; a chart compares a value with its own group: a box plot needs each point
+    ; to know its group's quartiles before it can decide whether it is an
+    ; outlier.
+    sfn joinaggregate:[VlJson] (rows:[VlJson] groupby:[string] ops:[string] fields:[string] asNames:[string]) {
+        def groups:[VlAggregateGroup] (VlTransform.collectGroups(rows groupby ops fields))
+        def byKey:[string:VlAggregateGroup]
+        for groups group:VlAggregateGroup gi {
+            set byKey group.key group
+        }
+        def opCount:int (array_length ops)
+        def out:[VlJson]
+        for rows row:VlJson idx {
+            def key:string (VlTransform.groupKey(row groupby))
+            def joined:VlJson (VlTransform.copyRow(row))
+            if (has byKey key) {
+                def group:VlAggregateGroup (unwrap (get byKey key))
+                def k:int 0
+                while (k < opCount) {
+                    joined.setMember((VlTransform.aggregateName(ops fields asNames k)) (VlJson.numberValue((VlTransform.applyOp(group k (itemAt ops k))))))
+                    k = (k + 1)
+                }
+            }
+            push out joined
+        }
+        return out
+    }
+
+    sfn aggregateName:string (ops:[string] fields:[string] asNames:[string] k:int) {
+        if (k < (array_length asNames)) {
+            return (itemAt asNames k)
+        }
+        def field:string ""
+        if (k < (array_length fields)) {
+            field = (itemAt fields k)
+        }
+        return (((itemAt ops k) + "_") + field)
+    }
+
+    sfn collectGroups:[VlAggregateGroup] (rows:[VlJson] groupby:[string] ops:[string] fields:[string]) {
+        def out:[VlAggregateGroup]
+        def byKey:[string:VlAggregateGroup]
+        def opCount:int (array_length ops)
+        for rows row:VlJson idx {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has byKey key)) {
+                def fresh:VlAggregateGroup (new VlAggregateGroup())
+                fresh.key = key
+                fresh.keyRow = (VlJson.objectValue())
+                for groupby field:string gi {
+                    fresh.keyRow.setMember(field (row.get(field)))
+                }
+                def slot:int 0
+                while (slot < opCount) {
+                    def emptyList:VlNumberList (new VlNumberList())
+                    push fresh.slots emptyList
+                    slot = (slot + 1)
+                }
+                set byKey key fresh
+                push out fresh
+            }
+            def group:VlAggregateGroup (unwrap (get byKey key))
+            group.count = (group.count + 1.0)
+            def k:int 0
+            while (k < opCount) {
+                def field:string ""
+                if (k < (array_length fields)) {
+                    field = (itemAt fields k)
+                }
+                def v:VlJson (row.get(field))
+                if (v.isNumber()) {
+                    def list:VlNumberList (itemAt group.slots k)
+                    push list.values v.num
+                }
+                k = (k + 1)
+            }
+        }
+        return out
+    }
+
+    sfn applyOp:double (group:VlAggregateGroup k:int op:string) {
+        if (op == "count") {
+            return group.count
+        }
+        def list:VlNumberList (itemAt group.slots k)
+        def n:int (array_length list.values)
+        if (op == "valid") {
+            return (to_double n)
+        }
+        if (op == "missing") {
+            return (group.count - (to_double n))
+        }
+        if (op == "distinct") {
+            return (to_double (VlTransform.distinctCount(list.values)))
+        }
+        if (n == 0) {
+            return 0.0
+        }
+        def sum:double 0.0
+        def lo:double (itemAt list.values 0)
+        def hi:double lo
+        for list.values v:double vi {
+            sum = (sum + v)
+            if (v < lo) {
+                lo = v
+            }
+            if (v > hi) {
+                hi = v
+            }
+        }
+        if (op == "sum") {
+            return sum
+        }
+        if (op == "min") {
+            return lo
+        }
+        if (op == "max") {
+            return hi
+        }
+        def mean:double (sum / (to_double n))
+        if ((op == "mean") || (op == "average")) {
+            return mean
+        }
+        ; The standard ERROR is the standard deviation over the square root of
+        ; the count, and it is what an error bar's whiskers are by default.
+        if (op == "stderr") {
+            def squaresE:double 0.0
+            for list.values ve:double vei {
+                def de:double (ve - mean)
+                squaresE = (squaresE + (de * de))
+            }
+            def denomE:double ((to_double n) - 1.0)
+            if (denomE <= 0.0) {
+                return 0.0
+            }
+            return ((sqrt (squaresE / denomE)) / (sqrt (to_double n)))
+        }
+        if (((op == "variance") || (op == "variancep")) || ((op == "stdev") || (op == "stdevp"))) {
+            def squares:double 0.0
+            for list.values v2:double v2i {
+                def d:double (v2 - mean)
+                squares = (squares + (d * d))
+            }
+            def denom:double ((to_double n) - 1.0)
+            if ((op == "variancep") || (op == "stdevp")) {
+                denom = (to_double n)
+            }
+            if (denom <= 0.0) {
+                return 0.0
+            }
+            def variance:double (squares / denom)
+            if ((op == "stdev") || (op == "stdevp")) {
+                return (sqrt variance)
+            }
+            return variance
+        }
+        def sorted:[double] (VlTransform.sortedNumbers(list.values))
+        if (op == "median") {
+            return (VlTransform.quantile(sorted 0.5))
+        }
+        if (op == "q1") {
+            return (VlTransform.quantile(sorted 0.25))
+        }
+        if (op == "q3") {
+            return (VlTransform.quantile(sorted 0.75))
+        }
+        return 0.0
+    }
+
+    ; d3's quantile, which interpolates between the two values the position
+    ; falls between rather than picking a neighbour. A box plot's hinges are
+    ; drawn at exactly this number, so an off-by-one method is visible.
+    sfn quantile:double (sorted:[double] p:double) {
+        def n:int (array_length sorted)
+        if (n == 0) {
+            return 0.0
+        }
+        if (n == 1) {
+            return (itemAt sorted 0)
+        }
+        def h:double (((to_double n) - 1.0) * p)
+        def lo:int (floor h)
+        def value:double (itemAt sorted lo)
+        def e:double (h - (to_double lo))
+        if (e == 0.0) {
+            return value
+        }
+        if ((lo + 1) >= n) {
+            return value
+        }
+        return (value + (((itemAt sorted (lo + 1)) - value) * e))
+    }
+
+    sfn sortedNumbers:[double] (values:[double]) {
+        def out:[double]
+        for values v:double vi {
+            def pos:int (array_length out)
+            def scan:int 0
+            def placed:boolean false
+            while ((scan < (array_length out)) && (! placed)) {
+                if (v < (itemAt out scan)) {
+                    pos = scan
+                    placed = true
+                }
+                scan = (scan + 1)
+            }
+            push out v
+            def move:int ((array_length out) - 1)
+            while (move > pos) {
+                set_at out move (itemAt out (move - 1))
+                move = (move - 1)
+            }
+            set_at out pos v
+        }
+        return out
+    }
+
+    sfn distinctCount:int (values:[double]) {
+        def seen:[string:int]
+        def total:int 0
+        for values v:double vi {
+            def key:string (VlJson.formatNumber(v 12))
+            if (! (has seen key)) {
+                set seen key 1
+                total = (total + 1)
+            }
+        }
+        return total
     }
 }

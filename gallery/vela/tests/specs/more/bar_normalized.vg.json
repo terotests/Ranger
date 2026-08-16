@@ -1,0 +1,264 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "background": null,
+  "padding": 5,
+  "width": 150,
+  "height": 78,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "a": "A",
+          "b": 28,
+          "c": 5,
+          "g": "x"
+        },
+        {
+          "a": "B",
+          "b": 55,
+          "c": 9,
+          "g": "y"
+        },
+        {
+          "a": "C",
+          "b": 43,
+          "c": 2,
+          "g": "x"
+        },
+        {
+          "a": "D",
+          "b": 91,
+          "c": 7,
+          "g": "y"
+        },
+        {
+          "a": "E",
+          "b": 81,
+          "c": 4,
+          "g": "x"
+        },
+        {
+          "a": "F",
+          "b": 53,
+          "c": 6,
+          "g": "y"
+        },
+        {
+          "a": "G",
+          "b": 19,
+          "c": 8,
+          "g": "x"
+        },
+        {
+          "a": "H",
+          "b": 87,
+          "c": 1,
+          "g": "y"
+        },
+        {
+          "a": "I",
+          "b": 52,
+          "c": 3,
+          "g": "x"
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "aggregate",
+          "groupby": [
+            "g",
+            "a"
+          ],
+          "ops": [
+            "sum"
+          ],
+          "fields": [
+            "b"
+          ],
+          "as": [
+            "sum_b"
+          ]
+        },
+        {
+          "type": "stack",
+          "groupby": [
+            "g"
+          ],
+          "field": "sum_b",
+          "sort": {
+            "field": [
+              "a"
+            ],
+            "order": [
+              "descending"
+            ]
+          },
+          "as": [
+            "sum_b_start",
+            "sum_b_end"
+          ],
+          "offset": "normalize"
+        },
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"sum_b\"]) && isFinite(+datum[\"sum_b\"])"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "rect",
+      "style": [
+        "bar"
+      ],
+      "from": {
+        "data": "data_0"
+      },
+      "encode": {
+        "update": {
+          "fill": {
+            "scale": "color",
+            "field": "a"
+          },
+          "ariaRoleDescription": {
+            "value": "bar"
+          },
+          "description": {
+            "signal": "\"g: \" + (isValid(datum[\"g\"]) ? isArray(datum[\"g\"]) ? join(datum[\"g\"], ' ') : datum[\"g\"] : \"\"+datum[\"g\"]) + \"; Sum of b: \" + (format(datum[\"sum_b_end\"]-datum[\"sum_b_start\"], \".0%\")) + \"; a: \" + (isValid(datum[\"a\"]) ? isArray(datum[\"a\"]) ? join(datum[\"a\"], ' ') : datum[\"a\"] : \"\"+datum[\"a\"])"
+          },
+          "x": {
+            "scale": "x",
+            "field": "g"
+          },
+          "width": {
+            "signal": "max(0.25, bandwidth('x'))"
+          },
+          "y": {
+            "scale": "y",
+            "field": "sum_b_end"
+          },
+          "y2": {
+            "scale": "y",
+            "field": "sum_b_start"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "band",
+      "domain": {
+        "data": "data_0",
+        "field": "g",
+        "sort": true
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ],
+      "paddingInner": 0.1,
+      "paddingOuter": 0.05
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": [
+        0,
+        1
+      ],
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ],
+      "nice": true,
+      "zero": true
+    },
+    {
+      "name": "color",
+      "type": "ordinal",
+      "domain": {
+        "data": "data_0",
+        "field": "a",
+        "sort": true
+      },
+      "range": "category"
+    }
+  ],
+  "axes": [
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "g",
+      "labelAlign": "right",
+      "labelAngle": 270,
+      "labelBaseline": "middle",
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "Sum of b",
+      "format": ".0%",
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "zindex": 0
+    }
+  ],
+  "legends": [
+    {
+      "fill": "color",
+      "symbolType": "square",
+      "title": "a"
+    }
+  ],
+  "config": {
+    "axis": {
+      "labelColor": "#8a8f98",
+      "titleColor": "#8a8f98",
+      "domainColor": "#8a8f98",
+      "tickColor": "#8a8f98",
+      "gridColor": "#8a8f98",
+      "gridOpacity": 0.25
+    },
+    "style": {
+      "cell": {
+        "stroke": "#8a8f98",
+        "strokeOpacity": 0.4
+      }
+    }
+  }
+}

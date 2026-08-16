@@ -1,0 +1,270 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "background": null,
+  "padding": 5,
+  "width": 150,
+  "height": 78,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "a": "A",
+          "b": 28,
+          "c": 5,
+          "g": "x"
+        },
+        {
+          "a": "B",
+          "b": 55,
+          "c": 9,
+          "g": "y"
+        },
+        {
+          "a": "C",
+          "b": 43,
+          "c": 2,
+          "g": "x"
+        },
+        {
+          "a": "D",
+          "b": 91,
+          "c": 7,
+          "g": "y"
+        },
+        {
+          "a": "E",
+          "b": 81,
+          "c": 4,
+          "g": "x"
+        },
+        {
+          "a": "F",
+          "b": 53,
+          "c": 6,
+          "g": "y"
+        },
+        {
+          "a": "G",
+          "b": 19,
+          "c": 8,
+          "g": "x"
+        },
+        {
+          "a": "H",
+          "b": 87,
+          "c": 1,
+          "g": "y"
+        },
+        {
+          "a": "I",
+          "b": 52,
+          "c": 3,
+          "g": "x"
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "formula",
+          "expr": "toNumber(datum[\"c\"])",
+          "as": "c"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "pathgroup",
+      "type": "group",
+      "from": {
+        "facet": {
+          "name": "faceted_path_main",
+          "data": "data_0",
+          "groupby": [
+            "g"
+          ]
+        }
+      },
+      "encode": {
+        "update": {
+          "width": {
+            "field": {
+              "group": "width"
+            }
+          },
+          "height": {
+            "field": {
+              "group": "height"
+            }
+          }
+        }
+      },
+      "marks": [
+        {
+          "name": "marks",
+          "type": "line",
+          "style": [
+            "line"
+          ],
+          "sort": {
+            "field": "x"
+          },
+          "from": {
+            "data": "faceted_path_main"
+          },
+          "encode": {
+            "update": {
+              "stroke": {
+                "scale": "color",
+                "field": "g"
+              },
+              "description": {
+                "signal": "\"c: \" + (format(datum[\"c\"], \"\")) + \"; b: \" + (format(datum[\"b\"], \"\")) + \"; g: \" + (isValid(datum[\"g\"]) ? isArray(datum[\"g\"]) ? join(datum[\"g\"], ' ') : datum[\"g\"] : \"\"+datum[\"g\"])"
+              },
+              "x": {
+                "scale": "x",
+                "field": "c"
+              },
+              "y": {
+                "scale": "y",
+                "field": "b"
+              },
+              "defined": {
+                "signal": "isValid(datum[\"c\"]) && isFinite(+datum[\"c\"]) && isValid(datum[\"b\"]) && isFinite(+datum[\"b\"])"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "field": "c"
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ],
+      "nice": true,
+      "zero": false
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "field": "b"
+      },
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ],
+      "nice": true,
+      "zero": true
+    },
+    {
+      "name": "color",
+      "type": "ordinal",
+      "domain": {
+        "data": "data_0",
+        "field": "g",
+        "sort": true
+      },
+      "range": "category"
+    }
+  ],
+  "axes": [
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "gridScale": "y",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(width/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "c",
+      "labelFlush": true,
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(width/40)"
+      },
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "b",
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "zindex": 0
+    }
+  ],
+  "legends": [
+    {
+      "stroke": "color",
+      "symbolType": "stroke",
+      "title": "g"
+    }
+  ],
+  "config": {
+    "axis": {
+      "labelColor": "#8a8f98",
+      "titleColor": "#8a8f98",
+      "domainColor": "#8a8f98",
+      "tickColor": "#8a8f98",
+      "gridColor": "#8a8f98",
+      "gridOpacity": 0.25
+    },
+    "style": {
+      "cell": {
+        "stroke": "#8a8f98",
+        "strokeOpacity": 0.4
+      }
+    }
+  }
+}

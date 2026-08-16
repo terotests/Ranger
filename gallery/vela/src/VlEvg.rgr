@@ -478,6 +478,12 @@ class VlEvgWriter {
             builder.addRect((cx - (side / 2.0)) (cy - (side / 2.0)) side side)
             return
         }
+        ; `stroke` is the key a LINE chart gets: a short horizontal dash rather
+        ; than a filled shape, so the legend shows what the chart draws.
+        if (cmd.shape == "stroke") {
+            builder.addLine((cx - (side / 2.0)) cy (cx + (side / 2.0)) cy)
+            return
+        }
         builder.addCircle(cx cy (side / 2.0))
     }
 

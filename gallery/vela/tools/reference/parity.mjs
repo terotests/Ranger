@@ -14,9 +14,9 @@
 // so a checkout without it does not fail its tests — but it says clearly that
 // nothing was compared, because a silent skip would read as a pass.
 //
-// Two things are deliberately not compared:
-//   * `exit`, `zindex`, `bounds` and the back-references — bookkeeping of the
-//     reference's own incremental dataflow, not properties of the chart.
+// What is deliberately not compared: `exit`, `zindex`, `zdirty`, `bounds` and
+// the back-references — bookkeeping of the reference's own incremental dataflow
+// and renderer, not properties of the chart.
 //
 // Marks the reference produces that Vela does not are reported as MISSING
 // rather than quietly dropped — which is how the legend groups read before
@@ -35,7 +35,7 @@ const SCENE_TOOL = path.join(VELA, 'bin', 'vela_scene.js');
 const SPEC_DIR = path.join(VELA, 'tests', 'specs');
 
 const TOLERANCE = 1e-6;
-const IGNORED = new Set(['exit', 'zindex', 'bounds', 'mark', 'datum', 'source', 'clip', 'strokeForeground', 'context']);
+const IGNORED = new Set(['exit', 'zindex', 'bounds', 'mark', 'datum', 'source', 'clip', 'strokeForeground', 'context', 'zdirty']);
 
 let vega;
 try {
@@ -163,7 +163,10 @@ function dumpItem(it) {
  */
 function collectMarks(mark, out = new Map(), trail = []) {
   let key = mark.name || `${trail.join('/')}#${mark.role || mark.marktype}`;
-  if (!mark.name && out.has(key)) {
+  // A faceted group draws the SAME named mark once per partition, so a name is
+  // not a unique key either. Both implementations walk the tree in the same
+  // order, so the suffixes line up.
+  if (out.has(key)) {
     let n = 2;
     while (out.has(`${key}~${n}`)) n++;
     key = `${key}~${n}`;

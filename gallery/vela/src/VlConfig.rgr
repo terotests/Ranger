@@ -214,6 +214,20 @@ class VlConfig {
     ; The categorical colour schemes, by the names a spec uses. `category` is
     ; the configured default for a nominal colour scale and resolves to
     ; tableau10, which is where a chart's first bar gets #4c78a8 from.
+    ; A ramp is stored the way the reference stores one: the hex digits of every
+    ; colour run together, six at a time, because a list of eleven quoted
+    ; strings is eleven times the noise for the same eleven colours.
+    sfn ramp:[string] (digits:string) {
+        def out:[string]
+        def n:int (strlen digits)
+        def i:int 0
+        while ((i + 6) <= n) {
+            push out ("#" + (substring digits i (i + 6)))
+            i = (i + 6)
+        }
+        return out
+    }
+
     sfn schemeColors:[string] (name:string) {
         def out:[string]
         if ((name == "category") || ((name == "tableau10") || (name == "ordinal"))) {
@@ -228,6 +242,45 @@ class VlConfig {
             push out "#9d755d"
             push out "#bab0ac"
             return out
+        }
+        ; The shapes an ordinal `symbol` range hands out, in the reference's
+        ; order. A shape scale is an ordinal scale like any other; only its
+        ; range is names rather than colours.
+        if (name == "symbol") {
+            push out "circle"
+            push out "square"
+            push out "triangle-up"
+            push out "cross"
+            push out "diamond"
+            push out "triangle-right"
+            push out "triangle-down"
+            push out "triangle-left"
+            return out
+        }
+        ; Continuous colour ramps. A CONTINUOUS scale interpolates between
+        ; these; an ordinal one picks from them by index, which is the same list
+        ; read two ways. `heatmap` and `ramp` are the reference's own names for
+        ; the ramps its configuration reaches for by default.
+        if ((name == "heatmap") || (name == "yellowgreenblue")) {
+            return (VlConfig.ramp("eff9bddbf1b4bde5b594d5b969c5be45b4c22c9ec02182b82163aa23479c1c3185"))
+        }
+        if (((name == "ramp") || (name == "blues")) || (name == "sequential")) {
+            return (VlConfig.ramp("cfe1f2bed8eca8cee58fc1de74b2d75ba3cf4592c63181bd206fb2125ca40a4a90"))
+        }
+        if (name == "greens") {
+            return (VlConfig.ramp("d3eecdc0e6baabdda594d3917bc77d60ba6c46ab5e329a512089430e7735036429"))
+        }
+        if (name == "greys") {
+            return (VlConfig.ramp("e2e2e2d4d4d4c4c4c4b1b1b19d9d9d8888887575756262624d4d4d3535351e1e1e"))
+        }
+        if (name == "oranges") {
+            return (VlConfig.ramp("fdd8b3fdc998fdb87bfda55efc9244f87f2cf06b18e4580bd14904b93d029f3303"))
+        }
+        if (name == "purples") {
+            return (VlConfig.ramp("e2e1efd4d4e8c4c5e0b4b3d6a3a0cc928ec3827cb97566ae684ea25c3696501f8c"))
+        }
+        if (name == "reds") {
+            return (VlConfig.ramp("fdc9b4fcb49afc9e80fc8767fa7051f6573fec3f2fdc2a25c81b1db21218970b13"))
         }
         if (name == "category10") {
             push out "#1f77b4"

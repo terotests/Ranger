@@ -296,6 +296,15 @@ class VlSceneCommands {
     }
 
     sfn emitItem:void (list:VlCommandList mark:VlSceneMark item:VlSceneItem offsetX:double offsetY:double) {
+        ; A gradient is not a colour, and no target here paints one. It is drawn
+        ; as its own stops instead — one flat band per pair — which every
+        ; backend can already do and which reads as a ramp at the size a legend
+        ; bar is. The bands are the reference's own stop colours, so the two
+        ; agree at every offset even though one interpolates and one steps.
+        if (item.has("gradientStops")) {
+            VlSceneCommands.emitGradient(list mark item offsetX offsetY)
+            return
+        }
         def cmd (new VlDrawCommand())
         cmd.markType = mark.markType
         cmd.role = mark.role
@@ -392,6 +401,58 @@ class VlSceneCommands {
 
         VlSceneCommands.applyStyle(cmd item)
         push list.commands cmd
+    }
+
+    ; The bands of a gradient-filled rectangle, bottom to top: a legend's ramp
+    ; runs from the domain's low end at the FOOT of the bar to its high end at
+    ; the top, which is why the first stop is drawn last.
+    sfn emitGradient:void (list:VlCommandList mark:VlSceneMark item:VlSceneItem offsetX:double offsetY:double) {
+        def stops:VlJson (item.props.get("gradientStops"))
+        def total:int (stops.count())
+        if (total < 2) {
+            return
+        }
+        def x:double (offsetX + (item.number("x")))
+        def y:double (offsetY + (item.number("y")))
+        def w:double (item.number("width"))
+        def h:double (item.number("height"))
+        def k:int 0
+        while (k < (total - 1)) {
+            def from:double (stops.at(k).doubleOr("offset" 0.0))
+            def to:double (stops.at((k + 1)).doubleOr("offset" 1.0))
+            def band (new VlDrawCommand())
+            band.op = "rect"
+            band.markType = mark.markType
+            band.role = mark.role
+            band.x = x
+            band.y = (y + (h * (1.0 - to)))
+            band.width = w
+            band.height = (h * (to - from))
+            band.fill = (stops.at(k).stringOr("color" ""))
+            band.hasFill = true
+            if (item.has("opacity")) {
+                band.opacity = (item.number("opacity"))
+            }
+            push list.commands band
+            k = (k + 1)
+        }
+        ; The outline, if the bar has one, is drawn once around the whole bar
+        ; rather than around every band.
+        if (item.has("stroke")) {
+            def frame (new VlDrawCommand())
+            frame.op = "rect"
+            frame.markType = mark.markType
+            frame.role = mark.role
+            frame.x = x
+            frame.y = y
+            frame.width = w
+            frame.height = h
+            VlSceneCommands.applyStyle(frame item)
+            frame.hasFill = false
+            if frame.hasStroke {
+                push list.commands frame
+            }
+        }
     }
 
     ; The style channels are shared by every mark type, and "absent" is not the
