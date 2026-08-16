@@ -52602,7 +52602,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( rop == "unwrap" ) {
                             return this.exprRecvClassName(node.getSecond(), lctx);
                           }
-                          if ( (rop != "itemAt") && (rop != "get") ) {
+                          if ( ((rop != "itemAt") && (rop != "get")) && (rop != "at") ) {
                             return "";
                           }
                           const rcoll = node.getSecond();

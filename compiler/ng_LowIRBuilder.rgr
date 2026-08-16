@@ -10712,7 +10712,10 @@ class LowIRBuilderPass {
     if (rop == "unwrap") {
       return (this.exprRecvClassName((node.getSecond()) lctx))
     }
-    if ((rop != "itemAt") && (rop != "get")) {
+    ; `at` is element access too, and the flow parser reaches a method through
+    ; it: `push node.children ( (at item.children 0).copy() )`. Leaving it out
+    ; gave the call a null receiver.
+    if (((rop != "itemAt") && (rop != "get")) && (rop != "at")) {
       return ""
     }
     def rcoll (node.getSecond())
