@@ -32,6 +32,7 @@
 
 Import "VlScene.rgr"
 Import "VlBounds.rgr"
+Import "VlText.rgr"
 Import "VlShape.rgr"
 Import "../../evg/PathBuilder.rgr"
 
@@ -308,10 +309,29 @@ class VlViewBox {
         if (item.has("baseline")) { baseline = (item.text("baseline")) }
         def x:double (item.number("x"))
         def y:double (item.number("y"))
-        if (item.has("dx")) { x = (x + (item.number("dx"))) }
-        if (item.has("dy")) { y = (y + (item.number("dy"))) }
 
-        def box:VlBounds (VlBounds.ofText((item.text("text")) fontSize align baseline x y))
+        ; The reference's own construction, in its own order. The nudge is
+        ; folded into the box; the ROTATION is about the un-nudged anchor,
+        ; which is a difference of a whole label for anything both nudged and
+        ; turned.
+        def h:double fontSize
+        def w:double (VlText.estimateWidth((item.text("text")) fontSize))
+        def dx:double 0.0
+        if (item.has("dx")) { dx = (item.number("dx")) }
+        def dy:double 0.0
+        if (item.has("dy")) { dy = (item.number("dy")) }
+        dy = ((dy + (VlBounds.baselineOffset(baseline h))) - (VlBounds.roundHalfUp((0.8 * h))))
+        if (align == "center") {
+            dx = (dx - (w / 2.0))
+        }
+        if (align == "right") {
+            dx = (dx - w)
+        }
+        dx = (dx + x)
+        dy = (dy + y)
+        def box (new VlBounds())
+        box.set(dx dy (dx + w) (dy + h))
+
         def angle:double 0.0
         if (item.has("angle")) { angle = (item.number("angle")) }
         if (angle == 0.0) {
@@ -320,14 +340,31 @@ class VlViewBox {
         def radians:double ((angle * 3.141592653589793) / 180.0)
         def cosA:double (cos radians)
         def sinA:double (sin radians)
+        ; The reference's own expression, term for term. A quarter turn has no
+        ; exact cosine in binary — cos(-pi/2) is 6.1e-17, not 0 — so a rotated
+        ; box lands a few atoms away from where the arithmetic says, and the
+        ; page is sized by the CEILING of that. Writing the same expression a
+        ; different way rounds somewhere else and can cost a whole pixel.
+        ;
+        ; It still does not always agree, and the reason is not arithmetic: the
+        ; reference lays an axis title out by MOVING it — it bounds the title
+        ; where it first put it and then translates the box — so its residue is
+        ; the residue of a position the title no longer has. That is a property
+        ; of its layout order rather than of the geometry, and reproducing it
+        ; would mean reproducing the order. See the README.
         def out (new VlBounds())
         VlViewBox.addRotated(out box.x1 box.y1 x y cosA sinA)
+        VlViewBox.addRotated(out box.x1 box.y2 x y cosA sinA)
         VlViewBox.addRotated(out box.x2 box.y1 x y cosA sinA)
         VlViewBox.addRotated(out box.x2 box.y2 x y cosA sinA)
-        VlViewBox.addRotated(out box.x1 box.y2 x y cosA sinA)
         return out
     }
 
+    ; Rotated about the anchor, as an offset from it. Algebraically the same as
+    ; the reference's own expression and numerically not — which of the two
+    ; lands on the reference's pixel depends on the chart, because the number
+    ; it is being compared against carries a residue of its own. This form
+    ; agrees on every chart in the suite but one.
     sfn addRotated:void (out:VlBounds px:double py:double cx:double cy:double cosA:double sinA:double) {
         def dx:double (px - cx)
         def dy:double (py - cy)

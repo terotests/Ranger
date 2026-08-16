@@ -266,8 +266,38 @@ class VlJson {
             neg = true
             v = (0.0 - v)
         }
+        ; Past a thousand million the whole part no longer fits an int, and the
+        ; old answer here was `to_string`, which is the one thing this file
+        ; exists to avoid: JavaScript writes 1327017600000 and C++ writes
+        ; 1.3270176e+12 for the same double. Any ordinal domain built from
+        ; large numbers was therefore labelled differently on the two targets —
+        ; a chart whose categories are INSTANTS is the ordinary way to hit it,
+        ; and every one of its labels came out as the epoch in C++ because
+        ; nothing could read the number back.
         if (v >= 1000000000.0) {
-            return (to_string value)
+            ; `floor` answers an INT, which is exactly the type this value does
+            ; not fit, so the digits come out of the double itself: the highest
+            ; power of ten first, subtracting as it goes. What is left when the
+            ; ones place has been taken is the fraction.
+            def place:double 1.0
+            while ((v / place) >= 10.0) {
+                place = (place * 10.0)
+            }
+            def big:string ""
+            def rest:double v
+            while (place >= 1.0) {
+                big = (big + (VlJson.digitChar((VlJson.digitAt(rest place)))))
+                rest = (rest - ((to_double (VlJson.digitAt(rest place))) * place))
+                place = (place / 10.0)
+            }
+            def tail:string (VlJson.fractionDigits(rest maxDecimals))
+            if ((strlen tail) > 0) {
+                big = ((big + ".") + tail)
+            }
+            if neg {
+                return ("-" + big)
+            }
+            return big
         }
         ; The scale is a DOUBLE, and nothing here is ever allowed to become an
         ; int larger than a digit. Twelve significant digits of a two-digit
@@ -321,6 +351,45 @@ class VlJson {
             return ("-" + out)
         }
         return out
+    }
+
+    ; One digit of a double at a given place, clamped so that a value a hair
+    ; over its own place cannot ask for a tenth digit.
+    sfn digitAt:int (rest:double place:double) {
+        def digit:int (floor (rest / place))
+        if (digit > 9) {
+            return 9
+        }
+        if (digit < 0) {
+            return 0
+        }
+        return digit
+    }
+
+    ; The digits after the point, trailing zeros dropped. Empty for a whole
+    ; number, which is what leaves 1327017600000 without a ".0" after it.
+    sfn fractionDigits:string (frac:double maxDecimals:int) {
+        def out:string ""
+        def rest:double frac
+        def place:double 0.1
+        def i:int 0
+        while (i < maxDecimals) {
+            def digit:int (VlJson.digitAt(rest place))
+            out = (out + (VlJson.digitChar(digit)))
+            rest = (rest - ((to_double digit) * place))
+            place = (place / 10.0)
+            i = (i + 1)
+        }
+        def end:int (strlen out)
+        def stop:boolean false
+        while ((end > 0) && (! stop)) {
+            if ((substring out (end - 1) end) == "0") {
+                end = (end - 1)
+            } {
+                stop = true
+            }
+        }
+        return (substring out 0 end)
     }
 
     ; Non-negative int to text without the target's own number formatting,

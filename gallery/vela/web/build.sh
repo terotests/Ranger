@@ -52,6 +52,9 @@ if grep -q "require(" "$STAGE/vela_web.js"; then
 fi
 
 cp "$WEB/index.html" "$OUT/index.html"
+# The stand-in data sets, under the names the published examples ask for.
+mkdir -p "$OUT/data"
+cp "$WEB"/data/* "$OUT/data/"
 if [ "$(cd "$OUT" && pwd)" != "$(cd "$STAGE" && pwd)" ]; then
   cp "$STAGE/vela_web.js" "$OUT/vela_web.js"
 fi

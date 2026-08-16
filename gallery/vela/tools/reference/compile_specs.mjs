@@ -74,6 +74,157 @@ const SPECS = {
       y: { field: 'b', type: 'quantitative' },
     },
   },
+  // A specification's OWN transforms, which were read by nobody: a filter that
+  // removed rows simply did not happen, and nothing said so.
+  transform_filter: {
+        "description": "The transforms a specification writes for itself, rather than the ones its encoding implies. A filter that removes rows and a calculate that adds a field were both dropped in silence: the chart drew the untransformed data and looked entirely reasonable.",
+        "width": 180,
+        "height": 120,
+        "data": {
+            "values": [
+                {
+                    "a": "A",
+                    "b": 28,
+                    "keep": true
+                },
+                {
+                    "a": "B",
+                    "b": 55,
+                    "keep": false
+                },
+                {
+                    "a": "C",
+                    "b": 43,
+                    "keep": true
+                },
+                {
+                    "a": "D",
+                    "b": 91,
+                    "keep": false
+                },
+                {
+                    "a": "E",
+                    "b": 81,
+                    "keep": true
+                },
+                {
+                    "a": "F",
+                    "b": 53,
+                    "keep": true
+                }
+            ]
+        },
+        "transform": [
+            {
+                "filter": "datum.keep"
+            },
+            {
+                "calculate": "datum.b / 2",
+                "as": "half"
+            }
+        ],
+        "mark": "bar",
+        "encoding": {
+            "x": {
+                "field": "a",
+                "type": "nominal"
+            },
+            "y": {
+                "field": "half",
+                "type": "quantitative"
+            }
+        }
+    },
+  // A timeUnit, which groups every March in four years onto one bar — plus a
+  // colour scale whose declared domain fixes the order of the stack.
+  timeunit_month: {
+        "description": "A timeUnit groups every March in four years of daily readings onto one bar. It is a substitution and not a floor \u2014 the fields the unit does not name come from a fixed reference year \u2014 and the axis labels the result as a date even though the scale is a band.",
+        "width": 180,
+        "height": 120,
+        "data": {
+            "values": [
+                {
+                    "date": "2012-01-14",
+                    "weather": "rain"
+                },
+                {
+                    "date": "2012-02-05",
+                    "weather": "snow"
+                },
+                {
+                    "date": "2012-03-09",
+                    "weather": "sun"
+                },
+                {
+                    "date": "2013-01-22",
+                    "weather": "sun"
+                },
+                {
+                    "date": "2013-03-11",
+                    "weather": "rain"
+                },
+                {
+                    "date": "2013-04-02",
+                    "weather": "sun"
+                },
+                {
+                    "date": "2014-02-17",
+                    "weather": "rain"
+                },
+                {
+                    "date": "2014-03-28",
+                    "weather": "sun"
+                },
+                {
+                    "date": "2014-04-19",
+                    "weather": "rain"
+                },
+                {
+                    "date": "2015-01-08",
+                    "weather": "snow"
+                },
+                {
+                    "date": "2015-03-30",
+                    "weather": "sun"
+                },
+                {
+                    "date": "2015-04-25",
+                    "weather": "sun"
+                }
+            ]
+        },
+        "mark": "bar",
+        "encoding": {
+            "x": {
+                "timeUnit": "month",
+                "field": "date",
+                "type": "ordinal",
+                "title": "Month of the year"
+            },
+            "y": {
+                "aggregate": "count",
+                "type": "quantitative",
+                "title": "Number of days"
+            },
+            "color": {
+                "field": "weather",
+                "type": "nominal",
+                "scale": {
+                    "domain": [
+                        "sun",
+                        "rain",
+                        "snow"
+                    ],
+                    "range": [
+                        "#e7ba52",
+                        "#1f77b4",
+                        "#9467bd"
+                    ]
+                },
+                "title": "Weather type"
+            }
+        }
+    },
   tick: {
     data: { values },
     mark: 'tick',

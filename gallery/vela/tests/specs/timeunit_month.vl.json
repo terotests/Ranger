@@ -1,0 +1,88 @@
+{
+  "description": "A timeUnit groups every March in four years of daily readings onto one bar. It is a substitution and not a floor — the fields the unit does not name come from a fixed reference year — and the axis labels the result as a date even though the scale is a band.",
+  "width": 180,
+  "height": 120,
+  "data": {
+    "values": [
+      {
+        "date": "2012-01-14",
+        "weather": "rain"
+      },
+      {
+        "date": "2012-02-05",
+        "weather": "snow"
+      },
+      {
+        "date": "2012-03-09",
+        "weather": "sun"
+      },
+      {
+        "date": "2013-01-22",
+        "weather": "sun"
+      },
+      {
+        "date": "2013-03-11",
+        "weather": "rain"
+      },
+      {
+        "date": "2013-04-02",
+        "weather": "sun"
+      },
+      {
+        "date": "2014-02-17",
+        "weather": "rain"
+      },
+      {
+        "date": "2014-03-28",
+        "weather": "sun"
+      },
+      {
+        "date": "2014-04-19",
+        "weather": "rain"
+      },
+      {
+        "date": "2015-01-08",
+        "weather": "snow"
+      },
+      {
+        "date": "2015-03-30",
+        "weather": "sun"
+      },
+      {
+        "date": "2015-04-25",
+        "weather": "sun"
+      }
+    ]
+  },
+  "mark": "bar",
+  "encoding": {
+    "x": {
+      "timeUnit": "month",
+      "field": "date",
+      "type": "ordinal",
+      "title": "Month of the year"
+    },
+    "y": {
+      "aggregate": "count",
+      "type": "quantitative",
+      "title": "Number of days"
+    },
+    "color": {
+      "field": "weather",
+      "type": "nominal",
+      "scale": {
+        "domain": [
+          "sun",
+          "rain",
+          "snow"
+        ],
+        "range": [
+          "#e7ba52",
+          "#1f77b4",
+          "#9467bd"
+        ]
+      },
+      "title": "Weather type"
+    }
+  }
+}

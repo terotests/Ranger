@@ -11,13 +11,14 @@ of the Vega JavaScript sources and not affiliated with the Vega project. See
 **Status:** it draws, and it compiles what it draws, and what it draws is
 compared against the reference's own renderer. Marks, scales, transforms,
 signals, expressions, axes, legends and layout produce a scene that matches the
-reference implementation item for item on **1806 of 1806 marks** across 44 chart
+reference implementation item for item on **1844 of 1844 marks** across 46 chart
 types at several sizes; the SVG it renders from that scene matches the SVG
-official Vega renders on **4651 of 4651 drawn outlines and labels**, to a
-quarter of a pixel; **40 of 40** Vega-Lite sources compile in Ranger and draw
+official Vega renders on **4723 of 4723 drawn outlines and labels**, to a
+quarter of a pixel; **42 of 42** Vega-Lite sources compile in Ranger and draw
 the same scene as the official compiler feeding official Vega; and the EVG
-backend renders that scene to **PDF, PNG and HTML** — forty-six charts on six
+backend renders that scene to **PDF, PNG and HTML** — fifty charts on seven
 pages of the project's [EVG showcase](https://terotests.github.io/Ranger/evg/).
+There is also a page you can [paste a specification into](#paste-a-specification-and-watch-it-draw).
 
 Compiled to **C++** and built with `g++`, the whole chain reproduces every one of
 those goldens byte for byte with no JavaScript engine underneath
@@ -87,7 +88,16 @@ Vega-Lite compiler and the SVG renderer, compiled to JavaScript by the same
 toolchain that compiles them to C++. The page also shows the Vega a Vega-Lite
 specification became, which is most of what a playground is for.
 
-Two things about it are deliberate:
+Its own data is beside it. A relative `data.url` is looked for in `web/data`
+first, and those files carry the names the published examples ask for —
+`data/cars.json`, `data/seattle-weather.csv` — with the same columns and
+entirely invented numbers (`node gallery/vela/web/make-data.mjs`). An example
+copied off the Vega site therefore draws with no network and without this
+repository depending on someone else's server. Which source was used is
+reported on every chart, because a plausible chart of Seattle weather that is
+not Seattle's weather would be a worse outcome than no chart at all.
+
+Two more things about it are deliberate:
 
 * **The page fetches, the runtime does not.** A `data.url` is loaded and parsed
   by the page and handed to the runtime as values, because the runtime has no
@@ -279,6 +289,22 @@ The scene was right in every one of these. The picture was not.
 | A translucent fill inside a solid outline was drawn washed out | `fillOpacity` and `strokeOpacity` are separate channels; EVG carries one opacity per element, so the shape is written twice rather than averaged |
 | The page was painted white when the spec said `"background": null` | a background is a rectangle the specification asked for, not a default |
 | A `stroke-cap: square` rule was measured as if it were butt | a square cap reaches `sqrt(2)/2` of the stroke width past the end |
+
+### And what pasting a specification into the page caught
+
+The playground is a harness too — it is the only one whose input is whatever
+somebody happens to try. Every one of these came from a chart copied off the
+Vega site:
+
+| What was wrong | What the reference does |
+| --- | --- |
+| A spec-level `transform` array **was read by nobody** | a filter that removed half the rows simply did not happen, a calculate never added its field, and nothing was reported. `filter` and `calculate` are compiled now; the rest refuse by name |
+| An explicit `width` was ignored on a chart with a discrete axis | a declared size is not a suggestion: the scale spans it instead of deciding it. A six-category bar chart asked to be 180 wide came out 20 |
+| A channel's own `scale` was ignored | `{"scale": {"domain": […], "range": […]}}` is how anyone fixes the order of a stack or gives a series its colours. The colours were right for the wrong categories |
+| A stack was ordered alphabetically | a declared domain orders the stack, through an `indexof` over it — and that field has to be grouped by as well, or the aggregate throws it away before the sort can read it |
+| `timeUnit` refused outright | it is a substitution, not a floor: the fields the unit does not name come from a fixed reference year, which is what puts every March on the same bar |
+| A band axis of instants formatted them in UTC | a scale carries the chart's zone whether or not it is a `time` scale — a Helsinki January was labelled December |
+| An axis `format` given as a `{"signal"}` read as the empty string | the official compiler writes `timeUnitSpecifier([…])` there rather than the `"%b"` it evaluates to, so the axis came out with four blank labels |
 
 Two of them were bugs in the harness itself, found the same way: it flattened
 curves at a fixed resolution, so a 300px arc read as three quarters of a pixel
@@ -757,7 +783,7 @@ intermediate value is ever larger than a digit.
   that read it, but the guides are rebuilt whichever one changed. They are
   cheap, so this is a deliberate stop rather than an oversight —
   see [Changing one number](#changing-one-number).
-* **The rest of the Vega-Lite compiler.** All forty-one sources in the suite
+* **The rest of the Vega-Lite compiler.** All forty-two sources in the suite
   compile in Ranger — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). What is
   still refused, out loud rather than drawn as something else: an `errorbar`,
   an `errorband`, the top-level `facet` operator, and every spec-level
@@ -766,6 +792,20 @@ intermediate value is ever larger than a digit.
   before they were listed: a `transform` array was read by nobody, so a filter
   that removed half the rows simply did not happen and the chart looked
   entirely reasonable.
+* **The time units that are not fields.** `year`, `quarter`, `month`, `date`,
+  `day`, `hours`, `minutes` and `milliseconds` are computed; `week`, `isoweek`
+  and `dayofyear` are refused by name. Each has a real rule and none of the
+  three is a variation on the others, so a chart that asked for a week and
+  silently got a month would be wrong in a way nobody would notice.
+* **A rotated title can size the page a pixel differently.** The reference
+  lays an axis title out by MOVING it — it bounds the title where it first put
+  it and then translates the box — so the bounds it ends up with carry the
+  floating-point residue of a position the title no longer has. A quarter turn
+  has no exact cosine in binary, the page is sized by the CEILING of those
+  bounds, and a title whose rotated extent lands exactly on a whole pixel can
+  therefore tip either way. Vela computes the bounds where the title actually
+  is, which agrees with the reference on every chart in the suite; it is not
+  guaranteed to on a chart that sits exactly on the tie.
 * **No loader.** `data.url` is refused by the runtime; the browser page fetches
   it and passes values instead. Seven of the eight targets have no idea what a
   URL is, so this belongs to the host rather than to the runtime.
@@ -814,6 +854,8 @@ gallery/vela/
 ├── web/                  paste a specification, see what it draws
 │   ├── index.html        the page
 │   ├── build.sh          compile the script beside it
+│   ├── make-data.mjs     stand-in data under the example data sets' names
+│   ├── data/             …and the files it writes
 │   └── smoke.mjs         open it in a browser and check it drew
 ├── tests/
 │   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow)
