@@ -4244,10 +4244,17 @@ class VlCompile {
         this.encodeAxisPair(update (this.channel("y")) "y" "height")
         def size:VlChannel (this.channel("size"))
         if size.defined {
+            ; A rule and a line have no area, so their `size` is a THICKNESS:
+            ; the reference writes it as `strokeWidth`, and written as `size`
+            ; it reaches nothing and a five-pixel rule comes out one pixel.
+            def sizeKey:string "size"
+            if ((markName == "rule") || (markName == "line")) {
+                sizeKey = "strokeWidth"
+            }
             if size.hasValue {
-                update.setMember("size" (VlCompile.literal(size.value)))
+                update.setMember(sizeKey (VlCompile.literal(size.value)))
             } {
-                update.setMember("size" (this.scaled("size" (size.outField()))))
+                update.setMember(sizeKey (this.scaled("size" (size.outField()))))
             }
         }
         def shape:VlChannel (this.channel("shape"))

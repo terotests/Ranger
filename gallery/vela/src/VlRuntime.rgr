@@ -1041,6 +1041,15 @@ class VlRuntime {
     }
 
     sfn valueBefore:boolean (a:string b:string numeric:boolean descending:boolean) {
+        ; A row with nothing in the column sorts to the END whichever way the
+        ; rest is read: it is not a category that comes before "Action", it is
+        ; the absence of one.
+        def aEmpty:boolean ((strlen a) == 0)
+        def bEmpty:boolean ((strlen b) == 0)
+        if (aEmpty || bEmpty) {
+            if (aEmpty && bEmpty) { return false }
+            return bEmpty
+        }
         def less:boolean false
         def more:boolean false
         if numeric {
