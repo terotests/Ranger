@@ -153,18 +153,28 @@ npm run selfhost:check:llvm     # ...and run `opt -passes=verify` over it
 npm run selfhost:build:llvm     # ...and link ./tmp/selfhost-llvm/rangerc
 ```
 
-**Where it stands.** The compiler now compiles for LLVM with **zero errors**
-(631 before this work), the ~493k lines / 21 MB of IR it produces for itself
-**pass `opt -passes=verify`**, and `clang` links them with the C runtime into a
-3 MB `rangerc`. That binary starts, prints its banner and its usage, parses
-its command line, resolves the input file through the library search path and
-prints the compilation header.
+**Where it stands.** The compiler compiles for LLVM with **zero errors** (631
+before this work), the ~525k lines / 22 MB of IR it produces for itself **pass
+`opt -passes=verify`**, and `clang` links them with the C runtime into a 3 MB
+`rangerc`.
 
-It does **not** get further: it stops after the header without writing an
-output file, and without a diagnostic. So LLVM is **not** a self-hosting
-target the way C++, Dart, Python, C#, Go and Kotlin are. It is a target whose
-codegen is complete enough to build the largest Ranger program there is, and
-whose remaining problems are runtime ones.
+That binary **runs the whole pipeline and writes real output**. On a small
+class it produces JavaScript byte-identical to the Node build's, and the
+JavaScript runs:
+
+```bash
+npm run selfhost:build:llvm
+./tmp/selfhost-llvm/rangerc -l=es6 tmp/probe/hello2.rgr -nodecli -d=tmp/probe -o=hello2.js
+node tmp/probe/hello2.js
+```
+
+`compiler/CLIProgress.rgr` -- 250 lines, a class with a dozen methods, string
+building, ANSI escapes and a switch -- also comes out byte-identical.
+
+It is **not yet** a self-hosting target the way C++, Dart, Python, C#, Go and
+Kotlin are: pointed at the compiler's own sources it still stops. On the larger
+library files it now runs the front end cleanly (`ng_CodeNode.rgr` and
+`ng_writer.rgr` type-check with no errors) and fails in the writer.
 
 `lib/CmdParams.rgr` -- the compiler's own command-line parser, which has a
 `main` of its own -- is the useful small program to check against, because it
@@ -242,28 +252,85 @@ ever run the compiler's own IR through the verifier:
    and the store / call / compare / branch paths reconcile against that. This
    is the single change that closed most of the tail.
 
+### What the RUN took
+
+Nothing above is visible until the binary runs, and nine defects stood between
+"links" and "writes correct JavaScript". Every one of them was silent — no
+diagnostic, no verifier complaint, usually not even a crash at the site of the
+mistake. They are worth naming because they are the shape of the problem for
+any code-generating target:
+
+9. **`switch` had templates but no lowering**, so the whole statement — every
+   case with it — was dropped. Every writer in the compiler dispatches on a
+   switch, which is why the binary emitted bare identifiers
+   (`classDemosfnmprintreturn`) instead of code. `try` was the same: the body
+   was lowered and the handler thrown away.
+10. **A `def` that redeclares a live name shared its slot.** With a narrower
+    outer type — ng_TTypes' `baseTypeAsEval` declares `vType` as an enum and
+    again, in the else branch, as a string — an 8-byte `store i8*` went into an
+    `alloca i32` and smashed the locals beside it. With the *same* type it was
+    worse: `convertToUnion` takes `wr:CodeWriter` and does `def wr (new
+    CodeWriter)` inside an `if`, so the name joined the owned-object list and
+    the single scope-end release freed whatever the slot held — on the paths
+    where that `if` never ran, the caller's writer.
+11. **Lowering did not stop at a terminator.** A LowIRBlock keeps its
+    terminator apart from its instructions and the writer prints the
+    instructions first, so anything lowered after a `return` was emitted
+    *before* the `ret` and therefore ran. `WalkCollectMethods` has a bare
+    `return` with a page of dead code after it: every owned local was released
+    twice, and the operator nodes it had just built went back to the allocator
+    while `stdCommands` still pointed at them.
+12. **Method calls bound statically.** This target emits one plain function per
+    method, named after the class that *declares* it, so
+    `langWriter.writeClass(…)` — `langWriter` is declared
+    `RangerGenericClassWriter` and holds a `RangerJavaScriptClassWriter` — went
+    to the base implementation. The compiler is one base writer plus a dozen
+    overriding subclasses, so nothing target-specific was ever reached and every
+    language got the base writer's output. Dispatch is now by runtime type
+    descriptor: `ranger_obj_type` hands back the descriptor an object was
+    created with, and a generated `__vd_<class>_<method>` compares it against
+    each candidate.
+13. **Closures nested inside closures captured nothing.** The frontend's
+    capture set is per lambda, so a name only an *inner* lambda reads reached
+    neither env. And `myLambdas` is flat, so the pass that names lambdas
+    reached the same descriptor twice and renamed it — the capture layout
+    cached while lowering the resulting dead copy was the one the live nested
+    lambda used.
+14. **A captured local that a lambda MUTATES was copied**, so the write was
+    never seen outside. The flow parser counts a method's `static` prefix that
+    way, so every `static fn` in a class was read one child off.
+15. **The object pool wrote past the end of a zero-field object.** A pooled
+    block keeps its free-list link in the body; a class with no fields has none,
+    so the link went eight bytes past the allocation and corrupted the arena.
+16. **`strfromcode` UTF-8-encoded its argument.** A string is bytes here and
+    `charAt` hands back one byte, so the round-trip `strfromcode (charAt s i)`
+    — which is how the compiler copies a string literal through `EncodeString`
+    — turned every non-ASCII character into mojibake.
+
 ### What is left
 
-- **The run itself.** The binary gets through startup and stops after the
-  compilation header without a diagnostic. The next step is to bisect the
-  front end the way CmdParams was bisected: compile a progressively larger
-  piece of the compiler's own source natively and see which one stops
-  answering. A memory build (`RANGER_MEM_STATS`, or a toolchain with
-  AddressSanitizer, which this container lacks) is the other half.
+- **The writer.** The front end is clean on the compiler's own library files;
+  `RangerJavaScriptClassWriter.writeClass` then stores through a null object.
+  That is the next thing to bisect.
+- **The second `initOpList`** — the pass that re-reads the operator table after
+  the program's own `operators { }` blocks are merged — was the last thing to
+  stop the run and is worth watching: it walks `stdCommands.children`, which is
+  where a use-after-free shows up first.
 - **Closures are incomplete.** A lambda whose capture layout was never built —
   one only ever *called*, never constructed in the same module — loses its
-  captures; the calls it makes through an unresolved receiver are dropped
-  rather than emitted, which keeps the module valid and loses the call. L3
-  value boxing (a captured local that the lambda MUTATES) is still WAT-only, so
-  natively such a local is copied and the write is not seen outside.
+  captures; the calls it makes through an unresolved receiver are dropped rather
+  than emitted, which keeps the module valid and loses the call.
 - **`remove` and `clear` leak** an owned element instead of releasing it. That
   is deliberate for now: leaking is safer than a double free while the
   ownership analysis on this backend is young. `array_extract` hands the
-  element to the caller, which is what its `@(strong)` says.
+  element to the caller, which is what its `@(strong)` says. A block-scoped
+  redeclaration leaks its inner value for the same reason.
 - **Plugins cannot work.** `load_compiler_plugin` loads an npm module; a native
   binary has no Node to load it into.
-- **No exceptions.** `try` has no unwinding on this backend and `error_msg`
-  answers the same placeholder the C++ template does.
+- **No exceptions.** `try` has no unwinding. The handler is an ordinary block
+  and a null `unwrap` inside a `try` branches to it, which covers the one thing
+  the compiler's own sources use `try` for; `error_msg` answers the same
+  placeholder the C++ template does.
 
 ### What C++ took
 

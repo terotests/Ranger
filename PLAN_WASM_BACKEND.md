@@ -116,10 +116,15 @@ Aiempi arvio "ei realistinen lyhyella aikavalilla" koski koko kaantajan
 ajamista WASM:ssa. Natiivi LLVM-polku sen sijaan yltaa nyt kauas:
 
 - `npm run selfhost:compile:llvm` -> **0 virhetta** (aiemmin 631)
-- `npm run selfhost:check:llvm` -> `opt -passes=verify` hyvaksyy 21 MB IR:n
+- `npm run selfhost:check:llvm` -> `opt -passes=verify` hyvaksyy 22 MB IR:n
 - `npm run selfhost:build:llvm` -> `clang` linkittaa 3 MB `rangerc`-binaarin
 
-Binaari kaynnistyy, tulostaa kayttoohjeen, jasentaa komentorivin, loytaa
-kirjastonsa ja aloittaa kaantamisen -- mutta ei viela tuota oikeaa tulosta.
-Yksityiskohdat ja jaljella olevat esteet: TARGET_NOTES.md, luku
-"The compiler on LLVM: how far it gets".
+Binaari **ajaa nyt koko kaannosputken ja kirjoittaa oikean tuloksen**: pienen
+luokan se kaantaa JavaScriptiksi tavulleen samoin kuin Node-buildi, ja tulos
+ajautuu. Sama patee `compiler/CLIProgress.rgr`:aan (250 rivia, luokka, merkki-
+jonojen rakentelua, ANSI-koodeja ja switch).
+
+Kaantajan omiin lahteisiin osoitettuna se ei viela paase perille: etuosa menee
+lapi puhtaasti (`ng_CodeNode.rgr` ja `ng_writer.rgr` tyyppitarkastuvat ilman
+virheita), mutta kirjoitin kaatuu. Yksityiskohdat ja jaljella olevat esteet:
+TARGET_NOTES.md, luku "The compiler on LLVM: how far it gets".
