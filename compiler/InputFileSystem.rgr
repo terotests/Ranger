@@ -1,6 +1,7 @@
 
 Import "stdops.rgr"
 Import "CmdParams.rgr"
+Import "EmbeddedLib.rgr"
 
 
 class InputFSFolder @serialize(true) {
@@ -63,9 +64,16 @@ operator type:void all {
     }
     return '/'
   }
+  ; A build made with a filled-in EmbeddedLib.rgr carries the library inside
+  ; the binary, so RANGER_LIB and the .rgr files beside the executable are both
+  ; optional. Disk is looked at first and always wins: a project that ships its
+  ; own Lang.rgr or lib file keeps using it.
   fn file_exists:boolean (env:InputEnv path:string name:string) {
     if(env.use_real) {
-      return (file_exists path name)
+      if( file_exists path name ) {
+        return true
+      }
+      return (RangerEmbeddedLib.hasFile(name))
     }
     def fo (find_file env path name)
     return (!null? fo)
@@ -120,8 +128,16 @@ operator type:void all {
   
   fn read_file@(optional):string (env:InputEnv path:string name:string) {
     if env.use_real {
-      return (read_file path name)
-    } 
+      def real@(optional):string (read_file path name)
+      if(!null? real) {
+        return real
+      }
+      def fromBinary@(optional):string
+      if( RangerEmbeddedLib.hasFile(name) ) {
+        fromBinary = (RangerEmbeddedLib.getFile(name))
+      }
+      return fromBinary
+    }
     def resStr@(optional):string
     def f (find_file env path name)
     if(!null? f) {

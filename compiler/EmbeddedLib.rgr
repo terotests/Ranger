@@ -1,0 +1,23 @@
+; GENERATED FILE - do not edit by hand.
+; Written by scripts/generate-embedded-lib.mjs; the committed version
+; is the stub (no files). `npm run embed:lib` fills it in for a packaged
+; build, `npm run embed:stub` empties it again.
+;
+; The library, compiled into the compiler. InputFileSystem.rgr falls back
+; here when a file is not on disk, so RANGER_LIB is optional.
+
+class RangerEmbeddedLib {
+
+  ; True when this build carries the library inside it.
+  static fn isEmbedded:boolean () {
+    return false
+  }
+
+  static fn hasFile:boolean (name:string) {
+    return false
+  }
+
+  static fn getFile:string (name:string) {
+    return ""
+  }
+}

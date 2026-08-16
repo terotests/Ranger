@@ -369,11 +369,42 @@ cd ranger-3.3.1-linux-x64
 ./rangerc -es6 hello.rgr -d=./out -o=hello.js
 ```
 
-The archive is the whole product: the binary plus `Lang.rgr`, `stdops.rgr` and
-`lib/`. The compiler looks for its library in the directory of the executable
-(`install_directory` is the directory of `argv[0]`), so keep those files beside
-`rangerc` or point `RANGER_LIB` at them. On macOS the download is unsigned, so
-Gatekeeper quarantines it: `xattr -d com.apple.quarantine rangerc`.
+**The binary is self-contained.** The standard library — `Lang.rgr`,
+`stdops.rgr` and everything under `lib/` — is compiled into the executable, so
+`rangerc` runs with no `RANGER_LIB` and no `.rgr` file anywhere:
+
+```bash
+mkdir /tmp/demo && cd /tmp/demo && cp ~/hello.rgr .
+rangerc -es6 ./hello.rgr -d=./out -o=hello.js     # nothing else on disk
+```
+
+The same sources are shipped beside the binary anyway, because a copy on disk
+**takes precedence** over the built-in one: drop a patched `Lang.rgr` or your
+own `JSON.rgr` into the working directory (or point `RANGER_LIB` at it) and the
+compiler uses yours. On macOS the download is unsigned, so Gatekeeper
+quarantines it: `xattr -d com.apple.quarantine rangerc`.
+
+### apt and Homebrew
+
+Each release also carries a Debian package and a Homebrew formula, both built
+from the same binary:
+
+```bash
+# Debian / Ubuntu, x86_64 and arm64
+curl -LO https://github.com/terotests/Ranger/releases/latest/download/ranger-compiler_3.3.1_amd64.deb
+sudo apt install ./ranger-compiler_3.3.1_amd64.deb
+rangerc -es6 hello.rgr -d=./out -o=hello.js
+
+# macOS
+brew tap terotests/ranger
+brew install ranger
+```
+
+The package installs one executable (`/usr/bin/rangerc`) and the library
+sources under `/usr/share/ranger` for reference — there is no wrapper script,
+no environment variable and no post-install step, because the compiler carries
+its library. `brew tap` needs the formula published in a `homebrew-ranger`
+repository; the release attaches the generated `ranger.rb` for that.
 
 It is also the fastest way to run the compiler. Compiling the compiler itself —
 the largest Ranger program here — takes **3.1 s** with the native binary against
@@ -387,15 +418,30 @@ Building one yourself needs Node (to generate the C++) and a C++17 compiler:
 npm run native:build            # -> tmp/native/ranger-<version>-<platform>/
 npm run native:dist             # ...plus a tarball, and the bootstrap check
 npm run native:bench            # native vs Node on the compiler's own source
+npm run native:package -- --dir tmp/native/ranger-3.3.1-linux-x64 --deb
 ```
 
+`compiler/EmbeddedLib.rgr` is what holds the library, and it is committed as a
+**stub** — an ordinary `npm run compile` builds the compiler it always did.
+`--embed-lib` (on by default in `native:build`) regenerates it from
+`compiler/Lang.rgr` and `lib/*.rgr` for the packaged build and puts the stub
+back afterwards. `npm run embed:lib` / `embed:stub` do it by hand.
+
 `.github/workflows/release-binaries.yml` does exactly that on `ubuntu-22.04`,
-`ubuntu-22.04-arm` and `macos-14`, and uploads the archives when a release is
-published (`workflow_dispatch` builds them on demand). Each platform runs the
-bootstrap check first: the freshly linked binary compiles the compiler, and the
-JavaScript has to match what the Node build writes from the same sources —
-so a binary that reaches a release has already compiled the 115k lines of
-Ranger under `compiler/` correctly on that platform.
+`ubuntu-22.04-arm` and `macos-14`, and uploads the archives, the `.deb`s and the
+formula when a release is published (`workflow_dispatch` builds them on demand).
+Three checks run before anything is packed:
+
+1. the binary compiles `hello.rgr` from an unrelated directory,
+2. it does the same in a directory with **no library on disk at all**, and the
+   output has to be the same bytes — that compares the built-in copy of the
+   library against the one on disk,
+3. it compiles the compiler, and the JavaScript has to match what the Node build
+   writes from the same sources.
+
+So a binary that reaches a release has already compiled the 115k lines of Ranger
+under `compiler/` correctly on that platform, out of its own built-in library.
+On Linux the `.deb` is then installed and run in CI as well.
 
 Running `ranger-compiler` without arguments shows available command-line options:
 

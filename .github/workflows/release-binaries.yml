@@ -91,6 +91,36 @@ jobs:
           ls -l "$BIN"
           file "$BIN" || true
 
+      # apt install ./ranger-compiler_<version>_<arch>.deb works straight off a
+      # release download; a hosted apt repository would sign these same files.
+      - name: Build .deb
+        if: startsWith(matrix.platform, 'linux')
+        run: >
+          bash scripts/package-native.sh
+          --dir tmp/native/ranger-$(node -p "require('./package.json').version")-${{ matrix.platform }}
+          --deb
+
+      - name: Verify the .deb installs and runs
+        if: startsWith(matrix.platform, 'linux')
+        run: |
+          sudo apt-get install -y ./tmp/native/ranger-compiler_*.deb
+          cd "$(mktemp -d)"
+          cp "$GITHUB_WORKSPACE/tests/fixtures/hello.rgr" .
+          # No RANGER_LIB, no .rgr library anywhere: the library is in the binary.
+          env -u RANGER_LIB rangerc -es6 ./hello.rgr -nodecli -d=./out -o=hello.js
+          test "$(node out/hello.js)" = "Hello World"
+          sudo dpkg -r ranger-compiler
+
+      # The formula needs the published URL, so it is only meaningful for a tag.
+      - name: Write Homebrew formula
+        if: matrix.platform == 'macos-universal' && (github.event_name == 'release' || inputs.tag != '')
+        env:
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+        run: >
+          bash scripts/package-native.sh
+          --dir tmp/native/ranger-$(node -p "require('./package.json').version")-${{ matrix.platform }}
+          --formula "$TAG" --repo "${{ github.repository }}"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -98,6 +128,8 @@ jobs:
           path: |
             tmp/native/*.tar.gz
             tmp/native/*.tar.gz.sha256
+            tmp/native/*.deb
+            tmp/native/ranger.rb
           if-no-files-found: error
 
       - name: Attach to release
@@ -106,4 +138,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
         run: |
-          gh release upload "$TAG" tmp/native/*.tar.gz tmp/native/*.tar.gz.sha256 --clobber
+          shopt -s nullglob
+          gh release upload "$TAG" \
+            tmp/native/*.tar.gz tmp/native/*.tar.gz.sha256 \
+            tmp/native/*.deb tmp/native/ranger.rb --clobber

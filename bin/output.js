@@ -143,6 +143,19 @@ class test_cmdparams  {
     };
   };
 }
+class RangerEmbeddedLib  {
+  constructor() {
+  }
+}
+RangerEmbeddedLib.isEmbedded = function() {
+  return false;
+};
+RangerEmbeddedLib.hasFile = function(name) {
+  return false;
+};
+RangerEmbeddedLib.getFile = function(name) {
+  return "";
+};
 class InputFSFolder  {
   constructor() {
     this.name = "";
@@ -57642,7 +57655,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                         }
                                                         operatorsOfInputEnv_8.readc95file_9 = async function(env, path, name) {
                                                           if ( env.use_real ) {
-                                                            return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
+                                                            const real = await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
+                                                            if ( (typeof(real) !== "undefined" && real != null )  ) {
+                                                              return real;
+                                                            }
+                                                            let fromBinary;
+                                                            if ( RangerEmbeddedLib.hasFile(name) ) {
+                                                              fromBinary = RangerEmbeddedLib.getFile(name);
+                                                            }
+                                                            return fromBinary;
                                                           }
                                                           let resStr;
                                                           const f_4 = operatorsOf_8.findc95file_9(env, path, name);
@@ -57695,7 +57716,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                         };
                                                         operatorsOf_8.readc95file_9 = async function(env, path, name) {
                                                           if ( env.use_real ) {
-                                                            return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
+                                                            const real_1 = await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
+                                                            if ( (typeof(real_1) !== "undefined" && real_1 != null )  ) {
+                                                              return real_1;
+                                                            }
+                                                            let fromBinary_1;
+                                                            if ( RangerEmbeddedLib.hasFile(name) ) {
+                                                              fromBinary_1 = RangerEmbeddedLib.getFile(name);
+                                                            }
+                                                            return fromBinary_1;
                                                           }
                                                           let resStr_1;
                                                           const f_5 = operatorsOf_8.findc95file_9(env, path, name);
@@ -57706,7 +57735,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                         };
                                                         operatorsOf_8.filec95exists_9 = function(env, path, name) {
                                                           if ( env.use_real ) {
-                                                            return require("fs").existsSync(path + "/" + name );
+                                                            if ( require("fs").existsSync(path + "/" + name ) ) {
+                                                              return true;
+                                                            }
+                                                            return RangerEmbeddedLib.hasFile(name);
                                                           }
                                                           const fo = operatorsOf_8.findc95file_9(env, path, name);
                                                           return (typeof(fo) !== "undefined" && fo != null ) ;

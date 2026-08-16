@@ -4,16 +4,20 @@
 #
 # The compiler is self-hosting: Node compiles `compiler/ng_Compiler.rgr` to one
 # C++ translation unit, and the C++ compiler turns that into a binary that needs
-# no Node and no npm install. The binary finds its library beside itself
-# (`install_directory` is the directory of argv[0], and VirtualCompiler puts
-# that path and `<dir>/lib/` at the front of RANGER_LIB), so the staged
-# directory is the whole product: binary + Lang.rgr + stdops.rgr + lib/*.rgr.
+# no Node and no npm install.
+#
+# By default the standard library is compiled *into* that binary
+# (`--embed-lib`), so it needs no RANGER_LIB and no .rgr file beside it — which
+# is what makes the .deb and the Homebrew formula one executable and nothing
+# else. The same sources are staged next to it anyway, because a copy on disk
+# takes precedence and that is how a project overrides the built-in one.
 #
 # Usage:
 #   scripts/build-native-compiler.sh [options]
 #
 # Options:
 #   --skip-codegen        reuse an existing tmp/selfhost/ranger_compiler.cpp
+#   --no-embed-lib        do not compile the library into the binary
 #   --out DIR             staging directory (default: tmp/native/ranger-<ver>-<platform>)
 #   --platform NAME       platform tag for the tarball (default: guessed)
 #   --opt LEVEL           optimization level, e.g. O2 (default) or O1
@@ -34,6 +38,7 @@ SKIP_CODEGEN=0
 TARBALL=0
 BOOTSTRAP=0
 SMOKE=1
+EMBED=1
 OPT="O2"
 OUT_DIR=""
 PLATFORM=""
@@ -44,6 +49,8 @@ while [ $# -gt 0 ]; do
     --skip-codegen) SKIP_CODEGEN=1 ;;
     --tarball) TARBALL=1 ;;
     --bootstrap) BOOTSTRAP=1 ;;
+    --embed-lib) EMBED=1 ;;
+    --no-embed-lib) EMBED=0 ;;
     --no-smoke) SMOKE=0 ;;
     --opt) OPT="$2"; shift ;;
     --out) OUT_DIR="$2"; shift ;;
@@ -78,6 +85,26 @@ NAME="ranger-$VERSION-$PLATFORM"
 
 CPP_SRC="$ROOT/tmp/selfhost/ranger_compiler.cpp"
 
+# ------------------------------------------------------------ embedded lib ---
+# compiler/EmbeddedLib.rgr is committed as a stub, so an ordinary build stays
+# the size it was. A packaged binary gets the library compiled into it, and the
+# stub is put back afterwards however this script exits — leaving the filled-in
+# 850 kB generated file in the working tree is the one way this can be a
+# nuisance to the next person.
+restore_embedded_stub() {
+  if [ "${EMBED_FILLED:-0}" = "1" ]; then
+    node scripts/generate-embedded-lib.mjs --stub >/dev/null
+    EMBED_FILLED=0
+  fi
+}
+trap restore_embedded_stub EXIT
+
+if [ "$EMBED" = "1" ] && [ "$SKIP_CODEGEN" != "1" ]; then
+  echo "==> embedding the library into the compiler"
+  node scripts/generate-embedded-lib.mjs | sed 's/^/    /'
+  EMBED_FILLED=1
+fi
+
 # ---------------------------------------------------------------- codegen ----
 if [ "$SKIP_CODEGEN" = "1" ]; then
   if [ ! -f "$CPP_SRC" ]; then
@@ -89,6 +116,7 @@ else
   echo "==> generating C++ from compiler/ng_Compiler.rgr"
   npm run --silent selfhost:compile:cpp
 fi
+restore_embedded_stub
 echo "    $(wc -l <"$CPP_SRC" | tr -d ' ') lines, $(wc -c <"$CPP_SRC" | tr -d ' ') bytes"
 
 # --------------------------------------------------------------- compiler ----
@@ -156,9 +184,14 @@ native binary. It needs no Node.js and no npm install.
 
     ./rangerc -es6 hello.rgr -d=./out -o=hello.js
 
-The compiler reads its library (\`Lang.rgr\`, \`stdops.rgr\`, \`lib/\`) from the
-directory of the binary, so keep those files next to \`rangerc\` — or point
-\`RANGER_LIB\` at them:
+The standard library (\`Lang.rgr\`, \`stdops.rgr\`, \`lib/\`) is compiled into the
+executable, so \`rangerc\` works on its own — copy it anywhere on your PATH and
+no environment variable is needed.
+
+Those same files are in this archive because a copy **on disk wins**: put a
+patched \`Lang.rgr\` or your own \`JSON.rgr\` in the working directory, or beside
+the binary, and the compiler uses yours instead of the built-in one. You can
+also name them explicitly:
 
     RANGER_LIB="/path/to/Lang.rgr:/path/to/stdops.rgr" rangerc -es6 hello.rgr
 
@@ -202,6 +235,33 @@ if [ "$SMOKE" = "1" ]; then
     exit 1
   fi
   echo "    ok — generated JavaScript prints 'Hello World'"
+
+  # With the library compiled in, the binary has to work with no .rgr file
+  # anywhere: copy it alone into an empty directory, compile there, and require
+  # the same bytes the staged run produced. That compares the embedded copy of
+  # Lang.rgr against the one on disk through their only observable difference.
+  if [ "$EMBED" = "1" ]; then
+    echo "==> smoke test: the same, with no library on disk at all"
+    BARE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rgr-bare.XXXXXX")"
+    cp "$BIN" "$BARE_DIR/rangerc"
+    cp "$ROOT/tests/fixtures/hello.rgr" "$BARE_DIR/hello.rgr"
+    (
+      cd "$BARE_DIR"
+      env -u RANGER_LIB ./rangerc -es6 ./hello.rgr -nodecli -d=./out -o=hello.js >"$BARE_DIR/compile.log" 2>&1
+    ) || { echo "bare compile failed:"; cat "$BARE_DIR/compile.log"; exit 1; }
+    if [ ! -f "$BARE_DIR/out/hello.js" ]; then
+      echo "bare compile wrote no output — is EmbeddedLib.rgr filled in?"
+      cat "$BARE_DIR/compile.log"
+      exit 1
+    fi
+    if ! cmp -s "$SMOKE_DIR/out/hello.js" "$BARE_DIR/out/hello.js"; then
+      echo "embedded library produced different output than the one on disk" >&2
+      diff "$SMOKE_DIR/out/hello.js" "$BARE_DIR/out/hello.js" | head -20 >&2
+      exit 1
+    fi
+    echo "    ok — same bytes as the run that read Lang.rgr from disk"
+    rm -rf "$BARE_DIR"
+  fi
   rm -rf "$SMOKE_DIR"
 fi
 
