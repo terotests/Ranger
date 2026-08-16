@@ -251,8 +251,8 @@ class VlCompile {
         }
         ; `point: true` on a line is not a property of the line: it is a second
         ; mark drawn over it, which is a layer under another name.
-        if (markDef.boolOr("point" false)) {
-            return (this.compileLayers((VlCompile.withPointLayer(src markDef))))
+        if ((markDef.boolOr("point" false)) || (markDef.boolOr("line" false))) {
+            return (this.compileLayers((VlCompile.withOverlayLayers(src markDef))))
         }
         this.decideStack()
 
@@ -1298,7 +1298,7 @@ class VlCompile {
 
     ; The same chart written the long way: the mark as it was, minus the flag,
     ; and a plain point mark over it.
-    sfn withPointLayer:VlJson (src:VlJson markDef:VlJson) {
+    sfn withOverlayLayers:VlJson (src:VlJson markDef:VlJson) {
         def out (VlJson.objectValue())
         for src.keys key:string ki {
             if (key == "mark") {
@@ -1307,27 +1307,51 @@ class VlCompile {
                 out.setMember(key (src.get(key)))
             }
         }
-        def line (VlJson.objectValue())
-        def lineMark (VlJson.objectValue())
+        def base (VlJson.objectValue())
+        def baseMark (VlJson.objectValue())
+        def wantsPoints:boolean (markDef.boolOr("point" false))
+        def wantsLine:boolean (markDef.boolOr("line" false))
         for markDef.keys mk:string mi {
-            if (mk == "point") {
-                ; the flag is what is being expanded
+            if ((mk == "point") || (mk == "line")) {
+                ; the flags are what is being expanded
             } {
-                lineMark.setMember(mk (markDef.get(mk)))
+                baseMark.setMember(mk (markDef.get(mk)))
             }
         }
-        line.setMember("mark" lineMark)
+        ; An AREA with a line drawn on it is made translucent, so that the line
+        ; and whatever is behind it both read through the fill. That is the
+        ; reference's rule and it is the visible half of `line: true`.
+        if wantsLine {
+            if ((baseMark.stringOr("type" "")) == "area") {
+                if (! (baseMark.has("opacity"))) {
+                    baseMark.setMember("opacity" (VlJson.numberValue(0.7)))
+                }
+            }
+        }
+        base.setMember("mark" baseMark)
+        def layer (VlJson.arrayValue())
+        push layer.arr base
+
+        ; The line along an area's top edge: the same encoding, drawn as a
+        ; line with no fill.
+        if wantsLine {
+            def edge (VlJson.objectValue())
+            def edgeMark (VlJson.objectValue())
+            edgeMark.setMember("type" (VlJson.stringValue("line")))
+            edge.setMember("mark" edgeMark)
+            push layer.arr edge
+        }
         ; The dots on a line are FILLED, unlike a scatter plot's, because they
         ; mark where the line's own vertices are rather than standing for rows
         ; of their own.
-        def dots (VlJson.objectValue())
-        def dotMark (VlJson.objectValue())
-        dotMark.setMember("type" (VlJson.stringValue("point")))
-        dotMark.setMember("filled" (VlJson.boolValue(true)))
-        dots.setMember("mark" dotMark)
-        def layer (VlJson.arrayValue())
-        push layer.arr line
-        push layer.arr dots
+        if wantsPoints {
+            def dots (VlJson.objectValue())
+            def dotMark (VlJson.objectValue())
+            dotMark.setMember("type" (VlJson.stringValue("point")))
+            dotMark.setMember("filled" (VlJson.boolValue(true)))
+            dots.setMember("mark" dotMark)
+            push layer.arr dots
+        }
         out.setMember("layer" layer)
         return out
     }
