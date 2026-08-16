@@ -1539,6 +1539,11 @@ class VlCompile {
         }
     }
 
+    ; One legend per SCALE, however many layers ask for one. A line drawn with
+    ; points is two layers and two keys — the line's is a stroke, the point's
+    ; is a fill — and the reference draws a single key that is both: a filled
+    ; circle with a stroke round it. Keeping only the first gave a line chart
+    ; with dots a key with no dot in it.
     sfn mergeLegends:void (legends:VlJson seen:[string:int] from:VlJson) {
         if (! (from.isArray())) {
             return
@@ -1549,11 +1554,33 @@ class VlCompile {
             def key:string ""
             for l.keys k:string ki {
                 if ((((k == "fill") || (k == "stroke")) || (k == "size")) || (k == "shape")) {
-                    key = ((k + ":") + (l.stringOr(k "")))
+                    if ((strlen key) == 0) {
+                        key = (l.stringOr(k ""))
+                    }
                 }
             }
-            if (! (has seen key)) {
-                set seen key 1
+            if (has seen key) {
+                def at:int (unwrap (get seen key))
+                def already:VlJson (legends.at(at))
+                for l.keys k2:string ki2 {
+                    if (! (already.has(k2))) {
+                        already.setMember(k2 (l.get(k2)))
+                    } {
+                        ; A symbol that is a SHAPE beats one that is a dash:
+                        ; the key stands for the marks the chart draws, and a
+                        ; dot is the more specific of the two.
+                        if (k2 == "symbolType") {
+                            if ((already.stringOr("symbolType" "")) == "stroke") {
+                                already.setMember("symbolType" (l.get("symbolType")))
+                            }
+                        }
+                        if (k2 == "encode") {
+                            already.setMember("encode" (l.get("encode")))
+                        }
+                    }
+                }
+            } {
+                set seen key (legends.count())
                 push legends.arr l
             }
             i = (i + 1)
