@@ -771,7 +771,7 @@ class LowIRBuilderPass {
         }
       }
     }
-    if (this.isClassField(node.vref lctx.className this.irModule)) {
+    if (this.resolvesToField(node.vref lctx)) {
       if (this.fieldIsStringSlot(lctx.className node.vref)) {
         return false
       }
@@ -1832,7 +1832,7 @@ class LowIRBuilderPass {
       if ((strlen (this.ptrArrayDescFromVref(arrNode.vref lctx))) > 0) {
         return desc
       }
-      if (this.isClassField(arrNode.vref lctx.className this.irModule)) {
+      if (this.resolvesToField(arrNode.vref lctx)) {
         if (this.fieldIsPtrArraySlot(lctx.className arrNode.vref)) {
           return (this.emitFieldLoad(arrNode.vref lctx))
         }
@@ -1968,7 +1968,7 @@ class LowIRBuilderPass {
         }
         return ""
       }
-      if (this.isClassField(vr lctx.className this.irModule)) {
+      if (this.resolvesToField(vr lctx)) {
         return (this.fieldArrayElemType(lctx.className vr lctx))
       }
       if (has lctx.ptrArrayElemTypes vr) {
@@ -4922,7 +4922,7 @@ class LowIRBuilderPass {
       }
       return ""
     }
-    if (this.isClassField(vref lctx.className this.irModule)) {
+    if (this.resolvesToField(vref lctx)) {
       if (this.fieldIsStringMapSlot(lctx.className vref)) {
         return (this.emitFieldLoad(vref lctx))
       }
@@ -4953,7 +4953,7 @@ class LowIRBuilderPass {
       }
       return false
     }
-    if (this.isClassField(vref lctx.className this.irModule)) {
+    if (this.resolvesToField(vref lctx)) {
       return (this.fieldIsStringMapSlot(lctx.className vref))
     }
     return false
@@ -4978,7 +4978,7 @@ class LowIRBuilderPass {
         fld = (itemAt parts 1)
       }
     } {
-      if (this.isClassField(vref lctx.className this.irModule)) {
+      if (this.resolvesToField(vref lctx)) {
         cls = lctx.className
         fld = vref
       }
@@ -5015,7 +5015,7 @@ class LowIRBuilderPass {
         fld = (itemAt parts 1)
       }
     } {
-      if (this.isClassField(vref lctx.className this.irModule)) {
+      if (this.resolvesToField(vref lctx)) {
         cls = lctx.className
         fld = vref
       }
@@ -5128,7 +5128,7 @@ class LowIRBuilderPass {
       def sptr (this.resolveObjectPtrChain(recv cls lctx))
       return (this.emitFieldLoadOn(cls sptr fld lctx))
     }
-    if (this.isClassField(vref lctx.className this.irModule)) {
+    if (this.resolvesToField(vref lctx)) {
       if (this.fieldIsPtrArraySlot(lctx.className vref)) {
         return (this.emitFieldLoad(vref lctx))
       }
@@ -5205,7 +5205,7 @@ class LowIRBuilderPass {
         }
         return false
       }
-      if (this.isClassField(vr lctx.className this.irModule)) {
+      if (this.resolvesToField(vr lctx)) {
         if ((this.fieldArrayElemType(lctx.className vr lctx)) == "int") {
           return true
         }
@@ -5421,7 +5421,7 @@ class LowIRBuilderPass {
       }
       return false
     }
-    if (this.isClassField(vr lctx.className this.irModule)) {
+    if (this.resolvesToField(vr lctx)) {
       return (this.fieldIsPtrArraySlot(lctx.className vr))
     }
     if ((this.collectionKind(vr lctx)) != "ptr_array") {
@@ -5616,7 +5616,7 @@ class LowIRBuilderPass {
     }
     ; A field of the current class used as a receiver (e.g. this.currentChunk.next):
     ; load the field's object pointer from self, then reinterpret as the struct.
-    if (this.isClassField(varName lctx.className this.irModule)) {
+    if (this.resolvesToField(varName lctx)) {
       def raw (this.emitFieldLoad(varName lctx))
       return (lctx.builder.emitIntToStructPtr(className raw))
     }
@@ -5685,7 +5685,7 @@ class LowIRBuilderPass {
     if (has lctx.objectSlots varName) {
       return (unwrap (get lctx.objectSlots varName))
     }
-    if (this.isClassField(varName lctx.className this.irModule)) {
+    if (this.resolvesToField(varName lctx)) {
       def fc (this.fieldObjectClassName(lctx.className varName lctx))
       if ((strlen fc) > 0) {
         return fc
@@ -6043,6 +6043,19 @@ class LowIRBuilderPass {
       }
     }
     return -1
+  }
+
+  ; Does a BARE name refer to a field of the current class? Only when nothing
+  ; in scope binds it: a local or a parameter SHADOWS a field of the same name,
+  ; which is what every other target does. This backend asked about the field
+  ; first, so RangerAppClassDesc's `hasDuplicateMethodSignature(fnDesc: …)` read
+  ; the class's own inherited `fnDesc` field instead of its argument -- an
+  ; overloaded method anywhere in a program crashed the compiler.
+  fn resolvesToField:boolean (fieldName:string lctx:LowIRLowerContext) {
+    if (has lctx.slots fieldName) {
+      return false
+    }
+    return (this.isClassField(fieldName lctx.className this.irModule))
   }
 
   fn isClassField:boolean (fieldName:string className:string module:LowIRModule) {
@@ -8279,7 +8292,7 @@ class LowIRBuilderPass {
       }
       return ""
     }
-    if (this.isClassField(varName lctx.className this.irModule)) {
+    if (this.resolvesToField(varName lctx)) {
       return (this.fieldObjectClassName(lctx.className varName lctx))
     }
     return ""
@@ -8338,7 +8351,7 @@ class LowIRBuilderPass {
         }
       }
     }
-    if (this.isClassField(varName lctx.className this.irModule)) {
+    if (this.resolvesToField(varName lctx)) {
       ; NOTE: do not zext boolean rhs here. emitFieldStore ->
       ; emitFieldStoreOn already widens an i1 value to the i32 storage slot
       ; for boolean fields. Pre-zexting produced an invalid double
@@ -8686,7 +8699,7 @@ class LowIRBuilderPass {
           return true
         }
       }
-      if (this.isClassField(exprNode.vref lctx.className this.irModule)) {
+      if (this.resolvesToField(exprNode.vref lctx)) {
         if (this.fieldIsBoolSlot(lctx.className exprNode.vref)) {
           return true
         }
@@ -8751,7 +8764,7 @@ class LowIRBuilderPass {
           return (this.loadSlot(vref "i1" lctx))
         }
       }
-      if (this.isClassField(vref lctx.className this.irModule)) {
+      if (this.resolvesToField(vref lctx)) {
         if (this.fieldIsBoolSlot(lctx.className vref)) {
           return (this.emitFieldLoad(vref lctx))
         }
@@ -9807,7 +9820,7 @@ class LowIRBuilderPass {
           }
         }
       }
-      if (this.isClassField(node.vref lctx.className this.irModule)) {
+      if (this.resolvesToField(node.vref lctx)) {
         return (this.emitFieldLoad(node.vref lctx))
       }
       if (has lctx.collectionSlots node.vref) {
@@ -10694,7 +10707,7 @@ class LowIRBuilderPass {
     if ((strlen lctx.className) == 0) {
       return ""
     }
-    if (this.isClassField(recvName lctx.className this.irModule)) {
+    if (this.resolvesToField(recvName lctx)) {
       return (this.fieldObjectClassName(lctx.className recvName lctx))
     }
     return ""

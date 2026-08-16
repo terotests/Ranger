@@ -43970,7 +43970,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                           }
-                          if ( this.isClassField(node.vref, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(node.vref, lctx) ) {
                             if ( this.fieldIsStringSlot(lctx.className, node.vref) ) {
                               return false;
                             }
@@ -44927,7 +44927,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( (this.ptrArrayDescFromVref(arrNode.vref, lctx).length) > 0 ) {
                               return desc;
                             }
-                            if ( this.isClassField(arrNode.vref, lctx.className, this.irModule) ) {
+                            if ( this.resolvesToField(arrNode.vref, lctx) ) {
                               if ( this.fieldIsPtrArraySlot(lctx.className, arrNode.vref) ) {
                                 return this.emitFieldLoad(arrNode.vref, lctx);
                               }
@@ -45040,7 +45040,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               return "";
                             }
-                            if ( this.isClassField(vr, lctx.className, this.irModule) ) {
+                            if ( this.resolvesToField(vr, lctx) ) {
                               return this.fieldArrayElemType(lctx.className, vr, lctx);
                             }
                             if ( ( typeof(lctx.ptrArrayElemTypes[vr] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.ptrArrayElemTypes, vr) ) ) {
@@ -47655,7 +47655,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return "";
                           }
-                          if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(vref, lctx) ) {
                             if ( this.fieldIsStringMapSlot(lctx.className, vref) ) {
                               return this.emitFieldLoad(vref, lctx);
                             }
@@ -47682,7 +47682,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return false;
                           }
-                          if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(vref, lctx) ) {
                             return this.fieldIsStringMapSlot(lctx.className, vref);
                           }
                           return false;
@@ -47710,7 +47710,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               fld = parts[1];
                             }
                           } else {
-                            if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                            if ( this.resolvesToField(vref, lctx) ) {
                               cls = lctx.className;
                               fld = vref;
                             }
@@ -47751,7 +47751,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               fld = parts[1];
                             }
                           } else {
-                            if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                            if ( this.resolvesToField(vref, lctx) ) {
                               cls = lctx.className;
                               fld = vref;
                             }
@@ -47867,7 +47867,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             const sptr = this.resolveObjectPtrChain(recv, cls, lctx);
                             return this.emitFieldLoadOn(cls, sptr, fld, lctx);
                           }
-                          if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(vref, lctx) ) {
                             if ( this.fieldIsPtrArraySlot(lctx.className, vref) ) {
                               return this.emitFieldLoad(vref, lctx);
                             }
@@ -47936,7 +47936,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               return false;
                             }
-                            if ( this.isClassField(vr, lctx.className, this.irModule) ) {
+                            if ( this.resolvesToField(vr, lctx) ) {
                               if ( this.fieldArrayElemType(lctx.className, vr, lctx) == "int" ) {
                                 return true;
                               }
@@ -48129,7 +48129,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return false;
                           }
-                          if ( this.isClassField(vr, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(vr, lctx) ) {
                             return this.fieldIsPtrArraySlot(lctx.className, vr);
                           }
                           if ( this.collectionKind(vr, lctx) != "ptr_array" ) {
@@ -48289,7 +48289,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             const addr = this.loadSlot(varName, lctx.ptrType, lctx);
                             return lctx.builder.emitIntToStructPtr(className, addr);
                           }
-                          if ( this.isClassField(varName, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(varName, lctx) ) {
                             const raw = this.emitFieldLoad(varName, lctx);
                             return lctx.builder.emitIntToStructPtr(className, raw);
                           }
@@ -48351,7 +48351,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) ) ) {
                             return (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) ? lctx.objectSlots[varName] : undefined ));
                           }
-                          if ( this.isClassField(varName, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(varName, lctx) ) {
                             const fc = this.fieldObjectClassName(lctx.className, varName, lctx);
                             if ( (fc.length) > 0 ) {
                               return fc;
@@ -48676,6 +48676,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             };
                           };
                           return -1;
+                        };
+                        resolvesToField (fieldName, lctx) {
+                          if ( ( typeof(lctx.slots[fieldName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, fieldName) ) ) {
+                            return false;
+                          }
+                          return this.isClassField(fieldName, lctx.className, this.irModule);
                         };
                         isClassField (fieldName, className, module) {
                           if ( (className.length) == 0 ) {
@@ -50548,7 +50554,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return "";
                           }
-                          if ( this.isClassField(varName, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(varName, lctx) ) {
                             return this.fieldObjectClassName(lctx.className, varName, lctx);
                           }
                           return "";
@@ -50591,7 +50597,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                           }
-                          if ( this.isClassField(varName, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(varName, lctx) ) {
                             this.emitFieldStoreOnEx(lctx.className, lctx.selfPtr, varName, tmp, rhs.hasNewOper, lctx);
                             return;
                           }
@@ -50881,7 +50887,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 return true;
                               }
                             }
-                            if ( this.isClassField(exprNode.vref, lctx.className, this.irModule) ) {
+                            if ( this.resolvesToField(exprNode.vref, lctx) ) {
                               if ( this.fieldIsBoolSlot(lctx.className, exprNode.vref) ) {
                                 return true;
                               }
@@ -50942,7 +50948,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 return this.loadSlot(vref, "i1", lctx);
                               }
                             }
-                            if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                            if ( this.resolvesToField(vref, lctx) ) {
                               if ( this.fieldIsBoolSlot(lctx.className, vref) ) {
                                 return this.emitFieldLoad(vref, lctx);
                               }
@@ -51829,7 +51835,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                             }
-                            if ( this.isClassField(node.vref, lctx.className, this.irModule) ) {
+                            if ( this.resolvesToField(node.vref, lctx) ) {
                               return this.emitFieldLoad(node.vref, lctx);
                             }
                             if ( ( typeof(lctx.collectionSlots[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.collectionSlots, node.vref) ) ) {
@@ -52630,7 +52636,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( (lctx.className.length) == 0 ) {
                             return "";
                           }
-                          if ( this.isClassField(recvName, lctx.className, this.irModule) ) {
+                          if ( this.resolvesToField(recvName, lctx) ) {
                             return this.fieldObjectClassName(lctx.className, recvName, lctx);
                           }
                           return "";
