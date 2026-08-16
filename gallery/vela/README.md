@@ -531,12 +531,30 @@ UTC), the United States' (second Sunday in March to first Sunday in November,
 stated in local time), and the two southern patterns. Roughly sixty named zones
 carry those, and a plain `+05:45` works too.
 
-**It is not a zone database, and says so.** The rules are the ones in force now,
-so a chart of dates from before the EU harmonised in 1996 or the US moved its
-dates in 2007 is an hour out where the rule has since changed, and a zone with
-its own history — Brazil, which abolished summer time in 2019 — is carried at its
-current offset with no rule at all. A chart of the last twenty years is right; a
-chart of the twentieth century is not.
+**A rule is not forever**, so a zone carries **eras**: a list of
+(from-year, offset, saving, rule) rows, and the one in force is the last whose
+year has passed. That is what makes a chart of the 1990s right as well as a
+chart of last week —
+
+| Era boundary | What changed |
+| --- | --- |
+| 1996 | the European Union harmonised: the continent's clocks used to go back in **September** |
+| 2007 | the United States moved **both** its dates; before that, April to October |
+| 1987 | and before *that*, the spring change was the **last** Sunday in April |
+| 2007 | New Zealand moved both of its dates too, from October–March to September–April |
+| 2011, 2015 | Moscow spent four years an hour further east, on permanent summer time |
+| 2020 | Brazil abolished summer time |
+
+`line_historical` is six-hourly readings across the 1995 autumn change, and the
+zone suite runs it in all eight zones — a runtime carrying only each zone's
+*current* rule is an hour out on every one of those rows, so the test fails
+loudly rather than silently.
+
+**It is still not a zone database.** It carries the rules that have been in
+force across the span a chart is normally drawn over, and it carries them as
+rules; it does not carry the tens of thousands of one-off transitions the IANA
+database records, and it does not pretend to. A date before the first era of its
+zone is read at that era's offset.
 
 Two things fell out of building it, and the second is the more interesting:
 
@@ -585,10 +603,10 @@ intermediate value is ever larger than a digit.
 
 ## What is not there yet
 
-* **Historical time zones.** The summer-time rules are the ones in force now,
-  and a zone with its own history is carried at its current offset. See
-  [A time zone is supplied](#a-time-zone-is-supplied-not-discovered) — a chart
-  of recent data is right, an old one may be an hour out.
+* **Transitions that are not rules.** A zone's eras cover the rule changes; the
+  IANA database also records thousands of one-off transitions — a country that
+  skipped a year, a territory that changed sides — and those are not carried.
+  See [A time zone is supplied](#a-time-zone-is-supplied-not-discovered).
 * **Two width estimates, on purpose.** `VlText.estimateWidth` is the
   reference's canvas-free 0.8 em per character and sizes the axis extents,
   because matching the reference's layout is what the comparison measures.

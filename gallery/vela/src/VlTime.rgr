@@ -57,13 +57,19 @@ class VlTimeParts {
 ;        so the window wraps the new year and the test is an OR, not an AND
 ;   nz   last Sunday in September to first Sunday in April, southern likewise
 ;
-; What this is not: a zone database. The rules above are the ones in force now
-; (the EU's since 1996, the United States' since 2007), so a chart of dates from
-; before then is offset by an hour where the rule has since changed, and a zone
-; with its own history — Brazil, which abolished summer time in 2019, or Russia,
-; which did so in 2014 — is carried at its CURRENT offset with no rule at all.
-; A chart of the last twenty years is right; a chart of the twentieth century is
-; not, and this says so rather than pretending.
+; A rule is not forever, so a zone carries ERAS: a list of (from-year, offset,
+; saving, rule) rows, and the one in force is the last whose year has passed.
+; That is what makes a chart of the 1990s right as well as a chart of last week —
+; the European Union moved its autumn change from September to October in 1996,
+; the United States moved both of its dates in 2007, Brazil abolished summer
+; time in 2019 and Russia in 2014, and Moscow spent 2011 to 2014 an hour further
+; east than it does now. All of those are eras, not exceptions.
+;
+; What this is still not is a zone database. It carries the rules that have been
+; in force across the span a chart is normally drawn over, and it carries them as
+; rules; it does not carry the tens of thousands of one-off transitions the IANA
+; database records, and it does not pretend to. A date before the first era of
+; its zone is read at that era's offset.
 ; ============================================================================
 class VlTimeZone {
     def name:string "UTC"
@@ -71,23 +77,66 @@ class VlTimeZone {
     def standardMinutes:int 0
     ; What summer time adds while it is in force. Sixty, nearly everywhere.
     def savingMinutes:int 0
-    ; "none", "eu", "us", "au" or "nz".
+    ; "none", "eu", "eu95", "us", "us86", "us06", "au", "nz", "nz06" or "br".
     def rule:string "none"
+    ; The zone's history, oldest first. Empty means the three fields above hold
+    ; for all time, which is true of a zone that has never changed.
+    def eraFrom:[int]
+    def eraStandard:[int]
+    def eraSaving:[int]
+    def eraRule:[string]
+
+    ; The era in force in a given year, copied into the three plain fields so
+    ; every rule below can be written as though there were only ever one.
+    fn eraFor:VlTimeZone (year:int) {
+        def total:int (array_length eraFrom)
+        if (total == 0) {
+            return this
+        }
+        def out (new VlTimeZone())
+        out.name = name
+        out.standardMinutes = (itemAt eraStandard 0)
+        out.savingMinutes = (itemAt eraSaving 0)
+        out.rule = (itemAt eraRule 0)
+        def i:int 0
+        while (i < total) {
+            if (! (year < (itemAt eraFrom i))) {
+                out.standardMinutes = (itemAt eraStandard i)
+                out.savingMinutes = (itemAt eraSaving i)
+                out.rule = (itemAt eraRule i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn addEra:void (from:int standard:int saving:int named:string) {
+        push eraFrom from
+        push eraStandard standard
+        push eraSaving saving
+        push eraRule named
+    }
 
     ; Minutes east of UTC at an instant.
     fn offsetAt:int (ms:double) {
-        if (rule == "none") {
-            return standardMinutes
+        ; Which year's rules to use. Read in standard time, which is the right
+        ; year even for a southern zone whose summer spans the new year: every
+        ; transition below is months away from January. The first read uses the
+        ; oldest era's offset, which is at most an hour out and cannot change
+        ; which YEAR it is except within an hour of midnight on New Year's Eve.
+        def firstGuess:int standardMinutes
+        if ((array_length eraStandard) > 0) {
+            firstGuess = (itemAt eraStandard 0)
         }
-        ; Which year's transitions to use. Read in standard time, which is the
-        ; right year even for a southern zone whose summer spans the new year:
-        ; every transition below is months away from January.
-        def standardLocal:double (ms + ((to_double standardMinutes) * 60000.0))
-        def year:int ((VlTime.partsOfUtc(standardLocal)).year)
-        if (this.inSummer(ms year)) {
-            return (standardMinutes + savingMinutes)
+        def year:int ((VlTime.partsOfUtc((ms + ((to_double firstGuess) * 60000.0)))).year)
+        def era:VlTimeZone (this.eraFor(year))
+        if (era.rule == "none") {
+            return era.standardMinutes
         }
-        return standardMinutes
+        if (era.inSummer(ms year)) {
+            return (era.standardMinutes + era.savingMinutes)
+        }
+        return era.standardMinutes
     }
 
     fn inSummer:boolean (ms:double year:int) {
@@ -97,22 +146,58 @@ class VlTimeZone {
             def to:double (VlTimeZone.atUtc(year 10 (VlTimeZone.lastWeekday(year 10 0)) 60))
             return ((ms >= from) && (ms < to))
         }
+        ; Before 1996 the union put its clocks back in SEPTEMBER, and Britain
+        ; and Ireland did it in October — the harmonisation is the whole reason
+        ; 1996 is an era boundary.
+        if (rule == "eu95") {
+            def from95:double (VlTimeZone.atUtc(year 3 (VlTimeZone.lastWeekday(year 3 0)) 60))
+            def to95:double (VlTimeZone.atUtc(year 9 (VlTimeZone.lastWeekday(year 9 0)) 60))
+            return ((ms >= from95) && (ms < to95))
+        }
         if (rule == "us") {
             def from:double ((VlTimeZone.atUtc(year 3 (VlTimeZone.nthWeekday(year 3 0 2)) 120)) - ((to_double standardMinutes) * 60000.0))
             def to:double ((VlTimeZone.atUtc(year 11 (VlTimeZone.nthWeekday(year 11 0 1)) 120)) - ((to_double (standardMinutes + savingMinutes)) * 60000.0))
             return ((ms >= from) && (ms < to))
+        }
+        ; 1987 to 2006: forward on the first Sunday in April, back on the last
+        ; in October. Before that, forward on the LAST Sunday in April.
+        if ((rule == "us06") || (rule == "us86")) {
+            def day:int (VlTimeZone.nthWeekday(year 4 0 1))
+            if (rule == "us86") {
+                day = (VlTimeZone.lastWeekday(year 4 0))
+            }
+            def fromUs:double ((VlTimeZone.atUtc(year 4 day 120)) - ((to_double standardMinutes) * 60000.0))
+            def toUs:double ((VlTimeZone.atUtc(year 10 (VlTimeZone.lastWeekday(year 10 0)) 120)) - ((to_double (standardMinutes + savingMinutes)) * 60000.0))
+            return ((ms >= fromUs) && (ms < toUs))
+        }
+        ; Brazil's summer, while it had one: the third Sunday in October to the
+        ; third Sunday in February, and southern, so the window wraps the year.
+        if (rule == "br") {
+            def fromBr:double ((VlTimeZone.atUtc(year 10 (VlTimeZone.nthWeekday(year 10 0 3)) 0)) - ((to_double standardMinutes) * 60000.0))
+            def toBr:double ((VlTimeZone.atUtc(year 2 (VlTimeZone.nthWeekday(year 2 0 3)) 0)) - ((to_double (standardMinutes + savingMinutes)) * 60000.0))
+            return ((ms >= fromBr) || (ms < toBr))
         }
         ; Southern: summer starts in the spring of one year and ends in the
         ; autumn of the next, so an instant is in it when it is past this
         ; year's start OR before this year's end.
         def startMonth:int 10
         def startDay:int (VlTimeZone.nthWeekday(year 10 0 1))
+        def endMonth:int 4
+        def endDay:int (VlTimeZone.nthWeekday(year 4 0 1))
         if (rule == "nz") {
-            startDay = (VlTimeZone.lastWeekday(year 9 0))
             startMonth = 9
+            startDay = (VlTimeZone.lastWeekday(year 9 0))
+        }
+        ; New Zealand moved both of its dates in 2007: it used to start on the
+        ; first Sunday in October and end on the third Sunday in March.
+        if (rule == "nz06") {
+            startMonth = 10
+            startDay = (VlTimeZone.nthWeekday(year 10 0 1))
+            endMonth = 3
+            endDay = (VlTimeZone.nthWeekday(year 3 0 3))
         }
         def from2:double ((VlTimeZone.atUtc(year startMonth startDay 120)) - ((to_double standardMinutes) * 60000.0))
-        def to2:double ((VlTimeZone.atUtc(year 4 (VlTimeZone.nthWeekday(year 4 0 1)) 180)) - ((to_double (standardMinutes + savingMinutes)) * 60000.0))
+        def to2:double ((VlTimeZone.atUtc(year endMonth endDay 180)) - ((to_double (standardMinutes + savingMinutes)) * 60000.0))
         return ((ms >= from2) || (ms < to2))
     }
 
@@ -181,11 +266,58 @@ class VlTimeZone {
                 out.standardMinutes = (itemAt stds i)
                 out.savingMinutes = (itemAt savings i)
                 out.rule = (itemAt rules i)
+                VlTimeZone.addHistory(out)
                 return out
             }
             i = (i + 1)
         }
         return out
+    }
+
+    ; The rules that were in force before the ones above. A zone with no entry
+    ; here has kept the same rule for as long as a chart is likely to reach.
+    sfn addHistory:void (zone:VlTimeZone) {
+        def std:int zone.standardMinutes
+        def saving:int zone.savingMinutes
+        ; The European Union harmonised in 1996; before that the clocks went
+        ; back in September on the continent. Britain and Ireland were already
+        ; on the October date, so they gain nothing from an era here.
+        if (zone.rule == "eu") {
+            if (((zone.name == "Europe/London") || (zone.name == "Europe/Dublin")) == false) {
+                zone.addEra(1981 std saving "eu95")
+                zone.addEra(1996 std saving "eu")
+                return
+            }
+            zone.addEra(1981 std saving "eu")
+            return
+        }
+        ; The United States moved both of its dates in 2007, and had moved the
+        ; spring one in 1987.
+        if (zone.rule == "us") {
+            zone.addEra(1976 std saving "us86")
+            zone.addEra(1987 std saving "us06")
+            zone.addEra(2007 std saving "us")
+            return
+        }
+        ; Brazil kept summer time until 2019 and then stopped.
+        if (zone.name == "America/Sao_Paulo") {
+            zone.addEra(1985 std 60 "br")
+            zone.addEra(2020 std 0 "none")
+            return
+        }
+        if (zone.rule == "nz") {
+            zone.addEra(1990 std saving "nz06")
+            zone.addEra(2008 std saving "nz")
+            return
+        }
+        ; Moscow: an hour further east from 2011 to 2014, and on the union's
+        ; rule before that.
+        if (zone.name == "Europe/Moscow") {
+            zone.addEra(1981 180 60 "eu")
+            zone.addEra(2011 240 0 "none")
+            zone.addEra(2015 180 0 "none")
+            return
+        }
     }
 
     sfn isKnown:boolean (text:string) {

@@ -242,6 +242,44 @@ class VlScaleTest {
         this.check("an unknown zone is UTC" (this.num((to_double ((VlTimeZone.named("Mars/Olympus")).offsetAt(0.0))))) "0")
         this.check("and says it is unknown" (this.yesNo((VlTimeZone.isKnown("Mars/Olympus")))) "no")
 
+        ; --- and the rules that were in force before these ---
+        ; Each of these is the IANA database's answer for the date given; they
+        ; are the era boundaries, which is where a zone that carries only its
+        ; CURRENT rule is wrong by an hour.
+        def sydney2:VlTimeZone (VlTimeZone.named("Australia/Sydney"))
+        def brazil:VlTimeZone (VlTimeZone.named("America/Sao_Paulo"))
+        def moscow:VlTimeZone (VlTimeZone.named("Europe/Moscow"))
+
+        ; Before 1996 the continent put its clocks back in September, so the
+        ; last week of September 1995 was still summer time in Helsinki and the
+        ; first week of October was not.
+        this.check("Helsinki, September 1995" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("1995-09-01T12:00:00"))))))) "180")
+        this.check("Helsinki, October 1995" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("1995-10-01T12:00:00"))))))) "120")
+        ; And in 1996 the October date applied for the first time.
+        this.check("Helsinki, October 1996" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("1996-10-01T12:00:00"))))))) "180")
+
+        ; The United States moved its spring change to March in 2007; before
+        ; that, the first Sunday in March was still standard time.
+        this.check("New York, March 2006" (this.num((to_double (newYork.offsetAt((VlTime.parseIso("2006-03-15T12:00:00"))))))) "-300")
+        this.check("New York, March 2007" (this.num((to_double (newYork.offsetAt((VlTime.parseIso("2007-03-15T12:00:00"))))))) "-240")
+        ; And its autumn change was in October, so late October 2006 was
+        ; standard time where late October 2007 was not.
+        this.check("New York, late October 2006" (this.num((to_double (newYork.offsetAt((VlTime.parseIso("2006-10-30T12:00:00"))))))) "-300")
+        this.check("New York, late October 2007" (this.num((to_double (newYork.offsetAt((VlTime.parseIso("2007-10-30T12:00:00"))))))) "-240")
+
+        ; Brazil had a southern summer until it abolished it.
+        this.check("Sao Paulo, January 2018" (this.num((to_double (brazil.offsetAt((VlTime.parseIso("2018-01-15T12:00:00"))))))) "-120")
+        this.check("Sao Paulo, January 2024" (this.num((to_double (brazil.offsetAt((VlTime.parseIso("2024-01-15T12:00:00"))))))) "-180")
+
+        ; Moscow spent 2011 to 2014 an hour further east, on permanent summer
+        ; time, and had the union's rule before that.
+        this.check("Moscow, July 2010" (this.num((to_double (moscow.offsetAt((VlTime.parseIso("2010-07-15T12:00:00"))))))) "240")
+        this.check("Moscow, January 2013" (this.num((to_double (moscow.offsetAt((VlTime.parseIso("2013-01-15T12:00:00"))))))) "240")
+        this.check("Moscow, January 2024" (this.num((to_double (moscow.offsetAt((VlTime.parseIso("2024-01-15T12:00:00"))))))) "180")
+
+        ; A zone whose rule has not changed answers the same as before.
+        this.check("Sydney is unchanged" (this.num((to_double (sydney2.offsetAt((VlTime.parseIso("1995-01-15T12:00:00"))))))) "660")
+
         ; A day is not always twenty-four hours long. Midnight in Helsinki on
         ; the day the clocks go forward is 22:00 UTC the night before, and the
         ; next midnight is only 23 hours later.

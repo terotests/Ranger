@@ -234,6 +234,24 @@ const SPECS = {
       y: { field: 'b', type: 'quantitative' },
     },
   },
+  // Six-hourly readings across the European Union's 1995 autumn change, which
+  // was in SEPTEMBER — the union moved it to October the following year. Its
+  // whole job is to be drawn in a zone whose rule has since changed:
+  // tools/reference/zones.mjs runs it in eight, and a runtime carrying only
+  // each zone's current rule is an hour out on every one of these rows.
+  line_historical: {
+    data: {
+      values: Array.from({ length: 20 }, (unused, i) => ({
+        t: new Date(Date.UTC(1995, 8, 23, 0) + i * 6 * 3600e3).toISOString(),
+        b: 20 + (i % 7) * 9,
+      })),
+    },
+    mark: 'line',
+    encoding: {
+      x: { field: 't', type: 'temporal' },
+      y: { field: 'b', type: 'quantitative' },
+    },
+  },
   // The other two ways a trellis can be arranged. A row facet stacks the cells
   // and turns the shared title on its side; a wrapped facet has neither row
   // headers nor column headers and titles every cell instead, its grid sized by
