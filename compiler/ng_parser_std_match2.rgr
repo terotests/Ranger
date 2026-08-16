@@ -946,6 +946,15 @@ extension RangerFlowParser {
           if (nameNode.hasFlag("returns")) {
 ;              print "==> returns flag for " + (callArgs.getLineAsString())
             def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
+            ; getCurrentMethod answers a FRESH descriptor when there is no
+            ; enclosing method, and a fresh one has no nameNode -- so a `return`
+            ; that is not inside a function read a null here. JavaScript throws
+            ; and the compiler's own catch turns that into "Unexpected compiler
+            ; error"; every other host dies on the spot. Say what is wrong.
+            if (null? activeFn.nameNode) {
+              ctx.addError(callArgs "return outside of a function")
+              return false
+            }
             if ( (activeFn.nameNode.type_name != "void") || (activeFn.nameNode.value_type == RangerNodeType.ExpressionType)) {
               
               if ( (array_length callArgs.children) < 2 ) {

@@ -15124,6 +15124,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.rewriteShapeRefs(ch, renames);
       };
     };
+    markParentClass (ee, childName, ctx) {
+      if ( ctx.isDefinedClass(ee.vref) == false ) {
+        ctx.addError(ee, ((("Class " + childName) + " extends ") + ee.vref) + ", which is not defined");
+        return;
+      }
+      const ParentClass = ctx.findClass(ee.vref);
+      ParentClass.is_inherited = true;
+      ParentClass.is_extended_by_children = true;
+      ParentClass.child_classes.push(childName);
+    };
     async CollectMethods (node, ctx, wr) {
       this.DesugarShapes(node, ctx, wr);
       await this.WalkCollectMethods(node, ctx, wr);
@@ -15131,13 +15141,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const serviceBuilder = new RangerServiceBuilder();
       await serviceBuilder.CreateServices(this, ctx, wr);
       await operatorsOf_13.forEach_40(this.extendedClasses, (async (item, index) => { 
-        const ch = ctx.findClass(index);
-        const parent = ctx.findClass(item);
-        ch.addParentClass(item);
-        parent.is_inherited = true;
-        await operatorsOf.forEach_11(parent.variables, ((item, index) => { 
-          ch.ctx.defineVariable(item.name, item);
-        }));
+        if ( ctx.isDefinedClass(index) && ctx.isDefinedClass(item) ) {
+          const ch = ctx.findClass(index);
+          const parent = ctx.findClass(item);
+          ch.addParentClass(item);
+          parent.is_inherited = true;
+          await operatorsOf.forEach_11(parent.variables, ((item, index) => { 
+            ch.ctx.defineVariable(item.name, item);
+          }));
+        }
       }));
       for ( let i = 0; i < this.classesWithTraits.length; i++) {
         var point = this.classesWithTraits[i];
@@ -15631,10 +15643,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const ee = node.getSecond();
           const currC = ctx.currentClass;
           currC.addParentClass(ee.vref);
-          const ParentClass = ctx.findClass(ee.vref);
-          ParentClass.is_inherited = true;
-          ParentClass.is_extended_by_children = true;
-          ParentClass.child_classes.push(currC.name);
+          this.markParentClass(ee, currC.name, ctx);
         }
         find_more = false;
       }
@@ -15644,10 +15653,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         for ( let ii = 0; ii < extList.children.length; ii++) {
           var ee_1 = extList.children[ii];
           currC_1.addParentClass(ee_1.vref);
-          const ParentClass_1 = ctx.findClass(ee_1.vref);
-          ParentClass_1.is_inherited = true;
-          ParentClass_1.is_extended_by_children = true;
-          ParentClass_1.child_classes.push(currC_1.name);
+          this.markParentClass(ee_1, currC_1.name, ctx);
         };
       }
       if ( node.isFirstVref("constructor") || node.isFirstVref("Constructor") ) {
@@ -15790,13 +15796,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const list = node.children[1];
         for ( let i_5 = 0; i_5 < list.children.length; i_5++) {
           var cname = list.children[i_5];
-          const extC = ctx.findClass(cname.vref);
-          for ( let i_6 = 0; i_6 < extC.variables.length; i_6++) {
-            var vv = extC.variables[i_6];
-            const currC_3 = ctx.currentClass;
-            const subCtx_3 = currC_3.ctx;
-            subCtx_3.defineVariable(vv.name, vv);
-          };
+          if ( ctx.isDefinedClass(cname.vref) ) {
+            const extC = ctx.findClass(cname.vref);
+            for ( let i_6 = 0; i_6 < extC.variables.length; i_6++) {
+              var vv = extC.variables[i_6];
+              const currC_3 = ctx.currentClass;
+              const subCtx_3 = currC_3.ctx;
+              subCtx_3.defineVariable(vv.name, vv);
+            };
+          }
         };
         find_more = false;
       }
@@ -17451,6 +17459,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             if ( nameNode.hasFlag("returns") ) {
               const activeFn_2 = ctx.getCurrentMethod();
+              if ( typeof(activeFn_2.nameNode) === "undefined" ) {
+                ctx.addError(callArgs, "return outside of a function");
+                return false;
+              }
               if ( (activeFn_2.nameNode.type_name != "void") || (activeFn_2.nameNode.value_type == 20) ) {
                 if ( (callArgs.children.length) < 2 ) {
                   ctx.addError(callArgs, " missing return value !!!");

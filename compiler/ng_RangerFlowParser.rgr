@@ -6398,6 +6398,24 @@ class RangerFlowParser {
   }
 
   ;       this.CollectMethods( (unwrap parser.rootNode ) ctx wr)
+  ; Record `child` as a subclass of the class `ee` names -- reporting it, rather
+  ; than dereferencing null, when no such class exists. `findClass` answers
+  ; nothing for a name that was never declared (a missing Import, a typo), and
+  ; JavaScript is the only host on which writing to that "nothing" merely
+  ; throws where the compiler already catches: every other target dies on the
+  ; spot, so `Extends` naming an unknown class killed the process instead of
+  ; producing a diagnostic.
+  fn markParentClass:void (ee:CodeNode childName:string ctx:RangerAppWriterContext) {
+    if ((ctx.isDefinedClass(ee.vref)) == false) {
+      ctx.addError(ee ("Class " + childName + " extends " + ee.vref + ", which is not defined"))
+      return
+    }
+    def ParentClass:RangerAppClassDesc (ctx.findClass(ee.vref))
+    ParentClass.is_inherited = true
+    ParentClass.is_extended_by_children = true
+    push ParentClass.child_classes childName
+  }
+
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     ; shapes first: everything below this line sees ordinary records and unions
@@ -6409,14 +6427,19 @@ class RangerFlowParser {
     serviceBuilder.CreateServices( this ctx wr )
 
     extendedClasses.forEach({
-      def ch (ctx.findClass(index))
-      def parent (ctx.findClass(item))
-      ch.addParentClass(item)
-      parent.is_inherited = true
+      ; `extension X { … }` for an X that was never declared, or an Extends of a
+      ; class the imports do not bring in: findClass answers nothing for both,
+      ; and only JavaScript survives writing through that nothing.
+      if( (ctx.isDefinedClass(index)) && (ctx.isDefinedClass(item)) ) {
+        def ch (ctx.findClass(index))
+        def parent (ctx.findClass(item))
+        ch.addParentClass(item)
+        parent.is_inherited = true
 
-      parent.variables.forEach({
-        ch.ctx.defineVariable(item.name item)
-      })
+        parent.variables.forEach({
+          ch.ctx.defineVariable(item.name item)
+        })
+      }
     })
 
     for classesWithTraits point:ClassJoinPoint i {
@@ -7011,10 +7034,7 @@ class RangerFlowParser {
         def ee (node.getSecond())
         def currC:RangerAppClassDesc ctx.currentClass
         currC.addParentClass(ee.vref)
-        def ParentClass:RangerAppClassDesc (ctx.findClass(ee.vref))
-        ParentClass.is_inherited = true
-        ParentClass.is_extended_by_children = true
-        push ParentClass.child_classes currC.name
+        this.markParentClass(ee currC.name ctx)
       }
       find_more = false
     }
@@ -7023,10 +7043,7 @@ class RangerFlowParser {
       def currC:RangerAppClassDesc ctx.currentClass
       for extList.children ee:CodeNode ii {
         currC.addParentClass(ee.vref)
-        def ParentClass:RangerAppClassDesc (ctx.findClass(ee.vref))
-        ParentClass.is_inherited = true
-        ParentClass.is_extended_by_children = true
-        push ParentClass.child_classes currC.name
+        this.markParentClass(ee currC.name ctx)
       }
     }
     if ( (node.isFirstVref("constructor")) || (node.isFirstVref("Constructor"))) {
@@ -7187,11 +7204,14 @@ class RangerFlowParser {
       
       def list:CodeNode (at node.children 1)
       for list.children cname:CodeNode i {
-        def extC:RangerAppClassDesc (ctx.findClass(cname.vref))
-        for extC.variables vv@(lives):RangerAppParamDesc i {
-          def currC:RangerAppClassDesc ctx.currentClass
-          def subCtx:RangerAppWriterContext currC.ctx
-          subCtx.defineVariable(vv.name vv)
+        ; the base may not exist -- markParentClass has already said so
+        if (ctx.isDefinedClass(cname.vref)) {
+          def extC:RangerAppClassDesc (ctx.findClass(cname.vref))
+          for extC.variables vv@(lives):RangerAppParamDesc i {
+            def currC:RangerAppClassDesc ctx.currentClass
+            def subCtx:RangerAppWriterContext currC.ctx
+            subCtx.defineVariable(vv.name vv)
+          }
         }
       }
       find_more = false
