@@ -1157,8 +1157,14 @@ class RangerFlowParser {
       if (null? currC) {
         currC = (ctx.findClass(obj.vref))
       }
-      def currM (ctx.getCurrentMethod())
-      currM.addClassUsage( (unwrap currC) ctx )
+      ; `new Foo` where Foo names no declared class -- the walk of `obj` above
+      ; has already said so, and there is no class here to record a usage of.
+      ; addClassUsage reads the descriptor's variables, which is a null
+      ; dereference anywhere but JavaScript.
+      if (!null? currC) {
+        def currM (ctx.getCurrentMethod())
+        currM.addClassUsage( (unwrap currC) ctx )
+      }
     }
     node.hasNewOper = true
     node.clDesc = currC
@@ -6478,6 +6484,12 @@ class RangerFlowParser {
       def traitClassDef@(lives):CodeNode (at point.node.children 1)
       def name:string (traitClassDef.vref)
       ; print "trait " + name + " to class " + cl.name
+        ; a trait whose class the imports never bring in: findClass answers
+        ; nothing, and only JavaScript survives reading through that nothing
+        if ((ctx.isDefinedClass(name)) == false) {
+          ctx.addError( (unwrap point.node) ('Can not join class ' + name + ' because it is not defined' ))
+          continue
+        }
         def t:RangerAppClassDesc (ctx.findClass(name))
         if( (size t.extends_classes) > 0 ) {
           ctx.addError( (unwrap point.node) ('Can not join class ' + name + ' because it is inherited. Currently on base classes can be used as traits.' ))
@@ -7037,6 +7049,13 @@ class RangerFlowParser {
     }
 
     if (node.isFirstVref("union")) {
+      ; `union` also names an ordinary word in a keyword table -- a two-child
+      ; node here has no member list, and reading one is a null dereference
+      ; everywhere but JavaScript
+      if ((size node.children) < 3) {
+        ctx.addError(node "union expects a name and a list of member types")
+        return
+      }
       def nameNode@(lives):CodeNode (node.getSecond())
       def instances:CodeNode (node.getThird())
       def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
@@ -7126,6 +7145,13 @@ class RangerFlowParser {
       find_more = false
     }
     if (node.isFirstVref("enum")) {
+      ; a keyword can also be an ordinary word in the program's own data --
+      ; `enum _enum` in a reserved-word table declares nothing, and reading the
+      ; member list that is not there is a null dereference off JavaScript
+      if ((size node.children) < 3) {
+        ctx.addError(node "enum expects a name and a list of members")
+        return
+      }
       def fNameNode:CodeNode (at node.children 1)
       def enumList:CodeNode (at node.children 2)
       def new_enum:RangerAppEnum (new RangerAppEnum ())
@@ -7133,10 +7159,14 @@ class RangerFlowParser {
         def fc (item.getFirst())
         new_enum.add(fc.vref)
       }
-      set ctx.definedEnums fNameNode.vref new_enum      
+      set ctx.definedEnums fNameNode.vref new_enum
       find_more = false
     }
     if (node.isFirstVref("Enum")) {
+      if ((size node.children) < 3) {
+        ctx.addError(node "Enum expects a name and a list of members")
+        return
+      }
       def fNameNode:CodeNode (at node.children 1)
       def enumList:CodeNode (at node.children 2)
       def new_enum:RangerAppEnum (new RangerAppEnum ())
@@ -7415,6 +7445,13 @@ class RangerFlowParser {
       
       def fNameNode:CodeNode (at node.children 1)
       def import_file:string fNameNode.string_value
+      ; `import _import` in a reserved-word table names a word, not a file: the
+      ; string value is empty, and an empty name resolves to the search
+      ; directory itself -- which exists, and cannot be read as a file
+      if (0 == (strlen import_file)) {
+        ctx.addError(node "import expects a file name string")
+        return
+      }
       if (has ctx.already_imported import_file) {
         ; Already imported - walk any merged children
         for node.children item:CodeNode i {
@@ -7574,13 +7611,24 @@ class RangerFlowParser {
     }
     if (node.isFirstVref("extension")) {
       def s:string (node.getVRefAt(1))
+      ; `extension X` for an X that was never declared: findClass answers
+      ; nothing, and making that nothing the current class is a null
+      ; dereference in every method walked after it
+      if ((ctx.isDefinedClass(s)) == false) {
+        ctx.addError(node ('extension of an undefined class ' + s))
+        return
+      }
       def old_class@(lives):RangerAppClassDesc (ctx.findClass(s))
       ctx.setCurrentClass( old_class )
       ; print "extension for " + s
     }
-    
+
     if ((node.isFirstVref("PublicMethod")) || (node.isFirstVref("fn"))) {
       ; --> new shortcut for function creators
+      if (null? ctx.currentClass) {
+        ctx.addError(node "`fn` can only appear inside a class")
+        return
+      }
       def currC:RangerAppClassDesc ctx.currentClass
       def fnObj@(lives) (r.func node (unwrap currC.ctx) wr)
       def cn (fnObj.nameNode)
@@ -7777,6 +7825,10 @@ class RangerFlowParser {
               ; 
               ; o.foo.x --> optional always ...
 
+              if (null? classRefDesc.nameNode) {
+                ctx.addError(obj ('Error, no description for called object: ' + strname))
+                break _
+              }
               if(classRefDesc.nameNode.hasFlag("optional")) {
                 if(ctx.hasCompilerFlag('strict')) {
                   if(false == (ctx.isTryBlock())) {
@@ -7784,24 +7836,32 @@ class RangerFlowParser {
                   }
                 }
               }
-              
+
               classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)
               classDesc = (ctx.findClass(classRefDesc.nameNode.type_name))
             }            
           } {
             if (i < (cnt - 1)) {
-              varDesc = (classDesc.findVariable(strname))              
+              ; the previous step may have resolved to a type that is not a
+              ; declared class -- without this guard findVariable() is called
+              ; on a null receiver
+              if (null? classDesc) {
+                ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
+                break _
+              }
+              varDesc = (classDesc.findVariable(strname))
+              if (null? varDesc) {
+                ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
+                break _
+              }
               if( i > 0 ) {
-                if(varDesc.nameNode.hasFlag("optional")) {
+                if( (!null? varDesc.nameNode) && (varDesc.nameNode.hasFlag("optional")) ) {
                   if(ctx.hasCompilerFlag('strict')) {
                     if(false == (ctx.isTryBlock())) {
                       ctx.addError( obj "Optional automatically unwrapped outside try block" )
                     }
                   }
                 }
-              }
-              if (null? varDesc) {
-                ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
               }
               def subClass:string (varDesc.getTypeName())
               classDesc = (ctx.findClass(subClass))

@@ -928,7 +928,10 @@ extension RangerFlowParser {
             def toItem:CodeNode (ann.getSecond())
             def cA:CodeNode (itemAt callArgs.children from.int_value)
             def cA2:CodeNode (itemAt callArgs.children toItem.int_value)
-            if cA.hasParamDesc {
+            ; both sides need a descriptor: the move has no meaning without a
+            ; target, and only JavaScript survives asking an absent one whether
+            ; it is an allocated type
+            if (cA.hasParamDesc && cA2.hasParamDesc) {
               def pp:RangerAppParamDesc cA.paramDesc
               def pp2:RangerAppParamDesc cA2.paramDesc
               ; `@(move 0 1)` on a call whose two arguments are the same

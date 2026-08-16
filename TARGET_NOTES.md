@@ -347,6 +347,59 @@ class. Every one of them needed the compiler's own sources to show up at all:
     inherited `fnDesc` field -- an overloaded method anywhere in a program
     crashed the compiler.
 
+### Every source in `compiler/` and `lib/`, one at a time
+
+The round compiles the compiler as one program, with every Import in place.
+Handing the binary a single source *without* its dependencies is a harsher
+test, because the front end then meets names it cannot resolve — and a name it
+cannot resolve is exactly where the reference build shrugs and a native binary
+does not. Where JavaScript reads a property off `undefined` and carries an
+`undefined` forward until something reports an error, the same code natively
+dereferences a null pointer and the process dies with no diagnostic at all.
+
+```bash
+export RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr"
+for f in compiler/*.rgr lib/*.rgr; do
+  tmp/selfhost-llvm/rangerc -l=es6 "$f" -d=tmp/sweep -o=out.js
+  [ $? -gt 1 ] && echo "died: $f"
+done
+```
+
+That sweep killed the binary on **40 of the 155 files** when it first ran. It
+now kills it on **none**: every file either compiles or reports its errors and
+exits. The fixes are all source-level guards in the front end, in the places
+where a lookup that can answer *nothing* was read as though it always answers
+something:
+
+- `RangerFlowParser.findParamDesc` called `findVariable` on a class descriptor
+  that `findClass` had already failed to produce, and read `varDesc.nameNode`
+  one statement *before* the null check on `varDesc` — then fell through to
+  `varDesc.getTypeName()` after reporting the error rather than stopping.
+- `RangerAppClassDesc` walked `extends_classes` at five sites and called a
+  method on the result of `findClass` for a base class the program never
+  declares (a missing Import, or a typo).
+- `stdParamMatch` checked that the SOURCE argument of an `@(moves a b)` call
+  has a descriptor and then moved the reference to the target's, which may not
+  have one.
+- `cmdNew` recorded a class usage for `new Foo` where `Foo` names no class, and
+  `CollectMethods` joined a trait whose class the imports never bring in.
+- `extension X` for an undeclared X made *nothing* the current class, and every
+  `fn` walked after it read that nothing.
+
+The last group is a different shape, and `compiler/Lang.rgr` — the keyword and
+polyfill tables, which are data, not a program — is the file that shows it. A
+word in a program's own data can collide with a keyword: `union _union` and
+`enum _enum` in a C++ reserved-word table look like declarations with their
+member list missing, and `import _import` looks like an import whose file name
+is the empty string, which resolves to the search directory itself — a path
+that exists and cannot be read. Each handler now checks its arity, or its
+argument, and says so.
+
+None of these are LLVM defects — they are places where the compiler's own
+sources rely on JavaScript's willingness to keep going. Every one is a real
+diagnostic on all eight targets now instead of an "Unexpected compiler error",
+and on the seven that are not JavaScript, a live process instead of a dead one.
+
 ### What is left
 
 - **Closures are still incomplete.** A lambda that MUTATES a captured value

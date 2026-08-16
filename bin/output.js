@@ -1129,6 +1129,9 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     }
     for ( let i = 0; i < this.extends_classes.length; i++) {
       var cname = this.extends_classes[i];
+      if ( this.ctx.isDefinedClass(cname) == false ) {
+        continue;
+      }
       const cDesc = this.ctx.findClass(cname);
       if ( cDesc.hasMethod(m_name) ) {
         return true;
@@ -1145,6 +1148,9 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     }
     for ( let i = 0; i < this.extends_classes.length; i++) {
       var cname = this.extends_classes[i];
+      if ( this.ctx.isDefinedClass(cname) == false ) {
+        continue;
+      }
       const cDesc = this.ctx.findClass(cname);
       if ( cDesc.hasMethod(f_name) ) {
         return cDesc.findMethod(f_name);
@@ -1163,6 +1169,9 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     };
     for ( let i_1 = 0; i_1 < this.extends_classes.length; i_1++) {
       var cname = this.extends_classes[i_1];
+      if ( this.ctx.isDefinedClass(cname) == false ) {
+        continue;
+      }
       const cDesc = this.ctx.findClass(cname);
       const found = cDesc.findMethodByCompiledName(compiled);
       if ( typeof(found) === "undefined" ) {
@@ -1246,6 +1255,9 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     };
     for ( let i_1 = 0; i_1 < this.extends_classes.length; i_1++) {
       var cname = this.extends_classes[i_1];
+      if ( this.ctx.isDefinedClass(cname) == false ) {
+        continue;
+      }
       const cDesc = this.ctx.findClass(cname);
       if ( cDesc.hasStaticMethod(f_name) ) {
         return cDesc.findStaticMethod(f_name);
@@ -1264,6 +1276,9 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     };
     for ( let i_1 = 0; i_1 < this.extends_classes.length; i_1++) {
       var cname = this.extends_classes[i_1];
+      if ( this.ctx.isDefinedClass(cname) == false ) {
+        continue;
+      }
       const cDesc = this.ctx.findClass(cname);
       return cDesc.findVariable(f_name);
     };
@@ -10565,8 +10580,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( typeof(currC) === "undefined" ) {
           currC = ctx.findClass(obj.vref);
         }
-        const currM = ctx.getCurrentMethod();
-        await currM.addClassUsage(currC, ctx);
+        if ( (typeof(currC) !== "undefined" && currC != null )  ) {
+          const currM = ctx.getCurrentMethod();
+          await currM.addClassUsage(currC, ctx);
+        }
       }
       node.hasNewOper = true;
       node.clDesc = currC;
@@ -15202,6 +15219,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const joinPoint = point.node;
         const traitClassDef = point.node.children[1];
         const name = traitClassDef.vref;
+        if ( ctx.isDefinedClass(name) == false ) {
+          ctx.addError(point.node, ("Can not join class " + name) + " because it is not defined");
+          continue;
+        }
         const t = ctx.findClass(name);
         if ( (t.extends_classes.length) > 0 ) {
           ctx.addError(point.node, ("Can not join class " + name) + " because it is inherited. Currently on base classes can be used as traits.");
@@ -15661,6 +15682,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return;
       }
       if ( node.isFirstVref("union") ) {
+        if ( (node.children.length) < 3 ) {
+          ctx.addError(node, "union expects a name and a list of member types");
+          return;
+        }
         const nameNode_1 = node.getSecond();
         const instances_1 = node.getThird();
         const new_class_2 = new RangerAppClassDesc();
@@ -15739,6 +15764,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         find_more = false;
       }
       if ( node.isFirstVref("enum") ) {
+        if ( (node.children.length) < 3 ) {
+          ctx.addError(node, "enum expects a name and a list of members");
+          return;
+        }
         const fNameNode = node.children[1];
         const enumList = node.children[2];
         const new_enum = new RangerAppEnum();
@@ -15751,6 +15780,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         find_more = false;
       }
       if ( node.isFirstVref("Enum") ) {
+        if ( (node.children.length) < 3 ) {
+          ctx.addError(node, "Enum expects a name and a list of members");
+          return;
+        }
         const fNameNode_1 = node.children[1];
         const enumList_1 = node.children[2];
         const new_enum_1 = new RangerAppEnum();
@@ -15987,6 +16020,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         const fNameNode_2 = node.children[1];
         const import_file = fNameNode_2.string_value;
+        if ( 0 == (import_file.length) ) {
+          ctx.addError(node, "import expects a file name string");
+          return;
+        }
         if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
           for ( let i_9 = 0; i_9 < node.children.length; i_9++) {
             var item_4 = node.children[i_9];
@@ -16128,10 +16165,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       if ( node.isFirstVref("extension") ) {
         const s_6 = node.getVRefAt(1);
+        if ( ctx.isDefinedClass(s_6) == false ) {
+          ctx.addError(node, "extension of an undefined class " + s_6);
+          return;
+        }
         const old_class = ctx.findClass(s_6);
         ctx.setCurrentClass(old_class);
       }
       if ( node.isFirstVref("PublicMethod") || node.isFirstVref("fn") ) {
+        if ( typeof(ctx.currentClass) === "undefined" ) {
+          ctx.addError(node, "`fn` can only appear inside a class");
+          return;
+        }
         const currC_8 = ctx.currentClass;
         const fnObj = await operatorsOf_41.rc46func_43(node, (currC_8.ctx), wr);
         const cn = fnObj.nameNode;
@@ -16304,6 +16349,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( set_nsp ) {
                   obj.nsp.push(classRefDesc);
                 }
+                if ( typeof(classRefDesc.nameNode) === "undefined" ) {
+                  ctx.addError(obj, "Error, no description for called object: " + strname);
+                  break;
+                }
                 if ( classRefDesc.nameNode.hasFlag("optional") ) {
                   if ( ctx.hasCompilerFlag("strict") ) {
                     if ( false == ctx.isTryBlock() ) {
@@ -16316,18 +16365,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             } else {
               if ( i < (cnt - 1) ) {
+                if ( typeof(classDesc) === "undefined" ) {
+                  ctx.addError(obj, "Error, no description for refenced obj: " + strname);
+                  break;
+                }
                 varDesc = classDesc.findVariable(strname);
+                if ( typeof(varDesc) === "undefined" ) {
+                  ctx.addError(obj, "Error, no description for refenced obj: " + strname);
+                  break;
+                }
                 if ( i > 0 ) {
-                  if ( varDesc.nameNode.hasFlag("optional") ) {
+                  if ( ((typeof(varDesc.nameNode) !== "undefined" && varDesc.nameNode != null ) ) && varDesc.nameNode.hasFlag("optional") ) {
                     if ( ctx.hasCompilerFlag("strict") ) {
                       if ( false == ctx.isTryBlock() ) {
                         ctx.addError(obj, "Optional automatically unwrapped outside try block");
                       }
                     }
                   }
-                }
-                if ( typeof(varDesc) === "undefined" ) {
-                  ctx.addError(obj, "Error, no description for refenced obj: " + strname);
                 }
                 const subClass = varDesc.getTypeName();
                 classDesc = ctx.findClass(subClass);
@@ -17497,7 +17551,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const toItem = ann.getSecond();
               const cA = callArgs.children[from.int_value];
               const cA2 = callArgs.children[toItem.int_value];
-              if ( cA.hasParamDesc ) {
+              if ( cA.hasParamDesc && cA2.hasParamDesc ) {
                 const pp = cA.paramDesc;
                 const pp2 = cA2.paramDesc;
                 const ppSelf = cA.paramDesc;

@@ -323,6 +323,13 @@ Tests if the `class name` is either
       return true
     }
     for extends_classes cname:string i {
+      ; A base class the program never declares (a missing Import, a typo):
+      ; findClass answers nothing, and only JavaScript survives calling a
+      ; method on that nothing. The error is reported where the Extends is
+      ; collected; here the base simply has nothing to contribute.
+      if ((ctx.isDefinedClass(cname)) == false) {
+        continue
+      }
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))
       ; asking the parent twice doubles the work at every hop, so a chain
       ; of depth d cost 2^d lookups. The answer is already in hand.
@@ -344,6 +351,13 @@ Tests if the `class name` is either
       return res
     }
     for extends_classes cname:string i {
+      ; A base class the program never declares (a missing Import, a typo):
+      ; findClass answers nothing, and only JavaScript survives calling a
+      ; method on that nothing. The error is reported where the Extends is
+      ; collected; here the base simply has nothing to contribute.
+      if ((ctx.isDefinedClass(cname)) == false) {
+        continue
+      }
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))
       if (cDesc.hasMethod(f_name)) {
         return (cDesc.findMethod(f_name))
@@ -361,6 +375,13 @@ Tests if the `class name` is either
       }
     }
     for extends_classes cname:string i {
+      ; A base class the program never declares (a missing Import, a typo):
+      ; findClass answers nothing, and only JavaScript survives calling a
+      ; method on that nothing. The error is reported where the Extends is
+      ; collected; here the base simply has nothing to contribute.
+      if ((ctx.isDefinedClass(cname)) == false) {
+        continue
+      }
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))
       def found@(optional weak):RangerAppFunctionDesc (cDesc.findMethodByCompiledName(compiled))
       if (null? found) {
@@ -446,6 +467,13 @@ Tests if the `class name` is either
       }
     }
     for extends_classes cname:string i {
+      ; A base class the program never declares (a missing Import, a typo):
+      ; findClass answers nothing, and only JavaScript survives calling a
+      ; method on that nothing. The error is reported where the Extends is
+      ; collected; here the base simply has nothing to contribute.
+      if ((ctx.isDefinedClass(cname)) == false) {
+        continue
+      }
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))
       if (cDesc.hasStaticMethod(f_name)) {
         return (cDesc.findStaticMethod(f_name))
@@ -464,6 +492,13 @@ Tests if the `class name` is either
       }
     }
     for extends_classes cname:string i {
+      ; A base class the program never declares (a missing Import, a typo):
+      ; findClass answers nothing, and only JavaScript survives calling a
+      ; method on that nothing. The error is reported where the Extends is
+      ; collected; here the base simply has nothing to contribute.
+      if ((ctx.isDefinedClass(cname)) == false) {
+        continue
+      }
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))
       return (cDesc.findVariable(f_name))
     }
