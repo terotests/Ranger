@@ -227,6 +227,47 @@ const CANDIDATES = {
       ],
     },
   },
+  // Binned on BOTH axes: a two-dimensional histogram, whose cells are counts
+  // rather than values. The Vega-Lite gallery calls it a binned heat map.
+  heatmap_binned: {
+    group: 'table',
+    spec: {
+      data: { values },
+      mark: 'rect',
+      encoding: {
+        x: { field: 'c', type: 'quantitative', bin: true },
+        y: { field: 'b', type: 'quantitative', bin: true },
+        color: { aggregate: 'count', type: 'quantitative' },
+      },
+    },
+  },
+  // A punch card: two discrete axes and a size, so the cells are dots whose
+  // area is the value rather than blocks whose colour is.
+  table_bubble: {
+    group: 'table',
+    spec: {
+      data: { values },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'a', type: 'nominal' },
+        y: { field: 'g', type: 'nominal' },
+        size: { field: 'b', type: 'quantitative' },
+      },
+    },
+  },
+  // A heat map of a count rather than of a value.
+  heatmap_count: {
+    group: 'table',
+    spec: {
+      data: { values },
+      mark: 'rect',
+      encoding: {
+        x: { field: 'a', type: 'nominal' },
+        y: { field: 'g', type: 'nominal' },
+        color: { aggregate: 'count', type: 'quantitative' },
+      },
+    },
+  },
   // --- circular -------------------------------------------------------------
   donut: {
     group: 'circular',
@@ -285,6 +326,132 @@ const CANDIDATES = {
         { mark: 'bar', encoding: { x: { field: 'a', type: 'nominal' }, y: { field: 'b', type: 'quantitative' } } },
         { mark: 'point', encoding: { x: { field: 'c', type: 'quantitative' }, y: { field: 'b', type: 'quantitative' } } },
       ],
+    },
+  },
+  facet_rows: {
+    group: 'multi-view',
+    spec: {
+      data: { values },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'a', type: 'nominal' },
+        y: { field: 'b', type: 'quantitative' },
+        row: { field: 'g', type: 'nominal' },
+      },
+    },
+  },
+  facet_wrapped: {
+    group: 'multi-view',
+    spec: {
+      data: { values },
+      mark: 'bar',
+      columns: 2,
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'b', type: 'quantitative' },
+        facet: { field: 'a', type: 'nominal' },
+      },
+    },
+  },
+  facet_grid: {
+    group: 'multi-view',
+    spec: {
+      data: { values },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'a', type: 'nominal' },
+        y: { field: 'b', type: 'quantitative' },
+        row: { field: 'g', type: 'nominal' },
+        column: { field: 'g', type: 'nominal' },
+      },
+    },
+  },
+  // --- legends --------------------------------------------------------------
+  // A legend is drawn correctly wherever it is asked to go; the question these
+  // ask is whether it is PLACED there. `orient` has eight anchors and the
+  // gradient legend turns on its side for four of them.
+  legend_left: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'left' } },
+      },
+    },
+  },
+  legend_top: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'top' } },
+      },
+    },
+  },
+  legend_bottom: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'bottom' } },
+      },
+    },
+  },
+  legend_top_left: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'top-left' } },
+      },
+    },
+  },
+  legend_bottom_right: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'bottom-right' } },
+      },
+    },
+  },
+  legend_gradient_left: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'b', type: 'quantitative', legend: { orient: 'left' } },
+      },
+    },
+  },
+  legend_gradient_bottom: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'b', type: 'quantitative', legend: { orient: 'bottom' } },
+      },
     },
   },
   // --- time -----------------------------------------------------------------

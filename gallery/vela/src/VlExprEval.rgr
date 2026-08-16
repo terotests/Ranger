@@ -29,6 +29,9 @@ class VlExprScope {
     ; The data sets by name, so an expression can ask how many rows one has —
     ; which is how a faceted view says how many columns it has.
     def dataSets:[string:VlJson]
+    ; The wall clock the LOCAL date functions read — `year`, `hours`,
+    ; `timeFormat`. Their `utc…` twins ignore it, by definition.
+    def zone:VlTimeZone (new VlTimeZone())
     ; Set when a function the profile does not have is called, so a spec that
     ; needs more than this evaluator has fails loudly instead of drawing
     ; something subtly wrong.
@@ -399,34 +402,34 @@ class VlExprEval {
             if (a2.isNumber()) {
                 dp.day = (a2.asInt())
             }
-            return (VlJson.numberValue((VlTime.msOf(dp))))
+            return (VlJson.numberValue((VlTime.msOf(dp scope.zone))))
         }
         if (name == "timeFormat") {
-            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString())))))
+            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString()) scope.zone))))
         }
         if (name == "utcFormat") {
-            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString())))))
+            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString()) (VlTimeZone.utc())))))
         }
         if (name == "year") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).year)))
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).year)))
         }
         if (name == "month") {
-            return (VlJson.intValue((((VlTime.partsOf((a0.asDouble()))).month) - 1)))
+            return (VlJson.intValue((((VlTime.partsOf((a0.asDouble()) scope.zone)).month) - 1)))
         }
         if (name == "date") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).day)))
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).day)))
         }
         if (name == "hours") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).hours)))
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).hours)))
         }
         if (name == "minutes") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).minutes)))
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).minutes)))
         }
         if (name == "seconds") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).seconds)))
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).seconds)))
         }
         if (name == "day") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).weekday)))
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).weekday)))
         }
 
         ; --- type tests ---

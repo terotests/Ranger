@@ -1,0 +1,3298 @@
+; ==============================================================================
+; VlCompile.rgr — Vega-Lite in, Vega out.
+; ==============================================================================
+; Vela runs Vega. Vega-Lite is the shorthand nearly everyone actually writes,
+; and turning one into the other was, until this file, the last thing in the
+; pipeline still done by the official JavaScript. That mattered less than it
+; sounds — it is an authoring step, not a runtime one, the way compiling a .rgr
+; to a .cpp is — but it did mean a native binary could RUN any Vega
+; specification and not ACCEPT a Vega-Lite one.
+;
+; What the compiler is, stripped of the vocabulary: a set of decisions about
+; defaults. Vega-Lite says "a bar chart of a against b"; Vega needs to be told
+; that `a` is a band scale with an inner padding of 0.1, that `b` is stacked
+; even though nobody asked for a stack, that the bars are #4c78a8, that the
+; y axis gets a grid and the x axis does not, and that a bar is a `rect` whose
+; width is `max(0.25, bandwidth('x'))`. Every one of those is a decision the
+; reference makes, and this file is those decisions written down.
+;
+; How it is checked is the important part. The output is NOT compared with the
+; official compiler's JSON — two compilers may reach the same chart by different
+; specifications, and holding this to the other one's spelling would be testing
+; the wrong thing. It is compared by DRAWING it: the same Vega-Lite source goes
+; through this compiler into Vela, and through the official compiler into
+; official Vega, and the two scenes must agree mark for mark. That is the same
+; standard the rest of the runtime is held to, and it is the standard that
+; matters — the chart, not the paperwork.
+;
+; Scope, stated rather than implied. A single view is one mark over one encoding
+; block; the four ways a chart can be more than one chart are all built —
+; layering, faceting (by row, by column, or wrapped onto a computed grid),
+; concatenation, and the box plot, which is a composite mark. What is not built
+; is an `errorbar`, an `errorband`, and the top-level `facet` operator; each of
+; those refuses out loud rather than drawing something else.
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+; One entry of the `encoding` block, read once so the rest of the file asks
+; questions of a field rather than of a JSON object.
+class VlChannel {
+    def name:string ""
+    def field:string ""
+    ; "quantitative" | "nominal" | "ordinal" | "temporal"
+    def kind:string "quantitative"
+    def aggregate:string ""
+    def timeUnit:string ""
+    def hasBin:boolean false
+    def hasValue:boolean false
+    def value:VlJson (new VlJson)
+    def defined:boolean false
+    def stack:string ""
+    def def0:VlJson (new VlJson)
+
+    ; The name the field carries after the transforms have run: `sum_b` once it
+    ; is aggregated, `bin_maxbins_10_b` once it is binned.
+    fn outField:string () {
+        if ((strlen aggregate) > 0) {
+            if (aggregate == "count") {
+                return "__count"
+            }
+            return ((aggregate + "_") + field)
+        }
+        if hasBin {
+            return ("bin_maxbins_10_" + field)
+        }
+        return field
+    }
+
+    ; A binned field is TWO fields: where the bin starts and where it ends.
+    fn binEndField:string () {
+        return (("bin_maxbins_10_" + field) + "_end")
+    }
+
+    fn isDiscrete:boolean () {
+        if (hasBin) {
+            return false
+        }
+        return ((kind == "nominal") || (kind == "ordinal"))
+    }
+
+    fn isContinuous:boolean () {
+        return (! (this.isDiscrete()))
+    }
+
+    ; What the axis and the legend call it: "Sum of b", "b (binned)", "Count of
+    ; records" — the reference's own title rules.
+    fn title:string () {
+        if (aggregate == "count") {
+            return "Count of Records"
+        }
+        if ((strlen aggregate) > 0) {
+            return (((VlChannel.capitalise(aggregate)) + " of ") + field)
+        }
+        if hasBin {
+            return (field + " (binned)")
+        }
+        return field
+    }
+
+    sfn capitalise:string (text:string) {
+        if ((strlen text) == 0) {
+            return text
+        }
+        def head:string (substring text 0 1)
+        def code:int (charAt head 0)
+        if ((code >= 97) && (code <= 122)) {
+            head = (strfromcode (code - 32))
+        }
+        return (head + (substring text 1 (strlen text)))
+    }
+}
+
+class VlCompile {
+    def errors:[string]
+    def warnings:[string]
+    def channels:[VlChannel]
+    def source:VlJson (new VlJson)
+    def markName:string "point"
+    def markDef:VlJson (new VlJson)
+    def stackField:string ""
+    def stackOffset:string "zero"
+    def dataName:string "source_0"
+    ; A layered chart compiles each layer on its own and then merges them, so
+    ; each layer needs its own names and has to be told the scale types the
+    ; merge settled on — a text label sits on a BAND scale when it is layered
+    ; over a bar chart, and on a point scale when it is not.
+    def dataLabel:string "data_0"
+    def markLabel:string "marks"
+    def forcedTypes:[string:string]
+    ; A pane of a concatenation names its scales and its own size signal apart
+    ; from its neighbours', and shares whichever dimension runs across the join:
+    ; panes side by side are all the same height, panes stacked are all the same
+    ; width.
+    def prefix:string ""
+    ; What the two dimensions are called. A chart's own are `width` and
+    ; `height`; a pane of a concatenation names the one that varies after
+    ; itself; every cell of a trellis is `child_width` by `child_height`.
+    def widthSignal:string "width"
+    def heightSignal:string "height"
+    ; Set on the compiler that draws one PANEL of a trellis, so that it does not
+    ; try to build the trellis again.
+    def insidePanel:boolean false
+
+    ; ------------------------------------------------------------------------
+    fn fail:void (msg:string) {
+        push errors msg
+    }
+
+    fn compile:VlJson (src:VlJson) {
+        source = src
+        clear errors
+        clear channels
+
+        if (src.has("layer")) {
+            return (this.compileLayers(src))
+        }
+        if (src.has("facet")) {
+            this.fail("a top-level facet operator is not compiled here; use the row, column or facet channel")
+        }
+        if (src.has("hconcat")) {
+            return (this.compileConcat(src "hconcat" true))
+        }
+        if (src.has("vconcat")) {
+            return (this.compileConcat(src "vconcat" false))
+        }
+        if (src.has("repeat")) {
+            this.fail("a repeated specification is not compiled here")
+        }
+        this.readMark()
+        this.readEncoding()
+        ; A trellis is one chart drawn many times. It is recognised from the
+        ; ENCODING rather than from a keyword, which is how Vega-Lite spells it.
+        if ((array_length (this.facetFields())) > 0) {
+            if (! insidePanel) {
+                return (this.compileFacet(src))
+            }
+        }
+        clear channels
+        ; A composite mark is not a mark: it is several marks over several
+        ; derived data sets, which is why it is expanded rather than encoded.
+        if ((markName == "errorbar") || (markName == "errorband")) {
+            this.fail(("an " + markName) + " is not compiled here")
+        }
+        this.readEncoding()
+
+
+
+
+
+        if ((array_length errors) > 0) {
+            return (VlJson.objectValue())
+        }
+        if (markName == "boxplot") {
+            return (this.compileBoxplot(src))
+        }
+        ; `point: true` on a line is not a property of the line: it is a second
+        ; mark drawn over it, which is a layer under another name.
+        if (markDef.boolOr("point" false)) {
+            return (this.compileLayers((VlCompile.withPointLayer(src markDef))))
+        }
+        this.decideStack()
+
+        def out:VlJson (VlJson.objectValue())
+        out.setMember("$schema" (VlJson.stringValue("https://vega.github.io/schema/vega/v6.json")))
+        if (src.has("description")) {
+            out.setMember("description" (src.get("description")))
+        }
+        def background:VlJson (src.get("background"))
+        if (background.isDefined()) {
+            out.setMember("background" background)
+        } {
+            out.setMember("background" (VlJson.stringValue("white")))
+        }
+        out.setMember("padding" (VlJson.numberValue(5.0)))
+
+        ; A discrete axis sizes the plot rather than the other way round: the
+        ; chart is as wide as its bands need, which is a signal over the band
+        ; count, and the spec then carries no width at all.
+        def signals:VlJson (VlJson.arrayValue())
+        this.sizeAndSignals(out signals)
+
+        ; The frame around a plotting rectangle belongs to a chart with axes.
+        ; A pie has none, so it is a plain view and nothing is drawn round it.
+        def frame:string "cell"
+        if (markName == "arc") {
+            frame = "view"
+        }
+        out.setMember("style" (VlJson.stringValue(frame)))
+        out.setMember("data" (this.buildData()))
+        if ((signals.count()) > 0) {
+            out.setMember("signals" signals)
+        }
+        out.setMember("marks" (this.buildMarks()))
+        out.setMember("scales" (this.buildScales()))
+        def axes:VlJson (this.buildAxes())
+        if ((axes.count()) > 0) {
+            out.setMember("axes" axes)
+        }
+        def legends:VlJson (this.buildLegends())
+        if ((legends.count()) > 0) {
+            out.setMember("legends" legends)
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------- layers ---
+    ; Several marks over one pair of axes. Each layer is a whole chart on its
+    ; own — its own data pipeline, its own marks, its own idea of what its
+    ; scales should be — so each is compiled by its own compiler and the
+    ; results are merged.
+    ;
+    ; The merge is not a concatenation. Two things have to be decided ACROSS the
+    ; layers before any of them can be compiled: what type each shared scale is,
+    ; and what its domain covers. A label layered over bars sits on the bars'
+    ; BAND scale, and on its own it would have asked for a point scale — so the
+    ; types are settled first, in a pass that reads the marks and encodings and
+    ; nothing else, and handed to every layer before it compiles.
+    fn compileLayers:VlJson (src:VlJson) {
+        def layers:VlJson (src.get("layer"))
+        if (! (layers.isArray())) {
+            this.fail("layer is not an array")
+            return (VlJson.objectValue())
+        }
+        def total:int (layers.count())
+
+        ; A band anywhere makes the shared scale a band: a mark that fills its
+        ; band needs one, and a mark that does not is happy to sit on it.
+        def bandX:boolean false
+        def bandY:boolean false
+        def probeIndex:int 0
+        while (probeIndex < total) {
+            def probe (new VlCompile())
+            probe.source = (VlCompile.mergeSpec(src (layers.at(probeIndex))))
+            probe.readMark()
+            probe.readEncoding()
+            for probe.channels ch:VlChannel ci {
+                if ((probe.scaleTypeFor(ch)) == "band") {
+                    if (ch.name == "x") {
+                        bandX = true
+                    }
+                    if (ch.name == "y") {
+                        bandY = true
+                    }
+                }
+            }
+            probeIndex = (probeIndex + 1)
+        }
+
+        def out (VlJson.objectValue())
+        def data (VlJson.arrayValue())
+        def marks (VlJson.arrayValue())
+        def scales (VlJson.arrayValue())
+        def scaleNames:[string]
+        def domains:[string:VlJson]
+        def signals (VlJson.arrayValue())
+        def signalNames:[string:int]
+        def axes (VlJson.arrayValue())
+        def legends (VlJson.arrayValue())
+        def legendNames:[string:int]
+        def titles:[string:string]
+        def first:boolean true
+
+        def index:int 0
+        while (index < total) {
+            def child (new VlCompile())
+            child.dataLabel = ("data_" + (VlJson.intToText(index)))
+            child.markLabel = (("layer_" + (VlJson.intToText(index))) + "_marks")
+            if bandX {
+                set child.forcedTypes "x" "band"
+            }
+            if bandY {
+                set child.forcedTypes "y" "band"
+            }
+            def piece:VlJson (child.compile((VlCompile.mergeSpec(src (layers.at(index))))))
+            for child.errors e:string ei {
+                this.fail(e)
+            }
+            if ((array_length child.errors) == 0) {
+                if first {
+                    ; Everything the chart is as a whole — its size, its
+                    ; background, its frame — belongs to the first layer, which
+                    ; is the one whose axes and titles the reference keeps.
+                    for piece.keys key:string ki {
+                        if ((((((key == "data") || (key == "marks")) || (key == "scales")) || (key == "signals")) || (key == "axes")) || (key == "legends")) {
+                            ; merged below
+                        } {
+                            out.setMember(key (piece.get(key)))
+                        }
+                    }
+                    def pieceData:VlJson (piece.get("data"))
+                    push data.arr (pieceData.at(0))
+                    def pieceAxes:VlJson (piece.get("axes"))
+                    if (pieceAxes.isArray()) {
+                        def ai:int 0
+                        while (ai < (pieceAxes.count())) {
+                            push axes.arr (pieceAxes.at(ai))
+                            ai = (ai + 1)
+                        }
+                    }
+                    first = false
+                }
+                def pieceData2:VlJson (piece.get("data"))
+                def di:int 1
+                while (di < (pieceData2.count())) {
+                    push data.arr (pieceData2.at(di))
+                    di = (di + 1)
+                }
+                def pieceMarks:VlJson (piece.get("marks"))
+                def mi:int 0
+                while (mi < (pieceMarks.count())) {
+                    push marks.arr (pieceMarks.at(mi))
+                    mi = (mi + 1)
+                }
+                VlCompile.mergeSignals(signals signalNames (piece.get("signals")))
+                VlCompile.mergeScales(scales scaleNames domains (piece.get("scales")))
+                VlCompile.mergeLegends(legends legendNames (piece.get("legends")))
+                VlCompile.collectAxisTitles(titles (piece.get("axes")))
+            }
+            index = (index + 1)
+        }
+        VlCompile.applyMergedDomains(scales scaleNames domains)
+        VlCompile.mergeAxisTitles(axes titles)
+
+        out.setMember("data" data)
+        if ((signals.count()) > 0) {
+            out.setMember("signals" signals)
+        }
+        out.setMember("marks" marks)
+        out.setMember("scales" scales)
+        if ((axes.count()) > 0) {
+            out.setMember("axes" axes)
+        }
+        if ((legends.count()) > 0) {
+            out.setMember("legends" legends)
+        }
+        return out
+    }
+
+
+    ; ---------------------------------------------------------------- boxplot ---
+    ; A box plot is not a mark: it is five marks over eight derived data sets,
+    ; and Vega-Lite calls that a COMPOSITE mark. Written as a layered
+    ; specification it would be unreadable, and it would still need the exact
+    ; quartile pipeline below, so it is expanded here instead — the same thing
+    ; the reference does, and for the same reason.
+    ;
+    ; The pipeline is the interesting half. Quartiles are computed twice, over
+    ; different rows and for different purposes: once JOINED BACK onto every row
+    ; so that each row can be compared with its own group's hinges — which is
+    ; what decides whether it is an outlier — and once as an aggregate, which is
+    ; what the box is drawn from. The whiskers are then the extremes of the rows
+    ; that survived the outlier test, which is why they stop at real data rather
+    ; than at a computed fence.
+    fn compileBoxplot:VlJson (src:VlJson) {
+        def x:VlChannel (this.channel("x"))
+        def y:VlChannel (this.channel("y"))
+        if (! (x.defined)) {
+            this.fail("a box plot needs an x and a y channel")
+            return (VlJson.objectValue())
+        }
+        if (! (y.defined)) {
+            this.fail("a box plot needs an x and a y channel")
+            return (VlJson.objectValue())
+        }
+        if (! ((x.isDiscrete()) && (y.isContinuous()))) {
+            this.fail("only a vertical box plot over a discrete axis is compiled here")
+            return (VlJson.objectValue())
+        }
+        def dim:string x.field
+        def f:string y.field
+        def lower:string ("lower_box_" + f)
+        def upper:string ("upper_box_" + f)
+        def mid:string ("mid_box_" + f)
+        def lowWhisker:string ("lower_whisker_" + f)
+        def highWhisker:string ("upper_whisker_" + f)
+        def minF:string ("min_" + f)
+        def maxF:string ("max_" + f)
+
+        def out (VlJson.objectValue())
+        out.setMember("$schema" (VlJson.stringValue("https://vega.github.io/schema/vega/v6.json")))
+        out.setMember("background" (VlJson.stringValue("white")))
+        out.setMember("padding" (VlJson.numberValue(5.0)))
+        def heightGiven:VlJson (src.get("height"))
+        if (heightGiven.isNumber()) {
+            out.setMember("height" heightGiven)
+        } {
+            out.setMember("height" (VlJson.numberValue(300.0)))
+        }
+        out.setMember("style" (VlJson.stringValue("cell")))
+
+        ; --- the eight data sets ---
+        def data (VlJson.arrayValue())
+        def source (VlJson.objectValue())
+        source.setMember("name" (VlJson.stringValue("source_0")))
+        def srcData:VlJson (src.get("data"))
+        if (srcData.has("values")) {
+            source.setMember("values" (srcData.get("values")))
+        }
+        push data.arr source
+
+        ; Every row, told its own group's quartiles.
+        def d1 (VlJson.objectValue())
+        d1.setMember("name" (VlJson.stringValue("data_1")))
+        d1.setMember("source" (VlJson.stringValue("source_0")))
+        def t1 (VlJson.arrayValue())
+        def join (VlJson.objectValue())
+        join.setMember("type" (VlJson.stringValue("joinaggregate")))
+        join.setMember("as" (VlCompile.stringList2(lower upper)))
+        join.setMember("ops" (VlCompile.stringList2("q1" "q3")))
+        join.setMember("fields" (VlCompile.stringList2(f f)))
+        join.setMember("groupby" (VlCompile.stringList1(dim)))
+        push t1.arr join
+        d1.setMember("transform" t1)
+        push data.arr d1
+
+        def fence:string (VlCompile.fenceExpr(f lower upper))
+        def inside:string (VlCompile.insideExpr(f lower upper))
+
+        ; The rows outside the fence: drawn as points.
+        def d2 (VlJson.objectValue())
+        d2.setMember("name" (VlJson.stringValue("data_2")))
+        d2.setMember("source" (VlJson.stringValue("data_1")))
+        def t2 (VlJson.arrayValue())
+        push t2.arr (VlCompile.filterOf(fence))
+        push t2.arr (VlCompile.filterOf((VlCompile.validExpr(f))))
+        d2.setMember("transform" t2)
+        push data.arr d2
+
+        ; The rows inside it, reduced to the ends of the whiskers.
+        def d3 (VlJson.objectValue())
+        d3.setMember("name" (VlJson.stringValue("data_3")))
+        d3.setMember("source" (VlJson.stringValue("data_1")))
+        def t3 (VlJson.arrayValue())
+        push t3.arr (VlCompile.filterOf(inside))
+        def agg (VlJson.objectValue())
+        agg.setMember("type" (VlJson.stringValue("aggregate")))
+        agg.setMember("groupby" (VlCompile.stringList1(dim)))
+        agg.setMember("ops" (VlCompile.stringList4("min" "max" "min" "max")))
+        agg.setMember("fields" (VlCompile.stringList4(f f lower upper)))
+        agg.setMember("as" (VlCompile.stringList4(lowWhisker highWhisker lower upper)))
+        push t3.arr agg
+        d3.setMember("transform" t3)
+        push data.arr d3
+
+        push data.arr (VlCompile.filteredData("data_4" "data_3" (VlCompile.validExpr(lowWhisker))))
+        push data.arr (VlCompile.filteredData("data_5" "data_3" (VlCompile.validExpr(upper))))
+
+        ; The box itself, from the whole group rather than from the survivors.
+        def d6 (VlJson.objectValue())
+        d6.setMember("name" (VlJson.stringValue("data_6")))
+        d6.setMember("source" (VlJson.stringValue("source_0")))
+        def t6 (VlJson.arrayValue())
+        def agg6 (VlJson.objectValue())
+        agg6.setMember("type" (VlJson.stringValue("aggregate")))
+        agg6.setMember("groupby" (VlCompile.stringList1(dim)))
+        agg6.setMember("ops" (VlCompile.stringList5("q1" "q3" "median" "min" "max")))
+        agg6.setMember("fields" (VlCompile.stringList5(f f f f f)))
+        agg6.setMember("as" (VlCompile.stringList5(lower upper mid minF maxF)))
+        push t6.arr agg6
+        d6.setMember("transform" t6)
+        push data.arr d6
+
+        push data.arr (VlCompile.filteredData("data_7" "data_6" (VlCompile.validExpr(lower))))
+        push data.arr (VlCompile.filteredData("data_8" "data_6" (VlCompile.validExpr(mid))))
+        out.setMember("data" data)
+
+        ; --- the signals: the band decides how wide the chart is ---
+        def signals (VlJson.arrayValue())
+        def step (VlJson.objectValue())
+        step.setMember("name" (VlJson.stringValue("x_step")))
+        step.setMember("value" (VlJson.numberValue(20.0)))
+        push signals.arr step
+        def width (VlJson.objectValue())
+        width.setMember("name" (VlJson.stringValue("width")))
+        width.setMember("update" (VlJson.stringValue("bandspace(domain('x').length, 0, 0) * x_step")))
+        push signals.arr width
+        out.setMember("signals" signals)
+
+        ; --- the marks, in the order they are drawn ---
+        def marks (VlJson.arrayValue())
+        def whiskerTip:VlJson (VlCompile.tooltipOf2(("Upper Whisker of " + f) highWhisker ("Lower Whisker of " + f) lowWhisker dim))
+        def boxTip:VlJson (VlCompile.boxTooltip(f maxF upper mid lower minF dim))
+
+        push marks.arr (VlCompile.outlierMark(dim f (this.describeExpr())))
+        push marks.arr (VlCompile.whiskerMark("layer_0_layer_1_layer_0_marks" "data_4" dim lowWhisker lower whiskerTip))
+        push marks.arr (VlCompile.whiskerMark("layer_0_layer_1_layer_1_marks" "data_5" dim upper highWhisker whiskerTip))
+        push marks.arr (VlCompile.boxMark(dim lower upper boxTip (VlCompile.boxDescription(dim f upper maxF mid lower minF))))
+        push marks.arr (VlCompile.medianMark(dim mid lower upper boxTip))
+        out.setMember("marks" marks)
+
+        ; --- the scales: every drawn data set contributes to the domain ---
+        def scales (VlJson.arrayValue())
+        def xs (VlJson.objectValue())
+        xs.setMember("name" (VlJson.stringValue("x")))
+        xs.setMember("type" (VlJson.stringValue("band")))
+        def xDomain (VlJson.objectValue())
+        def xFields (VlJson.arrayValue())
+        push xFields.arr (VlCompile.domainEntry("data_2" dim))
+        push xFields.arr (VlCompile.domainEntry("data_4" dim))
+        push xFields.arr (VlCompile.domainEntry("data_5" dim))
+        push xFields.arr (VlCompile.domainEntry("data_7" dim))
+        push xFields.arr (VlCompile.domainEntry("data_8" dim))
+        xDomain.setMember("fields" xFields)
+        xDomain.setMember("sort" (VlJson.boolValue(true)))
+        xs.setMember("domain" xDomain)
+        def xRange (VlJson.objectValue())
+        def xStep (VlJson.objectValue())
+        xStep.setMember("signal" (VlJson.stringValue("x_step")))
+        xRange.setMember("step" xStep)
+        xs.setMember("range" xRange)
+        xs.setMember("paddingInner" (VlJson.numberValue(0.0)))
+        xs.setMember("paddingOuter" (VlJson.numberValue(0.0)))
+        push scales.arr xs
+
+        def ys (VlJson.objectValue())
+        ys.setMember("name" (VlJson.stringValue("y")))
+        ys.setMember("type" (VlJson.stringValue("linear")))
+        def yDomain (VlJson.objectValue())
+        def yFields (VlJson.arrayValue())
+        push yFields.arr (VlCompile.domainEntry("data_2" f))
+        push yFields.arr (VlCompile.domainEntry("data_4" lowWhisker))
+        push yFields.arr (VlCompile.domainEntry("data_4" lower))
+        push yFields.arr (VlCompile.domainEntry("data_5" upper))
+        push yFields.arr (VlCompile.domainEntry("data_5" highWhisker))
+        push yFields.arr (VlCompile.domainEntry("data_7" lower))
+        push yFields.arr (VlCompile.domainEntry("data_7" upper))
+        push yFields.arr (VlCompile.domainEntry("data_8" mid))
+        yDomain.setMember("fields" yFields)
+        ys.setMember("domain" yDomain)
+        ys.setMember("range" (this.positionRange("y")))
+        ys.setMember("nice" (VlJson.boolValue(true)))
+        ys.setMember("zero" (VlJson.boolValue(true)))
+        push scales.arr ys
+        out.setMember("scales" scales)
+
+        ; --- the axes: the same three any chart of this shape carries ---
+        def axes (VlJson.arrayValue())
+        push axes.arr (this.gridAxis("y" "left" false "x"))
+        def xAxis:VlJson (this.labelAxis(x "x" "bottom"))
+        push axes.arr xAxis
+        push axes.arr (this.labelAxis(y "y" "left"))
+        out.setMember("axes" axes)
+        return out
+    }
+
+    ; --- the small pieces a box plot is written out of -----------------------
+    sfn stringList1:VlJson (a:string) {
+        def out (VlJson.arrayValue())
+        push out.arr (VlJson.stringValue(a))
+        return out
+    }
+    sfn stringList2:VlJson (a:string b:string) {
+        def out (VlJson.arrayValue())
+        push out.arr (VlJson.stringValue(a))
+        push out.arr (VlJson.stringValue(b))
+        return out
+    }
+    sfn stringList4:VlJson (a:string b:string c:string d:string) {
+        def out (VlJson.arrayValue())
+        push out.arr (VlJson.stringValue(a))
+        push out.arr (VlJson.stringValue(b))
+        push out.arr (VlJson.stringValue(c))
+        push out.arr (VlJson.stringValue(d))
+        return out
+    }
+    sfn stringList5:VlJson (a:string b:string c:string d:string e:string) {
+        def out (VlJson.arrayValue())
+        push out.arr (VlJson.stringValue(a))
+        push out.arr (VlJson.stringValue(b))
+        push out.arr (VlJson.stringValue(c))
+        push out.arr (VlJson.stringValue(d))
+        push out.arr (VlJson.stringValue(e))
+        return out
+    }
+    sfn filterOf:VlJson (expr:string) {
+        def out (VlJson.objectValue())
+        out.setMember("type" (VlJson.stringValue("filter")))
+        out.setMember("expr" (VlJson.stringValue(expr)))
+        return out
+    }
+    sfn filteredData:VlJson (name:string from:string expr:string) {
+        def out (VlJson.objectValue())
+        out.setMember("name" (VlJson.stringValue(name)))
+        out.setMember("source" (VlJson.stringValue(from)))
+        def transform (VlJson.arrayValue())
+        push transform.arr (VlCompile.filterOf(expr))
+        out.setMember("transform" transform)
+        return out
+    }
+    sfn domainEntry:VlJson (data:string field:string) {
+        def out (VlJson.objectValue())
+        out.setMember("data" (VlJson.stringValue(data)))
+        out.setMember("field" (VlJson.stringValue(field)))
+        return out
+    }
+
+    ; One and a half inter-quartile ranges past the hinges, which is Tukey's
+    ; fence and the reference's default.
+    sfn spread:string (lower:string upper:string) {
+        return (((("1.5 * (datum['" + upper) + "'] - datum['") + lower) + "'])")
+    }
+    sfn fenceExpr:string (f:string lower:string upper:string) {
+        def gap:string (VlCompile.spread(lower upper))
+        def out:string (("(datum['" + f) + "'] < datum['")
+        out = (((out + lower) + "'] - ") + gap)
+        out = ((((out + ") || (datum['") + f) + "'] > datum['") + upper)
+        out = (((out + "'] + ") + gap) + ")")
+        return out
+    }
+    sfn insideExpr:string (f:string lower:string upper:string) {
+        def gap:string (VlCompile.spread(lower upper))
+        def out:string (("(datum['" + lower) + "'] - ")
+        out = ((((out + gap) + " <= datum['") + f) + "']) && (datum['")
+        out = ((((out + f) + "'] <= datum['") + upper) + "'] + ")
+        out = ((out + gap) + ")")
+        return out
+    }
+
+    ; A tooltip is an object literal in an expression, and the fields are listed
+    ; in the order the reference lists them: the top of the scale first.
+    sfn tipNumber:string (label:string field:string) {
+        return (((("\"" + label) + "\": format(datum[\"") + field) + "\"], \"\")")
+    }
+    sfn tipCategory:string (field:string) {
+        def out:string (("\"" + field) + "\": isValid(datum[\"")
+        out = ((out + field) + "\"]) ? isArray(datum[\"")
+        out = ((out + field) + "\"]) ? join(datum[\"")
+        out = ((out + field) + "\"], '\\n') : datum[\"")
+        out = ((out + field) + "\"] : \"\"+datum[\"")
+        out = ((out + field) + "\"]")
+        return out
+    }
+    sfn tooltipOf2:VlJson (l1:string f1:string l2:string f2:string dim:string) {
+        def out:string "{"
+        out = ((out + (VlCompile.tipNumber(l1 f1))) + ", ")
+        out = ((out + (VlCompile.tipNumber(l2 f2))) + ", ")
+        out = ((out + (VlCompile.tipCategory(dim))) + "}")
+        return (VlCompile.signalRef(out))
+    }
+    sfn boxTooltip:VlJson (f:string maxF:string upper:string mid:string lower:string minF:string dim:string) {
+        def out:string "{"
+        out = ((out + (VlCompile.tipNumber(("Max of " + f) maxF))) + ", ")
+        out = ((out + (VlCompile.tipNumber(("Q3 of " + f) upper))) + ", ")
+        out = ((out + (VlCompile.tipNumber(("Median of " + f) mid))) + ", ")
+        out = ((out + (VlCompile.tipNumber(("Q1 of " + f) lower))) + ", ")
+        out = ((out + (VlCompile.tipNumber(("Min of " + f) minF))) + ", ")
+        out = ((out + (VlCompile.tipCategory(dim))) + "}")
+        return (VlCompile.signalRef(out))
+    }
+    sfn boxDescription:VlJson (dim:string f:string upper:string maxF:string mid:string lower:string minF:string) {
+        def out:string ("\"" + dim)
+        out = ((out + ": \" + ") + (VlCompile.describeOne(dim true)))
+        out = (((out + " + \"; ") + f) + ": \" + ") + (VlCompile.describeOne(lower false))
+        out = (((out + " + \"; ") + upper) + ": \" + ") + (VlCompile.describeOne(upper false))
+        out = (((out + " + \"; Max of ") + f) + ": \" + ") + (VlCompile.describeOne(maxF false))
+        out = (((out + " + \"; Q3 of ") + f) + ": \" + ") + (VlCompile.describeOne(upper false))
+        out = (((out + " + \"; Median of ") + f) + ": \" + ") + (VlCompile.describeOne(mid false))
+        out = (((out + " + \"; Q1 of ") + f) + ": \" + ") + (VlCompile.describeOne(lower false))
+        out = (((out + " + \"; Min of ") + f) + ": \" + ") + (VlCompile.describeOne(minF false))
+        return (VlCompile.signalRef(out))
+    }
+
+    sfn bandCentre:VlJson (field:string) {
+        def out (VlJson.objectValue())
+        out.setMember("scale" (VlJson.stringValue("x")))
+        out.setMember("field" (VlJson.stringValue(field)))
+        out.setMember("band" (VlJson.numberValue(0.5)))
+        return out
+    }
+    sfn yAt:VlJson (field:string) {
+        def out (VlJson.objectValue())
+        out.setMember("scale" (VlJson.stringValue("y")))
+        out.setMember("field" (VlJson.stringValue(field)))
+        return out
+    }
+    sfn styledMark:VlJson (name:string type:string style1:string style2:string from:string) {
+        def out (VlJson.objectValue())
+        out.setMember("name" (VlJson.stringValue(name)))
+        out.setMember("type" (VlJson.stringValue(type)))
+        def style (VlJson.arrayValue())
+        push style.arr (VlJson.stringValue(style1))
+        push style.arr (VlJson.stringValue(style2))
+        out.setMember("style" style)
+        def source (VlJson.objectValue())
+        source.setMember("data" (VlJson.stringValue(from)))
+        out.setMember("from" source)
+        return out
+    }
+    sfn finishMark:void (mark:VlJson update:VlJson) {
+        def encode (VlJson.objectValue())
+        encode.setMember("update" update)
+        mark.setMember("encode" encode)
+    }
+
+    sfn outlierMark:VlJson (dim:string f:string description:string) {
+        def out:VlJson (VlCompile.styledMark("layer_0_layer_0_marks" "symbol" "point" "boxplot-outliers" "data_2"))
+        def update (VlJson.objectValue())
+        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+        update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
+        update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+        update.setMember("ariaRoleDescription" (VlCompile.literal((VlJson.stringValue("point")))))
+        update.setMember("description" (VlCompile.signalRef(description)))
+        update.setMember("x" (VlCompile.bandCentre(dim)))
+        update.setMember("y" (VlCompile.yAt(f)))
+        VlCompile.finishMark(out update)
+        return out
+    }
+
+    sfn whiskerMark:VlJson (name:string from:string dim:string lowField:string highField:string tip:VlJson) {
+        def out:VlJson (VlCompile.styledMark(name "rule" "rule" "boxplot-rule" from))
+        def update (VlJson.objectValue())
+        update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("black")))))
+        update.setMember("tooltip" tip)
+        update.setMember("x" (VlCompile.bandCentre(dim)))
+        update.setMember("y" (VlCompile.yAt(lowField)))
+        update.setMember("y2" (VlCompile.yAt(highField)))
+        VlCompile.finishMark(out update)
+        return out
+    }
+
+    sfn boxMark:VlJson (dim:string lower:string upper:string tip:VlJson description:VlJson) {
+        def out:VlJson (VlCompile.styledMark("layer_1_layer_0_marks" "rect" "bar" "boxplot-box" "data_7"))
+        def update (VlJson.objectValue())
+        update.setMember("ariaRoleDescription" (VlCompile.literal((VlJson.stringValue("box")))))
+        update.setMember("fill" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+        update.setMember("tooltip" tip)
+        update.setMember("description" description)
+        update.setMember("xc" (VlCompile.bandCentre(dim)))
+        update.setMember("width" (VlCompile.literal((VlJson.numberValue(14.0)))))
+        update.setMember("y" (VlCompile.yAt(lower)))
+        update.setMember("y2" (VlCompile.yAt(upper)))
+        VlCompile.finishMark(out update)
+        return out
+    }
+
+    ; The median line, which is white on the box — except when the box has no
+    ; height at all, where a white line on a white background would vanish.
+    sfn medianMark:VlJson (dim:string mid:string lower:string upper:string tip:VlJson) {
+        def out:VlJson (VlCompile.styledMark("layer_1_layer_1_marks" "rect" "tick" "boxplot-median" "data_8"))
+        def update (VlJson.objectValue())
+        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+        def fill (VlJson.arrayValue())
+        def flat (VlJson.objectValue())
+        flat.setMember("test" (VlJson.stringValue(((("datum['" + lower) + "'] >= datum['") + upper) + "']")))
+        flat.setMember("value" (VlJson.stringValue("#4c78a8")))
+        push fill.arr flat
+        push fill.arr (VlCompile.literal((VlJson.stringValue("white"))))
+        update.setMember("fill" fill)
+        update.setMember("tooltip" tip)
+        update.setMember("xc" (VlCompile.bandCentre(dim)))
+        update.setMember("width" (VlCompile.literal((VlJson.numberValue(14.0)))))
+        update.setMember("yc" (VlCompile.yAt(mid)))
+        update.setMember("height" (VlCompile.literal((VlJson.numberValue(1.0)))))
+        VlCompile.finishMark(out update)
+        return out
+    }
+
+    ; ---------------------------------------------------------------- facet ---
+    ; One chart, drawn once per value of a field, with the furniture that says
+    ; which is which: a header above each column naming the value it stands for,
+    ; a footer below carrying the axis they share, a header to the left of each
+    ; row, and a title over the lot.
+    ;
+    ; The panel is compiled by a normal compiler that has been told to ignore
+    ; the facet channel — the chart inside a panel is just a chart — and its
+    ; parts are then redistributed. That redistribution is the whole job: the
+    ; GRID axes stay in the cell, because a grid belongs to the plot it crosses;
+    ; the labelled x axis moves to the column footer and the labelled y axis to
+    ; the row header, because those are drawn once for the whole column or row
+    ; rather than once per panel.
+    fn compileFacet:VlJson (src:VlJson) {
+        def fields:[string] (this.facetFields())
+        def rowField:string ((this.channel("row")).field)
+        def columnField:string ((this.channel("column")).field)
+        def wrapField:string ((this.channel("facet")).field)
+        clear channels
+
+        def child (new VlCompile())
+        child.insidePanel = true
+        child.widthSignal = "child_width"
+        child.heightSignal = "child_height"
+        child.markLabel = "child_marks"
+        def piece:VlJson (child.compile(src))
+        for child.errors e:string ei {
+            this.fail(e)
+        }
+        if ((array_length child.errors) > 0) {
+            return (VlJson.objectValue())
+        }
+
+        def out (VlJson.objectValue())
+        for piece.keys pk:string pi {
+            if (((((((pk == "data") || (pk == "marks")) || (pk == "scales")) || (pk == "signals")) || (pk == "axes")) || (pk == "legends")) || (pk == "style")) {
+                ; rebuilt below
+            } {
+                out.setMember(pk (piece.get(pk)))
+            }
+        }
+
+        ; The panel's marks read the partition rather than the whole data set.
+        def panelMarks:VlJson (piece.get("marks"))
+        def pm:int 0
+        while (pm < (panelMarks.count())) {
+            def one:VlJson (panelMarks.at(pm))
+            def innerFrom (VlJson.objectValue())
+            innerFrom.setMember("data" (VlJson.stringValue("facet")))
+            one.setMember("from" innerFrom)
+            pm = (pm + 1)
+        }
+
+        ; The domain of the trellis: the distinct values of the facet field, in
+        ; the order they are to be drawn.
+        def data:VlJson (piece.get("data"))
+        def wrapped:boolean ((strlen wrapField) > 0)
+        def domainName:string "column_domain"
+        if ((strlen rowField) > 0) {
+            domainName = "row_domain"
+        }
+        if wrapped {
+            domainName = "facet_domain"
+        }
+        def facetField:string columnField
+        if ((strlen rowField) > 0) {
+            facetField = rowField
+        }
+        if wrapped {
+            facetField = wrapField
+        }
+        push data.arr (VlCompile.domainData(domainName facetField))
+        def columns:VlJson (src.get("columns"))
+        if wrapped {
+            ; A wrapped grid's shape is computed rather than declared, and both
+            ; of its extents are sequences over the facet count.
+            def perRow:int (columns.intOr("value" 2))
+            if (columns.isNumber()) {
+                perRow = (to_int columns.num)
+            }
+            push data.arr (VlCompile.sequenceData("facet_domain_row" (("ceil(length(data('facet_domain')) / " + (VlJson.intToText(perRow))) + ")")))
+            push data.arr (VlCompile.sequenceData("facet_domain_column" (("min(length(data('facet_domain')), " + (VlJson.intToText(perRow))) + ")")))
+        }
+        out.setMember("data" data)
+        out.setMember("signals" (piece.get("signals")))
+        out.setMember("scales" (piece.get("scales")))
+        if ((piece.get("legends")).isArray()) {
+            out.setMember("legends" (piece.get("legends")))
+        }
+
+        ; The axes, sorted by where they are drawn.
+        def gridAxes (VlJson.arrayValue())
+        def xAxes (VlJson.arrayValue())
+        def yAxes (VlJson.arrayValue())
+        def pieceAxes:VlJson (piece.get("axes"))
+        if (pieceAxes.isArray()) {
+            def ai:int 0
+            while (ai < (pieceAxes.count())) {
+                def axis:VlJson (pieceAxes.at(ai))
+                if (axis.boolOr("grid" false)) {
+                    push gridAxes.arr axis
+                } {
+                    if ((axis.stringOr("orient" "")) == "bottom") {
+                        push xAxes.arr axis
+                    } {
+                        push yAxes.arr axis
+                    }
+                }
+                ai = (ai + 1)
+            }
+        }
+
+        def marks (VlJson.arrayValue())
+        def titleText:VlJson (VlJson.stringValue(facetField))
+        if wrapped {
+            push marks.arr (VlCompile.titleGroup("facet-title" "column-title" titleText ""))
+            push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false))
+            push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "facet_domain_column" "" "child_width" xAxes true))
+        } {
+            if ((strlen rowField) > 0) {
+                push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left"))
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false))
+                push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true))
+            } {
+                push marks.arr (VlCompile.titleGroup("column-title" "column-title" titleText ""))
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "" "" "child_height" yAxes false))
+                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true))
+                push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true))
+            }
+        }
+        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped))
+        out.setMember("marks" marks)
+
+        ; Where the panels go, and how far the title stands clear of them.
+        def layout (VlJson.objectValue())
+        layout.setMember("padding" (VlJson.numberValue(20.0)))
+        if (! wrapped) {
+            def offset (VlJson.objectValue())
+            if ((strlen rowField) > 0) {
+                offset.setMember("rowTitle" (VlJson.numberValue(10.0)))
+            } {
+                offset.setMember("columnTitle" (VlJson.numberValue(10.0)))
+            }
+            layout.setMember("offset" offset)
+        }
+        if wrapped {
+            layout.setMember("bounds" (VlJson.stringValue("full")))
+            layout.setMember("align" (VlJson.stringValue("all")))
+            layout.setMember("columns" (src.get("columns")))
+        } {
+            if ((strlen rowField) > 0) {
+                layout.setMember("columns" (VlJson.numberValue(1.0)))
+            } {
+                def count (VlJson.objectValue())
+                count.setMember("signal" (VlJson.stringValue("length(data('column_domain'))")))
+                layout.setMember("columns" count)
+            }
+            layout.setMember("bounds" (VlJson.stringValue("full")))
+            layout.setMember("align" (VlJson.stringValue("all")))
+        }
+        out.setMember("layout" layout)
+        return out
+    }
+
+    sfn domainData:VlJson (name:string field:string) {
+        def out (VlJson.objectValue())
+        out.setMember("name" (VlJson.stringValue(name)))
+        out.setMember("source" (VlJson.stringValue("data_0")))
+        def transform (VlJson.arrayValue())
+        def t (VlJson.objectValue())
+        t.setMember("type" (VlJson.stringValue("aggregate")))
+        def groupby (VlJson.arrayValue())
+        push groupby.arr (VlJson.stringValue(field))
+        t.setMember("groupby" groupby)
+        push transform.arr t
+        out.setMember("transform" transform)
+        return out
+    }
+
+    sfn sequenceData:VlJson (name:string stop:string) {
+        def out (VlJson.objectValue())
+        out.setMember("name" (VlJson.stringValue(name)))
+        def transform (VlJson.arrayValue())
+        def t (VlJson.objectValue())
+        t.setMember("type" (VlJson.stringValue("sequence")))
+        t.setMember("start" (VlJson.numberValue(0.0)))
+        def stopSignal (VlJson.objectValue())
+        stopSignal.setMember("signal" (VlJson.stringValue(stop)))
+        t.setMember("stop" stopSignal)
+        push transform.arr t
+        out.setMember("transform" transform)
+        return out
+    }
+
+    ; The title over a whole trellis: one piece of text, placed by the layout.
+    sfn titleGroup:VlJson (name:string role:string text:VlJson orient:string) {
+        def out (VlJson.objectValue())
+        out.setMember("name" (VlJson.stringValue(name)))
+        out.setMember("type" (VlJson.stringValue("group")))
+        out.setMember("role" (VlJson.stringValue(role)))
+        def title (VlJson.objectValue())
+        title.setMember("text" text)
+        if ((strlen orient) > 0) {
+            title.setMember("orient" (VlJson.stringValue(orient)))
+        }
+        title.setMember("style" (VlJson.stringValue("guide-title")))
+        title.setMember("offset" (VlJson.numberValue(10.0)))
+        out.setMember("title" title)
+        return out
+    }
+
+    ; A header, a footer or a row header: a group drawn once per column or row,
+    ; carrying the axis that column or row shares and, when it names its own
+    ; value, a title read from the row it was drawn for.
+    sfn headerGroup:VlJson (name:string role:string from:string labelField:string dimension:string axes:VlJson across:boolean) {
+        def out (VlJson.objectValue())
+        out.setMember("name" (VlJson.stringValue(name)))
+        out.setMember("type" (VlJson.stringValue("group")))
+        out.setMember("role" (VlJson.stringValue(role)))
+        if ((strlen from) > 0) {
+            def source (VlJson.objectValue())
+            source.setMember("data" (VlJson.stringValue(from)))
+            out.setMember("from" source)
+        }
+        if ((strlen labelField) > 0) {
+            def title (VlJson.objectValue())
+            def text (VlJson.objectValue())
+            text.setMember("signal" (VlJson.stringValue((VlCompile.parentLabel(labelField)))))
+            title.setMember("text" text)
+            if (! across) {
+                title.setMember("orient" (VlJson.stringValue("left")))
+            }
+            title.setMember("style" (VlJson.stringValue("guide-label")))
+            title.setMember("frame" (VlJson.stringValue("group")))
+            title.setMember("offset" (VlJson.numberValue(10.0)))
+            out.setMember("title" title)
+        }
+        if ((strlen from) > 0) {
+            if ((strlen labelField) > 0) {
+                out.setMember("sort" (VlCompile.sortByField(labelField false)))
+            }
+        }
+        def update (VlJson.objectValue())
+        def sizeName:string "height"
+        if across {
+            sizeName = "width"
+        }
+        update.setMember(sizeName (VlCompile.signalRef(dimension)))
+        def encode (VlJson.objectValue())
+        encode.setMember("update" update)
+        out.setMember("encode" encode)
+        if ((axes.count()) > 0) {
+            out.setMember("axes" axes)
+        }
+        return out
+    }
+
+    sfn parentLabel:string (field:string) {
+        return ((((("isValid(parent[\"" + field) + "\"]) ? parent[\"") + field) + "\"] : \"\"+parent[\"") + field + "\"]")
+    }
+
+    sfn sortByField:VlJson (field:string asList:boolean) {
+        def out (VlJson.objectValue())
+        def expr:string (("datum[\"" + field) + "\"]")
+        if asList {
+            def fields (VlJson.arrayValue())
+            push fields.arr (VlJson.stringValue(expr))
+            def orders (VlJson.arrayValue())
+            push orders.arr (VlJson.stringValue("ascending"))
+            out.setMember("field" fields)
+            out.setMember("order" orders)
+            return out
+        }
+        out.setMember("field" (VlJson.stringValue(expr)))
+        out.setMember("order" (VlJson.stringValue("ascending")))
+        return out
+    }
+
+    ; One panel: the chart itself, drawn over the partition it belongs to.
+    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean) {
+        def out (VlJson.objectValue())
+        out.setMember("name" (VlJson.stringValue("cell")))
+        out.setMember("type" (VlJson.stringValue("group")))
+        out.setMember("style" (VlJson.stringValue("cell")))
+        if wrapped {
+            ; A wrapped grid has no headers, so each panel names itself.
+            def title (VlJson.objectValue())
+            def text (VlJson.objectValue())
+            text.setMember("signal" (VlJson.stringValue((VlCompile.parentLabel(field)))))
+            title.setMember("text" text)
+            title.setMember("style" (VlJson.stringValue("guide-label")))
+            title.setMember("frame" (VlJson.stringValue("group")))
+            title.setMember("offset" (VlJson.numberValue(10.0)))
+            out.setMember("title" title)
+        }
+        def facet (VlJson.objectValue())
+        facet.setMember("name" (VlJson.stringValue("facet")))
+        facet.setMember("data" (VlJson.stringValue("data_0")))
+        def groupby (VlJson.arrayValue())
+        push groupby.arr (VlJson.stringValue(field))
+        facet.setMember("groupby" groupby)
+        def from (VlJson.objectValue())
+        from.setMember("facet" facet)
+        out.setMember("from" from)
+        out.setMember("sort" (VlCompile.sortByField(field true)))
+        def update (VlJson.objectValue())
+        update.setMember("width" (VlCompile.signalRef("child_width")))
+        update.setMember("height" (VlCompile.signalRef("child_height")))
+        def encode (VlJson.objectValue())
+        encode.setMember("update" update)
+        out.setMember("encode" encode)
+        out.setMember("marks" marks)
+        if ((gridAxes.count()) > 0) {
+            out.setMember("axes" gridAxes)
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------- concat ---
+    ; Several charts side by side, or one above another. Unlike a layer, each
+    ; pane keeps its OWN axes and its own scales, so nothing is merged: each
+    ; becomes a group mark with its own furniture inside it, and the layout
+    ; places the groups.
+    ;
+    ; What the panes do share is the dimension that runs across the join. Panes
+    ; side by side are all the same height and each is as wide as it needs;
+    ; stacked panes are the other way round. So the shared dimension stays the
+    ; chart's own signal and the other becomes one per pane, which is also why
+    ; every scale carries the pane's name — two panes both have an `x`.
+    fn compileConcat:VlJson (src:VlJson key:string horizontal:boolean) {
+        def panes:VlJson (src.get(key))
+        if (! (panes.isArray())) {
+            this.fail((key + " is not an array"))
+            return (VlJson.objectValue())
+        }
+        def total:int (panes.count())
+
+        def out (VlJson.objectValue())
+        def data (VlJson.arrayValue())
+        def marks (VlJson.arrayValue())
+        def scales (VlJson.arrayValue())
+        def signals (VlJson.arrayValue())
+        def signalNames:[string:int]
+        def legends (VlJson.arrayValue())
+        def legendNames:[string:int]
+        def first:boolean true
+
+        def index:int 0
+        while (index < total) {
+            def label:string (("concat_" + (VlJson.intToText(index))) + "_")
+            def child (new VlCompile())
+            child.prefix = label
+            child.dataLabel = ("data_" + (VlJson.intToText((index + 1))))
+            child.markLabel = (label + "marks")
+            if horizontal {
+                child.widthSignal = (label + "width")
+            } {
+                child.heightSignal = (label + "height")
+            }
+            def piece:VlJson (child.compile((VlCompile.mergeSpec(src (panes.at(index))))))
+            for child.errors e:string ei {
+                this.fail(e)
+            }
+            if ((array_length child.errors) == 0) {
+                if first {
+                    for piece.keys pk:string pi {
+                        if ((((((pk == "data") || (pk == "marks")) || (pk == "scales")) || (pk == "signals")) || (pk == "axes")) || (pk == "legends")) {
+                            ; merged below
+                        } {
+                            if (pk == "style") {
+                                ; the frame belongs to each pane, not to the page
+                            } {
+                                out.setMember(pk (piece.get(pk)))
+                            }
+                        }
+                    }
+                    def pieceData:VlJson (piece.get("data"))
+                    push data.arr (pieceData.at(0))
+                    first = false
+                }
+                def pieceData2:VlJson (piece.get("data"))
+                def di:int 1
+                while (di < (pieceData2.count())) {
+                    push data.arr (pieceData2.at(di))
+                    di = (di + 1)
+                }
+                ; The pane itself: a group carrying its own marks and axes, and
+                ; told how big it is by the signals its child wrote.
+                def group (VlJson.objectValue())
+                group.setMember("type" (VlJson.stringValue("group")))
+                group.setMember("name" (VlJson.stringValue((label + "group"))))
+                group.setMember("style" (VlJson.stringValue("cell")))
+                def update (VlJson.objectValue())
+                update.setMember("width" (VlCompile.signalRef((child.sizeSignal("width")))))
+                update.setMember("height" (VlCompile.signalRef((child.sizeSignal("height")))))
+                def encode (VlJson.objectValue())
+                encode.setMember("update" update)
+                group.setMember("encode" encode)
+                group.setMember("marks" (piece.get("marks")))
+                def pieceAxes:VlJson (piece.get("axes"))
+                if (pieceAxes.isArray()) {
+                    group.setMember("axes" pieceAxes)
+                }
+                push marks.arr group
+
+                def pieceScales:VlJson (piece.get("scales"))
+                if (pieceScales.isArray()) {
+                    def si:int 0
+                    while (si < (pieceScales.count())) {
+                        push scales.arr (pieceScales.at(si))
+                        si = (si + 1)
+                    }
+                }
+                VlCompile.mergeSignals(signals signalNames (piece.get("signals")))
+                VlCompile.mergeLegends(legends legendNames (piece.get("legends")))
+            }
+            index = (index + 1)
+        }
+
+        out.setMember("data" data)
+        if ((signals.count()) > 0) {
+            out.setMember("signals" signals)
+        }
+        ; The panes are laid out on a grid whose cells are their full bounds,
+        ; each pane keeping its own alignment — `each`, not `all`, because two
+        ; panes of a concatenation need not have axes of the same depth.
+        def layout (VlJson.objectValue())
+        layout.setMember("padding" (VlJson.numberValue(20.0)))
+        layout.setMember("bounds" (VlJson.stringValue("full")))
+        layout.setMember("align" (VlJson.stringValue("each")))
+        out.setMember("layout" layout)
+        out.setMember("marks" marks)
+        out.setMember("scales" scales)
+        if ((legends.count()) > 0) {
+            out.setMember("legends" legends)
+        }
+        return out
+    }
+
+    sfn signalRef:VlJson (name:string) {
+        def out (VlJson.objectValue())
+        out.setMember("signal" (VlJson.stringValue(name)))
+        return out
+    }
+
+    ; The same chart written the long way: the mark as it was, minus the flag,
+    ; and a plain point mark over it.
+    sfn withPointLayer:VlJson (src:VlJson markDef:VlJson) {
+        def out (VlJson.objectValue())
+        for src.keys key:string ki {
+            if (key == "mark") {
+                ; replaced by the layer below
+            } {
+                out.setMember(key (src.get(key)))
+            }
+        }
+        def line (VlJson.objectValue())
+        def lineMark (VlJson.objectValue())
+        for markDef.keys mk:string mi {
+            if (mk == "point") {
+                ; the flag is what is being expanded
+            } {
+                lineMark.setMember(mk (markDef.get(mk)))
+            }
+        }
+        line.setMember("mark" lineMark)
+        ; The dots on a line are FILLED, unlike a scatter plot's, because they
+        ; mark where the line's own vertices are rather than standing for rows
+        ; of their own.
+        def dots (VlJson.objectValue())
+        def dotMark (VlJson.objectValue())
+        dotMark.setMember("type" (VlJson.stringValue("point")))
+        dotMark.setMember("filled" (VlJson.boolValue(true)))
+        dots.setMember("mark" dotMark)
+        def layer (VlJson.arrayValue())
+        push layer.arr line
+        push layer.arr dots
+        out.setMember("layer" layer)
+        return out
+    }
+
+    ; A layer is a specification with the outer one's data, size and shared
+    ; encoding behind it. The layer's own keys win.
+    sfn mergeSpec:VlJson (outer:VlJson layer:VlJson) {
+        def out (VlJson.objectValue())
+        for outer.keys key:string ki {
+            ; The composition itself is not inherited — a pane of a
+            ; concatenation is not another concatenation.
+            if ((((key == "layer") || (key == "hconcat")) || (key == "vconcat")) || (key == "facet")) {
+                ; not inherited
+            } {
+                out.setMember(key (outer.get(key)))
+            }
+        }
+        for layer.keys key2:string kj {
+            if (key2 == "encoding") {
+                def merged (VlJson.objectValue())
+                def outerEncoding:VlJson (outer.get("encoding"))
+                if (outerEncoding.isObject()) {
+                    for outerEncoding.keys ek:string ei {
+                        merged.setMember(ek (outerEncoding.get(ek)))
+                    }
+                }
+                def layerEncoding:VlJson (layer.get("encoding"))
+                for layerEncoding.keys lk:string li {
+                    merged.setMember(lk (layerEncoding.get(lk)))
+                }
+                out.setMember("encoding" merged)
+            } {
+                out.setMember(key2 (layer.get(key2)))
+            }
+        }
+        return out
+    }
+
+    sfn mergeSignals:void (signals:VlJson seen:[string:int] from:VlJson) {
+        if (! (from.isArray())) {
+            return
+        }
+        def i:int 0
+        while (i < (from.count())) {
+            def sig:VlJson (from.at(i))
+            def name:string (sig.stringOr("name" ""))
+            if (! (has seen name)) {
+                set seen name 1
+                push signals.arr sig
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A scale is kept once, with the first layer's properties — the first layer
+    ; is the one whose axes the chart carries, so it decides whether the scale
+    ; reaches zero. Its DOMAIN is the union of every layer's, which is collected
+    ; here and written back once all the layers are in.
+    sfn mergeScales:void (scales:VlJson names:[string] domains:[string:VlJson] from:VlJson) {
+        if (! (from.isArray())) {
+            return
+        }
+        def i:int 0
+        while (i < (from.count())) {
+            def sc:VlJson (from.at(i))
+            def name:string (sc.stringOr("name" ""))
+            def known:boolean false
+            for names existing:string ei {
+                if (existing == name) {
+                    known = true
+                }
+            }
+            if (! known) {
+                push names name
+                push scales.arr sc
+                set domains name (VlJson.arrayValue())
+            }
+            def collected:VlJson (unwrap (get domains name))
+            VlCompile.collectDomain(collected (sc.get("domain")))
+            i = (i + 1)
+        }
+    }
+
+    ; A domain entry is a data set and a field. A stacked channel contributes
+    ; two of them, one per end.
+    sfn collectDomain:void (into:VlJson domain:VlJson) {
+        if (! (domain.isObject())) {
+            return
+        }
+        if (domain.has("signal")) {
+            return
+        }
+        def data:VlJson (domain.get("data"))
+        def fields:VlJson (domain.get("fields"))
+        if (fields.isArray()) {
+            def i:int 0
+            while (i < (fields.count())) {
+                def one (VlJson.objectValue())
+                one.setMember("data" data)
+                one.setMember("field" (fields.at(i)))
+                push into.arr one
+                i = (i + 1)
+            }
+            return
+        }
+        if (domain.has("field")) {
+            def one2 (VlJson.objectValue())
+            one2.setMember("data" data)
+            one2.setMember("field" (domain.get("field")))
+            push into.arr one2
+        }
+    }
+
+    ; One layer contributing to a scale leaves its domain as it was; more than
+    ; one turns it into a list of the fields they each contribute.
+    sfn applyMergedDomains:void (scales:VlJson names:[string] domains:[string:VlJson]) {
+        def i:int 0
+        while (i < (scales.count())) {
+            def sc:VlJson (scales.at(i))
+            def name:string (sc.stringOr("name" ""))
+            if (has domains name) {
+                def collected:VlJson (unwrap (get domains name))
+                if ((collected.count()) > 1) {
+                    def domain (VlJson.objectValue())
+                    domain.setMember("fields" collected)
+                    def old:VlJson (sc.get("domain"))
+                    if (old.isObject()) {
+                        if (old.has("sort")) {
+                            domain.setMember("sort" (old.get("sort")))
+                        }
+                    }
+                    sc.setMember("domain" domain)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; One axis over several layers names all of them: a scatter plot with a mean
+    ; line reads "b, Mean of b", because the axis is measuring both.
+    sfn collectAxisTitles:void (titles:[string:string] from:VlJson) {
+        if (! (from.isArray())) {
+            return
+        }
+        def i:int 0
+        while (i < (from.count())) {
+            def axis:VlJson (from.at(i))
+            def scale:string (axis.stringOr("scale" ""))
+            def title:string (axis.stringOr("title" ""))
+            if ((strlen title) > 0) {
+                if (has titles scale) {
+                    def already:string (unwrap (get titles scale))
+                    if (! (VlCompile.namesInclude(already title))) {
+                        set titles scale ((already + ", ") + title)
+                    }
+                } {
+                    set titles scale title
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn namesInclude:boolean (list:string name:string) {
+        if (list == name) {
+            return true
+        }
+        if ((indexOf list (name + ", ")) == 0) {
+            return true
+        }
+        return ((indexOf list (", " + name)) >= 0)
+    }
+
+    sfn mergeAxisTitles:void (axes:VlJson titles:[string:string]) {
+        def i:int 0
+        while (i < (axes.count())) {
+            def axis:VlJson (axes.at(i))
+            def scale:string (axis.stringOr("scale" ""))
+            if (axis.has("title")) {
+                if (has titles scale) {
+                    axis.setMember("title" (VlJson.stringValue((unwrap (get titles scale)))))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn mergeLegends:void (legends:VlJson seen:[string:int] from:VlJson) {
+        if (! (from.isArray())) {
+            return
+        }
+        def i:int 0
+        while (i < (from.count())) {
+            def l:VlJson (from.at(i))
+            def key:string ""
+            for l.keys k:string ki {
+                if ((((k == "fill") || (k == "stroke")) || (k == "size")) || (k == "shape")) {
+                    key = ((k + ":") + (l.stringOr(k "")))
+                }
+            }
+            if (! (has seen key)) {
+                set seen key 1
+                push legends.arr l
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; -------------------------------------------------------------- reading ---
+    fn readMark:void () {
+        def mark:VlJson (source.get("mark"))
+        if (mark.isString()) {
+            markName = mark.str
+            markDef = (VlJson.objectValue())
+            return
+        }
+        if (mark.isObject()) {
+            markName = (mark.stringOr("type" ""))
+            markDef = mark
+            if ((strlen markName) == 0) {
+                this.fail("mark has no type")
+            }
+            return
+        }
+        this.fail("specification has no mark")
+    }
+
+    fn readEncoding:void () {
+        def encoding:VlJson (source.get("encoding"))
+        if (! (encoding.isObject())) {
+            this.fail("specification has no encoding")
+            return
+        }
+        for encoding.keys key:string ki {
+            def cdef:VlJson (encoding.get(key))
+            def ch (new VlChannel())
+            ch.name = key
+            ch.def0 = cdef
+            ch.defined = true
+            ch.field = (cdef.stringOr("field" ""))
+            ch.kind = (cdef.stringOr("type" "quantitative"))
+            ch.aggregate = (cdef.stringOr("aggregate" ""))
+            ch.timeUnit = (cdef.stringOr("timeUnit" ""))
+            if (cdef.has("bin")) {
+                ch.hasBin = true
+            }
+            if (cdef.has("value")) {
+                ch.hasValue = true
+                ch.value = (cdef.get("value"))
+            }
+            if ((strlen ch.aggregate) > 0) {
+                if ((strlen ch.field) == 0) {
+                    ch.field = ""
+                }
+            }
+            if ((strlen ch.timeUnit) > 0) {
+                this.fail("timeUnit is not compiled here")
+            }
+            push channels ch
+        }
+    }
+
+    ; A scale's name, which is its own inside one chart and the pane's inside a
+    ; concatenation.
+    fn sname:string (base:string) {
+        return (prefix + base)
+    }
+
+    ; Did the specification state this dimension as a number? `"width": "container"`
+    ; and a step object are both sizes, and neither is one this can use.
+    fn sizeGiven:boolean (dimension:string) {
+        def given:VlJson (source.get(dimension))
+        return (given.isNumber())
+    }
+
+    ; The signal a dimension reads. A shared dimension is the chart's own.
+    fn sizeSignal:string (dimension:string) {
+        if (dimension == "width") {
+            return widthSignal
+        }
+        return heightSignal
+    }
+
+    fn channel:VlChannel (name:string) {
+        for channels ch:VlChannel ci {
+            if (ch.name == name) {
+                return ch
+            }
+        }
+        def missing (new VlChannel())
+        return missing
+    }
+
+    ; The channels that PARTITION rather than place: they decide which panel a
+    ; row belongs in, and are otherwise invisible to the chart drawn in it.
+    sfn isFacetChannel:boolean (name:string) {
+        return (((name == "row") || (name == "column")) || (name == "facet"))
+    }
+
+    ; A second position field belongs to the channel it extends, not to one of
+    ; its own: it gets no scale, no axis and no line of the description.
+    sfn isSecondaryChannel:boolean (name:string) {
+        return ((name == "x2") || (name == "y2"))
+    }
+
+    fn facetFields:[string] () {
+        def out:[string]
+        for channels ch:VlChannel ci {
+            if (VlCompile.isFacetChannel(ch.name)) {
+                if ((strlen ch.field) > 0) {
+                    push out ch.field
+                }
+            }
+        }
+        return out
+    }
+
+    fn hasChannel:boolean (name:string) {
+        for channels ch:VlChannel ci {
+            if (ch.name == name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; A mark that stacks: the reference stacks a bar and an area by default and
+    ; nothing else, because those are the marks whose area means a total.
+    fn stacks:boolean () {
+        ; A pie is a stack bent into a circle: each wedge starts where the one
+        ; before it ended, which is what a stack computes.
+        return (((markName == "bar") || (markName == "area")) || (markName == "arc"))
+    }
+
+    fn decideStack:void () {
+        stackField = ""
+        stackOffset = "zero"
+        if (! (this.stacks())) {
+            return
+        }
+        def measure:VlChannel (this.stackMeasure())
+        if (! measure.defined) {
+            return
+        }
+        ; A histogram is already one total per bin: there is nothing to pile up
+        ; unless something separates the bars within a bin.
+        ; A radial chart is read by comparing wedges, not by walking round the
+        ; circle, so its angles start from nothing rather than from each other.
+        if (this.hasChannel("radius")) {
+            return
+        }
+        ; A bar that already says where both its ends are is not stacked: it is
+        ; drawn between two values, which is what a Gantt chart is.
+        if (this.hasChannel((measure.name + "2"))) {
+            return
+        }
+        def binned:VlChannel (this.stackDimension())
+        if binned.defined {
+            if binned.hasBin {
+                if (! (this.hasChannel("color"))) {
+                    return
+                }
+            }
+        }
+        ; `stack: null` and `stack: false` both mean "do not", and a string
+        ; names the offset — "zero", "center", "normalize".
+        def declared:VlJson (measure.def0.get("stack"))
+        if (declared.isString()) {
+            stackOffset = declared.str
+        }
+        if (measure.def0.has("stack")) {
+            if (declared.isNull()) {
+                return
+            }
+            if (declared.isBool()) {
+                if (! declared.b) {
+                    return
+                }
+            }
+        }
+        stackField = (measure.outField())
+    }
+
+    ; The channel a stack accumulates: the continuous one of x and y.
+    fn stackMeasure:VlChannel () {
+        def theta:VlChannel (this.channel("theta"))
+        if theta.defined {
+            return theta
+        }
+        def y:VlChannel (this.channel("y"))
+        if (y.defined) {
+            if (y.isContinuous()) {
+                return y
+            }
+        }
+        def x:VlChannel (this.channel("x"))
+        if (x.defined) {
+            if (x.isContinuous()) {
+                return x
+            }
+        }
+        def none (new VlChannel())
+        return none
+    }
+
+    ; The other axis: what a stack is grouped by.
+    fn stackDimension:VlChannel () {
+        def measure:VlChannel (this.stackMeasure())
+        ; A pie has no other axis: every wedge is in the one stack.
+        if (measure.name == "theta") {
+            def none (new VlChannel())
+            return none
+        }
+        if (measure.name == "y") {
+            return (this.channel("x"))
+        }
+        return (this.channel("y"))
+    }
+
+    ; ------------------------------------------------------------- geometry ---
+    ; The padding a band scale gets, which is a property of the MARK: bars stand
+    ; apart, a heat map's cells touch, and a tick is a line in the middle of a
+    ; wide gap. The outer padding is always half the inner one.
+    ; Which marks occupy their whole band rather than sitting on it.
+    fn fillsBand:boolean () {
+        return (((markName == "bar") || (markName == "rect")) || (markName == "tick"))
+    }
+
+    fn bandPaddingInner:double () {
+        if (markName == "rect") {
+            return 0.0
+        }
+        if (markName == "tick") {
+            return 0.25
+        }
+        ; A grouped bar chart's bands hold a whole sub-band each, so they are
+        ; spaced further apart than bands holding a single bar.
+        if (this.hasChannel("xOffset")) {
+            return 0.2
+        }
+        return 0.1
+    }
+
+    ; The outer padding matches the inner one for a grouped chart and is half
+    ; of it otherwise — the reference's own asymmetry.
+    fn bandPaddingOuter:double () {
+        def inner:double (this.bandPaddingInner())
+        if (this.hasChannel("xOffset")) {
+            return inner
+        }
+        return (inner / 2.0)
+    }
+
+    ; A discrete position channel is a BAND for the marks that fill their band —
+    ; a bar, a heat map cell, a tick — and a POINT for the ones that sit on it.
+    fn scaleTypeFor:string (ch:VlChannel) {
+        if (has forcedTypes ch.name) {
+            return (unwrap (get forcedTypes ch.name))
+        }
+        def declared:VlJson (ch.def0.get("scale"))
+        if (declared.isObject()) {
+            def named:string (declared.stringOr("type" ""))
+            if ((strlen named) > 0) {
+                return named
+            }
+        }
+        if ((ch.name == "color") || (ch.name == "fill")) {
+            if (ch.isDiscrete()) {
+                return "ordinal"
+            }
+            return "linear"
+        }
+        if (ch.name == "shape") {
+            return "ordinal"
+        }
+        if (ch.name == "size") {
+            return "linear"
+        }
+        if (ch.isDiscrete()) {
+            if (((markName == "bar") || (markName == "rect")) || (markName == "tick")) {
+                return "band"
+            }
+            return "point"
+        }
+        if (ch.kind == "temporal") {
+            return "time"
+        }
+        return "linear"
+    }
+
+    ; Whether the chart is placed on axes at all.
+    fn hasPosition:boolean () {
+        for channels ch:VlChannel ci {
+            if ((ch.name == "x") || (ch.name == "y")) {
+                if ((strlen (ch.outField())) > 0) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fn sizeAndSignals:void (out:VlJson signals:VlJson) {
+        this.sizeOne(out signals (this.channel("x")) "width" "x")
+        this.sizeOne(out signals (this.channel("y")) "height" "y")
+    }
+
+    fn sizeOne:void (out:VlJson signals:VlJson ch:VlChannel dimension:string axis:string) {
+        ; A chart with nothing on ONE axis is one step tall on that axis: a strip
+        ; plot is a single row of ticks, not a three-hundred-pixel plot with one
+        ; row in it. A chart with nothing on EITHER — a pie — is not a strip
+        ; plot, it is a chart drawn some other way, and keeps its full size.
+        def empty:boolean (! ch.defined)
+        if (! empty) {
+            if ((strlen (ch.outField())) == 0) {
+                empty = true
+            }
+        }
+        if empty {
+            if (this.hasPosition()) {
+                out.setMember(dimension (VlJson.numberValue(20.0)))
+                return
+            }
+            out.setMember(dimension (VlJson.numberValue(300.0)))
+            return
+        }
+        def type:string (this.scaleTypeFor(ch))
+        ; A discrete scale of EITHER kind sizes the chart from its own steps.
+        ; They differ only in the padding: a band leaves room between the bands,
+        ; a point has no width to leave room around, so its inner padding is
+        ; one whole step and its outer is half of one.
+        def banded:boolean ((type == "band") || (type == "point"))
+        ; …unless the specification stated the size. A discrete scale sizes the
+        ; chart from its steps only when nobody said how big the chart is; a
+        ; declared `width` is not a suggestion, and ignoring it drew a
+        ; six-category bar chart twenty pixels wide.
+        if (this.sizeGiven(dimension)) {
+            banded = false
+        }
+        if banded {
+            def step (VlJson.objectValue())
+            step.setMember("name" (VlJson.stringValue((prefix + (axis + "_step")))))
+            def inner:double (this.bandPaddingInner())
+            def outer:double (this.bandPaddingOuter())
+            if (type == "point") {
+                inner = 1.0
+                outer = 0.5
+            }
+            if ((this.hasChannel("xOffset")) && (axis == "x")) {
+                ; A band that holds a group of bars is as wide as the group
+                ; needs, so its step is computed from the sub-scale rather than
+                ; declared: the twenty pixels are per BAR, not per band.
+                def sub:string (((("20 * bandspace(domain('" + (this.sname("xOffset"))) + "').length, 0, 0) / (1-") + (VlJson.formatNumber(inner 6))) + ")")
+                step.setMember("update" (VlJson.stringValue(sub)))
+            } {
+                step.setMember("value" (VlJson.numberValue(20.0)))
+            }
+            push signals.arr step
+            def size (VlJson.objectValue())
+            size.setMember("name" (VlJson.stringValue((this.sizeSignal(dimension)))))
+            def expr:string ((((((("bandspace(domain('" + (this.sname(axis))) + "').length, ") + (VlJson.formatNumber(inner 6))) + ", ") + (VlJson.formatNumber(outer 6))) + ") * ") + (prefix + (axis + "_step")))
+            size.setMember("update" (VlJson.stringValue(expr)))
+            push signals.arr size
+            return
+        }
+        def given:VlJson (source.get(dimension))
+        def value:VlJson (VlJson.numberValue(300.0))
+        if (given.isNumber()) {
+            value = given
+        }
+        ; A chart states its size; a PANE of a concatenation or a CELL of a
+        ; trellis carries it as a signal instead, because the layout has to
+        ; read it.
+        if ((this.sizeSignal(dimension)) != dimension) {
+            def sig (VlJson.objectValue())
+            sig.setMember("name" (VlJson.stringValue((this.sizeSignal(dimension)))))
+            sig.setMember("value" value)
+            push signals.arr sig
+            return
+        }
+        out.setMember(dimension value)
+    }
+
+    ; ----------------------------------------------------------------- data ---
+    ; source_0 holds the rows as written; data_0 is what the marks read, after
+    ; the transforms the encoding implies. The order is the reference's:
+    ; aggregate, then stack, then the validity filter — a filter before the
+    ; aggregate would count different rows.
+    fn buildData:VlJson () {
+        def out (VlJson.arrayValue())
+        def src (VlJson.objectValue())
+        src.setMember("name" (VlJson.stringValue("source_0")))
+        def data:VlJson (source.get("data"))
+        if (data.has("values")) {
+            src.setMember("values" (data.get("values")))
+        }
+        if (data.has("url")) {
+            src.setMember("url" (data.get("url")))
+        }
+        push out.arr src
+
+        def derived (VlJson.objectValue())
+        derived.setMember("name" (VlJson.stringValue(dataLabel)))
+        derived.setMember("source" (VlJson.stringValue("source_0")))
+        def transforms (VlJson.arrayValue())
+
+        this.pushTimeParse(transforms)
+        this.pushSpecTransforms(transforms)
+        this.pushBin(transforms)
+        this.pushAggregate(transforms)
+        this.pushImpute(transforms)
+        this.pushStack(transforms)
+        this.pushValidFilter(transforms)
+
+        derived.setMember("transform" transforms)
+        push out.arr derived
+        dataName = dataLabel
+        return out
+    }
+
+    ; The transforms the SPECIFICATION asked for, as opposed to the ones its
+    ; encoding implies. They were not read at all: a spec with a `transform`
+    ; array compiled to one without it, drew whatever the untransformed data
+    ; said, and reported nothing. A filter that removed half the rows simply
+    ; did not happen, and the chart looked entirely reasonable.
+    ;
+    ; They run before the encoding's own, which is the order Vega-Lite states
+    ; and the order anyone writing one assumes: a filter is expected to reach
+    ; the aggregate below it.
+    ;
+    ; What is not translated is REFUSED. Vega-Lite has a couple of dozen
+    ; transforms and the runtime has ten; the gap is real, and a compiler that
+    ; drops the difference silently is worse than one that has never heard of
+    ; them.
+    fn pushSpecTransforms:void (transforms:VlJson) {
+        def own:VlJson (source.get("transform"))
+        if (! (own.isArray())) {
+            return
+        }
+        def total:int (own.count())
+        def k:int 0
+        while (k < total) {
+            def t:VlJson (own.at(k))
+            k = (k + 1)
+            if (t.has("filter")) {
+                def expr:VlJson (t.get("filter"))
+                if (expr.isString()) {
+                    push transforms.arr (VlCompile.filterOf(expr.str))
+                } {
+                    this.fail("only a filter written as an expression string is compiled here")
+                }
+            } {
+                if (t.has("calculate")) {
+                    def f (VlJson.objectValue())
+                    f.setMember("type" (VlJson.stringValue("formula")))
+                    f.setMember("expr" (VlJson.stringValue((t.stringOr("calculate" "")))))
+                    f.setMember("as" (VlJson.stringValue((t.stringOr("as" "")))))
+                    push transforms.arr f
+                } {
+                    ; The rest name themselves by their leading key, which is
+                    ; how Vega-Lite writes a transform, so the refusal can say
+                    ; which one it was.
+                    this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
+            }
+        }
+    }
+
+    sfn transformName:string (t:VlJson) {
+        for t.keys key:string ki {
+            if (key != "as") {
+                return key
+            }
+        }
+        return "?"
+    }
+
+    ; A date arrives as text and has to become an instant before a scale can
+    ; place it, which the reference does with a formula rather than by teaching
+    ; the scale to parse.
+    fn pushTimeParse:void (transforms:VlJson) {
+        for channels ch:VlChannel ci {
+            if (ch.kind == "temporal") {
+                if ((strlen ch.field) > 0) {
+                    def t (VlJson.objectValue())
+                    t.setMember("type" (VlJson.stringValue("formula")))
+                    t.setMember("expr" (VlJson.stringValue((("toDate(datum[\"" + ch.field) + "\"])"))))
+                    t.setMember("as" (VlJson.stringValue(ch.field)))
+                    push transforms.arr t
+                }
+            }
+        }
+    }
+
+    ; Binning is two transforms and two signals: the field's extent has to be
+    ; known before the bin boundaries can be chosen, and the boundaries then
+    ; have to be readable by the scale — a binned axis ticks on the bin edges
+    ; rather than wherever a tick algorithm would have put them.
+    fn pushBin:void (transforms:VlJson) {
+        for channels ch:VlChannel ci {
+            if ch.hasBin {
+                def base:string (ch.outField())
+                def extent (VlJson.objectValue())
+                extent.setMember("type" (VlJson.stringValue("extent")))
+                extent.setMember("field" (VlJson.stringValue(ch.field)))
+                extent.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                push transforms.arr extent
+
+                def bin (VlJson.objectValue())
+                bin.setMember("type" (VlJson.stringValue("bin")))
+                bin.setMember("field" (VlJson.stringValue(ch.field)))
+                def asNames (VlJson.arrayValue())
+                push asNames.arr (VlJson.stringValue(base))
+                push asNames.arr (VlJson.stringValue((ch.binEndField())))
+                bin.setMember("as" asNames)
+                bin.setMember("signal" (VlJson.stringValue((base + "_bins"))))
+                def from (VlJson.objectValue())
+                from.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                bin.setMember("extent" from)
+                bin.setMember("maxbins" (VlJson.numberValue(10.0)))
+                push transforms.arr bin
+            }
+        }
+    }
+
+    fn pushAggregate:void (transforms:VlJson) {
+        def ops (VlJson.arrayValue())
+        def fields (VlJson.arrayValue())
+        def asNames (VlJson.arrayValue())
+        def groupby (VlJson.arrayValue())
+        def any:boolean false
+        for channels ch:VlChannel ci {
+            if ((strlen ch.aggregate) > 0) {
+                any = true
+            }
+        }
+        if (! any) {
+            return
+        }
+        for channels ch2:VlChannel ci2 {
+            if (ch2.hasValue) {
+                ; a literal channel is not a field
+            } {
+                if ((strlen ch2.aggregate) > 0) {
+                    push ops.arr (VlJson.stringValue(ch2.aggregate))
+                    ; `count` counts rows and so names no field, but the two
+                    ; lists stay parallel — the reference writes a null.
+                    if (ch2.aggregate == "count") {
+                        push fields.arr (VlJson.nullValue())
+                    } {
+                        push fields.arr (VlJson.stringValue(ch2.field))
+                    }
+                    push asNames.arr (VlJson.stringValue((ch2.outField())))
+                } {
+                    if (ch2.hasBin) {
+                        push groupby.arr (VlJson.stringValue((ch2.outField())))
+                        push groupby.arr (VlJson.stringValue((ch2.binEndField())))
+                    } {
+                        if ((strlen ch2.field) > 0) {
+                            push groupby.arr (VlJson.stringValue(ch2.field))
+                        }
+                    }
+                }
+            }
+        }
+        def t (VlJson.objectValue())
+        t.setMember("type" (VlJson.stringValue("aggregate")))
+        t.setMember("groupby" groupby)
+        t.setMember("ops" ops)
+        if ((fields.count()) > 0) {
+            t.setMember("fields" fields)
+        }
+        t.setMember("as" asNames)
+        push transforms.arr t
+    }
+
+    ; An area is a filled shape between two lines, and a shape with a hole in it
+    ; is not a shape. A series missing a row at some x would leave one, so the
+    ; missing rows are filled in at zero before the stack — which is also what
+    ; keeps the stack's own baseline continuous underneath the series above it.
+    fn pushImpute:void (transforms:VlJson) {
+        if (markName != "area") {
+            return
+        }
+        if ((strlen stackField) == 0) {
+            return
+        }
+        def measure:VlChannel (this.stackMeasure())
+        def dimension:VlChannel (this.stackDimension())
+        if (! dimension.defined) {
+            return
+        }
+        def t (VlJson.objectValue())
+        t.setMember("type" (VlJson.stringValue("impute")))
+        t.setMember("field" (VlJson.stringValue((measure.outField()))))
+        def groupby (VlJson.arrayValue())
+        def colour:VlChannel (this.channel("color"))
+        if colour.defined {
+            if ((strlen (colour.outField())) > 0) {
+                push groupby.arr (VlJson.stringValue((colour.outField())))
+            }
+        }
+        t.setMember("groupby" groupby)
+        t.setMember("key" (VlJson.stringValue((dimension.outField()))))
+        t.setMember("method" (VlJson.stringValue("value")))
+        t.setMember("value" (VlJson.numberValue(0.0)))
+        push transforms.arr t
+    }
+
+    fn pushStack:void (transforms:VlJson) {
+        if ((strlen stackField) == 0) {
+            return
+        }
+        def t (VlJson.objectValue())
+        t.setMember("type" (VlJson.stringValue("stack")))
+        def groupby (VlJson.arrayValue())
+        def dimension:VlChannel (this.stackDimension())
+        if dimension.defined {
+            if ((strlen (dimension.outField())) > 0) {
+                push groupby.arr (VlJson.stringValue((dimension.outField())))
+            }
+        }
+        ; A grouped bar chart stacks inside each sub-band, not across the whole
+        ; band: the offset channel is part of what identifies a stack.
+        def offset:VlChannel (this.channel("xOffset"))
+        if offset.defined {
+            if ((strlen (offset.outField())) > 0) {
+                push groupby.arr (VlJson.stringValue((offset.outField())))
+            }
+        }
+        ; Every panel of a trellis stacks on its own: a bar in one column knows
+        ; nothing about the bars in the next.
+        for (this.facetFields()) field:string fi {
+            push groupby.arr (VlJson.stringValue(field))
+        }
+        t.setMember("groupby" groupby)
+        t.setMember("field" (VlJson.stringValue(stackField)))
+        ; The stack's own order: by the channel that separates the segments,
+        ; descending, so the first colour in the legend is the top segment.
+        def sortFields (VlJson.arrayValue())
+        def sortOrders (VlJson.arrayValue())
+        def colour:VlChannel (this.channel("color"))
+        if colour.defined {
+            if ((strlen colour.field) > 0) {
+                push sortFields.arr (VlJson.stringValue(colour.field))
+                ; A bar's y axis points down the page, so the first colour has
+                ; to be stacked last to end up on top. A pie has no inverted
+                ; axis and reads the other way.
+                if (markName == "arc") {
+                    push sortOrders.arr (VlJson.stringValue("ascending"))
+                } {
+                    push sortOrders.arr (VlJson.stringValue("descending"))
+                }
+            }
+        }
+        def sort (VlJson.objectValue())
+        sort.setMember("field" sortFields)
+        sort.setMember("order" sortOrders)
+        t.setMember("sort" sort)
+        def asNames (VlJson.arrayValue())
+        push asNames.arr (VlJson.stringValue((stackField + "_start")))
+        push asNames.arr (VlJson.stringValue((stackField + "_end")))
+        t.setMember("as" asNames)
+        t.setMember("offset" (VlJson.stringValue(stackOffset)))
+        push transforms.arr t
+    }
+
+    ; Every continuous field a mark positions by has to be a finite number, and
+    ; the reference drops the rows where it is not rather than drawing them at
+    ; the origin.
+    fn pushValidFilter:void (transforms:VlJson) {
+        def expr:string ""
+        for channels ch:VlChannel ci {
+            if (((ch.name == "x") || (ch.name == "y")) || (ch.name == "theta")) {
+                if (ch.isContinuous()) {
+                    if (! ch.hasValue) {
+                        def name:string (ch.outField())
+                        if ((strlen name) > 0) {
+                            if ((strlen expr) > 0) {
+                                expr = (expr + " && ")
+                            }
+                            expr = (expr + (VlCompile.validExpr(name)))
+                        }
+                    }
+                }
+            }
+        }
+        if ((strlen expr) == 0) {
+            return
+        }
+        def t (VlJson.objectValue())
+        t.setMember("type" (VlJson.stringValue("filter")))
+        t.setMember("expr" (VlJson.stringValue(expr)))
+        push transforms.arr t
+    }
+
+    sfn validExpr:string (field:string) {
+        return (((("isValid(datum[\"" + field) + "\"]) && isFinite(+datum[\"") + field) + "\"])")
+    }
+
+    ; --------------------------------------------------------------- scales ---
+    fn buildScales:VlJson () {
+        def out (VlJson.arrayValue())
+        this.pushPositionScale(out (this.channel("x")) "x")
+        this.pushPositionScale(out (this.channel("y")) "y")
+        this.pushOffsetScale(out)
+        this.pushThetaScale(out)
+        this.pushRadiusScale(out)
+        this.pushShapeScale(out)
+        this.pushColourScale(out)
+        this.pushSizeScale(out)
+        return out
+    }
+
+    ; A shape scale is ordinal like a colour scale, and its range is the
+    ; reference's own sequence of symbols rather than a palette.
+    fn pushShapeScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("shape"))
+        if (! ch.defined) {
+            return
+        }
+        if ch.hasValue {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("shape")))))
+        sc.setMember("type" (VlJson.stringValue("ordinal")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        sc.setMember("range" (VlJson.stringValue("symbol")))
+        push out.arr sc
+    }
+
+    ; The scale a group of bars is spread across INSIDE its band: a band scale
+    ; of its own, one step per bar, with nothing between them.
+    fn pushOffsetScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("xOffset"))
+        if (! ch.defined) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("xOffset")))))
+        sc.setMember("type" (VlJson.stringValue("band")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        def range (VlJson.objectValue())
+        range.setMember("step" (VlJson.numberValue(20.0)))
+        sc.setMember("range" range)
+        push out.arr sc
+    }
+
+    ; A radial chart measures twice: the wedge's ANGLE says one thing and its
+    ; LENGTH says another. The length is a square-root scale, because a wedge's
+    ; area grows with the square of its radius and area is what a reader judges.
+    fn pushRadiusScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("radius"))
+        if (! ch.defined) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("radius")))))
+        sc.setMember("type" (VlJson.stringValue((this.scaleTypeFor(ch)))))
+        sc.setMember("domain" (this.domainFor(ch)))
+        def range (VlJson.arrayValue())
+        def declared:VlJson (ch.def0.get("scale"))
+        def from:double (declared.doubleOr("rangeMin" 0.0))
+        push range.arr (VlJson.numberValue(from))
+        def outer (VlJson.objectValue())
+        outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
+        push range.arr outer
+        sc.setMember("range" range)
+        sc.setMember("zero" (VlJson.boolValue(true)))
+        push out.arr sc
+    }
+
+    ; A pie's scale is an angle: the whole circle, from nothing.
+    fn pushThetaScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("theta"))
+        if (! ch.defined) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("theta")))))
+        sc.setMember("type" (VlJson.stringValue("linear")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        def range (VlJson.arrayValue())
+        push range.arr (VlJson.numberValue(0.0))
+        push range.arr (VlJson.numberValue(6.283185307179586))
+        sc.setMember("range" range)
+        sc.setMember("zero" (VlJson.boolValue(true)))
+        push out.arr sc
+    }
+
+    fn pushPositionScale:void (out:VlJson ch:VlChannel axis:string) {
+        if (! ch.defined) {
+            return
+        }
+        if ((strlen (ch.outField())) == 0) {
+            return
+        }
+        def type:string (this.scaleTypeFor(ch))
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname(axis)))))
+        sc.setMember("type" (VlJson.stringValue(type)))
+        sc.setMember("domain" (this.domainFor(ch)))
+        if ((type == "band") || (type == "point")) {
+            def sized:string "width"
+            if (axis == "y") {
+                sized = "height"
+            }
+            if (this.sizeGiven(sized)) {
+                ; The chart's size was declared, so the scale spans it rather
+                ; than deciding it.
+                sc.setMember("range" (this.positionRange(axis)))
+            } {
+                def range (VlJson.objectValue())
+                def step (VlJson.objectValue())
+                step.setMember("signal" (VlJson.stringValue((prefix + (axis + "_step")))))
+                range.setMember("step" step)
+                sc.setMember("range" range)
+            }
+            if (type == "point") {
+                sc.setMember("padding" (VlJson.numberValue(0.5)))
+            } {
+                sc.setMember("paddingInner" (VlJson.numberValue((this.bandPaddingInner()))))
+                sc.setMember("paddingOuter" (VlJson.numberValue((this.bandPaddingOuter()))))
+            }
+        } {
+            sc.setMember("range" (this.positionRange(axis)))
+            if (false) {
+            } {
+                ; A binned axis already knows where its ticks go — the bin
+                ; edges — so it is neither niced nor extended to zero.
+                if ch.hasBin {
+                    def bins (VlJson.objectValue())
+                    bins.setMember("signal" (VlJson.stringValue(((ch.outField()) + "_bins"))))
+                    sc.setMember("bins" bins)
+                    sc.setMember("zero" (VlJson.boolValue(false)))
+                } {
+                    sc.setMember("nice" (VlJson.boolValue(true)))
+                    ; A bar's baseline is zero because its LENGTH is the value;
+                    ; a line's is not, because only its height is read.
+                    if (type != "log") {
+                        sc.setMember("zero" (VlJson.boolValue((this.zeroFor(ch)))))
+                    }
+                }
+            }
+        }
+        push out.arr sc
+    }
+
+    ; The reference's own rule, and it is about the mark rather than the field:
+    ; a bar or an area means a quantity measured from nothing, a point or a line
+    ; means a position.
+    fn zeroFor:boolean (ch:VlChannel) {
+        def declared:VlJson (ch.def0.get("scale"))
+        if (declared.isObject()) {
+            def z:VlJson (declared.get("zero"))
+            if (z.isBool()) {
+                return z.b
+            }
+        }
+        ; A log scale cannot reach zero, so it never asks to.
+        if ((this.scaleTypeFor(ch)) == "log") {
+            return false
+        }
+        ; A line or an area is read along one axis and measured up the other.
+        ; The axis it is read ALONG starts wherever the data starts; the one it
+        ; is measured up starts at nothing, because the height is the value.
+        if ((markName == "line") || (markName == "area")) {
+            return (ch.name == "y")
+        }
+        if ((strlen stackField) > 0) {
+            return true
+        }
+        if ((markName == "bar") || (markName == "tick")) {
+            return true
+        }
+        if ((markName == "point") || (markName == "circle")) {
+            return true
+        }
+        if (markName == "square") {
+            return true
+        }
+        if (markName == "text") {
+            return true
+        }
+        if (markName == "rect") {
+            return true
+        }
+        return false
+    }
+
+    fn positionRange:VlJson (axis:string) {
+        def range (VlJson.arrayValue())
+        def signal (VlJson.objectValue())
+        if (axis == "x") {
+            signal.setMember("signal" (VlJson.stringValue((this.sizeSignal("width")))))
+            push range.arr (VlJson.numberValue(0.0))
+            push range.arr signal
+        } {
+            signal.setMember("signal" (VlJson.stringValue((this.sizeSignal("height")))))
+            push range.arr signal
+            push range.arr (VlJson.numberValue(0.0))
+        }
+        return range
+    }
+
+    ; A stacked channel takes its domain from the two fields the stack wrote,
+    ; not from the one it read.
+    fn domainFor:VlJson (ch:VlChannel) {
+        def out (VlJson.objectValue())
+        ; A binned axis runs from the first bin's start to the last one's end,
+        ; which the bin transform published as a signal — reading the data
+        ; instead would stop at the last bin's START.
+        if ch.hasBin {
+            out.setMember("signal" (VlJson.stringValue(((("[" + (ch.outField())) + "_bins.start, ") + (ch.outField())) + "_bins.stop]")))
+            return out
+        }
+        out.setMember("data" (VlJson.stringValue(dataLabel)))
+        if ((strlen stackField) > 0) {
+            if ((ch.outField()) == stackField) {
+                def fields (VlJson.arrayValue())
+                push fields.arr (VlJson.stringValue((stackField + "_start")))
+                push fields.arr (VlJson.stringValue((stackField + "_end")))
+                out.setMember("fields" fields)
+                return out
+            }
+        }
+        ; A channel with a second field takes its domain from both of them.
+        def second:VlChannel (this.channel((ch.name + "2")))
+        if second.defined {
+            if ((strlen second.field) > 0) {
+                def pair (VlJson.arrayValue())
+                push pair.arr (VlJson.stringValue((ch.outField())))
+                push pair.arr (VlJson.stringValue((second.outField())))
+                out.setMember("fields" pair)
+                return out
+            }
+        }
+        out.setMember("field" (VlJson.stringValue((ch.outField()))))
+        if (ch.isDiscrete()) {
+            out.setMember("sort" (VlJson.boolValue(true)))
+        }
+        return out
+    }
+
+    fn pushColourScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("color"))
+        if (! ch.defined) {
+            return
+        }
+        if (ch.hasValue) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("color")))))
+        def type:string (this.scaleTypeFor(ch))
+        sc.setMember("type" (VlJson.stringValue(type)))
+        sc.setMember("domain" (this.domainFor(ch)))
+        if (ch.isDiscrete()) {
+            sc.setMember("range" (VlJson.stringValue("category")))
+        } {
+            ; A continuous colour is a ramp, interpolated the way the reference
+            ; interpolates it — in a perceptual space, not in RGB.
+            def scheme:string "ramp"
+            if (markName == "rect") {
+                scheme = "heatmap"
+            }
+            sc.setMember("range" (VlJson.stringValue(scheme)))
+            sc.setMember("interpolate" (VlJson.stringValue("hcl")))
+            sc.setMember("zero" (VlJson.boolValue(false)))
+        }
+        push out.arr sc
+    }
+
+    fn pushSizeScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("size"))
+        if (! ch.defined) {
+            return
+        }
+        if (ch.hasValue) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("size")))))
+        sc.setMember("type" (VlJson.stringValue("linear")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        ; The reference's own bubble sizes: an area of four up to one of 361,
+        ; which is a symbol of two pixels across up to one of nineteen.
+        def range (VlJson.arrayValue())
+        push range.arr (VlJson.numberValue(4.0))
+        push range.arr (VlJson.numberValue(361.0))
+        sc.setMember("range" range)
+        sc.setMember("zero" (VlJson.boolValue(true)))
+        push out.arr sc
+    }
+
+    ; ---------------------------------------------------------------- axes ---
+    ; Three of them for a normal chart, and the first is not an axis at all: a
+    ; grid is drawn as a separate axis with everything else switched off, so it
+    ; can sit UNDER the marks while the labelled axis sits over them.
+    fn buildAxes:VlJson () {
+        def out (VlJson.arrayValue())
+        def x:VlChannel (this.channel("x"))
+        def y:VlChannel (this.channel("y"))
+        ; `count` names no field and is still an axis — what matters is
+        ; whether the channel produces a column, not whether the spec typed one.
+        def hasX:boolean (x.defined && ((strlen (x.outField())) > 0))
+        def hasY:boolean (y.defined && ((strlen (y.outField())) > 0))
+
+        ; Grids first and both of them, because a grid is drawn under the
+        ; marks and a labelled axis over them; x before y, which is the order
+        ; the reference emits and therefore the order they are compared in.
+        ; A binned axis has no grid: its own tick marks are the bin edges, and
+        ; a grid drawn on them would be a line down every bar.
+        if hasX {
+            if (x.isContinuous()) {
+                if (! x.hasBin) {
+                    push out.arr (this.gridAxis("x" "bottom" hasY "y"))
+                }
+            }
+        }
+        if hasY {
+            if (y.isContinuous()) {
+                if (! y.hasBin) {
+                    push out.arr (this.gridAxis("y" "left" hasX "x"))
+                }
+            }
+        }
+        if hasX {
+            push out.arr (this.labelAxis(x "x" "bottom"))
+        }
+        if hasY {
+            push out.arr (this.labelAxis(y "y" "left"))
+        }
+        return out
+    }
+
+    fn logGrid:boolean (scale:string) {
+        def ch:VlChannel (this.channel(scale))
+        if (! ch.defined) {
+            return false
+        }
+        return ((this.scaleTypeFor(ch)) == "log")
+    }
+
+    fn gridAxis:VlJson (scale:string orient:string crosses:boolean other:string) {
+        def a (VlJson.objectValue())
+        a.setMember("scale" (VlJson.stringValue((this.sname(scale)))))
+        a.setMember("orient" (VlJson.stringValue(orient)))
+        if crosses {
+            a.setMember("gridScale" (VlJson.stringValue((this.sname(other)))))
+        }
+        a.setMember("grid" (VlJson.boolValue(true)))
+        if (! (this.logGrid(scale))) {
+            a.setMember("tickCount" (this.tickCountSignal(orient)))
+        }
+        a.setMember("domain" (VlJson.boolValue(false)))
+        a.setMember("labels" (VlJson.boolValue(false)))
+        a.setMember("aria" (VlJson.boolValue(false)))
+        a.setMember("maxExtent" (VlJson.numberValue(0.0)))
+        a.setMember("minExtent" (VlJson.numberValue(0.0)))
+        a.setMember("ticks" (VlJson.boolValue(false)))
+        a.setMember("zindex" (VlJson.numberValue(0.0)))
+        return a
+    }
+
+    fn labelAxis:VlJson (ch:VlChannel scale:string orient:string) {
+        def a (VlJson.objectValue())
+        a.setMember("scale" (VlJson.stringValue((this.sname(scale)))))
+        a.setMember("orient" (VlJson.stringValue(orient)))
+        a.setMember("grid" (VlJson.boolValue(false)))
+        ; An axis measuring a channel with two ends names both of them.
+        def axisTitle:string (ch.title())
+        def secondary:VlChannel (this.channel((ch.name + "2")))
+        if secondary.defined {
+            if ((strlen secondary.field) > 0) {
+                axisTitle = ((axisTitle + ", ") + (secondary.title()))
+            }
+        }
+        a.setMember("title" (VlJson.stringValue(axisTitle)))
+        def given:VlJson (ch.def0.get("axis"))
+        if (given.isObject()) {
+            for given.keys key:string ki {
+                a.setMember(key (given.get(key)))
+            }
+        }
+        if (orient == "bottom") {
+            if (given.isObject()) {
+                if (given.has("labelAngle")) {
+                    a.setMember("labelBaseline" (VlJson.stringValue("top")))
+                }
+            }
+            ; Category names along the foot of a chart do not fit side by side,
+            ; so the reference turns them upright unless the spec says
+            ; otherwise. A vertical axis has room and keeps them level.
+            if (ch.isDiscrete()) {
+                if (! (a.has("labelAngle"))) {
+                    a.setMember("labelAngle" (VlJson.numberValue(270.0)))
+                }
+            }
+        }
+        if (stackOffset == "normalize") {
+            if ((ch.outField()) == stackField) {
+                a.setMember("format" (VlJson.stringValue(".0%")))
+            }
+        }
+        if (ch.isContinuous()) {
+            ; The first and last labels of a horizontal continuous axis are
+            ; pulled inside the plot rather than allowed to hang off it, which
+            ; is what `labelFlush` means and why they are left- and
+            ; right-aligned rather than centred.
+            if (orient == "bottom") {
+                a.setMember("labelFlush" (VlJson.boolValue(true)))
+            }
+            ; A log axis's ticks are the whole multiples inside each decade,
+            ; so there is no count to ask for — and they are unevenly spaced,
+            ; so crowded labels are thinned from the front rather than halved.
+            if ((this.scaleTypeFor(ch)) == "log") {
+                a.setMember("labelOverlap" (VlJson.stringValue("greedy")))
+            } {
+                a.setMember("labelOverlap" (VlJson.boolValue(true)))
+                ; A binned axis wants a tick per bin edge, which is far more
+                ; than one per forty pixels — the scale's own `bins` then
+                ; decides where they land.
+                if ch.hasBin {
+                    def dense (VlJson.objectValue())
+                    dense.setMember("signal" (VlJson.stringValue((("ceil(" + (this.sizeSignal("width"))) + "/10)"))))
+                    a.setMember("tickCount" dense)
+                } {
+                    a.setMember("tickCount" (this.tickCountSignal(orient)))
+                }
+            }
+        }
+        a.setMember("zindex" (VlJson.numberValue(0.0)))
+        return a
+    }
+
+    ; One tick per forty pixels down, one per fifty across — the reference's own
+    ; densities, written as signals so they follow a resized chart.
+    fn tickCountSignal:VlJson (orient:string) {
+        def out (VlJson.objectValue())
+        if (orient == "bottom") {
+            out.setMember("signal" (VlJson.stringValue((("ceil(" + (this.sizeSignal("width"))) + "/40)"))))
+        } {
+            out.setMember("signal" (VlJson.stringValue((("ceil(" + (this.sizeSignal("height"))) + "/40)"))))
+        }
+        return out
+    }
+
+    ; -------------------------------------------------------------- legends ---
+    fn buildLegends:VlJson () {
+        def out (VlJson.arrayValue())
+        def colour:VlChannel (this.channel("color"))
+        if colour.defined {
+            if (! colour.hasValue) {
+                def l (VlJson.objectValue())
+                ; A key stands for the mark it names. An outlined dot and a
+                ; line are both drawn with a STROKE, so their keys are too.
+                def outlined:boolean ((markName == "point") || (markName == "line"))
+                if outlined {
+                    l.setMember("stroke" (VlJson.stringValue((this.sname("color")))))
+                } {
+                    l.setMember("fill" (VlJson.stringValue((this.sname("color")))))
+                }
+                if (colour.isContinuous()) {
+                    ; A continuous colour is a gradient bar, and the bar is as
+                    ; long as the chart is tall, within reason.
+                    def length (VlJson.objectValue())
+                    length.setMember("signal" (VlJson.stringValue("clamp(height, 64, 200)")))
+                    l.setMember("gradientLength" length)
+                } {
+                    l.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
+                }
+                l.setMember("title" (VlJson.stringValue((colour.title()))))
+                if (markName == "point") {
+                    l.setMember("encode" (VlCompile.pointSymbolEncode()))
+                }
+                push out.arr l
+            }
+        }
+        def shapeCh:VlChannel (this.channel("shape"))
+        if shapeCh.defined {
+            if (! shapeCh.hasValue) {
+                def l3 (VlJson.objectValue())
+                l3.setMember("shape" (VlJson.stringValue((this.sname("shape")))))
+                l3.setMember("title" (VlJson.stringValue((shapeCh.title()))))
+                if (markName == "point") {
+                    def shapeEncode:VlJson (VlCompile.pointSymbolEncode())
+                    def shapeSymbols:VlJson (shapeEncode.get("symbols"))
+                    def shapeUpdate:VlJson (shapeSymbols.get("update"))
+                    shapeUpdate.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+                    l3.setMember("encode" shapeEncode)
+                }
+                push out.arr l3
+            }
+        }
+        def size:VlChannel (this.channel("size"))
+        if size.defined {
+            if (! size.hasValue) {
+                def l2 (VlJson.objectValue())
+                l2.setMember("size" (VlJson.stringValue((this.sname("size")))))
+                l2.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
+                l2.setMember("title" (VlJson.stringValue((size.title()))))
+                ; A size key stands for the same dot the chart draws, and its
+                ; colour is the mark's constant since nothing encodes one.
+                if (markName == "point") {
+                    def encode:VlJson (VlCompile.pointSymbolEncode())
+                    def symbols:VlJson (encode.get("symbols"))
+                    def update:VlJson (symbols.get("update"))
+                    update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+                    l2.setMember("encode" encode)
+                }
+                if ((markName == "circle") || (markName == "square")) {
+                    l2.setMember("encode" (VlCompile.filledSymbolEncode()))
+                }
+                push out.arr l2
+            }
+        }
+        return out
+    }
+
+    ; The key of an outlined mark is an outline too: transparent inside, and
+    ; the same partial opacity the points are drawn with.
+    sfn filledSymbolEncode:VlJson () {
+        def update (VlJson.objectValue())
+        update.setMember("fill" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+        update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("transparent")))))
+        def symbols (VlJson.objectValue())
+        symbols.setMember("update" update)
+        def out (VlJson.objectValue())
+        out.setMember("symbols" symbols)
+        return out
+    }
+
+    sfn pointSymbolEncode:VlJson () {
+        def update (VlJson.objectValue())
+        update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
+        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+        def symbols (VlJson.objectValue())
+        symbols.setMember("update" update)
+        def out (VlJson.objectValue())
+        out.setMember("symbols" symbols)
+        return out
+    }
+
+    ; What the key is drawn as: a filled square for the marks that are solid
+    ; blocks of colour, a short dash for a line, and a dot for everything else.
+    fn legendSymbol:string () {
+        if (markName == "line") {
+            return "stroke"
+        }
+        if ((markName == "bar") || (markName == "rect")) {
+            return "square"
+        }
+        return "circle"
+    }
+
+    ; ---------------------------------------------------------------- marks ---
+    fn vegaMarkType:string () {
+        if (((markName == "bar") || (markName == "tick")) || (markName == "rect")) {
+            return "rect"
+        }
+        if (((markName == "point") || (markName == "circle")) || (markName == "square")) {
+            return "symbol"
+        }
+        return markName
+    }
+
+    ; A coloured line is not one line: it is one line PER SERIES, and a line
+    ; joins its points in order, so the rows have to be partitioned before the
+    ; shape is drawn rather than coloured after it. That is a faceted group —
+    ; the same construction a trellis uses, with the panels drawn on top of one
+    ; another instead of side by side.
+    fn seriesField:string () {
+        if ((markName != "line") && (markName != "area")) {
+            return ""
+        }
+        def colour:VlChannel (this.channel("color"))
+        if (! colour.defined) {
+            return ""
+        }
+        if colour.hasValue {
+            return ""
+        }
+        return (colour.outField())
+    }
+
+    fn buildMarks:VlJson () {
+        def series:string (this.seriesField())
+        if ((strlen series) > 0) {
+            return (this.buildSeriesGroup(series))
+        }
+        return (this.buildFlatMarks())
+    }
+
+    fn buildSeriesGroup:VlJson (series:string) {
+        def out (VlJson.arrayValue())
+        def group (VlJson.objectValue())
+        group.setMember("name" (VlJson.stringValue("pathgroup")))
+        group.setMember("type" (VlJson.stringValue("group")))
+        def facet (VlJson.objectValue())
+        facet.setMember("name" (VlJson.stringValue("faceted_path_main")))
+        facet.setMember("data" (VlJson.stringValue(dataName)))
+        def groupby (VlJson.arrayValue())
+        push groupby.arr (VlJson.stringValue(series))
+        facet.setMember("groupby" groupby)
+        def from (VlJson.objectValue())
+        from.setMember("facet" facet)
+        group.setMember("from" from)
+        ; Every panel is the whole plot: they are drawn on top of one another.
+        def update (VlJson.objectValue())
+        update.setMember("width" (VlCompile.groupField("width")))
+        update.setMember("height" (VlCompile.groupField("height")))
+        def encode (VlJson.objectValue())
+        encode.setMember("update" update)
+        group.setMember("encode" encode)
+
+        def inner:VlJson (this.buildFlatMarks())
+        def mark:VlJson (inner.at(0))
+        def innerFrom (VlJson.objectValue())
+        innerFrom.setMember("data" (VlJson.stringValue("faceted_path_main")))
+        mark.setMember("from" innerFrom)
+        group.setMember("marks" inner)
+        push out.arr group
+        return out
+    }
+
+    sfn groupField:VlJson (name:string) {
+        def inner (VlJson.objectValue())
+        inner.setMember("group" (VlJson.stringValue(name)))
+        def out (VlJson.objectValue())
+        out.setMember("field" inner)
+        return out
+    }
+
+    fn buildFlatMarks:VlJson () {
+        def out (VlJson.arrayValue())
+        def m (VlJson.objectValue())
+        m.setMember("name" (VlJson.stringValue(markLabel)))
+        m.setMember("type" (VlJson.stringValue((this.vegaMarkType()))))
+        def style (VlJson.arrayValue())
+        push style.arr (VlJson.stringValue(markName))
+        m.setMember("style" style)
+        ; A line and an area are one shape through many rows, so the rows have
+        ; to be in the order the shape is drawn — by position, not by the order
+        ; the data happened to arrive in.
+        if ((markName == "line") || (markName == "area")) {
+            def sort (VlJson.objectValue())
+            sort.setMember("field" (VlJson.stringValue("x")))
+            m.setMember("sort" sort)
+        }
+        def from (VlJson.objectValue())
+        from.setMember("data" (VlJson.stringValue(dataName)))
+        m.setMember("from" from)
+
+        def update (VlJson.objectValue())
+        ; The mark definition may nudge every instance — a label six pixels
+        ; above the bar it names.
+        for markDef.keys key:string ki {
+            if ((((key == "dx") || (key == "dy")) || (key == "opacity")) || (key == "interpolate")) {
+                update.setMember(key (VlCompile.literal((markDef.get(key)))))
+            }
+        }
+        if (markName == "arc") {
+            this.encodePaint(update)
+            this.encodeAria(update)
+            this.encodeArc(update)
+            def encodeArc (VlJson.objectValue())
+            encodeArc.setMember("update" update)
+            m.setMember("encode" encodeArc)
+            push out.arr m
+            return out
+        }
+        if (markName == "area") {
+            update.setMember("orient" (VlCompile.literal((VlJson.stringValue("vertical")))))
+        }
+        this.encodePaint(update)
+        this.encodeAria(update)
+        this.encodePosition(update)
+        def encode (VlJson.objectValue())
+        encode.setMember("update" update)
+        m.setMember("encode" encode)
+        push out.arr m
+        return out
+    }
+
+    ; A wedge is placed by its centre and its two radii, and swept between the
+    ; two angles the stack wrote. The angles run backwards — the wedge ENDS at
+    ; the stack's start — because a stack accumulates downward and a circle is
+    ; read clockwise.
+    fn encodeArc:void (update:VlJson) {
+        def half (VlJson.objectValue())
+        half.setMember("signal" (VlJson.stringValue("width")))
+        half.setMember("mult" (VlJson.numberValue(0.5)))
+        update.setMember("x" half)
+        def halfDown (VlJson.objectValue())
+        halfDown.setMember("signal" (VlJson.stringValue("height")))
+        halfDown.setMember("mult" (VlJson.numberValue(0.5)))
+        update.setMember("y" halfDown)
+        def radius:VlChannel (this.channel("radius"))
+        if radius.defined {
+            update.setMember("outerRadius" (this.scaled("radius" (radius.outField()))))
+        } {
+            def outer (VlJson.objectValue())
+            outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
+            update.setMember("outerRadius" outer)
+        }
+        def inner:VlJson (markDef.get("innerRadius"))
+        if (inner.isNumber()) {
+            update.setMember("innerRadius" (VlCompile.literal(inner)))
+        } {
+            update.setMember("innerRadius" (VlCompile.literal((VlJson.numberValue(0.0)))))
+        }
+        if ((strlen stackField) > 0) {
+            update.setMember("startAngle" (this.scaled("theta" (stackField + "_end"))))
+            update.setMember("endAngle" (this.scaled("theta" (stackField + "_start"))))
+        } {
+            ; Unstacked, every wedge starts at nothing: the chart is read by
+            ; comparing the wedges rather than by walking round the circle.
+            def theta:VlChannel (this.channel("theta"))
+            if theta.defined {
+                update.setMember("startAngle" (this.scaled("theta" (theta.outField()))))
+                def zero (VlJson.objectValue())
+                zero.setMember("scale" (VlJson.stringValue((this.sname("theta")))))
+                zero.setMember("value" (VlJson.numberValue(0.0)))
+                update.setMember("endAngle" zero)
+            }
+        }
+    }
+
+    ; The colour a mark carries. A point is drawn as an outline, everything else
+    ; as a fill, and a colour channel replaces the constant with a scale.
+    fn encodePaint:void (update:VlJson) {
+        def outlined:boolean ((markName == "point") && (! (markDef.boolOr("filled" false))))
+        if outlined {
+            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+            update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
+        }
+        ; A filled dot is drawn solid: it is part of the line, not a
+        ; measurement of its own that might be sitting on top of another.
+        if (markName == "point") {
+            if (! outlined) {
+                update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(1.0)))))
+            }
+        }
+        ; A tick and a filled dot are both drawn slightly transparent, so that
+        ; the ones that land on the same spot can be told apart.
+        if (((markName == "tick") || (markName == "circle")) || (markName == "square")) {
+            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+        }
+        def key:string "fill"
+        if ((outlined || (markName == "line")) || (markName == "rule")) {
+            key = "stroke"
+        }
+        ; A rule is a line drawn over a chart rather than a series in it, so it
+        ; is black by default rather than the palette's first colour.
+        if (markName == "rule") {
+            def ruleColour:VlChannel (this.channel("color"))
+            if (! ruleColour.defined) {
+                update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("black")))))
+                return
+            }
+        }
+        if (markName == "text") {
+            update.setMember("align" (VlCompile.literal((VlJson.stringValue("center")))))
+            update.setMember("baseline" (VlCompile.literal((VlJson.stringValue("middle")))))
+            def colour0:VlChannel (this.channel("color"))
+            if (! colour0.defined) {
+                update.setMember("fill" (VlCompile.literal((VlJson.stringValue("black")))))
+                return
+            }
+        }
+        def colour:VlChannel (this.channel("color"))
+        if colour.defined {
+            if colour.hasValue {
+                update.setMember(key (VlCompile.literal(colour.value)))
+            } {
+                def ref (VlJson.objectValue())
+                ref.setMember("scale" (VlJson.stringValue("color")))
+                ref.setMember("field" (VlJson.stringValue((colour.outField()))))
+                update.setMember(key ref)
+            }
+            return
+        }
+        update.setMember(key (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+    }
+
+    fn encodeAria:void (update:VlJson) {
+        if (((markName != "line") && (markName != "area")) && (markName != "arc")) {
+            update.setMember("ariaRoleDescription" (VlCompile.literal((VlJson.stringValue(markName)))))
+        }
+        def text:string (this.describeExpr())
+        if ((strlen text) > 0) {
+            def signal (VlJson.objectValue())
+            signal.setMember("signal" (VlJson.stringValue(text)))
+            update.setMember("description" signal)
+        }
+    }
+
+    ; The tooltip text every mark carries: each encoded field, named and
+    ; formatted the way the reference formats it — a number through `format`, a
+    ; category through the array-or-scalar test that keeps a multi-valued field
+    ; readable.
+    ; The order the channels are named in is the REFERENCE's, not the
+    ; specification's: position first and along the page before down it, then
+    ; everything else in the order it was written. A horizontal bar chart says
+    ; "b: 28; a: A" whether or not the spec put `y` first.
+    fn describedChannels:[VlChannel] () {
+        def out:[VlChannel]
+        for channels first:VlChannel fi {
+            if (first.name == "x") {
+                push out first
+            }
+        }
+        for channels second:VlChannel si {
+            if (second.name == "y") {
+                push out second
+            }
+        }
+        for channels rest:VlChannel ri {
+            if ((rest.name != "x") && (rest.name != "y")) {
+                push out rest
+            }
+        }
+        return out
+    }
+
+    fn describeExpr:string () {
+        def out:string ""
+        def seen:[string:int]
+        for (this.describedChannels()) ch:VlChannel ci {
+            if (ch.hasValue) {
+                ; a constant is not described
+            } {
+              if (VlCompile.isFacetChannel(ch.name)) {
+                ; a panel is named by its header, not by every mark in it
+              } {
+                if (has seen (ch.outField())) {
+                    ; the same field on two channels is named once
+                } {
+                if ((strlen (ch.outField())) > 0) {
+                    set seen (ch.outField()) 1
+                    if ((strlen out) > 0) {
+                        out = (out + " + \"; ")
+                    } {
+                        out = "\""
+                    }
+                    out = ((out + (ch.title())) + ": \" + ")
+                    if ch.hasBin {
+                        out = (out + (VlCompile.describeBin((ch.outField()) (ch.binEndField()))))
+                    } {
+                    if (ch.kind == "temporal") {
+                        out = (out + (VlCompile.describeDate((ch.outField()))))
+                    } {
+                        ; A normalised stack is a SHARE, so what is described is
+                        ; the segment's own length as a percentage, not the
+                        ; number it was computed from.
+                        if ((stackOffset == "normalize") && ((ch.outField()) == stackField)) {
+                            out = (out + (VlCompile.describeShare(stackField)))
+                        } {
+                            out = (out + (VlCompile.describeOne((ch.outField()) (ch.isDiscrete()))))
+                        }
+                    }
+                    }
+                }
+                }
+              }
+            }
+        }
+        return out
+    }
+
+    ; A bin is not a value but an interval, and it is named as one — with an en
+    ; dash, which is what the reference writes.
+    sfn describeBin:string (startField:string endField:string) {
+        ; An en dash, which is what the reference writes between the ends.
+        def dash:string (strfromcode 8211)
+        def out:string "(!isValid(datum[\""
+        out = (out + startField)
+        out = (out + "\"]) || !isFinite(+datum[\"")
+        out = (out + startField)
+        out = (out + "\"]) ? \"null\" : format(datum[\"")
+        out = (out + startField)
+        out = (out + "\"], \"\") + \" ")
+        out = (out + dash)
+        out = (out + " \" + format(datum[\"")
+        out = (out + endField)
+        out = (out + "\"], \"\"))")
+        return out
+    }
+
+    sfn describeShare:string (field:string) {
+        return ((((("(format(datum[\"" + field) + "_end\"]-datum[\"") + field) + "_start\"], \".0%\"))"))
+    }
+
+    sfn describeDate:string (field:string) {
+        return (("(timeFormat(datum[\"" + field) + "\"], \"%b %d, %Y\"))")
+    }
+
+    sfn describeOne:string (field:string discrete:boolean) {
+        if discrete {
+            return ((((((("(isValid(datum[\"" + field) + "\"]) ? isArray(datum[\"") + field) + "\"]) ? join(datum[\"") + field) + "\"], ' ') : datum[\"") + field) + "\"] : \"\"+datum[\"" + field + "\"])")
+        }
+        return ((("(format(datum[\"" + field) + "\"], \"\"))"))
+    }
+
+    sfn literal:VlJson (value:VlJson) {
+        def out (VlJson.objectValue())
+        out.setMember("value" value)
+        return out
+    }
+
+    fn scaled:VlJson (scale:string field:string) {
+        def out (VlJson.objectValue())
+        out.setMember("scale" (VlJson.stringValue((this.sname(scale)))))
+        out.setMember("field" (VlJson.stringValue(field)))
+        return out
+    }
+
+    ; Where the mark goes. A band puts the mark at the start of its band and
+    ; gives it the band's width; a stacked value is drawn between the two ends
+    ; the stack wrote; everything else is a point on a scale.
+    fn encodePosition:void (update:VlJson) {
+        this.encodeAxisPair(update (this.channel("x")) "x" "width")
+        this.encodeAxisPair(update (this.channel("y")) "y" "height")
+        def size:VlChannel (this.channel("size"))
+        if size.defined {
+            if size.hasValue {
+                update.setMember("size" (VlCompile.literal(size.value)))
+            } {
+                update.setMember("size" (this.scaled("size" (size.outField()))))
+            }
+        }
+        def shape:VlChannel (this.channel("shape"))
+        if shape.defined {
+            if shape.hasValue {
+                update.setMember("shape" (VlCompile.literal(shape.value)))
+            } {
+                update.setMember("shape" (this.scaled("shape" (shape.outField()))))
+            }
+        }
+        ; A rule given only one position is a line ACROSS the plot at that
+        ; value — a mean line, a threshold — so it spans the other axis.
+        if (markName == "rule") {
+            if (! (this.hasChannel("x"))) {
+                update.setMember("x" (VlCompile.groupField("width")))
+                update.setMember("x2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+            }
+            if (! (this.hasChannel("y"))) {
+                update.setMember("y" (VlCompile.groupField("height")))
+                update.setMember("y2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+            }
+        }
+        def text:VlChannel (this.channel("text"))
+        if text.defined {
+            if (! text.hasValue) {
+                def signal (VlJson.objectValue())
+                def expr:string (VlCompile.describeOne((text.outField()) (text.isDiscrete())))
+                signal.setMember("signal" (VlJson.stringValue(expr)))
+                update.setMember("text" signal)
+            }
+        }
+        ; A line or an area is one shape through many rows, so the rows it must
+        ; skip are marked rather than dropped: dropping them would join across
+        ; the gap.
+        if ((markName == "line") || (markName == "area")) {
+            def expr:string ""
+            for channels ch:VlChannel ci {
+                if ((ch.name == "x") || (ch.name == "y")) {
+                    if (ch.isContinuous()) {
+                        if (! ch.hasValue) {
+                            if ((strlen expr) > 0) {
+                                expr = (expr + " && ")
+                            }
+                            expr = (expr + (VlCompile.validExpr((ch.outField()))))
+                        }
+                    }
+                }
+            }
+            if ((strlen expr) > 0) {
+                def d (VlJson.objectValue())
+                d.setMember("signal" (VlJson.stringValue(expr)))
+                update.setMember("defined" d)
+            }
+        }
+    }
+
+    ; The half pixel a binned bar is nudged by, so that neighbouring bars share
+    ; an edge instead of overlapping on it — and, when a bin is narrower than a
+    ; quarter of a pixel, so that it does not vanish. Both edges carry the same
+    ; expression with the sign flipped; `upper` is the bin's end.
+    ; How much room a mark leaves between one bin and the next: a bar stands a
+    ; pixel clear of its neighbour, a heat map's cells touch.
+    fn binSpacing:double () {
+        if (markName == "rect") {
+            return 0.0
+        }
+        return 1.0
+    }
+
+    sfn binNudge:VlJson (startField:string endField:string axis:string upper:boolean spacing:double) {
+        def gap:string (((((("abs(scale(\"" + axis) + "\", datum[\"") + endField) + "\"]) - scale(\"" + axis) + "\", datum[\"") + startField) + "\"]))")
+        def half:string (VlJson.formatNumber((spacing / 2.0) 6))
+        def toward:string ("-" + half)
+        def away:string half
+        if upper {
+            toward = half
+            away = ("-" + half)
+        }
+        if (spacing == 0.0) {
+            toward = "0.5"
+            away = "0"
+            if (! upper) {
+                toward = "-0.5"
+            }
+        }
+        def expr:string ((((((("0.5 + (" + gap) + " < 0.25 ? ") + toward) + " * (0.25 - (") + gap) + ")) : ") + away) + ")")
+        def out (VlJson.objectValue())
+        out.setMember("signal" (VlJson.stringValue(expr)))
+        return out
+    }
+
+    fn encodeAxisPair:void (update:VlJson ch:VlChannel axis:string dimension:string) {
+        if (! ch.defined) {
+            return
+        }
+        if ch.hasValue {
+            update.setMember(axis (VlCompile.literal(ch.value)))
+            return
+        }
+        if ((strlen (ch.outField())) == 0) {
+            return
+        }
+        def type:string (this.scaleTypeFor(ch))
+        if (type == "band") {
+            def at:VlJson (this.scaled(axis (ch.outField())))
+            ; A label over a bar chart sits on the same band scale the bars do,
+            ; and it does not fill the band — it stands in the middle of it.
+            if (! (this.fillsBand())) {
+                at.setMember("band" (VlJson.numberValue(0.5)))
+                update.setMember(axis at)
+                return
+            }
+            def band:string axis
+            ; A grouped bar is placed at its band AND then along the sub-scale
+            ; inside it, so its width is the sub-band's rather than the band's.
+            def offset:VlChannel (this.channel("xOffset"))
+            if (offset.defined && (axis == "x")) {
+                at.setMember("offset" (this.scaled("xOffset" (offset.outField()))))
+                band = "xOffset"
+            }
+            update.setMember(axis at)
+            def width (VlJson.objectValue())
+            width.setMember("signal" (VlJson.stringValue((("max(0.25, bandwidth('" + (this.sname(band))) + "'))"))))
+            update.setMember(dimension width)
+            return
+        }
+        ; A binned bar spans its bin, and the pair of half-pixel nudges keeps a
+        ; bin narrower than a quarter pixel from disappearing entirely.
+        if ch.hasBin {
+            def from:VlJson (this.scaled(axis (ch.binEndField())))
+            from.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis true (this.binSpacing()))))
+            update.setMember(axis from)
+            def to:VlJson (this.scaled(axis (ch.outField())))
+            to.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis false (this.binSpacing()))))
+            update.setMember((axis + "2") to)
+            return
+        }
+        if ((strlen stackField) > 0) {
+            if ((ch.outField()) == stackField) {
+                update.setMember(axis (this.scaled(axis (stackField + "_end"))))
+                update.setMember((axis + "2") (this.scaled(axis (stackField + "_start"))))
+                return
+            }
+        }
+        ; A tick is a short line drawn ACROSS its band, so it is centred on its
+        ; value and given a thickness rather than placed by its corner.
+        if (markName == "tick") {
+            update.setMember((axis + "c") (this.scaled(axis (ch.outField()))))
+            update.setMember(dimension (VlCompile.literal((VlJson.numberValue(1.0)))))
+            ; With nothing on the other axis there is no band to cross, so the
+            ; tick crosses the plot itself — three quarters of it, centred.
+            def other:string "y"
+            def otherSize:string "height"
+            if (axis == "y") {
+                other = "x"
+                otherSize = "width"
+            }
+            if (! (this.hasChannel(other))) {
+                def centre (VlJson.objectValue())
+                centre.setMember("signal" (VlJson.stringValue((this.sizeSignal(otherSize)))))
+                centre.setMember("mult" (VlJson.numberValue(0.5)))
+                update.setMember((other + "c") centre)
+                def across (VlJson.objectValue())
+                across.setMember("signal" (VlJson.stringValue((("0.75 * " + (this.sizeSignal(otherSize)))))))
+                update.setMember(otherSize across)
+            }
+            return
+        }
+        ; A channel may name a SECOND field — a bar from one value to another,
+        ; which is what a Gantt chart is — and then both ends are given.
+        def second:VlChannel (this.channel((axis + "2")))
+        if second.defined {
+            if ((strlen second.field) > 0) {
+                update.setMember(axis (this.scaled(axis (ch.outField()))))
+                update.setMember((axis + "2") (this.scaled(axis (second.outField()))))
+                return
+            }
+        }
+        update.setMember(axis (this.scaled(axis (ch.outField()))))
+        ; A bar has LENGTH, so it needs both ends. A stacked one gets them from
+        ; the stack; an unstacked one runs from the baseline of its scale.
+        if ((markName == "bar") || (markName == "area")) {
+            def measure:VlChannel (this.stackMeasure())
+            if (measure.name == ch.name) {
+                def base (VlJson.objectValue())
+                base.setMember("scale" (VlJson.stringValue(axis)))
+                base.setMember("value" (VlJson.numberValue(0.0)))
+                update.setMember((axis + "2") base)
+            }
+        }
+    }
+}

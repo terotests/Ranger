@@ -1,0 +1,68 @@
+rect x=0.5 y=0.5 w=180 h=40 stroke=#ddd strokeWidth=1
+group-begin
+group-begin
+line x=10.5 y=40.5 x2=10.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=30.5 y=40.5 x2=30.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=50.5 y=40.5 x2=50.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=70.5 y=40.5 x2=70.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=90.5 y=40.5 x2=90.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=110.5 y=40.5 x2=110.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=130.5 y=40.5 x2=130.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=150.5 y=40.5 x2=150.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=170.5 y=40.5 x2=170.5 y2=45.5 stroke=#888 strokeWidth=1
+text x=10.5 y=47.5 size=10 align=right text=A fill=#000
+text x=30.5 y=47.5 size=10 align=right text=B fill=#000
+text x=50.5 y=47.5 size=10 align=right text=C fill=#000
+text x=70.5 y=47.5 size=10 align=right text=D fill=#000
+text x=90.5 y=47.5 size=10 align=right text=E fill=#000
+text x=110.5 y=47.5 size=10 align=right text=F fill=#000
+text x=130.5 y=47.5 size=10 align=right text=G fill=#000
+text x=150.5 y=47.5 size=10 align=right text=H fill=#000
+text x=170.5 y=47.5 size=10 align=right text=I fill=#000
+line x=0.5 y=40.5 x2=180.5 y2=40.5 stroke=#888 strokeWidth=1
+text x=90.5 y=59.5 size=11 align=center text=a fill=#000
+group-end
+group-begin
+line x=0.5 y=10.5 x2=-4.5 y2=10.5 stroke=#888 strokeWidth=1
+line x=0.5 y=30.5 x2=-4.5 y2=30.5 stroke=#888 strokeWidth=1
+text x=-6.5 y=10.5 size=10 align=right text=x fill=#000
+text x=-6.5 y=30.5 size=10 align=right text=y fill=#000
+line x=0.5 y=0.5 x2=0.5 y2=40.5 stroke=#888 strokeWidth=1
+text x=-18.5 y=20.5 size=11 align=center text=g fill=#000
+group-end
+symbol x=10 y=10 size=113.846 shape=circle fill=#4c78a8 opacity=0.7
+symbol x=30 y=30 size=219.769 shape=circle fill=#4c78a8 opacity=0.7
+symbol x=50 y=10 size=172.692 shape=circle fill=#4c78a8 opacity=0.7
+symbol x=70 y=30 size=361 shape=circle fill=#4c78a8 opacity=0.7
+symbol x=90 y=10 size=321.769 shape=circle fill=#4c78a8 opacity=0.7
+symbol x=110 y=30 size=211.923 shape=circle fill=#4c78a8 opacity=0.7
+symbol x=130 y=10 size=78.538 shape=circle fill=#4c78a8 opacity=0.7
+symbol x=150 y=30 size=345.308 shape=circle fill=#4c78a8 opacity=0.7
+symbol x=170 y=10 size=208 shape=circle fill=#4c78a8 opacity=0.7
+group-begin
+group-begin
+group-begin
+symbol x=208 y=21 size=4 shape=circle fill=#4c78a8 opacity=0.7
+text x=222 y=21 size=10 align=left text=0 fill=#000
+group-end
+group-begin
+symbol x=208 y=36.5 size=82.462 shape=circle fill=#4c78a8 opacity=0.7
+text x=222 y=36.5 size=10 align=left text=20 fill=#000
+group-end
+group-begin
+symbol x=208 y=56.5 size=160.923 shape=circle fill=#4c78a8 opacity=0.7
+text x=222 y=56.5 size=10 align=left text=40 fill=#000
+group-end
+group-begin
+symbol x=208 y=79.5 size=239.385 shape=circle fill=#4c78a8 opacity=0.7
+text x=222 y=79.5 size=10 align=left text=60 fill=#000
+group-end
+group-begin
+symbol x=208 y=105 size=317.846 shape=circle fill=#4c78a8 opacity=0.7
+text x=222 y=105 size=10 align=left text=80 fill=#000
+group-end
+group-end
+text x=198 y=0 size=11 align=left text=b fill=#000
+group-end
+group-end
+

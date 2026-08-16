@@ -26,6 +26,11 @@ class VlConfig {
     ; A spec that wants its guides in a different colour says so once here
     ; rather than on each of its axes, and the reference reads it the same way.
     def axisAll:VlJson (VlJson.objectValue())
+    ; `config.legend`, which every legend inherits the same way every axis
+    ; inherits `config.axis` — the colours a legend reads on a dark page are a
+    ; property of the chart, and stating them once is the only way to say so
+    ; without repeating them on every channel that happens to have a key.
+    def legendAll:VlJson (VlJson.objectValue())
 
     ; --- the built-in table ---------------------------------------------------
     fn loadDefaults:void () {
@@ -48,13 +53,17 @@ class VlConfig {
         point.setMember("shape" (VlJson.stringValue("circle")))
         set styles "point" point
 
+        ; A circle and a square are a point with the shape decided, so they
+        ; inherit its stroke width along with its size.
         def circle:VlJson (VlJson.objectValue())
         circle.setMember("size" (VlJson.intValue(30)))
+        circle.setMember("strokeWidth" (VlJson.intValue(2)))
         circle.setMember("shape" (VlJson.stringValue("circle")))
         set styles "circle" circle
 
         def square:VlJson (VlJson.objectValue())
         square.setMember("size" (VlJson.intValue(30)))
+        square.setMember("strokeWidth" (VlJson.intValue(2)))
         square.setMember("shape" (VlJson.stringValue("square")))
         set styles "square" square
 
@@ -147,6 +156,9 @@ class VlConfig {
         if (config.get("axis").isObject()) {
             axisAll = (config.get("axis"))
         }
+        if (config.has("legend")) {
+            legendAll = (config.get("legend"))
+        }
         for config.keys name:string ci {
             if (has markTypes name) {
                 def incomingMark:VlJson (config.get(name))
@@ -196,6 +208,20 @@ class VlConfig {
         }
         for adef.keys key:string di {
             out.setMember(key (adef.get(key)))
+        }
+        return out
+    }
+
+    fn mergedLegend:VlJson (ldef:VlJson) {
+        if ((array_length legendAll.keys) == 0) {
+            return ldef
+        }
+        def out:VlJson (VlJson.objectValue())
+        for legendAll.keys key:string ai {
+            out.setMember(key (legendAll.get(key)))
+        }
+        for ldef.keys key:string di {
+            out.setMember(key (ldef.get(key)))
         }
         return out
     }

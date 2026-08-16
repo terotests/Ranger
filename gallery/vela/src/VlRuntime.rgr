@@ -26,6 +26,7 @@ Import "VlScene.rgr"
 Import "VlConfig.rgr"
 Import "VlAxis.rgr"
 Import "VlLegend.rgr"
+Import "VlViewBox.rgr"
 
 ; A group that is a plot in its own right: its own size, and the room its own
 ; axes take outside it. A concatenated or faceted view is a row of these.
@@ -38,11 +39,65 @@ class VlGroupBox {
     def right:double 0.0
     def top:double 0.0
     def bottom:double 0.0
+    ; Which top-level mark produced this box, so that a mark whose items are
+    ; kept from the last encode can have its box kept with them.
+    def markIndex:int -1
+    ; Half the frame stroke, which the extents above include and a title does
+    ; not: a title is placed clear of the plot rectangle and its guides, not
+    ; clear of the outer edge of the line drawn around them.
+    def frameHalf:double 0.0
+}
+
+; ============================================================================
+; One node of the dataflow: something with a name that other things read.
+; ============================================================================
+; Vela computes a whole scene from a whole specification, which is the right
+; shape for drawing a chart once. It is the wrong shape for drawing it again
+; with one number changed — a slider moved, a filter narrowed, a year picked —
+; because almost nothing about the chart depends on that number and everything
+; is recomputed anyway.
+;
+; So the specification is also read as a GRAPH: which signal each data set's
+; transforms mention, which data set each scale takes its domain from, which
+; signal each other signal's update expression names. Changing a signal then
+; dirties its dependents and nothing else, and only the dirty nodes run again.
+;
+; The dependencies are read off the parsed expressions rather than the text: an
+; identifier that names a signal is a dependency on it, `data('x')` is a
+; dependency on that data set, and `scale('y')` is a dependency on that scale.
+; Reading the AST rather than the string is what keeps `datum.width` from
+; looking like a dependency on the `width` signal.
+; ============================================================================
+class VlFlowNode {
+    ; "signal:tickCount", "data:source_0", "scale:x" — the kind is part of the
+    ; key because a signal and a data set may share a name.
+    def key:string ""
+    def kind:string "signal"
+    def name:string ""
+    def def0:VlJson (new VlJson)
+    def deps:[string]
+    def dirty:boolean false
 }
 
 class VlRuntime {
     def spec:VlJson (new VlJson)
     def scope:VlExprScope (new VlExprScope())
+    ; The wall clock a `time` scale is read in. The reference reads the
+    ; machine's; this is SUPPLIED, because a runtime that compiles to eight
+    ; targets has to draw the same chart on all of them and "whatever the host
+    ; thinks the zone is" is not an input. Empty means UTC, which is what a
+    ; `utc` scale gets whatever this says.
+    def timeZoneName:string ""
+    ; The dependency graph, and what the last `update` actually recomputed.
+    def flowNodes:[VlFlowNode]
+    def flowRan:[string]
+    ; The marks the last encode produced, and the boxes they contributed to the
+    ; layout. A mark that reads nothing a change touched is not re-encoded: its
+    ; items are the same items, and the layout re-places them.
+    def lastMarks:[VlSceneMark]
+    def lastBoxes:[VlGroupBox]
+    def cleanMarks:[string:int]
+    def reusing:boolean false
     def dataSets:[string:VlDataSet]
     def dataOrder:[string]
     def scaleOrder:[string]
@@ -57,6 +112,12 @@ class VlRuntime {
     def extentRight:double 0.0
     def extentTop:double 0.0
     def extentBottom:double 0.0
+    ; What the AXES asked for, which is not the same as what the drawing needs:
+    ; a vertical axis' end labels overhang the plot above and below, and the
+    ; view has to hold them, but a legend anchored below the chart is anchored
+    ; past the x axis and not past half a line of y-axis label.
+    def axisTop:double 0.0
+    def axisBottom:double 0.0
     ; The top-level groups a concatenated or faceted view holds, with the room
     ; each one's own axes need around it. The layout step places them.
     def groupBoxes:[VlGroupBox]
@@ -68,6 +129,12 @@ class VlRuntime {
     ; ------------------------------------------------------------------ run ---
     fn run:VlSceneMark (specJson:VlJson) {
         spec = specJson
+        if ((strlen timeZoneName) > 0) {
+            if (! (VlTimeZone.isKnown(timeZoneName))) {
+                this.warn(("time zone '" + timeZoneName) + "' is not one this runtime carries; UTC was used")
+            }
+        }
+        scope.zone = (VlTimeZone.named(timeZoneName))
         config.loadDefaults()
         config.mergeSpecConfig((spec.get("config")))
         this.readSize()
@@ -76,7 +143,329 @@ class VlRuntime {
         this.reportMissingFunctions()
         this.buildScales()
         this.settle()
+        this.buildFlow()
         return (this.encodeScene())
+    }
+
+
+    ; ------------------------------------------------------------- dataflow ---
+    ; The graph, read off the specification once. Nodes are kept in the order
+    ; the spec lists them, which is already a working order: a data set may only
+    ; source one defined before it, and a scale may only read a data set that
+    ; exists. Signals are the exception and are settled by iteration, the same
+    ; way the first run settles them.
+    fn buildFlow:void () {
+        clear flowNodes
+
+        def signals:VlJson (spec.get("signals"))
+        if (signals.isArray()) {
+            def total:int (signals.count())
+            def k:int 0
+            while (k < total) {
+                def sig:VlJson (signals.at(k))
+                def name:string (sig.stringOr("name" ""))
+                if ((strlen name) > 0) {
+                    def node (new VlFlowNode())
+                    node.kind = "signal"
+                    node.name = name
+                    node.key = ("signal:" + name)
+                    node.def0 = sig
+                    this.dependOnExpr(node (sig.stringOr("update" "")))
+                    this.dependOnExpr(node (sig.stringOr("init" "")))
+                    this.addFlowNode(node)
+                }
+                k = (k + 1)
+            }
+        }
+
+        def data:VlJson (spec.get("data"))
+        if (data.isArray()) {
+            def total2:int (data.count())
+            def k2:int 0
+            while (k2 < total2) {
+                def ddef:VlJson (data.at(k2))
+                def name2:string (ddef.stringOr("name" ""))
+                if ((strlen name2) > 0) {
+                    def node2 (new VlFlowNode())
+                    node2.kind = "data"
+                    node2.name = name2
+                    node2.key = ("data:" + name2)
+                    node2.def0 = ddef
+                    def source:string (ddef.stringOr("source" ""))
+                    if ((strlen source) > 0) {
+                        push node2.deps ("data:" + source)
+                    }
+                    this.dependOnJson(node2 (ddef.get("transform")))
+                    this.addFlowNode(node2)
+                }
+                k2 = (k2 + 1)
+            }
+        }
+
+        def scales:VlJson (spec.get("scales"))
+        if (scales.isArray()) {
+            def total3:int (scales.count())
+            def k3:int 0
+            while (k3 < total3) {
+                def sdef:VlJson (scales.at(k3))
+                def name3:string (sdef.stringOr("name" ""))
+                if ((strlen name3) > 0) {
+                    def node3 (new VlFlowNode())
+                    node3.kind = "scale"
+                    node3.name = name3
+                    node3.key = ("scale:" + name3)
+                    node3.def0 = sdef
+                    this.dependOnDomain(node3 (sdef.get("domain")))
+                    this.dependOnDomain(node3 (sdef.get("domainRaw")))
+                    this.dependOnJson(node3 (sdef.get("range")))
+                    this.dependOnJson(node3 (sdef.get("domain")))
+                    this.addFlowNode(node3)
+                }
+                k3 = (k3 + 1)
+            }
+        }
+
+        ; Marks last, because a mark reads scales and the dirty pass walks the
+        ; list once, forward: a node may only depend on one written before it.
+        def marks:VlJson (spec.get("marks"))
+        if (marks.isArray()) {
+            def totalMarks:int (marks.count())
+            def km:int 0
+            while (km < totalMarks) {
+                def mdef:VlJson (marks.at(km))
+                def markNode (new VlFlowNode())
+                markNode.kind = "mark"
+                markNode.name = (VlJson.intToText(km))
+                markNode.key = ("mark:" + (VlJson.intToText(km)))
+                markNode.def0 = mdef
+                this.dependOnMark(markNode mdef)
+                this.addFlowNode(markNode)
+                km = (km + 1)
+            }
+        }
+    }
+
+    ; What a mark reads: the data set it is drawn from, every scale its encode
+    ; block names, and every signal any expression in it mentions. A group mark
+    ; reads whatever the marks inside it read.
+    fn dependOnMark:void (node:VlFlowNode mdef:VlJson) {
+        def from:VlJson (mdef.get("from"))
+        if (from.isObject()) {
+            def dataName:string (from.stringOr("data" ""))
+            if ((strlen dataName) > 0) {
+                VlRuntime.addDep(node ("data:" + dataName))
+            }
+            def facet:VlJson (from.get("facet"))
+            if (facet.isObject()) {
+                def facetSource:string (facet.stringOr("data" ""))
+                if ((strlen facetSource) > 0) {
+                    VlRuntime.addDep(node ("data:" + facetSource))
+                }
+            }
+        }
+        this.dependOnJson(node (mdef.get("encode")))
+        this.dependOnJson(node (mdef.get("sort")))
+        def inner:VlJson (mdef.get("marks"))
+        if (inner.isArray()) {
+            def total:int (inner.count())
+            def k:int 0
+            while (k < total) {
+                this.dependOnMark(node (inner.at(k)))
+                k = (k + 1)
+            }
+        }
+        def axes:VlJson (mdef.get("axes"))
+        if (axes.isArray()) {
+            def totalAxes:int (axes.count())
+            def ka:int 0
+            while (ka < totalAxes) {
+                def adef:VlJson (axes.at(ka))
+                def scaleName:string (adef.stringOr("scale" ""))
+                if ((strlen scaleName) > 0) {
+                    VlRuntime.addDep(node ("scale:" + scaleName))
+                }
+                this.dependOnJson(node adef)
+                ka = (ka + 1)
+            }
+        }
+    }
+
+    fn addFlowNode:void (node:VlFlowNode) {
+        push flowNodes node
+    }
+
+    ; A `{"data": "x"}` domain, or an array of them — a scale over several data
+    ; sets at once, which is what a shared colour scale is.
+    fn dependOnDomain:void (node:VlFlowNode domain:VlJson) {
+        if (domain.isObject()) {
+            def from:string (domain.stringOr("data" ""))
+            if ((strlen from) > 0) {
+                VlRuntime.addDep(node ("data:" + from))
+            }
+            def fields:VlJson (domain.get("fields"))
+            if (fields.isArray()) {
+                def total:int (fields.count())
+                def k:int 0
+                while (k < total) {
+                    this.dependOnDomain(node (fields.at(k)))
+                    k = (k + 1)
+                }
+            }
+        }
+    }
+
+    ; Anything in a subtree that reads something else: a `{"signal": …}`, an
+    ; `"expr"`, or a transform's own named expression fields.
+    fn dependOnJson:void (node:VlFlowNode value:VlJson) {
+        if (value.isArray()) {
+            def total:int (value.count())
+            def k:int 0
+            while (k < total) {
+                this.dependOnJson(node (value.at(k)))
+                k = (k + 1)
+            }
+            return
+        }
+        if (! (value.isObject())) {
+            return
+        }
+        for value.keys key:string ki {
+            def child:VlJson (value.get(key))
+            if (child.isString()) {
+                if (((key == "signal") || (key == "expr")) || (key == "update")) {
+                    this.dependOnExpr(node child.str)
+                }
+                ; A channel that names a scale reads it.
+                if ((key == "scale") || (key == "gridScale")) {
+                    VlRuntime.addDep(node ("scale:" + child.str))
+                }
+            } {
+                this.dependOnJson(node child)
+            }
+        }
+    }
+
+    ; The dependencies an expression carries, read from its syntax tree: an
+    ; identifier that names a signal, and the argument of `data()` or `scale()`.
+    fn dependOnExpr:void (node:VlFlowNode text:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def parser (new VlExprParser())
+        def ast:VlExprNode (parser.parse(text))
+        if (! parser.ok) {
+            return
+        }
+        this.walkExprDeps(node ast)
+    }
+
+    fn walkExprDeps:void (node:VlFlowNode ast:VlExprNode) {
+        if (ast.kind == 1) {
+            if (scope.hasSignal(ast.name)) {
+                VlRuntime.addDep(node ("signal:" + ast.name))
+            }
+        }
+        if (ast.kind == 3) {
+            if ((array_length ast.children) > 0) {
+                def first:VlExprNode (itemAt ast.children 0)
+                if (first.kind == 0) {
+                    if (first.value.isString()) {
+                        if (ast.name == "data") {
+                            VlRuntime.addDep(node ("data:" + first.value.str))
+                        }
+                        if ((ast.name == "scale") || (ast.name == "invert")) {
+                            VlRuntime.addDep(node ("scale:" + first.value.str))
+                        }
+                    }
+                }
+            }
+        }
+        ; A member access reads its object, not a signal named after its key:
+        ; `datum.width` is not the `width` signal, so only the left side walks.
+        if (ast.kind == 2) {
+            if ((array_length ast.children) > 0) {
+                this.walkExprDeps(node (itemAt ast.children 0))
+            }
+            if (ast.computed) {
+                if ((array_length ast.children) > 1) {
+                    this.walkExprDeps(node (itemAt ast.children 1))
+                }
+            }
+            return
+        }
+        for ast.children child:VlExprNode ci {
+            this.walkExprDeps(node child)
+        }
+    }
+
+    sfn addDep:void (node:VlFlowNode key:string) {
+        for node.deps existing:string ei {
+            if (existing == key) {
+                return
+            }
+        }
+        push node.deps key
+    }
+
+    ; Change a signal and answer the scene it makes, having recomputed only what
+    ; reads it. `flowRan` afterwards names exactly the nodes that ran, which is
+    ; what a test asserts on — a graph that prunes nothing is a graph that is
+    ; not working, and it would still draw the right chart.
+    fn update:VlSceneMark (signalName:string value:VlJson) {
+        clear flowRan
+        scope.setSignal(signalName value)
+        if (signalName == "width") {
+            chartWidth = (value.asDouble())
+        }
+        if (signalName == "height") {
+            chartHeight = (value.asDouble())
+        }
+
+        def dirty:[string:int]
+        set dirty ("signal:" + signalName) 1
+        ; Nodes are in specification order, and a node may only read one written
+        ; before it, so one pass forward marks the whole transitive closure.
+        for flowNodes node:VlFlowNode ni {
+            for node.deps dep:string di {
+                if (has dirty dep) {
+                    set dirty node.key 1
+                }
+            }
+        }
+
+        def freshClean:[string:int]
+        cleanMarks = freshClean
+        for flowNodes node2:VlFlowNode ni2 {
+            if (has dirty node2.key) {
+                if (node2.key != ("signal:" + signalName)) {
+                    push flowRan node2.key
+                    if (node2.kind == "data") {
+                        this.runDataSet(node2.def0)
+                    }
+                    if (node2.kind == "scale") {
+                        this.buildScale(node2.def0)
+                    }
+                    if (node2.kind == "signal") {
+                        def expr:string (node2.def0.stringOr("update" ""))
+                        if ((strlen expr) > 0) {
+                            scope.setSignal(node2.name (this.evalExpr(expr)))
+                        }
+                    }
+                }
+            } {
+                ; A mark nothing dirty reaches keeps the items it already has.
+                if (node2.kind == "mark") {
+                    set cleanMarks node2.key 1
+                }
+            }
+        }
+        ; The axes and the legends are rebuilt whichever mark changed: they are
+        ; drawn from the scales, they are cheap, and a chart has a handful of
+        ; them against however many marks its data has rows.
+        reusing = true
+        def scene:VlSceneMark (this.encodeScene())
+        reusing = false
+        return scene
     }
 
     fn fail:void (msg:string) {
@@ -363,6 +752,28 @@ class VlRuntime {
         if (ttype == "identifier") {
             return rows
         }
+        ; A run of numbers, which is a data set with no data behind it. A
+        ; wrapped facet grid is laid out from two of them: as many row indices
+        ; as `ceil(facets / columns)`, and as many column indices as there are
+        ; columns. Both of those are signals over another data set's length,
+        ; which is why the bounds are resolved rather than read.
+        if (ttype == "sequence") {
+            def start:double (this.numberOrSignal((tdef.get("start")) 0.0))
+            def stop:double (this.numberOrSignal((tdef.get("stop")) 0.0))
+            def step:double (this.numberOrSignal((tdef.get("step")) 1.0))
+            def field:string (tdef.stringOr("as" "data"))
+            def out:[VlJson]
+            if (step > 0.0) {
+                def at:double start
+                while (at < stop) {
+                    def row:VlJson (VlJson.objectValue())
+                    row.setMember(field (VlJson.numberValue(at)))
+                    push out row
+                    at = (at + step)
+                }
+            }
+            return out
+        }
         this.fail((("transform '" + ttype) + "' is not implemented (data '") + dataName + "')")
         return rows
     }
@@ -439,6 +850,9 @@ class VlRuntime {
         def sc (new VlScale())
         sc.name = name
         sc.scaleType = (sdef.stringOr("type" "linear"))
+        if (sc.scaleType == "time") {
+            sc.zone = (VlTimeZone.named(timeZoneName))
+        }
         if (sdef.has("padding")) {
             sc.paddingInner = (sdef.doubleOr("padding" 0.0))
             sc.paddingOuter = (sdef.doubleOr("padding" 0.0))
@@ -768,6 +1182,9 @@ class VlRuntime {
 
     ; ---------------------------------------------------------------- encode ---
     fn encodeScene:VlSceneMark () {
+        ; Encoding is repeatable: `update` calls it again with new data, so
+        ; everything it accumulates starts empty.
+        clear groupBoxes
         def root (new VlSceneMark())
         root.markType = "group"
         root.role = "frame"
@@ -791,14 +1208,50 @@ class VlRuntime {
         this.encodeAxes(rootItem (spec.get("axes")))
 
         def marks:VlJson (spec.get("marks"))
+        def encoded:[VlSceneMark]
         if (marks.isArray()) {
             def total:int (marks.count())
             def k:int 0
             while (k < total) {
-                def mdef:VlJson (marks.at(k))
-                push rootItem.marks (this.encodeMark(mdef))
+                def key:string ("mark:" + (VlJson.intToText(k)))
+                def reuse:boolean false
+                if reusing {
+                    if (has cleanMarks key) {
+                        if (k < (array_length lastMarks)) {
+                            reuse = true
+                        }
+                    }
+                }
+                if reuse {
+                    ; The same mark object, with the same items in it. The
+                    ; layout will move them; nothing recomputes what they say.
+                    def kept:VlSceneMark (itemAt lastMarks k)
+                    push rootItem.marks kept
+                    push encoded kept
+                    for lastBoxes box:VlGroupBox bi {
+                        if (box.markIndex == k) {
+                            push groupBoxes box
+                        }
+                    }
+                } {
+                    def before:int (array_length groupBoxes)
+                    def fresh:VlSceneMark (this.encodeMark((marks.at(k))))
+                    def bj:int before
+                    while (bj < (array_length groupBoxes)) {
+                        def stamped:VlGroupBox (itemAt groupBoxes bj)
+                        stamped.markIndex = k
+                        bj = (bj + 1)
+                    }
+                    push rootItem.marks fresh
+                    push encoded fresh
+                }
                 k = (k + 1)
             }
+        }
+        lastMarks = encoded
+        clear lastBoxes
+        for groupBoxes box2:VlGroupBox bk {
+            push lastBoxes box2
         }
 
         ; Several plots side by side are placed once they all exist, because
@@ -810,13 +1263,14 @@ class VlRuntime {
         ; the axes have said how far that reaches.
         this.encodeLegends(rootItem)
 
-        ; The drawing surface, now that the axes have said how much room they
-        ; need. A renderer reads these four and needs no idea what an axis is:
-        ; make a canvas this big, translate by the origin, draw the commands.
-        rootItem.setNumber("viewWidth" (this.viewWidth()))
-        rootItem.setNumber("viewHeight" (this.viewHeight()))
-        rootItem.setNumber("originX" (this.plotOriginX()))
-        rootItem.setNumber("originY" (this.plotOriginY()))
+        ; The drawing surface, now that everything that will be drawn exists. A
+        ; renderer reads these four and needs no idea what an axis is: make a
+        ; canvas this big, translate by the origin, draw the commands.
+        def box:[double] (VlViewBox.measure(rootItem chartWidth chartHeight padding))
+        rootItem.setNumber("viewWidth" (itemAt box 0))
+        rootItem.setNumber("viewHeight" (itemAt box 1))
+        rootItem.setNumber("originX" (itemAt box 2))
+        rootItem.setNumber("originY" (itemAt box 3))
         return root
     }
 
@@ -826,6 +1280,8 @@ class VlRuntime {
         extentRight = 0.0
         extentTop = 0.0
         extentBottom = 0.0
+        axisTop = 0.0
+        axisBottom = 0.0
         if (! (axes.isArray())) {
             return
         }
@@ -846,13 +1302,31 @@ class VlRuntime {
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))
                 this.growExtent(orient (axis.totalExtent))
-                ; A vertical axis' labels are centred on their tick, so the one
-                ; at the top of the scale hangs half a line above the plot and
-                ; the drawing has to make room for it.
+                if (orient == "top") {
+                    axisTop = (VlRuntime.higher(axisTop (axis.totalExtent)))
+                }
+                if (orient == "bottom") {
+                    axisBottom = (VlRuntime.higher(axisBottom (axis.totalExtent)))
+                }
+                ; A vertical axis' labels are centred on their tick, so the
+                ; ones at the ends of the scale hang half a line above and
+                ; below the plot and the drawing has to make room for both. The
+                ; lower half only ever shows on a plot with no bottom axis —
+                ; the row header of a faceted view is exactly that, and it is
+                ; what the row title is centred on.
                 if ((orient == "left") || (orient == "right")) {
                     if (adef.boolOr("labels" true)) {
-                        def overhang:double (axis.labelFontSize / 2.0)
-                        this.growExtent("top" overhang)
+                        ; Only a CONTINUOUS scale puts a label at each end of
+                        ; itself. A band scale labels the middle of each band,
+                        ; so its top and bottom labels are half a band inside
+                        ; the plot and nothing overhangs.
+                        if ((sc.scaleType == "band") == false) {
+                            if ((sc.scaleType == "point") == false) {
+                                def overhang:double (axis.labelFontSize / 2.0)
+                                this.growExtent("top" overhang)
+                                this.growExtent("bottom" overhang)
+                            }
+                        }
                     }
                 }
             }
@@ -943,13 +1417,17 @@ class VlRuntime {
         if (reach0 > edge) {
             edge = reach0
         }
-        def anchorX:double ((VlBounds.ceilTo(edge)) + 18.0)
+        def rightEdge:double (VlBounds.ceilTo(edge))
         def stackY:double 0.0
-        def reach:double 0.0
+        def stackX:double 0.0
+        def reachRight:double 0.0
+        def reachLeft:double 0.0
+        def reachTop:double 0.0
+        def reachBottom:double 0.0
         def total:int (legends.count())
         def k:int 0
         while (k < total) {
-            def ldef:VlJson (this.resolveSignalMembers((legends.at(k))))
+            def ldef:VlJson (this.resolveSignalMembers((config.mergedLegend((legends.at(k))))))
             def legend (new VlLegend())
             def named:boolean false
             for legend.channelOrder channel:string ci {
@@ -965,27 +1443,80 @@ class VlRuntime {
             }
             if named {
                 def encode:VlJson (ldef.get("encode"))
-                def mark:VlSceneMark (legend.build(ldef (this.resolveEncodeBlock(encode "symbols")) (this.resolveEncodeBlock(encode "labels")) (this.resolveEncodeBlock(encode "title"))))
+                def mark:VlSceneMark (legend.build(ldef (this.resolveEncodeBlock(encode "symbols")) (this.resolveEncodeBlock(encode "labels")) (this.resolveEncodeBlock(encode "title")) (this.resolveEncodeBlock(encode "gradient"))))
                 for legend.errors msg:string mi {
                     this.warn(msg)
                 }
                 def orient:string (ldef.stringOr("orient" "right"))
-                if ((orient == "right") == false) {
-                    this.warn(("legend orient '" + orient) + "' is not placed yet; it is drawn on the right")
-                }
+                def offset:double (ldef.doubleOr("offset" 18.0))
                 def group:VlSceneItem (itemAt mark.items 0)
-                group.setNumber("x" anchorX)
-                group.setNumber("y" stackY)
-                stackY = ((stackY + legend.height) + 8.0)
-                if ((anchorX + legend.width) > reach) {
-                    reach = (anchorX + legend.width)
+
+                ; Where a legend goes. Outside an edge, the plot's guides are
+                ; part of what it has to clear — the labels of the axis on that
+                ; side, not the plotting rectangle. Inside a corner, nothing is
+                ; cleared and the offset is an inset from the plot itself.
+                def px:double 0.0
+                def py:double 0.0
+                if (orient == "right") {
+                    px = (rightEdge + offset)
+                    py = stackY
+                    stackY = ((stackY + legend.height) + 8.0)
                 }
+                if (orient == "left") {
+                    px = (0.0 - (((VlBounds.ceilTo(extentLeft)) + offset) + legend.width))
+                    py = stackY
+                    stackY = ((stackY + legend.height) + 8.0)
+                }
+                if (orient == "top") {
+                    px = stackX
+                    py = (0.0 - (((VlBounds.ceilTo(axisTop)) + offset) + legend.height))
+                    stackX = ((stackX + legend.width) + 8.0)
+                }
+                if (orient == "bottom") {
+                    px = stackX
+                    py = ((chartHeight + (VlBounds.ceilTo(axisBottom))) + offset)
+                    stackX = ((stackX + legend.width) + 8.0)
+                }
+                if (orient == "top-left") {
+                    px = offset
+                    py = offset
+                }
+                if (orient == "top-right") {
+                    px = ((chartWidth - legend.width) - offset)
+                    py = offset
+                }
+                if (orient == "bottom-left") {
+                    px = offset
+                    py = ((chartHeight - legend.height) - offset)
+                }
+                if (orient == "bottom-right") {
+                    px = ((chartWidth - legend.width) - offset)
+                    py = ((chartHeight - legend.height) - offset)
+                }
+                group.setNumber("x" px)
+                group.setNumber("y" py)
+
+                reachRight = (VlRuntime.higher(reachRight (px + legend.width)))
+                reachBottom = (VlRuntime.higher(reachBottom (py + legend.height)))
+                reachLeft = (VlRuntime.lower(reachLeft px))
+                reachTop = (VlRuntime.lower(reachTop py))
                 push rootItem.marks mark
             }
             k = (k + 1)
         }
-        if (reach > chartWidth) {
-            this.growExtent("right" (reach - chartWidth))
+        ; A legend outside the plot is part of the drawing, so the view grows
+        ; to hold it on whichever side it landed.
+        if (reachRight > chartWidth) {
+            this.growExtent("right" (reachRight - chartWidth))
+        }
+        if (reachLeft < 0.0) {
+            this.growExtent("left" (0.0 - reachLeft))
+        }
+        if (reachTop < 0.0) {
+            this.growExtent("top" (0.0 - reachTop))
+        }
+        if (reachBottom > chartHeight) {
+            this.growExtent("bottom" (reachBottom - chartHeight))
         }
     }
 
@@ -1037,6 +1568,23 @@ class VlRuntime {
             }
         }
         return out
+    }
+
+    ; A number a spec may have written as a signal instead, with what to use
+    ; when it wrote neither.
+    fn numberOrSignal:double (v:VlJson fallback:double) {
+        if (v.isNumber()) {
+            return v.num
+        }
+        if (v.isObject()) {
+            if (v.has("signal")) {
+                def out:VlJson (this.evalExpr((v.stringOr("signal" ""))))
+                if (out.isNumber()) {
+                    return out.num
+                }
+            }
+        }
+        return fallback
     }
 
     ; A guide's own properties may be signals rather than literals — a legend's
@@ -1204,8 +1752,8 @@ class VlRuntime {
                     rowItem.hasDatum = true
                     this.encodeChannels(rowItem enter row)
                     this.encodeChannels(rowItem update row)
-                    this.encodeGroupTitle(rowItem (mdef.get("title")) row)
-                    this.encodePlotGroup(rowItem (mdef.get("axes")) children mark.role)
+                    def rowBox:VlGroupBox (this.encodePlotGroup(rowItem (mdef.get("axes")) children mark.role))
+                    this.encodeGroupTitle(rowItem (mdef.get("title")) row rowBox)
                 }
                 return
             }
@@ -1219,8 +1767,8 @@ class VlRuntime {
             this.applyDefaults(item "group" "scope" styles noEncoded)
             this.encodeChannels(item enter empty)
             this.encodeChannels(item update empty)
-            this.encodeGroupTitle(item (mdef.get("title")) empty)
-            this.encodePlotGroup(item (mdef.get("axes")) children mark.role)
+            def plainBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role))
+            this.encodeGroupTitle(item (mdef.get("title")) empty plainBox)
             return
         }
 
@@ -1263,8 +1811,8 @@ class VlRuntime {
             this.applyDefaults(item "group" "scope" cellStyles cellEncoded)
             this.encodeChannels(item enter datum)
             this.encodeChannels(item update datum)
-            this.encodeGroupTitle(item (mdef.get("title")) datum)
-            this.encodePlotGroup(item (mdef.get("axes")) children mark.role)
+            def cellBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role))
+            this.encodeGroupTitle(item (mdef.get("title")) datum cellBox)
         }
     }
 
@@ -1276,7 +1824,7 @@ class VlRuntime {
     ; The reference builds it that way and the placement below reads those
     ; fields back, so the two agree about what a title is before they agree
     ; about where it goes.
-    fn encodeGroupTitle:void (item:VlSceneItem titleDef:VlJson parentRow:VlJson) {
+    fn encodeGroupTitle:void (item:VlSceneItem titleDef:VlJson parentRow:VlJson box:VlGroupBox) {
         if (! (titleDef.isObject())) {
             return
         }
@@ -1294,7 +1842,16 @@ class VlRuntime {
         group.setNumber("offset" (titleDef.doubleOr("offset" 0.0)))
         group.setNumber("padding" (titleDef.doubleOr("padding" 3.0)))
         group.setString("align" "center")
-        group.setNumber("angle" 0.0)
+        ; A title on a side is turned to run along it. Left reads bottom-to-top
+        ; and right reads top-to-bottom, which is a quarter turn each way.
+        def angle:double 0.0
+        if (orient == "left") {
+            angle = -90.0
+        }
+        if (orient == "right") {
+            angle = 90.0
+        }
+        group.setNumber("angle" angle)
 
         def styles:[string] (VlConfig.styleNames((titleDef.get("style"))))
         def textMark (new VlSceneMark())
@@ -1312,27 +1869,65 @@ class VlRuntime {
         text.setString("text" (label.asString()))
         text.setString("baseline" "top")
         text.setString("align" "center")
-        text.setNumber("angle" 0.0)
+        text.setNumber("angle" angle)
 
         ; Where the title sits inside the group it names: along the middle of
-        ; the group's own extent, and clear of it by the offset plus its own
-        ; height. A group with no width of its own — a column title, which is
-        ; placed as a whole later — has nothing to centre in and stays at zero.
+        ; the group's own extent, and clear of the group's INK by the offset
+        ; plus its own height. The ink is the point — a row header carries the
+        ; shared y axis, and the title belongs outside the axis labels, not
+        ; outside the plotting rectangle they hang off. A group with no width
+        ; of its own — a column title, which is placed as a whole later — has
+        ; nothing to centre in and stays at zero.
+        def sideways:boolean ((orient == "left") || (orient == "right"))
         def along:double 0.0
         if (frame == "group") {
-            if (orient == "top") {
-                along = ((item.number("width")) / 2.0)
-            } {
+            if sideways {
                 along = ((item.number("height")) / 2.0)
+            } {
+                along = ((item.number("width")) / 2.0)
             }
         }
         def fontSize:double (text.number("fontSize"))
-        def away:double (0.0 - ((titleDef.doubleOr("offset" 0.0)) + fontSize))
-        group.setNumber("x" along)
-        group.setNumber("y" away)
-        if ((orient == "left") || (orient == "right")) {
+        def extent:double box.top
+        if (orient == "bottom") {
+            extent = box.bottom
+        }
+        if (orient == "left") {
+            extent = box.left
+        }
+        if (orient == "right") {
+            extent = box.right
+        }
+        ; The text is drawn from its own edge outward, so the far side needs the
+        ; offset alone and the near side needs the offset plus the line.
+        def gap:double (((titleDef.doubleOr("offset" 0.0)) + extent) - box.frameHalf)
+        ; What the title clears is the ink INSIDE the frame; what the group is
+        ; then worth to the layout is that plus the frame line itself.
+        def away:double (0.0 - (gap + fontSize))
+        if ((orient == "bottom") || (orient == "right")) {
+            away = gap
+        }
+        if sideways {
             group.setNumber("x" away)
             group.setNumber("y" along)
+        } {
+            group.setNumber("x" along)
+            group.setNumber("y" away)
+        }
+        ; The group is that much bigger for having been given a title, and the
+        ; layout places the row of headers by exactly this number.
+        def reach:double ((gap + fontSize) + box.frameHalf)
+        if (orient == "top") {
+            box.top = (VlRuntime.higher(box.top reach))
+        }
+        if (orient == "bottom") {
+            box.bottom = (VlRuntime.higher(box.bottom reach))
+        }
+        if (orient == "left") {
+            box.left = (VlRuntime.higher(box.left reach))
+        }
+        if (orient == "right") {
+            box.right = (VlRuntime.higher(box.right reach))
         }
         push group.marks textMark
         push item.marks mark
@@ -1356,7 +1951,7 @@ class VlRuntime {
     ; The chart-level size and extents are swapped out for the duration. The
     ; axis builder reads them from here, and giving it a second set of fields to
     ; read would be the same state under another name.
-    fn encodePlotGroup:void (item:VlSceneItem axes:VlJson children:VlJson role:string) {
+    fn encodePlotGroup:VlGroupBox (item:VlSceneItem axes:VlJson children:VlJson role:string) {
         if (! (axes.isArray())) {
             this.encodeChildMarks(item children)
             def bare (new VlGroupBox())
@@ -1365,7 +1960,7 @@ class VlRuntime {
             bare.width = (item.number("width"))
             bare.height = (item.number("height"))
             push groupBoxes bare
-            return
+            return bare
         }
         def savedWidth:double chartWidth
         def savedHeight:double chartHeight
@@ -1397,6 +1992,7 @@ class VlRuntime {
             if (item.has("strokeWidth")) {
                 half = ((item.number("strokeWidth")) / 2.0)
             }
+            box.frameHalf = half
             box.left = (box.left + half)
             box.right = (box.right + half)
             box.top = (box.top + half)
@@ -1410,6 +2006,7 @@ class VlRuntime {
         extentRight = savedRight
         extentTop = savedTop
         extentBottom = savedBottom
+        return box
     }
 
     ; Several plots side by side. The reference lays them out on a grid whose
@@ -1449,18 +2046,19 @@ class VlRuntime {
         def gridY2:double 0.0
         def x:double 0.0
         def y:double 0.0
-        def rowTop:double 0.0
-        def rowHeight:double 0.0
+        ; The running edge of the row below which the next one starts, rounded
+        ; outward the same way the horizontal run is. A cell with a frame is
+        ; half a stroke taller than its plotting area, and a row that does not
+        ; round that half pixel out lands the whole next row one pixel high.
+        def rowBottom:double 0.0
         def first:boolean true
         for cells box:VlGroupBox idx {
             def column:int (idx % columns)
             if (column == 0) {
                 x = 0.0
                 if (idx > 0) {
-                    rowTop = (rowTop + rowHeight + gap)
-                    rowHeight = 0.0
+                    y = ((VlBounds.ceilTo(rowBottom)) + gap + (VlBounds.ceilTo(box.top)))
                 }
-                y = rowTop
             } {
                 x = (x + gap + (VlBounds.ceilTo(box.left)))
             }
@@ -1478,8 +2076,10 @@ class VlRuntime {
                 gridX2 = (VlRuntime.higher(gridX2 (x + box.width + box.right)))
                 gridY2 = (VlRuntime.higher(gridY2 (y + box.height + box.bottom)))
             }
-            if ((box.height + box.bottom + box.top) > rowHeight) {
-                rowHeight = (box.height + box.bottom + box.top)
+            if (column == 0) {
+                rowBottom = ((y + box.height) + box.bottom)
+            } {
+                rowBottom = (VlRuntime.higher(rowBottom ((y + box.height) + box.bottom)))
             }
             x = (VlBounds.ceilTo((x + box.width + box.right)))
         }
@@ -1517,6 +2117,7 @@ class VlRuntime {
         def colFooters:[VlGroupBox] (this.boxesWithRole("column-footer"))
         def rowHeaders:[VlGroupBox] (this.boxesWithRole("row-header"))
         def colTitles:[VlGroupBox] (this.boxesWithRole("column-title"))
+        def rowTitles:[VlGroupBox] (this.boxesWithRole("row-title"))
         def offsets:VlJson (layoutDef.get("offset"))
 
         def top:double 0.0
@@ -1573,8 +2174,38 @@ class VlRuntime {
             colTitle.item.setNumber("y" (titleY - (offsets.doubleOr("columnTitle" 0.0))))
         }
 
+        ; The row title is to the whole column of row headers what the column
+        ; title is to the row of column headers: clear of their far edge by the
+        ; layout's offset, and centred on everything they cover between them.
+        def rowTitleX:double rowHeaderX
+        def rowsTop:double 0.0
+        def rowsBottom:double 0.0
+        def sawRow:boolean false
+        for rowHeaders r2:VlGroupBox rj {
+            def rx:double ((r2.item.number("x")) - r2.left)
+            def ry1:double ((r2.item.number("y")) - r2.top)
+            def ry2:double (((r2.item.number("y")) + r2.height) + r2.bottom)
+            if (! sawRow) {
+                rowTitleX = rx
+                rowsTop = ry1
+                rowsBottom = ry2
+                sawRow = true
+            } {
+                rowTitleX = (VlRuntime.lower(rowTitleX rx))
+                rowsTop = (VlRuntime.lower(rowsTop ry1))
+                rowsBottom = (VlRuntime.higher(rowsBottom ry2))
+            }
+        }
+        for rowTitles rowTitle:VlGroupBox tj {
+            rowTitle.item.setNumber("x" (rowTitleX - (offsets.doubleOr("rowTitle" 0.0))))
+            rowTitle.item.setNumber("y" (to_double (floor (((rowsTop + rowsBottom) / 2.0) + 0.5))))
+        }
+
         for colHeaders h3:VlGroupBox hk {
             reach.add((h3.item.number("x")) ((h3.item.number("y")) + (VlRuntime.titleTop(h3.item))))
+        }
+        for rowTitles t4:VlGroupBox tk4 {
+            reach.add(((t4.item.number("x")) - t4.left) (t4.item.number("y")))
         }
         for colFooters f3:VlGroupBox fk {
             reach.add((f3.item.number("x")) ((f3.item.number("y")) + f3.bottom))

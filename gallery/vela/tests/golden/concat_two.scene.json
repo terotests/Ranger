@@ -9,10 +9,10 @@
       "width": 0,
       "height": 300,
       "background": "white",
-      "viewWidth": 605,
-      "viewHeight": 348,
-      "originX": 51.5,
-      "originY": 10.5,
+      "viewWidth": 613,
+      "viewHeight": 349,
+      "originX": 52,
+      "originY": 11,
       "items": [
         {
           "marktype": "group",

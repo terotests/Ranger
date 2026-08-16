@@ -69,6 +69,7 @@ function specsUnder(dir) {
 }
 
 const specs = process.argv.length > 2 ? process.argv.slice(2) : specsUnder(SPEC_DIR);
+const ZONE = process.env.VELA_ZONE || '';
 
 let total = 0;
 let matched = 0;
@@ -88,7 +89,11 @@ for (const specPath of specs) {
     continue;
   }
 
-  const velaOut = execFileSync(process.execPath, [SCENE_TOOL, specPath], { encoding: 'utf8' });
+  // VELA_ZONE compares in a wall clock other than the machine's: the reference
+  // reads the process TZ, and Vela is TOLD the same zone rather than reading
+  // anything. Both have to answer the same chart. See tools/reference/zones.mjs.
+  const velaArgs = ZONE ? [SCENE_TOOL, specPath, `--zone=${ZONE}`] : [SCENE_TOOL, specPath];
+  const velaOut = execFileSync(process.execPath, velaArgs, { encoding: 'utf8' });
   if (!velaOut.trimStart().startsWith('{')) {
     report.push({ name, status: 'VELA FAILED', detail: velaOut.trim().split('\n')[0] });
     continue;
@@ -140,7 +145,17 @@ function dumpItem(it) {
   for (const key of Object.keys(it)) {
     if (IGNORED.has(key) || key === 'items') continue;
     const v = it[key];
-    if (v === null || v === undefined || typeof v === 'object' || typeof v === 'function') continue;
+    if (v === null || v === undefined || typeof v === 'function') continue;
+    // An ARRAY channel is a value like any other — `strokeDash` is the one that
+    // matters, and it was skipped along with the back-references for years
+    // because both are `typeof 'object'`. A dashed grid line therefore compared
+    // equal to a solid one, and Vela drew solid.
+    if (typeof v === 'object') {
+      if (Array.isArray(v) && v.every(e => typeof e === 'number' || typeof e === 'string')) {
+        out[key] = v.join(',');
+      }
+      continue;
+    }
     out[key] = v;
   }
   if (it.items && it.items.length && it.items[0].marktype) out.items = it.items.map(dumpMark);

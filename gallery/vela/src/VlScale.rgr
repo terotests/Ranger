@@ -38,6 +38,10 @@ class VlScale {
     ; A power scale's exponent. `sqrt` is the same scale with the exponent a
     ; half, which is what a bubble's radius or a radial chart's is written as.
     def powExponent:double 1.0
+    ; Which wall clock a `time` scale reads. UTC unless the runtime was given a
+    ; zone; a `utc` scale keeps this one whatever the runtime was told, because
+    ; that is what asking for a `utc` scale means.
+    def zone:VlTimeZone (new VlTimeZone())
 
     ; Quantitative domain / range.
     def domainMin:double 0.0
@@ -224,6 +228,11 @@ class VlScale {
     ; Where a value sits between the domain's ends, from 0 to 1. A log scale
     ; interpolates the LOGARITHMS, which is the whole of what makes it one; the
     ; base cancels in the ratio, so a natural log serves every base.
+    ; A domain with no width at all is not an error and not zero: every value in
+    ; it is at the MIDDLE of the range, which is d3's rule and the only one that
+    ; reads. A heat map of a count where every cell counts one is exactly this —
+    ; mapping it to zero paints the whole table the palest colour the scheme has
+    ; and says "all lowest" about numbers that are all the same.
     fn fraction:double (value:double) {
         if (this.isLog()) {
             if (value <= 0.0) {
@@ -232,7 +241,7 @@ class VlScale {
             def lo:double (VlMath.ln(domainMin))
             def hi:double (VlMath.ln(domainMax))
             if (hi == lo) {
-                return 0.0
+                return 0.5
             }
             return (((VlMath.ln(value)) - lo) / (hi - lo))
         }
@@ -240,13 +249,13 @@ class VlScale {
             def lo:double (this.powTransform(domainMin))
             def hi:double (this.powTransform(domainMax))
             if (hi == lo) {
-                return 0.0
+                return 0.5
             }
             return (((this.powTransform(value)) - lo) / (hi - lo))
         }
         def span:double (domainMax - domainMin)
         if (span == 0.0) {
-            return 0.0
+            return 0.5
         }
         return ((value - domainMin) / span)
     }
@@ -366,10 +375,10 @@ class VlScale {
         ; day the data happened to begin.
         if (this.isTime()) {
             def unit:string (VlTime.unitOfTicks((this.timeTicks(count))))
-            domainMin = (VlTime.floorTo(start unit))
-            def end:double (VlTime.floorTo(stop unit))
+            domainMin = (VlTime.floorTo(start unit zone))
+            def end:double (VlTime.floorTo(stop unit zone))
             if (end < stop) {
-                end = (VlTime.addUnit(end unit))
+                end = (VlTime.addUnit(end unit zone))
             }
             domainMax = end
             return
@@ -437,7 +446,7 @@ class VlScale {
         }
         def msStep:double (VlScale.tickIncrement(domainMin domainMax n))
         def yearStep:double (VlScale.tickIncrement((domainMin / (VlTime.msPerYear())) (domainMax / (VlTime.msPerYear())) n))
-        return (VlTime.ticks(domainMin domainMax n msStep yearStep))
+        return (VlTime.ticks(domainMin domainMax n msStep yearStep zone))
     }
 
     ; The ticks a LOG scale asks for, which are not evenly spaced: every whole
@@ -770,6 +779,11 @@ class VlScale {
             }
             k = (k + 1)
         }
+        return (VlScale.decimalsForStep(step))
+    }
+
+    ; How many decimals a step needs: half needs one, ten needs none.
+    sfn decimalsForStep:int (step:double) {
         if (step == 0.0) {
             return 0
         }
@@ -780,6 +794,31 @@ class VlScale {
             decimals = (decimals + 1)
         }
         return decimals
+    }
+
+    ; A BINNED axis draws its ticks on the bin edges and formats them to the
+    ; precision the requested tick COUNT would have needed. Those are different
+    ; numbers and the reference uses the second: ten bins an integer apart are
+    ; labelled "1.0", "2.0" because a chart two hundred pixels wide asks for a
+    ; tick every ten, and twenty ticks over that domain is a step of a half.
+    sfn binLabels:[string] (values:[double] lo:double hi:double count:int) {
+        ; `tickIncrement` answers d3's own encoding: a positive number is the
+        ; step, and a NEGATIVE one means the step is its reciprocal — that is
+        ; how a step of a half comes back as -2 without ever being written as
+        ; a fraction. Reading the sign off and taking the magnitude would say
+        ; two where the answer is a half, and the precision would come out
+        ; zero where it should be one.
+        def increment:double (VlScale.tickIncrement(lo hi count))
+        def step:double increment
+        if (increment < 0.0) {
+            step = (1.0 / (0.0 - increment))
+        }
+        def decimals:int (VlScale.decimalsForStep(step))
+        def out:[string]
+        for values v:double idx {
+            out = (VlScale.appendLabel(out v decimals))
+        }
+        return out
     }
 
     ; Zero-fills so every label in the set shows the same number of decimals.

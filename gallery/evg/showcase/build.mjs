@@ -87,6 +87,38 @@ const PAGES = [
     themes: ["editorial", "studio", "autumn"],
   },
   {
+    id: "variants",
+    title: "Variants",
+    blurb:
+      "The same marks a chart already on this showcase uses, drawn a different way — bars that go down as well as up, bars that lie on their side, a bar between two values rather than from a baseline, a line that steps instead of sloping, a line that shows its own vertices, a single row of ticks, a shape legend, a mean drawn across the plot, and a pie whose wedges differ in length as well as angle. It is the variants that break a runtime rather than the types.",
+    shows: ["negative bars", "horizontal bars", "step interpolation", "shape scales", "rules across a plot", "radial scales"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "tables",
+    title: "Tables",
+    blurb:
+      "The plots where the cell is the datum: both axes are categories, or both are bins, and the value is carried by the cell's colour, its area, or the number printed in it. The two-dimensional histogram is the one that exercises the most — it bins on both axes, counts what lands in each cell, and ticks its axes on the bin edges rather than wherever a tick algorithm would have put them.",
+    shows: ["binning on both axes", "counts as colour", "point scales", "layered labels"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "drawing",
+    title: "What a renderer has to get right",
+    blurb:
+      "Four specifications that exist to be drawn rather than to say anything: every symbol shape the grammar offers, every interpolation that joins a line's points, the paint channels that change the ink without moving it — a dash pattern, a rounded corner, a square cap, a fill more translucent than its own outline — and a label against each alignment, baseline, nudge and angle. A scenegraph says \"diamond\" and stops; these are the specs that make a renderer say what a diamond looks like, and each of them is compared against the picture official Vega's own renderer produces.",
+    shows: ["twelve symbol shapes", "nine interpolations", "dashes and corner radii", "separate fill and stroke opacity", "text anchoring"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "views",
+    title: "More than one chart",
+    blurb:
+      "The four ways a chart can be more than one chart, all of them laid out by their own bounds rather than by a size anyone declared: a trellis by column, by row, and wrapped onto a grid whose shape is computed from the data, plus two plots concatenated with only the dimension across the join in common. The grid axes stay inside each panel; the labelled axes are drawn once, in the footer and the row header.",
+    shows: ["column and row facets", "wrapped grids", "concatenation", "bounds-based layout", "shared axes"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "flex",
     title: "Flex",
     blurb:
@@ -134,6 +166,10 @@ const PAGE_CSS = {
   charts: [path.join(HERE, "themes/charts-default.css")],
   plots: [path.join(HERE, "themes/plots-default.css")],
   more: [path.join(HERE, "themes/more-default.css")],
+  views: [path.join(HERE, "themes/views-default.css")],
+  variants: [path.join(HERE, "themes/variants-default.css")],
+  tables: [path.join(HERE, "themes/tables-default.css")],
+  drawing: [path.join(HERE, "themes/drawing-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {

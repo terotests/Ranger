@@ -24,11 +24,18 @@
 ; This is also what makes a turned label land where it should: all three
 ; targets rotate about the element's box centre, so a box whose centre is the
 ; anchor puts the string there whatever the face measures.
+;
+; THE GEOMETRY IS NOT THIS BACKEND'S. Symbol outlines, wedges, curves and
+; rounded rectangles all come from VlShape, which the SVG backend uses too.
+; They lived here once, and while they did, this backend drew every symbol that
+; was not a square as a circle and every curve as straight segments — for as
+; long as nothing in the suite asked for a diamond, nothing could tell.
 ; ==============================================================================
 
 Import "VlJson.rgr"
 Import "VlCommand.rgr"
 Import "VlText.rgr"
+Import "VlShape.rgr"
 Import "../../evg/PathBuilder.rgr"
 
 class VlEvgWriter {
@@ -246,6 +253,32 @@ class VlEvgWriter {
         if (a.opacity != b.opacity) {
             return false
         }
+        ; Two marks that differ in how translucent they are cannot share one
+        ; path element, however alike their colours.
+        if (a.fillOpacity != b.fillOpacity) {
+            return false
+        }
+        if (a.strokeOpacity != b.strokeOpacity) {
+            return false
+        }
+        if (a.strokeDash != b.strokeDash) {
+            return false
+        }
+        ; Nor can two rectangles rounded differently: the corners are part of
+        ; the path, and a run drawn from the first command's radii would round
+        ; every rectangle in it the same way.
+        if (a.cornerTL != b.cornerTL) {
+            return false
+        }
+        if (a.cornerTR != b.cornerTR) {
+            return false
+        }
+        if (a.cornerBR != b.cornerBR) {
+            return false
+        }
+        if (a.cornerBL != b.cornerBL) {
+            return false
+        }
         ; A stroked polyline and a filled polygon are different shapes even
         ; when they are painted alike.
         if ((a.op == "polyline") != (b.op == "polyline")) {
@@ -383,6 +416,29 @@ class VlEvgWriter {
         }
 
         def head:VlDrawCommand (itemAt list.commands from)
+        def fillAlpha:double (head.opacity * head.fillOpacity)
+        def strokeAlpha:double (head.opacity * head.strokeOpacity)
+
+        ; EVG carries ONE opacity per element, and a mark may want two: a
+        ; translucent fill inside a solid outline is what a scatter plot's
+        ; points and a bar's edge both ask for. When the two differ the shape is
+        ; written twice — filled once, stroked once — because folding them into
+        ; a single number would draw one of the two wrong, and drawing the
+        ; outline at the fill's opacity is exactly the washed-out look this was
+        ; producing.
+        if ((head.hasFill && head.hasStroke) && (fillAlpha != strokeAlpha)) {
+            def filled:string (this.paintedPath(head data true false fillAlpha viewWidth viewHeight))
+            def stroked:string (this.paintedPath(head data false true strokeAlpha viewWidth viewHeight))
+            return (filled + stroked)
+        }
+        def single:double fillAlpha
+        if (! head.hasFill) {
+            single = strokeAlpha
+        }
+        return (this.paintedPath(head data head.hasFill head.hasStroke single viewWidth viewHeight))
+    }
+
+    fn paintedPath:string (head:VlDrawCommand data:string withFill:boolean withStroke:boolean alpha:double viewWidth:double viewHeight:double) {
         def out:string ((indentText + "    ") + "<Path")
         if useClasses {
             def classes:string (this.classesFor(head))
@@ -394,18 +450,29 @@ class VlEvgWriter {
         out = ((((out + " width=\"") + (VlEvgWriter.px(viewWidth))) + "\" height=\"") + (VlEvgWriter.px(viewHeight)))
         out = ((((((out + "\" viewBox=\"0 0 ") + (VlJson.formatNumber(viewWidth 3))) + " ") + (VlJson.formatNumber(viewHeight 3))) + "\""))
         if (! useClasses) {
-            if head.hasFill {
+            if withFill {
                 out = ((((out + " fill=\"") + head.fill) + "\""))
             }
-            if head.hasStroke {
+            if withStroke {
                 out = ((((out + " stroke=\"") + head.stroke) + "\""))
             }
         }
-        if head.hasStroke {
-            out = ((((out + " strokeWidth=\"") + (VlJson.formatNumber(head.strokeWidth 3))) + "\""))
+        ; A half of the pair has to SAY it is not painting the other half, or
+        ; the theme's own rule paints it anyway.
+        if (! withFill) {
+            out = (out + " fill=\"none\"")
         }
-        if (head.opacity != 1.0) {
-            out = ((((out + " opacity=\"") + (VlJson.formatNumber(head.opacity 3))) + "\""))
+        if (! withStroke) {
+            out = (out + " stroke=\"none\"")
+        }
+        if withStroke {
+            out = ((((out + " strokeWidth=\"") + (VlJson.formatNumber(head.strokeWidth 3))) + "\""))
+            if ((strlen head.strokeDash) > 0) {
+                out = ((((out + " strokeDasharray=\"") + head.strokeDash) + "\""))
+            }
+        }
+        if (alpha != 1.0) {
+            out = ((((out + " opacity=\"") + (VlJson.formatNumber(alpha 3))) + "\""))
         }
         out = ((((out + " d=\"") + data) + "\" />") + (strfromcode 10))
         return out
@@ -416,7 +483,7 @@ class VlEvgWriter {
         def oy:double originY
 
         if (cmd.op == "rect") {
-            builder.addRect((cmd.x + ox) (cmd.y + oy) cmd.width cmd.height)
+            VlShape.appendRect(builder (cmd.x + ox) (cmd.y + oy) cmd.width cmd.height cmd.cornerTL cmd.cornerTR cmd.cornerBR cmd.cornerBL)
             return
         }
         if (cmd.op == "line") {
@@ -424,7 +491,7 @@ class VlEvgWriter {
             return
         }
         if (cmd.op == "symbol") {
-            this.appendSymbol(builder cmd ox oy)
+            VlShape.appendSymbol(builder cmd.shape cmd.size (cmd.x + ox) (cmd.y + oy))
             return
         }
         if ((cmd.op == "polyline") || (cmd.op == "polygon")) {
@@ -440,110 +507,16 @@ class VlEvgWriter {
                 }
                 k = (k + 1)
             }
-            if (cmd.op == "polyline") {
-                builder.addPolyline(pts)
-            } {
-                builder.addPolygon(pts)
-            }
+            VlShape.appendCurve(builder pts cmd.interpolate cmd.tension (cmd.op == "polygon"))
             return
         }
         if (cmd.op == "arc") {
-            this.appendArc(builder cmd ox oy)
+            VlShape.appendArc(builder (cmd.x + ox) (cmd.y + oy) cmd.startAngle cmd.endAngle cmd.innerRadius cmd.outerRadius)
             return
         }
         if (cmd.op == "path") {
             builder.addPathData(cmd.pathData)
         }
-    }
-
-    ; A symbol's `size` is an AREA, which is what makes two symbols of size 30
-    ; and 120 read as twice as big rather than four times.
-    ;
-    ; `sqrt(size)` is the SIDE of the square that area would make, and the
-    ; reference draws every one of its built-in shapes inside that square —
-    ; including the circle, whose radius is therefore `sqrt(size)/2` and not the
-    ; `sqrt(size/PI)` that would give it the stated area. That is a real
-    ; difference: a size-30 point is 2.74 across the radius in Vega and was 3.09
-    ; here, which is twelve per cent too big on every scatter plot, and it would
-    ; have made every legend symbol disagree with the key it stands for.
-    fn appendSymbol:void (builder:PathBuilder cmd:VlDrawCommand ox:double oy:double) {
-        def area:double cmd.size
-        if (area < 0.0) {
-            area = 0.0
-        }
-        def cx:double (cmd.x + ox)
-        def cy:double (cmd.y + oy)
-        def side:double (sqrt area)
-        if (cmd.shape == "square") {
-            builder.addRect((cx - (side / 2.0)) (cy - (side / 2.0)) side side)
-            return
-        }
-        ; `stroke` is the key a LINE chart gets: a short horizontal dash rather
-        ; than a filled shape, so the legend shows what the chart draws.
-        if (cmd.shape == "stroke") {
-            builder.addLine((cx - (side / 2.0)) cy (cx + (side / 2.0)) cy)
-            return
-        }
-        builder.addCircle(cx cy (side / 2.0))
-    }
-
-    ; A wedge: out along the start angle, round the outer radius, back down the
-    ; end angle and round the inner one. The reference's angles are measured
-    ; from UP and run clockwise, so x is sin and y is -cos.
-    fn appendArc:void (builder:PathBuilder cmd:VlDrawCommand ox:double oy:double) {
-        def cx:double (cmd.x + ox)
-        def cy:double (cmd.y + oy)
-        def a0:double cmd.startAngle
-        def a1:double cmd.endAngle
-        if (a1 < a0) {
-            def swap:double a0
-            a0 = a1
-            a1 = swap
-        }
-        def outer:double cmd.outerRadius
-        def inner:double cmd.innerRadius
-        if (outer <= 0.0) {
-            return
-        }
-
-        ; Flattened into short segments rather than emitted as elliptical arcs:
-        ; a wedge is a closed shape whose two straight edges have to meet the
-        ; curve exactly, and a chain of small lines is exact enough at chart
-        ; sizes and has no sweep-flag to get wrong.
-        def span:double (a1 - a0)
-        def steps:int (to_int ((span / 0.1) + 1.0))
-        if (steps < 2) {
-            steps = 2
-        }
-        if (steps > 240) {
-            steps = 240
-        }
-
-        def k:int 0
-        while (k <= steps) {
-            def t:double ((to_double k) / (to_double steps))
-            def a:double (a0 + (span * t))
-            def x:double (cx + ((sin a) * outer))
-            def y:double (cy - ((cos a) * outer))
-            if (k == 0) {
-                builder.moveTo(x y)
-            } {
-                builder.lineTo(x y)
-            }
-            k = (k + 1)
-        }
-        if (inner > 0.0) {
-            def j:int steps
-            while (j >= 0) {
-                def t2:double ((to_double j) / (to_double steps))
-                def a2:double (a0 + (span * t2))
-                builder.lineTo((cx + ((sin a2) * inner)) (cy - ((cos a2) * inner)))
-                j = (j - 1)
-            }
-        } {
-            builder.lineTo(cx cy)
-        }
-        builder.close()
     }
 
     ; ------------------------------------------------------------------ text ---

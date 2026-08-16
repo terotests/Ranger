@@ -29,16 +29,63 @@ class VelaSceneTool {
         return path
     }
 
+    ; `--zone=Europe/Helsinki` answers "Europe/Helsinki"; anything else answers
+    ; the empty string, which is also what an empty value answers — a flag with
+    ; nothing after it is the same as not passing it.
+    sfn flagValue:string (arg:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen arg) <= n) {
+            return ""
+        }
+        if ((substring arg 0 n) != prefix) {
+            return ""
+        }
+        return (substring arg n (strlen arg))
+    }
+
     sfn main:void () {
         def argCount:int (shell_arg_cnt)
         if (argCount < 1) {
             print "usage: vela_scene <spec.vg.json> [out.scene.json]"
             return
         }
-        def inputPath:string (shell_arg 0)
+        ; --zone=<name> reads a `time` scale in that wall clock instead of
+        ; UTC. It is an argument rather than something read from the machine on
+        ; purpose: the same spec has to draw the same chart on every target.
+        def inputPath:string ""
         def outputPath:string ""
-        if (argCount > 1) {
-            outputPath = (shell_arg 1)
+        def zoneName:string ""
+        ; --reflow runs the chart, then changes `width` to the value it already
+        ; has and answers the scene the incremental path produces. It must be
+        ; the same scene: the golden files are the assertion, and running them
+        ; all through it is how the dataflow is checked against every chart
+        ; rather than against the one the unit test builds.
+        def reflow:boolean false
+        def positional:int 0
+        def ai:int 0
+        while (ai < argCount) {
+            def arg:string (shell_arg ai)
+            if ((VelaSceneTool.flagValue(arg "--zone=")) != "") {
+                zoneName = (VelaSceneTool.flagValue(arg "--zone="))
+            } {
+              if (arg == "--reflow") {
+                reflow = true
+              } {
+                if (positional == 0) {
+                    inputPath = arg
+                } {
+                    if (positional == 1) {
+                        outputPath = arg
+                    }
+                }
+                positional = (positional + 1)
+              }
+            }
+            ai = (ai + 1)
+        }
+        if ((strlen inputPath) == 0) {
+            print "usage: vela_scene <spec.vg.json> [out.scene.json] [--zone=Europe/Helsinki] [--reflow]"
+            return
         }
 
         ; read_file takes a directory and a name, not one path.
@@ -58,7 +105,18 @@ class VelaSceneTool {
         }
 
         def rt (new VlRuntime())
+        rt.timeZoneName = zoneName
         def scene:VlSceneMark (rt.run(specJson))
+        if reflow {
+            ; Twice, because there are two paths through an incremental encode
+            ; and both have to answer the same scene. Setting `width` to the
+            ; value it already has dirties every scale and re-encodes every
+            ; mark; setting a signal nothing reads dirties nothing, so every
+            ; mark is kept from the last encode and the layout re-places the
+            ; items it already had.
+            scene = (rt.update("width" (VlJson.numberValue((rt.chartWidth)))))
+            scene = (rt.update("__reflow_probe" (VlJson.numberValue(0.0))))
+        }
 
         for rt.warnings w:string wi {
             print ("warning: " + w)

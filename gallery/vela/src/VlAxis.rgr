@@ -73,6 +73,17 @@ class VlAxis {
     ; reference leaves `opacity` at 1 and puts the number on `strokeOpacity`,
     ; which is a different thing to a renderer that strokes and fills.
     def gridOpacitySet:boolean false
+    ; A dash pattern belongs to the guide that asked for it. It reached nothing
+    ; before: `gridDash` was read from the specification, stored nowhere, and a
+    ; dashed grid came out solid. The scene comparison could not see it either,
+    ; because a dash is an ARRAY and the comparison only looked at channels
+    ; whose value was a single number or string.
+    def gridDash:VlJson (new VlJson)
+    def gridDashSet:boolean false
+    def tickDash:VlJson (new VlJson)
+    def tickDashSet:boolean false
+    def domainDash:VlJson (new VlJson)
+    def domainDashSet:boolean false
     def tickOpacitySet:boolean false
     def tickOpacity:double 1.0
     def domainOpacitySet:boolean false
@@ -117,6 +128,18 @@ class VlAxis {
         gridOpacity = (adef.doubleOr("gridOpacity" gridOpacity))
         tickRound = (adef.boolOr("tickRound" tickRound))
         gridOpacitySet = (adef.has("gridOpacity"))
+        gridDashSet = (adef.has("gridDash"))
+        if gridDashSet {
+            gridDash = (adef.get("gridDash"))
+        }
+        tickDashSet = (adef.has("tickDash"))
+        if tickDashSet {
+            tickDash = (adef.get("tickDash"))
+        }
+        domainDashSet = (adef.has("domainDash"))
+        if domainDashSet {
+            domainDash = (adef.get("domainDash"))
+        }
         tickOpacitySet = (adef.has("tickOpacity"))
         tickOpacity = (adef.doubleOr("tickOpacity" tickOpacity))
         domainOpacitySet = (adef.has("domainOpacity"))
@@ -220,6 +243,9 @@ class VlAxis {
         ; bins the data was actually put in.
         if ((array_length sc.binValues) > 0) {
             def labels:[string] (VlAxis.labelSet(sc.binValues format))
+            if ((strlen format) == 0) {
+                labels = (VlScale.binLabels(sc.binValues sc.domainMin sc.domainMax tickCount))
+            }
             for sc.binValues v:double idx {
                 def tvb (new VlAxisTickValue())
                 tvb.value = (VlJson.numberValue(v))
@@ -235,7 +261,17 @@ class VlAxis {
                 def tv (new VlAxisTickValue())
                 tv.value = (VlJson.stringValue(name))
                 tv.position = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * bandPosition))
-                tv.labelPosition = (tv.position - 0.5)
+                ; A BAND's label takes back the half pixel the axis group was
+                ; offset by, because a band's own positions are whole numbers
+                ; and the label wants to sit on one. A POINT scale's are not —
+                ; nine points across two hundred pixels land on 11.111, 33.333,
+                ; 55.555 — so there is no half pixel to take back, and taking
+                ; one anyway moves the label off its own point and rounds the
+                ; tick to the wrong pixel.
+                tv.labelPosition = tv.position
+                if (sc.scaleType == "band") {
+                    tv.labelPosition = (tv.position - 0.5)
+                }
                 tv.label = name
                 push out tv
             }
@@ -256,7 +292,7 @@ class VlAxis {
             if ((strlen format) == 0) {
                 clear labels
                 for values v:double vi {
-                    push labels (VlTime.multiFormat(v))
+                    push labels (VlTime.multiFormat(v sc.zone))
                 }
             }
         }
@@ -358,7 +394,14 @@ class VlAxis {
                 flushFrom = 0.0
                 flushTo = range
             }
-            push group.marks (this.buildLabels(ticks orient vertical flushFrom flushTo))
+            def labelMark:VlSceneMark (this.buildLabels(ticks orient vertical flushFrom flushTo))
+            push group.marks labelMark
+            ; A label that was thinned away takes up no room: the widest one is
+            ; the widest DRAWN one, measured after the overlap pass rather than
+            ; before it. A binned axis is where this shows — its last edge is
+            ; the widest label it has and often the first one to go, and
+            ; counting it reserves eight pixels nothing is printed in.
+            widest = (VlAxis.widestVisible(labelMark labelFontSize widest))
             def turned:boolean (this.labelsAreTurned())
             if vertical {
                 def alongV:double widest
@@ -416,6 +459,9 @@ class VlAxis {
             }
             item.setString("stroke" gridColor)
             item.setNumber("strokeWidth" gridWidth)
+            if gridDashSet {
+                item.setValue("strokeDash" gridDash)
+            }
             def at:double tv.labelPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
@@ -449,6 +495,9 @@ class VlAxis {
             }
             item.setString("stroke" tickColor)
             item.setNumber("strokeWidth" tickWidth)
+            if tickDashSet {
+                item.setValue("strokeDash" tickDash)
+            }
             def at:double tv.labelPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
@@ -523,6 +572,19 @@ class VlAxis {
                     align = "right"
                 }
                 item.setString("align" align)
+                ; A turned label is anchored by its own end rather than its
+                ; middle, and it hangs beside the tick rather than under it.
+                ; Which end depends on which way it was turned: reading upward
+                ; puts the last character nearest the axis, reading downward
+                ; puts the first one there.
+                if ((VlAxis.turnedQuarter(labelAngle)) != 0) {
+                    if ((VlAxis.turnedQuarter(labelAngle)) > 0) {
+                        item.setString("align" "left")
+                    } {
+                        item.setString("align" "right")
+                    }
+                    item.setString("baseline" "middle")
+                }
                 if ((strlen labelAlign) > 0) {
                     item.setString("align" labelAlign)
                 }
@@ -554,6 +616,44 @@ class VlAxis {
     ; The flush alignment has already moved the end labels inward by then, and
     ; it has to: pulling the last label back over the axis is often what makes
     ; it collide with its neighbour in the first place.
+    ; Which way a label was turned, as -1, 0 or 1. Vega measures the angle
+    ; clockwise from level and wraps it into a full turn first, so 270 and -90
+    ; are the same quarter turn and 360 is none at all.
+    sfn turnedQuarter:int (angle:double) {
+        def a:double angle
+        while (a < 0.0) {
+            a = (a + 360.0)
+        }
+        while (! (a < 360.0)) {
+            a = (a - 360.0)
+        }
+        if (a == 0.0) {
+            return 0
+        }
+        if (a == 180.0) {
+            return 0
+        }
+        if (a < 180.0) {
+            return 1
+        }
+        return -1
+    }
+
+    ; The widest label still being drawn. A mark with nothing hidden answers the
+    ; same number it was given, so an axis that never thinned pays nothing.
+    sfn widestVisible:double (mark:VlSceneMark fontSize:double whenEmpty:double) {
+        def shown:[string]
+        for mark.items item:VlSceneItem idx {
+            if ((item.number("opacity")) > 0.0) {
+                push shown (item.text("text"))
+            }
+        }
+        if ((array_length shown) == 0) {
+            return whenEmpty
+        }
+        return (VlText.widestLabel(shown fontSize))
+    }
+
     fn hideOverlappingLabels:void (mark:VlSceneMark) {
         def visible:[int]
         for mark.items item:VlSceneItem idx {
@@ -564,6 +664,7 @@ class VlAxis {
         if ((array_length visible) < 3) {
             return
         }
+        def lastOfAll:int (itemAt visible ((array_length visible) - 1))
         if (labelOverlapMode == "greedy") {
             this.thinGreedy(mark visible)
             return
@@ -589,6 +690,22 @@ class VlAxis {
                 } {
                     go = false
                 }
+            }
+        }
+        ; When halving has taken an axis down to two labels or fewer, the END of
+        ; the scale must be one of them. Two labels that are not the first and
+        ; the last do not read as an axis — they read as two arbitrary values —
+        ; so the reference gives up the last SURVIVOR and shows the last label
+        ; instead. Four labels of which none may touch is the case: parity keeps
+        ; the first and third, and the reference keeps the first and fourth.
+        if ((array_length visible) < 3) {
+            def endItem:VlSceneItem (itemAt mark.items lastOfAll)
+            if ((endItem.number("opacity")) == 0.0) {
+                if ((array_length visible) > 1) {
+                    def giveUp:VlSceneItem (itemAt mark.items (itemAt visible ((array_length visible) - 1)))
+                    giveUp.setNumber("opacity" 0.0)
+                }
+                endItem.setNumber("opacity" 1.0)
             }
         }
     }
@@ -667,6 +784,9 @@ class VlAxis {
         }
         item.setString("stroke" domainColor)
         item.setNumber("strokeWidth" domainWidth)
+        if domainDashSet {
+            item.setValue("strokeDash" domainDash)
+        }
         if vertical {
             item.setNumber("x" 0.0)
             item.setNumber("y" rangeFrom)

@@ -8,19 +8,30 @@ It is an independent implementation of the Vega grammar's semantics, not a port
 of the Vega JavaScript sources and not affiliated with the Vega project. See
 [Attribution and licensing](#attribution-and-licensing).
 
-**Status:** it draws. Marks, scales, transforms, signals, expressions, axes,
-legends and layout produce a scene that matches the reference implementation
-item for item on **970 of 970 marks** across 24 chart types at three sizes, and
-the EVG backend renders that scene to **PDF, PNG and HTML** — twenty-two charts
-on three pages of the project's
-[EVG showcase](https://terotests.github.io/Ranger/evg/). Every chart type the
-triage asked for is built; see
+**Status:** it draws, and it compiles what it draws, and what it draws is
+compared against the reference's own renderer. Marks, scales, transforms,
+signals, expressions, axes, legends and layout produce a scene that matches the
+reference implementation item for item on **1806 of 1806 marks** across 44 chart
+types at several sizes; the SVG it renders from that scene matches the SVG
+official Vega renders on **4651 of 4651 drawn outlines and labels**, to a
+quarter of a pixel; **40 of 40** Vega-Lite sources compile in Ranger and draw
+the same scene as the official compiler feeding official Vega; and the EVG
+backend renders that scene to **PDF, PNG and HTML** — forty-six charts on six
+pages of the project's [EVG showcase](https://terotests.github.io/Ranger/evg/).
+
+Compiled to **C++** and built with `g++`, the whole chain reproduces every one of
+those goldens byte for byte with no JavaScript engine underneath
+([the C++ check](#the-c-check-the-javascript-is-the-host-not-the-answer)). A
+`time` scale is read in a zone that is
+[supplied rather than discovered](#a-time-zone-is-supplied-not-discovered), and
+changing one signal
+[recomputes only what reads it](#changing-one-number). See
 [What is not there yet](#what-is-not-there-yet) for what remains.
 
 ```
                    Vega-Lite JSON
-                         │  official vega-lite (compile step, JS for now)
-                         ▼
+                         │  VlCompile — layers, facets, concatenation,
+                         ▼  composite marks
                      Vega JSON
                          │
    ┌─────────────────────┴──────────────────────┐
@@ -35,26 +46,74 @@ triage asked for is built; see
    │  VlAxis      ticks, labels, grid, title    │
    │  VlLegend    symbols, keys, title          │
    │  VlBounds    how big a drawn thing is      │
+   │  VlViewBox   how big the whole picture is  │
    │  VlScene     mark / item tree              │
    │  VlCommand   flat draw commands            │
+   │  VlShape     the geometry a mark IS        │
+   │  VlSvg       commands → SVG                │
    │  VlEvg       commands → EVG path data      │
    └─────────────────────┬──────────────────────┘
                          │
-              ┌──────────┼──────────┐
-              ▼          ▼          ▼
-        scene JSON    commands    EVG page
-       (compared to   (text, in   → PDF · PNG · HTML
-        the reference) a golden)
+          ┌──────────┬───┴──────┬──────────┐
+          ▼          ▼          ▼          ▼
+    scene JSON    commands    SVG      EVG page
+   (compared to   (text, in  (compared  → PDF · PNG · HTML
+    the reference) a golden)  to Vega's
+                              renderer)
 ```
 
 The command layer is the seam: it knows nothing about EVG, and the EVG backend
 knows nothing about Vega. Both are tested on their own — the commands as text
-against a golden, the scene against the reference implementation.
+against a golden, the scene against the reference implementation, and the SVG
+against the SVG the reference's own renderer produces.
+
+`VlShape` sits beside the seam rather than inside a backend, and that placement
+is load-bearing. The symbol outlines, wedges, curves and rounded rectangles used
+to live in the EVG backend, and while they did, that backend drew every symbol
+that was not a square as a circle and every curve as straight segments. Nothing
+could tell, because the scene said `shape: "diamond"` and the scene was what was
+being compared.
+
+## Paste a specification and watch it draw
+
+```bash
+npm run vela:web        # build gallery/vela/web/dist
+python3 -m http.server -d gallery/vela/web/dist
+```
+
+One HTML file and one compiled script. Paste Vega or Vega-Lite, press Render,
+and what appears is drawn by `gallery/vela/src/*.rgr` — the runtime, the
+Vega-Lite compiler and the SVG renderer, compiled to JavaScript by the same
+toolchain that compiles them to C++. The page also shows the Vega a Vega-Lite
+specification became, which is most of what a playground is for.
+
+Two things about it are deliberate:
+
+* **The page fetches, the runtime does not.** A `data.url` is loaded and parsed
+  by the page and handed to the runtime as values, because the runtime has no
+  loader and should not grow one — it compiles to eight targets, and seven of
+  them have no idea what a URL is. A relative url resolves against the Vega
+  editor's own data directory, so an example copied from the Vega site works as
+  pasted.
+* **What it will not draw, it says.** A transform Vela does not have comes back
+  as `the transform 'loess' is not compiled here` rather than as a chart with a
+  line missing from it. A blank pane and a wrong chart are the same thing to
+  whoever is looking at it.
+
+`node gallery/vela/web/smoke.mjs` opens the page in a real browser and checks
+all four paths: Vega in, Vega-Lite in, a fetched url, and a refusal. The page
+is the one part of this that a CLI cannot check — it depends on a browser
+loading a compiled script and on that script having no `require` left in it,
+and both fail as an empty pane rather than as an error.
 
 ## Try it
 
 ```bash
 bash gallery/vela/tests/run.sh          # build, unit tests, goldens, parity
+bash gallery/vela/tests/run_cpp.sh      # the same goldens, from a C++ binary
+node gallery/vela/tools/reference/render.mjs  # the DRAWING, against Vega's renderer
+node gallery/vela/tools/reference/zones.mjs   # a time axis, in eight zones
+npm run vela:compiler                  # Vega-Lite, compiled in Ranger
 ```
 
 ```bash
@@ -69,8 +128,9 @@ npm run vela:showcase && npm run showcase
 ```
 
 ```
-rect x=0 y=0 w=180 h=300 stroke=#ddd strokeWidth=1
-group-begin
+rect x=0.5 y=0.5 w=180 h=300 stroke=#ddd strokeWidth=1   ← the frame, on the
+group-begin                                                  half pixel so its
+                                                             stroke stays crisp
 group-begin
 line x=0.5 y=300.5 x2=180.5 y2=300.5 stroke=#ddd strokeWidth=1     ← grid
 …
@@ -116,6 +176,46 @@ channel of every item. `tools/reference/compile_specs.mjs` generates the specs
 themselves with the official compiler, so the inputs cannot drift into
 something convenient either.
 
+### And then the drawing, because a scenegraph is not a picture
+
+A scenegraph says `shape: "diamond"`, `baseline: "middle"`, `interpolate:
+"basis"` and stops. It takes a renderer to say what a diamond looks like, where
+a middle-baselined label's glyphs actually sit, and which curve joins eight
+points. All of that lived below the comparison, checked only against this
+repository's own golden files — and a golden file pins what *changed*. It can
+never tell you that what you drew was wrong from the start.
+
+So the reference renders to SVG, Vela renders to SVG (`VlSvg.rgr`, `vela_svg`),
+and `tools/reference/render.mjs` puts both documents through **one** parser:
+
+```
+                 Vega JSON
+                  │      │
+       official vega     Vela
+                  │      │
+          view.toSVG()   vela_svg
+                  │      │
+                  └ diff ┘        outlines and text anchors, in page pixels
+```
+
+Shapes are not compared as path strings — the reference writes a circle as two
+elliptical arcs and Vela writes it as four cubics, and those are the same
+circle. Each outline is flattened and the two are compared by **symmetric
+Hausdorff distance**, point to nearest *segment*: the furthest either outline
+strays from the other, independent of where a path started or which way round
+it went. The tolerance is a quarter of a pixel, so it means something.
+
+The first run of it disagreed on 704 of 3004 drawn primitives, in ways the
+scene comparison had no way to see — see the table below. It now agrees on all
+of them, and `run_cpp.sh` requires the native binary to produce the same SVG
+byte for byte.
+
+Four specs exist only to be drawn, because a harness proves nothing about a
+path nothing takes: `symbol_shapes` (all twelve builtin shapes),
+`curves` (all nine interpolations), `paint_channels` (dashes, corner radii,
+stroke caps, fill and stroke opacity apart) and `text_placement` (every
+alignment, baseline, nudge and angle).
+
 Every spec under `tests/specs` is compared, **including the smaller copies the
 showcase draws**. Those are the same charts at the size a printed page needs,
 and size is what the awkward parts of an axis depend on: which labels collide,
@@ -158,6 +258,32 @@ Each of these was found by the harness, not by reading the spec:
 | A log axis printed ten labels on top of each other | `labelOverlap` is `"greedy"` there, not `true` — hide each label that runs into the last one KEPT, since halving drops the readable ticks and keeps the crowded ones |
 | The last label of an axis was pulled inside the plot when it did not need to be | `labelFlush` is a threshold in PIXELS, and `true` means one pixel — not "the first and last label" |
 | A band tick sat one pixel right of its own label | ticks and labels share the axis group's half-pixel offset; only the label was taking it |
+| A heat map of a count came out uniformly pale | a domain with no width maps every value to the MIDDLE of the range, not to zero — "all the same" is not "all lowest" |
+| A point-scale axis was half a pixel out | only a BAND takes back the half pixel the axis group is offset by; a point scale's own positions are not whole numbers, so there is none to take |
+| An axis reserved room for a label it had hidden | the widest label is the widest DRAWN one, measured after the overlap pass |
+| An axis thinned to two labels dropped its own last one | when parity halving has got an axis down to two labels or fewer, the reference gives up the last SURVIVOR and shows the last LABEL — two labels that are not the ends of the scale do not read as one |
+
+### And what the RENDERER comparison caught, which none of the above could
+
+The scene was right in every one of these. The picture was not.
+
+| What was wrong | What the reference does |
+| --- | --- |
+| **Forty-two of the eighty charts were a different size than the reference's**, one of them by fifteen pixels | a view is sized from the BOUNDS of everything drawn, not from what the axes asked for. A bottom axis' last label sticks out to the *right*, and its extent only ever described how far it reached *down* |
+| An axis' domain line made every page a pixel taller | an axis contributes the box its TICKS and LABELS occupy, squared off against the scale's range. The grid and the domain line are drawn but do not get to grow the page |
+| Every framed chart's border was a blurred two-pixel grey | a stroked group is nudged half a pixel, so a one-pixel line lands inside a row of pixels instead of straddling two |
+| Every symbol that was not a circle or a square **was drawn as a circle** | there are twelve builtin shapes, and a diamond legend key beside diamond-less points is a chart that lies about its own data |
+| Every curve was drawn as straight segments | nine interpolations, of which `basis`, `cardinal`, `catmull-rom`, `monotone` and `natural` are real splines — and `monotone` is a claim about the data, not a matter of taste |
+| A rounded bar had square corners | `cornerRadius`, per corner, clamped to half the shorter side |
+| A dashed grid line came out solid | `gridDash` was read from the spec and stored nowhere. The scene comparison could not see it either: a dash is an ARRAY, and arrays were skipped along with the back-references |
+| A translucent fill inside a solid outline was drawn washed out | `fillOpacity` and `strokeOpacity` are separate channels; EVG carries one opacity per element, so the shape is written twice rather than averaged |
+| The page was painted white when the spec said `"background": null` | a background is a rectangle the specification asked for, not a default |
+| A `stroke-cap: square` rule was measured as if it were butt | a square cap reaches `sqrt(2)/2` of the stroke width past the end |
+
+Two of them were bugs in the harness itself, found the same way: it flattened
+curves at a fixed resolution, so a 300px arc read as three quarters of a pixel
+wrong when it was exact; and its SVG parser never captured text content, so for
+its first run it silently compared no labels at all.
 
 ## Compatibility
 
@@ -210,11 +336,12 @@ which is also what pins the legend's own size and position.
 | Signals | literal values and `update` expressions, settled against the scales |
 | Data | inline `values` and `source`; a `url` is refused rather than fetched |
 | Axes | ticks, grid, labels, domain, title · `tickCount`, `tickRound`, `labelAngle`, `labelFlush`, `labelOverlap`, band and binned ticks |
-| Legends | symbol legends for fill, stroke, size, shape and opacity, and gradient legends for continuous colour · title, per-row layout from the drawn bounds, and the spec's own `encode` blocks. `orient` other than `right` is drawn but not placed |
-| Layout | axis extents, view size and plot origin (`autosize: pad`) · several plots side by side, and a trellis of them with column headers, footers and a title, placed by their full bounds (`layout`) |
+| Legends | symbol legends for fill, stroke, size, shape and opacity, and gradient legends for continuous colour · title, layout from the drawn bounds in either direction, the spec's own `encode` blocks, and all eight `orient` anchors |
+| Layout | axis extents, view size and plot origin (`autosize: pad`) · several plots side by side, and a trellis of them — by column, by row, both at once, or wrapped onto a computed grid — with headers, footers and turned titles, placed by their full bounds (`layout`) |
+| Time zones | a `time` scale is read in a **supplied** zone — roughly sixty named ones with the EU, US and southern summer-time rules, or a plain offset — never in the host's. `utc` is UTC whatever the runtime was told |
 | Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
 | Theming | colours from the spec, or from a stylesheet by class; `config.axis` and `config.style` are read |
-| Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
+| Dataflow | a dependency graph over signals, data, scales **and marks**: `update(signal, value)` recomputes only what reads it, and a mark nothing dirty reaches keeps the items it already had |
 | Interaction | **not built** |
 
 ## Legends: a layout that measures its own ink
@@ -386,22 +513,239 @@ Re-run it after any change: a candidate that stops matching is a regression the
 committed specs might not cover, and a new candidate is a feature request with
 evidence attached.
 
+## Vega-Lite, in Ranger
+
+Vela runs Vega. Vega-Lite is the shorthand nearly everyone actually writes, and
+turning one into the other was the last thing in the pipeline still done by the
+official JavaScript.
+
+```bash
+node gallery/vela/bin/vela_compile.js chart.vl.json chart.vg.json
+```
+
+Stripped of the vocabulary, a compiler is a set of decisions about defaults.
+Vega-Lite says "a bar chart of `a` against `b`"; Vega has to be told that `a` is
+a band scale with an inner padding of 0.1, that `b` is stacked even though
+nobody asked for a stack, that the bars are `#4c78a8`, that the y axis gets a
+grid and the x axis does not, and that a bar is a `rect` whose width is
+`max(0.25, bandwidth('x'))`. Every one of those is a decision the reference
+makes, and `VlCompile.rgr` is those decisions written down.
+
+**How it is checked is the point.** The output is *not* held to the official
+compiler's JSON — two compilers may reach the same chart by different
+specifications, and comparing spellings would test the wrong thing. It is
+compared by **drawing it**: the same Vega-Lite source goes through this compiler
+into Vela, and through the official compiler into official Vega, and the two
+scenes must agree mark for mark.
+
+```bash
+npm run vela:compiler
+```
+
+**27 of 27** — every committed Vega-Lite source compiles in Ranger and draws the
+same scene, with nothing refused. Several come out as the *same specification*,
+byte for byte, key order included, which was never the goal and is a good sign
+about the defaults.
+
+That covers the four ways a chart can be more than one chart:
+
+| | |
+| --- | --- |
+| **Layer** | several marks over one pair of axes. The scale types have to be settled *across* the layers before any of them compiles — a text label layered over bars sits on the **bars'** band scale, and on its own would have asked for a point scale and stood in the wrong place |
+| **Facet** | one chart drawn once per value, with the furniture that says which is which. The grid axes stay in the cell; the labelled x axis moves to the column footer and the labelled y axis to the row header, because those are drawn once per column or row rather than once per panel |
+| **Concat** | panes side by side or stacked, sharing only the dimension that runs across the join — so every scale carries the pane's name, because two panes both have an `x` |
+| **Composite** | a box plot is five marks over eight derived data sets. Quartiles are computed **twice**: joined back onto every row, so a row can be compared with its own group's hinges, and again as an aggregate, which is what the box is drawn from |
+
+…and the single-view features that had been missing: `bin` (two transforms and
+two signals, because a binned axis ticks on bin *edges*), `xOffset` (a band
+scale inside a band scale), arcs, and a series-coloured line, which is not one
+line — a line joins its points in order, so the rows are partitioned into a
+faceted group before the shape is drawn.
+
+**Coverage is reported, not assumed.** A specification this compiler does not
+cover refuses out loud and is counted as not covered, never as passing. What is
+still refused: an `errorbar`, an `errorband`, and the top-level `facet`
+operator (the `row`, `column` and `facet` *channels* are built).
+
+Four defects in the *runtime* surfaced while building it, because the compiler
+asked for things the committed specs never had:
+
+* a turned axis label was anchored by its middle instead of its end —
+  `labelAngle: 270` is what a category axis defaults to, and no parity spec had
+  ever used it;
+* a `size` legend over an outlined mark was drawn filled;
+* the JSON writer rounded every number to six decimals, which is right for a
+  scene measured in pixels and wrong for a specification carrying a full turn
+  in radians;
+* `strfromcode` truncated a code point to a byte in **C++** — so a bin's label
+  read `20 30` instead of `20 – 30`, in that target only. Fixed in the
+  compiler's own C++ template, where it had been wrong for every program, not
+  only this one;
+* and `strlen` counts **bytes** in C++ and code units in JavaScript, so a
+  negative axis label — written with the typographic minus, three bytes and one
+  character — measured five characters wide and reserved sixteen pixels nothing
+  was printed in. Every chart with a negative value on an axis was that much
+  wider in C++ than in JavaScript. Labels are measured in characters now, which
+  is the same number on every target.
+
+## Changing one number
+
+Computing a whole scene from a whole specification is the right shape for
+drawing a chart once, and the wrong shape for drawing it again with one number
+changed — a slider moved, a filter narrowed, a year picked. So the specification
+is also read as a **graph**: which signal each data set's transforms mention,
+which data set each scale takes its domain from, which signal each other
+signal's update expression names.
+
+```
+rt.run(spec)                      the whole chart
+rt.update("cutoff", 50)           the chart again, having recomputed
+                                  only what reads `cutoff`
+rt.flowRan                        exactly which nodes those were
+```
+
+The dependencies are read off the **parsed expressions**, not the text: an
+identifier that names a signal is a dependency on it, `data('x')` is a
+dependency on that data set, `scale('y')` on that scale — and a member access
+reads only its object, which is what keeps `datum.width` from looking like a
+dependency on the `width` signal.
+
+Two things have to be true, and a test that checks one of them is worthless:
+
+* **It is right.** The scene after a change must be the scene a fresh run with
+  that value produces, character for character, through the same writer the
+  goldens use. `tests/run.sh` puts **every committed spec** through both paths —
+  set `width` to the value it already has, which dirties every scale and
+  re-encodes every mark, then set a signal nothing reads, which dirties nothing
+  and keeps every mark. Both have to answer the golden. The first catches
+  anything accumulated and not cleared; the second catches a reused mark the
+  layout failed to re-place.
+* **It is shorter.** A graph that prunes nothing draws the right chart and has
+  done nothing. So `flowRan` is asserted by name: in the unit test's chart, of
+  ten nodes, changing `cutoff` runs the signal that quotes it, the data set that
+  filters on it, the two scales that take their domains from that data set, and
+  the one **mark** drawn from it — leaving the source data, the other filter,
+  its scale and the mark that reads them alone.
+
+**Marks are part of the graph.** A mark reads the data set it is drawn from,
+every scale its encode block names, and every signal any expression in it
+mentions; a group mark reads whatever the marks inside it read. A mark nothing
+dirty reaches is not re-encoded at all — its items are the same items, and the
+layout re-places them. That needed one thing from the layout: a mark's
+contribution to it is remembered with the mark, so a kept mark keeps its box
+too. Axes and legends are still rebuilt whichever mark changed: they are drawn
+from the scales, they are cheap, and a chart has a handful of them against
+however many marks its data has rows.
+
+## A time zone is supplied, not discovered
+
+A `time` scale is read in a wall clock, and the reference reads the clock of the
+machine it runs on. A runtime that compiles to eight targets cannot do that and
+should not want to: the same specification has to draw the same chart
+everywhere, and "whatever the host thinks the zone is" is not an input. So the
+zone is **supplied** —
+
+```bash
+node gallery/vela/bin/vela_scene.js chart.vg.json --zone=Europe/Helsinki
+```
+
+— and `tools/reference/zones.mjs` asserts that Vela told a zone and the
+reference running in that zone (`TZ=`) produce the same chart, mark for mark, in
+**eight zones** chosen to break a naive implementation:
+
+| Zone | What it catches |
+| --- | --- |
+| `UTC` | the baseline: no rule at all |
+| `Europe/Helsinki` | the EU rule, two hours east |
+| `Europe/London` | the EU rule at zero, where standard time *is* UTC and the two stop being distinguishable if you were relying on the offset being non-zero |
+| `America/New_York` | the US rule: west of UTC, and its transitions are stated in local time rather than in UTC |
+| `America/Phoenix` | west of UTC with **no** rule, next door to one that has one |
+| `Australia/Sydney` | a **southern** summer — the window wraps the new year, so the test is an OR and not an AND |
+| `Pacific/Auckland` | southern, and far enough east that a day boundary is half a day from UTC's |
+| `Asia/Kolkata` | a half-hour offset, which catches anything storing an offset in whole hours |
+
+A zone here is a standard offset, what summer time adds, and the rule saying
+when: the EU's (last Sunday in March to last Sunday in October, both stated in
+UTC), the United States' (second Sunday in March to first Sunday in November,
+stated in local time), and the two southern patterns. Roughly sixty named zones
+carry those, and a plain `+05:45` works too.
+
+**A rule is not forever**, so a zone carries **eras**: a list of
+(from-year, offset, saving, rule) rows, and the one in force is the last whose
+year has passed. That is what makes a chart of the 1990s right as well as a
+chart of last week —
+
+| Era boundary | What changed |
+| --- | --- |
+| 1996 | the European Union harmonised: the continent's clocks used to go back in **September** |
+| 2007 | the United States moved **both** its dates; before that, April to October |
+| 1987 | and before *that*, the spring change was the **last** Sunday in April |
+| 2007 | New Zealand moved both of its dates too, from October–March to September–April |
+| 2011, 2015 | Moscow spent four years an hour further east, on permanent summer time |
+| 2020 | Brazil abolished summer time |
+
+`line_historical` is six-hourly readings across the 1995 autumn change, and the
+zone suite runs it in all eight zones — a runtime carrying only each zone's
+*current* rule is an hour out on every one of those rows, so the test fails
+loudly rather than silently.
+
+**It is still not a zone database.** It carries the rules that have been in
+force across the span a chart is normally drawn over, and it carries them as
+rules; it does not carry the tens of thousands of one-off transitions the IANA
+database records, and it does not pretend to. A date before the first era of its
+zone is read at that era's offset.
+
+Two things fell out of building it, and the second is the more interesting:
+
+* **A day is not always twenty-four hours long.** Stepping a daily axis by a
+  fixed span across a clock change lands an hour off the wall clock, so a day, a
+  week, a month and a year all step on the *clock* and are converted back. Below
+  a day the two are the same thing. Converting back asks the zone for its offset
+  **twice** — the offset at the answer need not be the offset at the question,
+  because the answer may have crossed the boundary the question was near.
+* **An axis always labels its own end.** Six-hourly data across a clock change
+  gave four labels of which no two may touch. Halving keeps the first and the
+  third; the reference keeps the first and the **fourth**, because when parity
+  thinning has got an axis down to two labels or fewer, two labels that are not
+  the ends do not read as a scale. It gives up the last survivor and shows the
+  last label instead. That was a defect in every chart, not only a dated one —
+  found by putting the same chart in a different zone.
+
+## The C++ check: the JavaScript is the host, not the answer
+
+The parity harness cannot say whether Vela is portable, because both sides of
+its comparison run in node. So there is a second suite that says it:
+
+```bash
+npm run vela:cpp        # or: bash gallery/vela/tests/run_cpp.sh
+```
+
+It compiles all three CLIs to **C++** with `-l=cpp`, builds them with the
+system compiler, and requires the native binaries to reproduce the committed
+goldens **byte for byte** — 24 scenes, 24 command lists, 47 specs against what
+the JavaScript build says, and one whole showcase page that has to come out as
+the file that is checked in. `g++` is optional; without it the step says so and
+exits 0, the same way the parity step behaves without the reference.
+
+It found a defect on its first run, and the defect is the reason the suite is
+worth having:
+
+| What was wrong | Why only C++ saw it |
+| --- | --- |
+| A box plot's lower hinge printed as `54.0705032704` instead of `54.5` | `formatNumber` scaled the fraction by `10^maxDecimals` into an **int**. Twelve significant digits of a two-digit number is ten decimals, so the scale is 10<sup>10</sup> — a JavaScript number holds it, a 32-bit int wraps it to 1410065408 |
+
+Every coordinate in that chart was already correct; the geometry never reaches
+the wide path. Only a *label* was wrong, in one target, on one chart — which is
+precisely the class of bug a single-target suite is blind to. The scale is a
+double now, and the digits are taken from the top a place at a time so no
+intermediate value is ever larger than a digit.
+
 ## What is not there yet
 
-* **Gradient legends.** A legend over a *continuous* colour scale is a gradient
-  bar with labels down its side, which is a different mark and a different
-  layout from the symbol legend built here. A spec that asks for one is
-  reported rather than drawn wrong.
-* **Row faceting and wrapped grids.** A trellis of columns is laid out —
-  headers above, footers below, a row header to the left, a title over the lot.
-  Rows, and a grid that wraps onto several of them, follow the same rules and
-  are not built.
-* **Legends anywhere but the right.** `orient` is carried into the scene and a
-  legend is drawn correctly whatever it says, but only the right-hand edge is
-  placed. The reference resolves the other seven anchors against the view
-  bounds; that is layout work, not legend work.
-* **Time scales**, and a Ranger Vega-Lite compiler — neither of which a static
-  chart needs, and both of which are named in the table below.
+* **Transitions that are not rules.** A zone's eras cover the rule changes; the
+  IANA database also records thousands of one-off transitions — a country that
+  skipped a year, a territory that changed sides — and those are not carried.
+  See [A time zone is supplied](#a-time-zone-is-supplied-not-discovered).
 * **Two width estimates, on purpose.** `VlText.estimateWidth` is the
   reference's canvas-free 0.8 em per character and sizes the axis extents,
   because matching the reference's layout is what the comparison measures.
@@ -409,22 +753,30 @@ evidence attached.
   this repository ships, and sizes the box a label is drawn in. Neither has to
   be exact: the box only has to be wide enough, and the alignment inside it —
   resolved by the renderer's own metrics — is what positions the string.
-* **Bounds-based layout, outside a legend.** The view is sized from what the
-  axes ask for, which agrees with the reference exactly on the charts whose
-  marks stay inside the plot (a bar chart is 236×347 with the plot at 51,10 in
-  both, and every chart with a legend now agrees to the pixel because the
-  legend's own box is measured). The reference measures the true bounds of
-  *everything* drawn, so a chart with a symbol or a label hanging over the plot
-  edge can still differ by a few pixels — a backend should not clip to the plot
-  rectangle. `VlBounds` is what that fix would be built on.
-* **Time scales and the date/time layer.** No temporal axis.
-* **Power scales.** `VlMath` has the `pow` they need; the scale type is not
-  wired up. `log` is built.
-* **Incremental dataflow.** Everything recomputes. The transform signatures are
-  per-transform so an incremental core can go underneath without rewriting them.
-* **A Ranger Vega-Lite compiler.** The Vega-Lite → Vega step is still the
-  official JavaScript one. That is the right order: the Vega runtime is a large
-  but well-defined job, and the Vega-Lite compiler solves a different problem.
+* **Incremental axes and legends.** A signal change re-encodes only the marks
+  that read it, but the guides are rebuilt whichever one changed. They are
+  cheap, so this is a deliberate stop rather than an oversight —
+  see [Changing one number](#changing-one-number).
+* **The rest of the Vega-Lite compiler.** All forty-one sources in the suite
+  compile in Ranger — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). What is
+  still refused, out loud rather than drawn as something else: an `errorbar`,
+  an `errorband`, the top-level `facet` operator, and every spec-level
+  `transform` except `filter` and `calculate` — `loess`, `regression`,
+  `window`, `fold`, `pivot`, `density` and the rest. Those were not refused
+  before they were listed: a `transform` array was read by nobody, so a filter
+  that removed half the rows simply did not happen and the chart looked
+  entirely reasonable.
+* **No loader.** `data.url` is refused by the runtime; the browser page fetches
+  it and passes values instead. Seven of the eight targets have no idea what a
+  URL is, so this belongs to the host rather than to the runtime.
+* **Gradients are drawn as their own stops.** No target Vela compiles to paints
+  one, so a ramp becomes one flat band per pair of stops, in the reference's own
+  stop colours. The renderer comparison checks that the bands tile exactly the
+  rectangle the reference filled rather than pretending the two are the same
+  thing.
+* **A custom symbol `shape` given as path data.** The twelve builtins are
+  drawn; a shape named by an SVG path is not, and `vela_svg` says so on the
+  error stream rather than drawing a circle.
 
 ## Layout
 
@@ -441,21 +793,34 @@ gallery/vela/
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
 │   ├── VlScale.rgr       band / point / linear / log / ordinal, ticks
+│   ├── VlTime.rgr        the calendar, and the zones it is read in
 │   ├── VlTransform.rgr   data transforms
 │   ├── VlConfig.rgr      the defaults a mark inherits
 │   ├── VlScene.rgr       scene graph + canonical JSON
 │   ├── VlCommand.rgr     flat draw commands (renderer-agnostic)
+│   ├── VlShape.rgr       the geometry a mark IS, shared by every backend
+│   ├── VlViewBox.rgr     how big the picture is, from the bounds of the ink
+│   ├── VlSvg.rgr         the SVG backend — the one that is compared
+│   ├── VlCompile.rgr     Vega-Lite → Vega
 │   └── VlRuntime.rgr     spec → scene
 ├── tools/
 │   ├── vela_scene.rgr    CLI: spec → scene JSON
 │   ├── vela_commands.rgr CLI: spec → draw commands
+│   ├── vela_svg.rgr      CLI: spec → SVG
+│   ├── vela_compile.rgr  CLI: a Vega-Lite spec → a Vega one
 │   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
+│   ├── vela_web.rgr      the same, with no file system: for the browser
 │   └── reference/        the harness that compares against official Vega
+├── web/                  paste a specification, see what it draws
+│   ├── index.html        the page
+│   ├── build.sh          compile the script beside it
+│   └── smoke.mjs         open it in a browser and check it drew
 ├── tests/
-│   ├── *_test.rgr        unit tests (JSON, expressions, scales)
+│   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow)
 │   ├── specs/            generated Vega-Lite sources and compiled Vega specs
 │   ├── golden/           committed scene and command output
-│   └── run.sh            build + test everything
+│   ├── run.sh            build + test everything
+│   └── run_cpp.sh        the same goldens, from a native C++ build
 └── bin/                  build artifacts (not committed)
 ```
 
@@ -471,7 +836,9 @@ But a runtime written in Ranger compiles to C++, Rust, Go, Swift, Kotlin, C#,
 Dart and JavaScript with no JavaScript engine underneath, and it exercises the
 parts of Ranger a real application needs: immutable data at the edges, a
 mutable kernel, expression evaluation, numerics, collections and cross-target
-determinism. That is worth more to this repository than a hosted bundle.
+determinism. That is worth more to this repository than a hosted bundle — and
+`npm run vela:cpp` turns the claim into something that either passes or fails,
+rather than something the architecture diagram asserts.
 
 ## Attribution and licensing
 
