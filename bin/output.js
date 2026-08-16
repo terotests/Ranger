@@ -43416,6 +43416,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.lambdaSigMap = {};
                           this.lambdaByName = {};
                           this.lambdaNames = [];
+                          this.lambdaDepths = {};
                           this.lambdaCounter = 0;
                           this.lambdaCaptures = {};
                           this.virtualKeys = [];
@@ -48987,10 +48988,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           };
                         };
                         collectMethodLambdas (m, pt) {
+                          this.collectMethodLambdasAt(m, pt, 0);
+                        };
+                        collectMethodLambdasAt (m, pt, depth) {
+                          if ( depth > 12 ) {
+                            return;
+                          }
                           for ( let i = 0; i < m.myLambdas.length; i++) {
                             var lam = m.myLambdas[i];
                             if ( (lam.compiledName.length) > 0 ) {
                               if ( ( typeof(this.lambdaByName[lam.compiledName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaByName, lam.compiledName) ) ) {
+                                let known = 0;
+                                if ( ( typeof(this.lambdaDepths[lam.compiledName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaDepths, lam.compiledName) ) ) {
+                                  known = (( Object.prototype.hasOwnProperty.call(this.lambdaDepths, lam.compiledName) ? this.lambdaDepths[lam.compiledName] : undefined ));
+                                }
+                                if ( depth > known ) {
+                                  this.lambdaDepths[lam.compiledName] = depth;
+                                  this.collectMethodLambdasAt(lam, pt, depth + 1);
+                                }
                                 continue;
                               }
                             }
@@ -49000,10 +49015,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.irModule.lambdaTableFuncs.push(name);
                             this.lambdaNames.push(name);
                             this.lambdaByName[name] = lam;
+                            this.lambdaDepths[name] = depth;
                             const sig = this.lambdaCallSig(lam, pt);
                             this.lambdaSigMap[name] = sig;
                             this.addLambdaSig(sig);
-                            this.collectMethodLambdas(lam, pt);
+                            this.collectMethodLambdasAt(lam, pt, depth + 1);
                           };
                         };
                         lambdaCallSig (lam, pt) {
@@ -49033,11 +49049,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.irModule.lambdaSigs.push(sig);
                         };
                         lowerLambdaBodies (appCtx) {
-                          for ( let i = 0; i < this.lambdaNames.length; i++) {
-                            var name = this.lambdaNames[i];
-                            if ( ( typeof(this.lambdaByName[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaByName, name) ) ) {
+                          let d = 0;
+                          while (d <= 13) {
+                            for ( let i = 0; i < this.lambdaNames.length; i++) {
+                              var name = this.lambdaNames[i];
+                              if ( (( typeof(this.lambdaByName[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaByName, name) )) == false ) {
+                                continue;
+                              }
+                              let nd = 0;
+                              if ( ( typeof(this.lambdaDepths[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaDepths, name) ) ) {
+                                nd = (( Object.prototype.hasOwnProperty.call(this.lambdaDepths, name) ? this.lambdaDepths[name] : undefined ));
+                              }
+                              if ( nd != d ) {
+                                continue;
+                              }
                               this.lowerLambdaFunction((( Object.prototype.hasOwnProperty.call(this.lambdaByName, name) ? this.lambdaByName[name] : undefined )), name, appCtx);
-                            }
+                            };
+                            d = d + 1;
                           };
                         };
                         lowerLambdaFunction (lam, fnName, appCtx) {

@@ -121,6 +121,8 @@ class LowIRBuilderPass {
   ; lambda hoisted-function name -> its lambda fnDesc (for body lowering pass)
   def lambdaByName:[string:RangerAppFunctionDesc]
   def lambdaNames:[string]
+  ; lambda name -> how deeply it is nested inside other lambdas
+  def lambdaDepths:[string:int]
   def lambdaCounter:int 0
   ; lambda compiledName -> its closure-env capture layout (computed lazily at the
   ; first lowerLambdaValue, read back when the hoisted body is lowered).
@@ -6415,6 +6417,15 @@ class LowIRBuilderPass {
   }
 
   fn collectMethodLambdas:void (m:RangerAppFunctionDesc pt:string) {
+    this.collectMethodLambdasAt(m pt 0)
+  }
+
+  ; `depth` is how deeply this lambda is NESTED inside other lambdas, which is
+  ; the order its body has to be lowered in (see lowerLambdaBodies).
+  fn collectMethodLambdasAt:void (m:RangerAppFunctionDesc pt:string depth:int) {
+    if (depth > 12) {
+      return
+    }
     for m.myLambdas lam:RangerAppFunctionDesc i {
       ; myLambdas is FLAT -- a lambda nested inside another is listed on the
       ; method too -- so the recursion below reaches the same descriptor twice.
@@ -6424,6 +6435,17 @@ class LowIRBuilderPass {
       ; used: a closure with no captures at all.
       if ((strlen lam.compiledName) > 0) {
         if (has this.lambdaByName lam.compiledName) {
+          ; Seen already -- but possibly at a shallower depth, because the flat
+          ; list can name an inner lambda before its parent. Keep the deepest
+          ; answer, and carry the correction down to anything nested in it.
+          def known:int 0
+          if (has this.lambdaDepths lam.compiledName) {
+            known = (unwrap (get this.lambdaDepths lam.compiledName))
+          }
+          if (depth > known) {
+            set this.lambdaDepths lam.compiledName depth
+            this.collectMethodLambdasAt(lam pt (depth + 1))
+          }
           continue
         }
       }
@@ -6433,11 +6455,12 @@ class LowIRBuilderPass {
       push this.irModule.lambdaTableFuncs name
       push this.lambdaNames name
       set this.lambdaByName name lam
+      set this.lambdaDepths name depth
       def sig (this.lambdaCallSig(lam pt))
       set this.lambdaSigMap name sig
       this.addLambdaSig(sig)
       ; nested lambdas defined inside this lambda's body
-      this.collectMethodLambdas(lam pt)
+      this.collectMethodLambdasAt(lam pt (depth + 1))
     }
   }
 
@@ -6468,11 +6491,30 @@ class LowIRBuilderPass {
     push this.irModule.lambdaSigs sig
   }
 
+  ; OUTERMOST FIRST. A lambda's capture layout is computed where the closure is
+  ; CREATED, and a nested lambda is created inside its parent's body -- so the
+  ; parent's body has to be lowered first or the child's body is emitted before
+  ; anything knows what it captures. The record built later then carried the
+  ; captures while the body never read them: the flow parser's
+  ; `opParams.parallelTree( xValue { … set regToArg … } )`, nested in an
+  ; `opFnList.forEach`, got a null map and a truncated key.
   fn lowerLambdaBodies:void (appCtx:RangerAppWriterContext) {
-    for this.lambdaNames name:string i {
-      if (has this.lambdaByName name) {
+    def d:int 0
+    while (d <= 13) {
+      for this.lambdaNames name:string i {
+        if ((has this.lambdaByName name) == false) {
+          continue
+        }
+        def nd:int 0
+        if (has this.lambdaDepths name) {
+          nd = (unwrap (get this.lambdaDepths name))
+        }
+        if (nd != d) {
+          continue
+        }
         this.lowerLambdaFunction((unwrap (get this.lambdaByName name)) name appCtx)
       }
+      d = d + 1
     }
   }
 
