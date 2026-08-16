@@ -45906,6 +45906,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( this.isObjectTypeName(valueTypeName) ) {
                             return 1;
                           }
+                          if ( LowIRUtil.isStringType(valueTypeName) ) {
+                            return 2;
+                          }
                           return 0;
                         };
                         emitSMapCall (fnName, retType, desc, rest, restTypes, lctx) {
@@ -49821,6 +49824,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return;
                             }
                             if ( opName_1 == "remove" ) {
+                              this.lowerArrayRemove(node, lctx);
+                              return;
+                            }
+                            if ( opName_1 == "remove_index" ) {
                               this.lowerArrayRemove(node, lctx);
                               return;
                             }

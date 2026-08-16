@@ -2923,11 +2923,17 @@ class LowIRBuilderPass {
 
   ; The ownership kind implied by a map's declared VALUE type.
   fn smapValueOwnKind:int (valueTypeName:string) {
-    ; NOT strings: a string value is stored as the borrowed pointer the caller
-    ; passed (no dup on put), so the map freeing it would free a literal.
     ; Objects are refcounted, so owning one is always safe.
     if (this.isObjectTypeName(valueTypeName)) {
       return 1
+    }
+    ; A STRING value is owned too (kind 2): the runtime copies it on put and
+    ; frees the copy on overwrite or removal. Storing the caller's pointer
+    ; instead -- what this used to do -- left the map holding memory the
+    ; caller freed at the end of the statement, which is how `-o=hello2.js`
+    ; came back out of the compiler's own parameter map as another string.
+    if (LowIRUtil.isStringType(valueTypeName)) {
+      return 2
     }
     return 0
   }
@@ -7356,6 +7362,11 @@ class LowIRBuilderPass {
         return
       }
       if (opName == "remove") {
+        this.lowerArrayRemove(node lctx)
+        return
+      }
+      ; `remove_index xs i` is `remove` under the name the array overload uses.
+      if (opName == "remove_index") {
         this.lowerArrayRemove(node lctx)
         return
       }

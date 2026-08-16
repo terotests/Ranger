@@ -156,23 +156,36 @@ npm run selfhost:build:llvm     # ...and link ./tmp/selfhost-llvm/rangerc
 **Where it stands.** The compiler now compiles for LLVM with **zero errors**
 (631 before this work), the ~493k lines / 21 MB of IR it produces for itself
 **pass `opt -passes=verify`**, and `clang` links them with the C runtime into a
-3 MB `rangerc`. That binary starts, prints its banner and usage, parses its
-command line, finds its library, reads the source file and begins compiling.
+3 MB `rangerc`. That binary starts, prints its banner and its usage, parses
+its command line, resolves the input file through the library search path and
+prints the compilation header.
 
-It does **not** yet produce correct output: somewhere in the run a value is
-read back wrong (the output file name comes out as another string), so this is
-not a self-hosting target the way C++, Dart, Python, C#, Go and Kotlin are. It
-is a target whose codegen is complete enough to build the largest Ranger
-program there is, and whose remaining problems are runtime ones.
+It does **not** get further: it stops after the header without writing an
+output file, and without a diagnostic. So LLVM is **not** a self-hosting
+target the way C++, Dart, Python, C#, Go and Kotlin are. It is a target whose
+codegen is complete enough to build the largest Ranger program there is, and
+whose remaining problems are runtime ones.
 
-Progress is worth measuring in three numbers, because they fail independently:
+`lib/CmdParams.rgr` -- the compiler's own command-line parser, which has a
+`main` of its own -- is the useful small program to check against, because it
+exercises the shapes that broke first (a `[string:string]` map, `strsplit`,
+`join`, `remove_index`) and it now answers correctly natively:
 
-| Gate | Before | Now |
-| --- | --- | --- |
-| Compiler errors for `-l=llvm` on the compiler | 631 | **0** |
-| `opt -passes=verify` on the emitted IR | did not get that far | **passes** |
-| `clang` links a binary | did not get that far | **yes, 3 MB** |
-| The binary compiles a program correctly | — | not yet |
+```bash
+RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" node bin/output.js \
+  -l=llvm ./lib/CmdParams.rgr -nodecli -d=tmp/probe -o=cmdparams.ll \
+  -target=native-linux-gnu
+clang -O0 tmp/probe/cmdparams.ll runtime/ranger_rt.c runtime/ranger_mem.c \
+  runtime/ranger_json.c runtime/ranger_buffer.c -o tmp/probe/cmdparams -lm
+./tmp/probe/cmdparams -l=es6 x.rgr -d=out -o=x.js
+#   l = es6 / d = out / o = x.js, flag nodecli, value x.rgr
+```
+
+Getting that far took two runtime fixes worth naming, because both were
+silent: a `[string:string]` map stored the pointer it was given rather than a
+copy, so it held memory the caller had already freed (the compiler's own
+`-o=` value came back out as another string), and `remove_index` had no
+lowering at all, so it did nothing.
 
 ### What LLVM took
 
@@ -194,10 +207,12 @@ the same gap:
 3. **Operators that carried a `*` template but no lowering** were worse: they
    type checked and then emitted their own name as a value. `ccode`, the
    ternary (`max` and `min` expand to it), `join`, `array_extract`,
-   `to_charbuffer`, `current_time_ms`, `charcode` — and `removeLast` and
-   `clear`, which compiled to *nothing at all*, a silent no-op. The compiler
-   pops the last segment off a path with `removeLast` when it builds its
-   library search path, so every candidate directory kept the file name on it.
+   `to_charbuffer`, `current_time_ms`, `charcode` — and `removeLast`, `clear`
+   and `remove_index`, which compiled to *nothing at all*, a silent no-op. The
+   compiler pops the last segment off a path with `removeLast` when it builds
+   its library search path, so every candidate directory kept the file name on
+   it; `remove_index` is how `-o=x.js` becomes the key `o` and the value
+   `x.js`, so without it every parameter kept its own name in its value.
 
 The second half had no precedent on the other targets, because nothing had
 ever run the compiler's own IR through the verifier:
@@ -229,9 +244,12 @@ ever run the compiler's own IR through the verifier:
 
 ### What is left
 
-- **The run itself.** The binary gets through startup and into compilation and
-  then reads a value back wrong. The next step is a memory build
-  (`RANGER_MEM_STATS`, or an ASan toolchain) over a small program.
+- **The run itself.** The binary gets through startup and stops after the
+  compilation header without a diagnostic. The next step is to bisect the
+  front end the way CmdParams was bisected: compile a progressively larger
+  piece of the compiler's own source natively and see which one stops
+  answering. A memory build (`RANGER_MEM_STATS`, or a toolchain with
+  AddressSanitizer, which this container lacks) is the other half.
 - **Closures are incomplete.** A lambda whose capture layout was never built —
   one only ever *called*, never constructed in the same module — loses its
   captures; the calls it makes through an unresolved receiver are dropped

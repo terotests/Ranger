@@ -388,10 +388,23 @@ extern void ranger_obj_retain(int64_t body);
 extern void ranger_obj_release(int64_t body);
 extern int ranger_obj_refcount(int64_t body);
 
-static void rt_smap_retain_value(RtSMap *m, int64_t v) {
-  if (m->valkind == 1 && v != 0) {
-    ranger_obj_retain(v);
+/* Answers the value to STORE. An owned-object value is retained; an owned
+ * STRING value is copied, which is what makes the map's copy independent of
+ * the caller's temporary -- the header above has always said "copied on put"
+ * and the copy was missing, so a map of strings held pointers into memory the
+ * caller had already freed. */
+static int64_t rt_smap_own_value(RtSMap *m, int64_t v) {
+  if (v == 0) {
+    return v;
   }
+  if (m->valkind == 1) {
+    ranger_obj_retain(v);
+    return v;
+  }
+  if (m->valkind == 2) {
+    return (int64_t)(intptr_t)ranger_strdup((const char *)(intptr_t)v);
+  }
+  return v;
 }
 
 static void rt_smap_release_value(RtSMap *m, int64_t v) {
@@ -505,13 +518,13 @@ void RtSMap_put(int64_t map, const char *key, int64_t value) {
   h = rt_smap_hash(key);
   ei = rt_smap_find(m, key, h);
   if (ei >= 0) {
-    /* retain BEFORE releasing: putting a value back over itself must not free it */
-    rt_smap_retain_value(m, value);
+    /* own BEFORE releasing: putting a value back over itself must not free it */
+    int64_t owned = rt_smap_own_value(m, value);
     rt_smap_release_value(m, m->entries[ei].value);
-    m->entries[ei].value = value; /* replace: keeps the original position */
+    m->entries[ei].value = owned; /* replace: keeps the original position */
     return;
   }
-  rt_smap_retain_value(m, value);
+  value = rt_smap_own_value(m, value);
   if (m->count == m->cap) {
     int32_t nc = m->cap * 2;
     RtSMapEntry *ne = (RtSMapEntry *)realloc(m->entries, (size_t)nc * sizeof(RtSMapEntry));
@@ -913,11 +926,13 @@ int RtSMap_put_if_present(int64_t map, const char *key, int64_t value) {
   if (ei < 0) {
     return 0;
   }
-  /* retain BEFORE releasing, exactly as RtSMap_put does: assigning a value
-   * over itself must not free it. */
-  rt_smap_retain_value(m, value);
-  rt_smap_release_value(m, m->entries[ei].value);
-  m->entries[ei].value = value;
+  /* own BEFORE releasing, exactly as RtSMap_put does: assigning a value over
+   * itself must not free it. */
+  {
+    int64_t owned = rt_smap_own_value(m, value);
+    rt_smap_release_value(m, m->entries[ei].value);
+    m->entries[ei].value = owned;
+  }
   return 1;
 }
 

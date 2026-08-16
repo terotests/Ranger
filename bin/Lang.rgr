@@ -6918,6 +6918,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         remove_index    cmdRemoveIndex:void  ( array:[T] index:int ) { 
             templates {
                 ranger ( "(remove_index " (e 1) " " (e 2) ")")
+                 llvm ( nl "remove_index " (e 1) " " (e 2) nl)
                  cpp ( (e 1) ".erase( "(e 1)".begin() + " (e 2) " );")
                  swift3 ( (e 1) ".remove(at:" (e 2)")")
                  swift6 ( (e 1) ".remove(at:" (e 2)")")
