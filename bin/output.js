@@ -52641,7 +52641,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     return this.finishObjectCall(this.lowerInstanceCallOn(node, "", recv, meth.vref, lctx));
                                   }
                                 }
-                                const opRecvCls = this.exprRecvClassName(recv, lctx);
+                                let opRecvCls = this.exprRecvClassName(recv, lctx);
+                                if ( (opRecvCls.length) == 0 ) {
+                                  if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                                    const rfd2 = node.fnDesc;
+                                    if ( (typeof(rfd2.container_class) !== "undefined" && rfd2.container_class != null )  ) {
+                                      const ccn = rfd2.container_class.name;
+                                      if ( this.isObjectTypeName(ccn) ) {
+                                        opRecvCls = ccn;
+                                      }
+                                    }
+                                  }
+                                }
                                 if ( (opRecvCls.length) > 0 ) {
                                   const orv = this.lowerExpr(recv, lctx);
                                   if ( (orv.length) > 0 ) {

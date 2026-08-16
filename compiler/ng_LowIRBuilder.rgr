@@ -10761,6 +10761,22 @@ class LowIRBuilderPass {
           ; `(property o f)`) is lowered the same way. Without this the receiver
           ; pointer stayed empty and the call was emitted as `inttoptr i64 %`.
           def opRecvCls:string (this.exprRecvClassName(recv lctx))
+          ; Last resort: the FRONT END already resolved which method this is, so
+          ; its declaring class is the receiver's class. exprRecvClassName only
+          ; knows a handful of expression shapes, and a receiver it cannot name
+          ; used to be emitted as a null pointer -- `(at item.children 0).copy()`
+          ; in the flow parser's EnterVarDef extension called CodeNode.copy on 0.
+          if ((strlen opRecvCls) == 0) {
+            if (!null? node.fnDesc) {
+              def rfd2 (unwrap node.fnDesc)
+              if (!null? rfd2.container_class) {
+                def ccn:string rfd2.container_class.name
+                if (this.isObjectTypeName(ccn)) {
+                  opRecvCls = ccn
+                }
+              }
+            }
+          }
           if ((strlen opRecvCls) > 0) {
             def orv (this.lowerExpr(recv lctx))
             if ((strlen orv) > 0) {
