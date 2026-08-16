@@ -261,6 +261,27 @@ class VlCompile {
         if (src.has("description")) {
             out.setMember("description" (src.get("description")))
         }
+        ; The chart's own title, which Vega draws as a block of its own above
+        ; the plot rather than as a mark inside it.
+        if (src.has("title")) {
+            def given:VlJson (src.get("title"))
+            def titleBlock (VlJson.objectValue())
+            if (given.isString()) {
+                titleBlock.setMember("text" given)
+            } {
+                if (given.isObject()) {
+                    for given.keys tk:string tki {
+                        titleBlock.setMember(tk (given.get(tk)))
+                    }
+                }
+            }
+            if (titleBlock.has("text")) {
+                if (! (titleBlock.has("frame"))) {
+                    titleBlock.setMember("frame" (VlJson.stringValue("group")))
+                }
+                out.setMember("title" titleBlock)
+            }
+        }
         def background:VlJson (src.get("background"))
         if (background.isDefined()) {
             out.setMember("background" background)

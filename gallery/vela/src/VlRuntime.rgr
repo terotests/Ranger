@@ -1511,6 +1511,29 @@ class VlRuntime {
         ; line has to be behind the bar it crosses.
         this.encodeAxes(rootItem (spec.get("axes")))
 
+        ; The chart's own title, above the plot. A faceted cell already had
+        ; one; the WHOLE chart did not, so fifteen of the gallery's examples
+        ; drew everything except the sentence at the top of them.
+        def chartTitle:VlJson (spec.get("title"))
+        if (chartTitle.isObject()) {
+            def titleBox (new VlGroupBox())
+            titleBox.item = rootItem
+            titleBox.role = "frame"
+            titleBox.width = chartWidth
+            titleBox.height = chartHeight
+            ; A CHART's title is set in the group-title style — thirteen point
+            ; and bold — where a facet header's is a guide title at eleven.
+            def styled:VlJson (VlJson.objectValue())
+            for chartTitle.keys tk:string tki {
+                styled.setMember(tk (chartTitle.get(tk)))
+            }
+            if (! (styled.has("style"))) {
+                styled.setMember("style" (VlJson.stringValue("group-title")))
+            }
+            def emptyRow:VlJson (VlJson.objectValue())
+            this.encodeGroupTitle(rootItem styled emptyRow titleBox)
+        }
+
         def marks:VlJson (spec.get("marks"))
         def encoded:[VlSceneMark]
         if (marks.isArray()) {
