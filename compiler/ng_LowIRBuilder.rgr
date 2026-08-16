@@ -9,6 +9,11 @@ class LowIRLowerContext {
   def target:LowIRTarget
   def ptrType:string "i32"
   def slots:[string:string]
+  ; Names that arrive as SSA function PARAMETERS rather than slots. loadSlot
+  ; answers a bare `%name` for these and a zero for anything else it does not
+  ; know -- an unknown name used to be emitted verbatim, which is a value
+  ; nothing defines.
+  def paramNames:[string]
   def slotTypes:[string:string]
   def objectSlots:[string:string]
   def collectionSlots:[string:string]
@@ -56,6 +61,12 @@ class LambdaCaptureInfo {
   def irTypes:[string]
   def kinds:[int]
   def objClasses:[string]
+  ; A captured COLLECTION is a descriptor like any other pointer, but the body
+  ; also needs to know it IS one -- otherwise `push res x` inside a `map`
+  ; lambda found no collection slot and pushed into a zero.
+  def collKinds:[string]
+  def elemTypes:[string]
+  def smapValTypes:[string]
   def offsets:[int]
   def totalBytes:int 4
   def hasOwned:boolean false
@@ -227,11 +238,12 @@ class LowIRBuilderPass {
       }
     }
 
-    ; WASM lambdas: assign each lambda a hoisted function name + table index +
-    ; call_indirect signature BEFORE lowering method bodies (which reference them).
-    if (appCtx.hasCompilerFlag("wat")) {
-      this.collectLambdas(appCtx)
-    }
+    ; Lambdas: assign each one a hoisted function name + table index +
+    ; call_indirect signature BEFORE lowering method bodies (which reference
+    ; them). This used to be WAT-only, so on the native path every closure
+    ; record carried table index 0 into an EMPTY table and the call jumped to
+    ; address 0.
+    this.collectLambdas(appCtx)
 
     ; STRUCTS FIRST, then bodies. These used to share one loop -- struct, then
     ; that class's methods, then the next class -- so a method that touched a
@@ -324,9 +336,7 @@ class LowIRBuilderPass {
       }
     }
     ; lower each hoisted lambda body (after methods, so all names are assigned)
-    if (appCtx.hasCompilerFlag("wat")) {
-      this.lowerLambdaBodies(appCtx)
-    }
+    this.lowerLambdaBodies(appCtx)
     if this.usedArrayRuntime {
       LowIRRuntimeGen.ensureArrayRuntime(this.irModule)
     }
@@ -911,9 +921,10 @@ class LowIRBuilderPass {
         bIsF64 = true
       }
     }
-    def fmtLit:string (aFmt + bFmt)
-    def fmtG (this.internStringGlobal(fmtLit false))
-    def fmtPtr (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+    ; Lower the operands BEFORE fixing the format: the guesses above read the
+    ; source node, and a few shapes (a ternary over strings, a captured local)
+    ; are only settled by the type the builder actually emitted. Getting this
+    ; wrong printed a pointer with %d and passed it in an i32 slot.
     def aVal0 (this.lowerConcatOperand(aNode aStr lctx))
     def aVal:string aVal0
     if aIsF64 {
@@ -926,6 +937,49 @@ class LowIRBuilderPass {
       bVal = (this.emitDoubleToString(bVal0 lctx))
       this.registerFreshStringTemp(bVal lctx)
     }
+    def aEmitT:string (builder.emittedType(aVal))
+    if (aEmitT == "i8*") {
+      aFmt = "%s"
+      aType = "i8*"
+    }
+    def bEmitT:string (builder.emittedType(bVal))
+    if (bEmitT == "i8*") {
+      bFmt = "%s"
+      bType = "i8*"
+    }
+    ; ...and the mirror: a value the guess called a string but that came out as
+    ; an integer.
+    if ((strlen aEmitT) > 0) {
+      if (aEmitT != "i8*") {
+        if (aType == "i8*") {
+          if (aIsF64 == false) {
+            aFmt = "%d"
+            aType = "i32"
+            aVal = (this.coerceArg(aVal "i32" lctx))
+          }
+        }
+      }
+    }
+    if ((strlen bEmitT) > 0) {
+      if (bEmitT != "i8*") {
+        if (bType == "i8*") {
+          if (bIsF64 == false) {
+            bFmt = "%d"
+            bType = "i32"
+            bVal = (this.coerceArg(bVal "i32" lctx))
+          }
+        }
+      }
+    }
+    if (aType == "i32") {
+      aVal = (this.coerceArg(aVal "i32" lctx))
+    }
+    if (bType == "i32") {
+      bVal = (this.coerceArg(bVal "i32" lctx))
+    }
+    def fmtLit:string (aFmt + bFmt)
+    def fmtG (this.internStringGlobal(fmtLit false))
+    def fmtPtr (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
     ; MEASURE, then allocate. The buffer used to be a fixed 4096 bytes, so any
     ; concatenation whose result was longer wrote past it -- appending a suffix
     ; to a 32 KB source file corrupted the heap before the program did anything.
@@ -1791,6 +1845,20 @@ class LowIRBuilderPass {
     return true
   }
 
+  ; Whether a value has to be widened before it goes into a pointer-sized
+  ; array slot. `emitted` is the type the builder actually produced for it,
+  ; which settles the question outright when it is known; the shape tests
+  ; below are the fallback for values it did not produce.
+  fn pushValueNeedsWiden:boolean (itemNode:CodeNode value:string lctx:LowIRLowerContext) {
+    def et:string (lctx.builder.emittedType(value))
+    if ((strlen et) > 0) {
+      if (et == "i32") { return true }
+      if (et == "i1") { return true }
+      return false
+    }
+    return (this.pushItemNeedsWiden(itemNode lctx))
+  }
+
   fn pushItemNeedsWiden:boolean (itemNode:CodeNode lctx:LowIRLowerContext) {
     ; `this` lowers to a ptrtoint and is already pointer sized, so widening it
     ; emitted `zext i32 <i64 value>`. exprIsObjectPtr only recognises named
@@ -1947,14 +2015,19 @@ class LowIRBuilderPass {
       def cmpPs:[string]
       push cmpPs "i8*"
       push cmpPs "i8*"
-      this.ensureExternDecl("ranger_str_cmp" "i32" cmpPs false)
+      ; libc has strcmp; only the freestanding WASM runtime needs its own.
+      def elemCmpFn:string "strcmp"
+      if (this.wasmStrEnabled(lctx)) {
+        elemCmpFn = "ranger_str_cmp"
+      }
+      this.ensureExternDecl(elemCmpFn "i32" cmpPs false)
       def cArgs:[string]
       def cTypes:[string]
       push cArgs elemPtr
       push cTypes "i8*"
       push cArgs needle
       push cTypes "i8*"
-      def cmpV (builder.emitCall("ranger_str_cmp" "i32" cArgs cTypes))
+      def cmpV (builder.emitCall(elemCmpFn "i32" cArgs cTypes))
       same = (builder.emitIcmp("eq" cmpV zero))
     } {
       ; both operands are pointer-sized array slots
@@ -2054,7 +2127,7 @@ class LowIRBuilderPass {
           v = (builder.emitPtrToInt(owned))
         } {
           if (lctx.ptrType == "i64") {
-            if (this.pushItemNeedsWiden(el lctx)) {
+            if (this.pushValueNeedsWiden(el v lctx)) {
               if (this.exprProducesI1(el lctx)) {
                 v = (builder.emitCast("zext" "i64" "i1" v))
               } {
@@ -2100,7 +2173,7 @@ class LowIRBuilderPass {
     ; the inttoptr emitPtrArrayElemGet does on the way out. Pushing one without
     ; the conversion passed `i64 <ptr value>`, which clang rejects.
     if (lctx.ptrType == "i64") {
-      if (this.pushItemNeedsWiden(itemNode lctx)) {
+      if (this.pushValueNeedsWiden(itemNode itemAddr lctx)) {
         ; A boolean element arrives as i1, an int one as i32 -- widen from
         ; whichever it really is, the way lowerCollectionSet already did.
         if (this.exprProducesI1(itemNode lctx)) {
@@ -3477,7 +3550,7 @@ class LowIRBuilderPass {
     def val (this.lowerExpr(valNode lctx))
     ; the array's slots are pointer sized: widen a 32-bit element the same way
     ; lowerPush does, and convert a string pointer to its integer form.
-    if (this.pushItemNeedsWiden(valNode lctx)) {
+    if (this.pushValueNeedsWiden(valNode val lctx)) {
       if (this.exprProducesI1(valNode lctx)) {
         val = (lctx.builder.emitCast("zext" "i64" "i1" val))
       } {
@@ -3529,6 +3602,47 @@ class LowIRBuilderPass {
 
   fn lowerArrayRemove:void (node:CodeNode lctx:LowIRLowerContext) {
     this.emitArrayRemoveCall(node lctx)
+  }
+
+  fn lowerArrayRemoveLast:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def arrNode (node.getSecond())
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    this.usedPtrArrayRuntime = true
+    def lenArgs:[string]
+    def lenTypes:[string]
+    push lenArgs desc
+    push lenTypes lctx.ptrType
+    def n (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
+    def one (builder.emitConst("i32" "1"))
+    def last (builder.emitBin("sub" "i32" n one))
+    def ps:[string]
+    push ps "i64"
+    push ps "i32"
+    this.ensureExternDecl("ranger_ptrarray_remove" "i64" ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args last
+    push argTypes "i32"
+    builder.emitCall("ranger_ptrarray_remove" lctx.ptrType args argTypes)
+  }
+
+  ; `clear xs` -- drop every element. The length is written straight through
+  ; the descriptor by the C helper.
+  fn lowerArrayClear:void (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    def ps:[string]
+    push ps "i64"
+    def voidT:string "void"
+    this.ensureExternDecl("ranger_ptrarray_clear" voidT ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_ptrarray_clear" voidT args argTypes)
   }
 
   ; `array_extract` is `remove` that answers the element it took out. A string
@@ -4535,7 +4649,35 @@ class LowIRBuilderPass {
       }
       return (builder.emitLoad(loadType slot))
     }
-    return ("%" + varName)
+    ; A FUNCTION PARAMETER is an SSA name, not a slot, so the bare name is
+    ; right for one. Any other unknown name is a name this function never
+    ; defined, and emitting it produced IR that would not assemble -- a zero of
+    ; the requested type keeps the module valid and localises the damage.
+    if (this.isParamName(varName lctx)) {
+      return ("%" + varName)
+    }
+    def z:string "0"
+    if (irType == "i8*") {
+      return "null"
+    }
+    if (irType == "f64") {
+      z = "0.0"
+    }
+    ; An unknown OBJECT name (one objectSlots knows the class of, or one the
+    ; caller asked for at the pointer width) answers a pointer-sized zero.
+    if (has lctx.objectSlots varName) {
+      return (lctx.builder.emitConst(lctx.ptrType "0"))
+    }
+    return (lctx.builder.emitConst(irType z))
+  }
+
+  fn isParamName:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.paramNames pn:string i {
+      if (pn == varName) {
+        return true
+      }
+    }
+    return false
   }
 
   fn fieldIrTypeFor:string (className:string fieldName:string) {
@@ -5784,6 +5926,8 @@ class LowIRBuilderPass {
     def emptyElemTypes:[string:string]
     lctx.ptrArrayElemTypes = emptyElemTypes
     def emptyOwned:[string]
+    def emptyParamNames:[string]
+    lctx.paramNames = emptyParamNames
     lctx.ownedObjectLocals = emptyOwned
     def emptyColl:[string]
     lctx.ownedCollectionLocals = emptyColl
@@ -5905,6 +6049,7 @@ class LowIRBuilderPass {
         pType = lctx.ptrType
       }
       def paramVal:string ("%" + lpName)
+      push lctx.paramNames lpName
       this.bindSlot(p.name pType paramVal lctx)
       ; A MAP parameter also spells its type with a leading "[", so it matched
       ; the array test and was registered as a ptr-array: `has target alias`
@@ -5981,6 +6126,8 @@ class LowIRBuilderPass {
     def emptyElemTypes:[string:string]
     lctx.ptrArrayElemTypes = emptyElemTypes
     def emptyOwned:[string]
+    def emptyParamNames:[string]
+    lctx.paramNames = emptyParamNames
     lctx.ownedObjectLocals = emptyOwned
     def emptyColl:[string]
     lctx.ownedCollectionLocals = emptyColl
@@ -6148,6 +6295,8 @@ class LowIRBuilderPass {
     def emptyElemTypes:[string:string]
     lctx.ptrArrayElemTypes = emptyElemTypes
     def emptyOwned:[string]
+    def emptyParamNames:[string]
+    lctx.paramNames = emptyParamNames
     lctx.ownedObjectLocals = emptyOwned
     def emptyColl:[string]
     lctx.ownedCollectionLocals = emptyColl
@@ -6185,6 +6334,7 @@ class LowIRBuilderPass {
       def paramTypeName (this.varTypeName(pn))
       lp.irType = (this.llvmTypeForRanger(paramTypeName lctx.ptrType))
       push params lp
+      push lctx.paramNames p.name
       this.bindSlot(p.name lp.irType ("%" + p.name) lctx)
       if (this.isObjectTypeName(paramTypeName)) {
         set lctx.objectSlots p.name paramTypeName
@@ -6208,6 +6358,20 @@ class LowIRBuilderPass {
         def capKnd (itemAt cinfo.kinds ci)
         def loaded (builder.emitLoadTypedAt(envRef capOff capIrt))
         this.bindSlot(capName capIrt loaded lctx)
+        ; Restore what KIND of thing the name is, or the body treats a captured
+        ; array or map as a plain integer.
+        def capColl2:string (itemAt cinfo.collKinds ci)
+        if ((strlen capColl2) > 0) {
+          set lctx.collectionSlots capName capColl2
+        }
+        def capElem2:string (itemAt cinfo.elemTypes ci)
+        if ((strlen capElem2) > 0) {
+          set lctx.ptrArrayElemTypes capName capElem2
+        }
+        def capSmapVal2:string (itemAt cinfo.smapValTypes ci)
+        if ((strlen capSmapVal2) > 0) {
+          set lctx.smapValueTypes capName capSmapVal2
+        }
         if (capKnd == 2) {
           set lctx.objectSlots capName (itemAt cinfo.objClasses ci)
         }
@@ -6285,6 +6449,12 @@ class LowIRBuilderPass {
   ; method MUTATES is a boxing candidate (finalised in lowerVarDef once its type
   ; is known to be a value type). Recurses into nested lambdas. WAT-only.
   fn computeBoxedCandidates:void (fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    ; L3 value boxing is still WAT-only. The cell is allocated with the WASM
+    ; two-integer form of ranger_obj_new and written with an i32 store, neither
+    ; of which is right on the native path -- a boolean local boxed there wrote
+    ; an i1 through an i32 store. Natively a captured local is copied into the
+    ; closure, so a lambda that MUTATES one does not write it back; see
+    ; TARGET_NOTES.md.
     def ctx (unwrap lctx.ctx)
     if (ctx.hasCompilerFlag("wat") == false) {
       return
@@ -6402,10 +6572,25 @@ class LowIRBuilderPass {
               }
             }
           }
+          def capColl:string ""
+          if (has lctx.collectionSlots cn) {
+            capColl = (unwrap (get lctx.collectionSlots cn))
+          }
+          def capElem:string ""
+          if (has lctx.ptrArrayElemTypes cn) {
+            capElem = (unwrap (get lctx.ptrArrayElemTypes cn))
+          }
+          def capSmapVal:string ""
+          if (has lctx.smapValueTypes cn) {
+            capSmapVal = (unwrap (get lctx.smapValueTypes cn))
+          }
           push info.names cn
           push info.irTypes cirt
           push info.kinds kind
           push info.objClasses objCls
+          push info.collKinds capColl
+          push info.elemTypes capElem
+          push info.smapValTypes capSmapVal
           push info.offsets off
           if (kind != 0) {
             info.hasOwned = true
@@ -6461,6 +6646,27 @@ class LowIRBuilderPass {
     def info@(lives):LambdaCaptureInfo (this.computeLambdaCaptures(node lfd lctx))
     def bytes (builder.emitConst("i32" ("" + info.totalBytes)))
     def rec:string ""
+    def recTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if recTarget.usesLibc {
+      ; Same shape as lowerNewObject on the native path: the descriptor is a
+      ; module GLOBAL, named straight into the call, and the signature spells
+      ; the pointer parameter. The WASM branch below passes a data-segment
+      ; offset instead, which is an i32 there.
+      this.usedMemRuntime = true
+      this.ensureMemExtern(recTarget)
+      def tdRef:string "ptr null"
+      if info.hasOwned {
+        tdRef = ("ptr @" + info.tdName + "_typeDesc")
+      }
+      def la:[string]
+      def lat:[string]
+      push la bytes
+      push lat "i32"
+      push la tdRef
+      push lat ""
+      def lsig:string ("i32, ptr")
+      rec = (builder.emitCallWithSig("ranger_obj_new" lctx.ptrType lsig la lat))
+    } {
     if (this.objRcEnabled(lctx)) {
       def tdArg:string ""
       if info.hasOwned {
@@ -6477,6 +6683,7 @@ class LowIRBuilderPass {
       rec = (builder.emitCall("ranger_obj_new" lctx.ptrType a at))
     } {
       rec = (builder.emitHeapAlloc(bytes))
+    }
     }
     ; The index is read back with a pointer-sized load (emitPtrLoad in
     ; lowerLambdaCall), so it is stored pointer sized too -- an i32 store here
@@ -6521,6 +6728,27 @@ class LowIRBuilderPass {
         ; boxed value capture: retain the shared heap cell (the enclosing scope
         ; and the closure both reference it; freed once, when neither holds it)
         this.emitObjRetainPtr(cval lctx)
+      }
+      ; The capture LAYOUT is fixed at the first lowering of this lambda, and
+      ; the slot's own type at this site can disagree (a boolean local is an
+      ; i1, the layout says i32). Coerce toward the layout so the write and the
+      ; read side agree.
+      def cvalT:string (builder.emittedType(cval))
+      if ((strlen cvalT) > 0) {
+        if (cvalT != cirt) {
+          if ((cirt == "i32") && (cvalT == "i1")) {
+            cval = (builder.emitZextI1ToI32(cval))
+          }
+          if ((cirt == "i64") && (cvalT == "i1")) {
+            cval = (builder.emitCast("zext" "i64" "i1" cval))
+          }
+          if ((cirt == "i64") && (cvalT == "i32")) {
+            cval = (builder.emitCast("zext" "i64" "i32" cval))
+          }
+          if ((cirt == "i32") && (cvalT == "i64")) {
+            cval = (builder.emitCast("trunc" "i32" "i64" cval))
+          }
+        }
       }
       builder.emitStoreTypedAt(rec coff cval cirt)
       k = (+ k 1)
@@ -7129,6 +7357,18 @@ class LowIRBuilderPass {
       }
       if (opName == "remove") {
         this.lowerArrayRemove(node lctx)
+        return
+      }
+      ; `removeLast` and `clear` carried only text templates, so on this
+      ; backend they compiled to NOTHING -- a silent no-op. The compiler pops
+      ; the last path segment with removeLast when it builds its library search
+      ; path, so every candidate directory still had the file name on it.
+      if (opName == "removeLast") {
+        this.lowerArrayRemoveLast(node lctx)
+        return
+      }
+      if (opName == "clear") {
+        this.lowerArrayClear(node lctx)
         return
       }
       if (opName == "on_keypress") {
@@ -7780,6 +8020,27 @@ class LowIRBuilderPass {
         if ((builder.emittedType(tmp)) != "i1") {
           if ((this.exprProducesI1(valNode lctx)) == false) {
             tmp = (this.toI1(tmp lctx))
+          }
+        }
+      } {
+        ; Width coercion against what was actually emitted. A lambda body whose
+        ; declared result is `int` can end in a pointer-sized read, and
+        ; `ret i32 <i64 value>` does not assemble.
+        def emittedRet:string (builder.emittedType(tmp))
+        if ((strlen emittedRet) > 0) {
+          if (emittedRet != retType) {
+            if ((retType == "i32") && (emittedRet == "i64")) {
+              tmp = (builder.emitCast("trunc" "i32" "i64" tmp))
+            }
+            if ((retType == "i64") && (emittedRet == "i32")) {
+              tmp = (builder.emitCast("zext" "i64" "i32" tmp))
+            }
+            if ((retType == "i64") && (emittedRet == "i1")) {
+              tmp = (builder.emitCast("zext" "i64" "i1" tmp))
+            }
+            if ((retType == "i32") && (emittedRet == "i1")) {
+              tmp = (builder.emitZextI1ToI32(tmp))
+            }
           }
         }
       }
@@ -9044,6 +9305,17 @@ class LowIRBuilderPass {
       if (this.operatorReturnsString(eop)) {
         return true
       }
+      ; A ternary answers a string when its branches do.
+      if (eop == "?") {
+        if ((array_length exprNode.children) > 3) {
+          if (this.exprIsStringish((exprNode.getThird()) lctx)) {
+            return true
+          }
+          if (this.exprIsStringish((itemAt exprNode.children 3) lctx)) {
+            return true
+          }
+        }
+      }
       ; `(unwrap x)` is the optional's value: ask what is inside. `print v + " = "
       ; + (unwrap (get m v))` is the shape that exposed this -- the wrapper hid
       ; a string map read, so the concat formatted a pointer with %d.
@@ -9076,6 +9348,14 @@ class LowIRBuilderPass {
       }
     }
     if (exprNode.value_type == RangerNodeType.VRef) {
+      ; The SLOT's type is the most direct answer, and the only one available
+      ; for a captured local inside a hoisted lambda body -- its declared type
+      ; lives on the enclosing function's node, not on this reference.
+      if (has lctx.slotTypes exprNode.vref) {
+        if ((unwrap (get lctx.slotTypes exprNode.vref)) == "i8*") {
+          return true
+        }
+      }
       if (LowIRUtil.isStringType(exprNode.type_name)) {
         return true
       }
@@ -9593,6 +9873,27 @@ class LowIRBuilderPass {
     ; exactly as an instance call does. Registering only the instance path left
     ; `EvalValue.number(...)` -- the most-called constructor in the engine --
     ; with a reference nobody ever balanced, leaking one object per increment.
+    ; A callee mangled out of a receiver the backend could not resolve -- which
+    ; happens inside a hoisted lambda body whose capture layout was never built
+    ; -- names a function nothing defines. The test is on the RECEIVER, not on
+    ; whether the function has been emitted yet: a class lowered later in the
+    ; module, and a function calling itself, are both perfectly good callees.
+    if (this.calleeReceiverIsUnknown(calleeNode lctx)) {
+      if ((this.moduleHasFunction(fnName)) == false) {
+        if ((this.hasExternDecl(fnName)) == false) {
+        if (retType == "void") {
+          return ""
+        }
+        if (retType == "i8*") {
+          return "null"
+        }
+        if (retType == "f64") {
+          return (builder.emitConst("f64" "0.0"))
+        }
+        return (builder.emitConst(retType "0"))
+        }
+      }
+    }
     def sCallRes (builder.emitCall(fnName retType args argTypes))
     this.registerCallObjectTemp(node sCallRes lctx)
     return sCallRes
@@ -9840,6 +10141,36 @@ class LowIRBuilderPass {
 
   ; The class whose emitted function actually carries `methodName`: the class
   ; itself when it declares it, otherwise the nearest base that does.
+  ; Coerce an argument to the parameter's declared IR type, using what the
+  ; builder actually emitted. Widths otherwise disagree in the shapes the type
+  ; tests cannot see -- a lambda-typed parameter handed a pointer-sized zero,
+  ; a boolean local passed where an int is declared.
+  fn coerceArg:string (value:string wantType:string lctx:LowIRLowerContext) {
+    def got:string (lctx.builder.emittedType(value))
+    if ((strlen got) == 0) {
+      return value
+    }
+    if (got == wantType) {
+      return value
+    }
+    if ((wantType == "i64") && (got == "i32")) {
+      return (lctx.builder.emitCast("zext" "i64" "i32" value))
+    }
+    if ((wantType == "i64") && (got == "i1")) {
+      return (lctx.builder.emitCast("zext" "i64" "i1" value))
+    }
+    if ((wantType == "i32") && (got == "i64")) {
+      return (lctx.builder.emitCast("trunc" "i32" "i64" value))
+    }
+    if ((wantType == "i32") && (got == "i1")) {
+      return (lctx.builder.emitZextI1ToI32(value))
+    }
+    if ((wantType == "i1") && (got == "i32")) {
+      return (this.toI1(value lctx))
+    }
+    return value
+  }
+
   fn methodOwnerClass:string (className:string methodName:string lctx:LowIRLowerContext) {
     if ((strlen className) == 0) {
       return className
@@ -9928,6 +10259,30 @@ class LowIRBuilderPass {
     ; call to an inherited method has to name that class or it references a
     ; function the module does not contain.
     def ownerCls:string (this.methodOwnerClass(className methName lctx))
+    ; A receiver whose class the backend could not work out -- a capture inside
+    ; a hoisted lambda whose layout was never built -- used to mangle the
+    ; ARGUMENT's name into a callee (`@arg_lambdaFnDesc`), a function nothing
+    ; defines. Emitting nothing keeps the module valid; the call is lost, which
+    ; is the known limit of closures on this backend (see TARGET_NOTES.md).
+    if ((strlen ownerCls) == 0) {
+      def missRet:string "i32"
+      if (!null? node.fnDesc) {
+        if (!null? node.fnDesc.nameNode) {
+          def mrn (unwrap node.fnDesc.nameNode)
+          missRet = (this.llvmTypeForRanger(mrn.type_name lctx.ptrType))
+        }
+      }
+      if (missRet == "void") {
+        return ""
+      }
+      if (missRet == "i8*") {
+        return "null"
+      }
+      if (missRet == "f64") {
+        return (builder.emitConst("f64" "0.0"))
+      }
+      return (builder.emitConst(missRet "0"))
+    }
     def fnName (LowIRUtil.mangleMethod(ownerCls methName))
     def voidType:string "void"
     def retType:string "i32"
@@ -9943,17 +10298,27 @@ class LowIRBuilderPass {
     }
     def args:[string]
     def argTypes:[string]
+    ; A receiver the resolution could not work out (a captured name inside a
+    ; hoisted lambda whose capture layout was never built) used to be emitted
+    ; as an empty operand -- `call void @f(%struct.X* , …)`, which does not
+    ; parse. A null keeps the module valid and localises the failure.
+    if ((strlen objPtr) == 0) {
+      objPtr = (builder.emitIntToStructPtr(ownerCls (builder.emitConst(lctx.ptrType "0"))))
+    }
     push args objPtr
     push argTypes (LowIRUtil.structPtrType(ownerCls))
     def argsNode (this.callArgsNode(node))
     def argIdx:int 0
     for argsNode.children arg:CodeNode i {
-      push args (this.lowerExpr(arg lctx))
+      def argVal:string (this.lowerExpr(arg lctx))
+      def wantT:string ""
       if (!null? node.fnDesc) {
-        push argTypes (this.paramIrTypeFromDesc(argIdx (unwrap node.fnDesc) lctx))
+        wantT = (this.paramIrTypeFromDesc(argIdx (unwrap node.fnDesc) lctx))
       } {
-        push argTypes (this.argIrType(arg lctx))
+        wantT = (this.argIrType(arg lctx))
       }
+      push args (this.coerceArg(argVal wantT lctx))
+      push argTypes wantT
       argIdx = argIdx + 1
     }
     def callRes (builder.emitCall(fnName retType args argTypes))
@@ -10006,6 +10371,68 @@ class LowIRBuilderPass {
     }
     def obj (unwrap objNode)
     return (this.lowerInstanceCallOn(node obj.vref obj methodName lctx))
+  }
+
+  ; Is `fnName` a function this module emits? Checked before a call whose
+  ; callee name came out of a fallback path.
+  ; True when the callee name was mangled from a DOTTED receiver whose first
+  ; segment is neither a class nor a name this scope knows -- the shape
+  ; resolveCalleeName falls back to when everything else failed.
+  fn calleeReceiverIsUnknown:boolean (callee:CodeNode lctx:LowIRLowerContext) {
+    if (null? lctx.ctx) {
+      return false
+    }
+    def appCtx0 (unwrap lctx.ctx)
+    ; The namespace form carries the same risk: `arg.lambdaFnDesc` inside a
+    ; lambda body resolved to ns ["arg" "lambdaFnDesc"] and mangled into a
+    ; callee, and `arg` is a local, not a class.
+    if ((array_length callee.ns) >= 2) {
+      def ns0 (itemAt callee.ns 0)
+      if (has appCtx0.definedClasses ns0) {
+        return false
+      }
+      if (ns0 == "this") {
+        return false
+      }
+      return true
+    }
+    def v:string callee.vref
+    if ((indexOf v ".") < 0) {
+      return false
+    }
+    def parts:[string] (strsplit v ".")
+    if ((array_length parts) < 2) {
+      return false
+    }
+    def p0 (itemAt parts 0)
+    if (p0 == "this") {
+      return false
+    }
+    if (null? lctx.ctx) {
+      return false
+    }
+    def appCtx (unwrap lctx.ctx)
+    if (has appCtx.definedClasses p0) {
+      return false
+    }
+    if (has lctx.slots p0) {
+      return true
+    }
+    return true
+  }
+
+  fn moduleHasFunction:boolean (fnName:string) {
+    for this.irModule.functions f:LowIRFunction i {
+      if (f.name == fnName) {
+        return true
+      }
+    }
+    for this.irModule.lambdaTableFuncs lf:string j {
+      if (lf == fnName) {
+        return true
+      }
+    }
+    return false
   }
 
   fn resolveCalleeName:string (callee:CodeNode) {

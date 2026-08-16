@@ -377,7 +377,12 @@ class LowIRBuilder {
     return (this.emitIcmpTyped(pred "i32" lhs rhs))
   }
 
-  fn emitIcmpTyped:string (pred:string operandType:string lhs:string rhs:string) {
+  fn emitIcmpTyped:string (pred:string operandType:string lhsIn:string rhsIn:string) {
+    ; Both operands must have the compared type. The lowering picks it from the
+    ; source node and a few shapes hide the truth (a boolean from a C helper, a
+    ; captured value), so reconcile against what was emitted.
+    def lhs:string (this.coerceTo(lhsIn operandType))
+    def rhs:string (this.coerceTo(rhsIn operandType))
     def tag:string "p"
     def dest (this.freshTemp(tag))
     def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -415,7 +420,71 @@ class LowIRBuilder {
     this.emit(ins)
   }
 
-  fn emitCallWithSig:string (fnName:string retType:string callSig:string args:[string] argTypes:[string]) {
+  ; Every argument must have the declared parameter type. The lowering decides
+  ; these from the source node, which a handful of shapes hide (a captured
+  ; collection, an optional over a primitive, a lambda-typed parameter), and a
+  ; width mismatch at a call boundary is IR that will not assemble. What the
+  ; builder actually EMITTED for a value is known here, so the fix belongs
+  ; here: insert the integer widen/narrow rather than leave a broken call.
+  fn coerceCallArgs:[string] (args:[string] argTypes:[string]) {
+    def out:[string]
+    def n (array_length args)
+    def i:int 0
+    while (i < n) {
+      def a:string (itemAt args i)
+      def want:string "i32"
+      if (i < (array_length argTypes)) {
+        want = (itemAt argTypes i)
+      }
+      def got:string ""
+      if (has destTypes a) {
+        got = (unwrap (get destTypes a))
+      }
+      def fixed:string a
+      if ((strlen got) > 0) {
+        if (got != want) {
+          if ((want == "i64") && (got == "i32")) {
+            fixed = (this.emitCast("zext" "i64" "i32" a))
+          }
+          if ((want == "i64") && (got == "i1")) {
+            fixed = (this.emitCast("zext" "i64" "i1" a))
+          }
+          if ((want == "i32") && (got == "i64")) {
+            fixed = (this.emitCast("trunc" "i32" "i64" a))
+          }
+          if ((want == "i32") && (got == "i1")) {
+            fixed = (this.emitZextI1ToI32(a))
+          }
+          ; A missing value answers a zero of the wrong shape when the
+          ; parameter is a pointer; a null of the right one keeps the call
+          ; well typed.
+          if (want == "i8*") {
+            if ((got == "i32") || (got == "i64")) {
+              fixed = (this.emitIntToI8Ptr(a got))
+            }
+          }
+          ; ...and the mirror: a pointer where an integer is declared.
+          if (got == "i8*") {
+            if ((want == "i32") || (want == "i64")) {
+              def asInt (this.emitPtrToInt(a))
+              fixed = asInt
+              if (want == "i32") {
+                if (this.irModule.ptrType == "i64") {
+                  fixed = (this.emitCast("trunc" "i32" "i64" asInt))
+                }
+              }
+            }
+          }
+        }
+      }
+      push out fixed
+      i = i + 1
+    }
+    return out
+  }
+
+  fn emitCallWithSig:string (fnName:string retType:string callSig:string rawArgs:[string] argTypes:[string]) {
+    def args (this.coerceCallArgs(rawArgs argTypes))
     def voidType:string "void"
     if (retType == voidType) {
       def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -506,7 +575,12 @@ class LowIRBuilder {
     return dest
   }
 
-  fn emitStore:void (irType:string value:string slotName:string) {
+  fn emitStore:void (irType:string valueIn:string slotName:string) {
+    ; The stored value has to have the slot's type. Every mismatch the lowering
+    ; could not see from the source node -- a captured collection, an optional
+    ; over a primitive, a boolean from a C helper -- otherwise lands here as
+    ; `store i64 <i32 value>`, which does not assemble.
+    def value:string (this.coerceTo(valueIn irType))
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "store"
     ins.irType = irType
@@ -552,12 +626,26 @@ class LowIRBuilder {
     return dest
   }
 
-  fn emitIntToI8Ptr:string (addr:string addrType:string) {
+  fn emitIntToI8Ptr:string (addr:string addrTypeIn:string) {
     def tag:string "s"
+    ; The SOURCE width has to match the value: an i32 handed to `inttoptr i64`
+    ; does not assemble. Trust what was emitted for it over what the caller
+    ; assumed.
+    def addrType:string addrTypeIn
+    if (has destTypes addr) {
+      def at:string (unwrap (get destTypes addr))
+      if ((at == "i32") || (at == "i64")) {
+        addrType = at
+      }
+    }
     def dest (this.freshTemp(tag))
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "inttoptr_i8"
     ins.dest = dest
+    ; The result IS an i8*. Leaving irType at its i32 default made destTypes
+    ; report a pointer as a 32-bit integer, and every decision that consults it
+    ; (widen-before-push, condition type, comparison width) then went wrong.
+    ins.irType = "i8*"
     ins.arg1 = addr
     ins.arg2 = addrType
     this.emit(ins)
@@ -619,6 +707,18 @@ class LowIRBuilder {
     return dest
   }
 
+  ; The integer width an ADDRESS value actually has. Defaults to the module's
+  ; pointer type for anything this builder did not produce.
+  fn addrWidthOf:string (ptr:string) {
+    if (has destTypes ptr) {
+      def t:string (unwrap (get destTypes ptr))
+      if ((t == "i32") || (t == "i64")) {
+        return t
+      }
+    }
+    return this.irModule.ptrType
+  }
+
   fn emitPtrLoad:string (ptr:string) {
     return (this.emitPtrLoadTyped(ptr this.irModule.ptrType))
   }
@@ -631,7 +731,9 @@ class LowIRBuilder {
     ins.dest = dest
     ins.irType = valueType
     ins.arg1 = ptr
-    ins.arg2 = this.irModule.ptrType
+    ; The ADDRESS operand's width has to match the value: an i32 address in an
+    ; `inttoptr i64` does not assemble.
+    ins.arg2 = (this.addrWidthOf(ptr))
     this.emit(ins)
     return dest
   }
@@ -648,8 +750,8 @@ class LowIRBuilder {
     ins.dest = ("ps" + ("" + n))
     ins.irType = valueType
     ins.arg1 = ptr
-    ins.arg2 = value
-    ins.arg3 = this.irModule.ptrType
+    ins.arg2 = (this.coerceTo(value valueType))
+    ins.arg3 = (this.addrWidthOf(ptr))
     this.emit(ins)
   }
 
@@ -740,7 +842,8 @@ class LowIRBuilder {
   ; indirect call through the function table. args already include the closure
   ; env as the first entry; `selector` is the table index (fn_index) loaded from
   ; the closure record. callSig ("t0,t1,…:ret") selects the wasm (type …).
-  fn emitCallIndirect:string (retType:string callSig:string args:[string] argTypes:[string] selector:string) {
+  fn emitCallIndirect:string (retType:string callSig:string rawArgs:[string] argTypes:[string] selector:string) {
+    def args (this.coerceCallArgs(rawArgs argTypes))
     def voidType:string "void"
     if (retType == voidType) {
       def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -781,8 +884,8 @@ class LowIRBuilder {
     ins.op = "ptr_store"
     ins.irType = "i32"
     ins.arg1 = addr
-    ins.arg2 = value
-    ins.arg3 = pt
+    ins.arg2 = (this.coerceTo(value "i32"))
+    ins.arg3 = (this.addrWidthOf(addr))
     this.emit(ins)
   }
 
@@ -798,8 +901,8 @@ class LowIRBuilder {
     ins.op = "ptr_store"
     ins.irType = valueType
     ins.arg1 = addr
-    ins.arg2 = value
-    ins.arg3 = pt
+    ins.arg2 = (this.coerceTo(value valueType))
+    ins.arg3 = (this.addrWidthOf(addr))
     this.emit(ins)
   }
 
@@ -863,7 +966,68 @@ class LowIRBuilder {
     cur.termTarget = target
   }
 
+  ; A branch condition must be an i1. A few lowerings hand over the raw i32 a
+  ; C helper answered; comparing it against zero here is what every consumer
+  ; meant anyway.
+  ; Adjust an already-emitted value to `want`, when the change is an ordinary
+  ; integer widen/narrow or a pointer/integer reinterpretation.
+  fn coerceTo:string (v:string want:string) {
+    if ((has destTypes v) == false) {
+      return v
+    }
+    def got:string (unwrap (get destTypes v))
+    if (got == want) {
+      return v
+    }
+    if ((want == "i1") && ((got == "i32") || (got == "i64"))) {
+      def z (this.emitConst(got "0"))
+      return (this.emitIcmpTyped("ne" got v z))
+    }
+    if ((want == "i32") && (got == "i1")) {
+      return (this.emitZextI1ToI32(v))
+    }
+    if ((want == "i64") && (got == "i1")) {
+      return (this.emitCast("zext" "i64" "i1" v))
+    }
+    if ((want == "i64") && (got == "i32")) {
+      return (this.emitCast("zext" "i64" "i32" v))
+    }
+    if ((want == "i32") && (got == "i64")) {
+      return (this.emitCast("trunc" "i32" "i64" v))
+    }
+    if ((want == "i8*") && ((got == "i32") || (got == "i64"))) {
+      return (this.emitIntToI8Ptr(v got))
+    }
+    if (got == "i8*") {
+      if ((want == "i32") || (want == "i64")) {
+        def asInt (this.emitPtrToInt(v))
+        if (want == "i32") {
+          if (this.irModule.ptrType == "i64") {
+            return (this.emitCast("trunc" "i32" "i64" asInt))
+          }
+        }
+        return asInt
+      }
+    }
+    return v
+  }
+
+  fn asI1:string (v:string) {
+    if (has destTypes v) {
+      def t:string (unwrap (get destTypes v))
+      if (t == "i1") {
+        return v
+      }
+      if ((t == "i32") || (t == "i64")) {
+        def z (this.emitConst(t "0"))
+        return (this.emitIcmpTyped("ne" t v z))
+      }
+    }
+    return v
+  }
+
   fn terminateBrIf:void (cond:string ifTrue:string ifFalse:string) {
+    cond = (this.asI1(cond))
     def cur (unwrap this.currentBlock)
     cur.termKind = "br_if"
     cur.termValue = cond

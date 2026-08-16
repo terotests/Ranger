@@ -140,6 +140,113 @@ for C#, `go build` for Go, `kotlinc` for Kotlin
 (`tests/compiler-selfhost.test.ts`). The binary build and the bootstrap rounds
 are a manual step.
 
+## The compiler on LLVM: how far it gets
+
+LLVM is the seventh target the compiler has been compiled for, and the first
+one that is a **code generator rather than a source writer**: there is no
+text template to fall back on, every construct has to be lowered to IR, and
+nothing about the result is checked by another compiler's front end.
+
+```bash
+npm run selfhost:compile:llvm   # generate the IR, report the error count
+npm run selfhost:check:llvm     # ...and run `opt -passes=verify` over it
+npm run selfhost:build:llvm     # ...and link ./tmp/selfhost-llvm/rangerc
+```
+
+**Where it stands.** The compiler now compiles for LLVM with **zero errors**
+(631 before this work), the ~493k lines / 21 MB of IR it produces for itself
+**pass `opt -passes=verify`**, and `clang` links them with the C runtime into a
+3 MB `rangerc`. That binary starts, prints its banner and usage, parses its
+command line, finds its library, reads the source file and begins compiling.
+
+It does **not** yet produce correct output: somewhere in the run a value is
+read back wrong (the output file name comes out as another string), so this is
+not a self-hosting target the way C++, Dart, Python, C#, Go and Kotlin are. It
+is a target whose codegen is complete enough to build the largest Ranger
+program there is, and whose remaining problems are runtime ones.
+
+Progress is worth measuring in three numbers, because they fail independently:
+
+| Gate | Before | Now |
+| --- | --- | --- |
+| Compiler errors for `-l=llvm` on the compiler | 631 | **0** |
+| `opt -passes=verify` on the emitted IR | did not get that far | **passes** |
+| `clang` links a binary | did not get that far | **yes, 3 MB** |
+| The binary compiles a program correctly | — | not yet |
+
+### What LLVM took
+
+The front-end half was the same shape as the C++ round, and the JSON gap was
+the same gap:
+
+1. **JSON had no LLVM support at all** — 421 of the last 435 errors, every one
+   of them in the generated `extension CompilerInterface`. Each `@serialize`
+   class generates a `toDictionary` / `fromDictionary` pair, so a target with
+   no JSON cannot compile the compiler at all. `runtime/ranger_json.c` is a
+   reference-counted tagged value with insertion-ordered objects, a parser and
+   a writer; `case v x:JSONDataObject` lowers to a kind test plus one read.
+2. **Operators with no `llvm` entry did not match at all**, so the call failed
+   type checking rather than falling back to something wrong: startsWith,
+   endsWith, replace, indexOfFrom, sort, reverse, insert, remove, cast,
+   nullify, error_msg, sha256, dir_exists, create_dir, write_file, env_var,
+   normalize, path_dirname, install_directory, current_directory, is_tty, the
+   ANSI escapes, and `for` over a `[string:T]` map.
+3. **Operators that carried a `*` template but no lowering** were worse: they
+   type checked and then emitted their own name as a value. `ccode`, the
+   ternary (`max` and `min` expand to it), `join`, `array_extract`,
+   `to_charbuffer`, `current_time_ms`, `charcode` — and `removeLast` and
+   `clear`, which compiled to *nothing at all*, a silent no-op. The compiler
+   pops the last segment off a path with `removeLast` when it builds its
+   library search path, so every candidate directory kept the file name on it.
+
+The second half had no precedent on the other targets, because nothing had
+ever run the compiler's own IR through the verifier:
+
+4. **Enum members emitted a bare `%RangerNodeType.NoType`** — 900 undefined
+   values. An enum member is an integer constant, an enum-typed field is an
+   i32, and an enum-typed value is not an object (a call returning one had its
+   result handed to `ranger_obj_release`).
+5. **Inherited fields were missing from the flat struct**, so every read of one
+   was `getelementptr … i32 -1`. Inherited *methods* are emitted once, under
+   the class that declares them, so a call to one named the derived class and
+   referenced a function the module did not contain.
+6. **The synthetic `operatorsOf…` classes were skipped whole** — the holders
+   the matcher creates for `operator type:T { fn forEach … }`. 44 functions
+   were called and never emitted.
+7. **Closures were WAT-only.** The LLVM writer had no `call_indirect` case at
+   all, and the hoisting pass that assigns each lambda its table index ran only
+   under `-wat`: on the native path every closure record carried index 0 into
+   an empty table and the call jumped to address 0. The record also used
+   four-byte slots and i32 stores for every capture, which truncates a pointer
+   on a 64-bit target.
+8. **Widths.** Booleans (i1) and ints (i32) and pointers (i64) disagreed at
+   almost every boundary — array elements, map values, call arguments, branch
+   conditions, comparisons, returns, closure captures. The lowering decided
+   these from the shape of the source node, which a dozen constructs hide. The
+   builder now **records the IR type it actually emitted for each SSA name**,
+   and the store / call / compare / branch paths reconcile against that. This
+   is the single change that closed most of the tail.
+
+### What is left
+
+- **The run itself.** The binary gets through startup and into compilation and
+  then reads a value back wrong. The next step is a memory build
+  (`RANGER_MEM_STATS`, or an ASan toolchain) over a small program.
+- **Closures are incomplete.** A lambda whose capture layout was never built —
+  one only ever *called*, never constructed in the same module — loses its
+  captures; the calls it makes through an unresolved receiver are dropped
+  rather than emitted, which keeps the module valid and loses the call. L3
+  value boxing (a captured local that the lambda MUTATES) is still WAT-only, so
+  natively such a local is copied and the write is not seen outside.
+- **`remove` and `clear` leak** an owned element instead of releasing it. That
+  is deliberate for now: leaking is safer than a double free while the
+  ownership analysis on this backend is young. `array_extract` hands the
+  element to the caller, which is what its `@(strong)` says.
+- **Plugins cannot work.** `load_compiler_plugin` loads an npm module; a native
+  binary has no Node to load it into.
+- **No exceptions.** `try` has no unwinding on this backend and `error_msg`
+  answers the same placeholder the C++ template does.
+
 ### What C++ took
 
 Seven kinds of defect, and only one of them was in the C++ writer's own

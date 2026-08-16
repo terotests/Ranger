@@ -7068,6 +7068,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         removeLast  cmdRemoveLast:void  ( array@(mutates):[T] ) {
             templates {
                 ranger ( "removeLast " (e 1) "")
+                 llvm ( nl "removeLast " (e 1) nl)
                  cpp ( (e 1) ".pop_back();")
                  swift3 ( (e 1) ".removeLast();")
                  swift6 ( (e 1) ".removeLast()")
@@ -7122,6 +7123,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         clear    _:void      ( array:[T] ) {
             templates {
                  ranger ( "(clear " (e 1) ")")
+                 llvm ( nl "clear " (e 1) nl)
                  cpp ( (e 1) ".clear();" )
                  swift3 ( (e 1) ".removeAll()")
                  swift6 ( (e 1) ".removeAll()")

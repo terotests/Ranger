@@ -563,6 +563,14 @@ class LLVMIRWriter {
         }
         wr.out(")" true)
       }
+      ; The address of a class type descriptor. The WAT backend resolves it to
+      ; a data-segment offset; here the descriptor is an ordinary module
+      ; global, so a zero-offset getelementptr names it as a value. A closure
+      ; with owned captures asks for one, and without this case the
+      ; UNHANDLED-LOWIR-OP marker landed in the middle of a function.
+      case "typedesc_ptr" {
+        wr.out((ins.dest + " = getelementptr inbounds i8, ptr @" + ins.arg1 + "_typeDesc, i64 0") true)
+      }
       case "alloca" {
         wr.out((ins.dest + " = alloca " + (this.llTy(ins.irType))) true)
       }

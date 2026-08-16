@@ -1190,3 +1190,15 @@ int64_t ranger_ptrarray_remove(int64_t desc_addr, int32_t index) {
   d->len = d->len - 1;
   return out;
 }
+
+/* `clear xs` -- drop every element. Owned elements are NOT released here, for
+ * the same reason ranger_ptrarray_remove does not: leaking is safer than a
+ * double free while the ownership analysis on this backend is young. */
+void ranger_ptrarray_clear(int64_t desc_addr) {
+  RtPtrArrayDesc *d;
+  if (desc_addr == 0) {
+    return;
+  }
+  d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
+  d->len = 0;
+}

@@ -115,17 +115,24 @@ int ranger_str2int(const char *text) {
   return (int)strtol(text, NULL, 10);
 }
 
+/* Always a HEAP copy, including for NULL and for an allocation failure: the
+ * result is owned by the caller and ranger_str_release frees it. Handing back
+ * a static buffer aborted the process the first time such a string went out
+ * of scope ("munmap_chunk(): invalid pointer"). */
 char *ranger_strdup(const char *text) {
-  static char empty[] = "";
   size_t n;
   char *copy;
   if (text == NULL) {
-    return empty;
+    copy = (char *)malloc(1);
+    if (copy != NULL) {
+      copy[0] = '\0';
+    }
+    return copy;
   }
   n = strlen(text);
   copy = (char *)malloc(n + 1);
   if (copy == NULL) {
-    return empty;
+    return NULL;
   }
   memcpy(copy, text, n + 1);
   return copy;
@@ -181,7 +188,13 @@ const char *ranger_read_file(const char *path, const char *filename) {
   if (path == NULL || filename == NULL) {
     return NULL;
   }
-  snprintf(full, sizeof(full), "%s/%s", path, filename);
+  /* An empty path means the filename is the whole path (see
+   * ranger_file_exists). */
+  if (path[0] == '\0') {
+    snprintf(full, sizeof(full), "%s", filename);
+  } else {
+    snprintf(full, sizeof(full), "%s/%s", path, filename);
+  }
   f = fopen(full, "rb");
   if (f == NULL) {
     return NULL;
@@ -1064,7 +1077,14 @@ int ranger_file_exists(const char *path, const char *filename) {
   if (full == NULL) {
     return 0;
   }
-  snprintf(full, n, "%s/%s", path, filename);
+  /* An EMPTY path means the filename is the whole path. Joining with "/"
+   * turned a relative `tmp/probe/x.rgr` into the absolute `/tmp/probe/x.rgr`,
+   * so the compiler reported "File not found" for a file that was there. */
+  if (path[0] == '\0') {
+    snprintf(full, n, "%s", filename);
+  } else {
+    snprintf(full, n, "%s/%s", path, filename);
+  }
   f = fopen(full, "rb");
   free(full);
   if (f == NULL) {
