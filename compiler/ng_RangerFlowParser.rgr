@@ -2533,8 +2533,21 @@ class RangerFlowParser {
                             (calledItem.copy())
                             (r.vref item)
                         )
-            def p (classDesc.findVariable(item))
-            classDesc = (ctx.findClass(p.nameNode.type_name))
+            ; findVariable answers nothing for a property the class does not
+            ; have. The `try` around this only catches a raised `unwrap`, and a
+            ; plain field read is not one -- on JavaScript the TypeError happens
+            ; to land in the same handler, everywhere else it is a crash.
+            def p@(optional):RangerAppParamDesc (classDesc.findVariable(item))
+            if (null? p) {
+              ctx.addError(sec ('invalid property ' + item))
+              return
+            }
+            def pDesc:RangerAppParamDesc (unwrap p)
+            if (null? pDesc.nameNode) {
+              ctx.addError(sec ('invalid property ' + item))
+              return
+            }
+            classDesc = (ctx.findClass(pDesc.nameNode.type_name))
           } {
             ctx.addError(sec ('invalid property ' + item ))
           }

@@ -11725,7 +11725,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           try {
             calledItem = CodeNode.fromList([CodeNode.vref1("property"), calledItem.copy(), CodeNode.vref1(item)]);
             const p = classDesc.findVariable(item);
-            classDesc = ctx.findClass(p.nameNode.type_name);
+            if ( typeof(p) === "undefined" ) {
+              ctx.addError(sec_1, "invalid property " + item);
+              return;
+            }
+            const pDesc = p;
+            if ( typeof(pDesc.nameNode) === "undefined" ) {
+              ctx.addError(sec_1, "invalid property " + item);
+              return;
+            }
+            classDesc = ctx.findClass(pDesc.nameNode.type_name);
           } catch(e) {
             ctx.addError(sec_1, "invalid property " + item);
           }
