@@ -3542,7 +3542,13 @@ class VlCompile {
         def secondary:VlChannel (this.channel((ch.name + "2")))
         if secondary.defined {
             if ((strlen secondary.field) > 0) {
-                axisTitle = ((axisTitle + ", ") + (secondary.title()))
+                ; …unless the second channel is the far edge of a BIN. A binned
+                ; axis has two fields because a bin has two ends, and naming
+                ; both of them titles the axis "IMDB Rating, bin_IMDB_Rating_end".
+                def binPair:boolean (ch.hasBin || ch.binnedAlready)
+                if (! binPair) {
+                    axisTitle = ((axisTitle + ", ") + (secondary.title()))
+                }
             }
         }
         a.setMember("title" (VlJson.stringValue(axisTitle)))
