@@ -22,8 +22,8 @@ Every chart type the triage asked for is built; see
 
 ```
                    Vega-Lite JSON
-                         │  official vega-lite (compile step, JS for now)
-                         ▼
+                         │  VlCompile — single views; the rest is still
+                         ▼  the official compiler's
                      Vega JSON
                          │
    ┌─────────────────────┴──────────────────────┐
@@ -60,6 +60,7 @@ against a golden, the scene against the reference implementation.
 bash gallery/vela/tests/run.sh          # build, unit tests, goldens, parity
 bash gallery/vela/tests/run_cpp.sh      # the same goldens, from a C++ binary
 node gallery/vela/tools/reference/zones.mjs   # a time axis, in eight zones
+npm run vela:compiler                  # Vega-Lite, compiled in Ranger
 ```
 
 ```bash
@@ -393,6 +394,52 @@ Re-run it after any change: a candidate that stops matching is a regression the
 committed specs might not cover, and a new candidate is a feature request with
 evidence attached.
 
+## Vega-Lite, in Ranger
+
+Vela runs Vega. Vega-Lite is the shorthand nearly everyone actually writes, and
+turning one into the other was the last thing in the pipeline still done by the
+official JavaScript.
+
+```bash
+node gallery/vela/bin/vela_compile.js chart.vl.json chart.vg.json
+```
+
+Stripped of the vocabulary, a compiler is a set of decisions about defaults.
+Vega-Lite says "a bar chart of `a` against `b`"; Vega has to be told that `a` is
+a band scale with an inner padding of 0.1, that `b` is stacked even though
+nobody asked for a stack, that the bars are `#4c78a8`, that the y axis gets a
+grid and the x axis does not, and that a bar is a `rect` whose width is
+`max(0.25, bandwidth('x'))`. Every one of those is a decision the reference
+makes, and `VlCompile.rgr` is those decisions written down.
+
+**How it is checked is the point.** The output is *not* held to the official
+compiler's JSON — two compilers may reach the same chart by different
+specifications, and comparing spellings would test the wrong thing. It is
+compared by **drawing it**: the same Vega-Lite source goes through this compiler
+into Vela, and through the official compiler into official Vega, and the two
+scenes must agree mark for mark.
+
+```bash
+npm run vela:compiler
+```
+
+**14 of 14** covered charts draw the same scene — bar, stacked bar, normalized
+stack, scatter, coloured scatter, bubble, log scale, line, temporal line, area,
+tick, text, heat map and a clock-change line. Several come out as the *same
+specification*, byte for byte, key order included.
+
+Coverage is reported rather than assumed. Thirteen of the committed sources are
+**refused out loud** — a layer, a facet, a concatenation, `bin`, `xOffset`, an
+arc, a series-coloured line, a composite mark like a box plot — and counted as
+not covered, never as passing. A compiler that quietly drew the wrong chart
+would be worse than one that says it cannot.
+
+Two defects in the *runtime* surfaced while building it, because the compiler
+asked for things the committed specs never had: a turned axis label was anchored
+by its middle instead of its end (`labelAngle: 270` is what a category axis
+defaults to, and no parity spec used it), and a `size` legend over an outlined
+mark was drawn filled.
+
 ## Changing one number
 
 Computing a whole scene from a whole specification is the right shape for
@@ -539,20 +586,11 @@ intermediate value is ever larger than a digit.
   [Changing one number](#changing-one-number). Most marks read most scales, so
   a per-mark graph would dirty nearly all of them anyway; it would pay on a
   concatenated view whose plots share nothing.
-* **A Ranger Vega-Lite compiler.** The Vega-Lite → Vega step is still the
-  official JavaScript one — and it is worth being exact about what that does and
-  does not cost, because it is the only JavaScript left anywhere near a drawn
-  chart. It is an **authoring** step, not a runtime one: it turns a Vega-Lite
-  shorthand into the Vega specification that is then checked in as JSON, the
-  same way a `.rgr` file is compiled to `.cpp` and the `.cpp` is what ships.
-  Everything downstream of that JSON — parse, transform, scale, encode, lay
-  out, draw — is Ranger, and `npm run vela:cpp` proves it by producing the
-  committed goldens from a native binary with no JavaScript engine involved.
-  What it means is that a C++ program can run any Vega specification but cannot
-  yet *accept* a Vega-Lite one; to feed it Vega-Lite you compile the spec first.
-  Building that compiler in Ranger would close the gap, and it is a separate,
-  well-defined job: the Vega runtime is the large one and it is the one that
-  had to come first.
+* **The rest of the Vega-Lite compiler.** Single-view specifications compile
+  in Ranger now — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). Layering,
+  faceting, concatenation, `bin`, `xOffset`, arcs and the composite marks that
+  expand into layers are still the official compiler's, and each one refuses
+  out loud rather than drawing something else.
 
 ## Layout
 
@@ -574,10 +612,12 @@ gallery/vela/
 │   ├── VlConfig.rgr      the defaults a mark inherits
 │   ├── VlScene.rgr       scene graph + canonical JSON
 │   ├── VlCommand.rgr     flat draw commands (renderer-agnostic)
+│   ├── VlCompile.rgr     Vega-Lite → Vega
 │   └── VlRuntime.rgr     spec → scene
 ├── tools/
 │   ├── vela_scene.rgr    CLI: spec → scene JSON
 │   ├── vela_commands.rgr CLI: spec → draw commands
+│   ├── vela_compile.rgr  CLI: a Vega-Lite spec → a Vega one
 │   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
 │   └── reference/        the harness that compares against official Vega
 ├── tests/

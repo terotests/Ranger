@@ -523,6 +523,19 @@ class VlAxis {
                     align = "right"
                 }
                 item.setString("align" align)
+                ; A turned label is anchored by its own end rather than its
+                ; middle, and it hangs beside the tick rather than under it.
+                ; Which end depends on which way it was turned: reading upward
+                ; puts the last character nearest the axis, reading downward
+                ; puts the first one there.
+                if ((VlAxis.turnedQuarter(labelAngle)) != 0) {
+                    if ((VlAxis.turnedQuarter(labelAngle)) > 0) {
+                        item.setString("align" "left")
+                    } {
+                        item.setString("align" "right")
+                    }
+                    item.setString("baseline" "middle")
+                }
                 if ((strlen labelAlign) > 0) {
                     item.setString("align" labelAlign)
                 }
@@ -554,6 +567,29 @@ class VlAxis {
     ; The flush alignment has already moved the end labels inward by then, and
     ; it has to: pulling the last label back over the axis is often what makes
     ; it collide with its neighbour in the first place.
+    ; Which way a label was turned, as -1, 0 or 1. Vega measures the angle
+    ; clockwise from level and wraps it into a full turn first, so 270 and -90
+    ; are the same quarter turn and 360 is none at all.
+    sfn turnedQuarter:int (angle:double) {
+        def a:double angle
+        while (a < 0.0) {
+            a = (a + 360.0)
+        }
+        while (! (a < 360.0)) {
+            a = (a - 360.0)
+        }
+        if (a == 0.0) {
+            return 0
+        }
+        if (a == 180.0) {
+            return 0
+        }
+        if (a < 180.0) {
+            return 1
+        }
+        return -1
+    }
+
     fn hideOverlappingLabels:void (mark:VlSceneMark) {
         def visible:[int]
         for mark.items item:VlSceneItem idx {

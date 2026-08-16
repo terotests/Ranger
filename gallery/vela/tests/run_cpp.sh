@@ -38,7 +38,7 @@ mkdir -p "$OUT"
 status=0
 
 say "compile to C++"
-for tool in vela_scene vela_commands vela_evg; do
+for tool in vela_scene vela_commands vela_evg vela_compile; do
   log=$(node --max-old-space-size=8192 bin/output.js -l=cpp "$VELA/tools/$tool.rgr" \
     -d="$OUT" -o="$tool.cpp" -nodecli 2>&1)
   if ! echo "$log" | grep -q "\[OK\]"; then
@@ -50,7 +50,7 @@ for tool in vela_scene vela_commands vela_evg; do
 done
 
 say "build with $CXX"
-for tool in vela_scene vela_commands vela_evg; do
+for tool in vela_scene vela_commands vela_evg vela_compile; do
   if "$CXX" -std=c++17 -O1 -o "$OUT/$tool" "$OUT/$tool.cpp" 2> "$OUT/$tool.log"; then
     echo "  ok   $tool"
   else
@@ -91,6 +91,22 @@ for spec in $(find $VELA/tests/specs -name '*.vg.json' | sort); do
   fi
 done
 [ $status -eq 0 ] && echo "  $both specs, byte for byte"
+
+# The compiler, from the native binary: a Vega-Lite source in, and the same
+# Vega specification out as the JavaScript build wrote.
+say "and the compiler, natively"
+compiled=0
+for src in $VELA/tests/specs/*.vl.json; do
+  name=$(basename "$src" .vl.json)
+  node "$VELA/bin/vela_compile.js" "$src" > "$OUT/$name.vl.js.json" 2>&1
+  "$OUT/vela_compile" "$src" > "$OUT/$name.vl.cpp.json" 2>&1
+  if diff -q "$OUT/$name.vl.js.json" "$OUT/$name.vl.cpp.json" > /dev/null; then
+    compiled=$((compiled + 1))
+  else
+    echo "  DIFF $name"; diff "$OUT/$name.vl.js.json" "$OUT/$name.vl.cpp.json" | head -6; status=1
+  fi
+done
+[ $status -eq 0 ] && echo "  $compiled sources compiled identically"
 
 # A time zone is a rule with arithmetic in it — negative offsets, floor
 # division, a summer window that wraps the new year — which is exactly the kind
