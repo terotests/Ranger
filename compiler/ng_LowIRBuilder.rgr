@@ -3979,9 +3979,34 @@ class LowIRBuilderPass {
     if (node.value_type == RangerNodeType.Array) {
       if ((strlen node.array_type) > 0) {
         if (node.array_type != "int") {
+          ; `[boolean]` and `[char]` are not references. Only "int" was spelled
+          ; out here, so every other primitive element type fell through to the
+          ; object case: the array was built with element kind 1 (owned
+          ; objects) and its scope-end release called ranger_obj_release on the
+          ; literal `true`, a wild pointer.
+          if (this.isPlainValueArrayTypeNode(node)) {
+            return false
+          }
           return true
         }
       }
+    }
+    return false
+  }
+
+  ; An array whose elements live in the ptr-array's pointer-sized slots as RAW
+  ; VALUES rather than references -- `[double]`, `[float]`, `[boolean]`,
+  ; `[char]`. Reading one back is a truncation, not a dereference, and nothing
+  ; is released per element.
+  fn isPlainValueArrayTypeNode:boolean (node:CodeNode) {
+    if (this.isDoubleArrayTypeNode(node)) {
+      return true
+    }
+    if (node.value_type == RangerNodeType.Array) {
+      if (LowIRUtil.isStringType(node.array_type)) {
+        return false
+      }
+      return (LowIRUtil.isSupportedPrimitive(node.array_type))
     }
     return false
   }
@@ -6197,6 +6222,17 @@ class LowIRBuilderPass {
     def fnName:string (LowIRUtil.mangleMethod(className fnDesc.name))
     if isMain {
       fnName = "main"
+      ; A process gets 8MB of stack, and a recursive-descent walk over a real
+      ; program -- which is what this language is for -- overflows it, dying
+      ; with no diagnostic at all. A thread's stack size is ours to choose, so
+      ; on a libc target the body moves off the entry point and the shim in
+      ; writeBigStackMain runs it on a thread that has room. This is what the
+      ; Rust target already does; freestanding WASM has no threads and keeps
+      ; the plain entry point.
+      if this.irModule.useLibcHeap {
+        fnName = "__rg_main_body"
+        this.irModule.bigStackMain = true
+      }
     }
     if ((strlen fnName) == 0) {
       fnName = fnDesc.compiledName
@@ -7963,7 +7999,7 @@ class LowIRBuilderPass {
   fn declaredIrTypeOf:string (nameNode:CodeNode lctx:LowIRLowerContext) {
     if (this.isIntArrayTypeNode(nameNode)) { return lctx.ptrType }
     if (this.isStringArrayTypeNode(nameNode)) { return lctx.ptrType }
-    if (this.isDoubleArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isPlainValueArrayTypeNode(nameNode)) { return lctx.ptrType }
     if (this.isObjectPtrArrayTypeNode(nameNode)) { return lctx.ptrType }
     if (this.isStringKeyMapTypeNode(nameNode)) { return lctx.ptrType }
     if (this.isIntKeyValueMapTypeNode(nameNode)) { return lctx.ptrType }
@@ -8055,9 +8091,9 @@ class LowIRBuilderPass {
       }
       ; a [double] array holds plain values (elemKind 0): its slots are bit
       ; patterns, not objects, so nothing is released per element.
-      if (this.isDoubleArrayTypeNode(nameNode)) {
-        def emptyDblArr (this.emitPtrArrayNewEmpty(lctx 0))
-        this.bindPtrArraySlot(varName emptyDblArr lctx false)
+      if (this.isPlainValueArrayTypeNode(nameNode)) {
+        def emptyPlainArr (this.emitPtrArrayNewEmpty(lctx 0))
+        this.bindPtrArraySlot(varName emptyPlainArr lctx false)
         set lctx.ptrArrayElemTypes varName nameNode.array_type
         return
       }
@@ -8203,7 +8239,7 @@ class LowIRBuilderPass {
         set lctx.ptrArrayElemTypes varName "string"
         return
       }
-      if (this.isDoubleArrayTypeNode(nameNode)) {
+      if (this.isPlainValueArrayTypeNode(nameNode)) {
         this.bindPtrArraySlot(varName callTmp lctx false)
         set lctx.ptrArrayElemTypes varName nameNode.array_type
         return
@@ -8285,10 +8321,10 @@ class LowIRBuilderPass {
       set lctx.ptrArrayElemTypes varName "string"
       return
     }
-    if (this.isDoubleArrayTypeNode(nameNode)) {
-      def dArrV (this.lowerExpr(val lctx))
-      this.retainAliasedArray(val dArrV lctx)
-      this.bindPtrArraySlot(varName dArrV lctx false)
+    if (this.isPlainValueArrayTypeNode(nameNode)) {
+      def plainArrV (this.lowerExpr(val lctx))
+      this.retainAliasedArray(val plainArrV lctx)
+      this.bindPtrArraySlot(varName plainArrV lctx false)
       set lctx.ptrArrayElemTypes varName nameNode.array_type
       return
     }

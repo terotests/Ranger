@@ -197,6 +197,25 @@ class LLVMIRWriter {
     for module.functions fn:LowIRFunction i {
       this.writeFunction(fn wr)
     }
+    if module.bigStackMain {
+      this.writeBigStackMain(wr)
+    }
+  }
+
+  ; The entry point for a libc target, when the program's @main body was
+  ; emitted as @__rg_main_body: hand the body to the C runtime, which runs it on
+  ; a thread whose stack is large enough for a recursive walk over a real
+  ; program. The process' own 8MB stack is not, and overflowing it is a
+  ; segmentation fault with nothing said.
+  fn writeBigStackMain:void (wr:CodeWriter) {
+    wr.newline()
+    wr.out("declare i32 @ranger_run_main(i32, i8**, ptr)" true)
+    wr.out("define dso_local i32 @main(i32 %argc, i8** %argv) {" true)
+    wr.out("entry:" true)
+    wr.out("  %.rc = call i32 @ranger_run_main(i32 %argc, i8** %argv, ptr @__rg_main_body)" true)
+    wr.out("  ret i32 %.rc" true)
+    wr.out("}" true)
+    wr.newline()
   }
 
   ; A closure record holds the lambda's TABLE INDEX in its first word (see

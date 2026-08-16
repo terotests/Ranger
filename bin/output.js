@@ -41740,6 +41740,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.singletonClasses = [];
                           this.lambdaTableFuncs = [];
                           this.lambdaSigs = [];
+                          this.bigStackMain = false;
                         }
                       }
                       class LowIRSession  {
@@ -46968,9 +46969,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( node.value_type == 6 ) {
                             if ( (node.array_type.length) > 0 ) {
                               if ( node.array_type != "int" ) {
+                                if ( this.isPlainValueArrayTypeNode(node) ) {
+                                  return false;
+                                }
                                 return true;
                               }
                             }
+                          }
+                          return false;
+                        };
+                        isPlainValueArrayTypeNode (node) {
+                          if ( this.isDoubleArrayTypeNode(node) ) {
+                            return true;
+                          }
+                          if ( node.value_type == 6 ) {
+                            if ( LowIRUtil.isStringType(node.array_type) ) {
+                              return false;
+                            }
+                            return LowIRUtil.isSupportedPrimitive(node.array_type);
                           }
                           return false;
                         };
@@ -48920,6 +48936,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           let fnName = LowIRUtil.mangleMethod(className, fnDesc.name);
                           if ( isMain ) {
                             fnName = "main";
+                            if ( this.irModule.useLibcHeap ) {
+                              fnName = "__rg_main_body";
+                              this.irModule.bigStackMain = true;
+                            }
                           }
                           if ( (fnName.length) == 0 ) {
                             fnName = fnDesc.compiledName;
@@ -50354,7 +50374,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( this.isStringArrayTypeNode(nameNode) ) {
                             return lctx.ptrType;
                           }
-                          if ( this.isDoubleArrayTypeNode(nameNode) ) {
+                          if ( this.isPlainValueArrayTypeNode(nameNode) ) {
                             return lctx.ptrType;
                           }
                           if ( this.isObjectPtrArrayTypeNode(nameNode) ) {
@@ -50444,9 +50464,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               lctx.ptrArrayElemTypes[varName] = "string";
                               return;
                             }
-                            if ( this.isDoubleArrayTypeNode(nameNode) ) {
-                              const emptyDblArr = this.emitPtrArrayNewEmpty(lctx, 0);
-                              this.bindPtrArraySlot(varName, emptyDblArr, lctx, false);
+                            if ( this.isPlainValueArrayTypeNode(nameNode) ) {
+                              const emptyPlainArr = this.emitPtrArrayNewEmpty(lctx, 0);
+                              this.bindPtrArraySlot(varName, emptyPlainArr, lctx, false);
                               lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
                               return;
                             }
@@ -50577,7 +50597,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               lctx.ptrArrayElemTypes[varName] = "string";
                               return;
                             }
-                            if ( this.isDoubleArrayTypeNode(nameNode) ) {
+                            if ( this.isPlainValueArrayTypeNode(nameNode) ) {
                               this.bindPtrArraySlot(varName, callTmp, lctx, false);
                               lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
                               return;
@@ -50641,10 +50661,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             lctx.ptrArrayElemTypes[varName] = "string";
                             return;
                           }
-                          if ( this.isDoubleArrayTypeNode(nameNode) ) {
-                            const dArrV = this.lowerExpr(val, lctx);
-                            this.retainAliasedArray(val, dArrV, lctx);
-                            this.bindPtrArraySlot(varName, dArrV, lctx, false);
+                          if ( this.isPlainValueArrayTypeNode(nameNode) ) {
+                            const plainArrV = this.lowerExpr(val, lctx);
+                            this.retainAliasedArray(val, plainArrV, lctx);
+                            this.bindPtrArraySlot(varName, plainArrV, lctx, false);
                             lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
                             return;
                           }
@@ -53665,6 +53685,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             var fn = module.functions[i_4];
                             this.writeFunction(fn, wr);
                           };
+                          if ( module.bigStackMain ) {
+                            this.writeBigStackMain(wr);
+                          }
+                        };
+                        writeBigStackMain (wr) {
+                          wr.newline();
+                          wr.out("declare i32 @ranger_run_main(i32, i8**, ptr)", true);
+                          wr.out("define dso_local i32 @main(i32 %argc, i8** %argv) {", true);
+                          wr.out("entry:", true);
+                          wr.out("  %.rc = call i32 @ranger_run_main(i32 %argc, i8** %argv, ptr @__rg_main_body)", true);
+                          wr.out("  ret i32 %.rc", true);
+                          wr.out("}", true);
+                          wr.newline();
                         };
                         writeLambdaTable (module, wr) {
                           const cnt = module.lambdaTableFuncs.length;

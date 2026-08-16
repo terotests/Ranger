@@ -11,6 +11,59 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
+#include <pthread.h>
+
+/* --- entry point ---
+ *
+ * A process gets 8MB of stack, and a recursive-descent walk over a real
+ * program -- which is what this language is for -- overflows it, dying with a
+ * segmentation fault and no diagnostic. A thread's stack size is ours to
+ * choose, so the generated entry point hands its body here and we run it on a
+ * thread that has room. The Rust target spawns the same 512MB thread.
+ *
+ * If the thread cannot be created (a system that refuses the size, or has no
+ * threads at all), the body still runs -- on the process stack, exactly as it
+ * did before. Better a program that may run out of stack than one that does
+ * not start.
+ */
+
+typedef int (*RangerMainFn)(int, char **);
+
+static RangerMainFn g_main_fn;
+static int g_main_argc;
+static char **g_main_argv;
+static int g_main_rc;
+
+static void *ranger_main_thread(void *unused) {
+  (void)unused;
+  g_main_rc = g_main_fn(g_main_argc, g_main_argv);
+  return NULL;
+}
+
+int ranger_run_main(int argc, char **argv, void *body) {
+  pthread_attr_t attr;
+  pthread_t th;
+
+  g_main_fn = (RangerMainFn)body;
+  g_main_argc = argc;
+  g_main_argv = argv;
+  g_main_rc = 0;
+
+  if (pthread_attr_init(&attr) != 0) {
+    return g_main_fn(argc, argv);
+  }
+  if (pthread_attr_setstacksize(&attr, (size_t)512 * 1024 * 1024) != 0) {
+    pthread_attr_destroy(&attr);
+    return g_main_fn(argc, argv);
+  }
+  if (pthread_create(&th, &attr, ranger_main_thread, NULL) != 0) {
+    pthread_attr_destroy(&attr);
+    return g_main_fn(argc, argv);
+  }
+  pthread_attr_destroy(&attr);
+  pthread_join(th, NULL);
+  return g_main_rc;
+}
 
 /* --- CLI --- */
 

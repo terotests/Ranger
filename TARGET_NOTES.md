@@ -400,6 +400,31 @@ sources rely on JavaScript's willingness to keep going. Every one is a real
 diagnostic on all eight targets now instead of an "Unexpected compiler error",
 and on the seven that are not JavaScript, a live process instead of a dead one.
 
+### The entry point runs on a stack big enough for the job
+
+Running the same sweep over the rest of the repository — the other ~1330 `.rgr`
+files — found one further crash, and only one, repeated across every file under
+`gallery/game_engine/v2/` that transitively imports `ComponentEngine.rgr`. It
+was not a null anywhere: gdb showed 1888 frames of `RangerLispParser_parseBuf`
+with the fault address exactly at the stack pointer. A process gets 8MB of
+stack, and a recursive-descent walk over a program that size does not fit in
+it.
+
+The reference build meets the same wall — the repo's own
+`scripts/build-engine-module.sh` has always passed `node --stack-size=8000` for
+exactly these files — and the Rust target already answers it by spawning `main`
+on a 512MB thread. LLVM now does the same: on a libc target the `@main` body is
+emitted as `@__rg_main_body`, and the entry point is a shim that hands it to
+`ranger_run_main` in the C runtime, which runs it on a thread with room. If the
+thread cannot be created the body still runs on the process stack, exactly as
+before. Freestanding WASM has no threads and keeps the plain entry point.
+
+That uncovered a defect the overflow had been hiding: `isObjectPtrArrayTypeNode`
+spelled out only `"int"` as a non-reference element type, so a `[boolean]` or
+`[char]` array was built with element kind 1 — owned objects — and its
+scope-end release called `ranger_obj_release` on the literal `true`. Those
+element types now take the same plain-value path `[double]` takes.
+
 ### What is left
 
 - **Closures are still incomplete.** A lambda that MUTATES a captured value
