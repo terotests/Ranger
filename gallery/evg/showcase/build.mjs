@@ -87,6 +87,14 @@ const PAGES = [
     themes: ["editorial", "studio", "autumn"],
   },
   {
+    id: "views",
+    title: "More than one chart",
+    blurb:
+      "The four ways a chart can be more than one chart, all of them laid out by their own bounds rather than by a size anyone declared: a trellis by column, by row, and wrapped onto a grid whose shape is computed from the data, plus two plots concatenated with only the dimension across the join in common. The grid axes stay inside each panel; the labelled axes are drawn once, in the footer and the row header.",
+    shows: ["column and row facets", "wrapped grids", "concatenation", "bounds-based layout", "shared axes"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "flex",
     title: "Flex",
     blurb:
@@ -134,6 +142,7 @@ const PAGE_CSS = {
   charts: [path.join(HERE, "themes/charts-default.css")],
   plots: [path.join(HERE, "themes/plots-default.css")],
   more: [path.join(HERE, "themes/more-default.css")],
+  views: [path.join(HERE, "themes/views-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {

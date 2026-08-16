@@ -31,6 +31,7 @@ const EXPECT = [
   { list: "plots-editorial.json", minPaths: 40, minText: 60 },
   { list: "plots-studio.json", minPaths: 40, minText: 60 },
   { list: "more-editorial.json", minPaths: 40, minText: 60 },
+  { list: "views-editorial.json", minPaths: 20, minText: 40 },
   { list: "vector-editorial.json", minPaths: 8, minText: 5 },
   { list: "album-editorial.json", minPaths: 0, minText: 3, minImages: 4 },
 ];

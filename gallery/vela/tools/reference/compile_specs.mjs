@@ -343,16 +343,43 @@ const MORE = {
   charts: ['heatmap', 'boxplot', 'line_coloured', 'streamgraph', 'line_temporal', 'donut', 'bar_normalized', 'bar_labelled'],
 };
 
+// A fourth generated page: the charts that are more than one chart. These are
+// the ones whose SIZE is not the size of a plot — a trellis is as wide as its
+// panels and the furniture around them, so the width and height below are per
+// PANEL and the page has to hold whatever that adds up to. Four to a page
+// rather than eight, because each one is a grid.
+
+const PLOTS_CONFIG = {
+  ...SHOWCASE.config,
+  // A text mark is the one data mark whose default colour is black, which
+  // disappears on the dark theme the same way the guides would. Same reason,
+  // same answer: the chart states a colour that reads on both.
+  text: { color: '#8a8f98' },
+};
+
 const PLOTS = {
   width: 150,
   height: 78,
   charts: ['bar_grouped', 'area', 'bubble', 'scatter_colored', 'scatter_log', 'layered', 'text_labels', 'tick'],
+  config: PLOTS_CONFIG,
+};
+
+const VIEWS = {
+  width: 78,
+  height: 62,
+  charts: ['facet_columns', 'facet_rows', 'facet_wrapped', 'concat_two'],
   config: {
-    ...SHOWCASE.config,
-    // A text mark is the one data mark whose default colour is black, which
-    // disappears on the dark theme the same way the guides would. Same reason,
-    // same answer: the chart states a colour that reads on both.
-    text: { color: '#8a8f98' },
+    ...PLOTS_CONFIG,
+    // The furniture only a multi-view chart has: the value each panel stands
+    // for, and the field the panels are split by. They are drawn as GROUP
+    // titles rather than as axis or legend text, so the axis colours above do
+    // not reach them, and on the dark theme they would be near-black on
+    // near-black.
+    style: {
+      ...PLOTS_CONFIG.style,
+      'guide-label': { fill: '#8a8f98' },
+      'guide-title': { fill: '#8a8f98' },
+    },
   },
 };
 
@@ -402,6 +429,39 @@ for (const name of MORE.charts) {
   const compiled = vl.compile(spec).spec;
   fs.writeFileSync(path.join(MORE_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
   console.log(`more/${name}.vg.json`);
+}
+
+const VIEWS_DIR = path.join(SPEC_DIR, 'views');
+fs.mkdirSync(VIEWS_DIR, { recursive: true });
+for (const name of VIEWS.charts) {
+  const spec = { ...SPECS[name], width: VIEWS.width, height: VIEWS.height, config: VIEWS.config };
+  // These are the only charts whose page size is not their plot size, and the
+  // page is what constrains them: a printed column is about 250pt wide, so a
+  // trellis has to be shaped to fit rather than sized to fit.
+  //
+  // A row facet stacks its panels, so each has to be short enough that the
+  // column of them fits.
+  if (name === 'facet_rows') { spec.height = 44; }
+  // Nine panels two across is five rows and taller than the page. Three across
+  // is three rows, which is also a better picture of what wrapping IS.
+  if (name === 'facet_wrapped') { spec.columns = 3; spec.width = 40; spec.height = 32; }
+  // A concatenation is as wide as its panes, and a band pane is as wide as its
+  // BANDS — nine of them at the default step is wider than the page on its own.
+  // So the left pane here counts two groups rather than nine categories.
+  if (name === 'concat_two') {
+    // A pane sizes itself: a concatenation has no width of its own to hand
+    // down, so each pane says how big it is.
+    spec.hconcat = [
+      { width: 40, height: 62, mark: 'bar', encoding: { x: { field: 'g', type: 'nominal' }, y: { field: 'b', type: 'quantitative' } } },
+      { width: 84, height: 62, mark: 'point', encoding: { x: { field: 'c', type: 'quantitative' }, y: { field: 'b', type: 'quantitative' } } },
+    ];
+    delete spec.width;
+    delete spec.height;
+  }
+  spec.background = null;
+  const compiled = vl.compile(spec).spec;
+  fs.writeFileSync(path.join(VIEWS_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
+  console.log(`views/${name}.vg.json`);
 }
 
 console.log(`\n${Object.keys(SPECS).length} specs + ${SHOWCASE.charts.length} showcase + ${PLOTS.charts.length} plot specs written to ${path.relative(process.cwd(), SPEC_DIR)}`);
