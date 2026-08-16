@@ -43352,6 +43352,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.ptrType = "i32";
                           this.slots = {};
                           this.paramNames = [];
+                          this.capturedNames = [];
                           this.shadowStack = [];
                           this.shadowCounter = 0;
                           this.forceFreshSlots = [];
@@ -48730,6 +48731,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           let emptyOwned = [];
                           let emptyParamNames = [];
                           lctx.paramNames = emptyParamNames;
+                          let emptyCaptured = [];
+                          lctx.capturedNames = emptyCaptured;
                           lctx.ownedObjectLocals = emptyOwned;
                           let emptyColl = [];
                           lctx.ownedCollectionLocals = emptyColl;
@@ -48905,6 +48908,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           let emptyOwned = [];
                           let emptyParamNames = [];
                           lctx.paramNames = emptyParamNames;
+                          let emptyCaptured = [];
+                          lctx.capturedNames = emptyCaptured;
                           lctx.ownedObjectLocals = emptyOwned;
                           let emptyColl = [];
                           lctx.ownedCollectionLocals = emptyColl;
@@ -49089,6 +49094,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           let emptyOwned = [];
                           let emptyParamNames = [];
                           lctx.paramNames = emptyParamNames;
+                          let emptyCaptured = [];
+                          lctx.capturedNames = emptyCaptured;
                           lctx.ownedObjectLocals = emptyOwned;
                           let emptyColl = [];
                           lctx.ownedCollectionLocals = emptyColl;
@@ -49142,6 +49149,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const capKnd = cinfo.kinds[ci];
                               const loaded = builder.emitLoadTypedAt(envRef, capOff, capIrt);
                               this.bindSlot(capName, capIrt, loaded, lctx);
+                              lctx.capturedNames.push(capName);
                               const capColl2 = cinfo.collKinds[ci];
                               if ( (capColl2.length) > 0 ) {
                                 lctx.collectionSlots[capName] = capColl2;
@@ -49814,6 +49822,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           lctx.builder.emitCall(relFn, "void", args, argTypes);
                         };
                         emitOwnedStringInit (varName, valNode, strPtr, lctx) {
+                          if ( this.isCapturedName(varName, lctx) ) {
+                            return this.emitStrdupExpr(strPtr, lctx);
+                          }
                           if ( this.wasmStrEnabled(lctx) == false ) {
                             const libcOwned = this.emitStrdupExpr(strPtr, lctx);
                             if ( this.strRcEnabled(lctx) ) {
@@ -49834,7 +49845,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return owned;
                         };
+                        isCapturedName (varName, lctx) {
+                          for ( let i = 0; i < lctx.capturedNames.length; i++) {
+                            var n = lctx.capturedNames[i];
+                            if ( n == varName ) {
+                              return true;
+                            }
+                          };
+                          return false;
+                        };
                         emitOwnedStringReassign (varName, valNode, strPtr, lctx) {
+                          if ( this.isCapturedName(varName, lctx) ) {
+                            return this.emitStrdupExpr(strPtr, lctx);
+                          }
                           if ( this.wasmStrEnabled(lctx) == false ) {
                             const libcNew = this.emitStrdupExpr(strPtr, lctx);
                             if ( this.strRcEnabled(lctx) ) {

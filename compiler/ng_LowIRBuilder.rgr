@@ -14,6 +14,10 @@ class LowIRLowerContext {
   ; know -- an unknown name used to be emitted verbatim, which is a value
   ; nothing defines.
   def paramNames:[string]
+  ; Names bound from a CLOSURE ENVIRONMENT. The closure record owns these (its
+  ; typedesc frees them when the record is released), so the body must neither
+  ; release them at scope end nor claim ownership when it assigns to one.
+  def capturedNames:[string]
   ; One entry per active loop shadow (used only to balance push/pop), and a
   ; monotonic counter that makes every shadow alloca name unique.
   def shadowStack:[string]
@@ -6119,6 +6123,8 @@ class LowIRBuilderPass {
     def emptyOwned:[string]
     def emptyParamNames:[string]
     lctx.paramNames = emptyParamNames
+    def emptyCaptured:[string]
+    lctx.capturedNames = emptyCaptured
     lctx.ownedObjectLocals = emptyOwned
     def emptyColl:[string]
     lctx.ownedCollectionLocals = emptyColl
@@ -6319,6 +6325,8 @@ class LowIRBuilderPass {
     def emptyOwned:[string]
     def emptyParamNames:[string]
     lctx.paramNames = emptyParamNames
+    def emptyCaptured:[string]
+    lctx.capturedNames = emptyCaptured
     lctx.ownedObjectLocals = emptyOwned
     def emptyColl:[string]
     lctx.ownedCollectionLocals = emptyColl
@@ -6539,6 +6547,8 @@ class LowIRBuilderPass {
     def emptyOwned:[string]
     def emptyParamNames:[string]
     lctx.paramNames = emptyParamNames
+    def emptyCaptured:[string]
+    lctx.capturedNames = emptyCaptured
     lctx.ownedObjectLocals = emptyOwned
     def emptyColl:[string]
     lctx.ownedCollectionLocals = emptyColl
@@ -6600,6 +6610,7 @@ class LowIRBuilderPass {
         def capKnd (itemAt cinfo.kinds ci)
         def loaded (builder.emitLoadTypedAt(envRef capOff capIrt))
         this.bindSlot(capName capIrt loaded lctx)
+        push lctx.capturedNames capName
         ; Restore what KIND of thing the name is, or the body treats a captured
         ; array or map as a plain integer.
         def capColl2:string (itemAt cinfo.collKinds ci)
@@ -7436,6 +7447,9 @@ class LowIRBuilderPass {
   ; directly; borrowed ones (literal/VRef/field) are dup'd so the local owns a
   ; private copy. Non-wasm targets keep the legacy always-dup behaviour.
   fn emitOwnedStringInit:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
+    if (this.isCapturedName(varName lctx)) {
+      return (this.emitStrdupExpr(strPtr lctx))
+    }
     if (this.wasmStrEnabled(lctx) == false) {
       ; libc: always take a private copy -- the value may be a literal, a field,
       ; or another local -- and record the local so scope exit frees that copy.
@@ -7467,7 +7481,25 @@ class LowIRBuilderPass {
   ; own the new value (fresh directly, borrowed dup'd). `strPtr` already holds the
   ; new value, computed independently of the old slot, so freeing old is safe
   ; even for `s = (s + "x")` (concat copied the old bytes into a fresh buffer).
+  fn isCapturedName:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.capturedNames n:string i {
+      if (n == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn emitOwnedStringReassign:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
+    ; Assigning to a CAPTURED string: the closure record owns the buffer the
+    ; slot came from, so releasing it here frees what the record's typedesc
+    ; frees again -- and registering the name would release the new value on
+    ; every exit path, including the one where the assignment never ran. A
+    ; private copy is stored and left to leak, which is the safe direction
+    ; while the write-back to the closure is still missing.
+    if (this.isCapturedName(varName lctx)) {
+      return (this.emitStrdupExpr(strPtr lctx))
+    }
     if (this.wasmStrEnabled(lctx) == false) {
       ; Copy FIRST, then free what the slot held. The other order breaks `s = s`
       ; and any assignment whose right-hand side still reads the old buffer.
