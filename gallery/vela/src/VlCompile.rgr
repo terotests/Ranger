@@ -624,11 +624,22 @@ class VlCompile {
         def whiskerTip:VlJson (VlCompile.tooltipOf2(("Upper Whisker of " + f) highWhisker ("Lower Whisker of " + f) lowWhisker dim))
         def boxTip:VlJson (VlCompile.boxTooltip(f maxF upper mid lower minF dim))
 
-        push marks.arr (VlCompile.outlierMark(dim f (this.describeExpr())))
+        ; A colour channel paints the outliers, the boxes and a flat median;
+        ; the whiskers stay black, which is the reference's choice and not an
+        ; oversight — a whisker is a measurement, not a category.
+        def colourCh:VlChannel (this.channel("color"))
+        def colourField:string ""
+        if (colourCh.defined) {
+            if (! colourCh.hasValue) {
+                colourField = colourCh.field
+            }
+        }
+
+        push marks.arr (VlCompile.outlierMark(dim f (this.describeExpr()) colourField))
         push marks.arr (VlCompile.whiskerMark("layer_0_layer_1_layer_0_marks" "data_4" dim lowWhisker lower whiskerTip))
         push marks.arr (VlCompile.whiskerMark("layer_0_layer_1_layer_1_marks" "data_5" dim upper highWhisker whiskerTip))
-        push marks.arr (VlCompile.boxMark(dim lower upper boxTip (VlCompile.boxDescription(dim f upper maxF mid lower minF))))
-        push marks.arr (VlCompile.medianMark(dim mid lower upper boxTip))
+        push marks.arr (VlCompile.boxMark(dim lower upper boxTip (VlCompile.boxDescription(dim f upper maxF mid lower minF)) colourField))
+        push marks.arr (VlCompile.medianMark(dim mid lower upper boxTip colourField))
         out.setMember("marks" marks)
 
         ; --- the scales: every drawn data set contributes to the domain ---
@@ -672,8 +683,38 @@ class VlCompile {
         ys.setMember("domain" yDomain)
         ys.setMember("range" (this.positionRange("y")))
         ys.setMember("nice" (VlJson.boolValue(true)))
-        ys.setMember("zero" (VlJson.boolValue(true)))
+        ; A box plot's value axis reaches zero unless the specification says
+        ; otherwise, and saying otherwise is the usual thing to say: a box of
+        ; penguin masses between three and six kilograms drawn from zero is
+        ; three boxes squeezed into the top half of the plot.
+        def boxZero:boolean true
+        def boxScale:VlJson (y.def0.get("scale"))
+        if (boxScale.isObject()) {
+            def boxZeroDef:VlJson (boxScale.get("zero"))
+            if (boxZeroDef.isBool()) {
+                boxZero = boxZeroDef.b
+            }
+        }
+        ys.setMember("zero" (VlJson.boolValue(boxZero)))
         push scales.arr ys
+        ; Only the three data sets that are actually painted contribute to the
+        ; colour domain — the whiskers are black, so their rows have no say in
+        ; which category gets which colour.
+        if ((strlen colourField) > 0) {
+            def cs (VlJson.objectValue())
+            cs.setMember("name" (VlJson.stringValue("color")))
+            cs.setMember("type" (VlJson.stringValue("ordinal")))
+            def cDomain (VlJson.objectValue())
+            def cFields (VlJson.arrayValue())
+            push cFields.arr (VlCompile.domainEntry("data_2" colourField))
+            push cFields.arr (VlCompile.domainEntry("data_7" colourField))
+            push cFields.arr (VlCompile.domainEntry("data_8" colourField))
+            cDomain.setMember("fields" cFields)
+            cDomain.setMember("sort" (VlJson.boolValue(true)))
+            cs.setMember("domain" cDomain)
+            cs.setMember("range" (VlJson.stringValue("category")))
+            push scales.arr cs
+        }
         out.setMember("scales" scales)
 
         ; --- the axes: the same three any chart of this shape carries ---
@@ -683,6 +724,10 @@ class VlCompile {
         push axes.arr xAxis
         push axes.arr (this.labelAxis(y "y" "left"))
         out.setMember("axes" axes)
+        def boxLegends:VlJson (this.buildLegends())
+        if ((boxLegends.count()) > 0) {
+            out.setMember("legends" boxLegends)
+        }
         return out
     }
 
@@ -835,12 +880,26 @@ class VlCompile {
         mark.setMember("encode" encode)
     }
 
-    sfn outlierMark:VlJson (dim:string f:string description:string) {
+    ; The paint a box plot's three coloured marks carry: a colour channel makes
+    ; it a lookup on the colour scale, and without one every box is the first
+    ; category colour. An outlier is drawn as an OUTLINE, so the same channel
+    ; reaches it as a stroke rather than as a fill.
+    sfn boxPaint:VlJson (colourField:string) {
+        if ((strlen colourField) == 0) {
+            return (VlCompile.literal((VlJson.stringValue("#4c78a8"))))
+        }
+        def out (VlJson.objectValue())
+        out.setMember("scale" (VlJson.stringValue("color")))
+        out.setMember("field" (VlJson.stringValue(colourField)))
+        return out
+    }
+
+    sfn outlierMark:VlJson (dim:string f:string description:string colourField:string) {
         def out:VlJson (VlCompile.styledMark("layer_0_layer_0_marks" "symbol" "point" "boxplot-outliers" "data_2"))
         def update (VlJson.objectValue())
         update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
         update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
-        update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+        update.setMember("stroke" (VlCompile.boxPaint(colourField)))
         update.setMember("ariaRoleDescription" (VlCompile.literal((VlJson.stringValue("point")))))
         update.setMember("description" (VlCompile.signalRef(description)))
         update.setMember("x" (VlCompile.bandCentre(dim)))
@@ -861,11 +920,11 @@ class VlCompile {
         return out
     }
 
-    sfn boxMark:VlJson (dim:string lower:string upper:string tip:VlJson description:VlJson) {
+    sfn boxMark:VlJson (dim:string lower:string upper:string tip:VlJson description:VlJson colourField:string) {
         def out:VlJson (VlCompile.styledMark("layer_1_layer_0_marks" "rect" "bar" "boxplot-box" "data_7"))
         def update (VlJson.objectValue())
         update.setMember("ariaRoleDescription" (VlCompile.literal((VlJson.stringValue("box")))))
-        update.setMember("fill" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+        update.setMember("fill" (VlCompile.boxPaint(colourField)))
         update.setMember("tooltip" tip)
         update.setMember("description" description)
         update.setMember("xc" (VlCompile.bandCentre(dim)))
@@ -878,14 +937,17 @@ class VlCompile {
 
     ; The median line, which is white on the box — except when the box has no
     ; height at all, where a white line on a white background would vanish.
-    sfn medianMark:VlJson (dim:string mid:string lower:string upper:string tip:VlJson) {
+    sfn medianMark:VlJson (dim:string mid:string lower:string upper:string tip:VlJson colourField:string) {
         def out:VlJson (VlCompile.styledMark("layer_1_layer_1_marks" "rect" "tick" "boxplot-median" "data_8"))
         def update (VlJson.objectValue())
         update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
         def fill (VlJson.arrayValue())
         def flat (VlJson.objectValue())
         flat.setMember("test" (VlJson.stringValue(((("datum['" + lower) + "'] >= datum['") + upper) + "']")))
-        flat.setMember("value" (VlJson.stringValue("#4c78a8")))
+        def flatPaint:VlJson (VlCompile.boxPaint(colourField))
+        for flatPaint.keys fk:string fki {
+            flat.setMember(fk (flatPaint.get(fk)))
+        }
         push fill.arr flat
         push fill.arr (VlCompile.literal((VlJson.stringValue("white"))))
         update.setMember("fill" fill)

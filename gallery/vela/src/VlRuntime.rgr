@@ -1353,15 +1353,26 @@ class VlRuntime {
         def seen:boolean false
         def total:int (fieldList.count())
         def k:int 0
+        ; A discrete domain drawn from several data sets is the SORTED UNION of
+        ; them, not the concatenation of each one sorted on its own. A box plot
+        ; asks five data sets for the same three species; sorting each in turn
+        ; and appending put the first data set's order first, so the axis read
+        ; Chinstrap, Adelie, Gentoo.
+        def gathered:[string]
+        def sortRows:[VlJson]
         while (k < total) {
             def entry:VlJson (fieldList.at(k))
             def rows:[VlJson] (this.dataRows((entry.stringOr("data" ""))))
             def field:string (entry.stringOr("field" ""))
             if discrete {
                 def vals:[string] (VlTransform.distinctValues(rows field))
-                def ordered:[string] (VlRuntime.orderDomain(vals rows sortDef field))
-                for ordered v:string vi {
-                    sc.addDomainValue(v)
+                for vals v:string vi {
+                    push gathered v
+                }
+                if ((array_length sortRows) == 0) {
+                    for rows r:VlJson ri {
+                        push sortRows r
+                    }
                 }
             } {
                 def ext:[double] (VlTransform.extent(rows field))
@@ -1384,7 +1395,12 @@ class VlRuntime {
             }
             k = (k + 1)
         }
-        if (! discrete) {
+        if discrete {
+            def orderedAll:[string] (VlRuntime.orderDomain(gathered sortRows sortDef ""))
+            for orderedAll dv:string dvi {
+                sc.addDomainValue(dv)
+            }
+        } {
             sc.setNumericDomain(lo hi)
         }
     }
