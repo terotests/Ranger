@@ -225,6 +225,445 @@ const SPECS = {
             }
         }
     },
+  // A smoother, which is a claim ABOUT the data: a curve that is merely
+  // plausible draws a line through a scatter plot nobody can check.
+  loess_line: {
+        "description": "A locally-weighted regression drawn over the points it was fitted to. The curve is a claim about the data, so it is compared against the reference's own smoother rather than eyeballed.",
+        "width": 180,
+        "height": 120,
+        "data": {
+            "values": [
+                {
+                    "u": 1.31,
+                    "v": 22.743
+                },
+                {
+                    "u": 2.95,
+                    "v": 22.957
+                },
+                {
+                    "u": 4.233,
+                    "v": 28.374
+                },
+                {
+                    "u": 6.005,
+                    "v": 29.219
+                },
+                {
+                    "u": 6.913,
+                    "v": 31.107
+                },
+                {
+                    "u": 9.651,
+                    "v": 31.048
+                },
+                {
+                    "u": 10.196,
+                    "v": 36.922
+                },
+                {
+                    "u": 12.779,
+                    "v": 41.521
+                },
+                {
+                    "u": 14.401,
+                    "v": 38.153
+                },
+                {
+                    "u": 15.478,
+                    "v": 40.776
+                },
+                {
+                    "u": 16.5,
+                    "v": 42.466
+                },
+                {
+                    "u": 19.033,
+                    "v": 45.733
+                },
+                {
+                    "u": 19.858,
+                    "v": 41.504
+                },
+                {
+                    "u": 22.217,
+                    "v": 44.516
+                },
+                {
+                    "u": 22.746,
+                    "v": 38.139
+                },
+                {
+                    "u": 25.565,
+                    "v": 38.288
+                },
+                {
+                    "u": 26.795,
+                    "v": 39.827
+                },
+                {
+                    "u": 28.313,
+                    "v": 41.734
+                },
+                {
+                    "u": 29.595,
+                    "v": 38.011
+                },
+                {
+                    "u": 31.692,
+                    "v": 41.885
+                },
+                {
+                    "u": 32.61,
+                    "v": 43.057
+                },
+                {
+                    "u": 35.269,
+                    "v": 36.526
+                },
+                {
+                    "u": 36.61,
+                    "v": 32.686
+                },
+                {
+                    "u": 38.016,
+                    "v": 34.897
+                },
+                {
+                    "u": 39.8,
+                    "v": 36.367
+                },
+                {
+                    "u": 40.794,
+                    "v": 33.896
+                },
+                {
+                    "u": 42.837,
+                    "v": 24.646
+                },
+                {
+                    "u": 43.95,
+                    "v": 23.526
+                },
+                {
+                    "u": 45.921,
+                    "v": 23.88
+                },
+                {
+                    "u": 46.7,
+                    "v": 25.784
+                },
+                {
+                    "u": 48.144,
+                    "v": 17.341
+                },
+                {
+                    "u": 49.994,
+                    "v": 22.717
+                },
+                {
+                    "u": 52.298,
+                    "v": 17.16
+                },
+                {
+                    "u": 53.552,
+                    "v": 11.876
+                },
+                {
+                    "u": 55.307,
+                    "v": 12.082
+                },
+                {
+                    "u": 56.754,
+                    "v": 8.87
+                },
+                {
+                    "u": 59.491,
+                    "v": 13.505
+                },
+                {
+                    "u": 60.069,
+                    "v": 10.246
+                },
+                {
+                    "u": 60.842,
+                    "v": 12.762
+                },
+                {
+                    "u": 62.719,
+                    "v": 6.419
+                },
+                {
+                    "u": 65.497,
+                    "v": 9.123
+                },
+                {
+                    "u": 67.264,
+                    "v": 3.868
+                },
+                {
+                    "u": 68.597,
+                    "v": 2.489
+                },
+                {
+                    "u": 70.782,
+                    "v": 2.313
+                },
+                {
+                    "u": 70.721,
+                    "v": 11.23
+                },
+                {
+                    "u": 73.353,
+                    "v": 3.092
+                },
+                {
+                    "u": 74.083,
+                    "v": 9.165
+                },
+                {
+                    "u": 75.516,
+                    "v": 12.471
+                },
+                {
+                    "u": 77.678,
+                    "v": 13.121
+                },
+                {
+                    "u": 79.397,
+                    "v": 8.082
+                },
+                {
+                    "u": 81.562,
+                    "v": 8.062
+                },
+                {
+                    "u": 83.193,
+                    "v": 12.231
+                },
+                {
+                    "u": 83.46,
+                    "v": 13.248
+                },
+                {
+                    "u": 85.7,
+                    "v": 15.275
+                },
+                {
+                    "u": 87.883,
+                    "v": 21.396
+                },
+                {
+                    "u": 88.564,
+                    "v": 18.805
+                },
+                {
+                    "u": 90.945,
+                    "v": 24.303
+                },
+                {
+                    "u": 92.961,
+                    "v": 22.833
+                },
+                {
+                    "u": 93.067,
+                    "v": 27.911
+                },
+                {
+                    "u": 96.375,
+                    "v": 28.725
+                }
+            ]
+        },
+        "layer": [
+            {
+                "mark": {
+                    "type": "point",
+                    "filled": true,
+                    "opacity": 0.5
+                },
+                "encoding": {
+                    "x": {
+                        "field": "u",
+                        "type": "quantitative"
+                    },
+                    "y": {
+                        "field": "v",
+                        "type": "quantitative"
+                    }
+                }
+            },
+            {
+                "mark": {
+                    "type": "line",
+                    "color": "firebrick"
+                },
+                "transform": [
+                    {
+                        "loess": "v",
+                        "on": "u"
+                    }
+                ],
+                "encoding": {
+                    "x": {
+                        "field": "u",
+                        "type": "quantitative"
+                    },
+                    "y": {
+                        "field": "v",
+                        "type": "quantitative"
+                    }
+                }
+            }
+        ]
+    },
+  // bin, aggregate and joinaggregate written by the specification rather than
+  // implied by an encoding.
+  spec_transforms: {
+        "description": "The transforms a specification writes for itself when they are bin, aggregate and joinaggregate \u2014 all three already in the runtime, none of them reachable from a Vega-Lite source before.",
+        "width": 180,
+        "height": 120,
+        "data": {
+            "values": [
+                {
+                    "age": 0,
+                    "sex": 1,
+                    "people": 5025
+                },
+                {
+                    "age": 0,
+                    "sex": 2,
+                    "people": 2482
+                },
+                {
+                    "age": 10,
+                    "sex": 1,
+                    "people": 4284
+                },
+                {
+                    "age": 10,
+                    "sex": 2,
+                    "people": 7803
+                },
+                {
+                    "age": 20,
+                    "sex": 1,
+                    "people": 3778
+                },
+                {
+                    "age": 20,
+                    "sex": 2,
+                    "people": 4814
+                },
+                {
+                    "age": 30,
+                    "sex": 1,
+                    "people": 5392
+                },
+                {
+                    "age": 30,
+                    "sex": 2,
+                    "people": 5038
+                },
+                {
+                    "age": 40,
+                    "sex": 1,
+                    "people": 8309
+                },
+                {
+                    "age": 40,
+                    "sex": 2,
+                    "people": 9300
+                },
+                {
+                    "age": 50,
+                    "sex": 1,
+                    "people": 7043
+                },
+                {
+                    "age": 50,
+                    "sex": 2,
+                    "people": 5815
+                },
+                {
+                    "age": 60,
+                    "sex": 1,
+                    "people": 6560
+                },
+                {
+                    "age": 60,
+                    "sex": 2,
+                    "people": 6988
+                },
+                {
+                    "age": 70,
+                    "sex": 1,
+                    "people": 7991
+                },
+                {
+                    "age": 70,
+                    "sex": 2,
+                    "people": 9213
+                },
+                {
+                    "age": 80,
+                    "sex": 1,
+                    "people": 5233
+                },
+                {
+                    "age": 80,
+                    "sex": 2,
+                    "people": 4810
+                }
+            ]
+        },
+        "transform": [
+            {
+                "bin": true,
+                "field": "people",
+                "as": [
+                    "lo",
+                    "hi"
+                ]
+            },
+            {
+                "aggregate": [
+                    {
+                        "op": "count",
+                        "as": "n"
+                    }
+                ],
+                "groupby": [
+                    "lo",
+                    "hi"
+                ]
+            },
+            {
+                "joinaggregate": [
+                    {
+                        "field": "n",
+                        "op": "max",
+                        "as": "most"
+                    }
+                ]
+            },
+            {
+                "calculate": "datum.n / datum.most",
+                "as": "share"
+            }
+        ],
+        "mark": "line",
+        "encoding": {
+            "x": {
+                "field": "n",
+                "type": "quantitative"
+            },
+            "y": {
+                "field": "share",
+                "type": "quantitative"
+            }
+        }
+    },
   tick: {
     data: { values },
     mark: 'tick',

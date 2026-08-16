@@ -1,0 +1,290 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "description": "The transforms a specification writes for itself when they are bin, aggregate and joinaggregate — all three already in the runtime, none of them reachable from a Vega-Lite source before.",
+  "background": "white",
+  "padding": 5,
+  "width": 180,
+  "height": 120,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "age": 0,
+          "sex": 1,
+          "people": 5025
+        },
+        {
+          "age": 0,
+          "sex": 2,
+          "people": 2482
+        },
+        {
+          "age": 10,
+          "sex": 1,
+          "people": 4284
+        },
+        {
+          "age": 10,
+          "sex": 2,
+          "people": 7803
+        },
+        {
+          "age": 20,
+          "sex": 1,
+          "people": 3778
+        },
+        {
+          "age": 20,
+          "sex": 2,
+          "people": 4814
+        },
+        {
+          "age": 30,
+          "sex": 1,
+          "people": 5392
+        },
+        {
+          "age": 30,
+          "sex": 2,
+          "people": 5038
+        },
+        {
+          "age": 40,
+          "sex": 1,
+          "people": 8309
+        },
+        {
+          "age": 40,
+          "sex": 2,
+          "people": 9300
+        },
+        {
+          "age": 50,
+          "sex": 1,
+          "people": 7043
+        },
+        {
+          "age": 50,
+          "sex": 2,
+          "people": 5815
+        },
+        {
+          "age": 60,
+          "sex": 1,
+          "people": 6560
+        },
+        {
+          "age": 60,
+          "sex": 2,
+          "people": 6988
+        },
+        {
+          "age": 70,
+          "sex": 1,
+          "people": 7991
+        },
+        {
+          "age": 70,
+          "sex": 2,
+          "people": 9213
+        },
+        {
+          "age": 80,
+          "sex": 1,
+          "people": 5233
+        },
+        {
+          "age": 80,
+          "sex": 2,
+          "people": 4810
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "extent",
+          "field": "people",
+          "signal": "bin_maxbins_10_people_extent"
+        },
+        {
+          "type": "bin",
+          "field": "people",
+          "as": [
+            "lo",
+            "hi"
+          ],
+          "signal": "bin_maxbins_10_people_bins",
+          "extent": {
+            "signal": "bin_maxbins_10_people_extent"
+          },
+          "maxbins": 10
+        },
+        {
+          "type": "aggregate",
+          "groupby": [
+            "lo",
+            "hi"
+          ],
+          "ops": [
+            "count"
+          ],
+          "fields": [
+            null
+          ],
+          "as": [
+            "n"
+          ]
+        },
+        {
+          "type": "joinaggregate",
+          "as": [
+            "most"
+          ],
+          "ops": [
+            "max"
+          ],
+          "fields": [
+            "n"
+          ]
+        },
+        {
+          "type": "formula",
+          "expr": "datum.n / datum.most",
+          "as": "share"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "line",
+      "style": [
+        "line"
+      ],
+      "sort": {
+        "field": "x"
+      },
+      "from": {
+        "data": "data_0"
+      },
+      "encode": {
+        "update": {
+          "stroke": {
+            "value": "#4c78a8"
+          },
+          "description": {
+            "signal": "\"n: \" + (format(datum[\"n\"], \"\")) + \"; share: \" + (format(datum[\"share\"], \"\"))"
+          },
+          "x": {
+            "scale": "x",
+            "field": "n"
+          },
+          "y": {
+            "scale": "y",
+            "field": "share"
+          },
+          "defined": {
+            "signal": "isValid(datum[\"n\"]) && isFinite(+datum[\"n\"]) && isValid(datum[\"share\"]) && isFinite(+datum[\"share\"])"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "field": "n"
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ],
+      "nice": true,
+      "zero": false
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "field": "share"
+      },
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ],
+      "nice": true,
+      "zero": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "gridScale": "y",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(width/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "n",
+      "labelFlush": true,
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(width/40)"
+      },
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "share",
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "zindex": 0
+    }
+  ]
+}
