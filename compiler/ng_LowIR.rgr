@@ -970,7 +970,10 @@ class LowIRBuilder {
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "typedesc_ptr"
     ins.dest = dest
-    ins.irType = "i32"
+    ; An address, so it is as wide as one. It was pinned to i32, which is right
+    ; only on wasm; on a 64-bit native target a comparison against it was made
+    ; at the wrong width.
+    ins.irType = this.irModule.ptrType
     ins.arg1 = className
     this.emit(ins)
     return dest

@@ -119,6 +119,21 @@ class LowIRBuilderPass {
   ; lambda compiledName -> its closure-env capture layout (computed lazily at the
   ; first lowerLambdaValue, read back when the hoisted body is lowered).
   def lambdaCaptures:[string:LambdaCaptureInfo]
+  ; VIRTUAL DISPATCH. This target emits one plain function per method, named
+  ; after the class that DECLARES it, so a call through a base-class reference
+  ; ("langWriter.writeClass(…)" where langWriter is declared
+  ; RangerGenericClassWriter but holds a RangerJavaScriptClassWriter) bound to
+  ; the base implementation and the override was never reached.
+  ;
+  ; Keys are "<declaringClass>|<methodName>" for every method some subclass
+  ; overrides; virtualImplOf maps "<runtimeClass>|<methodName>" to the class
+  ; whose implementation that runtime class should use. A dispatcher function
+  ; per key compares the object's type descriptor against each candidate.
+  def virtualKeys:[string]
+  def virtualIsKey:[string:boolean]
+  def virtualCases:[string:[string]]
+  def virtualImplOf:[string:string]
+  def virtualDescOf:[string:RangerAppFunctionDesc]
   ; Enum type NAMES, collected once per module. An enum is an int on every
   ; target, but llvmTypeForRanger only knew the primitive spellings, so a field
   ; `def eval_type:RangerNodeType` got the pointer type while every
@@ -287,6 +302,10 @@ class LowIRBuilderPass {
       this.lowerStruct(cl0 appCtx)
     }
 
+    ; …and the override map before any body, so a call lowered in class A can
+    ; already know that class B overrides the method it names.
+    this.collectVirtualMethods(appCtx)
+
     for appCtx.definedClassList cName:string i {
       if (cName == "RangerStaticMethods") {
         continue _
@@ -363,6 +382,7 @@ class LowIRBuilderPass {
     }
     ; lower each hoisted lambda body (after methods, so all names are assigned)
     this.lowerLambdaBodies(appCtx)
+    this.emitVirtualDispatchers(appCtx)
     if this.usedArrayRuntime {
       LowIRRuntimeGen.ensureArrayRuntime(this.irModule)
     }
@@ -6355,6 +6375,17 @@ class LowIRBuilderPass {
 
   fn collectMethodLambdas:void (m:RangerAppFunctionDesc pt:string) {
     for m.myLambdas lam:RangerAppFunctionDesc i {
+      ; myLambdas is FLAT -- a lambda nested inside another is listed on the
+      ; method too -- so the recursion below reaches the same descriptor twice.
+      ; Renaming it the second time left the first name pointing at a body that
+      ; is lowered but never created, and (worse) the capture layout cached
+      ; while lowering that dead copy is the one the live nested lambda then
+      ; used: a closure with no captures at all.
+      if ((strlen lam.compiledName) > 0) {
+        if (has this.lambdaByName lam.compiledName) {
+          continue
+        }
+      }
       def name:string ("lambda" + ("" + this.lambdaCounter))
       this.lambdaCounter = (this.lambdaCounter + 1)
       lam.compiledName = name
@@ -6670,6 +6701,76 @@ class LowIRBuilderPass {
     return ""
   }
 
+  ; The names one lambda's closure record has to carry: the ones its own body
+  ; reads from the enclosing scope, PLUS the ones any lambda nested inside it
+  ; reads from outside itself.
+  ;
+  ; The frontend's capture set is per lambda, and a nested lambda's env is built
+  ; from the slots live while the OUTER body is lowered. So a name only the
+  ; inner lambda touches -- `c.method_variants.forEach({ item.variants.forEach({
+  ; if (has varNames item.name) … }) })` in the flow parser -- reached neither
+  ; env: the outer lambda did not capture `varNames` because it does not name
+  ; it, and the inner one then had no slot to copy from. The map arrived as a
+  ; null pointer and the compiler died inside RtMap_has.
+  ;
+  ; The lambda's OWN parameters are excluded: they live in its frame, and a
+  ; capture of the same name would be restored over the parameter at entry.
+  fn lambdaCaptureNames:[string] (node:CodeNode lam:RangerAppFunctionDesc) {
+    def out:[string]
+    if (!null? node.lambda_ctx) {
+      def lamCtx (unwrap node.lambda_ctx)
+      for lamCtx.captured_variables cn:string i {
+        if ((indexOf out cn) < 0) {
+          push out cn
+        }
+      }
+    }
+    def nested:[string] (this.nestedCaptureNames(lam 0))
+    for nested nn:string ni {
+      if ((indexOf out nn) >= 0) {
+        continue
+      }
+      def isOwnParam:boolean false
+      for lam.params p:RangerAppParamDesc pi {
+        if (p.name == nn) {
+          isOwnParam = true
+        }
+      }
+      if isOwnParam {
+        continue
+      }
+      push out nn
+    }
+    return out
+  }
+
+  fn nestedCaptureNames:[string] (lam:RangerAppFunctionDesc depth:int) {
+    def out:[string]
+    if (depth > 8) {
+      return out
+    }
+    for lam.myLambdas sub:RangerAppFunctionDesc i {
+      if (!null? sub.node) {
+        def sn (unwrap sub.node)
+        if (!null? sn.lambda_ctx) {
+          def sc (unwrap sn.lambda_ctx)
+          for sc.captured_variables cn:string j {
+            if ((indexOf out cn) < 0) {
+              push out cn
+            }
+          }
+        }
+      }
+      def deeper:[string] (this.nestedCaptureNames(sub (depth + 1)))
+      for deeper dn:string k {
+        if ((indexOf out dn) < 0) {
+          push out dn
+        }
+      }
+    }
+    return out
+  }
+
   fn computeLambdaCaptures:LambdaCaptureInfo (node:CodeNode lam:RangerAppFunctionDesc lctx:LowIRLowerContext) {
     def key:string lam.compiledName
     if (has this.lambdaCaptures key) {
@@ -6677,9 +6778,9 @@ class LowIRBuilderPass {
     }
     def info@(lives):LambdaCaptureInfo (new LambdaCaptureInfo())
     def off 4
-    if (!null? node.lambda_ctx) {
-      def lamCtx (unwrap node.lambda_ctx)
-      for lamCtx.captured_variables cn:string i {
+    def capNames:[string] (this.lambdaCaptureNames(node lam))
+    if true {
+      for capNames cn:string i {
         ; only names that are enclosing locals/params we can load from a slot
         if (has lctx.slots cn) {
           def kind 0
@@ -7337,15 +7438,17 @@ class LowIRBuilderPass {
     }
   }
 
-  fn dropFromNameList:void (names:[string] varName:string) {
-    def n (array_length names)
-    def di:int (n - 1)
-    while (di >= 0) {
-      if ((itemAt names di) == varName) {
-        remove_index names di
+  ; A copy of `names` without `varName`. Returned rather than removed in place:
+  ; a parameter this backend only reads is a `const&` on the C++ target, so an
+  ; erase through it does not compile.
+  fn withoutName:[string] (names:[string] varName:string) {
+    def out:[string]
+    for names n:string i {
+      if (n != varName) {
+        push out n
       }
-      di = di - 1
     }
+    return out
   }
 
   ; Undo every redeclaration journalled since `mark`, putting the enclosing
@@ -7371,13 +7474,13 @@ class LowIRBuilderPass {
       def ps:string (itemAt lctx.reslotPrevSlots last)
       def pt:string (itemAt lctx.reslotPrevTypes last)
       if ((itemAt lctx.reslotOwnedStr last) == 0) {
-        this.dropFromNameList(lctx.ownedStringLocals nm)
+        lctx.ownedStringLocals = (this.withoutName(lctx.ownedStringLocals nm))
       }
       if ((itemAt lctx.reslotOwnedObj last) == 0) {
-        this.dropFromNameList(lctx.ownedObjectLocals nm)
+        lctx.ownedObjectLocals = (this.withoutName(lctx.ownedObjectLocals nm))
       }
       if ((itemAt lctx.reslotOwnedColl last) == 0) {
-        this.dropFromNameList(lctx.ownedCollectionLocals nm)
+        lctx.ownedCollectionLocals = (this.withoutName(lctx.ownedCollectionLocals nm))
       }
       set lctx.slots nm ps
       if ((strlen pt) > 0) {
@@ -10633,6 +10736,263 @@ class LowIRBuilderPass {
     return className
   }
 
+  ; --- virtual dispatch --------------------------------------------------
+  ; The compiler's own architecture is one base writer plus a dozen subclasses
+  ; that override its methods, and every call goes through a base-typed field.
+  ; Without dispatch the LLVM build produced the BASE writer's output for every
+  ; language.
+
+  fn virtualKeyOf:string (className:string methodName:string) {
+    return (className + "|" + methodName)
+  }
+
+  ; The TOPMOST ancestor of `className` that declares `methodName` -- the class
+  ; a call site names when it dispatches, and the one the dispatcher is keyed
+  ; on. methodOwnerClassIn finds the NEAREST one, which is the opposite end.
+  fn topmostDeclaringClass:string (className:string methodName:string appCtx:RangerAppWriterContext depth:int) {
+    if (depth > 16) {
+      return className
+    }
+    if ((has appCtx.definedClasses className) == false) {
+      return className
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    for cl.extends_classes baseName:string bi {
+      if (appCtx.isDefinedClass(baseName)) {
+        def up:string (this.topmostDeclaringClass(baseName methodName appCtx (depth + 1)))
+        if ((strlen up) > 0) {
+          if (up != baseName) {
+            return up
+          }
+          def bcl (appCtx.findClass(baseName))
+          for bcl.methods bm:RangerAppFunctionDesc bj {
+            if (bm.name == methodName) {
+              return baseName
+            }
+          }
+        }
+      }
+    }
+    return className
+  }
+
+  fn classIsLowered:boolean (cl:RangerAppClassDesc) {
+    if (cl.is_operator_class || cl.is_trait || cl.is_system || cl.is_union) {
+      return false
+    }
+    return true
+  }
+
+  fn collectVirtualMethods:void (appCtx:RangerAppWriterContext) {
+    ; Pass one: any method whose declaring class is NOT the topmost declarer of
+    ; that name is an override, and makes the topmost one a dispatch point.
+    for appCtx.definedClassList cName:string ci {
+      if (cName == "RangerStaticMethods") {
+        continue _
+      }
+      def cl (unwrap (get appCtx.definedClasses cName))
+      if ((this.classIsLowered(cl)) == false) {
+        continue
+      }
+      for cl.methods m:RangerAppFunctionDesc mi {
+        if (m.name == "Constructor") {
+          continue
+        }
+        def top:string (this.topmostDeclaringClass(cName m.name appCtx 0))
+        if (top == cName) {
+          continue
+        }
+        def key:string (this.virtualKeyOf(top m.name))
+        if (has this.virtualIsKey key) {
+          continue
+        }
+        set this.virtualIsKey key true
+        push this.virtualKeys key
+        def emptyCases:[string]
+        set this.virtualCases key emptyCases
+        ; The base declaration carries the signature every override shares.
+        def topCl (unwrap (get appCtx.definedClasses top))
+        for topCl.methods tm:RangerAppFunctionDesc ti {
+          if (tm.name == m.name) {
+            set this.virtualDescOf key tm
+          }
+        }
+      }
+    }
+    ; Pass two: for each dispatch point, every class that inherits from it gets
+    ; an arm naming the implementation it should actually run. A class that
+    ; inherits without overriding still needs one when an intermediate class in
+    ; its ancestry overrides.
+    for this.virtualKeys key:string ki {
+      def parts:[string] (strsplit key "|")
+      if ((array_length parts) != 2) {
+        continue
+      }
+      def top:string (itemAt parts 0)
+      def meth:string (itemAt parts 1)
+      def cases:[string]
+      for appCtx.definedClassList dName:string di {
+        if (dName == "RangerStaticMethods") {
+          continue _
+        }
+        if (dName == top) {
+          continue
+        }
+        def dcl (unwrap (get appCtx.definedClasses dName))
+        if ((this.classIsLowered(dcl)) == false) {
+          continue
+        }
+        if ((this.classInheritsFrom(dName top appCtx 0)) == false) {
+          continue
+        }
+        def impl:string (this.methodOwnerClassIn(dName meth appCtx 0))
+        if (impl == top) {
+          continue
+        }
+        if ((has appCtx.definedClasses impl) == false) {
+          continue
+        }
+        push cases dName
+        set this.virtualImplOf (this.virtualKeyOf(dName meth)) impl
+      }
+      set this.virtualCases key cases
+    }
+  }
+
+  fn classInheritsFrom:boolean (className:string baseName:string appCtx:RangerAppWriterContext depth:int) {
+    if (depth > 16) {
+      return false
+    }
+    if ((has appCtx.definedClasses className) == false) {
+      return false
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    for cl.extends_classes b:string bi {
+      if (b == baseName) {
+        return true
+      }
+      if (this.classInheritsFrom(b baseName appCtx (depth + 1))) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn virtualDispatcherName:string (className:string methodName:string) {
+    return ("__vd_" + className + "_" + methodName)
+  }
+
+  fn hasVirtualDispatcher:boolean (className:string methodName:string) {
+    def key:string (this.virtualKeyOf(className methodName))
+    if ((has this.virtualIsKey key) == false) {
+      return false
+    }
+    def cases (unwrap (get this.virtualCases key))
+    return ((array_length cases) > 0)
+  }
+
+  fn emitVirtualDispatchers:void (appCtx:RangerAppWriterContext) {
+    for this.virtualKeys key:string ki {
+      def parts:[string] (strsplit key "|")
+      if ((array_length parts) != 2) {
+        continue
+      }
+      def top:string (itemAt parts 0)
+      def meth:string (itemAt parts 1)
+      if ((this.hasVirtualDispatcher(top meth)) == false) {
+        continue
+      }
+      if ((has this.virtualDescOf key) == false) {
+        continue
+      }
+      this.emitOneVirtualDispatcher(top meth (unwrap (get this.virtualDescOf key)) (unwrap (get this.virtualCases key)) appCtx)
+    }
+  }
+
+  fn emitOneVirtualDispatcher:void (top:string meth:string fnDesc:RangerAppFunctionDesc cases:[string] appCtx:RangerAppWriterContext) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    builder.reset()
+    def pt:string this.irModule.ptrType
+    def voidType:string "void"
+    def retType:string voidType
+    if (!null? fnDesc.nameNode) {
+      retType = (this.llvmTypeForRanger((this.varTypeName((unwrap fnDesc.nameNode))) pt))
+    }
+
+    def params:[LowIRParam]
+    def selfParam@(lives):LowIRParam (new LowIRParam())
+    selfParam.name = "self"
+    selfParam.irType = (LowIRUtil.structPtrType(top))
+    push params selfParam
+    def argNames:[string]
+    def argTypes:[string]
+    def pi:int 0
+    for fnDesc.params p:RangerAppParamDesc i {
+      def lp@(lives):LowIRParam (new LowIRParam())
+      lp.name = ("a" + ("" + pi))
+      def pn (unwrap p.nameNode)
+      def ptn (this.varTypeName(pn))
+      lp.irType = (this.llvmTypeForRanger(ptn pt))
+      if (this.isLambdaTypeNode(pn)) {
+        lp.irType = pt
+      }
+      push params lp
+      push argNames ("%" + lp.name)
+      push argTypes lp.irType
+      pi = pi + 1
+    }
+
+    builder.startBlock("entry")
+    def typeParams:[string]
+    push typeParams pt
+    this.ensureExternDecl("ranger_obj_type" pt typeParams false)
+    def selfArgs:[string]
+    def selfArgTypes:[string]
+    push selfArgs "%self"
+    push selfArgTypes (LowIRUtil.structPtrType(top))
+    def rtType (builder.emitCall("ranger_obj_type" pt selfArgs selfArgTypes))
+
+    for cases dName:string di {
+      def implKey:string (this.virtualKeyOf(dName meth))
+      if ((has this.virtualImplOf implKey) == false) {
+        continue
+      }
+      def impl:string (unwrap (get this.virtualImplOf implKey))
+      def tdp (builder.emitTypeDescPtr(dName))
+      def hit (builder.emitIcmpTyped("eq" pt rtType tdp))
+      def bodyL (builder.freshLabel("vd_hit"))
+      def nextL (builder.freshLabel("vd_next"))
+      builder.terminateBrIf(hit bodyL nextL)
+      builder.startBlock(bodyL)
+      this.emitDispatchTailCall(builder impl meth retType argNames argTypes)
+      builder.startBlock(nextL)
+    }
+    ; nothing matched: the object is the base class itself, or a subclass that
+    ; inherits the base implementation unchanged.
+    this.emitDispatchTailCall(builder top meth retType argNames argTypes)
+    builder.finishFunction((this.virtualDispatcherName(top meth)) retType params false false)
+  }
+
+  fn emitDispatchTailCall:void (builder:LowIRBuilder cls:string meth:string retType:string argNames:[string] argTypes:[string]) {
+    def args:[string]
+    def types:[string]
+    ; %self is passed straight through: the module uses opaque pointers, so the
+    ; subclass struct pointer the callee declares and the base one this function
+    ; takes are the same value.
+    push args "%self"
+    push types (LowIRUtil.structPtrType(cls))
+    for argNames a:string i {
+      push args a
+      push types (itemAt argTypes i)
+    }
+    def callRes (builder.emitCall((LowIRUtil.mangleMethod(cls meth)) retType args types))
+    if (retType == "void") {
+      builder.terminateRet("void" "")
+      return
+    }
+    builder.terminateRet(retType callRes)
+  }
+
   fn lowerInstanceCallOn:string (node:CodeNode receiverName:string recvNode:CodeNode methodName:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def objPtr:string ""
@@ -10705,6 +11065,13 @@ class LowIRBuilderPass {
       return (builder.emitConst(missRet "0"))
     }
     def fnName (LowIRUtil.mangleMethod(ownerCls methName))
+    ; The receiver's STATIC class only names the declaration; when a subclass
+    ; overrides it the object decides, so the call goes through the generated
+    ; dispatcher instead. The dispatch point is the topmost class declaring the
+    ; method -- the same one any base-typed reference resolves to.
+    if (this.hasVirtualDispatcher(ownerCls methName)) {
+      fnName = (this.virtualDispatcherName(ownerCls methName))
+    }
     def voidType:string "void"
     def retType:string "i32"
     if (!null? node.fnDesc) {

@@ -579,7 +579,10 @@ class LLVMIRWriter {
       ; with owned captures asks for one, and without this case the
       ; UNHANDLED-LOWIR-OP marker landed in the middle of a function.
       case "typedesc_ptr" {
-        wr.out((ins.dest + " = getelementptr inbounds i8, ptr @" + ins.arg1 + "_typeDesc, i64 0") true)
+        ; …as an INTEGER of the target's pointer width. A getelementptr here
+        ; produced a `ptr`, which an icmp against a pointer-sized integer (the
+        ; virtual dispatcher comparing an object's runtime type) rejects.
+        wr.out((ins.dest + " = ptrtoint ptr @" + ins.arg1 + "_typeDesc to " + (this.llTy(ins.irType))) true)
       }
       case "alloca" {
         wr.out((ins.dest + " = alloca " + (this.llTy(ins.irType))) true)

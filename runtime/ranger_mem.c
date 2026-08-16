@@ -363,6 +363,20 @@ int ranger_obj_refcount(int64_t body) {
   return (int)((RangerObjHeader *)((char *)(intptr_t)body - RANGER_HEADER_SIZE))->rc;
 }
 
+/* The type descriptor an object was created with, as a plain address. This is
+ * the object's RUNTIME class: emitted code compares it against the &X_typeDesc
+ * of each candidate to dispatch a method call through a base-class reference,
+ * which is how a target with no vtables of its own resolves an override.
+ * Returns 0 for a null body, which falls through to the base implementation. */
+int64_t ranger_obj_type(int64_t body) {
+  if (body == 0) {
+    return 0;
+  }
+  return (int64_t)(intptr_t)((RangerObjHeader *)((char *)(intptr_t)body -
+                                                 RANGER_HEADER_SIZE))
+      ->type;
+}
+
 void ranger_mem_reset_stats(void) { g_live_objects = 0; }
 
 static void ranger_destroy_field(int64_t body, const RangerFieldDesc *f) {

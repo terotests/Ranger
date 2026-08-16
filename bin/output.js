@@ -42235,7 +42235,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           const ins = new LowIRInstr();
                           ins.op = "typedesc_ptr";
                           ins.dest = dest;
-                          ins.irType = "i32";
+                          ins.irType = this.irModule.ptrType;
                           ins.arg1 = className;
                           this.emit(ins);
                           return dest;
@@ -43417,6 +43417,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.lambdaNames = [];
                           this.lambdaCounter = 0;
                           this.lambdaCaptures = {};
+                          this.virtualKeys = [];
+                          this.virtualIsKey = {};
+                          this.virtualCases = {};
+                          this.virtualImplOf = {};
+                          this.virtualDescOf = {};
                         }
                         isLambdaTypeNode (node) {
                           if ( node.value_type == 20 ) {
@@ -43559,6 +43564,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             this.lowerStruct(cl0, appCtx);
                           };
+                          this.collectVirtualMethods(appCtx);
                           for ( let i = 0; i < appCtx.definedClassList.length; i++) {
                             var cName = appCtx.definedClassList[i];
                             if ( cName == "RangerStaticMethods" ) {
@@ -43623,6 +43629,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                           };
                           this.lowerLambdaBodies(appCtx);
+                          this.emitVirtualDispatchers(appCtx);
                           if ( this.usedArrayRuntime ) {
                             LowIRRuntimeGen.ensureArrayRuntime(this.irModule);
                           }
@@ -48965,6 +48972,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         collectMethodLambdas (m, pt) {
                           for ( let i = 0; i < m.myLambdas.length; i++) {
                             var lam = m.myLambdas[i];
+                            if ( (lam.compiledName.length) > 0 ) {
+                              if ( ( typeof(this.lambdaByName[lam.compiledName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaByName, lam.compiledName) ) ) {
+                                continue;
+                              }
+                            }
                             const name = "lambda" + ("" + this.lambdaCounter);
                             this.lambdaCounter = this.lambdaCounter + 1;
                             lam.compiledName = name;
@@ -49228,6 +49240,66 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return "";
                         };
+                        lambdaCaptureNames (node, lam) {
+                          let out = [];
+                          if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
+                            const lamCtx = node.lambda_ctx;
+                            for ( let i = 0; i < lamCtx.captured_variables.length; i++) {
+                              var cn = lamCtx.captured_variables[i];
+                              if ( (out.indexOf(cn)) < 0 ) {
+                                out.push(cn);
+                              }
+                            };
+                          }
+                          const nested = this.nestedCaptureNames(lam, 0);
+                          for ( let ni = 0; ni < nested.length; ni++) {
+                            var nn = nested[ni];
+                            if ( (out.indexOf(nn)) >= 0 ) {
+                              continue;
+                            }
+                            let isOwnParam = false;
+                            for ( let pi = 0; pi < lam.params.length; pi++) {
+                              var p = lam.params[pi];
+                              if ( p.name == nn ) {
+                                isOwnParam = true;
+                              }
+                            };
+                            if ( isOwnParam ) {
+                              continue;
+                            }
+                            out.push(nn);
+                          };
+                          return out;
+                        };
+                        nestedCaptureNames (lam, depth) {
+                          let out = [];
+                          if ( depth > 8 ) {
+                            return out;
+                          }
+                          for ( let i = 0; i < lam.myLambdas.length; i++) {
+                            var sub = lam.myLambdas[i];
+                            if ( (typeof(sub.node) !== "undefined" && sub.node != null )  ) {
+                              const sn = sub.node;
+                              if ( (typeof(sn.lambda_ctx) !== "undefined" && sn.lambda_ctx != null )  ) {
+                                const sc = sn.lambda_ctx;
+                                for ( let j = 0; j < sc.captured_variables.length; j++) {
+                                  var cn = sc.captured_variables[j];
+                                  if ( (out.indexOf(cn)) < 0 ) {
+                                    out.push(cn);
+                                  }
+                                };
+                              }
+                            }
+                            const deeper = this.nestedCaptureNames(sub, (depth + 1));
+                            for ( let k = 0; k < deeper.length; k++) {
+                              var dn = deeper[k];
+                              if ( (out.indexOf(dn)) < 0 ) {
+                                out.push(dn);
+                              }
+                            };
+                          };
+                          return out;
+                        };
                         computeLambdaCaptures (node, lam, lctx) {
                           const key = lam.compiledName;
                           if ( ( typeof(this.lambdaCaptures[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaCaptures, key) ) ) {
@@ -49235,10 +49307,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           const info = new LambdaCaptureInfo();
                           let off = 4;
-                          if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
-                            const lamCtx = node.lambda_ctx;
-                            for ( let i = 0; i < lamCtx.captured_variables.length; i++) {
-                              var cn = lamCtx.captured_variables[i];
+                          const capNames = this.lambdaCaptureNames(node, lam);
+                          if ( true ) {
+                            for ( let i = 0; i < capNames.length; i++) {
+                              var cn = capNames[i];
                               if ( ( typeof(lctx.slots[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, cn) ) ) {
                                 let kind = 0;
                                 let objCls = "";
@@ -49776,15 +49848,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.releaseOwnedCollectionLocal(name_1, lctx);
                           };
                         };
-                        dropFromNameList (names, varName) {
-                          const n = names.length;
-                          let di = n - 1;
-                          while (di >= 0) {
-                            if ( (names[di]) == varName ) {
-                              names.splice(di, 1).pop();
+                        withoutName (names, varName) {
+                          let out = [];
+                          for ( let i = 0; i < names.length; i++) {
+                            var n = names[i];
+                            if ( n != varName ) {
+                              out.push(n);
                             }
-                            di = di - 1;
                           };
+                          return out;
                         };
                         popReslots (mark, lctx) {
                           let cnt = lctx.reslotNames.length;
@@ -49794,13 +49866,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             const ps = lctx.reslotPrevSlots[last];
                             const pt = lctx.reslotPrevTypes[last];
                             if ( (lctx.reslotOwnedStr[last]) == 0 ) {
-                              this.dropFromNameList(lctx.ownedStringLocals, nm);
+                              lctx.ownedStringLocals = this.withoutName(lctx.ownedStringLocals, nm);
                             }
                             if ( (lctx.reslotOwnedObj[last]) == 0 ) {
-                              this.dropFromNameList(lctx.ownedObjectLocals, nm);
+                              lctx.ownedObjectLocals = this.withoutName(lctx.ownedObjectLocals, nm);
                             }
                             if ( (lctx.reslotOwnedColl[last]) == 0 ) {
-                              this.dropFromNameList(lctx.ownedCollectionLocals, nm);
+                              lctx.ownedCollectionLocals = this.withoutName(lctx.ownedCollectionLocals, nm);
                             }
                             lctx.slots[nm] = ps;
                             if ( (pt.length) > 0 ) {
@@ -52629,6 +52701,241 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           };
                           return className;
                         };
+                        virtualKeyOf (className, methodName) {
+                          return (className + "|") + methodName;
+                        };
+                        topmostDeclaringClass (className, methodName, appCtx, depth) {
+                          if ( depth > 16 ) {
+                            return className;
+                          }
+                          if ( (( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) )) == false ) {
+                            return className;
+                          }
+                          const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined ));
+                          for ( let bi = 0; bi < cl.extends_classes.length; bi++) {
+                            var baseName = cl.extends_classes[bi];
+                            if ( appCtx.isDefinedClass(baseName) ) {
+                              const up = this.topmostDeclaringClass(baseName, methodName, appCtx, (depth + 1));
+                              if ( (up.length) > 0 ) {
+                                if ( up != baseName ) {
+                                  return up;
+                                }
+                                const bcl = appCtx.findClass(baseName);
+                                for ( let bj = 0; bj < bcl.methods.length; bj++) {
+                                  var bm = bcl.methods[bj];
+                                  if ( bm.name == methodName ) {
+                                    return baseName;
+                                  }
+                                };
+                              }
+                            }
+                          };
+                          return className;
+                        };
+                        classIsLowered (cl) {
+                          if ( ((cl.is_operator_class || cl.is_trait) || cl.is_system) || cl.is_union ) {
+                            return false;
+                          }
+                          return true;
+                        };
+                        collectVirtualMethods (appCtx) {
+                          for ( let ci = 0; ci < appCtx.definedClassList.length; ci++) {
+                            var cName = appCtx.definedClassList[ci];
+                            if ( cName == "RangerStaticMethods" ) {
+                              continue;
+                            }
+                            const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined ));
+                            if ( this.classIsLowered(cl) == false ) {
+                              continue;
+                            }
+                            for ( let mi = 0; mi < cl.methods.length; mi++) {
+                              var m = cl.methods[mi];
+                              if ( m.name == "Constructor" ) {
+                                continue;
+                              }
+                              const top = this.topmostDeclaringClass(cName, m.name, appCtx, 0);
+                              if ( top == cName ) {
+                                continue;
+                              }
+                              const key = this.virtualKeyOf(top, m.name);
+                              if ( ( typeof(this.virtualIsKey[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.virtualIsKey, key) ) ) {
+                                continue;
+                              }
+                              this.virtualIsKey[key] = true;
+                              this.virtualKeys.push(key);
+                              let emptyCases = [];
+                              this.virtualCases[key] = emptyCases;
+                              const topCl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, top) ? appCtx.definedClasses[top] : undefined ));
+                              for ( let ti = 0; ti < topCl.methods.length; ti++) {
+                                var tm = topCl.methods[ti];
+                                if ( tm.name == m.name ) {
+                                  this.virtualDescOf[key] = tm;
+                                }
+                              };
+                            };
+                          };
+                          for ( let ki = 0; ki < this.virtualKeys.length; ki++) {
+                            var key_1 = this.virtualKeys[ki];
+                            const parts = key_1.split("|");
+                            if ( (parts.length) != 2 ) {
+                              continue;
+                            }
+                            const top_1 = parts[0];
+                            const meth = parts[1];
+                            let cases = [];
+                            for ( let di = 0; di < appCtx.definedClassList.length; di++) {
+                              var dName = appCtx.definedClassList[di];
+                              if ( dName == "RangerStaticMethods" ) {
+                                continue;
+                              }
+                              if ( dName == top_1 ) {
+                                continue;
+                              }
+                              const dcl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, dName) ? appCtx.definedClasses[dName] : undefined ));
+                              if ( this.classIsLowered(dcl) == false ) {
+                                continue;
+                              }
+                              if ( this.classInheritsFrom(dName, top_1, appCtx, 0) == false ) {
+                                continue;
+                              }
+                              const impl = this.methodOwnerClassIn(dName, meth, appCtx, 0);
+                              if ( impl == top_1 ) {
+                                continue;
+                              }
+                              if ( (( typeof(appCtx.definedClasses[impl] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, impl) )) == false ) {
+                                continue;
+                              }
+                              cases.push(dName);
+                              this.virtualImplOf[this.virtualKeyOf(dName, meth)] = impl;
+                            };
+                            this.virtualCases[key_1] = cases;
+                          };
+                        };
+                        classInheritsFrom (className, baseName, appCtx, depth) {
+                          if ( depth > 16 ) {
+                            return false;
+                          }
+                          if ( (( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) )) == false ) {
+                            return false;
+                          }
+                          const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined ));
+                          for ( let bi = 0; bi < cl.extends_classes.length; bi++) {
+                            var b = cl.extends_classes[bi];
+                            if ( b == baseName ) {
+                              return true;
+                            }
+                            if ( this.classInheritsFrom(b, baseName, appCtx, (depth + 1)) ) {
+                              return true;
+                            }
+                          };
+                          return false;
+                        };
+                        virtualDispatcherName (className, methodName) {
+                          return (("__vd_" + className) + "_") + methodName;
+                        };
+                        hasVirtualDispatcher (className, methodName) {
+                          const key = this.virtualKeyOf(className, methodName);
+                          if ( (( typeof(this.virtualIsKey[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.virtualIsKey, key) )) == false ) {
+                            return false;
+                          }
+                          const cases = (( Object.prototype.hasOwnProperty.call(this.virtualCases, key) ? this.virtualCases[key] : undefined ));
+                          return (cases.length) > 0;
+                        };
+                        emitVirtualDispatchers (appCtx) {
+                          for ( let ki = 0; ki < this.virtualKeys.length; ki++) {
+                            var key = this.virtualKeys[ki];
+                            const parts = key.split("|");
+                            if ( (parts.length) != 2 ) {
+                              continue;
+                            }
+                            const top = parts[0];
+                            const meth = parts[1];
+                            if ( this.hasVirtualDispatcher(top, meth) == false ) {
+                              continue;
+                            }
+                            if ( (( typeof(this.virtualDescOf[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.virtualDescOf, key) )) == false ) {
+                              continue;
+                            }
+                            this.emitOneVirtualDispatcher(top, meth, (( Object.prototype.hasOwnProperty.call(this.virtualDescOf, key) ? this.virtualDescOf[key] : undefined )), (( Object.prototype.hasOwnProperty.call(this.virtualCases, key) ? this.virtualCases[key] : undefined )), appCtx);
+                          };
+                        };
+                        emitOneVirtualDispatcher (top, meth, fnDesc, cases, appCtx) {
+                          const builder = new LowIRBuilder(this.irModule);
+                          builder.reset();
+                          const pt = this.irModule.ptrType;
+                          const voidType = "void";
+                          let retType = voidType;
+                          if ( (typeof(fnDesc.nameNode) !== "undefined" && fnDesc.nameNode != null )  ) {
+                            retType = this.llvmTypeForRanger(this.varTypeName((fnDesc.nameNode)), pt);
+                          }
+                          let params = [];
+                          const selfParam = new LowIRParam();
+                          selfParam.name = "self";
+                          selfParam.irType = LowIRUtil.structPtrType(top);
+                          params.push(selfParam);
+                          let argNames = [];
+                          let argTypes = [];
+                          let pi = 0;
+                          for ( let i = 0; i < fnDesc.params.length; i++) {
+                            var p = fnDesc.params[i];
+                            const lp = new LowIRParam();
+                            lp.name = "a" + ("" + pi);
+                            const pn = p.nameNode;
+                            const ptn = this.varTypeName(pn);
+                            lp.irType = this.llvmTypeForRanger(ptn, pt);
+                            if ( this.isLambdaTypeNode(pn) ) {
+                              lp.irType = pt;
+                            }
+                            params.push(lp);
+                            argNames.push("%" + lp.name);
+                            argTypes.push(lp.irType);
+                            pi = pi + 1;
+                          };
+                          builder.startBlock("entry");
+                          let typeParams = [];
+                          typeParams.push(pt);
+                          this.ensureExternDecl("ranger_obj_type", pt, typeParams, false);
+                          let selfArgs = [];
+                          let selfArgTypes = [];
+                          selfArgs.push("%self");
+                          selfArgTypes.push(LowIRUtil.structPtrType(top));
+                          const rtType = builder.emitCall("ranger_obj_type", pt, selfArgs, selfArgTypes);
+                          for ( let di = 0; di < cases.length; di++) {
+                            var dName = cases[di];
+                            const implKey = this.virtualKeyOf(dName, meth);
+                            if ( (( typeof(this.virtualImplOf[implKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.virtualImplOf, implKey) )) == false ) {
+                              continue;
+                            }
+                            const impl = (( Object.prototype.hasOwnProperty.call(this.virtualImplOf, implKey) ? this.virtualImplOf[implKey] : undefined ));
+                            const tdp = builder.emitTypeDescPtr(dName);
+                            const hit = builder.emitIcmpTyped("eq", pt, rtType, tdp);
+                            const bodyL = builder.freshLabel("vd_hit");
+                            const nextL = builder.freshLabel("vd_next");
+                            builder.terminateBrIf(hit, bodyL, nextL);
+                            builder.startBlock(bodyL);
+                            this.emitDispatchTailCall(builder, impl, meth, retType, argNames, argTypes);
+                            builder.startBlock(nextL);
+                          };
+                          this.emitDispatchTailCall(builder, top, meth, retType, argNames, argTypes);
+                          builder.finishFunction(this.virtualDispatcherName(top, meth), retType, params, false, false);
+                        };
+                        emitDispatchTailCall (builder, cls, meth, retType, argNames, argTypes) {
+                          let args = [];
+                          let types = [];
+                          args.push("%self");
+                          types.push(LowIRUtil.structPtrType(cls));
+                          for ( let i = 0; i < argNames.length; i++) {
+                            var a = argNames[i];
+                            args.push(a);
+                            types.push(argTypes[i]);
+                          };
+                          const callRes = builder.emitCall(LowIRUtil.mangleMethod(cls, meth), retType, args, types);
+                          if ( retType == "void" ) {
+                            builder.terminateRet("void", "");
+                            return;
+                          }
+                          builder.terminateRet(retType, callRes);
+                        };
                         lowerInstanceCallOn (node, receiverName, recvNode, methodName, lctx) {
                           const builder = lctx.builder;
                           let objPtr = "";
@@ -52688,7 +52995,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return builder.emitConst(missRet, "0");
                           }
-                          const fnName = LowIRUtil.mangleMethod(ownerCls, methName);
+                          let fnName = LowIRUtil.mangleMethod(ownerCls, methName);
+                          if ( this.hasVirtualDispatcher(ownerCls, methName) ) {
+                            fnName = this.virtualDispatcherName(ownerCls, methName);
+                          }
                           const voidType = "void";
                           let retType = "i32";
                           if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
@@ -53372,7 +53682,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               wr.out(")", true);
                               break;
                             case "typedesc_ptr" : 
-                              wr.out(((ins.dest + " = getelementptr inbounds i8, ptr @") + ins.arg1) + "_typeDesc, i64 0", true);
+                              wr.out((((ins.dest + " = ptrtoint ptr @") + ins.arg1) + "_typeDesc to ") + this.llTy(ins.irType), true);
                               break;
                             case "alloca" : 
                               wr.out((ins.dest + " = alloca ") + this.llTy(ins.irType), true);
