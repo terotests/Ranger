@@ -48971,10 +48971,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               continue;
                             }
                             const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined ));
-                            if ( cl.is_operator_class || cl.is_trait ) {
+                            if ( cl.is_trait ) {
                               continue;
                             }
                             if ( cl.is_system || cl.is_union ) {
+                              continue;
+                            }
+                            if ( cl.is_operator_class ) {
+                              for ( let oj = 0; oj < cl.static_methods.length; oj++) {
+                                var om = cl.static_methods[oj];
+                                this.collectMethodLambdas(om, pt);
+                              };
                               continue;
                             }
                             for ( let j = 0; j < cl.static_methods.length; j++) {

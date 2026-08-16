@@ -6404,10 +6404,22 @@ class LowIRBuilderPass {
         continue
       }
       def cl (unwrap (get appCtx.definedClasses cName))
-      if (cl.is_operator_class || cl.is_trait) {
+      if (cl.is_trait) {
         continue
       }
       if (cl.is_system || cl.is_union) {
+        continue
+      }
+      ; An OPERATOR class has no fields and no instance methods, but its STATIC
+      ; methods ARE emitted (they are what every call to an `operator type:T`
+      ; extension resolves to) -- so the lambdas inside them need names and
+      ; table slots like any other. Skipping the class here left them nameless:
+      ; the closure record got table index 0 and a `__closure__typeDesc`, so the
+      ; call jumped to whatever lambda happened to be first in the module.
+      if cl.is_operator_class {
+        for cl.static_methods om:RangerAppFunctionDesc oj {
+          this.collectMethodLambdas(om pt)
+        }
         continue
       }
       for cl.static_methods m:RangerAppFunctionDesc j {
