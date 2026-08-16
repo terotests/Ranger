@@ -797,7 +797,24 @@ class VlScale {
             }
             k = (k + 1)
         }
-        return (VlScale.decimalsForStep(step))
+        return (VlScale.decimalsForStep((VlScale.cleanStep(step))))
+    }
+
+    ; The gap between two ticks, as the tick algorithm meant it rather than as
+    ; the arithmetic left it. Ticks are whole multiples of a step, so a gap is
+    ; that step — but 0.7 minus 0.6000000000000001 is 0.09999999999999987, and
+    ; asked how many decimals THAT needs the answer is two. The reference never
+    ; subtracts: it takes the step straight from the tick algorithm and prints
+    ; a tenth as one decimal. Rounding the gap to six significant figures says
+    ; the same thing without changing how ticks are found.
+    sfn cleanStep:double (step:double) {
+        if (step <= 0.0) {
+            return step
+        }
+        def power:int (VlScale.floorLog10(step))
+        def scaled:double (step / (VlScale.pow10(power)))
+        scaled = ((to_double (floor ((scaled * 100000.0) + 0.5))) / 100000.0)
+        return (scaled * (VlScale.pow10(power)))
     }
 
     ; How many decimals a step needs: half needs one, ten needs none.
