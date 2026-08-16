@@ -59,6 +59,7 @@ against a golden, the scene against the reference implementation.
 ```bash
 bash gallery/vela/tests/run.sh          # build, unit tests, goldens, parity
 bash gallery/vela/tests/run_cpp.sh      # the same goldens, from a C++ binary
+node gallery/vela/tools/reference/zones.mjs   # a time axis, in eight zones
 ```
 
 ```bash
@@ -162,6 +163,7 @@ Each of these was found by the harness, not by reading the spec:
 | A log axis printed ten labels on top of each other | `labelOverlap` is `"greedy"` there, not `true` — hide each label that runs into the last one KEPT, since halving drops the readable ticks and keeps the crowded ones |
 | The last label of an axis was pulled inside the plot when it did not need to be | `labelFlush` is a threshold in PIXELS, and `true` means one pixel — not "the first and last label" |
 | A band tick sat one pixel right of its own label | ticks and labels share the axis group's half-pixel offset; only the label was taking it |
+| An axis thinned to two labels dropped its own last one | when parity halving has got an axis down to two labels or fewer, the reference gives up the last SURVIVOR and shows the last LABEL — two labels that are not the ends of the scale do not read as one |
 
 ## Compatibility
 
@@ -214,8 +216,9 @@ which is also what pins the legend's own size and position.
 | Signals | literal values and `update` expressions, settled against the scales |
 | Data | inline `values` and `source`; a `url` is refused rather than fetched |
 | Axes | ticks, grid, labels, domain, title · `tickCount`, `tickRound`, `labelAngle`, `labelFlush`, `labelOverlap`, band and binned ticks |
-| Legends | symbol legends for fill, stroke, size, shape and opacity, and gradient legends for continuous colour · title, per-row layout from the drawn bounds, and the spec's own `encode` blocks. `orient` other than `right` is drawn but not placed |
-| Layout | axis extents, view size and plot origin (`autosize: pad`) · several plots side by side, and a trellis of them with column headers, footers and a title, placed by their full bounds (`layout`) |
+| Legends | symbol legends for fill, stroke, size, shape and opacity, and gradient legends for continuous colour · title, layout from the drawn bounds in either direction, the spec's own `encode` blocks, and all eight `orient` anchors |
+| Layout | axis extents, view size and plot origin (`autosize: pad`) · several plots side by side, and a trellis of them — by column, by row, both at once, or wrapped onto a computed grid — with headers, footers and turned titles, placed by their full bounds (`layout`) |
+| Time zones | a `time` scale is read in a **supplied** zone — roughly sixty named ones with the EU, US and southern summer-time rules, or a plain offset — never in the host's. `utc` is UTC whatever the runtime was told |
 | Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
 | Theming | colours from the spec, or from a stylesheet by class; `config.axis` and `config.style` are read |
 | Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
@@ -390,6 +393,62 @@ Re-run it after any change: a candidate that stops matching is a regression the
 committed specs might not cover, and a new candidate is a feature request with
 evidence attached.
 
+## A time zone is supplied, not discovered
+
+A `time` scale is read in a wall clock, and the reference reads the clock of the
+machine it runs on. A runtime that compiles to eight targets cannot do that and
+should not want to: the same specification has to draw the same chart
+everywhere, and "whatever the host thinks the zone is" is not an input. So the
+zone is **supplied** —
+
+```bash
+node gallery/vela/bin/vela_scene.js chart.vg.json --zone=Europe/Helsinki
+```
+
+— and `tools/reference/zones.mjs` asserts that Vela told a zone and the
+reference running in that zone (`TZ=`) produce the same chart, mark for mark, in
+**eight zones** chosen to break a naive implementation:
+
+| Zone | What it catches |
+| --- | --- |
+| `UTC` | the baseline: no rule at all |
+| `Europe/Helsinki` | the EU rule, two hours east |
+| `Europe/London` | the EU rule at zero, where standard time *is* UTC and the two stop being distinguishable if you were relying on the offset being non-zero |
+| `America/New_York` | the US rule: west of UTC, and its transitions are stated in local time rather than in UTC |
+| `America/Phoenix` | west of UTC with **no** rule, next door to one that has one |
+| `Australia/Sydney` | a **southern** summer — the window wraps the new year, so the test is an OR and not an AND |
+| `Pacific/Auckland` | southern, and far enough east that a day boundary is half a day from UTC's |
+| `Asia/Kolkata` | a half-hour offset, which catches anything storing an offset in whole hours |
+
+A zone here is a standard offset, what summer time adds, and the rule saying
+when: the EU's (last Sunday in March to last Sunday in October, both stated in
+UTC), the United States' (second Sunday in March to first Sunday in November,
+stated in local time), and the two southern patterns. Roughly sixty named zones
+carry those, and a plain `+05:45` works too.
+
+**It is not a zone database, and says so.** The rules are the ones in force now,
+so a chart of dates from before the EU harmonised in 1996 or the US moved its
+dates in 2007 is an hour out where the rule has since changed, and a zone with
+its own history — Brazil, which abolished summer time in 2019 — is carried at its
+current offset with no rule at all. A chart of the last twenty years is right; a
+chart of the twentieth century is not.
+
+Two things fell out of building it, and the second is the more interesting:
+
+* **A day is not always twenty-four hours long.** Stepping a daily axis by a
+  fixed span across a clock change lands an hour off the wall clock, so a day, a
+  week, a month and a year all step on the *clock* and are converted back. Below
+  a day the two are the same thing. Converting back asks the zone for its offset
+  **twice** — the offset at the answer need not be the offset at the question,
+  because the answer may have crossed the boundary the question was near.
+* **An axis always labels its own end.** Six-hourly data across a clock change
+  gave four labels of which no two may touch. Halving keeps the first and the
+  third; the reference keeps the first and the **fourth**, because when parity
+  thinning has got an axis down to two labels or fewer, two labels that are not
+  the ends do not read as a scale. It gives up the last survivor and shows the
+  last label instead. That was a defect in every chart, not only a dated one —
+  found by putting the same chart in a different zone.
+
 ## The C++ check: the JavaScript is the host, not the answer
 
 The parity harness cannot say whether Vela is portable, because both sides of
@@ -421,19 +480,10 @@ intermediate value is ever larger than a digit.
 
 ## What is not there yet
 
-* **Row faceting and wrapped grids.** A trellis of columns is laid out —
-  headers above, footers below, a row header to the left, a title over the lot.
-  Rows, and a grid that wraps onto several of them, follow the same rules and
-  are not built. This is the one that would unlock the most of the example
-  gallery at once.
-* **Legends anywhere but the right.** `orient` is carried into the scene and a
-  legend is drawn correctly whatever it says, but only the right-hand edge is
-  placed. The reference resolves the other seven anchors against the view
-  bounds; that is layout work, not legend work. A gradient legend has the same
-  restriction.
-* **Local time zones.** `VlTime` is a UTC calendar. Every temporal scale, tick
-  and label is computed in UTC, which is what the reference's own tests use;
-  `timeUnit` in a local zone is not built.
+* **Historical time zones.** The summer-time rules are the ones in force now,
+  and a zone with its own history is carried at its current offset. See
+  [A time zone is supplied](#a-time-zone-is-supplied-not-discovered) — a chart
+  of recent data is right, an old one may be an hour out.
 * **Two width estimates, on purpose.** `VlText.estimateWidth` is the
   reference's canvas-free 0.8 em per character and sizes the axis extents,
   because matching the reference's layout is what the comparison measures.
@@ -481,6 +531,7 @@ gallery/vela/
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
 │   ├── VlScale.rgr       band / point / linear / log / ordinal, ticks
+│   ├── VlTime.rgr        the calendar, and the zones it is read in
 │   ├── VlTransform.rgr   data transforms
 │   ├── VlConfig.rgr      the defaults a mark inherits
 │   ├── VlScene.rgr       scene graph + canonical JSON

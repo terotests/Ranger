@@ -92,6 +92,27 @@ for spec in $(find $VELA/tests/specs -name '*.vg.json' | sort); do
 done
 [ $status -eq 0 ] && echo "  $both specs, byte for byte"
 
+# A time zone is a rule with arithmetic in it — negative offsets, floor
+# division, a summer window that wraps the new year — which is exactly the kind
+# of thing that differs between a language with one number type and a language
+# with several.
+say "and in a time zone that is not utc"
+zones=0
+for zone in Europe/Helsinki America/New_York Australia/Sydney Asia/Kolkata; do
+  for spec in $(grep -l '"time"' $VELA/tests/specs/*.vg.json $VELA/tests/specs/*/*.vg.json 2>/dev/null); do
+    key=$(echo "$spec" | sed "s|$VELA/tests/specs/||; s|/|_|g; s|\.vg\.json||")
+    tag=$(echo "$zone" | tr '/' '_')
+    node "$VELA/bin/vela_scene.js" "$spec" "--zone=$zone" > "$OUT/$key.$tag.js.json" 2>&1
+    "$OUT/vela_scene" "$spec" "--zone=$zone" > "$OUT/$key.$tag.cpp.json" 2>&1
+    if diff -q "$OUT/$key.$tag.js.json" "$OUT/$key.$tag.cpp.json" > /dev/null; then
+      zones=$((zones + 1))
+    else
+      echo "  DIFF $spec in $zone"; diff "$OUT/$key.$tag.js.json" "$OUT/$key.$tag.cpp.json" | head -6; status=1
+    fi
+  done
+done
+[ $status -eq 0 ] && echo "  $zones dated scenes in four zones, identical"
+
 # And the end of the pipeline: a whole showcase page, drawn by the native
 # binary, must be the file that is committed.
 say "a showcase page, written by the native binary"

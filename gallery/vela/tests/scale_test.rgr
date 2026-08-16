@@ -19,6 +19,13 @@ class VlScaleTest {
         return (VlJson.formatNumber(v 6))
     }
 
+    fn yesNo:string (v:boolean) {
+        if v {
+            return "yes"
+        }
+        return "no"
+    }
+
     fn ticksText:string (sc:VlScale count:int) {
         def out:string ""
         def values:[double] (sc.ticks(count))
@@ -176,14 +183,15 @@ class VlScaleTest {
         ; --- time ---
         ; The expected values are what d3-time and d3-time-format answer for
         ; the same instants, under UTC.
+        def utc:VlTimeZone (VlTimeZone.utc())
         def jan:double (VlTime.parseIso("2024-01-01"))
         def sep:double (VlTime.parseIso("2024-09-01"))
         this.check("date is milliseconds" (this.num(jan)) "1704067200000")
-        this.check("date round trips" (VlTime.format(jan "%Y-%m-%d")) "2024-01-01")
-        this.check("leap day" (VlTime.format((VlTime.parseIso("2024-02-29")) "%A %e %B %Y")) "Thursday 29 February 2024")
-        this.check("epoch is a Thursday" (VlTime.format(0.0 "%A")) "Thursday")
-        this.check("before the epoch" (VlTime.format((VlTime.parseIso("1900-03-01")) "%A %Y-%m-%d")) "Thursday 1900-03-01")
-        this.check("clock time" (VlTime.format((VlTime.parseIso("2024-01-01T13:05:09")) "%I:%M %p")) "01:05 PM")
+        this.check("date round trips" (VlTime.format(jan "%Y-%m-%d" utc)) "2024-01-01")
+        this.check("leap day" (VlTime.format((VlTime.parseIso("2024-02-29")) "%A %e %B %Y" utc)) "Thursday 29 February 2024")
+        this.check("epoch is a Thursday" (VlTime.format(0.0 "%A" utc)) "Thursday")
+        this.check("before the epoch" (VlTime.format((VlTime.parseIso("1900-03-01")) "%A %Y-%m-%d" utc)) "Thursday 1900-03-01")
+        this.check("clock time" (VlTime.format((VlTime.parseIso("2024-01-01T13:05:09")) "%I:%M %p" utc)) "01:05 PM")
 
         ; A monthly axis: nine ticks over eight months, and the January one is
         ; named for its year rather than its month.
@@ -193,10 +201,56 @@ class VlScaleTest {
         tsc.setNumericRange(0.0 200.0)
         def tticks:[double] (tsc.ticks(5))
         this.check("time tick count" (this.num((to_double (array_length tticks)))) "9")
-        this.check("first tick is January" (VlTime.multiFormat((itemAt tticks 0))) "2024")
-        this.check("second tick is February" (VlTime.multiFormat((itemAt tticks 1))) "February")
-        this.check("last tick is September" (VlTime.multiFormat((itemAt tticks 8))) "September")
+        this.check("first tick is January" (VlTime.multiFormat((itemAt tticks 0) utc)) "2024")
+        this.check("second tick is February" (VlTime.multiFormat((itemAt tticks 1) utc)) "February")
+        this.check("last tick is September" (VlTime.multiFormat((itemAt tticks 8) utc)) "September")
         this.check("time maps like a linear scale" (this.num((tsc.mapNumber(sep)))) "200")
+
+        ; --- time zones ---
+        ; A zone is a rule, so the tests are on the days the rule turns over.
+        ; The expected offsets are what the IANA database says for 2024.
+        def helsinki:VlTimeZone (VlTimeZone.named("Europe/Helsinki"))
+        def newYork:VlTimeZone (VlTimeZone.named("America/New_York"))
+        def sydney:VlTimeZone (VlTimeZone.named("Australia/Sydney"))
+        def kolkata:VlTimeZone (VlTimeZone.named("Asia/Kolkata"))
+        def phoenix:VlTimeZone (VlTimeZone.named("America/Phoenix"))
+
+        this.check("winter in Helsinki" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("2024-01-15T12:00:00"))))))) "120")
+        this.check("summer in Helsinki" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("2024-07-15T12:00:00"))))))) "180")
+        ; The EU turns over at 01:00 UTC on the last Sunday in March, which in
+        ; 2024 is the 31st. A minute either side is a different offset.
+        this.check("a minute before the EU spring change" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("2024-03-31T00:59:00"))))))) "120")
+        this.check("a minute after the EU spring change" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("2024-03-31T01:00:00"))))))) "180")
+        this.check("a minute before the EU autumn change" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("2024-10-27T00:59:00"))))))) "180")
+        this.check("a minute after the EU autumn change" (this.num((to_double (helsinki.offsetAt((VlTime.parseIso("2024-10-27T01:00:00"))))))) "120")
+
+        ; The United States states its transitions in LOCAL time, so New York
+        ; changes at 07:00 UTC on the second Sunday in March — 2024-03-10.
+        this.check("winter in New York" (this.num((to_double (newYork.offsetAt((VlTime.parseIso("2024-01-15T12:00:00"))))))) "-300")
+        this.check("summer in New York" (this.num((to_double (newYork.offsetAt((VlTime.parseIso("2024-07-15T12:00:00"))))))) "-240")
+        this.check("a minute before the US spring change" (this.num((to_double (newYork.offsetAt((VlTime.parseIso("2024-03-10T06:59:00"))))))) "-300")
+        this.check("a minute after the US spring change" (this.num((to_double (newYork.offsetAt((VlTime.parseIso("2024-03-10T07:00:00"))))))) "-240")
+
+        ; Sydney's summer is the one that spans the new year, so January is the
+        ; season July is not.
+        this.check("January in Sydney is summer" (this.num((to_double (sydney.offsetAt((VlTime.parseIso("2024-01-15T12:00:00"))))))) "660")
+        this.check("July in Sydney is winter" (this.num((to_double (sydney.offsetAt((VlTime.parseIso("2024-07-15T12:00:00"))))))) "600")
+
+        this.check("Kolkata is half an hour off the hour" (this.num((to_double (kolkata.offsetAt((VlTime.parseIso("2024-07-15T12:00:00"))))))) "330")
+        this.check("Phoenix never changes" (this.num((to_double (phoenix.offsetAt((VlTime.parseIso("2024-07-15T12:00:00"))))))) "-420")
+        this.check("an offset written out" (this.num((to_double ((VlTimeZone.named("+05:45")).offsetAt(0.0))))) "345")
+        this.check("an unknown zone is UTC" (this.num((to_double ((VlTimeZone.named("Mars/Olympus")).offsetAt(0.0))))) "0")
+        this.check("and says it is unknown" (this.yesNo((VlTimeZone.isKnown("Mars/Olympus")))) "no")
+
+        ; A day is not always twenty-four hours long. Midnight in Helsinki on
+        ; the day the clocks go forward is 22:00 UTC the night before, and the
+        ; next midnight is only 23 hours later.
+        def springDay:double (VlTime.floorTo((VlTime.parseIso("2024-03-31T12:00:00")) "day" helsinki))
+        this.check("a local day starts in the zone" (VlTime.format(springDay "%Y-%m-%dT%H:%M" utc)) "2024-03-30T22:00")
+        this.check("and reads as midnight there" (VlTime.format(springDay "%Y-%m-%dT%H:%M" helsinki)) "2024-03-31T00:00")
+        def nextDay:double (VlTime.addUnit(springDay "day" helsinki))
+        this.check("the next day is still midnight" (VlTime.format(nextDay "%Y-%m-%dT%H:%M" helsinki)) "2024-04-01T00:00")
+        this.check("even though it is 23 hours later" (this.num(((nextDay - springDay) / 3600000.0))) "23")
 
         ; --- ordinal ---
         def ord (new VlScale())

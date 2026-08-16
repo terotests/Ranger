@@ -215,6 +215,25 @@ const SPECS = {
       column: { field: 'g', type: 'nominal' },
     },
   },
+  // Six-hourly readings across the European Union's spring clock change
+  // (2024-03-31 01:00 UTC). Its whole job is to be drawn in more than one wall
+  // clock: tools/reference/zones.mjs runs it in eight, and the hours either
+  // side of a transition are where a zone implementation is wrong if it is
+  // wrong anywhere. The dates are written out rather than generated so the spec
+  // is the same file on every run.
+  line_dst: {
+    data: {
+      values: Array.from({ length: 20 }, (unused, i) => ({
+        t: new Date(Date.UTC(2024, 2, 30, 0) + i * 6 * 3600e3).toISOString(),
+        b: 20 + (i % 7) * 9,
+      })),
+    },
+    mark: 'line',
+    encoding: {
+      x: { field: 't', type: 'temporal' },
+      y: { field: 'b', type: 'quantitative' },
+    },
+  },
   // The other two ways a trellis can be arranged. A row facet stacks the cells
   // and turns the shared title on its side; a wrapped facet has neither row
   // headers nor column headers and titles every cell instead, its grid sized by

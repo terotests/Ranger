@@ -74,4 +74,7 @@ fi
 say "parity against the reference implementation"
 node $VELA/tools/reference/parity.mjs || status=1
 
+say "a time axis, in eight time zones"
+node $VELA/tools/reference/zones.mjs || status=1
+
 exit $status

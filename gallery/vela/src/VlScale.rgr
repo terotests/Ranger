@@ -38,6 +38,10 @@ class VlScale {
     ; A power scale's exponent. `sqrt` is the same scale with the exponent a
     ; half, which is what a bubble's radius or a radial chart's is written as.
     def powExponent:double 1.0
+    ; Which wall clock a `time` scale reads. UTC unless the runtime was given a
+    ; zone; a `utc` scale keeps this one whatever the runtime was told, because
+    ; that is what asking for a `utc` scale means.
+    def zone:VlTimeZone (new VlTimeZone())
 
     ; Quantitative domain / range.
     def domainMin:double 0.0
@@ -366,10 +370,10 @@ class VlScale {
         ; day the data happened to begin.
         if (this.isTime()) {
             def unit:string (VlTime.unitOfTicks((this.timeTicks(count))))
-            domainMin = (VlTime.floorTo(start unit))
-            def end:double (VlTime.floorTo(stop unit))
+            domainMin = (VlTime.floorTo(start unit zone))
+            def end:double (VlTime.floorTo(stop unit zone))
             if (end < stop) {
-                end = (VlTime.addUnit(end unit))
+                end = (VlTime.addUnit(end unit zone))
             }
             domainMax = end
             return
@@ -437,7 +441,7 @@ class VlScale {
         }
         def msStep:double (VlScale.tickIncrement(domainMin domainMax n))
         def yearStep:double (VlScale.tickIncrement((domainMin / (VlTime.msPerYear())) (domainMax / (VlTime.msPerYear())) n))
-        return (VlTime.ticks(domainMin domainMax n msStep yearStep))
+        return (VlTime.ticks(domainMin domainMax n msStep yearStep zone))
     }
 
     ; The ticks a LOG scale asks for, which are not evenly spaced: every whole

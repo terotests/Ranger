@@ -69,6 +69,7 @@ function specsUnder(dir) {
 }
 
 const specs = process.argv.length > 2 ? process.argv.slice(2) : specsUnder(SPEC_DIR);
+const ZONE = process.env.VELA_ZONE || '';
 
 let total = 0;
 let matched = 0;
@@ -88,7 +89,11 @@ for (const specPath of specs) {
     continue;
   }
 
-  const velaOut = execFileSync(process.execPath, [SCENE_TOOL, specPath], { encoding: 'utf8' });
+  // VELA_ZONE compares in a wall clock other than the machine's: the reference
+  // reads the process TZ, and Vela is TOLD the same zone rather than reading
+  // anything. Both have to answer the same chart. See tools/reference/zones.mjs.
+  const velaArgs = ZONE ? [SCENE_TOOL, specPath, `--zone=${ZONE}`] : [SCENE_TOOL, specPath];
+  const velaOut = execFileSync(process.execPath, velaArgs, { encoding: 'utf8' });
   if (!velaOut.trimStart().startsWith('{')) {
     report.push({ name, status: 'VELA FAILED', detail: velaOut.trim().split('\n')[0] });
     continue;

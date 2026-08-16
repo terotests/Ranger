@@ -47,6 +47,12 @@ class VlGroupBox {
 class VlRuntime {
     def spec:VlJson (new VlJson)
     def scope:VlExprScope (new VlExprScope())
+    ; The wall clock a `time` scale is read in. The reference reads the
+    ; machine's; this is SUPPLIED, because a runtime that compiles to eight
+    ; targets has to draw the same chart on all of them and "whatever the host
+    ; thinks the zone is" is not an input. Empty means UTC, which is what a
+    ; `utc` scale gets whatever this says.
+    def timeZoneName:string ""
     def dataSets:[string:VlDataSet]
     def dataOrder:[string]
     def scaleOrder:[string]
@@ -78,6 +84,12 @@ class VlRuntime {
     ; ------------------------------------------------------------------ run ---
     fn run:VlSceneMark (specJson:VlJson) {
         spec = specJson
+        if ((strlen timeZoneName) > 0) {
+            if (! (VlTimeZone.isKnown(timeZoneName))) {
+                this.warn(("time zone '" + timeZoneName) + "' is not one this runtime carries; UTC was used")
+            }
+        }
+        scope.zone = (VlTimeZone.named(timeZoneName))
         config.loadDefaults()
         config.mergeSpecConfig((spec.get("config")))
         this.readSize()
@@ -471,6 +483,9 @@ class VlRuntime {
         def sc (new VlScale())
         sc.name = name
         sc.scaleType = (sdef.stringOr("type" "linear"))
+        if (sc.scaleType == "time") {
+            sc.zone = (VlTimeZone.named(timeZoneName))
+        }
         if (sdef.has("padding")) {
             sc.paddingInner = (sdef.doubleOr("padding" 0.0))
             sc.paddingOuter = (sdef.doubleOr("padding" 0.0))

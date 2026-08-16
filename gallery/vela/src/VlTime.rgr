@@ -36,6 +36,279 @@ class VlTimeParts {
     def weekday:int 4
 }
 
+; ============================================================================
+; A time zone, as a rule rather than as a lookup.
+; ============================================================================
+; The reference reads a `time` scale in the machine's local zone. This cannot
+; do that and should not: a runtime that compiles to eight targets must produce
+; the same chart on all of them from the same inputs, and "whatever the host
+; thinks the zone is" is not an input. So the zone is SUPPLIED — to the runtime,
+; by name or by offset — and every target then agrees.
+;
+; A zone is a standard offset, an amount that summer time adds, and the rule
+; that says when. Four rules cover the zones people put on charts:
+;
+;   eu   last Sunday in March to last Sunday in October, both 01:00 UTC —
+;        the one rule the whole European Union shares, and it is stated in UTC
+;        so every EU zone turns over at the same instant
+;   us   second Sunday in March 02:00 standard to first Sunday in November
+;        02:00 daylight
+;   au   first Sunday in October to first Sunday in April — a SOUTHERN summer,
+;        so the window wraps the new year and the test is an OR, not an AND
+;   nz   last Sunday in September to first Sunday in April, southern likewise
+;
+; What this is not: a zone database. The rules above are the ones in force now
+; (the EU's since 1996, the United States' since 2007), so a chart of dates from
+; before then is offset by an hour where the rule has since changed, and a zone
+; with its own history — Brazil, which abolished summer time in 2019, or Russia,
+; which did so in 2014 — is carried at its CURRENT offset with no rule at all.
+; A chart of the last twenty years is right; a chart of the twentieth century is
+; not, and this says so rather than pretending.
+; ============================================================================
+class VlTimeZone {
+    def name:string "UTC"
+    ; Minutes EAST of UTC in standard time: Helsinki is 120, New York is -300.
+    def standardMinutes:int 0
+    ; What summer time adds while it is in force. Sixty, nearly everywhere.
+    def savingMinutes:int 0
+    ; "none", "eu", "us", "au" or "nz".
+    def rule:string "none"
+
+    ; Minutes east of UTC at an instant.
+    fn offsetAt:int (ms:double) {
+        if (rule == "none") {
+            return standardMinutes
+        }
+        ; Which year's transitions to use. Read in standard time, which is the
+        ; right year even for a southern zone whose summer spans the new year:
+        ; every transition below is months away from January.
+        def standardLocal:double (ms + ((to_double standardMinutes) * 60000.0))
+        def year:int ((VlTime.partsOfUtc(standardLocal)).year)
+        if (this.inSummer(ms year)) {
+            return (standardMinutes + savingMinutes)
+        }
+        return standardMinutes
+    }
+
+    fn inSummer:boolean (ms:double year:int) {
+        if (rule == "eu") {
+            ; Stated in UTC, so the whole union turns over at one instant.
+            def from:double (VlTimeZone.atUtc(year 3 (VlTimeZone.lastWeekday(year 3 0)) 60))
+            def to:double (VlTimeZone.atUtc(year 10 (VlTimeZone.lastWeekday(year 10 0)) 60))
+            return ((ms >= from) && (ms < to))
+        }
+        if (rule == "us") {
+            def from:double ((VlTimeZone.atUtc(year 3 (VlTimeZone.nthWeekday(year 3 0 2)) 120)) - ((to_double standardMinutes) * 60000.0))
+            def to:double ((VlTimeZone.atUtc(year 11 (VlTimeZone.nthWeekday(year 11 0 1)) 120)) - ((to_double (standardMinutes + savingMinutes)) * 60000.0))
+            return ((ms >= from) && (ms < to))
+        }
+        ; Southern: summer starts in the spring of one year and ends in the
+        ; autumn of the next, so an instant is in it when it is past this
+        ; year's start OR before this year's end.
+        def startMonth:int 10
+        def startDay:int (VlTimeZone.nthWeekday(year 10 0 1))
+        if (rule == "nz") {
+            startDay = (VlTimeZone.lastWeekday(year 9 0))
+            startMonth = 9
+        }
+        def from2:double ((VlTimeZone.atUtc(year startMonth startDay 120)) - ((to_double standardMinutes) * 60000.0))
+        def to2:double ((VlTimeZone.atUtc(year 4 (VlTimeZone.nthWeekday(year 4 0 1)) 180)) - ((to_double (standardMinutes + savingMinutes)) * 60000.0))
+        return ((ms >= from2) || (ms < to2))
+    }
+
+    ; An instant from a civil date and a number of minutes past midnight.
+    sfn atUtc:double (year:int month:int day:int minutes:int) {
+        def p (new VlTimeParts())
+        p.year = year
+        p.month = month
+        p.day = day
+        p.hours = (VlTime.floorDiv(minutes 60))
+        p.minutes = (VlTime.floorMod(minutes 60))
+        return (VlTime.msOfUtc(p))
+    }
+
+    ; The day of the month the nth given weekday falls on. 0 is Sunday.
+    sfn nthWeekday:int (year:int month:int weekday:int n:int) {
+        def firstWeekday:int (VlTime.floorMod(((VlTime.daysFromCivil(year month 1)) + 4) 7))
+        def first:int (1 + (VlTime.floorMod((weekday - firstWeekday) 7)))
+        return (first + ((n - 1) * 7))
+    }
+
+    sfn lastWeekday:int (year:int month:int weekday:int) {
+        def days:int (VlTimeZone.daysInMonth(year month))
+        def lastDayWeekday:int (VlTime.floorMod(((VlTime.daysFromCivil(year month days)) + 4) 7))
+        return (days - (VlTime.floorMod((lastDayWeekday - weekday) 7)))
+    }
+
+    sfn daysInMonth:int (year:int month:int) {
+        def nextYear:int year
+        def nextMonth:int (month + 1)
+        if (nextMonth > 12) {
+            nextMonth = 1
+            nextYear = (year + 1)
+        }
+        return ((VlTime.daysFromCivil(nextYear nextMonth 1)) - (VlTime.daysFromCivil(year month 1)))
+    }
+
+    sfn utc:VlTimeZone () {
+        return (new VlTimeZone())
+    }
+
+    ; A zone by name, or by a plain offset: "UTC", "Europe/Helsinki",
+    ; "+02:00", "-0500", "Etc/GMT+5". An unknown name answers UTC and says so
+    ; through `known`, because a chart drawn in the wrong zone silently is worse
+    ; than one drawn in UTC loudly.
+    sfn named:VlTimeZone (text:string) {
+        def out (new VlTimeZone())
+        def key:string text
+        if ((strlen key) == 0) {
+            return out
+        }
+        def sign:string (substring key 0 1)
+        if ((sign == "+") || (sign == "-")) {
+            return (VlTimeZone.fromOffset(key))
+        }
+        def names:[string]
+        def stds:[int]
+        def savings:[int]
+        def rules:[string]
+        VlTimeZone.zoneTable(names stds savings rules)
+        def total:int (array_length names)
+        def i:int 0
+        while (i < total) {
+            if ((itemAt names i) == key) {
+                out.name = key
+                out.standardMinutes = (itemAt stds i)
+                out.savingMinutes = (itemAt savings i)
+                out.rule = (itemAt rules i)
+                return out
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn isKnown:boolean (text:string) {
+        if ((strlen text) == 0) {
+            return true
+        }
+        def sign:string (substring text 0 1)
+        if ((sign == "+") || (sign == "-")) {
+            return true
+        }
+        def names:[string]
+        def stds:[int]
+        def savings:[int]
+        def rules:[string]
+        VlTimeZone.zoneTable(names stds savings rules)
+        for names n:string i {
+            if (n == text) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; "+02:00", "-0500", "+5" — minutes east of UTC, the way a person writes it
+    ; and the opposite of the way POSIX does.
+    sfn fromOffset:VlTimeZone (text:string) {
+        def out (new VlTimeZone())
+        out.name = text
+        def negative:boolean ((substring text 0 1) == "-")
+        def rest:string (substring text 1 (strlen text))
+        def hours:int 0
+        def minutes:int 0
+        def colon:int (indexOf rest ":")
+        if (colon >= 0) {
+            hours = (VlTime.numberAt(rest 0 colon))
+            minutes = (VlTime.numberAt(rest (colon + 1) (strlen rest)))
+        } {
+            if ((strlen rest) >= 4) {
+                hours = (VlTime.numberAt(rest 0 2))
+                minutes = (VlTime.numberAt(rest 2 4))
+            } {
+                hours = (VlTime.numberAt(rest 0 (strlen rest)))
+            }
+        }
+        def total:int ((hours * 60) + minutes)
+        if negative {
+            total = (0 - total)
+        }
+        out.standardMinutes = total
+        return out
+    }
+
+    sfn pushZone:void (names:[string] stds:[int] savings:[int] rules:[string] name:string std:int saving:int rule:string) {
+        push names name
+        push stds std
+        push savings saving
+        push rules rule
+    }
+
+    ; The zones a chart is actually drawn in. Not a database — see the note at
+    ; the top of the class — but every one of these is right for the present
+    ; day, which is what a chart of recent data needs.
+    sfn zoneTable:void (names:[string] stds:[int] savings:[int] rules:[string]) {
+        VlTimeZone.pushZone(names stds savings rules "UTC" 0 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Etc/UTC" 0 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "GMT" 0 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Europe/London" 0 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Dublin" 0 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Lisbon" 0 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Berlin" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Paris" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Madrid" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Rome" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Amsterdam" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Brussels" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Vienna" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Prague" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Warsaw" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Stockholm" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Oslo" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Copenhagen" 60 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Helsinki" 120 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Athens" 120 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Kyiv" 120 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Riga" 120 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Tallinn" 120 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Vilnius" 120 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Europe/Moscow" 180 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Atlantic/Reykjavik" 0 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "America/New_York" -300 60 "us")
+        VlTimeZone.pushZone(names stds savings rules "America/Toronto" -300 60 "us")
+        VlTimeZone.pushZone(names stds savings rules "America/Chicago" -360 60 "us")
+        VlTimeZone.pushZone(names stds savings rules "America/Denver" -420 60 "us")
+        VlTimeZone.pushZone(names stds savings rules "America/Phoenix" -420 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "America/Los_Angeles" -480 60 "us")
+        VlTimeZone.pushZone(names stds savings rules "America/Vancouver" -480 60 "us")
+        VlTimeZone.pushZone(names stds savings rules "America/Anchorage" -540 60 "us")
+        VlTimeZone.pushZone(names stds savings rules "Pacific/Honolulu" -600 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "America/Sao_Paulo" -180 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "America/Bogota" -300 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "America/Mexico_City" -360 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Jerusalem" 120 60 "eu")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Dubai" 240 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Karachi" 300 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Kolkata" 330 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Bangkok" 420 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Shanghai" 480 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Hong_Kong" 480 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Singapore" 480 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Tokyo" 540 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Asia/Seoul" 540 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Australia/Perth" 480 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Australia/Brisbane" 600 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Australia/Sydney" 600 60 "au")
+        VlTimeZone.pushZone(names stds savings rules "Australia/Melbourne" 600 60 "au")
+        VlTimeZone.pushZone(names stds savings rules "Australia/Adelaide" 570 60 "au")
+        VlTimeZone.pushZone(names stds savings rules "Pacific/Auckland" 720 60 "nz")
+        VlTimeZone.pushZone(names stds savings rules "Africa/Cairo" 120 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Africa/Lagos" 60 0 "none")
+        VlTimeZone.pushZone(names stds savings rules "Africa/Johannesburg" 120 0 "none")
+    }
+}
+
 class VlTime {
     sfn msPerSecond:double () {
         return 1000.0
@@ -120,7 +393,14 @@ class VlTime {
         return m
     }
 
-    sfn partsOf:VlTimeParts (ms:double) {
+    ; ------------------------------------------------------------- in a zone ---
+    ; Everything below comes in two forms. The `…Utc` one is the primitive: the
+    ; calendar, with no zone in it at all. The other takes a zone and is written
+    ; in terms of it — shift into the zone's own wall clock, do the calendar
+    ; work there, shift back. The shift back is the part worth reading: the
+    ; offset at the ANSWER need not be the offset at the question, because the
+    ; answer may have crossed a summer-time boundary, so it is asked for twice.
+    sfn partsOfUtc:VlTimeParts (ms:double) {
         def dayNumber:int (floor (ms / (VlTime.msPerDay())))
         def out:VlTimeParts (VlTime.civilFromDays(dayNumber))
         def rest:double (ms - ((to_double dayNumber) * (VlTime.msPerDay())))
@@ -137,7 +417,7 @@ class VlTime {
         return out
     }
 
-    sfn msOf:double (p:VlTimeParts) {
+    sfn msOfUtc:double (p:VlTimeParts) {
         def days:int (VlTime.daysFromCivil(p.year p.month p.day))
         def out:double ((to_double days) * (VlTime.msPerDay()))
         out = (out + ((to_double p.hours) * (VlTime.msPerHour())))
@@ -172,7 +452,7 @@ class VlTime {
                 p.millis = (VlTime.numberAt(text 20 23))
             }
         }
-        return (VlTime.msOf(p))
+        return (VlTime.msOfUtc(p))
     }
 
     sfn numberAt:int (text:string from:int to:int) {
@@ -192,7 +472,7 @@ class VlTime {
     ; The start of the unit an instant falls in. A month or a year floor goes
     ; through the calendar; the rest are exact divisions, because a day, an hour
     ; and a minute all have a fixed length in UTC.
-    sfn floorTo:double (ms:double unit:string) {
+    sfn floorToUtc:double (ms:double unit:string) {
         if (unit == "millisecond") {
             return ms
         }
@@ -216,17 +496,17 @@ class VlTime {
             def weekday:int (VlTime.floorMod((dayNumber + 4) 7))
             return (days - ((to_double weekday) * (VlTime.msPerDay())))
         }
-        def p:VlTimeParts (VlTime.partsOf(ms))
+        def p:VlTimeParts (VlTime.partsOfUtc(ms))
         p.hours = 0
         p.minutes = 0
         p.seconds = 0
         p.millis = 0
         p.day = 1
         if (unit == "month") {
-            return (VlTime.msOf(p))
+            return (VlTime.msOfUtc(p))
         }
         p.month = 1
-        return (VlTime.msOf(p))
+        return (VlTime.msOfUtc(p))
     }
 
     sfn floorBy:double (ms:double size:double) {
@@ -234,7 +514,7 @@ class VlTime {
     }
 
     ; One step of a unit forward from an instant that is already on a boundary.
-    sfn addUnit:double (ms:double unit:string) {
+    sfn addUnitUtc:double (ms:double unit:string) {
         if (unit == "second") {
             return (ms + 1000.0)
         }
@@ -250,25 +530,25 @@ class VlTime {
         if (unit == "week") {
             return (ms + (VlTime.msPerWeek()))
         }
-        def p:VlTimeParts (VlTime.partsOf(ms))
+        def p:VlTimeParts (VlTime.partsOfUtc(ms))
         if (unit == "month") {
             p.month = (p.month + 1)
             if (p.month > 12) {
                 p.month = 1
                 p.year = (p.year + 1)
             }
-            return (VlTime.msOf(p))
+            return (VlTime.msOfUtc(p))
         }
         p.year = (p.year + 1)
-        return (VlTime.msOf(p))
+        return (VlTime.msOfUtc(p))
     }
 
     ; The value a `every(step)` filter tests: an instant belongs to the filtered
     ; interval when its own field divides by the step. That is why three-month
     ; ticks land on January, April, July and October rather than wherever the
     ; first one happened to fall.
-    sfn fieldOf:int (ms:double unit:string) {
-        def p:VlTimeParts (VlTime.partsOf(ms))
+    sfn fieldOfUtc:int (ms:double unit:string) {
+        def p:VlTimeParts (VlTime.partsOfUtc(ms))
         if (unit == "second") {
             return p.seconds
         }
@@ -290,6 +570,61 @@ class VlTime {
         return 0
     }
 
+    ; ---------------------------------------------------- the same, in a zone ---
+    ; An instant is a moment, not a reading; a zone is what turns one into the
+    ; other. Shift in, use the calendar, shift back — and ask for the offset
+    ; again at the answer, because the answer may sit on the other side of a
+    ; summer-time boundary from the question. Two hours a year depend on it.
+    sfn shiftInto:double (ms:double zone:VlTimeZone) {
+        return (ms + ((to_double (zone.offsetAt(ms))) * 60000.0))
+    }
+
+    ; A wall-clock reading back to the instant it names.
+    sfn shiftBack:double (local:double zone:VlTimeZone) {
+        def guess:double (local - ((to_double zone.standardMinutes) * 60000.0))
+        def offset:int (zone.offsetAt(guess))
+        def out:double (local - ((to_double offset) * 60000.0))
+        def settled:int (zone.offsetAt(out))
+        if (settled != offset) {
+            out = (local - ((to_double settled) * 60000.0))
+        }
+        return out
+    }
+
+    sfn partsOf:VlTimeParts (ms:double zone:VlTimeZone) {
+        return (VlTime.partsOfUtc((VlTime.shiftInto(ms zone))))
+    }
+
+    sfn msOf:double (p:VlTimeParts zone:VlTimeZone) {
+        return (VlTime.shiftBack((VlTime.msOfUtc(p)) zone))
+    }
+
+    sfn floorTo:double (ms:double unit:string zone:VlTimeZone) {
+        return (VlTime.shiftBack((VlTime.floorToUtc((VlTime.shiftInto(ms zone)) unit)) zone))
+    }
+
+    ; A day is not always twenty-four hours long. Stepping by a fixed span
+    ; across a summer-time boundary lands an hour off the wall clock, and a
+    ; daily axis then labels 23:00 on the day the clocks went forward — so a
+    ; day, a week, a month and a year all step on the CLOCK and are converted
+    ; back. Below a day the two are the same thing and the span is exact.
+    sfn addUnit:double (ms:double unit:string zone:VlTimeZone) {
+        if (unit == "second") {
+            return (ms + 1000.0)
+        }
+        if (unit == "minute") {
+            return (ms + (VlTime.msPerMinute()))
+        }
+        if (unit == "hour") {
+            return (ms + (VlTime.msPerHour()))
+        }
+        return (VlTime.shiftBack((VlTime.addUnitUtc((VlTime.shiftInto(ms zone)) unit)) zone))
+    }
+
+    sfn fieldOf:int (ms:double unit:string zone:VlTimeZone) {
+        return (VlTime.fieldOfUtc((VlTime.shiftInto(ms zone)) unit))
+    }
+
     ; ---------------------------------------------------------------- ticks ---
     ; The reference's own interval table, in milliseconds, and its own choice
     ; between the two nearest: whichever is closer in RATIO to the span the
@@ -298,7 +633,7 @@ class VlTime {
     ; ends of the table — finer than a second, and longer than a year. They are
     ; passed in rather than computed here so that this file knows about the
     ; calendar and nothing else.
-    sfn ticks:[double] (start:double stop:double count:int msStep:double yearStep:double) {
+    sfn ticks:[double] (start:double stop:double count:int msStep:double yearStep:double zone:VlTimeZone) {
         def out:[double]
         def lo:double start
         def hi:double stop
@@ -346,7 +681,7 @@ class VlTime {
             if (years < 1) {
                 years = 1
             }
-            return (VlTime.rangeOf(lo hi "year" years))
+            return (VlTime.rangeOf(lo hi "year" years zone))
         }
         if (i == 0) {
             ; Finer than a second: milliseconds, stepped like any other number.
@@ -369,7 +704,7 @@ class VlTime {
         if ((target / below) < (above / target)) {
             pick = (i - 1)
         }
-        return (VlTime.rangeOf(lo hi (itemAt units pick) (itemAt steps pick)))
+        return (VlTime.rangeOf(lo hi (itemAt units pick) (itemAt steps pick) zone))
     }
 
     sfn pushInterval:void (units:[string] steps:[int] spans:[double] unit:string step:int span:double) {
@@ -382,17 +717,17 @@ class VlTime {
     ; divides by the step. Walking the base unit rather than multiplying by it
     ; is what keeps three-month ticks on the quarter and two-day ticks on the
     ; odd days of each month, the way the reference's filtered intervals do.
-    sfn rangeOf:[double] (start:double stop:double unit:string step:int) {
+    sfn rangeOf:[double] (start:double stop:double unit:string step:int zone:VlTimeZone) {
         def out:[double]
-        def at:double (VlTime.floorTo(start unit))
+        def at:double (VlTime.floorTo(start unit zone))
         def guard:int 0
         while ((at <= stop) && (guard < 10000)) {
             if (at >= start) {
-                if ((VlTime.floorMod((VlTime.fieldOf(at unit)) step)) == 0) {
+                if ((VlTime.floorMod((VlTime.fieldOf(at unit zone)) step)) == 0) {
                     push out at
                 }
             }
-            at = (VlTime.addUnit(at unit))
+            at = (VlTime.addUnit(at unit zone))
             guard = (guard + 1)
         }
         return out
@@ -436,34 +771,34 @@ class VlTime {
     ; the month's name, and one in the middle of a day is a clock time. That is
     ; why a January tick on a monthly axis reads "2024" while its neighbours
     ; read "February" and "March".
-    sfn multiFormat:string (ms:double) {
-        if ((VlTime.floorTo(ms "second")) < ms) {
-            return (VlTime.format(ms ".%L"))
+    sfn multiFormat:string (ms:double zone:VlTimeZone) {
+        if ((VlTime.floorTo(ms "second" zone)) < ms) {
+            return (VlTime.format(ms ".%L" zone))
         }
-        if ((VlTime.floorTo(ms "minute")) < ms) {
-            return (VlTime.format(ms ":%S"))
+        if ((VlTime.floorTo(ms "minute" zone)) < ms) {
+            return (VlTime.format(ms ":%S" zone))
         }
-        if ((VlTime.floorTo(ms "hour")) < ms) {
-            return (VlTime.format(ms "%I:%M"))
+        if ((VlTime.floorTo(ms "hour" zone)) < ms) {
+            return (VlTime.format(ms "%I:%M" zone))
         }
-        if ((VlTime.floorTo(ms "day")) < ms) {
-            return (VlTime.format(ms "%I %p"))
+        if ((VlTime.floorTo(ms "day" zone)) < ms) {
+            return (VlTime.format(ms "%I %p" zone))
         }
-        if ((VlTime.floorTo(ms "month")) < ms) {
-            if ((VlTime.floorTo(ms "week")) < ms) {
-                return (VlTime.format(ms "%a %d"))
+        if ((VlTime.floorTo(ms "month" zone)) < ms) {
+            if ((VlTime.floorTo(ms "week" zone)) < ms) {
+                return (VlTime.format(ms "%a %d" zone))
             }
-            return (VlTime.format(ms "%b %d"))
+            return (VlTime.format(ms "%b %d" zone))
         }
-        if ((VlTime.floorTo(ms "year")) < ms) {
-            return (VlTime.format(ms "%B"))
+        if ((VlTime.floorTo(ms "year" zone)) < ms) {
+            return (VlTime.format(ms "%B" zone))
         }
-        return (VlTime.format(ms "%Y"))
+        return (VlTime.format(ms "%Y" zone))
     }
 
     ; The directives a chart's own format strings use.
-    sfn format:string (ms:double spec:string) {
-        def p:VlTimeParts (VlTime.partsOf(ms))
+    sfn format:string (ms:double spec:string zone:VlTimeZone) {
+        def p:VlTimeParts (VlTime.partsOf(ms zone))
         def out:string ""
         def n:int (strlen spec)
         def i:int 0
