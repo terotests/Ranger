@@ -300,19 +300,26 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **29** |
-| drawn, but not the same picture | 106 | 108 |
+| drawn exactly as the reference draws them | 11 | **35** |
+| drawn, but not the same picture | 106 | 102 |
 | refused, with a reason | 58 | 38 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **16.6% exact, 78.3% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **20.0% exact, 78.3% drawn** |
 
-Every one of those eighteen came from the report rather than from a guess, and
-several were things the curated suite could not have found: no axis in it
+Every one of those twenty-four came from the report rather than from a guess,
+and several were things the curated suite could not have found: no axis in it
 reaches a thousand, so nobody noticed that thousands were not grouped; none of
-its legend labels is long enough to be truncated, so nobody noticed that
-labels were not cut to fit; none of its data files writes a date as
-"Jan 1 2000", so the parser only ever read ISO.
+its legend labels is long enough to be truncated, so nobody noticed that a
+label overhanging its limit made the plot narrower; none of its data files
+writes a date as "Jan 1 2000", so the parser only ever read ISO; and every one
+of its channels states its type, so nobody noticed that an untyped one was
+read as a quantity instead of a category.
+
+The remaining hundred are a long tail rather than a wall. Most come out within
+a few pixels of the reference and differ for their own reason — a rounding
+rule here, a guide default there — which is what a coverage report is for:
+without it, each of those would be found one paste at a time.
 
 The specs are vendored because they are small and change rarely; the data is
 not, because it is eight megabytes of somebody else's numbers. Both
