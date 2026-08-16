@@ -59,9 +59,14 @@ class VlChannel {
             return ((aggregate + "_") + field)
         }
         if hasBin {
-            return (("bin_maxbins_10_" + field))
+            return ("bin_maxbins_10_" + field)
         }
         return field
+    }
+
+    ; A binned field is TWO fields: where the bin starts and where it ends.
+    fn binEndField:string () {
+        return (("bin_maxbins_10_" + field) + "_end")
     }
 
     fn isDiscrete:boolean () {
@@ -85,7 +90,7 @@ class VlChannel {
             return (((VlChannel.capitalise(aggregate)) + " of ") + field)
         }
         if hasBin {
-            return field
+            return (field + " (binned)")
         }
         return field
     }
@@ -155,9 +160,7 @@ class VlCompile {
         if (this.hasChannel("facet")) {
             this.fail("a faceted specification is not compiled here")
         }
-        if (this.hasChannel("xOffset")) {
-            this.fail("xOffset is not compiled here")
-        }
+
         ; A coloured line or area is one shape PER SERIES, which is a faceted
         ; group and not one mark — the same expansion a facet is.
         if ((markName == "line") || (markName == "area")) {
@@ -165,16 +168,8 @@ class VlCompile {
                 this.fail("a series-coloured line or area expands into a group, which is not compiled here")
             }
         }
-        if ((markName == "arc") || (markName == "text")) {
-            if (markName == "arc") {
-                this.fail("an arc is not compiled here")
-            }
-        }
-        for channels ch:VlChannel ci {
-            if ch.hasBin {
-                this.fail("bin is not compiled here")
-            }
-        }
+
+
         if ((array_length errors) > 0) {
             return (VlJson.objectValue())
         }
@@ -199,7 +194,13 @@ class VlCompile {
         def signals:VlJson (VlJson.arrayValue())
         this.sizeAndSignals(out signals)
 
-        out.setMember("style" (VlJson.stringValue("cell")))
+        ; The frame around a plotting rectangle belongs to a chart with axes.
+        ; A pie has none, so it is a plain view and nothing is drawn round it.
+        def frame:string "cell"
+        if (markName == "arc") {
+            frame = "view"
+        }
+        out.setMember("style" (VlJson.stringValue(frame)))
         out.setMember("data" (this.buildData()))
         if ((signals.count()) > 0) {
             out.setMember("signals" signals)
@@ -293,7 +294,9 @@ class VlCompile {
     ; A mark that stacks: the reference stacks a bar and an area by default and
     ; nothing else, because those are the marks whose area means a total.
     fn stacks:boolean () {
-        return ((markName == "bar") || (markName == "area"))
+        ; A pie is a stack bent into a circle: each wedge starts where the one
+        ; before it ended, which is what a stack computes.
+        return (((markName == "bar") || (markName == "area")) || (markName == "arc"))
     }
 
     fn decideStack:void () {
@@ -305,6 +308,16 @@ class VlCompile {
         def measure:VlChannel (this.stackMeasure())
         if (! measure.defined) {
             return
+        }
+        ; A histogram is already one total per bin: there is nothing to pile up
+        ; unless something separates the bars within a bin.
+        def binned:VlChannel (this.stackDimension())
+        if binned.defined {
+            if binned.hasBin {
+                if (! (this.hasChannel("color"))) {
+                    return
+                }
+            }
         }
         ; `stack: null` and `stack: false` both mean "do not", and a string
         ; names the offset — "zero", "center", "normalize".
@@ -327,6 +340,10 @@ class VlCompile {
 
     ; The channel a stack accumulates: the continuous one of x and y.
     fn stackMeasure:VlChannel () {
+        def theta:VlChannel (this.channel("theta"))
+        if theta.defined {
+            return theta
+        }
         def y:VlChannel (this.channel("y"))
         if (y.defined) {
             if (y.isContinuous()) {
@@ -346,6 +363,11 @@ class VlCompile {
     ; The other axis: what a stack is grouped by.
     fn stackDimension:VlChannel () {
         def measure:VlChannel (this.stackMeasure())
+        ; A pie has no other axis: every wedge is in the one stack.
+        if (measure.name == "theta") {
+            def none (new VlChannel())
+            return none
+        }
         if (measure.name == "y") {
             return (this.channel("x"))
         }
@@ -363,7 +385,22 @@ class VlCompile {
         if (markName == "tick") {
             return 0.25
         }
+        ; A grouped bar chart's bands hold a whole sub-band each, so they are
+        ; spaced further apart than bands holding a single bar.
+        if (this.hasChannel("xOffset")) {
+            return 0.2
+        }
         return 0.1
+    }
+
+    ; The outer padding matches the inner one for a grouped chart and is half
+    ; of it otherwise — the reference's own asymmetry.
+    fn bandPaddingOuter:double () {
+        def inner:double (this.bandPaddingInner())
+        if (this.hasChannel("xOffset")) {
+            return inner
+        }
+        return (inner / 2.0)
     }
 
     ; A discrete position channel is a BAND for the marks that fill their band —
@@ -415,12 +452,21 @@ class VlCompile {
         if banded {
             def step (VlJson.objectValue())
             step.setMember("name" (VlJson.stringValue((axis + "_step"))))
-            step.setMember("value" (VlJson.numberValue(20.0)))
-            push signals.arr step
             def inner:double (this.bandPaddingInner())
+            def outer:double (this.bandPaddingOuter())
+            if ((this.hasChannel("xOffset")) && (axis == "x")) {
+                ; A band that holds a group of bars is as wide as the group
+                ; needs, so its step is computed from the sub-scale rather than
+                ; declared: the twenty pixels are per BAR, not per band.
+                def sub:string (("20 * bandspace(domain('xOffset').length, 0, 0) / (1-" + (VlJson.formatNumber(inner 6))) + ")")
+                step.setMember("update" (VlJson.stringValue(sub)))
+            } {
+                step.setMember("value" (VlJson.numberValue(20.0)))
+            }
+            push signals.arr step
             def size (VlJson.objectValue())
             size.setMember("name" (VlJson.stringValue(dimension)))
-            def expr:string ((((((("bandspace(domain('" + axis) + "').length, ") + (VlJson.formatNumber(inner 6))) + ", ") + (VlJson.formatNumber((inner / 2.0) 6))) + ") * ") + (axis + "_step"))
+            def expr:string ((((((("bandspace(domain('" + axis) + "').length, ") + (VlJson.formatNumber(inner 6))) + ", ") + (VlJson.formatNumber(outer 6))) + ") * ") + (axis + "_step"))
             size.setMember("update" (VlJson.stringValue(expr)))
             push signals.arr size
             return
@@ -457,6 +503,7 @@ class VlCompile {
         def transforms (VlJson.arrayValue())
 
         this.pushTimeParse(transforms)
+        this.pushBin(transforms)
         this.pushAggregate(transforms)
         this.pushStack(transforms)
         this.pushValidFilter(transforms)
@@ -484,6 +531,37 @@ class VlCompile {
         }
     }
 
+    ; Binning is two transforms and two signals: the field's extent has to be
+    ; known before the bin boundaries can be chosen, and the boundaries then
+    ; have to be readable by the scale — a binned axis ticks on the bin edges
+    ; rather than wherever a tick algorithm would have put them.
+    fn pushBin:void (transforms:VlJson) {
+        for channels ch:VlChannel ci {
+            if ch.hasBin {
+                def base:string (ch.outField())
+                def extent (VlJson.objectValue())
+                extent.setMember("type" (VlJson.stringValue("extent")))
+                extent.setMember("field" (VlJson.stringValue(ch.field)))
+                extent.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                push transforms.arr extent
+
+                def bin (VlJson.objectValue())
+                bin.setMember("type" (VlJson.stringValue("bin")))
+                bin.setMember("field" (VlJson.stringValue(ch.field)))
+                def asNames (VlJson.arrayValue())
+                push asNames.arr (VlJson.stringValue(base))
+                push asNames.arr (VlJson.stringValue((ch.binEndField())))
+                bin.setMember("as" asNames)
+                bin.setMember("signal" (VlJson.stringValue((base + "_bins"))))
+                def from (VlJson.objectValue())
+                from.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                bin.setMember("extent" from)
+                bin.setMember("maxbins" (VlJson.numberValue(10.0)))
+                push transforms.arr bin
+            }
+        }
+    }
+
     fn pushAggregate:void (transforms:VlJson) {
         def ops (VlJson.arrayValue())
         def fields (VlJson.arrayValue())
@@ -504,13 +582,22 @@ class VlCompile {
             } {
                 if ((strlen ch2.aggregate) > 0) {
                     push ops.arr (VlJson.stringValue(ch2.aggregate))
-                    if (ch2.aggregate != "count") {
+                    ; `count` counts rows and so names no field, but the two
+                    ; lists stay parallel — the reference writes a null.
+                    if (ch2.aggregate == "count") {
+                        push fields.arr (VlJson.nullValue())
+                    } {
                         push fields.arr (VlJson.stringValue(ch2.field))
                     }
                     push asNames.arr (VlJson.stringValue((ch2.outField())))
                 } {
-                    if ((strlen ch2.field) > 0) {
-                        push groupby.arr (VlJson.stringValue(ch2.field))
+                    if (ch2.hasBin) {
+                        push groupby.arr (VlJson.stringValue((ch2.outField())))
+                        push groupby.arr (VlJson.stringValue((ch2.binEndField())))
+                    } {
+                        if ((strlen ch2.field) > 0) {
+                            push groupby.arr (VlJson.stringValue(ch2.field))
+                        }
                     }
                 }
             }
@@ -539,6 +626,14 @@ class VlCompile {
                 push groupby.arr (VlJson.stringValue((dimension.outField())))
             }
         }
+        ; A grouped bar chart stacks inside each sub-band, not across the whole
+        ; band: the offset channel is part of what identifies a stack.
+        def offset:VlChannel (this.channel("xOffset"))
+        if offset.defined {
+            if ((strlen (offset.outField())) > 0) {
+                push groupby.arr (VlJson.stringValue((offset.outField())))
+            }
+        }
         t.setMember("groupby" groupby)
         t.setMember("field" (VlJson.stringValue(stackField)))
         ; The stack's own order: by the channel that separates the segments,
@@ -549,7 +644,14 @@ class VlCompile {
         if colour.defined {
             if ((strlen colour.field) > 0) {
                 push sortFields.arr (VlJson.stringValue(colour.field))
-                push sortOrders.arr (VlJson.stringValue("descending"))
+                ; A bar's y axis points down the page, so the first colour has
+                ; to be stacked last to end up on top. A pie has no inverted
+                ; axis and reads the other way.
+                if (markName == "arc") {
+                    push sortOrders.arr (VlJson.stringValue("ascending"))
+                } {
+                    push sortOrders.arr (VlJson.stringValue("descending"))
+                }
             }
         }
         def sort (VlJson.objectValue())
@@ -570,7 +672,7 @@ class VlCompile {
     fn pushValidFilter:void (transforms:VlJson) {
         def expr:string ""
         for channels ch:VlChannel ci {
-            if ((ch.name == "x") || (ch.name == "y")) {
+            if (((ch.name == "x") || (ch.name == "y")) || (ch.name == "theta")) {
                 if (ch.isContinuous()) {
                     if (! ch.hasValue) {
                         def name:string (ch.outField())
@@ -602,16 +704,53 @@ class VlCompile {
         def out (VlJson.arrayValue())
         this.pushPositionScale(out (this.channel("x")) "x")
         this.pushPositionScale(out (this.channel("y")) "y")
+        this.pushOffsetScale(out)
+        this.pushThetaScale(out)
         this.pushColourScale(out)
         this.pushSizeScale(out)
         return out
+    }
+
+    ; The scale a group of bars is spread across INSIDE its band: a band scale
+    ; of its own, one step per bar, with nothing between them.
+    fn pushOffsetScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("xOffset"))
+        if (! ch.defined) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue("xOffset")))
+        sc.setMember("type" (VlJson.stringValue("band")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        def range (VlJson.objectValue())
+        range.setMember("step" (VlJson.numberValue(20.0)))
+        sc.setMember("range" range)
+        push out.arr sc
+    }
+
+    ; A pie's scale is an angle: the whole circle, from nothing.
+    fn pushThetaScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("theta"))
+        if (! ch.defined) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue("theta")))
+        sc.setMember("type" (VlJson.stringValue("linear")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        def range (VlJson.arrayValue())
+        push range.arr (VlJson.numberValue(0.0))
+        push range.arr (VlJson.numberValue(6.283185307179586))
+        sc.setMember("range" range)
+        sc.setMember("zero" (VlJson.boolValue(true)))
+        push out.arr sc
     }
 
     fn pushPositionScale:void (out:VlJson ch:VlChannel axis:string) {
         if (! ch.defined) {
             return
         }
-        if ((strlen ch.field) == 0) {
+        if ((strlen (ch.outField())) == 0) {
             return
         }
         def type:string (this.scaleTypeFor(ch))
@@ -625,19 +764,27 @@ class VlCompile {
             step.setMember("signal" (VlJson.stringValue((axis + "_step"))))
             range.setMember("step" step)
             sc.setMember("range" range)
-            def inner:double (this.bandPaddingInner())
-            sc.setMember("paddingInner" (VlJson.numberValue(inner)))
-            sc.setMember("paddingOuter" (VlJson.numberValue((inner / 2.0))))
+            sc.setMember("paddingInner" (VlJson.numberValue((this.bandPaddingInner()))))
+            sc.setMember("paddingOuter" (VlJson.numberValue((this.bandPaddingOuter()))))
         } {
             sc.setMember("range" (VlCompile.positionRange(axis)))
             if (type == "point") {
                 sc.setMember("padding" (VlJson.numberValue(0.5)))
             } {
-                sc.setMember("nice" (VlJson.boolValue(true)))
-                ; A bar's baseline is zero because its LENGTH is the value; a
-                ; line's is not, because only its height is read.
-                if (type != "log") {
-                    sc.setMember("zero" (VlJson.boolValue((this.zeroFor(ch)))))
+                ; A binned axis already knows where its ticks go — the bin
+                ; edges — so it is neither niced nor extended to zero.
+                if ch.hasBin {
+                    def bins (VlJson.objectValue())
+                    bins.setMember("signal" (VlJson.stringValue(((ch.outField()) + "_bins"))))
+                    sc.setMember("bins" bins)
+                    sc.setMember("zero" (VlJson.boolValue(false)))
+                } {
+                    sc.setMember("nice" (VlJson.boolValue(true)))
+                    ; A bar's baseline is zero because its LENGTH is the value;
+                    ; a line's is not, because only its height is read.
+                    if (type != "log") {
+                        sc.setMember("zero" (VlJson.boolValue((this.zeroFor(ch)))))
+                    }
                 }
             }
         }
@@ -705,6 +852,13 @@ class VlCompile {
     ; not from the one it read.
     fn domainFor:VlJson (ch:VlChannel) {
         def out (VlJson.objectValue())
+        ; A binned axis runs from the first bin's start to the last one's end,
+        ; which the bin transform published as a signal — reading the data
+        ; instead would stop at the last bin's START.
+        if ch.hasBin {
+            out.setMember("signal" (VlJson.stringValue(((("[" + (ch.outField())) + "_bins.start, ") + (ch.outField())) + "_bins.stop]")))
+            return out
+        }
         out.setMember("data" (VlJson.stringValue("data_0")))
         if ((strlen stackField) > 0) {
             if ((ch.outField()) == stackField) {
@@ -781,20 +935,28 @@ class VlCompile {
         def out (VlJson.arrayValue())
         def x:VlChannel (this.channel("x"))
         def y:VlChannel (this.channel("y"))
-        def hasX:boolean (x.defined && ((strlen x.field) > 0))
-        def hasY:boolean (y.defined && ((strlen y.field) > 0))
+        ; `count` names no field and is still an axis — what matters is
+        ; whether the channel produces a column, not whether the spec typed one.
+        def hasX:boolean (x.defined && ((strlen (x.outField())) > 0))
+        def hasY:boolean (y.defined && ((strlen (y.outField())) > 0))
 
         ; Grids first and both of them, because a grid is drawn under the
         ; marks and a labelled axis over them; x before y, which is the order
         ; the reference emits and therefore the order they are compared in.
+        ; A binned axis has no grid: its own tick marks are the bin edges, and
+        ; a grid drawn on them would be a line down every bar.
         if hasX {
             if (x.isContinuous()) {
-                push out.arr (this.gridAxis("x" "bottom" hasY "y"))
+                if (! x.hasBin) {
+                    push out.arr (this.gridAxis("x" "bottom" hasY "y"))
+                }
             }
         }
         if hasY {
             if (y.isContinuous()) {
-                push out.arr (this.gridAxis("y" "left" hasX "x"))
+                if (! y.hasBin) {
+                    push out.arr (this.gridAxis("y" "left" hasX "x"))
+                }
             }
         }
         if hasX {
@@ -882,7 +1044,16 @@ class VlCompile {
                 a.setMember("labelOverlap" (VlJson.stringValue("greedy")))
             } {
                 a.setMember("labelOverlap" (VlJson.boolValue(true)))
-                a.setMember("tickCount" (VlCompile.tickCountSignal(orient)))
+                ; A binned axis wants a tick per bin edge, which is far more
+                ; than one per forty pixels — the scale's own `bins` then
+                ; decides where they land.
+                if ch.hasBin {
+                    def dense (VlJson.objectValue())
+                    dense.setMember("signal" (VlJson.stringValue("ceil(width/10)")))
+                    a.setMember("tickCount" dense)
+                } {
+                    a.setMember("tickCount" (VlCompile.tickCountSignal(orient)))
+                }
             }
         }
         a.setMember("zindex" (VlJson.numberValue(0.0)))
@@ -1010,6 +1181,16 @@ class VlCompile {
         m.setMember("from" from)
 
         def update (VlJson.objectValue())
+        if (markName == "arc") {
+            this.encodePaint(update)
+            this.encodeAria(update)
+            this.encodeArc(update)
+            def encodeArc (VlJson.objectValue())
+            encodeArc.setMember("update" update)
+            m.setMember("encode" encodeArc)
+            push out.arr m
+            return out
+        }
         if (markName == "area") {
             update.setMember("orient" (VlCompile.literal((VlJson.stringValue("vertical")))))
         }
@@ -1021,6 +1202,34 @@ class VlCompile {
         m.setMember("encode" encode)
         push out.arr m
         return out
+    }
+
+    ; A wedge is placed by its centre and its two radii, and swept between the
+    ; two angles the stack wrote. The angles run backwards — the wedge ENDS at
+    ; the stack's start — because a stack accumulates downward and a circle is
+    ; read clockwise.
+    fn encodeArc:void (update:VlJson) {
+        def half (VlJson.objectValue())
+        half.setMember("signal" (VlJson.stringValue("width")))
+        half.setMember("mult" (VlJson.numberValue(0.5)))
+        update.setMember("x" half)
+        def halfDown (VlJson.objectValue())
+        halfDown.setMember("signal" (VlJson.stringValue("height")))
+        halfDown.setMember("mult" (VlJson.numberValue(0.5)))
+        update.setMember("y" halfDown)
+        def outer (VlJson.objectValue())
+        outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
+        update.setMember("outerRadius" outer)
+        def inner:VlJson (markDef.get("innerRadius"))
+        if (inner.isNumber()) {
+            update.setMember("innerRadius" (VlCompile.literal(inner)))
+        } {
+            update.setMember("innerRadius" (VlCompile.literal((VlJson.numberValue(0.0)))))
+        }
+        if ((strlen stackField) > 0) {
+            update.setMember("startAngle" (this.scaled("theta" (stackField + "_end"))))
+            update.setMember("endAngle" (this.scaled("theta" (stackField + "_start"))))
+        }
     }
 
     ; The colour a mark carries. A point is drawn as an outline, everything else
@@ -1063,7 +1272,7 @@ class VlCompile {
     }
 
     fn encodeAria:void (update:VlJson) {
-        if ((markName != "line") && (markName != "area")) {
+        if (((markName != "line") && (markName != "area")) && (markName != "arc")) {
             update.setMember("ariaRoleDescription" (VlCompile.literal((VlJson.stringValue(markName)))))
         }
         def text:string (this.describeExpr())
@@ -1088,7 +1297,7 @@ class VlCompile {
                 if (has seen (ch.outField())) {
                     ; the same field on two channels is named once
                 } {
-                if ((strlen ch.field) > 0) {
+                if ((strlen (ch.outField())) > 0) {
                     set seen (ch.outField()) 1
                     if ((strlen out) > 0) {
                         out = (out + " + \"; ")
@@ -1096,6 +1305,9 @@ class VlCompile {
                         out = "\""
                     }
                     out = ((out + (ch.title())) + ": \" + ")
+                    if ch.hasBin {
+                        out = (out + (VlCompile.describeBin((ch.outField()) (ch.binEndField()))))
+                    } {
                     if (ch.kind == "temporal") {
                         out = (out + (VlCompile.describeDate((ch.outField()))))
                     } {
@@ -1108,10 +1320,30 @@ class VlCompile {
                             out = (out + (VlCompile.describeOne((ch.outField()) (ch.isDiscrete()))))
                         }
                     }
+                    }
                 }
                 }
             }
         }
+        return out
+    }
+
+    ; A bin is not a value but an interval, and it is named as one — with an en
+    ; dash, which is what the reference writes.
+    sfn describeBin:string (startField:string endField:string) {
+        ; An en dash, which is what the reference writes between the ends.
+        def dash:string (strfromcode 8211)
+        def out:string "(!isValid(datum[\""
+        out = (out + startField)
+        out = (out + "\"]) || !isFinite(+datum[\"")
+        out = (out + startField)
+        out = (out + "\"]) ? \"null\" : format(datum[\"")
+        out = (out + startField)
+        out = (out + "\"], \"\") + \" ")
+        out = (out + dash)
+        out = (out + " \" + format(datum[\"")
+        out = (out + endField)
+        out = (out + "\"], \"\"))")
         return out
     }
 
@@ -1191,6 +1423,24 @@ class VlCompile {
         }
     }
 
+    ; The half pixel a binned bar is nudged by, so that neighbouring bars share
+    ; an edge instead of overlapping on it — and, when a bin is narrower than a
+    ; quarter of a pixel, so that it does not vanish. Both edges carry the same
+    ; expression with the sign flipped; `upper` is the bin's end.
+    sfn binNudge:VlJson (startField:string endField:string axis:string upper:boolean) {
+        def gap:string (((((("abs(scale(\"" + axis) + "\", datum[\"") + endField) + "\"]) - scale(\"" + axis) + "\", datum[\"") + startField) + "\"]))")
+        def toward:string "-0.5"
+        def away:string "0.5"
+        if upper {
+            toward = "0.5"
+            away = "-0.5"
+        }
+        def expr:string ((((((("0.5 + (" + gap) + " < 0.25 ? ") + toward) + " * (0.25 - (") + gap) + ")) : ") + away) + ")")
+        def out (VlJson.objectValue())
+        out.setMember("signal" (VlJson.stringValue(expr)))
+        return out
+    }
+
     fn encodeAxisPair:void (update:VlJson ch:VlChannel axis:string dimension:string) {
         if (! ch.defined) {
             return
@@ -1199,15 +1449,35 @@ class VlCompile {
             update.setMember(axis (VlCompile.literal(ch.value)))
             return
         }
-        if ((strlen ch.field) == 0) {
+        if ((strlen (ch.outField())) == 0) {
             return
         }
         def type:string (this.scaleTypeFor(ch))
         if (type == "band") {
-            update.setMember(axis (this.scaled(axis (ch.outField()))))
+            def at:VlJson (this.scaled(axis (ch.outField())))
+            def band:string axis
+            ; A grouped bar is placed at its band AND then along the sub-scale
+            ; inside it, so its width is the sub-band's rather than the band's.
+            def offset:VlChannel (this.channel("xOffset"))
+            if (offset.defined && (axis == "x")) {
+                at.setMember("offset" (this.scaled("xOffset" (offset.outField()))))
+                band = "xOffset"
+            }
+            update.setMember(axis at)
             def width (VlJson.objectValue())
-            width.setMember("signal" (VlJson.stringValue((("max(0.25, bandwidth('" + axis) + "'))"))))
+            width.setMember("signal" (VlJson.stringValue((("max(0.25, bandwidth('" + band) + "'))"))))
             update.setMember(dimension width)
+            return
+        }
+        ; A binned bar spans its bin, and the pair of half-pixel nudges keeps a
+        ; bin narrower than a quarter pixel from disappearing entirely.
+        if ch.hasBin {
+            def from:VlJson (this.scaled(axis (ch.binEndField())))
+            from.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis true)))
+            update.setMember(axis from)
+            def to:VlJson (this.scaled(axis (ch.outField())))
+            to.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis false)))
+            update.setMember((axis + "2") to)
             return
         }
         if ((strlen stackField) > 0) {
@@ -1225,5 +1495,16 @@ class VlCompile {
             return
         }
         update.setMember(axis (this.scaled(axis (ch.outField()))))
+        ; A bar has LENGTH, so it needs both ends. A stacked one gets them from
+        ; the stack; an unstacked one runs from the baseline of its scale.
+        if ((markName == "bar") || (markName == "area")) {
+            def measure:VlChannel (this.stackMeasure())
+            if (measure.name == ch.name) {
+                def base (VlJson.objectValue())
+                base.setMember("scale" (VlJson.stringValue(axis)))
+                base.setMember("value" (VlJson.numberValue(0.0)))
+                update.setMember((axis + "2") base)
+            }
+        }
     }
 }

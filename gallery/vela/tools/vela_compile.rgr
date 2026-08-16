@@ -64,6 +64,10 @@ class VelaCompileTool {
             return
         }
         def writer (new VlJsonWriter())
+        ; A specification carries constants rather than measurements — a full
+        ; turn is 6.283185307179586 and rounding it would rotate the last wedge
+        ; of a pie by a visible fraction of a pixel.
+        writer.decimals = 15
         def json:string (writer.write(out))
         if ((strlen outputPath) > 0) {
             write_file (VelaCompileTool.dirOf(outputPath)) (VelaCompileTool.nameOf(outputPath)) json

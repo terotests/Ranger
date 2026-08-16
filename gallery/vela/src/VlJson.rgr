@@ -761,6 +761,13 @@ class VlJsonParser {
 ; read or set in, so a spec that goes in and comes out again is comparable as
 ; text, and the scene dump the parity harness reads is stable.
 class VlJsonWriter {
+    ; How many decimals a number is written with. Six everywhere a chart is
+    ; written — a scene is measured in pixels and six decimals is far past what
+    ; any of them mean — but a SPECIFICATION may carry a constant that has to
+    ; survive intact, such as a full turn in radians, so the writer that emits
+    ; one asks for more.
+    def decimals:int 6
+
     fn write:string (v:VlJson) {
         return (this.writeValue(v 0 false))
     }
@@ -789,7 +796,7 @@ class VlJsonWriter {
             return "false"
         }
         if (v.kind == 2) {
-            return (VlJson.numberToText(v.num v.isInt))
+            return (VlJson.formatNumber(v.num decimals))
         }
         if (v.kind == 3) {
             return (this.quote(v.str))
