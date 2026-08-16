@@ -585,6 +585,8 @@ final Random rg_random = Random();
 
         cast _:S  (arg:T target@(noeval):S) {
             templates {
+                ; every object is an untyped pointer in the IR, so a cast is the value
+                llvm ( (e 1) )
                 ranger ("(cast " (e 1) " " (e 2) ":" (typeof 2) " )")
                 ts ( (e 1) " as " (typeof 2) )
                 kotlin ( (e 1) " as " (typeof 2) )
@@ -1026,6 +1028,7 @@ static class RgHash {
         nullify   _:void (ptr@(optional):T) @doc('Clears the optional value to empty state') {
             templates {
                 ranger ( "(nullify " (e 1) ")")
+                llvm ( nl "nullify " (e 1) nl)
                 es6 ( (e 1) " = undefined;" nl)
                 java7 ( (e 1) " = null;" nl)
                 cpp ( (e 1) "= NULL;" nl)
@@ -1217,6 +1220,7 @@ const double rg_pi = pi;
 
         env_var cmdEnvVar@(optional):string ( name:string ) {
             templates {
+                llvm ( "(env_var " (e 1) ")" )
                 php ("getenv(" (e 1) ") === FALSE ? NULL : getenv(" (e 1) ")" )
                 go (
         "r_io_get_env(" (e 1) ")"
@@ -2346,6 +2350,7 @@ func r_file_exists(pathName string, fileName string) bool {
 
         dir_exists          cmdIsDir:boolean (path:string) {
             templates {
+                llvm ( "(dir_exists " (e 1) ")" )
                 dart ( "Directory(" (e 1) ").existsSync()" (imp "dart:io") )
                 csharp ( "RgFiles.DirExists(" (e 1) ")"
                 (polyfill "after_imports" "
@@ -2583,6 +2588,7 @@ fn r_wall_clock_ms() -> f64 {
 
         create_dir          cmdCreateDir:void (path:string) {
             templates {
+                llvm ( nl "create_dir " (e 1) nl )
                 dart ( nl "Directory(" (e 1) ").createSync(recursive: true);" nl (imp "dart:io") )
                 scala ( "/* create_dir not implemented */ ")
                 rust ( "let _ = std::fs::create_dir_all(&" (e 1) ");" nl )
@@ -2659,6 +2665,7 @@ static void createDir(String path)
 ; try text.write(to: path, atomically: false, encoding: String.Encoding.utf8)
         write_file          cmdWriteFile:void (path:string file:string data:string) {
             templates {
+                llvm ( nl "write_file " (e 1) " " (e 2) " " (e 3) nl )
                 dart ( nl "File(" (e 1) " + \"/\" + " (e 2) ").writeAsStringSync(" (e 3) ");" nl (imp "dart:io") )
                 python ( nl "rg_write_file(" (e 1) ", " (e 2) ", " (e 3) ")" nl (imp "os")
 (create_polyfill "
@@ -4382,6 +4389,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         error_msg   _:string () {
             templates {
                 ranger ( "(error_msg   )")
+                llvm ( "(error_msg)" )
                 ; the value recover() returned -- the catch block the `try` writer
                 ; emits binds it as `r`. This used to be the empty string, so a Go
                 ; build reported "Unexpected compiler error" and nothing else.
@@ -4536,6 +4544,7 @@ case class customException(smth:String)  extends Exception
         for             cmdFor@(newcontext):void          ( hash:[string:T] item@(define):T itemName@(define ignore):string repeat_block:block)  {
             templates {
                 ranger ( nl "for " (e 1) " " (e 2) ":" (typeof 2) " " (e 3) " {" nl I (block 4) nl i "}" )
+                llvm ( nl "for " (e 1) " " (e 2) ":" (typeof 2) " " (e 3) " {" nl I (block 4) nl i "}" )
                 es6 ("for( var " (e 3) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 3) ")) {"
                         nl I "var " (e 2) " = " (e 1) "[" (e 3) "] " nl (block 4)
                         nl i "} }"
@@ -4562,6 +4571,7 @@ case class customException(smth:String)  extends Exception
         for             cmdFor@(newcontext):void          ( hash:[string:T] itemName@(define ignore):string repeat_block:block)  {
             templates {
                 ranger ( nl "for " (e 1) " " (e 2) " {" nl I (block 3) nl i "}" )
+                llvm ( nl "for " (e 1) " " (e 2) " {" nl I (block 3) nl i "}" )
                 es6 ("for( var " (e 2) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 2) ")) {"
                         nl I (block 3)
                         nl i "} " nl i "}"
@@ -6660,6 +6670,7 @@ int r_string_index_of( std::string str, std::string key )  {
 
         indexOfFrom cmdStringIndexFrom:int (str:string key:string startPos:int) {
             templates {
+                llvm ( "(indexOfFrom " (e 1) " " (e 2) " " (e 3) ")")
                 php( "(($p = strpos(" (e 1) ", " (e 2) ", " (e 3) ")) !== false ? $p : -1)")
                 csharp ( (e 1) ".IndexOf(" (e 2) ", (int)(" (e 3) "))" )
                 scala ( (e 1) ".indexOf(" (e 2) ", (" (e 3) ").toInt)" )
@@ -6725,6 +6736,7 @@ int r_string_last_index_of( std::string str, std::string key )  {
         startsWith _:boolean (str:string prefix:string) {
             templates {
                 ranger ( "(startsWith " (e 1) " " (e 2) ")")
+                llvm ( "(startsWith " (e 1) " " (e 2) ")")
                 es6 ( (e 1) ".startsWith(" (e 2) ")" )
                 java7 ( (e 1) ".startsWith(" (e 2) ")" )
                 go ( "strings.HasPrefix(" (e 1) ", " (e 2) ")" (imp "strings"))
@@ -6745,6 +6757,7 @@ int r_string_last_index_of( std::string str, std::string key )  {
         endsWith _:boolean (str:string suffix:string) {
             templates {
                 ranger ( "(endsWith " (e 1) " " (e 2) ")")
+                llvm ( "(endsWith " (e 1) " " (e 2) ")")
                 es6 ( (e 1) ".endsWith(" (e 2) ")" )
                 java7 ( (e 1) ".endsWith(" (e 2) ")" )
                 go ( "strings.HasSuffix(" (e 1) ", " (e 2) ")" (imp "strings"))
@@ -6799,6 +6812,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
         replace _:string (str:string oldStr:string newStr:string) {
             templates {
                 ranger ( "(replace " (e 1) " " (e 2) " " (e 3) ")")
+                llvm ( "(replace " (e 1) " " (e 2) " " (e 3) ")")
                 es6 ( (e 1) ".split(" (e 2) ").join(" (e 3) ")" )
                 java7 ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
                 go ( "strings.Replace(" (e 1) ", " (e 2) ", " (e 3) ", -1)" (imp "strings"))
@@ -6923,6 +6937,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         insert    cmdInsert@(moves@( 2 1 ) ):void  ( array@(mutates):[T] index:int item:T ) { 
             templates {
                  ranger ( nl "insert " (e 1) " " (e 2) " " (e 3) nl)
+                 llvm ( nl "insert " (e 1) " " (e 2) " " (e 3) nl)
                  es6 ( (e 1) ".splice(" (e 2) ", 0, " (e 3) ");" )  
                  cpp ( (e 1) ".insert(" (e 1) ".begin() + " (e 2) ", " (e 3) ");")          
                  swift6 ( (e 1) ".insert(" (e 3) ", at:" (e 2) ")")
@@ -6942,6 +6957,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         remove    cmdRemove@(moves@( 2 1 ) ):void  ( array@(mutates):[T] index:int ) {
             templates {
                  ranger ( nl "remove " (e 1) " " (e 2) nl)
+                 llvm ( nl "remove " (e 1) " " (e 2) nl)
                  es6 ( (e 1) ".splice(" (e 2) ", 1);" )
                  swift6 ( (e 1) ".remove(at:" (e 2) ")" )
                  swift3 ( (e 1) ".remove(at:" (e 2) ")" )
@@ -7234,6 +7250,7 @@ static class RgSort {
         reverse _:[T] (array:[T]) {
             templates {
                 ranger ( '(reverse (' (e 1) '))')
+                llvm ( '(reverse ' (e 1) ')')
                 es6 ( (e 1) ".slice().reverse()")
                 python ( "list(reversed(" (e 1) "))" )
                 php ( "array_reverse(" (e 1) ")" )

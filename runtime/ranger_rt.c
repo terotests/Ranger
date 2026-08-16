@@ -1268,3 +1268,191 @@ char *ranger_str_trim(const char *text) {
   out[n] = '\0';
   return out;
 }
+
+/* `startsWith` / `endsWith`. The Ranger operators answer a boolean; the C
+ * helpers answer 0/1 and the lowering compares against zero (Ranger booleans
+ * are i1, so returning i32 straight into an `||` would emit `or i1 <i32>`). */
+int ranger_str_starts_with(const char *text, const char *prefix) {
+  size_t tn;
+  size_t pn;
+  if (text == NULL || prefix == NULL) {
+    return 0;
+  }
+  tn = strlen(text);
+  pn = strlen(prefix);
+  if (pn > tn) {
+    return 0;
+  }
+  return memcmp(text, prefix, pn) == 0 ? 1 : 0;
+}
+
+int ranger_str_ends_with(const char *text, const char *suffix) {
+  size_t tn;
+  size_t sn;
+  if (text == NULL || suffix == NULL) {
+    return 0;
+  }
+  tn = strlen(text);
+  sn = strlen(suffix);
+  if (sn > tn) {
+    return 0;
+  }
+  return memcmp(text + (tn - sn), suffix, sn) == 0 ? 1 : 0;
+}
+
+/* `indexOfFrom`: search starts at startPos. A start past the end is not an
+ * error -- every other target answers -1 rather than reading out of bounds. */
+int ranger_str_index_of_from(const char *text, const char *key, int startPos) {
+  const char *hit;
+  size_t tn;
+  if (text == NULL || key == NULL) {
+    return -1;
+  }
+  if (startPos < 0) {
+    startPos = 0;
+  }
+  tn = strlen(text);
+  if ((size_t)startPos > tn) {
+    return -1;
+  }
+  hit = strstr(text + startPos, key);
+  if (hit == NULL) {
+    return -1;
+  }
+  return (int)(hit - text);
+}
+
+/* `replace` changes EVERY occurrence, matching the operator's contract on the
+ * other targets. An empty `from` would loop forever, so it answers a copy. */
+char *ranger_str_replace(const char *text, const char *from, const char *to) {
+  size_t fromLen;
+  size_t toLen;
+  size_t hits = 0;
+  size_t outLen;
+  const char *p;
+  const char *hit;
+  char *out;
+  char *w;
+  if (text == NULL) {
+    return ranger_strdup("");
+  }
+  if (from == NULL || to == NULL) {
+    return ranger_strdup(text);
+  }
+  fromLen = strlen(from);
+  toLen = strlen(to);
+  if (fromLen == 0) {
+    return ranger_strdup(text);
+  }
+  for (p = text; (hit = strstr(p, from)) != NULL; p = hit + fromLen) {
+    hits++;
+  }
+  if (hits == 0) {
+    return ranger_strdup(text);
+  }
+  outLen = strlen(text) + hits * toLen - hits * fromLen;
+  out = (char *)malloc(outLen + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  w = out;
+  for (p = text; (hit = strstr(p, from)) != NULL; p = hit + fromLen) {
+    size_t lead = (size_t)(hit - p);
+    memcpy(w, p, lead);
+    w += lead;
+    memcpy(w, to, toLen);
+    w += toLen;
+  }
+  strcpy(w, p);
+  return out;
+}
+
+/* --- Directories, writes and the environment ---------------------------- */
+
+int ranger_dir_exists(const char *path) {
+  struct stat st;
+  if (path == NULL || path[0] == '\0') {
+    return 0;
+  }
+  if (stat(path, &st) != 0) {
+    return 0;
+  }
+  return S_ISDIR(st.st_mode) ? 1 : 0;
+}
+
+/* mkdir -p. Every other target's create_dir is recursive (mkdirs,
+ * create_dir_all, createSync(recursive: true)), and the compiler writes its
+ * output into a directory several levels deep that may not exist at all. */
+void ranger_create_dir(const char *path) {
+  char *work;
+  size_t n;
+  size_t i;
+  if (path == NULL || path[0] == '\0') {
+    return;
+  }
+  n = strlen(path);
+  work = (char *)malloc(n + 1);
+  if (work == NULL) {
+    return;
+  }
+  memcpy(work, path, n + 1);
+  for (i = 1; i <= n; i++) {
+    if (work[i] == '/' || work[i] == '\0') {
+      char saved = work[i];
+      work[i] = '\0';
+      if (work[0] != '\0') {
+        mkdir(work, 0777);
+      }
+      work[i] = saved;
+    }
+  }
+  free(work);
+}
+
+/* `write_file path name data`. `path` may be empty, in which case `name` is
+ * the whole filename -- the same rule the Kotlin and C# polyfills use. */
+void ranger_write_file(const char *path, const char *filename, const char *data) {
+  char *full;
+  size_t pn;
+  size_t fn;
+  FILE *f;
+  if (filename == NULL) {
+    return;
+  }
+  pn = (path == NULL) ? 0 : strlen(path);
+  fn = strlen(filename);
+  full = (char *)malloc(pn + fn + 2);
+  if (full == NULL) {
+    return;
+  }
+  if (pn > 0) {
+    memcpy(full, path, pn);
+    full[pn] = '/';
+    memcpy(full + pn + 1, filename, fn + 1);
+  } else {
+    memcpy(full, filename, fn + 1);
+  }
+  f = fopen(full, "wb");
+  if (f != NULL) {
+    if (data != NULL) {
+      fwrite(data, 1, strlen(data), f);
+    }
+    fclose(f);
+  }
+  free(full);
+}
+
+/* `env_var` is optional:string -- an unset (or empty) variable answers NULL,
+ * which is what `null?` compares a string against on this backend. The result
+ * is a private copy: getenv's buffer belongs to the environment. */
+char *ranger_env_var(const char *name) {
+  const char *v;
+  if (name == NULL) {
+    return NULL;
+  }
+  v = getenv(name);
+  if (v == NULL || v[0] == '\0') {
+    return NULL;
+  }
+  return ranger_strdup(v);
+}

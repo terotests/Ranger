@@ -1220,6 +1220,68 @@ class LowIRBuilderPass {
     return (lctx.builder.emitCall("ranger_read_file" "i8*" args argTypes))
   }
 
+  fn lowerCreateDir:void (node:CodeNode lctx:LowIRLowerContext) {
+    def pathNode (node.getSecond())
+    def path (this.lowerExpr(pathNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    def voidType:string "void"
+    this.ensureExternDecl("ranger_create_dir" voidType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args path
+    push argTypes "i8*"
+    lctx.builder.emitCall("ranger_create_dir" voidType args argTypes)
+  }
+
+  fn lowerWriteFile:void (node:CodeNode lctx:LowIRLowerContext) {
+    def pathNode (node.getSecond())
+    def fileNode (node.getThird())
+    def dataNode (itemAt node.children 3)
+    def path (this.lowerExpr(pathNode lctx))
+    def file (this.lowerExpr(fileNode lctx))
+    def data (this.lowerExpr(dataNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    push ps "i8*"
+    push ps "i8*"
+    def voidType:string "void"
+    this.ensureExternDecl("ranger_write_file" voidType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args path
+    push argTypes "i8*"
+    push args file
+    push argTypes "i8*"
+    push args data
+    push argTypes "i8*"
+    lctx.builder.emitCall("ranger_write_file" voidType args argTypes)
+  }
+
+  ; `nullify x` clears an optional. Optionals are NULL pointers here, so the
+  ; slot is overwritten with a null of whatever type it already holds; a slot
+  ; the function has never bound has nothing to clear.
+  fn lowerNullify:void (node:CodeNode lctx:LowIRLowerContext) {
+    def target (node.getSecond())
+    if (target.value_type != RangerNodeType.VRef) {
+      return
+    }
+    def varName:string target.vref
+    if ((has lctx.slots varName) == false) {
+      return
+    }
+    def slotType:string lctx.ptrType
+    if (has lctx.slotTypes varName) {
+      slotType = (unwrap (get lctx.slotTypes varName))
+    }
+    def nullVal (lctx.builder.emitConst(slotType "0"))
+    if (slotType == "i8*") {
+      nullVal = "null"
+    }
+    def slot (unwrap (get lctx.slots varName))
+    lctx.builder.emitStore(slotType nullVal slot)
+  }
+
   fn lowerBufferAlloc:string (node:CodeNode lctx:LowIRLowerContext) {
     def sizeNode (node.getSecond())
     def size (this.lowerExpr(sizeNode lctx))
@@ -1797,8 +1859,120 @@ class LowIRBuilderPass {
     lctx.builder.emitCall("RtPtrArray_push" voidType args argTypes)
   }
 
+  ; `for map item:T key { }` and `for map key { }` over a string-keyed map.
+  ; The map runtime keeps its entries in insertion order and answers the i-th
+  ; live key, so the loop is an index walk over RtSMap_keyAt -- the same shape
+  ; `keys` uses. Answers false when the loop source is not a string map, and
+  ; the array lowering below then runs unchanged.
+  fn lowerForMap:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def cnt (array_length node.children)
+    if (cnt < 4) {
+      return false
+    }
+    def hashNode (node.getSecond())
+    if (hashNode.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    def desc (this.smapDescFromVref(hashNode.vref lctx))
+    if ((strlen desc) == 0) {
+      return false
+    }
+    ; 5 children -> `for m item:T key {}`, 4 -> `for m key {}`
+    def hasItem:boolean (cnt > 4)
+    def itemNode (node.getThird())
+    def keyNode:CodeNode itemNode
+    def bodyNode (itemAt node.children 3)
+    if hasItem {
+      keyNode = (itemAt node.children 3)
+      bodyNode = (itemAt node.children 4)
+    }
+    def keyName:string keyNode.vref
+    def nRest:[string]
+    def nTypes:[string]
+    def n (this.emitSMapCall("RtSMap_size" "i32" desc nRest nTypes lctx))
+    def iSlot (builder.emitAlloca("i32" (builder.freshTemp("formapi"))))
+    def zero (builder.emitConst("i32" "0"))
+    builder.emitStore("i32" zero iSlot)
+    def condL (builder.freshLabel("formap_cond"))
+    def bodyL (builder.freshLabel("formap_body"))
+    def incL (builder.freshLabel("formap_inc"))
+    def exitL (builder.freshLabel("formap_exit"))
+    builder.terminateBr(condL)
+
+    builder.startBlock(condL)
+    def iNow (builder.emitLoad("i32" iSlot))
+    def more (builder.emitIcmp("slt" iNow n))
+    builder.terminateBrIf(more bodyL exitL)
+
+    builder.startBlock(bodyL)
+    def iCur (builder.emitLoad("i32" iSlot))
+    def kRest:[string]
+    def kTypes:[string]
+    push kRest iCur
+    push kTypes "i32"
+    def keyPtr (this.emitSMapCall("RtSMap_keyAt" "i8*" desc kRest kTypes lctx))
+    ; The key is the MAP's own buffer, borrowed for the body. It is not
+    ; registered as an owned string local: releasing it would free the map's key.
+    this.bindSlot(keyName "i8*" keyPtr lctx)
+    if hasItem {
+      def vRest:[string]
+      def vTypes:[string]
+      push vRest keyPtr
+      push vTypes "i8*"
+      def rawVal (this.emitSMapCall("RtSMap_get" "i64" desc vRest vTypes lctx))
+      def vKind (this.smapValueKind(hashNode.vref lctx))
+      def itemName:string itemNode.vref
+      if (vKind == "int") {
+        this.bindSlot(itemName "i32" (builder.emitCast("trunc" "i32" "i64" rawVal)) lctx)
+      } {
+        if (vKind == "string") {
+          this.bindSlot(itemName "i8*" (builder.emitIntToI8Ptr(rawVal lctx.ptrType)) lctx)
+        } {
+          this.bindSlot(itemName lctx.ptrType rawVal lctx)
+          def itemClass (this.resolveItemClass(itemNode))
+          if ((strlen itemClass) > 0) {
+            set lctx.objectSlots itemName itemClass
+          }
+        }
+      }
+    }
+    def savedBreak:string lctx.breakLabel
+    def savedCont:string lctx.continueLabel
+    def savedMark:int lctx.loopOwnedMark
+    def savedMarkColl:int lctx.loopOwnedCollMark
+    def savedMarkStr:int lctx.loopOwnedStrMark
+    lctx.breakLabel = exitL
+    lctx.continueLabel = incL
+    lctx.loopOwnedMark = (array_length lctx.ownedObjectLocals)
+    lctx.loopOwnedCollMark = (array_length lctx.ownedCollectionLocals)
+    lctx.loopOwnedStrMark = (array_length lctx.ownedStringLocals)
+    this.lowerBlock(bodyNode lctx)
+    lctx.breakLabel = savedBreak
+    lctx.continueLabel = savedCont
+    lctx.loopOwnedMark = savedMark
+    lctx.loopOwnedCollMark = savedMarkColl
+    lctx.loopOwnedStrMark = savedMarkStr
+    def bodyBb (unwrap builder.currentBlock)
+    if (bodyBb.termKind == "") {
+      builder.terminateBr(incL)
+    }
+
+    builder.startBlock(incL)
+    def iAt (builder.emitLoad("i32" iSlot))
+    def one (builder.emitConst("i32" "1"))
+    builder.emitStore("i32" (builder.emitBin("add" "i32" iAt one)) iSlot)
+    builder.terminateBr(condL)
+
+    builder.startBlock(exitL)
+    return true
+  }
+
   fn lowerFor:void (node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
+    if (this.lowerForMap(node lctx)) {
+      return
+    }
     if ((array_length node.children) <= 4) {
       return
     }
@@ -2395,6 +2569,72 @@ class LowIRBuilderPass {
     push args a
     push argTypes "i8*"
     push args b
+    push argTypes "i8*"
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  ; Three-string -> string helper (`replace`). The result is a fresh malloc'd
+  ; buffer, so it is registered as a temp the way lowerStr1Fn does -- without
+  ; that every `(replace s a b)` in an expression leaks.
+  fn lowerStr3Fn:string (node:CodeNode fnName:string lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def bNode (node.getThird())
+    def cNode (itemAt node.children 3)
+    def a (this.lowerExpr(aNode lctx))
+    def b (this.lowerExpr(bNode lctx))
+    def c (this.lowerExpr(cNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    push ps "i8*"
+    push ps "i8*"
+    this.ensureExternDecl(fnName "i8*" ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args a
+    push argTypes "i8*"
+    push args b
+    push argTypes "i8*"
+    push args c
+    push argTypes "i8*"
+    def res (lctx.builder.emitCall(fnName "i8*" args argTypes))
+    this.registerFreshStringTemp(res lctx)
+    return res
+  }
+
+  ; (string, string, int) -> scalar (`indexOfFrom`).
+  fn lowerStr2IntFn:string (node:CodeNode fnName:string retType:string lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def bNode (node.getThird())
+    def cNode (itemAt node.children 3)
+    def a (this.lowerExpr(aNode lctx))
+    def b (this.lowerExpr(bNode lctx))
+    def c (this.lowerExpr(cNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    push ps "i8*"
+    push ps "i32"
+    this.ensureExternDecl(fnName retType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args a
+    push argTypes "i8*"
+    push args b
+    push argTypes "i8*"
+    push args c
+    push argTypes "i32"
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  ; One string -> scalar (`dir_exists`).
+  fn lowerStr1IntFn:string (node:CodeNode fnName:string retType:string lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def a (this.lowerExpr(aNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    this.ensureExternDecl(fnName retType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args a
     push argTypes "i8*"
     return (lctx.builder.emitCall(fnName retType args argTypes))
   }
@@ -5582,6 +5822,18 @@ class LowIRBuilderPass {
         this.lowerPush(node lctx)
         return
       }
+      if (opName == "create_dir") {
+        this.lowerCreateDir(node lctx)
+        return
+      }
+      if (opName == "write_file") {
+        this.lowerWriteFile(node lctx)
+        return
+      }
+      if (opName == "nullify") {
+        this.lowerNullify(node lctx)
+        return
+      }
       if (opName == "on_keypress") {
         this.lowerOnKeypress(node lctx)
         return
@@ -6700,6 +6952,20 @@ class LowIRBuilderPass {
       if (opName == "contains") {
         return (this.toI1((this.lowerStr2Fn(node "ranger_str_contains" "i32" lctx)) lctx))
       }
+      if (opName == "startsWith") {
+        return (this.toI1((this.lowerStr2Fn(node "ranger_str_starts_with" "i32" lctx)) lctx))
+      }
+      if (opName == "endsWith") {
+        return (this.toI1((this.lowerStr2Fn(node "ranger_str_ends_with" "i32" lctx)) lctx))
+      }
+      ; `replace` changes EVERY occurrence (the operator's documented contract),
+      ; so the C helper loops rather than stopping at the first hit.
+      if (opName == "replace") {
+        return (this.lowerStr3Fn(node "ranger_str_replace" lctx))
+      }
+      if (opName == "indexOfFrom") {
+        return (this.lowerStr2IntFn(node "ranger_str_index_of_from" "i32" lctx))
+      }
       if (opName == "trim") {
         return (this.lowerStr1Fn(node "ranger_str_trim" lctx))
       }
@@ -6711,6 +6977,27 @@ class LowIRBuilderPass {
       }
       if (opName == "file_exists") {
         return (this.toI1((this.lowerStr2Fn(node "ranger_file_exists" "i32" lctx)) lctx))
+      }
+      if (opName == "dir_exists") {
+        return (this.toI1((this.lowerStr1IntFn(node "ranger_dir_exists" "i32" lctx)) lctx))
+      }
+      ; `env_var` is optional:string. An unset variable is a NULL pointer, which
+      ; is what `null?` on a string compares against on this backend.
+      if (opName == "env_var") {
+        return (this.lowerStr1Fn(node "ranger_env_var" lctx))
+      }
+      ; `cast` carries no runtime meaning here: every object is an untyped
+      ; pointer in the IR, so the value passes through. Without this the node
+      ; reached the VRef path and emitted a bare `%cast`.
+      if (opName == "cast") {
+        return (this.lowerExpr((node.getSecond()) lctx))
+      }
+      ; The `try` writer has no exception value to bind on this backend, so
+      ; `error_msg` answers the same placeholder the C++ template does.
+      if (opName == "error_msg") {
+        def emG (this.internStringGlobal("unspecified error" false))
+        def emLen (this.stringGlobalByteLen(emG))
+        return (lctx.builder.emitStrPtr(emG emLen))
       }
       if (opName == "M_PI") {
         return (lctx.builder.emitConst("f64" "3.141592653589793"))
