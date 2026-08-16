@@ -574,6 +574,151 @@ class VlTransform {
         return out
     }
 
+    ; ----------------------------------------------------------------- fold ---
+    ; Columns into rows. One row with a column per year becomes one row per
+    ; year, carrying the year's NAME in one new field and its value in another;
+    ; everything else on the row is copied onto each of them.
+    ;
+    ; This is how a wide table is made long enough to draw: a chart reads one
+    ; column at a time, so a series per column has to become a column of series
+    ; names first.
+    sfn fold:[VlJson] (rows:[VlJson] fields:[string] asNames:[string]) {
+        def keyName:string "key"
+        def valueName:string "value"
+        if ((array_length asNames) > 0) { keyName = (itemAt asNames 0) }
+        if ((array_length asNames) > 1) { valueName = (itemAt asNames 1) }
+        def out:[VlJson]
+        for rows row:VlJson ri {
+            for fields field:string fi {
+                def made:VlJson (VlTransform.copyRow(row))
+                made.setMember(keyName (VlJson.stringValue(field)))
+                ; A row that never had the column folds to a missing value
+                ; rather than to a zero, which would be a number nobody
+                ; measured.
+                if (row.has(field)) {
+                    made.setMember(valueName (row.get(field)))
+                } {
+                    made.setMember(valueName (new VlJson))
+                }
+                push out made
+            }
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------- pivot ---
+    ; Rows into columns, which is fold read backwards. Rows are grouped, and
+    ; within each group every distinct value of `field` becomes a column of its
+    ; own holding the aggregate of `value` — so a table with a `year` column
+    ; becomes a table with a `1931` column and a `1932` column, and the two can
+    ; be subtracted.
+    ;
+    ; The columns come out in FIRST-SEEN order, and every group carries every
+    ; column, because a table with ragged rows is not a table.
+    sfn pivot:[VlJson] (rows:[VlJson] field:string value:string groupby:[string] op:string limit:int) {
+        ; The column names, in the order the data first mentions them.
+        def names:[string]
+        def known:[string:boolean]
+        for rows row:VlJson ri {
+            def name:string ((row.get(field)).asString())
+            if (! (has known name)) {
+                set known name true
+                if ((limit <= 0) || ((array_length names) < limit)) {
+                    push names name
+                }
+            }
+        }
+
+        ; One aggregate per (group, column). The group's own key row carries
+        ; the groupby fields, which is what the pivoted row is built on.
+        def groups:[VlJson]
+        def rowByKey:[string:VlJson]
+        def valuesByKey:[string:[double]]
+        def countByKey:[string:int]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has rowByKey key)) {
+                def fresh:VlJson (VlJson.objectValue())
+                for groupby g:string gi {
+                    fresh.setMember(g (row.get(g)))
+                }
+                set rowByKey key fresh
+                push groups fresh
+            }
+            def name:string ((row.get(field)).asString())
+            def cell:string ((key + " ") + name)
+            if (! (has valuesByKey cell)) {
+                def empty:[double]
+                set valuesByKey cell empty
+                set countByKey cell 0
+            }
+            def sofar:[double] (unwrap (get valuesByKey cell))
+            if (row.has(value)) {
+                def cellValue:VlJson (row.get(value))
+                if (cellValue.isNumber()) {
+                    push sofar cellValue.num
+                }
+            }
+            set valuesByKey cell sofar
+            set countByKey cell ((unwrap (get countByKey cell)) + 1)
+        }
+
+        def out:[VlJson]
+        for groups made:VlJson gi {
+            def key:string (VlTransform.groupKey(made groupby))
+            for names name:string ni {
+                def cell:string ((key + " ") + name)
+                if (has valuesByKey cell) {
+                    def gathered:[double] (unwrap (get valuesByKey cell))
+                    def seen:int (unwrap (get countByKey cell))
+                    made.setMember(name (VlJson.numberValue((VlTransform.pivotOp(op gathered seen)))))
+                } {
+                    made.setMember(name (new VlJson))
+                }
+            }
+            push out made
+        }
+        return out
+    }
+
+    ; What a pivoted cell holds when the group has more than one row in that
+    ; column. Vega's default is a sum, which is also the only answer that is
+    ; right when there is exactly one row — the ordinary case.
+    sfn pivotOp:double (op:string values:[double] seen:int) {
+        def total:double 0.0
+        for values v:double vi {
+            total = (total + v)
+        }
+        def n:int (array_length values)
+        if (op == "count") {
+            return (to_double seen)
+        }
+        if (op == "valid") {
+            return (to_double n)
+        }
+        if (n == 0) {
+            return 0.0
+        }
+        if ((op == "mean") || (op == "average")) {
+            return (total / (to_double n))
+        }
+        if (op == "min") {
+            def lowest:double (itemAt values 0)
+            for values v2:double vi2 {
+                if (v2 < lowest) { lowest = v2 }
+            }
+            return lowest
+        }
+        if (op == "max") {
+            def highest:double (itemAt values 0)
+            for values v3:double vi3 {
+                if (v3 > highest) { highest = v3 }
+            }
+            return highest
+        }
+        return total
+    }
+
     sfn aggregateName:string (ops:[string] fields:[string] asNames:[string] k:int) {
         if (k < (array_length asNames)) {
             return (itemAt asNames k)

@@ -48,6 +48,10 @@ class VlChannel {
     ; The unit spelled out: "yearmonth" is ["year", "month"].
     def timeUnits:[string]
     def hasBin:boolean false
+    ; How many bins the binning was asked for. It is part of the NAME the
+    ; binned field carries — `bin_maxbins_60_x` — so a spec that asks for
+    ; sixty and a spec that asks for the default ten do not collide.
+    def maxbins:int 10
     def hasValue:boolean false
     def value:VlJson (new VlJson)
     def defined:boolean false
@@ -72,14 +76,29 @@ class VlChannel {
             return ((aggregate + "_") + field)
         }
         if hasBin {
-            return ("bin_maxbins_10_" + field)
+            def prefix:string (this.binPrefix())
+            return (prefix + field)
         }
         return field
     }
 
     ; A binned field is TWO fields: where the bin starts and where it ends.
     fn binEndField:string () {
-        return (("bin_maxbins_10_" + field) + "_end")
+        def prefix:string (this.binPrefix())
+        return ((prefix + field) + "_end")
+    }
+
+    fn binPrefix:string () {
+        return (("bin_maxbins_" + (VlJson.intToText(maxbins))) + "_")
+    }
+
+    ; The SIGNAL the bin transform publishes its boundaries under. Not the
+    ; field name: a signal is an identifier in an expression, and half the
+    ; interesting columns in the world are called things like "IMDB Rating".
+    ; The field keeps its space; the signal does not get one.
+    fn binSignal:string () {
+        def prefix:string (this.binPrefix())
+        return (prefix + (VlCompile.varName(field)))
     }
 
     fn isDiscrete:boolean () {
@@ -1534,11 +1553,32 @@ class VlCompile {
             ch.def0 = cdef
             ch.defined = true
             ch.field = (cdef.stringOr("field" ""))
-            ch.kind = (cdef.stringOr("type" "quantitative"))
             ch.aggregate = (cdef.stringOr("aggregate" ""))
             ch.timeUnit = (cdef.stringOr("timeUnit" ""))
             if (cdef.has("bin")) {
                 ch.hasBin = true
+                def binDef:VlJson (cdef.get("bin"))
+                if (binDef.isObject()) {
+                    if (binDef.has("maxbins")) {
+                        ch.maxbins = (to_int (binDef.doubleOr("maxbins" 10.0)))
+                    }
+                    for binDef.keys bk:string bki {
+                        if (bk != "maxbins") {
+                            this.fail((("a bin written with '" + bk) + "' is not compiled here"))
+                        }
+                    }
+                }
+            }
+            ; A channel may leave its type out, and most of the published
+            ; examples do. It used to be read as `quantitative` regardless,
+            ; which turned `{"field": "variety"}` into a continuous scale over
+            ; a column of words: every bar landed at zero and the axis had one
+            ; tick on it. The type is inferred from the same three places
+            ; Vega-Lite infers it from — the transform on the channel, and
+            ; failing that, the data.
+            ch.kind = (cdef.stringOr("type" ""))
+            if ((strlen ch.kind) == 0) {
+                ch.kind = (this.inferKind(ch))
             }
             if (cdef.has("value")) {
                 ch.hasValue = true
@@ -1567,6 +1607,95 @@ class VlCompile {
         }
     }
 
+    ; ------------------------------------------------------- type inference ---
+    ; What a channel that did not say its type must have meant.
+    ;
+    ; The transform on the channel settles it first, because it decides what
+    ; comes out however the column went in: a count is a number, a binning
+    ; produces a number, a time unit produces a date. Only when the channel is
+    ; a plain field does the DATA get asked, and then the answer is whatever
+    ; the column actually holds.
+    fn inferKind:string (ch:VlChannel) {
+        if (ch.hasBin) { return "quantitative" }
+        if ((strlen ch.aggregate) > 0) { return "quantitative" }
+        if ((strlen ch.timeUnit) > 0) { return "temporal" }
+        if (ch.hasValue) { return "quantitative" }
+        if ((strlen ch.field) == 0) { return "quantitative" }
+
+        def values:VlJson (this.inlineValues())
+        if (! (values.isArray())) {
+            this.fail((("the channel '" + ch.name) + "' has no type, and the data to infer one from is not inline here"))
+            return "quantitative"
+        }
+        return (VlCompile.kindOfColumn(values ch.field))
+    }
+
+    ; The rows the specification carries with it, if it carries any. A `url`
+    ; was resolved by whoever loaded it — the runtime has no loader — so a
+    ; specification that still has one cannot be asked what is in it.
+    fn inlineValues:VlJson () {
+        def data:VlJson (source.get("data"))
+        if (! (data.isObject())) {
+            return (new VlJson)
+        }
+        return (data.get("values"))
+    }
+
+    ; A column, classified the way `vega-loader` classifies one: a number is
+    ; quantitative, a date is temporal, anything else names a category. Only
+    ; the rows that HAVE the field vote — a column that is missing from some
+    ; rows is still whatever it is in the rest.
+    sfn kindOfColumn:string (values:VlJson field:string) {
+        def total:int (values.count())
+        def seen:int 0
+        def numbers:int 0
+        def dates:int 0
+        def k:int 0
+        while (k < total) {
+            def row:VlJson (values.at(k))
+            k = (k + 1)
+            if (! (row.isObject())) { continue }
+            if (! (row.has(field))) { continue }
+            def cell:VlJson (row.get(field))
+            if (cell.isNull()) { continue }
+            seen = (seen + 1)
+            if (cell.isNumber()) {
+                numbers = (numbers + 1)
+            } {
+                if (cell.isString()) {
+                    if (VlCompile.looksLikeDate(cell.str)) {
+                        dates = (dates + 1)
+                    }
+                }
+            }
+            ; A hundred rows is enough to tell a column of words from a column
+            ; of numbers, and a data set may have a hundred thousand.
+            if (seen >= 100) { k = total }
+        }
+        if (seen == 0) { return "nominal" }
+        if (numbers == seen) { return "quantitative" }
+        if (dates == seen) { return "temporal" }
+        return "nominal"
+    }
+
+    ; A date, as written down: "2012", "2012-07", "2012-07-14", any of those
+    ; with a time after them. Deliberately narrow — a column of words that
+    ; happen to start with digits is not a column of dates, and guessing wrong
+    ; here silently turns a bar chart into a time series.
+    sfn looksLikeDate:boolean (text:string) {
+        def n:int (strlen text)
+        if ((n < 4) || (n > 40)) { return false }
+        def k:int 0
+        while (k < 4) {
+            def c:int (charAt text k)
+            if ((c < 48) || (c > 57)) { return false }
+            k = (k + 1)
+        }
+        if (n == 4) { return true }
+        def sep:int (charAt text 4)
+        return (sep == 45)
+    }
+
     ; A scale's name, which is its own inside one chart and the pane's inside a
     ; concatenation.
     fn sname:string (base:string) {
@@ -1578,6 +1707,19 @@ class VlCompile {
     fn sizeGiven:boolean (dimension:string) {
         def given:VlJson (source.get(dimension))
         return (given.isNumber())
+    }
+
+    ; How tall or wide one band was asked to be, in pixels. Twenty is the
+    ; reference's own default.
+    fn stepGiven:double (dimension:string) {
+        def given:VlJson (source.get(dimension))
+        if (given.isObject()) {
+            if (given.has("step")) {
+                return (given.doubleOr("step" 20.0))
+            }
+            this.fail((("a '" + dimension) + "' written as an object needs a `step`"))
+        }
+        return 20.0
     }
 
     ; The signal a dimension reads. A shared dimension is the chart's own.
@@ -1860,7 +2002,12 @@ class VlCompile {
                 def sub:string (((("20 * bandspace(domain('" + (this.sname("xOffset"))) + "').length, 0, 0) / (1-") + (VlJson.formatNumber(inner 6))) + ")")
                 step.setMember("update" (VlJson.stringValue(sub)))
             } {
-                step.setMember("value" (VlJson.numberValue(20.0)))
+                ; Twenty pixels a band unless the specification said otherwise.
+                ; `"height": {"step": 16}` is how a chart says how tall each
+                ; ROW is rather than how tall the chart is, which is the only
+                ; sensible way to size a bar chart whose category count you do
+                ; not know when you write it.
+                step.setMember("value" (VlJson.numberValue((this.stepGiven(dimension)))))
             }
             push signals.arr step
             def size (VlJson.objectValue())
@@ -1952,11 +2099,9 @@ class VlCompile {
             def t:VlJson (own.at(k))
             k = (k + 1)
             if (t.has("filter")) {
-                def expr:VlJson (t.get("filter"))
-                if (expr.isString()) {
-                    push transforms.arr (VlCompile.filterOf(expr.str))
-                } {
-                    this.fail("only a filter written as an expression string is compiled here")
+                def written:string (this.predicateExpr((t.get("filter"))))
+                if ((strlen written) > 0) {
+                    push transforms.arr (VlCompile.filterOf(written))
                 }
             } {
                 if (t.has("bin")) {
@@ -1970,7 +2115,8 @@ class VlCompile {
                     def bext (VlJson.objectValue())
                     bext.setMember("type" (VlJson.stringValue("extent")))
                     bext.setMember("field" (VlJson.stringValue(bf)))
-                    bext.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                    def bsig:string (VlCompile.varName(base))
+                    bext.setMember("signal" (VlJson.stringValue((bsig + "_extent"))))
                     push transforms.arr bext
                     def bin (VlJson.objectValue())
                     bin.setMember("type" (VlJson.stringValue("bin")))
@@ -1979,9 +2125,9 @@ class VlCompile {
                     push binAs.arr (VlJson.stringValue(base))
                     push binAs.arr (VlJson.stringValue((itemAt bnames 1)))
                     bin.setMember("as" binAs)
-                    bin.setMember("signal" (VlJson.stringValue((base + "_bins"))))
+                    bin.setMember("signal" (VlJson.stringValue((bsig + "_bins"))))
                     def bfrom (VlJson.objectValue())
-                    bfrom.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                    bfrom.setMember("signal" (VlJson.stringValue((bsig + "_extent"))))
                     bin.setMember("extent" bfrom)
                     bin.setMember("maxbins" (VlJson.numberValue(10.0)))
                     push transforms.arr bin
@@ -2039,10 +2185,43 @@ class VlCompile {
                     f.setMember("as" (VlJson.stringValue((t.stringOr("as" "")))))
                     push transforms.arr f
                 } {
+                if (t.has("fold")) {
+                    ; Columns into rows. The `as` pair names the two columns
+                    ; that come out — the name of the folded column and its
+                    ; value — and defaults to "key" and "value".
+                    def fo (VlJson.objectValue())
+                    fo.setMember("type" (VlJson.stringValue("fold")))
+                    fo.setMember("fields" (t.get("fold")))
+                    if (t.has("as")) {
+                        fo.setMember("as" (t.get("as")))
+                    }
+                    push transforms.arr fo
+                } {
+                if (t.has("pivot")) {
+                    ; And rows into columns, which is what lets one row hold
+                    ; two years at once so that the difference between them is
+                    ; a subtraction rather than a join.
+                    def pv (VlJson.objectValue())
+                    pv.setMember("type" (VlJson.stringValue("pivot")))
+                    pv.setMember("field" (VlJson.stringValue((t.stringOr("pivot" "")))))
+                    pv.setMember("value" (VlJson.stringValue((t.stringOr("value" "")))))
+                    if (t.has("groupby")) {
+                        pv.setMember("groupby" (t.get("groupby")))
+                    }
+                    if (t.has("op")) {
+                        pv.setMember("op" (t.get("op")))
+                    }
+                    if (t.has("limit")) {
+                        pv.setMember("limit" (t.get("limit")))
+                    }
+                    push transforms.arr pv
+                } {
                     ; The rest name themselves by their leading key, which is
                     ; how Vega-Lite writes a transform, so the refusal can say
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
+                }
                 }
                 }
                 }
@@ -2103,7 +2282,7 @@ class VlCompile {
             return out
         }
         push out (("bin_maxbins_10_" + field))
-        push out (("bin_maxbins_10_" + field) + "_end")
+        push out ((("bin_maxbins_10_" + field) + "_end"))
         return out
     }
 
@@ -2239,10 +2418,11 @@ class VlCompile {
         for channels ch:VlChannel ci {
             if ch.hasBin {
                 def base:string (ch.outField())
+                def sig:string (ch.binSignal())
                 def extent (VlJson.objectValue())
                 extent.setMember("type" (VlJson.stringValue("extent")))
                 extent.setMember("field" (VlJson.stringValue(ch.field)))
-                extent.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                extent.setMember("signal" (VlJson.stringValue((sig + "_extent"))))
                 push transforms.arr extent
 
                 def bin (VlJson.objectValue())
@@ -2252,11 +2432,11 @@ class VlCompile {
                 push asNames.arr (VlJson.stringValue(base))
                 push asNames.arr (VlJson.stringValue((ch.binEndField())))
                 bin.setMember("as" asNames)
-                bin.setMember("signal" (VlJson.stringValue((base + "_bins"))))
+                bin.setMember("signal" (VlJson.stringValue((sig + "_bins"))))
                 def from (VlJson.objectValue())
-                from.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                from.setMember("signal" (VlJson.stringValue((sig + "_extent"))))
                 bin.setMember("extent" from)
-                bin.setMember("maxbins" (VlJson.numberValue(10.0)))
+                bin.setMember("maxbins" (VlJson.numberValue((to_double ch.maxbins))))
                 push transforms.arr bin
             }
         }
@@ -2454,8 +2634,197 @@ class VlCompile {
         push transforms.arr t
     }
 
+    ; A name safe to use as a signal. A field name is whatever the data called
+    ; the column — "IMDB Rating", "Miles_per_Gallon", "Body Mass (g)" — and a
+    ; signal name is an identifier in an expression, so everything that is not
+    ; a letter, a digit or an underscore becomes an underscore. The FIELD keeps
+    ; its own spelling; only the signal is renamed.
+    sfn varName:string (text:string) {
+        def out:string ""
+        def n:int (strlen text)
+        def k:int 0
+        while (k < n) {
+            def c:int (charAt text k)
+            k = (k + 1)
+            def keep:boolean false
+            if ((c >= 48) && (c <= 57)) { keep = true }
+            if ((c >= 65) && (c <= 90)) { keep = true }
+            if ((c >= 97) && (c <= 122)) { keep = true }
+            if (c == 95) { keep = true }
+            if keep {
+                out = (out + (strfromcode c))
+            } {
+                out = (out + "_")
+            }
+        }
+        return out
+    }
+
     sfn validExpr:string (field:string) {
         return (((("isValid(datum[\"" + field) + "\"]) && isFinite(+datum[\"") + field) + "\"])")
+    }
+
+    ; ----------------------------------------------------------- predicates ---
+    ; A `filter` written as an OBJECT rather than as an expression. Vega-Lite
+    ; lets a filter be a small predicate — a field and a comparison, or several
+    ; of those under `and` / `or` / `not` — and most of the published examples
+    ; use one, because writing `datum["IMDB Rating"] != null` by hand is not
+    ; what a grammar of graphics is for.
+    ;
+    ; They compile to the expression the runtime already evaluates, so nothing
+    ; below this point knows the difference. What cannot be written that way is
+    ; refused by name, which is the same bargain the transforms above make.
+    ;
+    ; Returns "" when it refused, having said why.
+    fn predicateExpr:string (pred:VlJson) {
+        if (pred.isString()) {
+            return (("(" + pred.str) + ")")
+        }
+        if (! (pred.isObject())) {
+            this.fail("a filter is either an expression string or a predicate object")
+            return ""
+        }
+        if (pred.has("and")) { return (this.joinPredicates((pred.get("and")) " && ")) }
+        if (pred.has("or")) { return (this.joinPredicates((pred.get("or")) " || ")) }
+        if (pred.has("not")) {
+            def inner:string (this.predicateExpr((pred.get("not"))))
+            if ((strlen inner) == 0) {
+                return ""
+            }
+            return (("!(" + inner) + ")")
+        }
+        ; A selection is a predicate about what someone clicked on, and there
+        ; is nothing here to click on.
+        if (pred.has("param")) {
+            this.fail("a filter on a parameter needs interaction, which is not compiled here")
+            return ""
+        }
+        if (pred.has("selection")) {
+            this.fail("a filter on a selection needs interaction, which is not compiled here")
+            return ""
+        }
+
+        def field:string (pred.stringOr("field" ""))
+        if ((strlen field) == 0) {
+            this.fail("a filter predicate needs a field, or one of and/or/not")
+            return ""
+        }
+        if (pred.has("timeUnit")) {
+            this.fail("a filter predicate with a timeUnit is not compiled here")
+            return ""
+        }
+        def ref:string (("datum[\"" + field) + "\"]")
+
+        ; `valid` is about the row having a usable number at all, which is two
+        ; questions and not one: present, and finite.
+        if (pred.has("valid")) {
+            def want:VlJson (pred.get("valid"))
+            if (want.asBool()) {
+                return (("(" + (VlCompile.validExpr(field))) + ")")
+            }
+            return (("!(" + (VlCompile.validExpr(field))) + ")")
+        }
+        if (pred.has("equal")) { return (this.comparePredicate(ref "===" (pred.get("equal")))) }
+        if (pred.has("lt")) { return (this.comparePredicate(ref "<" (pred.get("lt")))) }
+        if (pred.has("lte")) { return (this.comparePredicate(ref "<=" (pred.get("lte")))) }
+        if (pred.has("gt")) { return (this.comparePredicate(ref ">" (pred.get("gt")))) }
+        if (pred.has("gte")) { return (this.comparePredicate(ref ">=" (pred.get("gte")))) }
+        if (pred.has("oneOf")) {
+            def set:VlJson (pred.get("oneOf"))
+            if (! (set.isArray())) {
+                this.fail("a `oneOf` filter needs an array of values")
+                return ""
+            }
+            def written:string (this.literalOf(set))
+            if ((strlen written) == 0) {
+                return ""
+            }
+            return (((("(indexof(" + written) + ", ") + ref) + ") >= 0)")
+        }
+        if (pred.has("range")) {
+            def span:VlJson (pred.get("range"))
+            if ((! (span.isArray())) || ((span.count()) != 2)) {
+                this.fail("a `range` filter needs a two-element array")
+                return ""
+            }
+            ; A null bound means the range is open on that side, which is how
+            ; Vega-Lite says "everything above 5".
+            def lower:VlJson (span.at(0))
+            def upper:VlJson (span.at(1))
+            def parts:string ""
+            if (! (lower.isNull())) {
+                parts = (this.comparePredicate(ref ">=" lower))
+                if ((strlen parts) == 0) { return "" }
+            }
+            if (! (upper.isNull())) {
+                def high:string (this.comparePredicate(ref "<=" upper))
+                if ((strlen high) == 0) { return "" }
+                if ((strlen parts) > 0) {
+                    parts = ((parts + " && ") + high)
+                } {
+                    parts = high
+                }
+            }
+            if ((strlen parts) == 0) {
+                this.fail("a `range` filter open at both ends filters nothing")
+                return ""
+            }
+            return (("(" + parts) + ")")
+        }
+        this.fail((("no comparison in the filter predicate on '" + field) + "' is compiled here"))
+        return ""
+    }
+
+    fn joinPredicates:string (list:VlJson glue:string) {
+        if (! (list.isArray())) {
+            this.fail("an `and` / `or` filter needs an array of predicates")
+            return ""
+        }
+        def total:int (list.count())
+        if (total == 0) {
+            this.fail("an `and` / `or` filter with nothing in it filters nothing")
+            return ""
+        }
+        def out:string ""
+        def k:int 0
+        while (k < total) {
+            def one:string (this.predicateExpr((list.at(k))))
+            if ((strlen one) == 0) {
+                return ""
+            }
+            if (k > 0) {
+                out = (out + glue)
+            }
+            out = (out + one)
+            k = (k + 1)
+        }
+        return (("(" + out) + ")")
+    }
+
+    fn comparePredicate:string (ref:string op:string value:VlJson) {
+        def written:string (this.literalOf(value))
+        if ((strlen written) == 0) {
+            return ""
+        }
+        return (((((("(" + ref) + " ") + op) + " ") + written) + ")")
+    }
+
+    ; A value from the specification, written as the expression that produces
+    ; it. JSON's own text is that expression for everything scalar and for an
+    ; array of scalars, which is why the writer does the work; a date written
+    ; as `{"year": 2012}` is not, and is refused rather than compared against
+    ; whatever an object stringifies to.
+    fn literalOf:string (value:VlJson) {
+        if (value.isObject()) {
+            this.fail("a filter compared against a date object is not compiled here")
+            return ""
+        }
+        if (value.isNull()) {
+            this.fail("a filter compared against null is not compiled here")
+            return ""
+        }
+        def w (new VlJsonWriter())
+        return (w.write(value))
     }
 
     ; --------------------------------------------------------------- scales ---
@@ -2487,6 +2856,7 @@ class VlCompile {
         sc.setMember("type" (VlJson.stringValue("ordinal")))
         sc.setMember("domain" (this.domainFor(ch)))
         sc.setMember("range" (VlJson.stringValue("symbol")))
+        this.applyDeclaredScale(sc ch)
         push out.arr sc
     }
 
@@ -2528,6 +2898,7 @@ class VlCompile {
         push range.arr outer
         sc.setMember("range" range)
         sc.setMember("zero" (VlJson.boolValue(true)))
+        this.applyDeclaredScale(sc ch)
         push out.arr sc
     }
 
@@ -2595,7 +2966,8 @@ class VlCompile {
                 ; edges — so it is neither niced nor extended to zero.
                 if ch.hasBin {
                     def bins (VlJson.objectValue())
-                    bins.setMember("signal" (VlJson.stringValue(((ch.outField()) + "_bins"))))
+                    def binSig:string (ch.binSignal())
+                    bins.setMember("signal" (VlJson.stringValue((binSig + "_bins"))))
                     sc.setMember("bins" bins)
                     sc.setMember("zero" (VlJson.boolValue(false)))
                 } {
@@ -2777,7 +3149,8 @@ class VlCompile {
         ; which the bin transform published as a signal — reading the data
         ; instead would stop at the last bin's START.
         if ch.hasBin {
-            out.setMember("signal" (VlJson.stringValue(((("[" + (ch.outField())) + "_bins.start, ") + (ch.outField())) + "_bins.stop]")))
+            def sig:string (ch.binSignal())
+            out.setMember("signal" (VlJson.stringValue(((("[" + sig) + "_bins.start, ") + sig) + "_bins.stop]")))
             return out
         }
         out.setMember("data" (VlJson.stringValue(dataLabel)))
@@ -2830,6 +3203,15 @@ class VlCompile {
             if (markName == "rect") {
                 scheme = "heatmap"
             }
+            ; A scale with a stated middle is a scale read in two directions,
+            ; so it is painted in two — one colour above the middle and another
+            ; below it, rather than one ramp through it.
+            def declared0:VlJson (ch.def0.get("scale"))
+            if (declared0.isObject()) {
+                if (declared0.has("domainMid")) {
+                    scheme = "diverging"
+                }
+            }
             sc.setMember("range" (VlJson.stringValue(scheme)))
             sc.setMember("interpolate" (VlJson.stringValue("hcl")))
             sc.setMember("zero" (VlJson.boolValue(false)))
@@ -2857,6 +3239,10 @@ class VlCompile {
         push range.arr (VlJson.numberValue(361.0))
         sc.setMember("range" range)
         sc.setMember("zero" (VlJson.boolValue(true)))
+        ; …unless the specification stated one. A trail asks for widths in
+        ; pixels, and the default here is an AREA in square pixels: the
+        ; difference is a chart drawn a hundred times too thick.
+        this.applyDeclaredScale(sc ch)
         push out.arr sc
     }
 
@@ -2872,6 +3258,12 @@ class VlCompile {
         ; whether the channel produces a column, not whether the spec typed one.
         def hasX:boolean (x.defined && ((strlen (x.outField())) > 0))
         def hasY:boolean (y.defined && ((strlen (y.outField())) > 0))
+        ; `"axis": null` means the channel keeps its scale and loses its
+        ; furniture. A layered chart writes its own row labels as a text mark
+        ; and turns the axis off; drawing it anyway puts the labels on twice,
+        ; in two different places.
+        if (VlCompile.suppressed(x "axis")) { hasX = false }
+        if (VlCompile.suppressed(y "axis")) { hasY = false }
 
         ; Grids first and both of them, because a grid is drawn under the
         ; marks and a labelled axis over them; x before y, which is the order
@@ -2899,6 +3291,19 @@ class VlCompile {
             push out.arr (this.labelAxis(y "y" "left"))
         }
         return out
+    }
+
+    ; Did the channel ask for this piece of furniture to be left off? Written
+    ; as `null` — not `false`, which Vega-Lite does not accept here either.
+    sfn suppressed:boolean (ch:VlChannel key:string) {
+        if (! ch.defined) {
+            return false
+        }
+        if (! (ch.def0.has(key))) {
+            return false
+        }
+        def given:VlJson (ch.def0.get(key))
+        return (given.isNull())
     }
 
     fn logGrid:boolean (scale:string) {
@@ -3029,6 +3434,9 @@ class VlCompile {
     fn buildLegends:VlJson () {
         def out (VlJson.arrayValue())
         def colour:VlChannel (this.channel("color"))
+        if (VlCompile.suppressed(colour "legend")) {
+            colour = (new VlChannel())
+        }
         if colour.defined {
             if (! colour.hasValue) {
                 def l (VlJson.objectValue())
@@ -3057,6 +3465,9 @@ class VlCompile {
             }
         }
         def shapeCh:VlChannel (this.channel("shape"))
+        if (VlCompile.suppressed(shapeCh "legend")) {
+            shapeCh = (new VlChannel())
+        }
         if shapeCh.defined {
             if (! shapeCh.hasValue) {
                 def l3 (VlJson.objectValue())
@@ -3073,6 +3484,9 @@ class VlCompile {
             }
         }
         def size:VlChannel (this.channel("size"))
+        if (VlCompile.suppressed(size "legend")) {
+            size = (new VlChannel())
+        }
         if size.defined {
             if (! size.hasValue) {
                 def l2 (VlJson.objectValue())
@@ -3256,6 +3670,7 @@ class VlCompile {
         this.encodePaint(update)
         this.encodeAria(update)
         this.encodePosition(update)
+        this.applyMarkPosition(update)
         def encode (VlJson.objectValue())
         encode.setMember("update" update)
         m.setMember("encode" encode)
@@ -3337,6 +3752,11 @@ class VlCompile {
             def ruleColour:VlChannel (this.channel("color"))
             if (! ruleColour.defined) {
                 update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("black")))))
+                ; The mark's OWN properties still apply. These two used to
+                ; return here, which meant a rule or a plain text mark carried
+                ; nothing the mark definition asked for — not its size, not its
+                ; font, not even the alignment that was the whole point of it.
+                this.applyMarkPaint(update "stroke")
                 return
             }
         }
@@ -3346,6 +3766,7 @@ class VlCompile {
             def colour0:VlChannel (this.channel("color"))
             if (! colour0.defined) {
                 update.setMember("fill" (VlCompile.literal((VlJson.stringValue("black")))))
+                this.applyMarkPaint(update "fill")
                 return
             }
         }
@@ -3409,6 +3830,46 @@ class VlCompile {
         if (! hasShape.defined) {
             VlCompile.markLiteral(update markDef "shape" "shape")
         }
+    }
+
+    ; Where the MARK DEFINITION says to put the mark, as opposed to where a
+    ; channel says. `{"mark": {"type": "text", "x": 5}}` is how a label is
+    ; nailed five pixels in from the left edge whatever the data says, and it
+    ; is what a layered chart uses to write its own row labels.
+    ;
+    ; A channel wins wherever there is one: the mark definition is the answer
+    ; for a dimension nothing encoded, not an override of one that was.
+    fn applyMarkPosition:void (update:VlJson) {
+        this.markPlace(update "x" "x")
+        this.markPlace(update "y" "y")
+        this.markPlace(update "x2" "x2")
+        this.markPlace(update "y2" "y2")
+        this.markPlace(update "width" "width")
+        this.markPlace(update "height" "height")
+    }
+
+    fn markPlace:void (update:VlJson channelName:string key:string) {
+        if (! (markDef.has(key))) {
+            return
+        }
+        def encoded:VlChannel (this.channel(channelName))
+        if encoded.defined {
+            return
+        }
+        def given:VlJson (markDef.get(key))
+        ; "width" and "height" mean the group's own, which is a reference and
+        ; not a number — that is how a mark is pinned to the far edge.
+        if (given.isString()) {
+            if ((given.str == "width") || (given.str == "height")) {
+                def group (VlJson.objectValue())
+                group.setMember("group" (VlJson.stringValue(given.str)))
+                def ref (VlJson.objectValue())
+                ref.setMember("field" group)
+                update.setMember(key ref)
+                return
+            }
+        }
+        update.setMember(key (VlCompile.literal(given)))
     }
 
     sfn markLiteral:void (update:VlJson markDef:VlJson from:string to:string) {

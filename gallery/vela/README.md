@@ -263,6 +263,48 @@ The reference is an **optional** dev dependency. Without it the parity step says
 that nothing was compared and the rest of the suite still runs — a silent skip
 would read as a pass.
 
+### And a suite of chosen charts is not coverage
+
+Everything above holds Vela to a quarter of a pixel on `tests/specs`. That is a
+strong statement about those forty-four charts and **no statement at all** about
+any other: they were chosen, and a suite that contains only what already works
+cannot tell you what does not. Pasting specifications into the page found seven
+real defects in an afternoon, one paste at a time, which is what a missing
+measurement feels like from the outside.
+
+`tools/reference/coverage.mjs` is the measurement. It runs the **official
+Vega-Lite gallery** — every example on the Vega-Lite site, vendored under
+`tests/corpus/specs` — through both implementations and gives each one a
+verdict:
+
+```
+npm run vela:coverage              # what works, what does not, and why
+npm run vela:coverage -- --fetch   # first run: get the data sets
+npm run vela:coverage -- --verbose bar_layered_transparent
+```
+
+| verdict | meaning |
+| --- | --- |
+| `same` | the two SVGs agree, ink for ink, through the same comparison `render.mjs` uses |
+| `differs` | both drew; they are not the same picture |
+| `refused` | Vela said what it could not do, and drew nothing |
+| `crashed` | it threw, or produced something that is not an SVG |
+| `skipped` | the data is not available, or the reference would not draw it either |
+
+The output that matters is the last part: **causes, ranked by how many examples
+each one blocks**. That is an implementation queue ordered by the only measure
+worth having — how much of the real corpus each missing piece would unlock —
+and it makes a claim of progress checkable rather than anecdotal.
+
+The specs are vendored because they are small and change rarely; the data is
+not, because it is eight megabytes of somebody else's numbers. Both
+implementations are handed the same rows, so no comparison depends on which
+copy is on disk — but a comparison cannot run without one, and those examples
+are reported as `skipped` rather than quietly passed.
+
+Coverage is a measurement, not a gate: it exits 0 whatever it finds, because
+the number going down is the news. `render.mjs` is the gate.
+
 ```bash
 npm install --no-save vega vega-lite
 node gallery/vela/tools/reference/parity.mjs

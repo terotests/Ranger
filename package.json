@@ -88,6 +88,7 @@
     "vela:cpp": "bash gallery/vela/tests/run_cpp.sh",
     "vela:compiler": "node gallery/vela/tools/reference/compiler.mjs",
     "vela:render": "node gallery/vela/tools/reference/render.mjs",
+    "vela:coverage": "node gallery/vela/tools/reference/coverage.mjs",
     "vela:web": "bash gallery/vela/web/build.sh",
     "vela:web:test": "node gallery/vela/web/smoke.mjs",
     "jsengine:check": "bash scripts/cpp-toolchain.sh",

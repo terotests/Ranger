@@ -708,6 +708,100 @@ class VlShape {
         }
     }
 
+    ; ---------------------------------------------------------------- trail ---
+    ; A line whose width varies along it. Each pair of consecutive points is a
+    ; CAPSULE of its own — two parallel edges and a round cap at each end,
+    ; closed — so that a trail whose size changes tapers rather than stepping.
+    ; Overlapping capsules is the point: the joins are filled by the caps.
+    ;
+    ; This is the reference's own construction, which matters because a trail
+    ; built any other way looks nearly right and is wrong at every join.
+    sfn appendTrail:void (builder:PathBuilder points:[double] sizes:[double]) {
+        def count:int (array_length sizes)
+        if (count == 0) {
+            return
+        }
+        def ready:boolean false
+        def x1:double 0.0
+        def y1:double 0.0
+        def r1:double 0.0
+        def k:int 0
+        while (k < count) {
+            def x2:double (itemAt points (k * 2))
+            def y2:double (itemAt points ((k * 2) + 1))
+            def r2:double ((itemAt sizes k) / 2.0)
+            if ready {
+                ; The normal to the segment, which is where the two parallel
+                ; edges sit.
+                def ux:double (y1 - y2)
+                def uy:double (x2 - x1)
+                def ud:double (sqrt ((ux * ux) + (uy * uy)))
+                if (ud > 0.0) {
+                    ux = (ux / ud)
+                    uy = (uy / ud)
+                    def rx:double (ux * r1)
+                    def ry:double (uy * r1)
+                    def t:double (atan2 uy ux)
+                    def pi:double (VlShape.piOf())
+                    builder.moveTo((x1 - rx) (y1 - ry))
+                    builder.lineTo((x2 - (ux * r2)) (y2 - (uy * r2)))
+                    VlShape.arcSegments(builder x2 y2 r2 (t - pi) t)
+                    builder.lineTo((x1 + rx) (y1 + ry))
+                    VlShape.arcSegments(builder x1 y1 r1 t (t + pi))
+                    builder.close()
+                } {
+                    ; Two points in the same place: a dot, not a segment.
+                    VlShape.appendDot(builder x2 y2 r2)
+                }
+            } {
+                ready = true
+            }
+            x1 = x2
+            y1 = y2
+            r1 = r2
+            k = (k + 1)
+        }
+    }
+
+    sfn piOf:double () {
+        return 3.14159265358979323846
+    }
+
+    ; A circular arc appended to the subpath already being built, in the
+    ; screen's own convention: angle zero points along +x and grows towards +y.
+    ; Flattened finely enough that the chord never sits more than a twentieth of
+    ; a pixel inside the true arc.
+    sfn arcSegments:void (builder:PathBuilder cx:double cy:double r:double a0:double a1:double) {
+        if (r <= 0.0) {
+            return
+        }
+        def span:double (a1 - a0)
+        def steps:int (to_int ((((VlShape.absOf(span)) * r) / 0.4) + 1.0))
+        if (steps < 6) {
+            steps = 6
+        }
+        if (steps > 240) {
+            steps = 240
+        }
+        def k:int 1
+        while (k <= steps) {
+            def t:double ((to_double k) / (to_double steps))
+            def a:double (a0 + (span * t))
+            builder.lineTo((cx + ((cos a) * r)) (cy + ((sin a) * r)))
+            k = (k + 1)
+        }
+    }
+
+    sfn appendDot:void (builder:PathBuilder cx:double cy:double r:double) {
+        if (r <= 0.0) {
+            return
+        }
+        builder.moveTo((cx + r) cy)
+        def full:double (2.0 * (VlShape.piOf()))
+        VlShape.arcSegments(builder cx cy r 0.0 full)
+        builder.close()
+    }
+
     sfn knot:double (x0:double y0:double x1:double y1:double alpha:double) {
         def dx:double (x1 - x0)
         def dy:double (y1 - y0)

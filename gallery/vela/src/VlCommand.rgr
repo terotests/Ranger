@@ -21,6 +21,8 @@
 
 Import "VlJson.rgr"
 Import "VlScene.rgr"
+Import "VlShape.rgr"
+Import "../../evg/PathBuilder.rgr"
 
 ; op: "rect" | "line" | "text" | "path" | "symbol" | "image" | "group-begin" | "group-end"
 class VlDrawCommand {
@@ -198,6 +200,12 @@ class VlSceneCommands {
             VlSceneCommands.emitArea(list mark offsetX offsetY)
             return
         }
+        ; A trail is a line whose width is read from the data, so it is a
+        ; filled shape rather than a stroked one — and one shape, like a line.
+        if (mark.markType == "trail") {
+            VlSceneCommands.emitTrail(list mark offsetX offsetY)
+            return
+        }
         for mark.items item:VlSceneItem idx {
             if (mark.markType == "group") {
                 VlSceneCommands.emitGroup(list mark item offsetX offsetY)
@@ -223,6 +231,42 @@ class VlSceneCommands {
         }
         def first:VlSceneItem (itemAt mark.items 0)
         VlSceneCommands.applyCurve(cmd first)
+        VlSceneCommands.applyStyle(cmd first)
+        push list.commands cmd
+    }
+
+    ; A trail: the vertices, each with the width the data gave it. The shape
+    ; is built once, here, from the geometry every backend shares, and handed
+    ; on as path data — the same road a Vega `path` mark takes.
+    sfn emitTrail:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
+        def count:int (array_length mark.items)
+        if (count == 0) {
+            return
+        }
+        def points:[double]
+        def sizes:[double]
+        for mark.items item:VlSceneItem idx {
+            push points (offsetX + (item.number("x")))
+            push points (offsetY + (item.number("y")))
+            def wide:double 1.0
+            if (item.has("size")) {
+                wide = (item.number("size"))
+            }
+            push sizes wide
+        }
+        def builder (new PathBuilder())
+        VlShape.appendTrail(builder points sizes)
+        if (builder.isEmpty()) {
+            return
+        }
+        def cmd (new VlDrawCommand())
+        cmd.op = "path"
+        cmd.markType = mark.markType
+        cmd.role = mark.role
+        cmd.x = 0.0
+        cmd.y = 0.0
+        cmd.pathData = (builder.asPathData())
+        def first:VlSceneItem (itemAt mark.items 0)
         VlSceneCommands.applyStyle(cmd first)
         push list.commands cmd
     }

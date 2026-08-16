@@ -699,6 +699,18 @@ class VlRuntime {
             def asNames:[string] (VlRuntime.stringList((tdef.get("as"))))
             return (VlTransform.joinaggregate(rows groupby ops fields asNames))
         }
+        ; Columns into rows, and rows into columns. A wide table has to be made
+        ; long before a chart can read a series out of it, and a long one has
+        ; to be made wide before two of its rows can be subtracted.
+        if (ttype == "fold") {
+            def foldFields:[string] (VlRuntime.stringList((tdef.get("fields"))))
+            def foldAs:[string] (VlRuntime.stringList((tdef.get("as"))))
+            return (VlTransform.fold(rows foldFields foldAs))
+        }
+        if (ttype == "pivot") {
+            def pivotGroupby:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            return (VlTransform.pivot(rows (tdef.stringOr("field" "")) (tdef.stringOr("value" "")) pivotGroupby (tdef.stringOr("op" "sum")) (tdef.intOr("limit" 0))))
+        }
         if (ttype == "extent") {
             def ext:[double] (VlTransform.extent(rows (tdef.stringOr("field" ""))))
             def signalName:string (tdef.stringOr("signal" ""))

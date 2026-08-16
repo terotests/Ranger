@@ -293,6 +293,16 @@ class VlConfig {
         if (((name == "ramp") || (name == "blues")) || (name == "sequential")) {
             return (VlConfig.ramp("cfe1f2bed8eca8cee58fc1de74b2d75ba3cf4592c63181bd206fb2125ca40a4a90"))
         }
+        ; A scale read in two directions from a middle. The reference's default
+        ; is blue-orange, taken from its high end down — `extent: [1, 0]` — so
+        ; the stops are listed here in that order rather than carrying an
+        ; extent through the scale layer for one scheme's sake.
+        if (name == "diverging") {
+            return (VlConfig.ramp("994a07c5690de8932ffbbf74fce0baf2f0ebd2e5ef9dcae15da2cb2f78b3134b85"))
+        }
+        if ((name == "blueorange") || (name == "blue-orange")) {
+            return (VlConfig.ramp("134b852f78b35da2cb9dcae1d2e5eff2f0ebfce0bafbbf74e8932fc5690d994a07"))
+        }
         if (name == "greens") {
             return (VlConfig.ramp("d3eecdc0e6baabdda594d3917bc77d60ba6c46ab5e329a512089430e7735036429"))
         }

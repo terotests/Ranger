@@ -1,0 +1,5 @@
+# The data the gallery examples read. Fetched by `coverage.mjs --fetch`, not
+# committed: it is eight megabytes of somebody else's data, and the harness
+# hands the same bytes to both implementations, so nothing about the comparison
+# depends on having a particular copy of it.
+data/
