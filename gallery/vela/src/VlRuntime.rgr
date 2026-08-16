@@ -909,6 +909,135 @@ class VlRuntime {
         return (VlTransform.extent(rows field))
     }
 
+    ; The order a DISCRETE domain is read in. Vega-Lite marks almost every one
+    ; of them `"sort": true`, and this ignored it entirely: the categories came
+    ; out in the order the data happened to mention them, so a bar chart's bars
+    ; and a legend's colours were both in the wrong order — and every label,
+    ; every colour and every position downstream followed them there.
+    ;
+    ;   true                 ascending, numerically if they are all numbers
+    ;   {"order": "…"}       the same, either way round
+    ;   {"op": …, "field": …}  by an aggregate of another column, which is how a
+    ;                          chart says "biggest first"
+    sfn orderDomain:[string] (values:[string] rows:[VlJson] sortDef:VlJson domainField:string) {
+        if (sortDef.isNull()) {
+            return values
+        }
+        if (sortDef.isBool()) {
+            if (! sortDef.b) {
+                return values
+            }
+            return (VlRuntime.sortedNatural(values false))
+        }
+        if (! (sortDef.isObject())) {
+            return values
+        }
+        def descending:boolean ((sortDef.stringOr("order" "ascending")) == "descending")
+        if (! (sortDef.has("field"))) {
+            return (VlRuntime.sortedNatural(values descending))
+        }
+        ; By an aggregate of another column: one number per category, and the
+        ; categories put in order of it. "Biggest first" is written this way.
+        def by:string (sortDef.stringOr("field" ""))
+        def op:string (sortDef.stringOr("op" "sum"))
+        def keyed:[string:double]
+        for values v:string vi {
+            def gathered:[double]
+            def seen:int 0
+            for rows row:VlJson ri {
+                if (((row.get(domainField)).asString()) == v) {
+                    seen = (seen + 1)
+                    def cell:VlJson (row.get(by))
+                    if (cell.isNumber()) { push gathered cell.num }
+                }
+            }
+            set keyed v (VlTransform.pivotOp(op gathered seen))
+        }
+        def out:[string]
+        for values v2:string vi2 {
+            def at:int (array_length out)
+            def scanning:boolean true
+            while (scanning && (at > 0)) {
+                def mine:double (unwrap (get keyed v2))
+                def theirs:double (unwrap (get keyed (itemAt out (at - 1))))
+                def before:boolean (mine < theirs)
+                if descending { before = (mine > theirs) }
+                if before { at = (at - 1) } { scanning = false }
+            }
+            out = (VlRuntime.insertAt(out v2 at))
+        }
+        return out
+    }
+
+    sfn sortedNatural:[string] (values:[string] descending:boolean) {
+        def numeric:boolean true
+        for values v:string vi {
+            if (! (VlRuntime.looksNumeric(v))) {
+                numeric = false
+            }
+        }
+        def out:[string]
+        for values v2:string vi2 {
+            def at:int (array_length out)
+            def scanning:boolean true
+            while (scanning && (at > 0)) {
+                def before:boolean (VlRuntime.valueBefore(v2 (itemAt out (at - 1)) numeric descending))
+                if before { at = (at - 1) } { scanning = false }
+            }
+            out = (VlRuntime.insertAt(out v2 at))
+        }
+        return out
+    }
+
+    ; A list with a value put at a given index. Ranger has no list insert, so
+    ; the list is rebuilt around it.
+    sfn insertAt:[string] (list:[string] value:string at:int) {
+        def out:[string]
+        def n:int (array_length list)
+        def k:int 0
+        while (k < n) {
+            if (k == at) { push out value }
+            push out (itemAt list k)
+            k = (k + 1)
+        }
+        if (at >= n) { push out value }
+        return out
+    }
+
+    sfn looksNumeric:boolean (text:string) {
+        def n:int (strlen text)
+        if (n == 0) { return false }
+        def k:int 0
+        def digits:int 0
+        while (k < n) {
+            def c:int (charAt text k)
+            if ((c >= 48) && (c <= 57)) {
+                digits = (digits + 1)
+            } {
+                def ok:boolean (((c == 45) || (c == 43)) || ((c == 46) || ((c == 101) || (c == 69))))
+                if (! ok) { return false }
+            }
+            k = (k + 1)
+        }
+        return (digits > 0)
+    }
+
+    sfn valueBefore:boolean (a:string b:string numeric:boolean descending:boolean) {
+        def less:boolean false
+        def more:boolean false
+        if numeric {
+            def av:double (VlFormat.toNumber(a))
+            def bv:double (VlFormat.toNumber(b))
+            less = (av < bv)
+            more = (av > bv)
+        } {
+            less = (VlTransform.textBefore(a b))
+            more = (VlTransform.textBefore(b a))
+        }
+        if descending { return more }
+        return less
+    }
+
     sfn stringList:[string] (v:VlJson) {
         def out:[string]
         if (v.isArray()) {
@@ -1111,7 +1240,8 @@ class VlRuntime {
             def field:string (d.stringOr("field" ""))
             if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
                 def vals:[string] (VlTransform.distinctValues(rows field))
-                for vals v:string vi {
+                def ordered:[string] (VlRuntime.orderDomain(vals rows (d.get("sort")) field))
+                for ordered v:string vi {
                     sc.addDomainValue(v)
                 }
                 return
@@ -1124,7 +1254,7 @@ class VlRuntime {
         if (fieldList.isArray()) {
             if (fieldList.count() > 0) {
                 if (fieldList.at(0).isObject()) {
-                    this.readMultiSourceDomain(sc fieldList)
+                    this.readMultiSourceDomain(sc fieldList (d.get("sort")))
                     return
                 }
             }
@@ -1132,11 +1262,16 @@ class VlRuntime {
         if (d.has("fields")) {
             def fields:[string] (VlRuntime.stringList((d.get("fields"))))
             if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+                def gathered:[string]
                 for fields field:string fi {
                     def vals:[string] (VlTransform.distinctValues(rows field))
                     for vals v:string vi {
-                        sc.addDomainValue(v)
+                        push gathered v
                     }
+                }
+                def orderedMany:[string] (VlRuntime.orderDomain(gathered rows (d.get("sort")) ""))
+                for orderedMany v2:string vi2 {
+                    sc.addDomainValue(v2)
                 }
                 return
             }
@@ -1166,7 +1301,7 @@ class VlRuntime {
 
     ; A layered or concatenated chart shares one scale across several data sets,
     ; and its domain names each of them: [{"data": …, "field": …}, …].
-    fn readMultiSourceDomain:void (sc:VlScale fieldList:VlJson) {
+    fn readMultiSourceDomain:void (sc:VlScale fieldList:VlJson sortDef:VlJson) {
         def discrete:boolean false
         if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
             discrete = true
@@ -1182,7 +1317,8 @@ class VlRuntime {
             def field:string (entry.stringOr("field" ""))
             if discrete {
                 def vals:[string] (VlTransform.distinctValues(rows field))
-                for vals v:string vi {
+                def ordered:[string] (VlRuntime.orderDomain(vals rows sortDef field))
+                for ordered v:string vi {
                     sc.addDomainValue(v)
                 }
             } {

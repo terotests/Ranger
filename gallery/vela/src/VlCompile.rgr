@@ -3049,14 +3049,26 @@ class VlCompile {
                     ; it. Nor is it padded: the reference leaves a date axis
                     ; running exactly from the first instant to the last.
                 } {
-                    sc.setMember("nice" (VlJson.boolValue(true)))
+                    ; A scale told where to run does not get niced: nicing is
+                    ; how a scale CHOOSES round ends, and it has been given
+                    ; them.
+                    if (! (this.domainStated(ch))) {
+                        sc.setMember("nice" (VlJson.boolValue(true)))
+                    }
                     ; A bar's baseline is zero because its LENGTH is the value;
                     ; a line's is not, because only its height is read.
                     if (type != "log") {
                         def reachesZero:boolean (this.zeroFor(ch))
                         sc.setMember("zero" (VlJson.boolValue(reachesZero)))
+                        ; Five pixels of room at the ends, so a BAR sitting on
+                        ; the lowest value is not drawn half outside the plot.
+                        ; Only a bar: a line or a point at the edge of its own
+                        ; scale is where the data put it, and the reference
+                        ; leaves it there.
                         if (! reachesZero) {
-                            sc.setMember("padding" (VlJson.numberValue(5.0)))
+                            if (markName == "bar") {
+                                sc.setMember("padding" (VlJson.numberValue(5.0)))
+                            }
                         }
                     }
                 }
@@ -3155,6 +3167,16 @@ class VlCompile {
     ; The reference's own rule, and it is about the mark rather than the field:
     ; a bar or an area means a quantity measured from nothing, a point or a line
     ; means a position.
+    ; Did the channel say where its scale runs? A stated domain settles both
+    ; the ends and whether they are nice.
+    fn domainStated:boolean (ch:VlChannel) {
+        def declared:VlJson (ch.def0.get("scale"))
+        if (! (declared.isObject())) {
+            return false
+        }
+        return (declared.has("domain"))
+    }
+
     fn zeroFor:boolean (ch:VlChannel) {
         def declared:VlJson (ch.def0.get("scale"))
         if (declared.isObject()) {
@@ -3176,18 +3198,41 @@ class VlCompile {
         ; A line or an area is read along one axis and measured up the other.
         ; The axis it is read ALONG starts wherever the data starts; the one it
         ; is measured up starts at nothing, because the height is the value.
-        if ((markName == "line") || (markName == "area")) {
+        ; A mark with a LENGTH is read along one axis and measured up the other.
+        ; The axis it is read along starts wherever the data starts; the one it
+        ; is measured up starts at nothing, because the length IS the value. A
+        ; bar belongs in this group and was not in it: both of its axes were
+        ; extended to zero, which on a chart whose two axes are both numbers
+        ; drags the whole plot sideways.
+        if (((markName == "line") || (markName == "area")) || (markName == "bar")) {
+            if ((strlen stackField) > 0) {
+                if ((ch.outField()) == stackField) {
+                    return true
+                }
+            }
+            ; The axis it is READ ALONG only starts where the data starts when
+            ; there is something to read along — that is, when the other
+            ; position channel is continuous too. A horizontal bar over a
+            ; column of names has one continuous axis and that axis is its
+            ; length, so it starts at nothing.
+            def other:VlChannel (this.channel("y"))
+            if (ch.name == "y") {
+                other = (this.channel("x"))
+            }
+            if (! other.defined) {
+                return true
+            }
+            if (other.isDiscrete()) {
+                return true
+            }
             return (ch.name == "y")
         }
-        ; A stack reaches from nothing — but only along the axis it stacks. The
-        ; other position channel was being extended to zero as well, which on a
-        ; chart whose both axes are numbers drags the whole plot sideways.
         if ((strlen stackField) > 0) {
             if ((ch.outField()) == stackField) {
                 return true
             }
         }
-        if ((markName == "bar") || (markName == "tick")) {
+        if (markName == "tick") {
             return true
         }
         if ((markName == "point") || (markName == "circle")) {

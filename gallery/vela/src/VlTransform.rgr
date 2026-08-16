@@ -762,28 +762,25 @@ class VlTransform {
         def out:[VlJson]
         for rows row:VlJson ri {
             def at:int (array_length out)
-            while (at > 0) {
+            def scanning:boolean true
+            while (scanning && (at > 0)) {
                 if (VlTransform.rowBefore(row (itemAt out (at - 1)) fields orders)) {
                     at = (at - 1)
                 } {
-                    at = -1
+                    scanning = false
                 }
             }
-            if (at < 0) {
-                push out row
-            } {
-                ; Ranger has no list insert, so the tail is rebuilt.
-                def rebuilt:[VlJson]
-                def k:int 0
-                def n:int (array_length out)
-                while (k < n) {
-                    if (k == at) { push rebuilt row }
-                    push rebuilt (itemAt out k)
-                    k = (k + 1)
-                }
-                if (at >= n) { push rebuilt row }
-                out = rebuilt
+            ; Ranger has no list insert, so the list is rebuilt around it.
+            def rebuilt:[VlJson]
+            def k:int 0
+            def n:int (array_length out)
+            while (k < n) {
+                if (k == at) { push rebuilt row }
+                push rebuilt (itemAt out k)
+                k = (k + 1)
             }
+            if (at >= n) { push rebuilt row }
+            out = rebuilt
         }
         return out
     }
