@@ -752,6 +752,57 @@ class VlRuntime {
         if (ttype == "identifier") {
             return rows
         }
+        ; A date, reduced to the parts a chart groups by. Twelve bars for
+        ; twelve months over four years of daily readings needs every March to
+        ; become the SAME instant, which is what a time unit does — see
+        ; VlTime.timeUnitFloor for why that is a substitution and not a floor.
+        if (ttype == "timeunit") {
+            def field:string (tdef.stringOr("field" ""))
+            def unitsJson:VlJson (tdef.get("units"))
+            def units:[string]
+            if (unitsJson.isArray()) {
+                def uc:int (unitsJson.count())
+                def ui:int 0
+                while (ui < uc) {
+                    def oneUnit:VlJson (unitsJson.at(ui))
+                    push units oneUnit.str
+                    ui = (ui + 1)
+                }
+            }
+            for units unit:string uk {
+                if (! (VlTime.unitKnown(unit))) {
+                    this.fail((("time unit '" + unit) + "' is not implemented (data '") + dataName + "')")
+                    return rows
+                }
+            }
+            def startName:string (field + "_start")
+            def endName:string (field + "_end")
+            def asJson:VlJson (tdef.get("as"))
+            if (asJson.isArray()) {
+                if ((asJson.count()) > 0) {
+                    def firstName:VlJson (asJson.at(0))
+                    startName = firstName.str
+                }
+                if ((asJson.count()) > 1) {
+                    def secondName:VlJson (asJson.at(1))
+                    endName = secondName.str
+                }
+            }
+            def span:string (VlTime.finestUnit(units))
+            def out:[VlJson]
+            for rows row:VlJson ri {
+                def copy:VlJson (VlTransform.copyRow(row))
+                def value:VlJson (row.get(field))
+                if (value.isNumber()) {
+                    def at:double (VlTime.timeUnitFloor(value.num units scope.zone))
+                    copy.setMember(startName (VlJson.numberValue(at)))
+                    copy.setMember(endName (VlJson.numberValue((VlTime.addUnit(at span scope.zone)))))
+                }
+                push out copy
+            }
+            return out
+        }
+
         ; A run of numbers, which is a data set with no data behind it. A
         ; wrapped facet grid is laid out from two of them: as many row indices
         ; as `ceil(facets / columns)`, and as many column indices as there are
@@ -850,9 +901,11 @@ class VlRuntime {
         def sc (new VlScale())
         sc.name = name
         sc.scaleType = (sdef.stringOr("type" "linear"))
-        if (sc.scaleType == "time") {
-            sc.zone = (VlTimeZone.named(timeZoneName))
-        }
+        ; Every scale carries the zone, not only a `time` one. A time unit
+        ; makes a BAND scale whose categories are instants, and an axis over it
+        ; formats them as dates — in UTC, if the band had no zone of its own,
+        ; which labelled a Helsinki January as December.
+        sc.zone = (VlTimeZone.named(timeZoneName))
         if (sdef.has("padding")) {
             sc.paddingInner = (sdef.doubleOr("padding" 0.0))
             sc.paddingOuter = (sdef.doubleOr("padding" 0.0))
@@ -1289,6 +1342,12 @@ class VlRuntime {
         def k:int 0
         while (k < total) {
             def adef:VlJson (config.mergedAxis((axes.at(k))))
+            ; An axis' format may be a SIGNAL rather than a string — the
+            ; official compiler writes `timeUnitSpecifier([...], {...})` there
+            ; rather than the "%b" it evaluates to. Read as a string that is
+            ; the empty string, and an empty format formats every label as
+            ; nothing, so the axis came out with four blank labels.
+            this.resolveTextSignal(adef "format")
             def scaleName:string (adef.stringOr("scale" ""))
             if (! (scope.hasScale(scaleName))) {
                 this.fail(("axis refers to scale '" + scaleName) + "' which the spec does not define")
@@ -1297,7 +1356,7 @@ class VlRuntime {
                 def axis (new VlAxis())
                 axis.readConfig(adef)
                 def tickCount:int (this.axisTickCount(adef))
-                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat))
+                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType))
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))
@@ -1572,6 +1631,25 @@ class VlRuntime {
 
     ; A number a spec may have written as a signal instead, with what to use
     ; when it wrote neither.
+    ; Replace a member that is `{"signal": …}` with what the signal says, in
+    ; place, so that everything downstream can go on reading a plain string.
+    fn resolveTextSignal:void (owner:VlJson key:string) {
+        if (! (owner.has(key))) {
+            return
+        }
+        def v:VlJson (owner.get(key))
+        if (! (v.isObject())) {
+            return
+        }
+        if (! (v.has("signal"))) {
+            return
+        }
+        def out:VlJson (this.evalExpr((v.stringOr("signal" ""))))
+        if (out.isString()) {
+            owner.setMember(key out)
+        }
+    }
+
     fn numberOrSignal:double (v:VlJson fallback:double) {
         if (v.isNumber()) {
             return v.num

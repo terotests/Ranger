@@ -328,18 +328,43 @@
     return (v.trim() !== "" && !Number.isNaN(n)) ? n : v;
   }
 
+  // A relative url is looked for HERE first. The files beside this page carry
+  // the names the published examples ask for — data/cars.json,
+  // data/seattle-weather.csv — with the same columns and entirely invented
+  // numbers, so an example pasted from the Vega site draws without a network
+  // and without this repository depending on someone else's server.
+  //
+  // Which one was used is reported on every chart, because a plausible chart
+  // of Seattle weather that is not Seattle's weather is a worse outcome than
+  // no chart at all.
   async function inlineData(spec) {
     var pending = urlsIn(spec);
     if (!pending.length) return [];
     var notes = [];
     for (var i = 0; i < pending.length; i++) {
       var node = pending[i];
-      var url = /^[a-z]+:\/\//i.test(node.url) ? node.url : DATA_BASE + node.url;
-      status.textContent = "fetching " + node.url + "…";
-      var response = await fetch(url);
-      if (!response.ok) throw new Error("could not fetch " + url + " (" + response.status + ")");
-      var values = parseData(await response.text(), node.url, node.format);
-      notes.push(node.url + " — " + values.length + " rows");
+      var absolute = /^[a-z]+:\/\//i.test(node.url);
+      status.textContent = "loading " + node.url + "…";
+
+      var text = null, ours = false;
+      if (!absolute) {
+        var local = await fetch(node.url).catch(function () { return null; });
+        if (local && local.ok) { text = await local.text(); ours = true; }
+      }
+      if (text === null) {
+        var url = absolute ? node.url : DATA_BASE + node.url;
+        var response = await fetch(url).catch(function () { return null; });
+        if (!response || !response.ok) {
+          throw new Error("could not load " + node.url
+            + (response ? " (" + response.status + ")" : " — no copy here, and the network did not answer"));
+        }
+        text = await response.text();
+      }
+
+      var values = parseData(text, node.url, node.format);
+      notes.push(node.url + " — " + values.length + " rows, "
+        + (ours ? "from this page's own stand-in data (invented numbers, real column names)"
+                : "fetched from " + DATA_BASE));
       node.values = values;
       delete node.url;
       delete node.format;

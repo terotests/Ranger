@@ -101,6 +101,9 @@ class VlAxis {
     ; axis and a different rule entirely.
     def labelFormat:string ""
     def labelFormatSet:boolean false
+    ; "time" makes a label a date rather than a number, whatever kind of scale
+    ; it sits on: a band whose categories are instants is still a set of dates.
+    def labelFormatType:string ""
 
     ; Filled in by build(), read by the layout step.
     def labelExtent:double 0.0
@@ -146,6 +149,7 @@ class VlAxis {
         domainOpacity = (adef.doubleOr("domainOpacity" domainOpacity))
         labelFormatSet = (adef.has("format"))
         labelFormat = (adef.stringOr("format" ""))
+        labelFormatType = (adef.stringOr("formatType" ""))
         this.readFlush((adef.get("labelFlush")))
         this.readOverlap((adef.get("labelOverlap")))
         labelAngle = (adef.doubleOr("labelAngle" labelAngle))
@@ -236,7 +240,7 @@ class VlAxis {
     ; --------------------------------------------------------------- ticks ----
     ; A band or point scale is labelled by its domain; a quantitative one by the
     ; tick algorithm. `bandPosition` centres a band's label under its band.
-    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string) {
+    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string formatType:string) {
         def out:[VlAxisTickValue]
         ; A binned scale is labelled at its bin boundaries. Asking the tick
         ; algorithm instead gives a tick count that has nothing to do with the
@@ -272,7 +276,14 @@ class VlAxis {
                 if (sc.scaleType == "band") {
                     tv.labelPosition = (tv.position - 0.5)
                 }
+                ; A discrete domain of INSTANTS is what a time unit produces —
+                ; twelve months are twelve categories, and each one is a date.
+                ; Printed as a category name it reads as thirteen digits of
+                ; milliseconds, so the axis is told to read them as times.
                 tv.label = name
+                if (formatType == "time") {
+                    tv.label = (VlTime.format((VlFormat.toNumber(name)) format sc.zone))
+                }
                 push out tv
             }
             return out
@@ -345,6 +356,9 @@ class VlAxis {
         group.setNumber("minExtent" minExtent)
         group.setNumber("maxExtent" maxExtent)
         group.setNumber("range" range)
+        if ((strlen labelFormatType) > 0) {
+            group.setString("formatType" labelFormatType)
+        }
         if labelFormatSet {
             group.setString("format" labelFormat)
         }

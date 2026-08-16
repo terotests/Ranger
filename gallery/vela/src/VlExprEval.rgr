@@ -526,6 +526,88 @@ class VlExprEval {
             }
             return (VlJson.intValue((strlen (a0.asString()))))
         }
+        ; The format string a set of time units labels itself with. The
+        ; reference's own compiler writes this into an axis rather than the
+        ; string it produces, so a specification compiled by the official
+        ; Vega-Lite cannot be RUN here without it.
+        ;
+        ; The second argument overrides individual entries, which is how
+        ; Vega-Lite states that a year and a month together read "Jan 2012"
+        ; rather than "2012 Jan".
+        if (name == "timeUnitSpecifier") {
+            def units:[string]
+            if (a0.kind == 4) {
+                def uc:int (a0.count())
+                def uk:int 0
+                while (uk < uc) {
+                    def oneUnit:VlJson (a0.at(uk))
+                    push units (oneUnit.asString())
+                    uk = (uk + 1)
+                }
+            } {
+                push units (a0.asString())
+            }
+            def total:int (array_length units)
+            def text:string ""
+            def start:int 0
+            def guard:int 0
+            while ((start < total) && (guard < 16)) {
+                guard = (guard + 1)
+                def end:int total
+                def matched:boolean false
+                while ((end > start) && (! matched)) {
+                    def key:string ""
+                    def kk:int start
+                    while (kk < end) {
+                        if (kk > start) {
+                            key = (key + "-")
+                        }
+                        key = (key + (itemAt units kk))
+                        kk = (kk + 1)
+                    }
+                    def piece:string ""
+                    if (argc > 1) {
+                        if (a1.has(key)) {
+                            piece = (a1.stringOr(key ""))
+                        }
+                    }
+                    if ((strlen piece) == 0) {
+                        piece = (VlTime.specifierFor(key))
+                    }
+                    if ((strlen piece) > 0) {
+                        text = (text + piece)
+                        start = end
+                        matched = true
+                    } {
+                        end = (end - 1)
+                    }
+                }
+                if (! matched) {
+                    start = (start + 1)
+                }
+            }
+            return (VlJson.stringValue((VlTime.trimEnd(text))))
+        }
+
+        ; Where a value sits in a list, or -1. A stack whose order was declared
+        ; rather than derived is sorted by exactly this: the segment's place in
+        ; the colour scale's own domain.
+        if (name == "indexof") {
+            if (a0.kind == 4) {
+                def total:int (a0.count())
+                def wanted:string (a1.asString())
+                def at:int 0
+                while (at < total) {
+                    def entry:VlJson (a0.at(at))
+                    if ((entry.asString()) == wanted) {
+                        return (VlJson.intValue(at))
+                    }
+                    at = (at + 1)
+                }
+                return (VlJson.intValue((0 - 1)))
+            }
+            return (VlJson.intValue((indexOf (a0.asString()) (a1.asString()))))
+        }
         if (name == "join") {
             def sep:string ","
             if (argc > 1) {

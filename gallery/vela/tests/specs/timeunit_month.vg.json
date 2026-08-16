@@ -1,0 +1,272 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "description": "A timeUnit groups every March in four years of daily readings onto one bar. It is a substitution and not a floor — the fields the unit does not name come from a fixed reference year — and the axis labels the result as a date even though the scale is a band.",
+  "background": "white",
+  "padding": 5,
+  "width": 180,
+  "height": 120,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "date": "2012-01-14",
+          "weather": "rain"
+        },
+        {
+          "date": "2012-02-05",
+          "weather": "snow"
+        },
+        {
+          "date": "2012-03-09",
+          "weather": "sun"
+        },
+        {
+          "date": "2013-01-22",
+          "weather": "sun"
+        },
+        {
+          "date": "2013-03-11",
+          "weather": "rain"
+        },
+        {
+          "date": "2013-04-02",
+          "weather": "sun"
+        },
+        {
+          "date": "2014-02-17",
+          "weather": "rain"
+        },
+        {
+          "date": "2014-03-28",
+          "weather": "sun"
+        },
+        {
+          "date": "2014-04-19",
+          "weather": "rain"
+        },
+        {
+          "date": "2015-01-08",
+          "weather": "snow"
+        },
+        {
+          "date": "2015-03-30",
+          "weather": "sun"
+        },
+        {
+          "date": "2015-04-25",
+          "weather": "sun"
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "formula",
+          "expr": "toDate(datum[\"date\"])",
+          "as": "date"
+        },
+        {
+          "type": "formula",
+          "expr": "indexof([\"sun\",\"rain\",\"snow\"], datum['weather'])",
+          "as": "_weather_sort_index"
+        },
+        {
+          "field": "date",
+          "type": "timeunit",
+          "units": [
+            "month"
+          ],
+          "as": [
+            "month_date",
+            "month_date_end"
+          ]
+        },
+        {
+          "type": "aggregate",
+          "groupby": [
+            "month_date",
+            "weather",
+            "_weather_sort_index"
+          ],
+          "ops": [
+            "count"
+          ],
+          "fields": [
+            null
+          ],
+          "as": [
+            "__count"
+          ]
+        },
+        {
+          "type": "stack",
+          "groupby": [
+            "month_date"
+          ],
+          "field": "__count",
+          "sort": {
+            "field": [
+              "_weather_sort_index"
+            ],
+            "order": [
+              "descending"
+            ]
+          },
+          "as": [
+            "__count_start",
+            "__count_end"
+          ],
+          "offset": "zero"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "rect",
+      "style": [
+        "bar"
+      ],
+      "from": {
+        "data": "data_0"
+      },
+      "encode": {
+        "update": {
+          "fill": {
+            "scale": "color",
+            "field": "weather"
+          },
+          "ariaRoleDescription": {
+            "value": "bar"
+          },
+          "description": {
+            "signal": "\"Month of the year: \" + (timeFormat(datum[\"month_date\"], timeUnitSpecifier([\"month\"], {\"year-month\":\"%b %Y \",\"year-month-date\":\"%b %d, %Y \"}))) + \"; Number of days: \" + (format(datum[\"__count\"], \"\")) + \"; Weather type: \" + (isValid(datum[\"weather\"]) ? isArray(datum[\"weather\"]) ? join(datum[\"weather\"], ' ') : datum[\"weather\"] : \"\"+datum[\"weather\"])"
+          },
+          "x": {
+            "scale": "x",
+            "field": "month_date"
+          },
+          "width": {
+            "signal": "max(0.25, bandwidth('x'))"
+          },
+          "y": {
+            "scale": "y",
+            "field": "__count_end"
+          },
+          "y2": {
+            "scale": "y",
+            "field": "__count_start"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "band",
+      "domain": {
+        "data": "data_0",
+        "field": "month_date",
+        "sort": true
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ],
+      "paddingInner": 0.1,
+      "paddingOuter": 0.05
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "fields": [
+          "__count_start",
+          "__count_end"
+        ]
+      },
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ],
+      "nice": true,
+      "zero": true
+    },
+    {
+      "name": "color",
+      "type": "ordinal",
+      "domain": [
+        "sun",
+        "rain",
+        "snow"
+      ],
+      "range": [
+        "#e7ba52",
+        "#1f77b4",
+        "#9467bd"
+      ]
+    }
+  ],
+  "axes": [
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "Month of the year",
+      "format": {
+        "signal": "timeUnitSpecifier([\"month\"], {\"year-month\":\"%b %Y \",\"year-month-date\":\"%b %d, %Y \"})"
+      },
+      "formatType": "time",
+      "labelOverlap": true,
+      "tickMinStep": {
+        "signal": "datetime(2001, 1, 1, 0, 0, 0, 0) - datetime(2001, 0, 1, 0, 0, 0, 0)"
+      },
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "Number of days",
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "zindex": 0
+    }
+  ],
+  "legends": [
+    {
+      "title": "Weather type",
+      "fill": "color",
+      "symbolType": "square"
+    }
+  ]
+}

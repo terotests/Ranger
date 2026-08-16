@@ -34,6 +34,7 @@
 ; ==============================================================================
 
 Import "VlJson.rgr"
+Import "VlTime.rgr"
 
 ; One entry of the `encoding` block, read once so the rest of the file asks
 ; questions of a field rather than of a JSON object.
@@ -44,6 +45,8 @@ class VlChannel {
     def kind:string "quantitative"
     def aggregate:string ""
     def timeUnit:string ""
+    ; The unit spelled out: "yearmonth" is ["year", "month"].
+    def timeUnits:[string]
     def hasBin:boolean false
     def hasValue:boolean false
     def value:VlJson (new VlJson)
@@ -54,6 +57,14 @@ class VlChannel {
     ; The name the field carries after the transforms have run: `sum_b` once it
     ; is aggregated, `bin_maxbins_10_b` once it is binned.
     fn outField:string () {
+        ; A time unit renames the field it reads: `month` over `date` becomes
+        ; `month_date`, which is what the scales, the marks and the axis all
+        ; then refer to.
+        if ((strlen timeUnit) > 0) {
+            if ((strlen aggregate) == 0) {
+                return ((timeUnit + "_") + field)
+            }
+        }
         if ((strlen aggregate) > 0) {
             if (aggregate == "count") {
                 return "__count"
@@ -85,6 +96,17 @@ class VlChannel {
     ; What the axis and the legend call it: "Sum of b", "b (binned)", "Count of
     ; records" — the reference's own title rules.
     fn title:string () {
+        ; A channel may name itself, and the name it gives wins over anything
+        ; derived from the field.
+        def stated:string (def0.stringOr("title" ""))
+        if ((strlen stated) > 0) {
+            return stated
+        }
+        if ((strlen timeUnit) > 0) {
+            if ((strlen aggregate) == 0) {
+                return ((field + " (") + (timeUnit + ")"))
+            }
+        }
         if (aggregate == "count") {
             return "Count of Records"
         }
@@ -1528,7 +1550,18 @@ class VlCompile {
                 }
             }
             if ((strlen ch.timeUnit) > 0) {
-                this.fail("timeUnit is not compiled here")
+                ; The unit is written as one word — `yearmonthdate` — and means
+                ; the list of parts it spells out.
+                ch.timeUnits = (VlCompile.splitTimeUnit(ch.timeUnit))
+                if ((array_length ch.timeUnits) == 0) {
+                    this.fail(("the time unit '" + ch.timeUnit) + "' is not one this knows")
+                } {
+                    for ch.timeUnits tu:string tui {
+                        if (! (VlTime.unitKnown(tu))) {
+                            this.fail(((("the time unit '" + ch.timeUnit) + "' needs '") + tu) + "', which is not implemented")
+                        }
+                    }
+                }
             }
             push channels ch
         }
@@ -1880,6 +1913,8 @@ class VlCompile {
 
         this.pushTimeParse(transforms)
         this.pushSpecTransforms(transforms)
+        this.pushDomainOrder(transforms)
+        this.pushTimeUnits(transforms)
         this.pushBin(transforms)
         this.pushAggregate(transforms)
         this.pushImpute(transforms)
@@ -1949,18 +1984,116 @@ class VlCompile {
         return "?"
     }
 
+    ; `yearmonthdate` is three units written as one word, and the words are
+    ; matched longest-first because `date` and `day` both begin with `d` and
+    ; `milliseconds` begins with `minutes`' first letter. Anything left over
+    ; means the whole name was not understood, and an empty answer says so.
+    sfn splitTimeUnit:[string] (name:string) {
+        def known:[string]
+        push known "milliseconds"
+        push known "seconds"
+        push known "minutes"
+        push known "hours"
+        push known "quarter"
+        push known "month"
+        push known "date"
+        push known "dayofyear"
+        push known "day"
+        push known "week"
+        push known "year"
+
+        def rest:string name
+        ; A `utc` prefix asks for the unit in UTC rather than in the chart's
+        ; zone. The zone is already an input here rather than the machine's, so
+        ; the prefix names the same thing this already does.
+        if ((strlen rest) > 3) {
+            if ((substring rest 0 3) == "utc") {
+                rest = (substring rest 3 (strlen rest))
+            }
+        }
+        def out:[string]
+        def guard:int 0
+        while (((strlen rest) > 0) && (guard < 12)) {
+            guard = (guard + 1)
+            def matched:boolean false
+            for known unit:string ui {
+                if (! matched) {
+                    def n:int (strlen unit)
+                    if ((strlen rest) >= n) {
+                        if ((substring rest 0 n) == unit) {
+                            push out unit
+                            rest = (substring rest n (strlen rest))
+                            matched = true
+                        }
+                    }
+                }
+            }
+            if (! matched) {
+                def empty:[string]
+                return empty
+            }
+        }
+        if ((strlen rest) > 0) {
+            def unread:[string]
+            return unread
+        }
+        return out
+    }
+
+    ; The transform a time unit needs, before anything aggregates over it: the
+    ; field is reduced to the parts the unit names, so that every March becomes
+    ; the same instant and can be counted as one.
+    fn pushTimeUnits:void (transforms:VlJson) {
+        def seen:[string]
+        for channels ch:VlChannel ci {
+            if ((strlen ch.timeUnit) > 0) {
+                if ((strlen ch.field) > 0) {
+                    def name:string ((ch.timeUnit + "_") + ch.field)
+                    if (! (VlTime.hasUnit(seen name))) {
+                        push seen name
+                        def t (VlJson.objectValue())
+                        t.setMember("field" (VlJson.stringValue(ch.field)))
+                        t.setMember("type" (VlJson.stringValue("timeunit")))
+                        def units (VlJson.arrayValue())
+                        for ch.timeUnits unit:string ui {
+                            push units.arr (VlJson.stringValue(unit))
+                        }
+                        t.setMember("units" units)
+                        def names (VlJson.arrayValue())
+                        push names.arr (VlJson.stringValue(name))
+                        push names.arr (VlJson.stringValue((name + "_end")))
+                        t.setMember("as" names)
+                        push transforms.arr t
+                    }
+                }
+            }
+        }
+    }
+
     ; A date arrives as text and has to become an instant before a scale can
     ; place it, which the reference does with a formula rather than by teaching
     ; the scale to parse.
     fn pushTimeParse:void (transforms:VlJson) {
+        def done:[string]
         for channels ch:VlChannel ci {
-            if (ch.kind == "temporal") {
+            ; A field a time unit reads has to be a date first, whatever the
+            ; channel calls its own type — `timeUnit: "month"` with
+            ; `type: "ordinal"` is the commonest way anyone writes a chart of
+            ; months, and the field arriving as text is the usual case.
+            def needsDate:boolean (ch.kind == "temporal")
+            if ((strlen ch.timeUnit) > 0) {
+                needsDate = true
+            }
+            if needsDate {
                 if ((strlen ch.field) > 0) {
-                    def t (VlJson.objectValue())
-                    t.setMember("type" (VlJson.stringValue("formula")))
-                    t.setMember("expr" (VlJson.stringValue((("toDate(datum[\"" + ch.field) + "\"])"))))
-                    t.setMember("as" (VlJson.stringValue(ch.field)))
-                    push transforms.arr t
+                    if (! (VlTime.hasUnit(done ch.field))) {
+                        push done ch.field
+                        def t (VlJson.objectValue())
+                        t.setMember("type" (VlJson.stringValue("formula")))
+                        t.setMember("expr" (VlJson.stringValue((("toDate(datum[\"" + ch.field) + "\"])"))))
+                        t.setMember("as" (VlJson.stringValue(ch.field)))
+                        push transforms.arr t
+                    }
                 }
             }
         }
@@ -2031,7 +2164,19 @@ class VlCompile {
                         push groupby.arr (VlJson.stringValue((ch2.binEndField())))
                     } {
                         if ((strlen ch2.field) > 0) {
-                            push groupby.arr (VlJson.stringValue(ch2.field))
+                            ; The derived name, not the raw one: a channel with
+                            ; a time unit groups by the truncated field, which
+                            ; is the whole reason it was computed.
+                            push groupby.arr (VlJson.stringValue((ch2.outField())))
+                            ; An aggregate keeps only what it groups by, so a
+                            ; field computed purely to order the stack has to be
+                            ; grouped by as well or it does not survive to be
+                            ; sorted on. It is constant within the group it
+                            ; belongs to, so grouping by it splits nothing.
+                            def orderField:string (this.domainOrderField(ch2))
+                            if ((strlen orderField) > 0) {
+                                push groupby.arr (VlJson.stringValue(orderField))
+                            }
                         }
                     }
                 }
@@ -2116,7 +2261,16 @@ class VlCompile {
         def colour:VlChannel (this.channel("color"))
         if colour.defined {
             if ((strlen colour.field) > 0) {
-                push sortFields.arr (VlJson.stringValue(colour.field))
+                ; A stack is ordered by the SCALE's domain when one was given,
+                ; not by the field's own values. `domain: ["sun","rain","snow"]`
+                ; says what order the segments go in; sorting the strings
+                ; instead puts them in alphabetical order, which is a different
+                ; chart with the same colours.
+                def sortBy:string colour.field
+                if ((strlen (this.domainOrderField(colour))) > 0) {
+                    sortBy = (this.domainOrderField(colour))
+                }
+                push sortFields.arr (VlJson.stringValue(sortBy))
                 ; A bar's y axis points down the page, so the first colour has
                 ; to be stacked last to end up on top. A pie has no inverted
                 ; axis and reads the other way.
@@ -2318,7 +2472,64 @@ class VlCompile {
                 }
             }
         }
+        this.applyDeclaredScale(sc ch)
         push out.arr sc
+    }
+
+    ; The name of the field holding a value's place in its scale's declared
+    ; domain, or "" when the scale declared no domain to place it in.
+    fn domainOrderField:string (ch:VlChannel) {
+        def declared:VlJson (ch.def0.get("scale"))
+        if (! (declared.isObject())) {
+            return ""
+        }
+        def domain:VlJson (declared.get("domain"))
+        if (! (domain.isArray())) {
+            return ""
+        }
+        if ((strlen ch.field) == 0) {
+            return ""
+        }
+        return (("_" + ch.field) + "_sort_index")
+    }
+
+    ; …and the formula that computes it. `indexof` over the declared domain,
+    ; which is exactly what the reference emits.
+    fn pushDomainOrder:void (transforms:VlJson) {
+        for channels ch:VlChannel ci {
+            def name:string (this.domainOrderField(ch))
+            if ((strlen name) > 0) {
+                def declared:VlJson (ch.def0.get("scale"))
+                def domain:VlJson (declared.get("domain"))
+                def w (new VlJsonWriter())
+                def t (VlJson.objectValue())
+                t.setMember("type" (VlJson.stringValue("formula")))
+                t.setMember("expr" (VlJson.stringValue(((("indexof(" + (w.write(domain))) + ", datum['") + (ch.field + "'])")))))
+                t.setMember("as" (VlJson.stringValue(name)))
+                push transforms.arr t
+            }
+        }
+    }
+
+    ; What a channel SAID its scale should be, laid over what was derived from
+    ; the data. `{"scale": {"domain": [...], "range": [...]}}` is how anyone
+    ; fixes the order of a stack or gives a series its own colours, and it was
+    ; being ignored: the domain came out in first-seen order and the range came
+    ; out of the default palette, so the colours were the right colours for the
+    ; wrong categories.
+    ;
+    ; `type` is left out of this deliberately — it is read earlier, by
+    ; scaleTypeFor, because it decides which branch built the scale at all.
+    fn applyDeclaredScale:void (sc:VlJson ch:VlChannel) {
+        def declared:VlJson (ch.def0.get("scale"))
+        if (! (declared.isObject())) {
+            return
+        }
+        for declared.keys key:string ki {
+            if (key != "type") {
+                sc.setMember(key (declared.get(key)))
+            }
+        }
     }
 
     ; The reference's own rule, and it is about the mark rather than the field:
@@ -2443,6 +2654,7 @@ class VlCompile {
             sc.setMember("interpolate" (VlJson.stringValue("hcl")))
             sc.setMember("zero" (VlJson.boolValue(false)))
         }
+        this.applyDeclaredScale(sc ch)
         push out.arr sc
     }
 
@@ -2567,9 +2779,14 @@ class VlCompile {
             ; Category names along the foot of a chart do not fit side by side,
             ; so the reference turns them upright unless the spec says
             ; otherwise. A vertical axis has room and keeps them level.
+            ; …but a month is not a category name. A channel with a time unit
+            ; is labelled with dates, which are short and which the reference
+            ; leaves level however discrete the scale under them is.
             if (ch.isDiscrete()) {
-                if (! (a.has("labelAngle"))) {
-                    a.setMember("labelAngle" (VlJson.numberValue(270.0)))
+                if ((strlen ch.timeUnit) == 0) {
+                    if (! (a.has("labelAngle"))) {
+                        a.setMember("labelAngle" (VlJson.numberValue(270.0)))
+                    }
                 }
             }
         }
@@ -2577,6 +2794,13 @@ class VlCompile {
             if ((ch.outField()) == stackField) {
                 a.setMember("format" (VlJson.stringValue(".0%")))
             }
+        }
+        ; A time unit's labels are dates, whatever the channel calls its type:
+        ; the values on the axis are instants, and printed as numbers they read
+        ; as thirteen digits of milliseconds.
+        if ((strlen ch.timeUnit) > 0) {
+            a.setMember("format" (VlJson.stringValue((VlTime.unitFormat(ch.timeUnits)))))
+            a.setMember("formatType" (VlJson.stringValue("time")))
         }
         if (ch.isContinuous()) {
             ; The first and last labels of a horizontal continuous axis are
@@ -3024,6 +3248,12 @@ class VlCompile {
                     if ch.hasBin {
                         out = (out + (VlCompile.describeBin((ch.outField()) (ch.binEndField()))))
                     } {
+                    ; A time unit's value is an instant however the channel
+                    ; declared its type, so it is named as a date and in the
+                    ; unit's own format — "Jan", not thirteen digits.
+                    if ((strlen ch.timeUnit) > 0) {
+                        out = (out + (VlCompile.describeUnit((ch.outField()) (VlTime.unitFormat(ch.timeUnits)))))
+                    } {
                     if (ch.kind == "temporal") {
                         out = (out + (VlCompile.describeDate((ch.outField()))))
                     } {
@@ -3035,6 +3265,7 @@ class VlCompile {
                         } {
                             out = (out + (VlCompile.describeOne((ch.outField()) (ch.isDiscrete()))))
                         }
+                    }
                     }
                     }
                 }
@@ -3066,6 +3297,10 @@ class VlCompile {
 
     sfn describeShare:string (field:string) {
         return ((((("(format(datum[\"" + field) + "_end\"]-datum[\"") + field) + "_start\"], \".0%\"))"))
+    }
+
+    sfn describeUnit:string (field:string spec:string) {
+        return ((((("(timeFormat(datum[\"" + field) + "\"], \"") + spec) + "\"))"))
     }
 
     sfn describeDate:string (field:string) {

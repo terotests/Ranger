@@ -1,0 +1,63 @@
+rect x=0.5 y=0.5 w=180 h=120 stroke=#ddd strokeWidth=1
+group-begin
+group-begin
+line x=0.5 y=120.5 x2=180.5 y2=120.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=90.5 x2=180.5 y2=90.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=60.5 x2=180.5 y2=60.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=30.5 x2=180.5 y2=30.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=0.5 x2=180.5 y2=0.5 stroke=#ddd strokeWidth=1
+group-end
+group-begin
+line x=22.5 y=120.5 x2=22.5 y2=125.5 stroke=#888 strokeWidth=1
+line x=67.5 y=120.5 x2=67.5 y2=125.5 stroke=#888 strokeWidth=1
+line x=112.5 y=120.5 x2=112.5 y2=125.5 stroke=#888 strokeWidth=1
+line x=157.5 y=120.5 x2=157.5 y2=125.5 stroke=#888 strokeWidth=1
+text x=22.5 y=127.5 size=10 align=center text=Jan fill=#000
+text x=67.5 y=127.5 size=10 align=center text=Feb fill=#000
+text x=112.5 y=127.5 size=10 align=center text=Mar fill=#000
+text x=157.5 y=127.5 size=10 align=center text=Apr fill=#000
+line x=0.5 y=120.5 x2=180.5 y2=120.5 stroke=#888 strokeWidth=1
+text x=90.5 y=141.5 size=11 align=center text=Month of the year fill=#000
+group-end
+group-begin
+line x=0.5 y=120.5 x2=-4.5 y2=120.5 stroke=#888 strokeWidth=1
+line x=0.5 y=90.5 x2=-4.5 y2=90.5 stroke=#888 strokeWidth=1
+line x=0.5 y=60.5 x2=-4.5 y2=60.5 stroke=#888 strokeWidth=1
+line x=0.5 y=30.5 x2=-4.5 y2=30.5 stroke=#888 strokeWidth=1
+line x=0.5 y=0.5 x2=-4.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-6.5 y=120.5 size=10 align=right text=0 fill=#000
+text x=-6.5 y=90.5 size=10 align=right text=1 fill=#000
+text x=-6.5 y=60.5 size=10 align=right text=2 fill=#000
+text x=-6.5 y=30.5 size=10 align=right text=3 fill=#000
+text x=-6.5 y=0.5 size=10 align=right text=4 fill=#000
+line x=0.5 y=120.5 x2=0.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-18.5 y=60.5 size=11 align=center text=Number of days fill=#000
+group-end
+rect x=2.25 y=60 w=40.5 h=30 fill=#1f77b4
+rect x=47.25 y=90 w=40.5 h=30 fill=#9467bd
+rect x=92.25 y=0 w=40.5 h=90 fill=#e7ba52
+rect x=2.25 y=30 w=40.5 h=30 fill=#e7ba52
+rect x=92.25 y=90 w=40.5 h=30 fill=#1f77b4
+rect x=137.25 y=30 w=40.5 h=60 fill=#e7ba52
+rect x=47.25 y=60 w=40.5 h=30 fill=#1f77b4
+rect x=137.25 y=90 w=40.5 h=30 fill=#1f77b4
+rect x=2.25 y=90 w=40.5 h=30 fill=#9467bd
+group-begin
+group-begin
+group-begin
+symbol x=204 y=22 size=100 shape=square fill=#e7ba52
+text x=214 y=22 size=10 align=left text=sun fill=#000
+group-end
+group-begin
+symbol x=204 y=35 size=100 shape=square fill=#1f77b4
+text x=214 y=35 size=10 align=left text=rain fill=#000
+group-end
+group-begin
+symbol x=204 y=48 size=100 shape=square fill=#9467bd
+text x=214 y=48 size=10 align=left text=snow fill=#000
+group-end
+group-end
+text x=198 y=0 size=11 align=left text=Weather type fill=#000
+group-end
+group-end
+

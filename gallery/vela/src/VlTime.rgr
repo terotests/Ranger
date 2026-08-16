@@ -663,6 +663,14 @@ class VlTime {
             return (ms + (VlTime.msPerWeek()))
         }
         def p:VlTimeParts (VlTime.partsOfUtc(ms))
+        if (unit == "quarter") {
+            p.month = (p.month + 3)
+            while (p.month > 12) {
+                p.month = (p.month - 12)
+                p.year = (p.year + 1)
+            }
+            return (VlTime.msOfUtc(p))
+        }
         if (unit == "month") {
             p.month = (p.month + 1)
             if (p.month > 12) {
@@ -733,6 +741,211 @@ class VlTime {
 
     sfn floorTo:double (ms:double unit:string zone:VlTimeZone) {
         return (VlTime.shiftBack((VlTime.floorToUtc((VlTime.shiftInto(ms zone)) unit)) zone))
+    }
+
+    ; ------------------------------------------------------------ time unit ---
+    ; What `timeUnit: "month"` means, which is NOT "the first of that month".
+    ;
+    ; A time unit keeps the fields it names and REPLACES the rest, so that every
+    ; March in the data lands on the same instant and can be counted together.
+    ; The fields it does not name are filled from a fixed reference year — 2012,
+    ; the reference's own choice, a leap year that begins on a Sunday so that
+    ; both the 29th of February and the days of the week come out somewhere real.
+    ;
+    ; `yearmonth` therefore keeps 2015 and gives 2015-03-01; a bare `month`
+    ; gives 2012-03-01 whatever year it was handed. Truncating instead of
+    ; substituting — flooring 2015-03-09 to 2015-03-01 — draws twelve bars per
+    ; year rather than twelve bars, which is a different chart.
+    sfn referenceYear:int () {
+        return 2012
+    }
+
+    sfn timeUnitFloor:double (ms:double units:[string] zone:VlTimeZone) {
+        def p:VlTimeParts (VlTime.partsOf(ms zone))
+        def out (new VlTimeParts())
+
+        out.year = (VlTime.referenceYear())
+        if (VlTime.hasUnit(units "year")) {
+            out.year = p.year
+        }
+
+        out.month = 1
+        if (VlTime.hasUnit(units "month")) {
+            out.month = p.month
+        } {
+            if (VlTime.hasUnit(units "quarter")) {
+                ; The first month of the quarter the date fell in.
+                out.month = (((idiv (p.month - 1) 3) * 3) + 1)
+            }
+        }
+
+        out.day = 1
+        if (VlTime.hasUnit(units "date")) {
+            out.day = p.day
+        } {
+            ; `day` is the day of the WEEK, and the date it maps to is whichever
+            ; day of the reference year's first week falls on that weekday. The
+            ; reference year begins on a Sunday, which is what makes the seven
+            ; answers come out as the 1st to the 7th in weekday order.
+            if (VlTime.hasUnit(units "day")) {
+                out.day = (VlTime.weekdayDate(p.weekday out.year))
+            }
+        }
+
+        out.hours = 0
+        if (VlTime.hasUnit(units "hours")) {
+            out.hours = p.hours
+        }
+        out.minutes = 0
+        if (VlTime.hasUnit(units "minutes")) {
+            out.minutes = p.minutes
+        }
+        out.seconds = 0
+        if (VlTime.hasUnit(units "seconds")) {
+            out.seconds = p.seconds
+        }
+        out.millis = 0
+        if (VlTime.hasUnit(units "milliseconds")) {
+            out.millis = p.millis
+        }
+        return (VlTime.msOf(out zone))
+    }
+
+    ; The day of the month a weekday maps to, in the first week of a year:
+    ; `day + 7 - (firstWeekday + 6) % 7`, the reference's own expression. In a
+    ; year that starts on a Sunday it answers 1 through 7 for Sunday through
+    ; Saturday.
+    sfn weekdayDate:int (weekday:int year:int) {
+        def first (new VlTimeParts())
+        first.year = year
+        first.month = 1
+        first.day = 1
+        def firstParts:VlTimeParts (VlTime.partsOfUtc((VlTime.msOfUtc(first))))
+        def firstWeekday:int firstParts.weekday
+        return ((weekday + 7) - (VlTime.floorMod((firstWeekday + 6) 7)))
+    }
+
+    ; The format string a set of time units labels itself with. The reference
+    ; builds it by taking the LONGEST run of units it has a specifier for and
+    ; then continuing from there, which is why `yearmonth` reads "Jan 2012"
+    ; rather than "2012 Jan" — the pair has an entry of its own and it does not
+    ; look like the two singles joined.
+    ;
+    ; The pair and triple entries below are Vega-Lite's overrides rather than
+    ; Vega's own defaults, because Vega-Lite is what passes them in.
+    sfn unitSpecifier:[string] (units:[string]) {
+        def out:[string]
+        def total:int (array_length units)
+        def start:int 0
+        def guard:int 0
+        while ((start < total) && (guard < 16)) {
+            guard = (guard + 1)
+            def end:int total
+            def matched:boolean false
+            while ((end > start) && (! matched)) {
+                def key:string ""
+                def k:int start
+                while (k < end) {
+                    if (k > start) {
+                        key = (key + "-")
+                    }
+                    key = (key + (itemAt units k))
+                    k = (k + 1)
+                }
+                def piece:string (VlTime.specifierFor(key))
+                if ((strlen piece) > 0) {
+                    push out piece
+                    start = end
+                    matched = true
+                } {
+                    end = (end - 1)
+                }
+            }
+            if (! matched) {
+                start = (start + 1)
+            }
+        }
+        return out
+    }
+
+    sfn specifierFor:string (key:string) {
+        if (key == "year") { return "%Y " }
+        if (key == "quarter") { return "Q%q " }
+        if (key == "month") { return "%b " }
+        if (key == "date") { return "%d " }
+        if (key == "day") { return "%a " }
+        if (key == "hours") { return "%H:00" }
+        if (key == "minutes") { return "00:%M" }
+        if (key == "seconds") { return ":%S" }
+        if (key == "milliseconds") { return ".%L" }
+        if (key == "year-month") { return "%b %Y " }
+        if (key == "year-month-date") { return "%b %d, %Y " }
+        if (key == "hours-minutes") { return "%H:%M" }
+        return ""
+    }
+
+    ; The pieces, joined and trimmed — the specifiers carry trailing spaces so
+    ; that two of them read as two words, and the last one's is not wanted.
+    sfn unitFormat:string (units:[string]) {
+        def pieces:[string] (VlTime.unitSpecifier(units))
+        def out:string ""
+        for pieces piece:string pi {
+            out = (out + piece)
+        }
+        return (VlTime.trimEnd(out))
+    }
+
+    sfn trimEnd:string (text:string) {
+        def n:int (strlen text)
+        while (n > 0) {
+            def c:string (substring text (n - 1) n)
+            if ((c == " ") || (c == "\t")) {
+                n = (n - 1)
+            } {
+                return (substring text 0 n)
+            }
+        }
+        return ""
+    }
+
+    sfn hasUnit:boolean (units:[string] name:string) {
+        for units unit:string ui {
+            if (unit == name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; Which units this knows. A `week`, an `isoweek` or a `dayofyear` is a real
+    ; unit with a real rule and none of them are here; a chart that grouped by
+    ; one and got months instead would be silently wrong.
+    sfn unitKnown:boolean (name:string) {
+        if (name == "year") { return true }
+        if (name == "quarter") { return true }
+        if (name == "month") { return true }
+        if (name == "date") { return true }
+        if (name == "day") { return true }
+        if (name == "hours") { return true }
+        if (name == "minutes") { return true }
+        if (name == "seconds") { return true }
+        if (name == "milliseconds") { return true }
+        return false
+    }
+
+    ; The unit a time unit ends after: `yearmonth` spans one month, `month`
+    ; spans one month too, and `hoursminutes` spans a minute. The finest unit
+    ; named is the one that decides.
+    sfn finestUnit:string (units:[string]) {
+        if (VlTime.hasUnit(units "milliseconds")) { return "millisecond" }
+        if (VlTime.hasUnit(units "seconds")) { return "second" }
+        if (VlTime.hasUnit(units "minutes")) { return "minute" }
+        if (VlTime.hasUnit(units "hours")) { return "hour" }
+        if (VlTime.hasUnit(units "date")) { return "day" }
+        if (VlTime.hasUnit(units "day")) { return "day" }
+        if (VlTime.hasUnit(units "month")) { return "month" }
+        if (VlTime.hasUnit(units "quarter")) { return "quarter" }
+        return "year"
     }
 
     ; A day is not always twenty-four hours long. Stepping by a fixed span
