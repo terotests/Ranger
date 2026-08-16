@@ -702,6 +702,35 @@ class VlRuntime {
         ; Columns into rows, and rows into columns. A wide table has to be made
         ; long before a chart can read a series out of it, and a long one has
         ; to be made wide before two of its rows can be subtracted.
+        ; What a row can see of its neighbours: a rank, a running total, the
+        ; value one row back.
+        if (ttype == "window") {
+            def wOps:[string] (VlRuntime.stringList((tdef.get("ops"))))
+            def wFields:[string] (VlRuntime.stringList((tdef.get("fields"))))
+            def wAs:[string] (VlRuntime.stringList((tdef.get("as"))))
+            def wParams:[double] (VlRuntime.numberList((tdef.get("params"))))
+            def wSort:VlJson (tdef.get("sort"))
+            def wSortFields:[string] (VlRuntime.stringList((wSort.get("field"))))
+            def wSortOrders:[string] (VlRuntime.stringList((wSort.get("order"))))
+            def wGroupby:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            ; Vega writes an unbounded frame edge as null; here it is a number
+            ; no real offset reaches. The default frame is everything up to and
+            ; including this row, which is what makes a bare `sum` cumulative.
+            def wFrame:VlJson (tdef.get("frame"))
+            def wStart:int -1000000000
+            def wEnd:int 0
+            if (wFrame.isArray()) {
+                if ((wFrame.count()) > 0) {
+                    def lo:VlJson (wFrame.at(0))
+                    if (lo.isNumber()) { wStart = (to_int lo.num) }
+                }
+                if ((wFrame.count()) > 1) {
+                    def hi:VlJson (wFrame.at(1))
+                    if (hi.isNumber()) { wEnd = (to_int hi.num) } { wEnd = 1000000000 }
+                }
+            }
+            return (VlTransform.window(rows wOps wFields wAs wParams wSortFields wSortOrders wGroupby wStart wEnd))
+        }
         if (ttype == "fold") {
             def foldFields:[string] (VlRuntime.stringList((tdef.get("fields"))))
             def foldAs:[string] (VlRuntime.stringList((tdef.get("as"))))
@@ -893,6 +922,26 @@ class VlRuntime {
         }
         if (v.isString()) {
             push out v.str
+        }
+        return out
+    }
+
+    ; The same, for a list of numbers. A window's `params` carries a null where
+    ; an op takes no parameter, which reads as one here.
+    sfn numberList:[double] (v:VlJson) {
+        def out:[double]
+        if (v.isArray()) {
+            def total:int (v.count())
+            def k:int 0
+            while (k < total) {
+                def entry:VlJson (v.at(k))
+                if (entry.isNumber()) {
+                    push out entry.num
+                } {
+                    push out 1.0
+                }
+                k = (k + 1)
+            }
         }
         return out
     }

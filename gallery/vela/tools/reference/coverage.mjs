@@ -263,14 +263,17 @@ for (const name of names) {
   // a hundred things are wrong when one is.
   const refSize = pageSize(refSvg);
   const gotSize = pageSize(answer.svg);
-  const cause = refSize !== gotSize
-    ? `the page comes out ${gotSize} instead of ${refSize}`
-    : result.findings[0];
+  const sized = refSize !== gotSize ? `the page comes out ${gotSize} instead of ${refSize}` : '';
+  const cause = sized || result.findings[0];
   rows.push({
     name,
     verdict: 'differs',
     why: `${result.matched}/${result.total} — ${cause}`,
     cause,
+    sized: Boolean(sized),
+    // A page of the wrong size moves every mark on it, so the size is reported
+    // first — but it is rarely the whole story, and the ranking below is only
+    // useful if it can also see PAST it to whatever else is wrong.
     findings: result.findings
   });
 }
@@ -291,7 +294,21 @@ function short(text) {
  *  as one. "the transform 'pivot' is not compiled here" and the same sentence
  *  about 'fold' are two reasons; the same sentence twice is one. */
 function reasonKey(why) {
-  return String(why).replace(/'[^']*'/g, "'…'").replace(/"[^"]*"/g, '"…"');
+  return String(why)
+    .replace(/'[^']*'/g, "'…'")
+    .replace(/"[^"]*"/g, '"…"')
+    .replace(/-?\d+(\.\d+)?/g, 'N');
+}
+
+/** A finding with its coordinates and measurements taken out, so that the same
+ *  KIND of difference on twenty charts counts as one thing to fix. */
+function shapeOf(finding) {
+  return String(finding)
+    .replace(/\(#[0-9a-f]{3,8}\)/gi, '(colour)')
+    .replace(/at -?[\d.]+,-?[\d.]+/g, 'at x,y')
+    .replace(/-?[\d.]+x-?[\d.]+/g, 'WxH')
+    .replace(/by [\d.]+px/g, 'by Npx')
+    .replace(/"[^"]*"/g, '"…"');
 }
 
 const TAG = { same: '  ok  ', differs: ' DIFF ', refused: ' no   ', crashed: ' CRASH', skipped: ' --   ' };
@@ -349,9 +366,15 @@ report('what stops it drawing at all, and how many examples each blocks:',
 // Of the charts it DOES draw, what is wrong with them — the same ranking, on
 // the other side of the line. A page of the wrong size dominates this list
 // when a layout rule is off, which is exactly what should be fixed first.
+const sizedOff = rows.filter((r) => r.verdict === 'differs' && r.sized).length;
+if (sizedOff) {
+  console.log(`\nof the ${count('differs')} drawn differently, ${sizedOff} come out a different size`);
+}
+
+// What is wrong INSIDE the drawing, with the coordinates taken out so that the
+// same kind of difference on twenty charts counts as one thing to fix.
 report('what it draws differently, and how many examples each affects:',
-  tally(['differs'], (r) => (/comes out/.test(r.cause) ? 'the page comes out a different size' : r.cause)),
-  12);
+  tally(['differs'], (r) => shapeOf(r.findings[0])), 14);
 
 // A coverage report is a measurement, not a gate: it exits 0 whatever it found,
 // because the number going down is the news and a failing exit code would only

@@ -21,6 +21,7 @@
 Import "VlJson.rgr"
 Import "VlMath.rgr"
 Import "VlTime.rgr"
+Import "VlFormat.rgr"
 
 class VlScaleTick {
     def value:double 0.0
@@ -749,12 +750,19 @@ class VlScale {
         return out
     }
 
+    ; A tick's text when the specification named no format. The reference's own
+    ; default is `,` — thousands are grouped — and it applies to every guide it
+    ; draws. Nothing in the curated suite has an axis that reaches a thousand,
+    ; so this was missing for as long as there was nothing to notice it: a
+    ; count axis read 15000 where the reference reads 15,000, and the label is
+    ; then a different WIDTH, which moves the axis, which moves the plot, which
+    ; changes the size of the page.
     sfn appendLabel:[string] (out:[string] value:double decimals:int) {
         def text:string (VlJson.formatNumber(value decimals))
         if (decimals > 0) {
             text = (VlScale.padDecimals(text decimals))
         }
-        push out (VlJson.withMinusSign(text))
+        push out (VlJson.withMinusSign((VlFormat.group(text))))
         return out
     }
 

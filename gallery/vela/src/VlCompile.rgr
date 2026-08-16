@@ -123,7 +123,17 @@ class VlChannel {
         }
         if ((strlen timeUnit) > 0) {
             if ((strlen aggregate) == 0) {
-                return ((field + " (") + (timeUnit + ")"))
+                ; The unit is written as one word and READ as its parts, so an
+                ; axis of `yearmonth` is titled "date (year-month)" — the
+                ; reference hyphenates it, and a title is a string a person is
+                ; meant to read.
+                def spelled:string ""
+                for timeUnits part:string pi {
+                    if (pi > 0) { spelled = (spelled + "-") }
+                    spelled = (spelled + part)
+                }
+                if ((strlen spelled) == 0) { spelled = timeUnit }
+                return ((field + " (") + (spelled + ")"))
             }
         }
         if (aggregate == "count") {
@@ -1619,15 +1629,14 @@ class VlCompile {
         if (ch.hasBin) { return "quantitative" }
         if ((strlen ch.aggregate) > 0) { return "quantitative" }
         if ((strlen ch.timeUnit) > 0) { return "temporal" }
-        if (ch.hasValue) { return "quantitative" }
-        if ((strlen ch.field) == 0) { return "quantitative" }
-
-        def values:VlJson (this.inlineValues())
-        if (! (values.isArray())) {
-            this.fail((("the channel '" + ch.name) + "' has no type, and the data to infer one from is not inline here"))
-            return "quantitative"
-        }
-        return (VlCompile.kindOfColumn(values ch.field))
+        ; And otherwise NOMINAL, whatever the column holds. This is the
+        ; reference's rule and it is worth stating plainly, because the obvious
+        ; guess is wrong: a column of the numbers 0, 5, 10 … 90 is read as
+        ; ninety-one categories and not as a quantity. Ages in five-year bands
+        ; are exactly that — nineteen groups, one bar each — and inferring
+        ; `quantitative` from the fact that they are numbers turns the chart
+        ; into a scatter of nineteen thin bars on a continuous axis.
+        return "nominal"
     }
 
     ; The rows the specification carries with it, if it carries any. A `url`
@@ -2185,6 +2194,41 @@ class VlCompile {
                     f.setMember("as" (VlJson.stringValue((t.stringOr("as" "")))))
                     push transforms.arr f
                 } {
+                if (t.has("window")) {
+                    ; What a row can see of its neighbours. Written the way
+                    ; Vega writes it: parallel lists of ops, fields, params and
+                    ; names, with the sort split into two lists of its own.
+                    def wn (VlJson.objectValue())
+                    wn.setMember("type" (VlJson.stringValue("window")))
+                    def wOps (VlJson.arrayValue())
+                    def wFields (VlJson.arrayValue())
+                    def wAs (VlJson.arrayValue())
+                    def wParams (VlJson.arrayValue())
+                    def spec:VlJson (t.get("window"))
+                    def wCount:int (spec.count())
+                    def wi:int 0
+                    while (wi < wCount) {
+                        def one:VlJson (spec.at(wi))
+                        def wOp:string (one.stringOr("op" ""))
+                        push wOps.arr (VlJson.stringValue(wOp))
+                        push wFields.arr (VlJson.stringValue((one.stringOr("field" ""))))
+                        push wAs.arr (VlJson.stringValue((one.stringOr("as" (wOp + "_field")))))
+                        push wParams.arr (VlJson.numberValue((one.doubleOr("param" 1.0))))
+                        wi = (wi + 1)
+                    }
+                    wn.setMember("ops" wOps)
+                    wn.setMember("fields" wFields)
+                    wn.setMember("as" wAs)
+                    wn.setMember("params" wParams)
+                    wn.setMember("sort" (VlCompile.sortSpec((t.get("sort")))))
+                    if (t.has("groupby")) {
+                        wn.setMember("groupby" (t.get("groupby")))
+                    }
+                    if (t.has("frame")) {
+                        wn.setMember("frame" (t.get("frame")))
+                    }
+                    push transforms.arr wn
+                } {
                 if (t.has("fold")) {
                     ; Columns into rows. The `as` pair names the two columns
                     ; that come out — the name of the folded column and its
@@ -2220,6 +2264,7 @@ class VlCompile {
                     ; how Vega-Lite writes a transform, so the refusal can say
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
                 }
                 }
                 }
@@ -2283,6 +2328,32 @@ class VlCompile {
         }
         push out (("bin_maxbins_10_" + field))
         push out ((("bin_maxbins_10_" + field) + "_end"))
+        return out
+    }
+
+    ; A Vega-Lite `sort` — a list of {field, order} — as the two parallel lists
+    ; Vega's own transforms take.
+    sfn sortSpec:VlJson (given:VlJson) {
+        def out (VlJson.objectValue())
+        def fields (VlJson.arrayValue())
+        def orders (VlJson.arrayValue())
+        if (given.isArray()) {
+            def total:int (given.count())
+            def k:int 0
+            while (k < total) {
+                def one:VlJson (given.at(k))
+                if (one.isString()) {
+                    push fields.arr (VlJson.stringValue(one.str))
+                    push orders.arr (VlJson.stringValue("ascending"))
+                } {
+                    push fields.arr (VlJson.stringValue((one.stringOr("field" ""))))
+                    push orders.arr (VlJson.stringValue((one.stringOr("order" "ascending"))))
+                }
+                k = (k + 1)
+            }
+        }
+        out.setMember("field" fields)
+        out.setMember("order" orders)
         return out
     }
 
@@ -2971,6 +3042,13 @@ class VlCompile {
                     sc.setMember("bins" bins)
                     sc.setMember("zero" (VlJson.boolValue(false)))
                 } {
+                if ((type == "time") || (type == "utc")) {
+                    ; A time scale is niced by its own calendar or not at all,
+                    ; and it is never extended to zero — zero is 1970, and a
+                    ; chart of the last decade does not want the seventies in
+                    ; it. Nor is it padded: the reference leaves a date axis
+                    ; running exactly from the first instant to the last.
+                } {
                     sc.setMember("nice" (VlJson.boolValue(true)))
                     ; A bar's baseline is zero because its LENGTH is the value;
                     ; a line's is not, because only its height is read.
@@ -2981,6 +3059,7 @@ class VlCompile {
                             sc.setMember("padding" (VlJson.numberValue(5.0)))
                         }
                     }
+                }
                 }
             }
         }
@@ -3383,8 +3462,14 @@ class VlCompile {
         ; A time unit's labels are dates, whatever the channel calls its type:
         ; the values on the axis are instants, and printed as numbers they read
         ; as thirteen digits of milliseconds.
+        ; …unless the specification stated its own. `"axis": {"format": "%Y"}`
+        ; is a chart asking for years on an axis of months, and overwriting it
+        ; with the unit's own format ignored the one thing the spec said about
+        ; how it wanted to be read.
         if ((strlen ch.timeUnit) > 0) {
-            a.setMember("format" (VlJson.stringValue((VlTime.unitFormat(ch.timeUnits)))))
+            if (! (a.has("format"))) {
+                a.setMember("format" (VlJson.stringValue((VlTime.unitFormat(ch.timeUnits)))))
+            }
             a.setMember("formatType" (VlJson.stringValue("time")))
         }
         if (ch.isContinuous()) {

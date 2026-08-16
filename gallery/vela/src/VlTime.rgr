@@ -563,6 +563,176 @@ class VlTime {
     ; without a time, with or without a zone marker. Anything else answers zero
     ; rather than guessing, and a caller that cares can tell because a real date
     ; in 1970 is not what a chart plots.
+    ; A date as it is actually written down. ISO is the easy case and the only
+    ; one this used to read; the data sets a chart is drawn from are full of
+    ; the others — `stocks.csv` says "Jan 1 2000", which parsed as zero and put
+    ; every point of a ten-year price series on the first millisecond of 1970.
+    ;
+    ; Whatever `Date.parse` accepts is the standard to meet, because that is
+    ; what the reference loader uses. This meets the part of it data uses:
+    ; ISO with or without a time and a zone, a named month in either order,
+    ; and slash-separated numbers.
+    sfn parseDate:double (text:string) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return 0.0
+        }
+        ; ISO starts with four digits and a dash. Everything else is words and
+        ; numbers in some order, and is read by looking at what they are.
+        if (n >= 8) {
+            if ((charAt text 4) == 45) {
+                if (VlTime.digitsAt(text 0 4)) {
+                    return (VlTime.parseIso(text))
+                }
+            }
+        }
+        return (VlTime.parseLoose(text))
+    }
+
+    sfn digitsAt:boolean (text:string from:int to:int) {
+        def i:int from
+        while (i < to) {
+            def c:int (charAt text i)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; "Jan 1 2000", "1 January 2000", "2000/01/31", "Jan 2000", "2000" — the
+    ; parts are identified by WHAT THEY ARE rather than by where they sit: a
+    ; word is a month, a four-digit number is a year, a number with a colon
+    ; after it is an hour. That is what makes one reader cope with the several
+    ; orders these are written in.
+    sfn parseLoose:double (text:string) {
+        def p (new VlTimeParts())
+        p.year = 1970
+        p.month = 1
+        p.day = 1
+        def sawYear:boolean false
+        def sawMonth:boolean false
+        def sawDay:boolean false
+        def timeParts:int 0
+
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def digits:int (VlTime.runOfDigits(text i))
+            if (digits > 0) {
+                def value:int (VlTime.numberAt(text i (i + digits)))
+                def after:int (i + digits)
+                i = after
+                ; A colon after it, or a clock already begun, means this was a
+                ; time and not a date part.
+                def clock:boolean false
+                if (after < n) {
+                    if ((charAt text after) == 58) { clock = true }
+                }
+                if (clock || (timeParts > 0)) {
+                    if (timeParts == 0) { p.hours = value }
+                    if (timeParts == 1) { p.minutes = value }
+                    if (timeParts == 2) { p.seconds = value }
+                    timeParts = (timeParts + 1)
+                } {
+                    if (digits >= 3) {
+                        p.year = value
+                        sawYear = true
+                    } {
+                        if (sawDay && (! sawYear)) {
+                            ; A two-digit year, as an almanac writes one.
+                            if (value < 70) { p.year = (value + 2000) } { p.year = (value + 1900) }
+                            sawYear = true
+                        } {
+                            if (sawMonth || (value > 12)) {
+                                if (! sawDay) {
+                                    p.day = value
+                                    sawDay = true
+                                }
+                            } {
+                                p.month = value
+                                sawMonth = true
+                            }
+                        }
+                    }
+                }
+            } {
+                def letters:int (VlTime.runOfLetters(text i))
+                if (letters > 0) {
+                    def word:string (substring text i (i + letters))
+                    def named:int (VlTime.monthNamed(word))
+                    if (named > 0) {
+                        p.month = named
+                        sawMonth = true
+                    }
+                    i = (i + letters)
+                } {
+                    i = (i + 1)
+                }
+            }
+        }
+        if (! sawYear) {
+            return 0.0
+        }
+        return (VlTime.msOfUtc(p))
+    }
+
+    sfn runOfDigits:int (text:string from:int) {
+        def n:int (strlen text)
+        def k:int from
+        while (k < n) {
+            def c:int (charAt text k)
+            if ((c >= 48) && (c <= 57)) { k = (k + 1) } { return (k - from) }
+        }
+        return (k - from)
+    }
+
+    sfn runOfLetters:int (text:string from:int) {
+        def n:int (strlen text)
+        def k:int from
+        while (k < n) {
+            def c:int (charAt text k)
+            def letter:boolean (((c >= 65) && (c <= 90)) || ((c >= 97) && (c <= 122)))
+            if letter { k = (k + 1) } { return (k - from) }
+        }
+        return (k - from)
+    }
+
+    ; A month by name, in either the short or the long spelling. Zero when the
+    ; word is not one — "GMT" and "Tuesday" are words in a date too.
+    sfn monthNamed:int (word:string) {
+        if ((strlen word) < 3) {
+            return 0
+        }
+        def head:string (VlTime.lowerThree(word))
+        if (head == "jan") { return 1 }
+        if (head == "feb") { return 2 }
+        if (head == "mar") { return 3 }
+        if (head == "apr") { return 4 }
+        if (head == "may") { return 5 }
+        if (head == "jun") { return 6 }
+        if (head == "jul") { return 7 }
+        if (head == "aug") { return 8 }
+        if (head == "sep") { return 9 }
+        if (head == "oct") { return 10 }
+        if (head == "nov") { return 11 }
+        if (head == "dec") { return 12 }
+        return 0
+    }
+
+    sfn lowerThree:string (word:string) {
+        def out:string ""
+        def k:int 0
+        while (k < 3) {
+            def c:int (charAt word k)
+            if ((c >= 65) && (c <= 90)) { c = (c + 32) }
+            out = (out + (strfromcode c))
+            k = (k + 1)
+        }
+        return out
+    }
+
     sfn parseIso:double (text:string) {
         def n:int (strlen text)
         if (n < 10) {

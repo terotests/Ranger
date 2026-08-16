@@ -300,10 +300,19 @@ class VlAxis {
         ; already on decides what to call it, which is why a January tick reads
         ; as its year while its neighbours read as their months.
         if (sc.isTime()) {
+            clear labels
             if ((strlen format) == 0) {
-                clear labels
                 for values v:double vi {
                     push labels (VlTime.multiFormat(v sc.zone))
+                }
+            } {
+                ; A STATED format on a time axis is a date pattern, not a
+                ; number one. It was being handed to the number formatter,
+                ; which has nothing to say about `%Y` and returned the instant
+                ; — so `"format": "%Y"` printed thirteen digits of milliseconds
+                ; where the specification asked for a year.
+                for values v2:double vi2 {
+                    push labels (VlTime.format(v2 format sc.zone))
                 }
             }
         }

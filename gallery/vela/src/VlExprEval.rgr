@@ -18,6 +18,7 @@ Import "VlFormat.rgr"
 Import "VlTime.rgr"
 Import "VlExpr.rgr"
 Import "VlScale.rgr"
+Import "VlMath.rgr"
 
 class VlExprScope {
     def datum:VlJson (new VlJson)
@@ -107,6 +108,31 @@ class VlExprEval {
             return ((strlen v.str) > 0)
         }
         return true
+    }
+
+    ; An index into a string, kept inside it — JavaScript's `substring` clamps
+    ; rather than throwing, and a spec relies on that.
+    sfn clampIndex:int (at:int length:int) {
+        if (at < 0) { return 0 }
+        if (at > length) { return length }
+        return at
+    }
+
+    sfn shiftCase:string (text:string upper:boolean) {
+        def out:string ""
+        def n:int (strlen text)
+        def k:int 0
+        while (k < n) {
+            def c:int (charAt text k)
+            if upper {
+                if ((c >= 97) && (c <= 122)) { c = (c - 32) }
+            } {
+                if ((c >= 65) && (c <= 90)) { c = (c + 32) }
+            }
+            out = (out + (strfromcode c))
+            k = (k + 1)
+        }
+        return out
     }
 
     sfn looseEquals:boolean (a:VlJson b:VlJson) {
@@ -390,7 +416,7 @@ class VlExprEval {
                 return a0
             }
             if (a0.isString()) {
-                return (VlJson.numberValue((VlTime.parseIso((a0.asString())))))
+                return (VlJson.numberValue((VlTime.parseDate((a0.asString())))))
             }
             return (VlJson.nullValue())
         }
@@ -486,6 +512,15 @@ class VlExprEval {
         }
         if (name == "sqrt") {
             return (VlJson.numberValue((sqrt (a0.asDouble()))))
+        }
+        if (name == "exp") {
+            return (VlJson.numberValue((VlMath.exp((a0.asDouble())))))
+        }
+        if (name == "log") {
+            return (VlJson.numberValue((VlMath.ln((a0.asDouble())))))
+        }
+        if (name == "pow") {
+            return (VlJson.numberValue((VlMath.pow((a0.asDouble()) (a1.asDouble())))))
         }
         if (name == "max") {
             return (VlExprEval.extremum(node scope true))
@@ -627,6 +662,28 @@ class VlExprEval {
         }
         if (name == "toString") {
             return (VlJson.stringValue((a0.asString())))
+        }
+        ; --- strings ---
+        if (name == "substring") {
+            def text:string (a0.asString())
+            def n:int (strlen text)
+            def from:int (VlExprEval.clampIndex((to_int (a1.asDouble())) n))
+            def to:int n
+            if (argc > 2) {
+                to = (VlExprEval.clampIndex((to_int (a2.asDouble())) n))
+            }
+            if (from > to) {
+                def swap:int from
+                from = to
+                to = swap
+            }
+            return (VlJson.stringValue((substring text from to)))
+        }
+        if (name == "upper") {
+            return (VlJson.stringValue((VlExprEval.shiftCase((a0.asString()) true))))
+        }
+        if (name == "lower") {
+            return (VlJson.stringValue((VlExprEval.shiftCase((a0.asString()) false))))
         }
         if (name == "toNumber") {
             if (a0.kind == 0) {
