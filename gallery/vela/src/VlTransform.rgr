@@ -574,6 +574,273 @@ class VlTransform {
         return out
     }
 
+    ; ------------------------------------------------------------------ kde ---
+    ; A kernel density estimate: a smooth curve standing in for a histogram,
+    ; which is what a chart draws when it wants the SHAPE of a distribution
+    ; rather than its buckets. Every observation contributes a small gaussian
+    ; bump of width `bandwidth`, and the curve is their sum.
+    ;
+    ; The interesting part is not the estimate — that is a sum over the data at
+    ; each sample point — but WHERE it is sampled. The reference samples
+    ; adaptively: it starts on a coarse uniform grid and subdivides wherever
+    ; three consecutive points turn by more than half a degree, so a flat tail
+    ; costs nothing and a sharp peak is resolved. Sampling it any other way
+    ; produces a curve that is right and does not match, which for a harness
+    ; that compares drawings is the same as wrong.
+    sfn kde:[VlJson] (rows:[VlJson] field:string groupby:[string] bandwidth:double extentLo:double extentHi:double hasExtent:boolean shared:boolean counts:boolean steps:int minsteps:int maxsteps:int asNames:[string]) {
+        def valueName:string "value"
+        def densityName:string "density"
+        if ((array_length asNames) > 0) { valueName = (itemAt asNames 0) }
+        if ((array_length asNames) > 1) { densityName = (itemAt asNames 1) }
+
+        ; Partitions, in first-seen order, each holding the numbers it saw.
+        def order:[string]
+        def keyRows:[string:VlJson]
+        def buckets:[string:VlNumberList]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has buckets key)) {
+                def fresh (new VlNumberList())
+                set buckets key fresh
+                def named:VlJson (VlJson.objectValue())
+                for groupby g:string gi {
+                    named.setMember(g (row.get(g)))
+                }
+                set keyRows key named
+                push order key
+            }
+            def cell:VlJson (row.get(field))
+            if (cell.isNumber()) {
+                def sofar:VlNumberList (unwrap (get buckets key))
+                push sofar.values cell.num
+                set buckets key sofar
+            }
+        }
+
+        def lowSteps:int minsteps
+        def highSteps:int maxsteps
+        if (steps > 0) {
+            lowSteps = steps
+            highSteps = steps
+        }
+        def sharedLo:double extentLo
+        def sharedHi:double extentHi
+        def sharedSet:boolean hasExtent
+        if shared {
+            if (! sharedSet) {
+                ; One domain for every group, so that stacked densities line up.
+                def seen:boolean false
+                for rows row2:VlJson ri2 {
+                    def cell2:VlJson (row2.get(field))
+                    if (cell2.isNumber()) {
+                        if (! seen) {
+                            sharedLo = cell2.num
+                            sharedHi = cell2.num
+                            seen = true
+                        } {
+                            if (cell2.num < sharedLo) { sharedLo = cell2.num }
+                            if (cell2.num > sharedHi) { sharedHi = cell2.num }
+                        }
+                    }
+                }
+                sharedSet = seen
+            }
+            if (steps > 0) { lowSteps = steps } { lowSteps = maxsteps }
+            highSteps = lowSteps
+        }
+
+        def out:[VlJson]
+        for order key:string ki {
+            def group:VlNumberList (unwrap (get buckets key))
+            def support:[double] group.values
+            if ((array_length support) > 0) {
+                def h:double bandwidth
+                if (h <= 0.0) {
+                    h = (VlTransform.estimateBandwidth(support))
+                }
+                def lo:double 0.0
+                def hi:double 0.0
+                if sharedSet {
+                    lo = sharedLo
+                    hi = sharedHi
+                } {
+                    lo = (itemAt support 0)
+                    hi = (itemAt support 0)
+                    for support v:double vi {
+                        if (v < lo) { lo = v }
+                        if (v > hi) { hi = v }
+                    }
+                }
+                def scale:double 1.0
+                if counts { scale = (to_double (array_length support)) }
+                def sampled:[double] (VlTransform.sampleCurve(support h lo hi lowSteps highSteps))
+                def total:int (to_int ((to_double (array_length sampled)) / 2.0))
+                def k:int 0
+                while (k < total) {
+                    def made:VlJson (VlTransform.copyRow((unwrap (get keyRows key))))
+                    made.setMember(valueName (VlJson.numberValue((itemAt sampled (k * 2)))))
+                    made.setMember(densityName (VlJson.numberValue(((itemAt sampled ((k * 2) + 1)) * scale))))
+                    push out made
+                    k = (k + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    ; Scott's rule, as the reference states it: 1.06 × the smaller of the
+    ; standard deviation and the inter-quartile range over 1.34, times n^-0.2.
+    sfn estimateBandwidth:double (values:[double]) {
+        def n:int (array_length values)
+        if (n == 0) {
+            return 1.0
+        }
+        def sum:double 0.0
+        for values v:double vi { sum = (sum + v) }
+        def mean:double (sum / (to_double n))
+        def ss:double 0.0
+        for values v2:double vi2 {
+            def d:double (v2 - mean)
+            ss = (ss + (d * d))
+        }
+        def deviation:double 0.0
+        if (n > 1) {
+            deviation = (sqrt (ss / (to_double (n - 1))))
+        }
+        def sorted:[double] (VlTransform.sortedNumbers(values))
+        def q1:double (VlTransform.quantile(sorted 0.25))
+        def q3:double (VlTransform.quantile(sorted 0.75))
+        def h:double ((q3 - q1) / 1.34)
+        def chosen:double deviation
+        if (h < chosen) { chosen = h }
+        if (chosen <= 0.0) { chosen = deviation }
+        if (chosen <= 0.0) {
+            chosen = q1
+            if (chosen < 0.0) { chosen = (0.0 - chosen) }
+        }
+        if (chosen <= 0.0) { chosen = 1.0 }
+        return ((1.06 * chosen) * (VlMath.pow((to_double n) -0.2)))
+    }
+
+    ; The estimate at one point: every observation's gaussian bump, summed.
+    sfn kdePdf:double (support:[double] bandwidth:double x:double) {
+        def n:int (array_length support)
+        if ((n == 0) || (bandwidth <= 0.0)) {
+            return 0.0
+        }
+        def y:double 0.0
+        for support s:double si {
+            def z:double ((x - s) / bandwidth)
+            y = (y + (0.3989422804014327 * (VlMath.exp(((0.0 - (z * z)) / 2.0)))))
+        }
+        return ((y / bandwidth) / (to_double n))
+    }
+
+    ; The reference's adaptive sampler, as a flat [x, y, x, y, …] list. It
+    ; walks a coarse grid and subdivides wherever the curve turns by more than
+    ; half a degree, measured in the SCALED space the chart will draw it in —
+    ; which is why the vertical scale is computed from the coarse pass first.
+    sfn sampleCurve:[double] (support:[double] bandwidth:double minX:double maxX:double minSteps:int maxSteps:int) {
+        def lowN:int minSteps
+        if (lowN < 1) { lowN = 25 }
+        def highN:int maxSteps
+        if (highN < lowN) { highN = lowN }
+
+        def span:double (maxX - minX)
+        def out:[double]
+        if (lowN == highN) {
+            ; No adaptation: a uniform grid, sampled straight out.
+            push out minX
+            push out (VlTransform.kdePdf(support bandwidth minX))
+            def i:int 1
+            while (i < highN) {
+                def x:double (minX + (((to_double i) / (to_double lowN)) * span))
+                push out x
+                push out (VlTransform.kdePdf(support bandwidth x))
+                i = (i + 1)
+            }
+            push out maxX
+            push out (VlTransform.kdePdf(support bandwidth maxX))
+            return out
+        }
+
+        def stop:double (span / (to_double highN))
+        ; The stack of points still to visit, highest x first.
+        def nextX:[double]
+        def nextY:[double]
+        push nextX maxX
+        push nextY (VlTransform.kdePdf(support bandwidth maxX))
+        def i2:int (lowN - 1)
+        while (i2 > 0) {
+            def x2:double (minX + (((to_double i2) / (to_double lowN)) * span))
+            push nextX x2
+            push nextY (VlTransform.kdePdf(support bandwidth x2))
+            i2 = (i2 - 1)
+        }
+
+        def p0x:double minX
+        def p0y:double (VlTransform.kdePdf(support bandwidth minX))
+        push out p0x
+        push out p0y
+
+        ; The vertical scale the turn is measured in: the coarse pass's own
+        ; range, so an angle means the same thing on any curve.
+        def ymin:double p0y
+        def ymax:double p0y
+        for nextY y:double yi {
+            if (y < ymin) { ymin = y }
+            if (y > ymax) { ymax = y }
+        }
+        def sy:double 1.0
+        if ((ymax - ymin) != 0.0) { sy = (1.0 / (ymax - ymin)) }
+        def sx:double 1.0
+        if (span != 0.0) { sx = (1.0 / span) }
+        def minRadians:double 0.008726646259971648
+
+        def guard:int 0
+        while (((array_length nextX) > 0) && (guard < 100000)) {
+            guard = (guard + 1)
+            def last:int ((array_length nextX) - 1)
+            def p1x:double (itemAt nextX last)
+            def p1y:double (itemAt nextY last)
+            def pmx:double ((p0x + p1x) / 2.0)
+            def pmy:double (VlTransform.kdePdf(support bandwidth pmx))
+            def wide:boolean ((pmx - p0x) >= stop)
+            def turn:double (VlTransform.angleDelta(p0x p0y pmx pmy p1x p1y sx sy))
+            if (wide && (turn > minRadians)) {
+                push nextX pmx
+                push nextY pmy
+            } {
+                p0x = p1x
+                p0y = p1y
+                push out p1x
+                push out p1y
+                nextX = (VlTransform.dropLast(nextX))
+                nextY = (VlTransform.dropLast(nextY))
+            }
+        }
+        return out
+    }
+
+    sfn dropLast:[double] (list:[double]) {
+        def out:[double]
+        def n:int ((array_length list) - 1)
+        def k:int 0
+        while (k < n) {
+            push out (itemAt list k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn angleDelta:double (px:double py:double qx:double qy:double rx:double ry:double sx:double sy:double) {
+        def a0:double (atan2 (sy * (ry - py)) (sx * (rx - px)))
+        def a1:double (atan2 (sy * (qy - py)) (sx * (qx - px)))
+        def d:double (a0 - a1)
+        if (d < 0.0) { d = (0.0 - d) }
+        return d
+    }
+
     ; --------------------------------------------------------------- window ---
     ; A calculation a row makes about its NEIGHBOURS: its rank among them, a
     ; running total of everything before it, the value one row back. It is how
@@ -910,7 +1177,7 @@ class VlTransform {
                 push groups fresh
             }
             def name:string ((row.get(field)).asString())
-            def cell:string ((key + " ") + name)
+            def cell:string ((key + (strfromcode 31)) + name)
             if (! (has valuesByKey cell)) {
                 def empty:[double]
                 set valuesByKey cell empty
@@ -931,7 +1198,7 @@ class VlTransform {
         for groups made:VlJson gi {
             def key:string (VlTransform.groupKey(made groupby))
             for names name:string ni {
-                def cell:string ((key + " ") + name)
+                def cell:string ((key + (strfromcode 31)) + name)
                 if (has valuesByKey cell) {
                     def gathered:[double] (unwrap (get valuesByKey cell))
                     def seen:int (unwrap (get countByKey cell))
@@ -1145,7 +1412,9 @@ class VlTransform {
         if ((lo + 1) >= n) {
             return value
         }
-        return (value + (((itemAt sorted (lo + 1)) - value) * e))
+        def upper:double (itemAt sorted (lo + 1))
+        def gap:double (upper - value)
+        return (value + (gap * e))
     }
 
     sfn sortedNumbers:[double] (values:[double]) {

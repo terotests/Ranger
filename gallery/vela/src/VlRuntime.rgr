@@ -731,6 +731,24 @@ class VlRuntime {
             }
             return (VlTransform.window(rows wOps wFields wAs wParams wSortFields wSortOrders wGroupby wStart wEnd))
         }
+        ; A smooth stand-in for a histogram.
+        if (ttype == "kde") {
+            def kGroupby:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            def kAs:[string] (VlRuntime.stringList((tdef.get("as"))))
+            def kExtent:VlJson (tdef.get("extent"))
+            def kLo:double 0.0
+            def kHi:double 0.0
+            def kHas:boolean false
+            if (kExtent.isArray()) {
+                if ((kExtent.count()) > 1) {
+                    kLo = (kExtent.at(0).asDouble())
+                    kHi = (kExtent.at(1).asDouble())
+                    kHas = true
+                }
+            }
+            def kShared:boolean ((tdef.stringOr("resolve" "independent")) == "shared")
+            return (VlTransform.kde(rows (tdef.stringOr("field" "")) kGroupby (tdef.doubleOr("bandwidth" 0.0)) kLo kHi kHas kShared (tdef.boolOr("counts" false)) (tdef.intOr("steps" 0)) (tdef.intOr("minsteps" 25)) (tdef.intOr("maxsteps" 200)) kAs))
+        }
         if (ttype == "fold") {
             def foldFields:[string] (VlRuntime.stringList((tdef.get("fields"))))
             def foldAs:[string] (VlRuntime.stringList((tdef.get("as"))))

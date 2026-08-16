@@ -175,7 +175,11 @@ class VlLegend {
             for sc.domainValues name:string idx {
                 def e (new VlLegendEntry())
                 e.value = (VlJson.stringValue(name))
-                e.label = name
+                ; Cut to fit HERE rather than at drawing time, because the
+                ; legend's width is measured from these and a label that is
+                ; cut when it is drawn but not when it is measured leaves a
+                ; legend with a column of empty space in it.
+                e.label = (VlText.truncate(name labelFontSize labelLimit))
                 push out e
             }
             return out

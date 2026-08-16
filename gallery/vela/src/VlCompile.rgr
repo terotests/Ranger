@@ -52,6 +52,11 @@ class VlChannel {
     ; binned field carries — `bin_maxbins_60_x` — so a spec that asks for
     ; sixty and a spec that asks for the default ten do not collide.
     def maxbins:int 10
+    ; The data ARRIVED binned: the field is already a bin's start and another
+    ; channel carries its end, so there is nothing to compute and nothing to
+    ; rename — only a scale that has to be told where the edges are.
+    def binnedAlready:boolean false
+    def binStep:double 0.0
     def hasValue:boolean false
     def value:VlJson (new VlJson)
     def defined:boolean false
@@ -1569,12 +1574,20 @@ class VlCompile {
                 ch.hasBin = true
                 def binDef:VlJson (cdef.get("bin"))
                 if (binDef.isObject()) {
-                    if (binDef.has("maxbins")) {
-                        ch.maxbins = (to_int (binDef.doubleOr("maxbins" 10.0)))
-                    }
-                    for binDef.keys bk:string bki {
-                        if (bk != "maxbins") {
-                            this.fail((("a bin written with '" + bk) + "' is not compiled here"))
+                    if (binDef.boolOr("binned" false)) {
+                        ; Already binned upstream. The field keeps its own name
+                        ; and its partner channel carries the far edge.
+                        ch.hasBin = false
+                        ch.binnedAlready = true
+                        ch.binStep = (binDef.doubleOr("step" 0.0))
+                    } {
+                        if (binDef.has("maxbins")) {
+                            ch.maxbins = (to_int (binDef.doubleOr("maxbins" 10.0)))
+                        }
+                        for binDef.keys bk:string bki {
+                            if (bk != "maxbins") {
+                                this.fail((("a bin written with '" + bk) + "' is not compiled here"))
+                            }
                         }
                     }
                 }
@@ -2229,6 +2242,31 @@ class VlCompile {
                     }
                     push transforms.arr wn
                 } {
+                if (t.has("density")) {
+                    ; A kernel density estimate, which REPLACES the rows with
+                    ; a sampled curve — so it is emitted as it stands and the
+                    ; runtime does the estimating.
+                    def kd (VlJson.objectValue())
+                    kd.setMember("type" (VlJson.stringValue("kde")))
+                    kd.setMember("field" (VlJson.stringValue((t.stringOr("density" "")))))
+                    for t.keys dk:string dki {
+                        if (dk != "density") {
+                            kd.setMember(dk (t.get(dk)))
+                        }
+                    }
+                    if (! (t.has("as"))) {
+                        def kdNames (VlJson.arrayValue())
+                        push kdNames.arr (VlJson.stringValue("value"))
+                        push kdNames.arr (VlJson.stringValue("density"))
+                        kd.setMember("as" kdNames)
+                    }
+                    ; Vega-Lite shares one domain across the groups so that
+                    ; stacked densities line up on the same sample points.
+                    if (! (t.has("resolve"))) {
+                        kd.setMember("resolve" (VlJson.stringValue("shared")))
+                    }
+                    push transforms.arr kd
+                } {
                 if (t.has("fold")) {
                     ; Columns into rows. The `as` pair names the two columns
                     ; that come out — the name of the folded column and its
@@ -2264,6 +2302,7 @@ class VlCompile {
                     ; how Vega-Lite writes a transform, so the refusal can say
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
                 }
                 }
                 }
@@ -3042,6 +3081,13 @@ class VlCompile {
                     sc.setMember("bins" bins)
                     sc.setMember("zero" (VlJson.boolValue(false)))
                 } {
+                if ch.binnedAlready {
+                    ; The edges are a fixed step apart and the data says so.
+                    def known (VlJson.objectValue())
+                    known.setMember("step" (VlJson.numberValue(ch.binStep)))
+                    sc.setMember("bins" known)
+                    sc.setMember("zero" (VlJson.boolValue(false)))
+                } {
                 if ((type == "time") || (type == "utc")) {
                     ; A time scale is niced by its own calendar or not at all,
                     ; and it is never extended to zero — zero is 1970, and a
@@ -3071,6 +3117,7 @@ class VlCompile {
                             }
                         }
                     }
+                }
                 }
                 }
             }
@@ -3159,7 +3206,17 @@ class VlCompile {
         }
         for declared.keys key:string ki {
             if (key != "type") {
-                sc.setMember(key (declared.get(key)))
+                if (key == "scheme") {
+                    ; A named palette is part of the RANGE, not a key beside
+                    ; it: `"scale": {"scheme": "category20b"}` asks the scale to
+                    ; take its output from that palette, and written anywhere
+                    ; else nothing reads it.
+                    def named (VlJson.objectValue())
+                    named.setMember("scheme" (declared.get("scheme")))
+                    sc.setMember("range" named)
+                } {
+                    sc.setMember(key (declared.get(key)))
+                }
             }
         }
     }
