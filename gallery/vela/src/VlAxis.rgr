@@ -54,6 +54,11 @@ class VlAxis {
     def titleColor:string "#000"
     def titleFontWeight:string "bold"
     def bandPosition:double 0.5
+    ; Where a tick sits on a BAND. "center" puts it under the middle of the
+    ; band, which is where the label goes; "extent" puts it on the band's edge
+    ; and adds one at the far end, so the ticks and grid rule the bands off
+    ; from each other rather than pointing at them. A heat map asks for extent.
+    def tickBand:string "center"
     ; A tick is a one-pixel line, so its position is rounded — the reference's
     ; `tickRound`, on by default. Labels are not rounded: text has no pixel
     ; grid to align to.
@@ -155,6 +160,7 @@ class VlAxis {
         labelAngle = (adef.doubleOr("labelAngle" labelAngle))
         labelAlign = (adef.stringOr("labelAlign" labelAlign))
         labelBaseline = (adef.stringOr("labelBaseline" labelBaseline))
+        tickBand = (adef.stringOr("tickBand" tickBand))
     }
 
     ; `labelFlush` is a threshold in pixels, and `true` is the number one — the
@@ -240,7 +246,7 @@ class VlAxis {
     ; --------------------------------------------------------------- ticks ----
     ; A band or point scale is labelled by its domain; a quantitative one by the
     ; tick algorithm. `bandPosition` centres a band's label under its band.
-    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string formatType:string) {
+    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string formatType:string tickBand:string) {
         def out:[VlAxisTickValue]
         ; A binned scale is labelled at its bin boundaries. Asking the tick
         ; algorithm instead gives a tick count that has nothing to do with the
@@ -261,10 +267,16 @@ class VlAxis {
             return out
         }
         if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+            ; A tick on a band edge rather than under its middle, with one more
+            ; at the far end — the label still sits in the middle, so the two
+            ; positions part company here.
+            def onEdges:boolean (tickBand == "extent")
+            def tickAt:double bandPosition
+            if onEdges { tickAt = 0.0 }
             for sc.domainValues name:string idx {
                 def tv (new VlAxisTickValue())
                 tv.value = (VlJson.stringValue(name))
-                tv.position = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * bandPosition))
+                tv.position = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * tickAt))
                 ; A BAND's label takes back the half pixel the axis group was
                 ; offset by, because a band's own positions are whole numbers
                 ; and the label wants to sit on one. A POINT scale's are not —
@@ -272,9 +284,9 @@ class VlAxis {
                 ; 55.555 — so there is no half pixel to take back, and taking
                 ; one anyway moves the label off its own point and rounds the
                 ; tick to the wrong pixel.
-                tv.labelPosition = tv.position
+                tv.labelPosition = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * bandPosition))
                 if (sc.scaleType == "band") {
-                    tv.labelPosition = (tv.position - 0.5)
+                    tv.labelPosition = (tv.labelPosition - 0.5)
                 }
                 ; A discrete domain of INSTANTS is what a time unit produces —
                 ; twelve months are twelve categories, and each one is a date.
@@ -285,6 +297,17 @@ class VlAxis {
                     tv.label = (VlTime.format((VlFormat.toNumber(name)) format sc.zone))
                 }
                 push out tv
+            }
+            if onEdges {
+                def last:int ((array_length sc.domainValues) - 1)
+                if (last >= 0) {
+                    def extra (new VlAxisTickValue())
+                    extra.value = (VlJson.stringValue(""))
+                    extra.position = ((sc.mapIndex(last)) + (sc.step()))
+                    extra.labelPosition = extra.position
+                    extra.label = ""
+                    push out extra
+                }
             }
             return out
         }

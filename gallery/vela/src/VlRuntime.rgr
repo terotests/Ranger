@@ -1607,7 +1607,7 @@ class VlRuntime {
                 def axis (new VlAxis())
                 axis.readConfig(adef)
                 def tickCount:int (this.axisTickCount(adef))
-                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType))
+                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand))
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))
