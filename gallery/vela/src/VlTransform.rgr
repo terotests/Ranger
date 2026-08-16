@@ -775,4 +775,336 @@ class VlTransform {
         }
         return total
     }
+
+    ; ------------------------------------------------------------------ loess ---
+    ; A locally-weighted regression: at every x, fit a straight line through
+    ; the nearest `bandwidth * n` points, weighted by how near they are, and
+    ; keep the value that line takes at x. The result is a curve that follows
+    ; the data without ever being told what shape to be.
+    ;
+    ; This is the reference's own implementation, step for step, because the
+    ; answer is a claim ABOUT the data: a smoother that is merely plausible
+    ; draws a line through a scatter plot that nobody can check. Three parts of
+    ; it are worth naming, since none is obvious and all three change the
+    ; numbers:
+    ;
+    ;   * the points are MEAN-CENTRED first and the means added back at the
+    ;     end, which is what keeps the fit stable when x is a millisecond count
+    ;   * the neighbour window SLIDES rather than being recomputed — it steps
+    ;     right only while the new right edge is no further away than the old
+    ;     left one, which is what makes duplicate x values behave
+    ;   * two robustness passes follow the first fit, each one re-weighting by
+    ;     how far a point fell from the last curve, so a single outlier does
+    ;     not drag the line to itself
+    ;
+    ; It GENERATES rows: the answer is one point per distinct x, not a column
+    ; added to what came in.
+    sfn loess:[VlJson] (rows:[VlJson] xField:string yField:string groupby:[string] bandwidth:double asNames:[string]) {
+        def xName:string xField
+        def yName:string yField
+        if ((array_length asNames) > 0) {
+            xName = (itemAt asNames 0)
+        }
+        if ((array_length asNames) > 1) {
+            yName = (itemAt asNames 1)
+        }
+
+        def out:[VlJson]
+        def keys:[string]
+        def seen:[string:int]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has seen key)) {
+                set seen key 1
+                push keys key
+            }
+        }
+        for keys key:string ki {
+            def group:[VlJson]
+            for rows row2:VlJson r2 {
+                if ((VlTransform.groupKey(row2 groupby)) == key) {
+                    push group row2
+                }
+            }
+            VlTransform.loessGroup(out group xField yField groupby bandwidth xName yName)
+        }
+        return out
+    }
+
+    sfn loessGroup:void (out:[VlJson] rows:[VlJson] xField:string yField:string groupby:[string] bandwidth:double xName:string yName:string) {
+        ; Only the rows where BOTH values are real numbers take part; the rest
+        ; are not zeros, they are absent.
+        def xs:[double]
+        def ys:[double]
+        def sample:VlJson (VlJson.objectValue())
+        def haveSample:boolean false
+        for rows row:VlJson ri {
+            def xv:VlJson (row.get(xField))
+            def yv:VlJson (row.get(yField))
+            if ((xv.isNumber()) && (yv.isNumber())) {
+                push xs xv.num
+                push ys yv.num
+                if (! haveSample) {
+                    sample = row
+                    haveSample = true
+                }
+            }
+        }
+        def n:int (array_length xs)
+        if (n == 0) {
+            return
+        }
+
+        ; Sorted by x, because every step below reads its neighbours in order.
+        def order:[int] (VlTransform.orderByValue(xs))
+        def sx:[double]
+        def sy:[double]
+        def oi:int 0
+        while (oi < n) {
+            push sx (itemAt xs (itemAt order oi))
+            push sy (itemAt ys (itemAt order oi))
+            oi = (oi + 1)
+        }
+
+        ; Mean-centred, by the running mean the reference uses rather than by a
+        ; sum divided at the end — the two differ in the last bits, and the
+        ; last bits are what a comparison sees.
+        def ux:double 0.0
+        def uy:double 0.0
+        def mi:int 0
+        while (mi < n) {
+            def step:double (to_double (mi + 1))
+            ux = (ux + (((itemAt sx mi) - ux) / step))
+            uy = (uy + (((itemAt sy mi) - uy) / step))
+            mi = (mi + 1)
+        }
+        def ci:int 0
+        while (ci < n) {
+            set sx ci ((itemAt sx ci) - ux)
+            set sy ci ((itemAt sy ci) - uy)
+            ci = (ci + 1)
+        }
+
+        def bw:int (to_int (bandwidth * (to_double n)))
+        if (bw < 2) {
+            bw = 2
+        }
+        if (bw > n) {
+            bw = n
+        }
+
+        def yhat:[double]
+        def residuals:[double]
+        def robust:[double]
+        def zi:int 0
+        while (zi < n) {
+            push yhat 0.0
+            push residuals 0.0
+            push robust 1.0
+            zi = (zi + 1)
+        }
+
+        def epsilon:double 0.000000000001
+        def iter:int 0
+        def stop:boolean false
+        while ((iter <= 2) && (! stop)) {
+            def lo:int 0
+            def hi:int (bw - 1)
+            def i:int 0
+            while (i < n) {
+                def dx:double (itemAt sx i)
+                ; The far edge of the window, which sets the distance scale:
+                ; whichever end is further from the point being fitted.
+                def edge:int hi
+                if (((dx - (itemAt sx lo)) > ((itemAt sx hi) - dx))) {
+                    edge = lo
+                }
+                def spread:double ((itemAt sx edge) - dx)
+                if (spread < 0.0) {
+                    spread = (0.0 - spread)
+                }
+                if (spread == 0.0) {
+                    spread = 1.0
+                }
+                def denom:double (1.0 / spread)
+
+                def sumW:double 0.0
+                def sumX:double 0.0
+                def sumY:double 0.0
+                def sumXY:double 0.0
+                def sumX2:double 0.0
+                def k:int lo
+                while (k <= hi) {
+                    def xk:double (itemAt sx k)
+                    def yk:double (itemAt sy k)
+                    def d:double (dx - xk)
+                    if (d < 0.0) {
+                        d = (0.0 - d)
+                    }
+                    def w:double ((VlTransform.tricube((d * denom))) * (itemAt robust k))
+                    def xkw:double (xk * w)
+                    sumW = (sumW + w)
+                    sumX = (sumX + xkw)
+                    sumY = (sumY + (yk * w))
+                    sumXY = (sumXY + (yk * xkw))
+                    sumX2 = (sumX2 + (xk * xkw))
+                    k = (k + 1)
+                }
+
+                ; Ordinary least squares on the weighted means.
+                def mX:double (sumX / sumW)
+                def mY:double (sumY / sumW)
+                def mXY:double (sumXY / sumW)
+                def mX2:double (sumX2 / sumW)
+                def delta:double (mX2 - (mX * mX))
+                def slope:double 0.0
+                def absDelta:double delta
+                if (absDelta < 0.0) {
+                    absDelta = (0.0 - absDelta)
+                }
+                if (absDelta >= 0.000000000000000000000001) {
+                    slope = ((mXY - (mX * mY)) / delta)
+                }
+                def intercept:double (mY - (slope * mX))
+                set yhat i (intercept + (slope * dx))
+                def resid:double ((itemAt sy i) - (itemAt yhat i))
+                if (resid < 0.0) {
+                    resid = (0.0 - resid)
+                }
+                set residuals i resid
+
+                ; Slide the window one point along.
+                def at:int (i + 1)
+                if (at < n) {
+                    def value:double (itemAt sx at)
+                    def right:int (hi + 1)
+                    def sliding:boolean true
+                    while (sliding) {
+                        sliding = false
+                        if (((at > lo) && (right < n))) {
+                            if ((((itemAt sx right) - value) <= (value - (itemAt sx lo)))) {
+                                lo = (lo + 1)
+                                hi = right
+                                right = (right + 1)
+                                sliding = true
+                            }
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+
+            if (iter == 2) {
+                stop = true
+            } {
+                def mid:double (VlTransform.medianOf(residuals))
+                def absMid:double mid
+                if (absMid < 0.0) {
+                    absMid = (0.0 - absMid)
+                }
+                if (absMid < epsilon) {
+                    stop = true
+                } {
+                    def ri2:int 0
+                    while (ri2 < n) {
+                        def arg:double ((itemAt residuals ri2) / (6.0 * mid))
+                        if (arg >= 1.0) {
+                            set robust ri2 epsilon
+                        } {
+                            def w2:double (1.0 - (arg * arg))
+                            set robust ri2 (w2 * w2)
+                        }
+                        ri2 = (ri2 + 1)
+                    }
+                }
+            }
+            iter = (iter + 1)
+        }
+
+        ; One point per distinct x, repeats averaged, and the means put back.
+        def outX:[double]
+        def outY:[double]
+        def count:int 0
+        def have:boolean false
+        def pi:int 0
+        while (pi < n) {
+            def v:double ((itemAt sx pi) + ux)
+            if (have && ((itemAt outX ((array_length outX) - 1)) == v)) {
+                count = (count + 1)
+                def last:int ((array_length outY) - 1)
+                set outY last ((itemAt outY last) + (((itemAt yhat pi) - (itemAt outY last)) / (to_double count)))
+            } {
+                count = 0
+                push outX v
+                push outY (itemAt yhat pi)
+                have = true
+            }
+            pi = (pi + 1)
+        }
+        def wi:int 0
+        while (wi < (array_length outX)) {
+            def row3:VlJson (VlJson.objectValue())
+            for groupby field:string gi {
+                if (haveSample) {
+                    row3.setMember(field (sample.get(field)))
+                }
+            }
+            row3.setMember(xName (VlJson.numberValue((itemAt outX wi))))
+            row3.setMember(yName (VlJson.numberValue(((itemAt outY wi) + uy))))
+            push out row3
+            wi = (wi + 1)
+        }
+    }
+
+    ; (1 - x^3)^3, the weighting kernel a local regression uses: one at the
+    ; point being fitted, nothing at the edge of the window, and smooth at both.
+    sfn tricube:double (x:double) {
+        def t:double (1.0 - ((x * x) * x))
+        return ((t * t) * t)
+    }
+
+    ; The indices of a list of numbers in ascending order of their values.
+    sfn orderByValue:[int] (values:[double]) {
+        def out:[int]
+        def n:int (array_length values)
+        def i:int 0
+        while (i < n) {
+            def v:double (itemAt values i)
+            def pos:int (array_length out)
+            def scan:int 0
+            def placed:boolean false
+            while ((scan < (array_length out)) && (! placed)) {
+                if (v < (itemAt values (itemAt out scan))) {
+                    pos = scan
+                    placed = true
+                }
+                scan = (scan + 1)
+            }
+            push out i
+            def move:int ((array_length out) - 1)
+            while (move > pos) {
+                set out move (itemAt out (move - 1))
+                move = (move - 1)
+            }
+            set out pos i
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The middle value, or the mean of the two middle ones. The robustness
+    ; pass divides by this, so an even count that took the lower of the two
+    ; would re-weight every point slightly wrong.
+    sfn medianOf:double (values:[double]) {
+        def sorted:[double] (VlTransform.sortedNumbers(values))
+        def n:int (array_length sorted)
+        if (n == 0) {
+            return 0.0
+        }
+        def half:int (idiv n 2)
+        if ((n % 2) == 1) {
+            return (itemAt sorted half)
+        }
+        return (((itemAt sorted (half - 1)) + (itemAt sorted half)) / 2.0)
+    }
 }

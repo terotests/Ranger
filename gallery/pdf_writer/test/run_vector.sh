@@ -144,7 +144,10 @@ done
 
 node "$OUT/pdf_tool.js" "$FIXTURE" "$OUT/vector.pdf" >"$OUT/pdf_run.log" 2>&1
 node "$OUT/html_tool.js" "$FIXTURE" "$OUT/vector.html" >"$OUT/html_run.log" 2>&1
-node "$OUT/png_tool.js" "$FIXTURE" "$OUT/vector.png" >"$OUT/png_run.log" 2>&1
+# -debug because the check below reads the per-element render trace out of the
+# log; it used to be printed unconditionally, which made the tool unusable from
+# anywhere that is not a terminal.
+node "$OUT/png_tool.js" "$FIXTURE" "$OUT/vector.png" -debug >"$OUT/png_run.log" 2>&1
 
 check() {
   local label="$1" file="$2" needle="$3"

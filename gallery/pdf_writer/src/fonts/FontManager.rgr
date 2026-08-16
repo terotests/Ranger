@@ -75,6 +75,23 @@ class FontManager {
         }
     }
     
+    ; Register a face from bytes the host supplies. Same bookkeeping as
+    ; loadFont — the first face loaded becomes the default — so a manager
+    ; filled this way behaves exactly like one that read a directory.
+    fn addFontBuffer:boolean (name:string data:buffer) {
+        def font (new TrueTypeFont())
+        if ((font.loadFromBuffer(name data)) == false) {
+            return false
+        }
+        push fonts font
+        push fontNames font.fontFamily
+        if (hasDefaultFont == false) {
+            defaultFont = font
+            hasDefaultFont = true
+        }
+        return true
+    }
+
     fn loadFont:boolean (relativePath:string) {
         ; Try each directory in order
         def i:int 0

@@ -17,6 +17,11 @@ class JSXToEVG {
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     
+    ; Every attribute it reads is announced, which is what a command line
+    ; wants and what a browser console does not: one chart is a few hundred
+    ; lines of it. On by default, so the tools that relied on it still print.
+    def verbose:boolean true
+
     Constructor () {
         parser = (new TSParserSimple())
         parser.tsxMode = true
@@ -483,7 +488,9 @@ class JSXToEVG {
                 def attrName:string (this.camelToKebab(rawAttrName))
                 def attrValue:string (this.getAttributeValue(attr))
                 
-                print ("  Attr: " + rawAttrName + " -> " + attrName + " = " + attrValue)
+                if verbose {
+                    print ("  Attr: " + rawAttrName + " -> " + attrName + " = " + attrValue)
+                }
 
                 ; Record every authored attribute so a stylesheet cannot
                 ; overwrite it: inline wins the cascade.

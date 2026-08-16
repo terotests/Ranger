@@ -1,0 +1,287 @@
+; ==============================================================================
+; vela_targets.rgr — the EVG targets, with no file system under them.
+; ==============================================================================
+; `vela_web.rgr` draws a specification to SVG, which Vela renders itself. This
+; hands the same chart to the EVG stack instead, and lets the page ask for the
+; two targets a browser can show:
+;
+;   displayList  the flat list of drawing commands the WebGL viewer consumes
+;   png          a raster, produced by this repository's own rasteriser
+;
+; Both go through EVG's real pipeline — the TSX is parsed, the stylesheet is
+; applied, the layout runs with TrueType metrics — so what comes out is what
+; the showcase's PDF and PNG come out of. That is the point of it: a chart
+; drawn three ways by three backends, in the browser, from one specification.
+;
+; FONTS ARE HANDED IN. Everything else here is arithmetic, but a text layout
+; needs the faces, and the loader reads those from disk. A browser has no disk,
+; so the page fetches the .ttf files and passes the bytes to `addFont`, which
+; is the only concession this file makes to running where it runs.
+; ==============================================================================
+
+Import "../src/VlRuntime.rgr"
+Import "../src/VlCommand.rgr"
+Import "../src/VlEvg.rgr"
+Import "../src/VlCompile.rgr"
+Import "../../pdf_writer/src/jsx/JSXToEVG.rgr"
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../pdf_writer/src/tools/evg_png_tool.rgr"
+Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
+
+class VelaTargets {
+    def fonts:FontManager (new FontManager())
+    def faces:int 0
+    ; What went wrong, for a page that would otherwise show an empty canvas.
+    def errors:[string]
+    ; The size of the last chart `evgSource` wrote, so a caller does not have
+    ; to guess how big a surface the drawing wants.
+    def pageWidth:double 0.0
+    def pageHeight:double 0.0
+
+    ; A face, as bytes. Answers false for a file that is not a TrueType font,
+    ; so a page that fetched a 404 page instead of a font hears about it.
+    fn addFont:boolean (name:string data:buffer) {
+        if (fonts.addFontBuffer(name data)) {
+            faces = (faces + 1)
+            return true
+        }
+        push errors ("not a usable font: " + name)
+        return false
+    }
+
+    ; ------------------------------------------------------------------ evg ---
+    ; A specification, as the EVG page source the showcase generates. The page
+    ; hands this back to `displayList` or `png`; it is also worth showing on
+    ; its own, since it is the artefact the PDF is made from.
+    fn evgSource:string (specText:string zoneName:string) {
+        clear errors
+        pageWidth = 0.0
+        pageHeight = 0.0
+        def parser (new VlJsonParser())
+        def source:VlJson (parser.parse(specText))
+        if (! parser.ok) {
+            push errors ("that is not valid JSON: " + parser.err)
+            return ""
+        }
+        def spec:VlJson source
+        if (VelaTargets.looksLikeVegaLite(source)) {
+            def compiler (new VlCompile())
+            def compiled:VlJson (compiler.compile(source))
+            for compiler.errors ce:string cei {
+                push errors ce
+            }
+            if ((array_length compiler.errors) > 0) {
+                return ""
+            }
+            spec = compiled
+        }
+
+        def rt (new VlRuntime())
+        rt.timeZoneName = zoneName
+        def scene:VlSceneMark (rt.run(spec))
+        for rt.errors re:string rei {
+            push errors re
+        }
+        if ((array_length rt.errors) > 0) {
+            return ""
+        }
+
+        def list:VlCommandList (VlSceneCommands.build(scene))
+        def root:VlSceneItem (itemAt scene.items 0)
+        def writer (new VlEvgWriter())
+        def chart:string (writer.writeChart(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY"))))
+        pageWidth = writer.lastWidth
+        pageHeight = writer.lastHeight
+
+        def nl:string (strfromcode 10)
+        def out:string ("import { View } from \"./evg_types\";" + nl)
+        out = ((out + "function render() {") + nl)
+        out = ((out + "  return (") + nl)
+        out = ((out + "    <View className=\"page\">") + nl)
+        out = (out + chart)
+        out = ((out + "    </View>") + nl)
+        out = ((out + "  );") + nl)
+        out = ((out + "}") + nl)
+        out = (out + ("export default render;" + nl))
+        return out
+    }
+
+    sfn looksLikeVegaLite:boolean (spec:VlJson) {
+        def schema:string (spec.stringOr("$schema" ""))
+        if ((indexOf schema "vega-lite") >= 0) { return true }
+        if ((indexOf schema "/vega/") >= 0) { return false }
+        if (spec.has("mark")) { return true }
+        if (spec.has("encoding")) { return true }
+        if (spec.has("layer")) { return true }
+        if (spec.has("facet")) { return true }
+        if (spec.has("hconcat")) { return true }
+        if (spec.has("vconcat")) { return true }
+        if (spec.has("concat")) { return true }
+        return false
+    }
+
+    ; The layout that measured the last tree. The raster target needs it, not
+    ; for the positions — those are on the elements — but for the text engine,
+    ; so a caption is broken into lines where the layout broke it and not
+    ; wherever the painter happens to run out of room.
+    def lastLayout:EVGLayout
+
+    ; The parsed and styled tree, before anything has been measured. The PDF
+    ; renderer runs its own layout and wants the tree in this state; the other
+    ; two want it laid out, which is what `build` adds.
+    fn parsed:EVGElement (tsx:string css:string theme:string width:double height:double) {
+        def conv (new JSXToEVG())
+        conv.verbose = false
+        conv.pageWidth = width
+        conv.pageHeight = height
+        def root:EVGElement (conv.parse(tsx))
+        if (root.tagName == "") {
+            push errors "the EVG page has no content"
+            return root
+        }
+        if ((strlen css) > 0) {
+            def sheet (new EVGStyleSheet())
+            sheet.parse(css)
+            sheet.applyTo(root theme)
+        }
+        return root
+    }
+
+    ; The parsed, styled, laid-out tree — the step the GPU and raster targets
+    ; share.
+    fn build:EVGElement (tsx:string css:string theme:string width:double height:double) {
+        def root:EVGElement (this.parsed(tsx css theme width height))
+        if (root.tagName == "") {
+            return root
+        }
+        def lay (new EVGLayout())
+        if (faces > 0) {
+            lay.setMeasurer((new TTFTextMeasurer(fonts)))
+        } {
+            push errors "no fonts were supplied, so text is measured by guess"
+        }
+        lay.setPageSize(width height)
+        lay.layout(root)
+        lastLayout = lay
+        return root
+    }
+
+    ; The display list, as the JSON the WebGL viewer reads. The page size
+    ; travels with it because a backend has to know how big the surface is
+    ; before it can set up a projection.
+    fn displayList:string (tsx:string css:string theme:string width:double height:double) {
+        clear errors
+        def root:EVGElement (this.build(tsx css theme width height))
+        if ((array_length errors) > 0) {
+            if (root.tagName == "") {
+                return ""
+            }
+        }
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        def out:string "{\"width\":"
+        out = (out + (EVGDisplayList.num(width)))
+        out = ((out + ",\"height\":") + (EVGDisplayList.num(height)))
+        out = ((out + ",\"list\":") + (dl.toJson()))
+        out = (out + "}")
+        return out
+    }
+
+    ; ------------------------------------------------------------------ png ---
+    ; The raster target: this repository's own scan-line rasteriser filling the
+    ; same paths and painting the same glyph outlines, encoded as a PNG here
+    ; rather than written to a file. Nothing in the browser draws this — not
+    ; the canvas, not the GPU — so the bytes that come back are Ranger's own
+    ; arithmetic all the way down to the deflate stream.
+    ;
+    ; `scale` is device pixels per layout pixel; 2 gives a sharp image on a
+    ; retina screen, and costs four times the fill.
+    fn png:buffer (tsx:string css:string theme:string width:double height:double scale:double) {
+        clear errors
+        def root:EVGElement (this.build(tsx css theme width height))
+        if (root.tagName == "") {
+            return (buffer_alloc 0)
+        }
+
+        def pixelWidth:int (to_int (width * scale))
+        def pixelHeight:int (to_int (height * scale))
+        if ((pixelWidth < 1) || (pixelHeight < 1)) {
+            push errors "the chart has no size to rasterise"
+            return (buffer_alloc 0)
+        }
+
+        def surface (new EVGRasterRenderer())
+        surface.init(pixelWidth pixelHeight)
+        ; White, not the tool's grey: a chart carries its own background when
+        ; the specification gave it one, and the page behind it is white.
+        surface.clear(255 255 255 255)
+
+        def painter (new RasterText())
+        painter.setFallbackManager(fonts)
+
+        ; The CLI tool's element painter, driven from an already-laid-out tree
+        ; instead of from a file. Everything it reads is set here; nothing it
+        ; would have read from disk is reached, because the fonts are already
+        ; in the manager and the stylesheet was applied before layout.
+        def tool (new EVGPNGTool())
+        tool.pageWidth = width
+        tool.pageHeight = height
+        tool.scale = scale
+        tool.debug = false
+        tool.baseDir = ""
+        tool.styles = (new EVGStyleLoader())
+        tool.fontManager = fonts
+        tool.textRenderer = painter
+        tool.renderer = surface
+        tool.layout = lastLayout
+        tool.renderElement(root 0.0 0.0)
+
+        def encoder (new PNGEncoder())
+        return (encoder.encodeToBuffer((surface.getBuffer())))
+    }
+
+    ; ------------------------------------------------------------------ pdf ---
+    ; The print target, which is where the EVG layer started. The renderer runs
+    ; its own layout — with the same TrueType measurer — and writes the file
+    ; itself, so what comes back is a whole PDF and not something a viewer has
+    ; to be talked into. A browser will show it in an <iframe> from a blob URL,
+    ; which is the only reason this is reachable from a page at all.
+    fn pdf:buffer (tsx:string css:string theme:string width:double height:double) {
+        clear errors
+        def root:EVGElement (this.parsed(tsx css theme width height))
+        if (root.tagName == "") {
+            return (buffer_alloc 0)
+        }
+        if (faces == 0) {
+            push errors "no fonts were supplied, so nothing could be embedded"
+            return (buffer_alloc 0)
+        }
+
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)          ; the Rust Rc pattern, harmless here
+        renderer.setPageSize(width height)
+        renderer.setFontManager(fonts)
+        renderer.setBaseDir("")
+        renderer.setMeasurer((new TTFTextMeasurer(fonts)))
+        def data:buffer (renderer.render(root))
+
+        ; What the page would otherwise have to guess at: a label that could
+        ; not be measured from the declared face reflows in print, and a
+        ; character outside WinAnsi is written as a question mark.
+        def engine:EVGTextEngine (renderer.getTextEngine())
+        def wi:int 0
+        while (wi < (engine.warningCount())) {
+            push errors (engine.warningAt(wi))
+            wi = (wi + 1)
+        }
+        def gi:int 0
+        while (gi < (renderer.unsupportedGlyphCount())) {
+            push errors ((renderer.unsupportedGlyphReport(gi)) + " is outside WinAnsi and was written as '?'")
+            gi = (gi + 1)
+        }
+        return data
+    }
+}

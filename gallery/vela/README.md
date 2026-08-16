@@ -106,15 +106,40 @@ Two more things about it are deliberate:
   editor's own data directory, so an example copied from the Vega site works as
   pasted.
 * **What it will not draw, it says.** A transform Vela does not have comes back
-  as `the transform 'loess' is not compiled here` rather than as a chart with a
-  line missing from it. A blank pane and a wrong chart are the same thing to
+  as `the transform 'density' is not compiled here` rather than as a chart with
+  a line missing from it. A blank pane and a wrong chart are the same thing to
   whoever is looking at it.
 
+### The same chart, four ways
+
+The other tabs are not other views of the SVG. They are the other backends,
+reached from the same scene:
+
+| tab | what draws it |
+| --- | --- |
+| **Chart** | Vela's own SVG renderer, `VlSvg.rgr` |
+| **WebGL** | the EVG page → `JSXToEVG` → stylesheet → `EVGLayout` → display list, drawn as GPU quads by `gallery/evg/gl/evg-webgl.js` |
+| **PNG** | the same layout, filled by `EVGRasterRenderer` and deflated by `PNGEncoder` — finished image bytes, computed in Ranger |
+| **PDF** | the same page through `EVGPDFRenderer`, faces embedded; the browser only displays it |
+
+`tools/vela_targets.rgr` is what makes the last three reachable from a page.
+The one concession it makes to running in a browser is fonts: the layout
+measures with the real TrueType faces and the loader that would read them off
+disk has no disk, so the page fetches the `.ttf` files and hands the bytes to
+`addFont`. Everything else — parsing, styling, layout, filling, encoding — is
+the same code the CLI tools run.
+
+That makes the page a comparison rather than a demonstration. Four renderers
+that agree on where a bar's corner is are four renderers reading one scene; one
+that disagrees has a bug, and it is visible by clicking between two tabs.
+
 `node gallery/vela/web/smoke.mjs` opens the page in a real browser and checks
-all four paths: Vega in, Vega-Lite in, a fetched url, and a refusal. The page
-is the one part of this that a CLI cannot check — it depends on a browser
-loading a compiled script and on that script having no `require` left in it,
-and both fail as an empty pane rather than as an error.
+every path: Vega in, Vega-Lite in, a fetched url, a refusal, and each of the
+three other backends producing what it claims to — quads and text runs on the
+GPU, PNG bytes the browser will decode, and a PDF. The page is the one part of
+this that a CLI cannot check — it depends on a browser loading a compiled
+script and on that script having no `require` left in it, and both fail as an
+empty pane rather than as an error.
 
 ## Try it
 

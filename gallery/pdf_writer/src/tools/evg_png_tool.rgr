@@ -382,8 +382,9 @@ class EVGPNGTool {
             print ("Render: " + el.tagName + " at (" + (to_string x) + ", " + (to_string y) + ") size " + (to_string w) + "x" + (to_string h))
         }
         
-        ; Always print for now to debug
-        print ("  Render: " + el.tagName + " bg=" + (to_string el.backgroundColor.isSet) + " grad=" + el.backgroundGradient + " x=" + (to_string (to_int x)) + " y=" + (to_string (to_int y)) + " w=" + (to_string (to_int w)) + " h=" + (to_string (to_int h)))
+        if debug {
+            print ("  Render: " + el.tagName + " bg=" + (to_string el.backgroundColor.isSet) + " grad=" + el.backgroundGradient + " x=" + (to_string (to_int x)) + " y=" + (to_string (to_int y)) + " w=" + (to_string (to_int w)) + " h=" + (to_string (to_int h)))
+        }
         
         ; Render shadow first (if any)
         if el.shadowColor {

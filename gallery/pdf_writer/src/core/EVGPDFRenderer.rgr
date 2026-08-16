@@ -2458,10 +2458,16 @@ class EVGPDFRenderer {
         ; Get PDF font name
         def fontName:string (this.getPdfFontName(fontFamily))
         
-        ; Debug: Log font resolution
+        ; Which face this string actually got. A resolution that went as asked
+        ; is only interesting under -debug — it was printed per text element,
+        ; which is a line of log per label on a chart. A face that was NOT
+        ; found is always worth saying, because the page will be set in
+        ; something other than what it asked for.
         def ttfFontDebug:TrueTypeFont (fontManager.getFont(fontFamily))
         if (ttfFontDebug.unitsPerEm > 0) {
-            print ("PDF Font: requested='" + fontFamily + "' -> resolved='" + ttfFontDebug.fontFamily + "' style='" + ttfFontDebug.fontStyle + "'")
+            if debug {
+                print ("PDF Font: requested='" + fontFamily + "' -> resolved='" + ttfFontDebug.fontFamily + "' style='" + ttfFontDebug.fontStyle + "'")
+            }
         } {
             print ("PDF Font: requested='" + fontFamily + "' -> FALLBACK (font not found)")
         }
