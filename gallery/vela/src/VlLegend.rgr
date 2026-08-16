@@ -48,6 +48,10 @@ class VlLegendEntry {
 class VlLegend {
     ; --- the reference's `config.legend`, overridable per legend --------------
     def orient:string "right"
+    ; A legend above or below the plot lays its entries out in a ROW rather
+    ; than a column, which is a different grid with the same rule: each entry
+    ; starts a padding past the outer edge of the one before it.
+    def direction:string "vertical"
     def padding:double 0.0
     def rowPadding:double 2.0
     def columnPadding:double 10.0
@@ -129,6 +133,7 @@ class VlLegend {
 
     fn readConfig:void (ldef:VlJson) {
         orient = (ldef.stringOr("orient" orient))
+        direction = (ldef.stringOr("direction" direction))
         padding = (ldef.doubleOr("padding" padding))
         rowPadding = (ldef.doubleOr("rowPadding" rowPadding))
         columnPadding = (ldef.doubleOr("columnPadding" columnPadding))
@@ -203,7 +208,7 @@ class VlLegend {
     ; literal values by the runtime. They are applied to the symbol and label
     ; items BEFORE anything is measured, because they can change what there is
     ; to measure: a legend that strokes its symbols makes every row taller.
-    fn build:VlSceneMark (ldef:VlJson symbolsEncode:VlJson labelsEncode:VlJson titleEncode:VlJson) {
+    fn build:VlSceneMark (ldef:VlJson symbolsEncode:VlJson labelsEncode:VlJson titleEncode:VlJson gradientEncode:VlJson) {
         this.readConfig(ldef)
 
         def mark (new VlSceneMark())
@@ -226,7 +231,7 @@ class VlLegend {
         ; labelled. The reference decides between the two the same way — one
         ; scale, on fill or stroke, and continuous.
         if (this.wantsGradient(primary sc)) {
-            return (this.buildGradient(mark group sc labelsEncode titleEncode))
+            return (this.buildGradient(mark group sc labelsEncode titleEncode gradientEncode))
         }
 
         def entries:[VlLegendEntry] (this.entriesFor(sc))
@@ -276,7 +281,11 @@ class VlLegend {
             row.setValue("noBound" (VlJson.boolValue(true)))
             row.setNumber("opacity" 1.0)
             row.setNumber("row" (to_double idx))
-            row.setNumber("column" 0.0)
+            def column:double 0.0
+            if (this.isHorizontal()) {
+                column = (to_double idx)
+            }
+            row.setNumber("column" column)
 
             def sx:double ((offset * 0.5) + symbolOffset)
             def sy:double (e.cell * 0.5)
@@ -301,7 +310,11 @@ class VlLegend {
             push boxes box
         }
 
-        this.layoutRows(scopeMark boxes)
+        if (this.isHorizontal()) {
+            this.layoutColumns(scopeMark boxes)
+        } {
+            this.layoutRows(scopeMark boxes)
+        }
         push entryItem.marks scopeMark
 
         ; The entry block, and then the title above it.
@@ -375,7 +388,7 @@ class VlLegend {
     ; gradient, which the scene carries as its stops — a renderer with no
     ; gradient of its own draws them as slices, and one with gradients uses
     ; them directly.
-    fn buildGradient:VlSceneMark (mark:VlSceneMark group:VlSceneItem sc:VlScale labelsEncode:VlJson titleEncode:VlJson) {
+    fn buildGradient:VlSceneMark (mark:VlSceneMark group:VlSceneItem sc:VlScale labelsEncode:VlJson titleEncode:VlJson gradientEncode:VlJson) {
         def entryMark (new VlSceneMark())
         entryMark.markType = "group"
         entryMark.role = "legend-entry"
@@ -388,11 +401,19 @@ class VlLegend {
         bar.setNumber("opacity" 1.0)
         bar.setNumber("x" 0.0)
         bar.setNumber("y" 0.0)
-        bar.setNumber("width" gradientThickness)
-        bar.setNumber("height" gradientLength)
+        def across:double gradientThickness
+        def along:double gradientLength
+        if (this.isHorizontal()) {
+            bar.setNumber("width" along)
+            bar.setNumber("height" across)
+        } {
+            bar.setNumber("width" across)
+            bar.setNumber("height" along)
+        }
         bar.setString("stroke" gradientStrokeColor)
         bar.setNumber("strokeWidth" gradientStrokeWidth)
         bar.setValue("gradientStops" (this.gradientStops(sc)))
+        VlLegend.applyEncode(bar gradientEncode)
 
         ; The values the ends are labelled with. The reference asks for as many
         ; ticks as the bar is long — two per hundred pixels — and falls back to
@@ -414,25 +435,44 @@ class VlLegend {
         labelMark.markType = "text"
         labelMark.role = "legend-label"
         def boxes (new VlBounds())
-        boxes.set(0.0 0.0 gradientThickness gradientLength)
+        boxes.set(0.0 0.0 (bar.number("width")) (bar.number("height")))
         for values v:double idx {
             def item:VlSceneItem (labelMark.addItem())
             item.setString("fill" labelColor)
             item.setString("font" labelFont)
             item.setNumber("fontSize" labelFontSize)
             item.setNumber("opacity" 1.0)
-            item.setString("align" "left")
             def perc:double (sc.fraction(v))
-            def baseline:string "middle"
-            if (perc <= 0.0) {
-                baseline = "bottom"
+            ; The label at an END of the scale is pulled inside the bar rather
+            ; than centred on it, so the scale reads to its own extremes and
+            ; nothing hangs off the drawing. Which property does the pulling
+            ; depends on which way the bar runs: down the side it is the
+            ; baseline, along the foot it is the alignment.
+            if (this.isHorizontal()) {
+                def align:string "center"
+                if (perc <= 0.0) {
+                    align = "left"
+                }
+                if (perc >= 1.0) {
+                    align = "right"
+                }
+                item.setString("align" align)
+                item.setString("baseline" "top")
+                item.setNumber("x" (perc * along))
+                item.setNumber("y" (across + gradientLabelOffset))
+            } {
+                def baseline:string "middle"
+                if (perc <= 0.0) {
+                    baseline = "bottom"
+                }
+                if (perc >= 1.0) {
+                    baseline = "top"
+                }
+                item.setString("align" "left")
+                item.setString("baseline" baseline)
+                item.setNumber("y" ((1.0 - perc) * along))
+                item.setNumber("x" (across + gradientLabelOffset))
             }
-            if (perc >= 1.0) {
-                baseline = "top"
-            }
-            item.setString("baseline" baseline)
-            item.setNumber("y" ((1.0 - perc) * gradientLength))
-            item.setNumber("x" (gradientThickness + gradientLabelOffset))
             item.setString("text" (itemAt labels idx))
             VlLegend.applyEncode(item labelsEncode)
             boxes.union((VlBounds.ofText((item.text("text")) (item.number("fontSize")) (item.text("align")) (item.text("baseline")) (item.number("x")) (item.number("y")))))
@@ -569,6 +609,48 @@ class VlLegend {
         }
         for scopeMark.items row:VlSceneItem idx {
             row.setNumber("width" widest)
+        }
+    }
+
+    fn isHorizontal:boolean () {
+        return (direction == "horizontal")
+    }
+
+    ; The same layout turned ninety degrees: each entry starts a column padding
+    ; past the outer edge of the one before, allowing for a symbol that spills
+    ; left of its own origin, and every entry keeps its OWN width — a wide
+    ; label makes its column wide and its neighbours stay narrow. The shared
+    ; number in a row is the height, the way the shared number in a column is
+    ; the width.
+    fn layoutColumns:void (scopeMark:VlSceneMark boxes:[VlBounds]) {
+        def x:double 0.0
+        def previousExtent:double 0.0
+        for scopeMark.items col:VlSceneItem idx {
+            def box:VlBounds (itemAt boxes idx)
+            def step:double 0.0
+            if (idx > 0) {
+                step = columnPadding
+                if (box.x1 < 0.0) {
+                    step = (step + (VlBounds.ceilTo((0.0 - box.x1))))
+                }
+                step = (step + previousExtent)
+            }
+            x = (x + step)
+            col.setNumber("x" x)
+            col.setNumber("y" 0.0)
+            box.translate(x 0.0)
+            previousExtent = (VlBounds.ceilTo((box.x2 - x)))
+            col.setNumber("width" (box.x2 - x))
+        }
+        def tallest:double 0.0
+        for scopeMark.items col:VlSceneItem idx {
+            def edge:double (((itemAt boxes idx).y2) - (col.number("y")))
+            if (edge > tallest) {
+                tallest = edge
+            }
+        }
+        for scopeMark.items col:VlSceneItem idx {
+            col.setNumber("height" tallest)
         }
     }
 

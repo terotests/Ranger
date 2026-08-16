@@ -12,9 +12,9 @@
       "stroke": "#ddd",
       "background": "white",
       "viewWidth": 340,
-      "viewHeight": 227,
+      "viewHeight": 222,
       "originX": 35,
-      "originY": 10,
+      "originY": 5,
       "items": [
         {
           "marktype": "group",

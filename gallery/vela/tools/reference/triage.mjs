@@ -325,6 +325,94 @@ const CANDIDATES = {
       },
     },
   },
+  // --- legends --------------------------------------------------------------
+  // A legend is drawn correctly wherever it is asked to go; the question these
+  // ask is whether it is PLACED there. `orient` has eight anchors and the
+  // gradient legend turns on its side for four of them.
+  legend_left: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'left' } },
+      },
+    },
+  },
+  legend_top: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'top' } },
+      },
+    },
+  },
+  legend_bottom: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'bottom' } },
+      },
+    },
+  },
+  legend_top_left: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'top-left' } },
+      },
+    },
+  },
+  legend_bottom_right: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'g', type: 'nominal', legend: { orient: 'bottom-right' } },
+      },
+    },
+  },
+  legend_gradient_left: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'b', type: 'quantitative', legend: { orient: 'left' } },
+      },
+    },
+  },
+  legend_gradient_bottom: {
+    group: 'legend',
+    spec: {
+      data: { values },
+      mark: 'point',
+      encoding: {
+        x: { field: 'c', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'b', type: 'quantitative', legend: { orient: 'bottom' } },
+      },
+    },
+  },
   // --- time -----------------------------------------------------------------
   line_temporal: {
     group: 'time',

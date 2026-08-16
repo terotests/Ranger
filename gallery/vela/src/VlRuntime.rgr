@@ -61,6 +61,12 @@ class VlRuntime {
     def extentRight:double 0.0
     def extentTop:double 0.0
     def extentBottom:double 0.0
+    ; What the AXES asked for, which is not the same as what the drawing needs:
+    ; a vertical axis' end labels overhang the plot above and below, and the
+    ; view has to hold them, but a legend anchored below the chart is anchored
+    ; past the x axis and not past half a line of y-axis label.
+    def axisTop:double 0.0
+    def axisBottom:double 0.0
     ; The top-level groups a concatenated or faceted view holds, with the room
     ; each one's own axes need around it. The layout step places them.
     def groupBoxes:[VlGroupBox]
@@ -852,6 +858,8 @@ class VlRuntime {
         extentRight = 0.0
         extentTop = 0.0
         extentBottom = 0.0
+        axisTop = 0.0
+        axisBottom = 0.0
         if (! (axes.isArray())) {
             return
         }
@@ -872,6 +880,12 @@ class VlRuntime {
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))
                 this.growExtent(orient (axis.totalExtent))
+                if (orient == "top") {
+                    axisTop = (VlRuntime.higher(axisTop (axis.totalExtent)))
+                }
+                if (orient == "bottom") {
+                    axisBottom = (VlRuntime.higher(axisBottom (axis.totalExtent)))
+                }
                 ; A vertical axis' labels are centred on their tick, so the
                 ; ones at the ends of the scale hang half a line above and
                 ; below the plot and the drawing has to make room for both. The
@@ -880,9 +894,17 @@ class VlRuntime {
                 ; what the row title is centred on.
                 if ((orient == "left") || (orient == "right")) {
                     if (adef.boolOr("labels" true)) {
-                        def overhang:double (axis.labelFontSize / 2.0)
-                        this.growExtent("top" overhang)
-                        this.growExtent("bottom" overhang)
+                        ; Only a CONTINUOUS scale puts a label at each end of
+                        ; itself. A band scale labels the middle of each band,
+                        ; so its top and bottom labels are half a band inside
+                        ; the plot and nothing overhangs.
+                        if ((sc.scaleType == "band") == false) {
+                            if ((sc.scaleType == "point") == false) {
+                                def overhang:double (axis.labelFontSize / 2.0)
+                                this.growExtent("top" overhang)
+                                this.growExtent("bottom" overhang)
+                            }
+                        }
                     }
                 }
             }
@@ -973,9 +995,13 @@ class VlRuntime {
         if (reach0 > edge) {
             edge = reach0
         }
-        def anchorX:double ((VlBounds.ceilTo(edge)) + 18.0)
+        def rightEdge:double (VlBounds.ceilTo(edge))
         def stackY:double 0.0
-        def reach:double 0.0
+        def stackX:double 0.0
+        def reachRight:double 0.0
+        def reachLeft:double 0.0
+        def reachTop:double 0.0
+        def reachBottom:double 0.0
         def total:int (legends.count())
         def k:int 0
         while (k < total) {
@@ -995,27 +1021,80 @@ class VlRuntime {
             }
             if named {
                 def encode:VlJson (ldef.get("encode"))
-                def mark:VlSceneMark (legend.build(ldef (this.resolveEncodeBlock(encode "symbols")) (this.resolveEncodeBlock(encode "labels")) (this.resolveEncodeBlock(encode "title"))))
+                def mark:VlSceneMark (legend.build(ldef (this.resolveEncodeBlock(encode "symbols")) (this.resolveEncodeBlock(encode "labels")) (this.resolveEncodeBlock(encode "title")) (this.resolveEncodeBlock(encode "gradient"))))
                 for legend.errors msg:string mi {
                     this.warn(msg)
                 }
                 def orient:string (ldef.stringOr("orient" "right"))
-                if ((orient == "right") == false) {
-                    this.warn(("legend orient '" + orient) + "' is not placed yet; it is drawn on the right")
-                }
+                def offset:double (ldef.doubleOr("offset" 18.0))
                 def group:VlSceneItem (itemAt mark.items 0)
-                group.setNumber("x" anchorX)
-                group.setNumber("y" stackY)
-                stackY = ((stackY + legend.height) + 8.0)
-                if ((anchorX + legend.width) > reach) {
-                    reach = (anchorX + legend.width)
+
+                ; Where a legend goes. Outside an edge, the plot's guides are
+                ; part of what it has to clear — the labels of the axis on that
+                ; side, not the plotting rectangle. Inside a corner, nothing is
+                ; cleared and the offset is an inset from the plot itself.
+                def px:double 0.0
+                def py:double 0.0
+                if (orient == "right") {
+                    px = (rightEdge + offset)
+                    py = stackY
+                    stackY = ((stackY + legend.height) + 8.0)
                 }
+                if (orient == "left") {
+                    px = (0.0 - (((VlBounds.ceilTo(extentLeft)) + offset) + legend.width))
+                    py = stackY
+                    stackY = ((stackY + legend.height) + 8.0)
+                }
+                if (orient == "top") {
+                    px = stackX
+                    py = (0.0 - (((VlBounds.ceilTo(axisTop)) + offset) + legend.height))
+                    stackX = ((stackX + legend.width) + 8.0)
+                }
+                if (orient == "bottom") {
+                    px = stackX
+                    py = ((chartHeight + (VlBounds.ceilTo(axisBottom))) + offset)
+                    stackX = ((stackX + legend.width) + 8.0)
+                }
+                if (orient == "top-left") {
+                    px = offset
+                    py = offset
+                }
+                if (orient == "top-right") {
+                    px = ((chartWidth - legend.width) - offset)
+                    py = offset
+                }
+                if (orient == "bottom-left") {
+                    px = offset
+                    py = ((chartHeight - legend.height) - offset)
+                }
+                if (orient == "bottom-right") {
+                    px = ((chartWidth - legend.width) - offset)
+                    py = ((chartHeight - legend.height) - offset)
+                }
+                group.setNumber("x" px)
+                group.setNumber("y" py)
+
+                reachRight = (VlRuntime.higher(reachRight (px + legend.width)))
+                reachBottom = (VlRuntime.higher(reachBottom (py + legend.height)))
+                reachLeft = (VlRuntime.lower(reachLeft px))
+                reachTop = (VlRuntime.lower(reachTop py))
                 push rootItem.marks mark
             }
             k = (k + 1)
         }
-        if (reach > chartWidth) {
-            this.growExtent("right" (reach - chartWidth))
+        ; A legend outside the plot is part of the drawing, so the view grows
+        ; to hold it on whichever side it landed.
+        if (reachRight > chartWidth) {
+            this.growExtent("right" (reachRight - chartWidth))
+        }
+        if (reachLeft < 0.0) {
+            this.growExtent("left" (0.0 - reachLeft))
+        }
+        if (reachTop < 0.0) {
+            this.growExtent("top" (0.0 - reachTop))
+        }
+        if (reachBottom > chartHeight) {
+            this.growExtent("bottom" (reachBottom - chartHeight))
         }
     }
 
