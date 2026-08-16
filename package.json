@@ -85,6 +85,7 @@
     "vela:test": "bash gallery/vela/tests/run.sh",
     "vela:showcase": "bash gallery/vela/tools/build-showcase-page.sh",
     "vela:parity": "node gallery/vela/tools/reference/parity.mjs",
+    "vela:cpp": "bash gallery/vela/tests/run_cpp.sh",
     "jsengine:check": "bash scripts/cpp-toolchain.sh",
     "jsengine:build": "bash scripts/engine-build.sh",
     "jsengine:bench": "node scripts/engine-bench.cjs",

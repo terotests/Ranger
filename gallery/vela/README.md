@@ -13,8 +13,11 @@ legends and layout produce a scene that matches the reference implementation
 item for item on **970 of 970 marks** across 24 chart types at three sizes, and
 the EVG backend renders that scene to **PDF, PNG and HTML** — twenty-two charts
 on three pages of the project's
-[EVG showcase](https://terotests.github.io/Ranger/evg/). Every chart type the
-triage asked for is built; see
+[EVG showcase](https://terotests.github.io/Ranger/evg/). Compiled to **C++**
+and built with `g++`, the runtime reproduces every one of those goldens byte
+for byte, with no JavaScript engine underneath
+([the C++ check](#the-c-check-the-javascript-is-the-host-not-the-answer)).
+Every chart type the triage asked for is built; see
 [What is not there yet](#what-is-not-there-yet) for what remains.
 
 ```
@@ -55,6 +58,7 @@ against a golden, the scene against the reference implementation.
 
 ```bash
 bash gallery/vela/tests/run.sh          # build, unit tests, goldens, parity
+bash gallery/vela/tests/run_cpp.sh      # the same goldens, from a C++ binary
 ```
 
 ```bash
@@ -386,22 +390,50 @@ Re-run it after any change: a candidate that stops matching is a regression the
 committed specs might not cover, and a new candidate is a feature request with
 evidence attached.
 
+## The C++ check: the JavaScript is the host, not the answer
+
+The parity harness cannot say whether Vela is portable, because both sides of
+its comparison run in node. So there is a second suite that says it:
+
+```bash
+npm run vela:cpp        # or: bash gallery/vela/tests/run_cpp.sh
+```
+
+It compiles all three CLIs to **C++** with `-l=cpp`, builds them with the
+system compiler, and requires the native binaries to reproduce the committed
+goldens **byte for byte** — 24 scenes, 24 command lists, 47 specs against what
+the JavaScript build says, and one whole showcase page that has to come out as
+the file that is checked in. `g++` is optional; without it the step says so and
+exits 0, the same way the parity step behaves without the reference.
+
+It found a defect on its first run, and the defect is the reason the suite is
+worth having:
+
+| What was wrong | Why only C++ saw it |
+| --- | --- |
+| A box plot's lower hinge printed as `54.0705032704` instead of `54.5` | `formatNumber` scaled the fraction by `10^maxDecimals` into an **int**. Twelve significant digits of a two-digit number is ten decimals, so the scale is 10<sup>10</sup> — a JavaScript number holds it, a 32-bit int wraps it to 1410065408 |
+
+Every coordinate in that chart was already correct; the geometry never reaches
+the wide path. Only a *label* was wrong, in one target, on one chart — which is
+precisely the class of bug a single-target suite is blind to. The scale is a
+double now, and the digits are taken from the top a place at a time so no
+intermediate value is ever larger than a digit.
+
 ## What is not there yet
 
-* **Gradient legends.** A legend over a *continuous* colour scale is a gradient
-  bar with labels down its side, which is a different mark and a different
-  layout from the symbol legend built here. A spec that asks for one is
-  reported rather than drawn wrong.
 * **Row faceting and wrapped grids.** A trellis of columns is laid out —
   headers above, footers below, a row header to the left, a title over the lot.
   Rows, and a grid that wraps onto several of them, follow the same rules and
-  are not built.
+  are not built. This is the one that would unlock the most of the example
+  gallery at once.
 * **Legends anywhere but the right.** `orient` is carried into the scene and a
   legend is drawn correctly whatever it says, but only the right-hand edge is
   placed. The reference resolves the other seven anchors against the view
-  bounds; that is layout work, not legend work.
-* **Time scales**, and a Ranger Vega-Lite compiler — neither of which a static
-  chart needs, and both of which are named in the table below.
+  bounds; that is layout work, not legend work. A gradient legend has the same
+  restriction.
+* **Local time zones.** `VlTime` is a UTC calendar. Every temporal scale, tick
+  and label is computed in UTC, which is what the reference's own tests use;
+  `timeUnit` in a local zone is not built.
 * **Two width estimates, on purpose.** `VlText.estimateWidth` is the
   reference's canvas-free 0.8 em per character and sizes the axis extents,
   because matching the reference's layout is what the comparison measures.
@@ -417,14 +449,22 @@ evidence attached.
   *everything* drawn, so a chart with a symbol or a label hanging over the plot
   edge can still differ by a few pixels — a backend should not clip to the plot
   rectangle. `VlBounds` is what that fix would be built on.
-* **Time scales and the date/time layer.** No temporal axis.
-* **Power scales.** `VlMath` has the `pow` they need; the scale type is not
-  wired up. `log` is built.
 * **Incremental dataflow.** Everything recomputes. The transform signatures are
   per-transform so an incremental core can go underneath without rewriting them.
 * **A Ranger Vega-Lite compiler.** The Vega-Lite → Vega step is still the
-  official JavaScript one. That is the right order: the Vega runtime is a large
-  but well-defined job, and the Vega-Lite compiler solves a different problem.
+  official JavaScript one — and it is worth being exact about what that does and
+  does not cost, because it is the only JavaScript left anywhere near a drawn
+  chart. It is an **authoring** step, not a runtime one: it turns a Vega-Lite
+  shorthand into the Vega specification that is then checked in as JSON, the
+  same way a `.rgr` file is compiled to `.cpp` and the `.cpp` is what ships.
+  Everything downstream of that JSON — parse, transform, scale, encode, lay
+  out, draw — is Ranger, and `npm run vela:cpp` proves it by producing the
+  committed goldens from a native binary with no JavaScript engine involved.
+  What it means is that a C++ program can run any Vega specification but cannot
+  yet *accept* a Vega-Lite one; to feed it Vega-Lite you compile the spec first.
+  Building that compiler in Ranger would close the gap, and it is a separate,
+  well-defined job: the Vega runtime is the large one and it is the one that
+  had to come first.
 
 ## Layout
 
@@ -455,7 +495,8 @@ gallery/vela/
 │   ├── *_test.rgr        unit tests (JSON, expressions, scales)
 │   ├── specs/            generated Vega-Lite sources and compiled Vega specs
 │   ├── golden/           committed scene and command output
-│   └── run.sh            build + test everything
+│   ├── run.sh            build + test everything
+│   └── run_cpp.sh        the same goldens, from a native C++ build
 └── bin/                  build artifacts (not committed)
 ```
 
@@ -471,7 +512,9 @@ But a runtime written in Ranger compiles to C++, Rust, Go, Swift, Kotlin, C#,
 Dart and JavaScript with no JavaScript engine underneath, and it exercises the
 parts of Ranger a real application needs: immutable data at the edges, a
 mutable kernel, expression evaluation, numerics, collections and cross-target
-determinism. That is worth more to this repository than a hosted bundle.
+determinism. That is worth more to this repository than a hosted bundle — and
+`npm run vela:cpp` turns the claim into something that either passes or fails,
+rather than something the architecture diagram asserts.
 
 ## Attribution and licensing
 

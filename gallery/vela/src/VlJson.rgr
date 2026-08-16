@@ -269,42 +269,53 @@ class VlJson {
         if (v >= 1000000000.0) {
             return (to_string value)
         }
-        def scale:int 1
+        ; The scale is a DOUBLE, and nothing here is ever allowed to become an
+        ; int larger than a digit. Twelve significant digits of a two-digit
+        ; number is ten decimals, so the scale is 10^10 — which a 32-bit int
+        ; does not hold. JavaScript has no such int and got the right answer;
+        ; C++ wrapped 10^10 to 1410065408 and printed 54.5 as "54.0705032704".
+        ; A double carries every power of ten this can reach exactly, and
+        ; integer arithmetic below 2^53 is exact in one, so the digits are
+        ; taken from the top a place at a time and each `floor` sees a value
+        ; below ten.
+        def scale:double 1.0
         def k:int 0
         while (k < maxDecimals) {
-            scale = (scale * 10)
+            scale = (scale * 10.0)
             k = (k + 1)
         }
         def whole:int (floor v)
         def frac:double (v - (to_double whole))
-        def fracUnits:int (floor ((frac * (to_double scale)) + 0.5))
-        if (fracUnits >= scale) {
+        ; Half up, then truncated place by place — which is the same number as
+        ; flooring the scaled fraction, without ever forming it as an integer.
+        def units:double ((frac * scale) + 0.5)
+        if (! (units < scale)) {
             whole = (whole + 1)
-            fracUnits = 0
+            units = 0.0
         }
         def out:string (VlJson.intToText(whole))
-        if (fracUnits > 0) {
-            def digits:string (VlJson.intToText(fracUnits))
-            def need:int (maxDecimals - (strlen digits))
-            def pad:string ""
-            def p:int 0
-            while (p < need) {
-                pad = (pad + "0")
-                p = (p + 1)
+        def fracText:string ""
+        def place:double scale
+        def rest:double units
+        def i:int 0
+        while (i < maxDecimals) {
+            place = (place / 10.0)
+            def digit:int (floor (rest / place))
+            rest = (rest - ((to_double digit) * place))
+            fracText = (fracText + (VlJson.digitChar(digit)))
+            i = (i + 1)
+        }
+        def end:int (strlen fracText)
+        def stop:boolean false
+        while ((end > 0) && (! stop)) {
+            if ((substring fracText (end - 1) end) == "0") {
+                end = (end - 1)
+            } {
+                stop = true
             }
-            def fracText:string (pad + digits)
-            def end:int (strlen fracText)
-            def stop:boolean false
-            while ((end > 0) && (! stop)) {
-                if ((substring fracText (end - 1) end) == "0") {
-                    end = (end - 1)
-                } {
-                    stop = true
-                }
-            }
-            if (end > 0) {
-                out = ((out + ".") + (substring fracText 0 end))
-            }
+        }
+        if (end > 0) {
+            out = ((out + ".") + (substring fracText 0 end))
         }
         if neg {
             return ("-" + out)
