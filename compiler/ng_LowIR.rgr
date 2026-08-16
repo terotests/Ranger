@@ -44,6 +44,20 @@ class LowIRUtil {
     return (((typeName == "buffer") || (typeName == "int_buffer")) || (typeName == "double_buffer"))
   }
 
+  ; The JSON systemclasses. They have no Ranger-side class body, so the backend
+  ; can not learn their shape from a layout: every one of them is a handle into
+  ; the C JSON runtime (runtime/ranger_json.c), and the operators that touch
+  ; them are lowered to RtJson_* calls rather than to field reads.
+  static fn isJsonTypeName:boolean (typeName:string) {
+    if (typeName == "JSONDataObject") { return true }
+    if (typeName == "JSONArrayObject") { return true }
+    if (typeName == "JSONValueUnion") { return true }
+    if (typeName == "JSONArrayUnion") { return true }
+    if (typeName == "JSONObjectUnion") { return true }
+    if (typeName == "JSONKeyValue") { return true }
+    return false
+  }
+
   static fn isSupportedParam:boolean (typeName:string) {
     if (LowIRUtil.isSupportedPrimitive(typeName)) {
       return true
@@ -738,6 +752,33 @@ class LowIRBuilder {
     ins.arg2 = value
     ins.arg3 = pt
     this.emit(ins)
+  }
+
+  ; Typed variants of the two above. The closure record used the i32 pair for
+  ; every capture, which truncated a pointer on a 64-bit target -- and the
+  ; store said i32 while emitLoadI32At read a pointer-sized word back, so the
+  ; two did not even agree with each other.
+  fn emitStoreTypedAt:void (base:string byteOff:int value:string valueType:string) {
+    def pt (this.irModule.ptrType)
+    def off (this.emitConst(pt ("" + byteOff)))
+    def addr (this.emitBin("add" pt base off))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_store"
+    ins.irType = valueType
+    ins.arg1 = addr
+    ins.arg2 = value
+    ins.arg3 = pt
+    this.emit(ins)
+  }
+
+  fn emitLoadTypedAt:string (base:string byteOff:int valueType:string) {
+    def pt (this.irModule.ptrType)
+    if (byteOff == 0) {
+      return (this.emitPtrLoadTyped(base valueType))
+    }
+    def off (this.emitConst(pt ("" + byteOff)))
+    def addr (this.emitBin("add" pt base off))
+    return (this.emitPtrLoadTyped(addr valueType))
   }
 
   fn emitLoadI32At:string (base:string byteOff:int) {

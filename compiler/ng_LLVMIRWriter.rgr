@@ -188,9 +188,42 @@ class LLVMIRWriter {
     if ((array_length module.typeDescs) > 0) {
       this.writeTypeDescs(module wr)
     }
+    ; Only when the module actually has closures: lambdaSigs is non-empty as
+    ; soon as one call_indirect was emitted, even if this module never builds a
+    ; closure of its own (it can be handed one).
+    if (((array_length module.lambdaTableFuncs) > 0) || ((array_length module.lambdaSigs) > 0)) {
+      this.writeLambdaTable(module wr)
+    }
     for module.functions fn:LowIRFunction i {
       this.writeFunction(fn wr)
     }
+  }
+
+  ; A closure record holds the lambda's TABLE INDEX in its first word (see
+  ; lowerLambdaValue), because WebAssembly can only call through a table. LLVM
+  ; calls a function pointer directly, so the same index needs a table to look
+  ; one up in: an array of pointers in table order, indexed at the call site.
+  ; Without it every `call_indirect` reached writeInstrBody with no case and
+  ; wrote the deliberate UNHANDLED-LOWIR-OP marker.
+  fn writeLambdaTable:void (module:LowIRModule wr:CodeWriter) {
+    def cnt (array_length module.lambdaTableFuncs)
+    ; Always emitted, even empty: a module can CALL a closure it was handed
+    ; without ever building one, and a call_indirect referring to a global that
+    ; is not in the module does not parse at all.
+    if (cnt == 0) {
+      wr.out("@__rg_lambda_table = private unnamed_addr constant [1 x ptr] zeroinitializer" true)
+      wr.newline()
+      return
+    }
+    wr.out(("@__rg_lambda_table = private unnamed_addr constant [" + ("" + cnt) + " x ptr] [") false)
+    for module.lambdaTableFuncs lf:string i {
+      wr.out(("ptr @" + lf) false)
+      if (i < (cnt - 1)) {
+        wr.out(", " false)
+      }
+    }
+    wr.out("]" true)
+    wr.newline()
   }
 
   fn writeTypeDescs:void (module:LowIRModule wr:CodeWriter) {
@@ -479,6 +512,52 @@ class LLVMIRWriter {
             wr.out(((this.llTy(argType)) + " " + a) false)
           }
           if (j < (acnt - 1)) {
+            wr.out(", " false)
+          }
+        }
+        wr.out(")" true)
+      }
+      ; `ins.arg1` is the lambda table INDEX (an i32 value), not a pointer:
+      ; look the function up in @__rg_lambda_table and call through it. The
+      ; callee type is spelled out so that clang can check the arguments.
+      case "call_indirect" {
+        ; The selector is already pointer sized (the closure record's first
+        ; word, read back as i64), so it indexes the table directly.
+        def slotTmp:string (ins.arg1 + "_fslot")
+        if ((strlen ins.dest) > 0) {
+          slotTmp = (ins.dest + "_fslot")
+        }
+        def fpTmp:string (slotTmp + "_fp")
+        wr.out((slotTmp + " = getelementptr inbounds ptr, ptr @__rg_lambda_table, i64 " + ins.arg1) true)
+        wr.out(("  " + fpTmp + " = load ptr, ptr " + slotTmp) true)
+        def retTy (this.llTy(ins.irType))
+        def sigTypes:string ""
+        def acnt (array_length ins.callArgs)
+        def j2:int 0
+        while (j2 < acnt) {
+          def at2:string "i32"
+          if (j2 < (array_length ins.callTypes)) {
+            at2 = (itemAt ins.callTypes j2)
+          }
+          if (j2 > 0) {
+            sigTypes = (sigTypes + ", ")
+          }
+          sigTypes = (sigTypes + (this.llTy(at2)))
+          j2 = j2 + 1
+        }
+        wr.out("  " false)
+        if ((strlen ins.dest) > 0) {
+          wr.out((ins.dest + " = call " + retTy + " (" + sigTypes + ") " + fpTmp + "(") false)
+        } {
+          wr.out(("call " + retTy + " (" + sigTypes + ") " + fpTmp + "(") false)
+        }
+        for ins.callArgs a2:string j3 {
+          def argType2:string "i32"
+          if (j3 < (array_length ins.callTypes)) {
+            argType2 = (itemAt ins.callTypes j3)
+          }
+          wr.out(((this.llTy(argType2)) + " " + a2) false)
+          if (j3 < (acnt - 1)) {
             wr.out(", " false)
           }
         }
