@@ -55,6 +55,12 @@ class VelaSceneTool {
         def inputPath:string ""
         def outputPath:string ""
         def zoneName:string ""
+        ; --reflow runs the chart, then changes `width` to the value it already
+        ; has and answers the scene the incremental path produces. It must be
+        ; the same scene: the golden files are the assertion, and running them
+        ; all through it is how the dataflow is checked against every chart
+        ; rather than against the one the unit test builds.
+        def reflow:boolean false
         def positional:int 0
         def ai:int 0
         while (ai < argCount) {
@@ -62,6 +68,9 @@ class VelaSceneTool {
             if ((VelaSceneTool.flagValue(arg "--zone=")) != "") {
                 zoneName = (VelaSceneTool.flagValue(arg "--zone="))
             } {
+              if (arg == "--reflow") {
+                reflow = true
+              } {
                 if (positional == 0) {
                     inputPath = arg
                 } {
@@ -70,11 +79,12 @@ class VelaSceneTool {
                     }
                 }
                 positional = (positional + 1)
+              }
             }
             ai = (ai + 1)
         }
         if ((strlen inputPath) == 0) {
-            print "usage: vela_scene <spec.vg.json> [out.scene.json] [--zone=Europe/Helsinki]"
+            print "usage: vela_scene <spec.vg.json> [out.scene.json] [--zone=Europe/Helsinki] [--reflow]"
             return
         }
 
@@ -97,6 +107,9 @@ class VelaSceneTool {
         def rt (new VlRuntime())
         rt.timeZoneName = zoneName
         def scene:VlSceneMark (rt.run(specJson))
+        if reflow {
+            scene = (rt.update("width" (VlJson.numberValue((rt.chartWidth)))))
+        }
 
         for rt.warnings w:string wi {
             print ("warning: " + w)

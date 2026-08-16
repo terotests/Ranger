@@ -44,6 +44,37 @@ class VlGroupBox {
     def frameHalf:double 0.0
 }
 
+; ============================================================================
+; One node of the dataflow: something with a name that other things read.
+; ============================================================================
+; Vela computes a whole scene from a whole specification, which is the right
+; shape for drawing a chart once. It is the wrong shape for drawing it again
+; with one number changed — a slider moved, a filter narrowed, a year picked —
+; because almost nothing about the chart depends on that number and everything
+; is recomputed anyway.
+;
+; So the specification is also read as a GRAPH: which signal each data set's
+; transforms mention, which data set each scale takes its domain from, which
+; signal each other signal's update expression names. Changing a signal then
+; dirties its dependents and nothing else, and only the dirty nodes run again.
+;
+; The dependencies are read off the parsed expressions rather than the text: an
+; identifier that names a signal is a dependency on it, `data('x')` is a
+; dependency on that data set, and `scale('y')` is a dependency on that scale.
+; Reading the AST rather than the string is what keeps `datum.width` from
+; looking like a dependency on the `width` signal.
+; ============================================================================
+class VlFlowNode {
+    ; "signal:tickCount", "data:source_0", "scale:x" — the kind is part of the
+    ; key because a signal and a data set may share a name.
+    def key:string ""
+    def kind:string "signal"
+    def name:string ""
+    def def0:VlJson (new VlJson)
+    def deps:[string]
+    def dirty:boolean false
+}
+
 class VlRuntime {
     def spec:VlJson (new VlJson)
     def scope:VlExprScope (new VlExprScope())
@@ -53,6 +84,9 @@ class VlRuntime {
     ; thinks the zone is" is not an input. Empty means UTC, which is what a
     ; `utc` scale gets whatever this says.
     def timeZoneName:string ""
+    ; The dependency graph, and what the last `update` actually recomputed.
+    def flowNodes:[VlFlowNode]
+    def flowRan:[string]
     def dataSets:[string:VlDataSet]
     def dataOrder:[string]
     def scaleOrder:[string]
@@ -98,6 +132,251 @@ class VlRuntime {
         this.reportMissingFunctions()
         this.buildScales()
         this.settle()
+        this.buildFlow()
+        return (this.encodeScene())
+    }
+
+
+    ; ------------------------------------------------------------- dataflow ---
+    ; The graph, read off the specification once. Nodes are kept in the order
+    ; the spec lists them, which is already a working order: a data set may only
+    ; source one defined before it, and a scale may only read a data set that
+    ; exists. Signals are the exception and are settled by iteration, the same
+    ; way the first run settles them.
+    fn buildFlow:void () {
+        clear flowNodes
+
+        def signals:VlJson (spec.get("signals"))
+        if (signals.isArray()) {
+            def total:int (signals.count())
+            def k:int 0
+            while (k < total) {
+                def sig:VlJson (signals.at(k))
+                def name:string (sig.stringOr("name" ""))
+                if ((strlen name) > 0) {
+                    def node (new VlFlowNode())
+                    node.kind = "signal"
+                    node.name = name
+                    node.key = ("signal:" + name)
+                    node.def0 = sig
+                    this.dependOnExpr(node (sig.stringOr("update" "")))
+                    this.dependOnExpr(node (sig.stringOr("init" "")))
+                    this.addFlowNode(node)
+                }
+                k = (k + 1)
+            }
+        }
+
+        def data:VlJson (spec.get("data"))
+        if (data.isArray()) {
+            def total2:int (data.count())
+            def k2:int 0
+            while (k2 < total2) {
+                def ddef:VlJson (data.at(k2))
+                def name2:string (ddef.stringOr("name" ""))
+                if ((strlen name2) > 0) {
+                    def node2 (new VlFlowNode())
+                    node2.kind = "data"
+                    node2.name = name2
+                    node2.key = ("data:" + name2)
+                    node2.def0 = ddef
+                    def source:string (ddef.stringOr("source" ""))
+                    if ((strlen source) > 0) {
+                        push node2.deps ("data:" + source)
+                    }
+                    this.dependOnJson(node2 (ddef.get("transform")))
+                    this.addFlowNode(node2)
+                }
+                k2 = (k2 + 1)
+            }
+        }
+
+        def scales:VlJson (spec.get("scales"))
+        if (scales.isArray()) {
+            def total3:int (scales.count())
+            def k3:int 0
+            while (k3 < total3) {
+                def sdef:VlJson (scales.at(k3))
+                def name3:string (sdef.stringOr("name" ""))
+                if ((strlen name3) > 0) {
+                    def node3 (new VlFlowNode())
+                    node3.kind = "scale"
+                    node3.name = name3
+                    node3.key = ("scale:" + name3)
+                    node3.def0 = sdef
+                    this.dependOnDomain(node3 (sdef.get("domain")))
+                    this.dependOnDomain(node3 (sdef.get("domainRaw")))
+                    this.dependOnJson(node3 (sdef.get("range")))
+                    this.dependOnJson(node3 (sdef.get("domain")))
+                    this.addFlowNode(node3)
+                }
+                k3 = (k3 + 1)
+            }
+        }
+    }
+
+    fn addFlowNode:void (node:VlFlowNode) {
+        push flowNodes node
+    }
+
+    ; A `{"data": "x"}` domain, or an array of them — a scale over several data
+    ; sets at once, which is what a shared colour scale is.
+    fn dependOnDomain:void (node:VlFlowNode domain:VlJson) {
+        if (domain.isObject()) {
+            def from:string (domain.stringOr("data" ""))
+            if ((strlen from) > 0) {
+                VlRuntime.addDep(node ("data:" + from))
+            }
+            def fields:VlJson (domain.get("fields"))
+            if (fields.isArray()) {
+                def total:int (fields.count())
+                def k:int 0
+                while (k < total) {
+                    this.dependOnDomain(node (fields.at(k)))
+                    k = (k + 1)
+                }
+            }
+        }
+    }
+
+    ; Anything in a subtree that reads something else: a `{"signal": …}`, an
+    ; `"expr"`, or a transform's own named expression fields.
+    fn dependOnJson:void (node:VlFlowNode value:VlJson) {
+        if (value.isArray()) {
+            def total:int (value.count())
+            def k:int 0
+            while (k < total) {
+                this.dependOnJson(node (value.at(k)))
+                k = (k + 1)
+            }
+            return
+        }
+        if (! (value.isObject())) {
+            return
+        }
+        for value.keys key:string ki {
+            def child:VlJson (value.get(key))
+            if (child.isString()) {
+                if (((key == "signal") || (key == "expr")) || (key == "update")) {
+                    this.dependOnExpr(node child.str)
+                }
+            } {
+                this.dependOnJson(node child)
+            }
+        }
+    }
+
+    ; The dependencies an expression carries, read from its syntax tree: an
+    ; identifier that names a signal, and the argument of `data()` or `scale()`.
+    fn dependOnExpr:void (node:VlFlowNode text:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def parser (new VlExprParser())
+        def ast:VlExprNode (parser.parse(text))
+        if (! parser.ok) {
+            return
+        }
+        this.walkExprDeps(node ast)
+    }
+
+    fn walkExprDeps:void (node:VlFlowNode ast:VlExprNode) {
+        if (ast.kind == 1) {
+            if (scope.hasSignal(ast.name)) {
+                VlRuntime.addDep(node ("signal:" + ast.name))
+            }
+        }
+        if (ast.kind == 3) {
+            if ((array_length ast.children) > 0) {
+                def first:VlExprNode (itemAt ast.children 0)
+                if (first.kind == 0) {
+                    if (first.value.isString()) {
+                        if (ast.name == "data") {
+                            VlRuntime.addDep(node ("data:" + first.value.str))
+                        }
+                        if ((ast.name == "scale") || (ast.name == "invert")) {
+                            VlRuntime.addDep(node ("scale:" + first.value.str))
+                        }
+                    }
+                }
+            }
+        }
+        ; A member access reads its object, not a signal named after its key:
+        ; `datum.width` is not the `width` signal, so only the left side walks.
+        if (ast.kind == 2) {
+            if ((array_length ast.children) > 0) {
+                this.walkExprDeps(node (itemAt ast.children 0))
+            }
+            if (ast.computed) {
+                if ((array_length ast.children) > 1) {
+                    this.walkExprDeps(node (itemAt ast.children 1))
+                }
+            }
+            return
+        }
+        for ast.children child:VlExprNode ci {
+            this.walkExprDeps(node child)
+        }
+    }
+
+    sfn addDep:void (node:VlFlowNode key:string) {
+        for node.deps existing:string ei {
+            if (existing == key) {
+                return
+            }
+        }
+        push node.deps key
+    }
+
+    ; Change a signal and answer the scene it makes, having recomputed only what
+    ; reads it. `flowRan` afterwards names exactly the nodes that ran, which is
+    ; what a test asserts on — a graph that prunes nothing is a graph that is
+    ; not working, and it would still draw the right chart.
+    fn update:VlSceneMark (signalName:string value:VlJson) {
+        clear flowRan
+        scope.setSignal(signalName value)
+        if (signalName == "width") {
+            chartWidth = (value.asDouble())
+        }
+        if (signalName == "height") {
+            chartHeight = (value.asDouble())
+        }
+
+        def dirty:[string:int]
+        set dirty ("signal:" + signalName) 1
+        ; Nodes are in specification order, and a node may only read one written
+        ; before it, so one pass forward marks the whole transitive closure.
+        for flowNodes node:VlFlowNode ni {
+            for node.deps dep:string di {
+                if (has dirty dep) {
+                    set dirty node.key 1
+                }
+            }
+        }
+
+        for flowNodes node2:VlFlowNode ni2 {
+            if (has dirty node2.key) {
+                if (node2.key != ("signal:" + signalName)) {
+                    push flowRan node2.key
+                    if (node2.kind == "data") {
+                        this.runDataSet(node2.def0)
+                    }
+                    if (node2.kind == "scale") {
+                        this.buildScale(node2.def0)
+                    }
+                    if (node2.kind == "signal") {
+                        def expr:string (node2.def0.stringOr("update" ""))
+                        if ((strlen expr) > 0) {
+                            scope.setSignal(node2.name (this.evalExpr(expr)))
+                        }
+                    }
+                }
+            }
+        }
+        ; The scene itself is rebuilt whole. Every mark reads a scale and most
+        ; read the same ones, so a per-mark graph would dirty nearly all of them
+        ; anyway; the work this saves is the transforms, which is where a chart
+        ; of any size spends its time.
         return (this.encodeScene())
     }
 
@@ -815,6 +1094,9 @@ class VlRuntime {
 
     ; ---------------------------------------------------------------- encode ---
     fn encodeScene:VlSceneMark () {
+        ; Encoding is repeatable: `update` calls it again with new data, so
+        ; everything it accumulates starts empty.
+        clear groupBoxes
         def root (new VlSceneMark())
         root.markType = "group"
         root.role = "frame"

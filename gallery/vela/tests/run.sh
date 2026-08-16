@@ -34,6 +34,7 @@ say "compile"
 compile $VELA/tests/json_test.rgr json_test.js
 compile $VELA/tests/expr_test.rgr expr_test.js
 compile $VELA/tests/scale_test.rgr scale_test.js
+compile $VELA/tests/flow_test.rgr flow_test.js
 compile $VELA/tools/vela_scene.rgr vela_scene.js
 compile $VELA/tools/vela_commands.rgr vela_commands.js
 echo "ok"
@@ -41,7 +42,7 @@ echo "ok"
 status=0
 
 say "unit tests"
-for t in json_test expr_test scale_test; do
+for t in json_test expr_test scale_test flow_test; do
   out=$(node "$BIN/$t.js")
   echo "$out" | tail -1
   if echo "$out" | grep -q "FAIL"; then status=1; fi
@@ -70,6 +71,23 @@ if [ -n "$UPDATE_GOLDEN" ]; then
 else
   echo "$(ls $VELA/tests/specs/*.vg.json | wc -l | tr -d ' ') specs checked against goldens"
 fi
+
+# The dataflow, against every chart rather than against the one its unit test
+# builds: run the chart, change `width` to the value it already has, and require
+# the incremental scene to be the golden. A recomputation that is not
+# repeatable — anything accumulated and not cleared — shows up here.
+say "the same scene, recomputed incrementally"
+reflowed=0
+for spec in $VELA/tests/specs/*.vg.json; do
+  name=$(basename "$spec" .vg.json)
+  node "$BIN/vela_scene.js" "$spec" --reflow > "$BIN/$name.reflow.json"
+  if diff -q "$VELA/tests/golden/$name.scene.json" "$BIN/$name.reflow.json" > /dev/null; then
+    reflowed=$((reflowed + 1))
+  else
+    echo "  DIFF $name"; diff "$VELA/tests/golden/$name.scene.json" "$BIN/$name.reflow.json" | head -8; status=1
+  fi
+done
+echo "$reflowed specs reflow to the same scene"
 
 say "parity against the reference implementation"
 node $VELA/tools/reference/parity.mjs || status=1

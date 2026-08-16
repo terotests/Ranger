@@ -221,7 +221,7 @@ which is also what pins the legend's own size and position.
 | Time zones | a `time` scale is read in a **supplied** zone — roughly sixty named ones with the EU, US and southern summer-time rules, or a plain offset — never in the host's. `utc` is UTC whatever the runtime was told |
 | Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
 | Theming | colours from the spec, or from a stylesheet by class; `config.axis` and `config.style` are read |
-| Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
+| Dataflow | a dependency graph over signals, data and scales: `update(signal, value)` recomputes only what reads it, and the scene is re-encoded |
 | Interaction | **not built** |
 
 ## Legends: a layout that measures its own ink
@@ -393,6 +393,41 @@ Re-run it after any change: a candidate that stops matching is a regression the
 committed specs might not cover, and a new candidate is a feature request with
 evidence attached.
 
+## Changing one number
+
+Computing a whole scene from a whole specification is the right shape for
+drawing a chart once, and the wrong shape for drawing it again with one number
+changed — a slider moved, a filter narrowed, a year picked. So the specification
+is also read as a **graph**: which signal each data set's transforms mention,
+which data set each scale takes its domain from, which signal each other
+signal's update expression names.
+
+```
+rt.run(spec)                      the whole chart
+rt.update("cutoff", 50)           the chart again, having recomputed
+                                  only what reads `cutoff`
+rt.flowRan                        exactly which nodes those were
+```
+
+The dependencies are read off the **parsed expressions**, not the text: an
+identifier that names a signal is a dependency on it, `data('x')` is a
+dependency on that data set, `scale('y')` on that scale — and a member access
+reads only its object, which is what keeps `datum.width` from looking like a
+dependency on the `width` signal.
+
+Two things have to be true, and a test that checks one of them is worthless:
+
+* **It is right.** The scene after a change must be the scene a fresh run with
+  that value produces, character for character, through the same writer the
+  goldens use. `tests/run.sh` puts **every committed spec** through it — run the
+  chart, set `width` to the value it already has, require the incremental scene
+  to be the golden — which also catches anything accumulated and not cleared.
+* **It is shorter.** A graph that prunes nothing draws the right chart and has
+  done nothing. So `flowRan` is asserted by name: in the unit test's chart, of
+  eight nodes, changing `cutoff` runs the signal that quotes it, the data set
+  that filters on it and the two scales that take their domains from that data
+  set — and leaves the source data, the other filter and its scale alone.
+
 ## A time zone is supplied, not discovered
 
 A `time` scale is read in a wall clock, and the reference reads the clock of the
@@ -499,8 +534,11 @@ intermediate value is ever larger than a digit.
   *everything* drawn, so a chart with a symbol or a label hanging over the plot
   edge can still differ by a few pixels — a backend should not clip to the plot
   rectangle. `VlBounds` is what that fix would be built on.
-* **Incremental dataflow.** Everything recomputes. The transform signatures are
-  per-transform so an incremental core can go underneath without rewriting them.
+* **Per-mark incremental encoding.** A signal change reruns only the data and
+  scales that read it, but the scene itself is re-encoded whole — see
+  [Changing one number](#changing-one-number). Most marks read most scales, so
+  a per-mark graph would dirty nearly all of them anyway; it would pay on a
+  concatenated view whose plots share nothing.
 * **A Ranger Vega-Lite compiler.** The Vega-Lite → Vega step is still the
   official JavaScript one — and it is worth being exact about what that does and
   does not cost, because it is the only JavaScript left anywhere near a drawn
@@ -543,7 +581,7 @@ gallery/vela/
 │   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
 │   └── reference/        the harness that compares against official Vega
 ├── tests/
-│   ├── *_test.rgr        unit tests (JSON, expressions, scales)
+│   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow)
 │   ├── specs/            generated Vega-Lite sources and compiled Vega specs
 │   ├── golden/           committed scene and command output
 │   ├── run.sh            build + test everything
