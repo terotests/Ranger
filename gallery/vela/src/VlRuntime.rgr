@@ -1530,6 +1530,11 @@ class VlRuntime {
             if (! (styled.has("style"))) {
                 styled.setMember("style" (VlJson.stringValue("group-title")))
             }
+            ; Four pixels clear of the plot, which is the reference's own
+            ; default for a chart title and not for a facet header's.
+            if (! (styled.has("offset"))) {
+                styled.setMember("offset" (VlJson.numberValue(4.0)))
+            }
             def emptyRow:VlJson (VlJson.objectValue())
             this.encodeGroupTitle(rootItem styled emptyRow titleBox)
         }
