@@ -6058,6 +6058,28 @@ class LowIRBuilderPass {
     return (this.isClassField(fieldName lctx.className this.irModule))
   }
 
+  ; Is this the class's CONSTRUCTOR, or merely a method that happens to be
+  ; called `Constructor`? RangerFlowParser has the latter -- its handler for the
+  ; `constructor` keyword -- and the name alone was the whole test, so the
+  ; class's field-default initialisation was injected into that handler. Calling
+  ; it reset every field of the live parser: `walkAlso` lost the generated
+  ; @serialize extensions before StartWalk could walk them, which left every
+  ; generated method with no fnCtx and crashed the writer on it.
+  ;
+  ; The module-level loop already gets this right -- it emits `Constructor` from
+  ; cl.methods only when the class has no real constructor -- so a class whose
+  ; has_constructor is set can only reach here with the genuine one.
+  fn isRealConstructor:boolean (fnDesc:RangerAppFunctionDesc className:string appCtx:RangerAppWriterContext) {
+    if (fnDesc.name != "Constructor") {
+      return false
+    }
+    if ((has appCtx.definedClasses className) == false) {
+      return false
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    return cl.has_constructor
+  }
+
   fn isClassField:boolean (fieldName:string className:string module:LowIRModule) {
     if ((strlen className) == 0) {
       return false
@@ -6198,7 +6220,7 @@ class LowIRBuilderPass {
     }
 
     if isInstance {
-      if (fnDesc.name == "Constructor") {
+      if (this.isRealConstructor(fnDesc className appCtx)) {
         this.initFieldDefaultsInConstructor(className lctx)
         this.initArrayFieldsInConstructor(className lctx)
       }
@@ -6825,7 +6847,15 @@ class LowIRBuilderPass {
       return (unwrap (get this.lambdaCaptures key))
     }
     def info@(lives):LambdaCaptureInfo (new LambdaCaptureInfo())
-    def off 4
+    ; Captures start AFTER the function-table index, which occupies a whole
+    ; pointer-sized word: lowerLambdaValue stores it pointer sized and
+    ; lowerLambdaCall reads it back the same way, because an i32 store left the
+    ; upper half undefined on a 64-bit target. Reserving four bytes for it was
+    ; right only on wasm -- natively the first capture landed at offset 4 and
+    ; overwrote the top half of the index, so the call went through a garbage
+    ; slot of the lambda table. `filter opFnList { … }` in the flow parser's
+    ; TransformOpFn, whose closure captures one int, is where it showed.
+    def off (this.irTypeBytes(this.irModule.ptrType lctx))
     def capNames:[string] (this.lambdaCaptureNames(node lam))
     if true {
       for capNames cn:string i {

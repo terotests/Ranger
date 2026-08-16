@@ -48683,6 +48683,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return this.isClassField(fieldName, lctx.className, this.irModule);
                         };
+                        isRealConstructor (fnDesc, className, appCtx) {
+                          if ( fnDesc.name != "Constructor" ) {
+                            return false;
+                          }
+                          if ( (( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) )) == false ) {
+                            return false;
+                          }
+                          const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined ));
+                          return cl.has_constructor;
+                        };
                         isClassField (fieldName, className, module) {
                           if ( (className.length) == 0 ) {
                             return false;
@@ -48812,7 +48822,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             builder.emitCall("ranger_cli_init", "void", cliArgs, cliArgTypes);
                           }
                           if ( isInstance ) {
-                            if ( fnDesc.name == "Constructor" ) {
+                            if ( this.isRealConstructor(fnDesc, className, appCtx) ) {
                               this.initFieldDefaultsInConstructor(className, lctx);
                               this.initArrayFieldsInConstructor(className, lctx);
                             }
@@ -49335,7 +49345,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return (( Object.prototype.hasOwnProperty.call(this.lambdaCaptures, key) ? this.lambdaCaptures[key] : undefined ));
                           }
                           const info = new LambdaCaptureInfo();
-                          let off = 4;
+                          let off = this.irTypeBytes(this.irModule.ptrType, lctx);
                           const capNames = this.lambdaCaptureNames(node, lam);
                           if ( true ) {
                             for ( let i = 0; i < capNames.length; i++) {
