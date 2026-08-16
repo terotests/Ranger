@@ -3,8 +3,8 @@
   "description": "One line per interpolation over the same eight readings. Nothing else in the suite asks for a curve, so nothing else would notice a renderer that drew every one of them as straight segments \u2014 nine identical lines under a legend naming nine different shapes.",
   "background": "white",
   "padding": 5,
-  "width": 260,
-  "height": 150,
+  "width": 190,
+  "height": 104,
   "data": [
     {
       "name": "table",

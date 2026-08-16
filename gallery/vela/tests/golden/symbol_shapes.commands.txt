@@ -1,42 +1,42 @@
 group-begin
 group-begin
-line x=14.5 y=70.5 x2=14.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=43.5 y=70.5 x2=43.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=71.5 y=70.5 x2=71.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=99.5 y=70.5 x2=99.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=128.5 y=70.5 x2=128.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=156.5 y=70.5 x2=156.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=184.5 y=70.5 x2=184.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=213.5 y=70.5 x2=213.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=241.5 y=70.5 x2=241.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=269.5 y=70.5 x2=269.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=298.5 y=70.5 x2=298.5 y2=75.5 stroke=#888 strokeWidth=1
-line x=326.5 y=70.5 x2=326.5 y2=75.5 stroke=#888 strokeWidth=1
-text x=14.667 y=77.5 size=10 align=right text=circle fill=#000
-text x=43 y=77.5 size=10 align=right text=square fill=#000
-text x=71.333 y=77.5 size=10 align=right text=cross fill=#000
-text x=99.667 y=77.5 size=10 align=right text=diamond fill=#000
-text x=128 y=77.5 size=10 align=right text=triangle-up fill=#000
-text x=156.333 y=77.5 size=10 align=right text=triangle-down fill=#000
-text x=184.667 y=77.5 size=10 align=right text=triangle-right fill=#000
-text x=213 y=77.5 size=10 align=right text=triangle-left fill=#000
-text x=241.333 y=77.5 size=10 align=right text=triangle fill=#000
-text x=269.667 y=77.5 size=10 align=right text=wedge fill=#000
-text x=298 y=77.5 size=10 align=right text=arrow fill=#000
-text x=326.333 y=77.5 size=10 align=right text=stroke fill=#000
-line x=0.5 y=70.5 x2=340.5 y2=70.5 stroke=#888 strokeWidth=1
+line x=13.5 y=54.5 x2=13.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=38.5 y=54.5 x2=38.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=63.5 y=54.5 x2=63.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=88.5 y=54.5 x2=88.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=113.5 y=54.5 x2=113.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=138.5 y=54.5 x2=138.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=163.5 y=54.5 x2=163.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=188.5 y=54.5 x2=188.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=213.5 y=54.5 x2=213.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=238.5 y=54.5 x2=238.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=263.5 y=54.5 x2=263.5 y2=59.5 stroke=#888 strokeWidth=1
+line x=288.5 y=54.5 x2=288.5 y2=59.5 stroke=#888 strokeWidth=1
+text x=13 y=61.5 size=10 align=right text=circle fill=#000
+text x=38 y=61.5 size=10 align=right text=square fill=#000
+text x=63 y=61.5 size=10 align=right text=cross fill=#000
+text x=88 y=61.5 size=10 align=right text=diamond fill=#000
+text x=113 y=61.5 size=10 align=right text=triangle-up fill=#000
+text x=138 y=61.5 size=10 align=right text=triangle-down fill=#000
+text x=163 y=61.5 size=10 align=right text=triangle-right fill=#000
+text x=188 y=61.5 size=10 align=right text=triangle-left fill=#000
+text x=213 y=61.5 size=10 align=right text=triangle fill=#000
+text x=238 y=61.5 size=10 align=right text=wedge fill=#000
+text x=263 y=61.5 size=10 align=right text=arrow fill=#000
+text x=288 y=61.5 size=10 align=right text=stroke fill=#000
+line x=0.5 y=54.5 x2=300.5 y2=54.5 stroke=#888 strokeWidth=1
 group-end
-symbol x=14.167 y=35 size=260 shape=circle fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=42.5 y=35 size=260 shape=square fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=70.833 y=35 size=260 shape=cross fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=99.167 y=35 size=260 shape=diamond fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=127.5 y=35 size=260 shape=triangle-up fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=155.833 y=35 size=260 shape=triangle-down fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=184.167 y=35 size=260 shape=triangle-right fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=212.5 y=35 size=260 shape=triangle-left fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=240.833 y=35 size=260 shape=triangle fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=269.167 y=35 size=260 shape=wedge fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=297.5 y=35 size=260 shape=arrow fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
-symbol x=325.833 y=35 size=260 shape=stroke fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=12.5 y=27 size=200 shape=circle fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=37.5 y=27 size=200 shape=square fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=62.5 y=27 size=200 shape=cross fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=87.5 y=27 size=200 shape=diamond fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=112.5 y=27 size=200 shape=triangle-up fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=137.5 y=27 size=200 shape=triangle-down fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=162.5 y=27 size=200 shape=triangle-right fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=187.5 y=27 size=200 shape=triangle-left fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=212.5 y=27 size=200 shape=triangle fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=237.5 y=27 size=200 shape=wedge fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=262.5 y=27 size=200 shape=arrow fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
+symbol x=287.5 y=27 size=200 shape=stroke fill=#4c78a8 stroke=#1c3f5e strokeWidth=1.5
 group-end
 
