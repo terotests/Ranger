@@ -427,11 +427,17 @@ class VlScale {
 
     ; ----------------------------------------------------------------- ticks --
     fn ticks:[double] (count:int) {
+        return (this.ticksAbove(count 0.0))
+    }
+
+    ; The same, with a floor under the step. Only a time scale has anything to
+    ; do with it: `tickMinStep` says a month is the finest thing worth ticking.
+    fn ticksAbove:[double] (count:int minStep:double) {
         if (this.isLog()) {
             return (this.logTicks(count))
         }
         if (this.isTime()) {
-            return (this.timeTicks(count))
+            return (this.timeTicksAbove(count minStep))
         }
         return (VlScale.linearTicks(domainMin domainMax count))
     }
@@ -441,13 +447,17 @@ class VlScale {
     ; tick algorithm, which is computed here and handed over so that the date
     ; layer knows about the calendar and nothing else.
     fn timeTicks:[double] (count:int) {
+        return (this.timeTicksAbove(count 0.0))
+    }
+
+    fn timeTicksAbove:[double] (count:int minStep:double) {
         def n:int count
         if (n < 1) {
             n = 1
         }
         def msStep:double (VlScale.tickIncrement(domainMin domainMax n))
         def yearStep:double (VlScale.tickIncrement((domainMin / (VlTime.msPerYear())) (domainMax / (VlTime.msPerYear())) n))
-        return (VlTime.ticks(domainMin domainMax n msStep yearStep zone))
+        return (VlTime.ticks(domainMin domainMax n msStep yearStep zone minStep))
     }
 
     ; The ticks a LOG scale asks for, which are not evenly spaced: every whole

@@ -1607,7 +1607,7 @@ class VlRuntime {
                 def axis (new VlAxis())
                 axis.readConfig(adef)
                 def tickCount:int (this.axisTickCount(adef))
-                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand))
+                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand (this.axisTickMinStep(adef))))
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))
@@ -1658,6 +1658,23 @@ class VlRuntime {
             }
         }
         return 10
+    }
+
+    ; The floor under a tick step, which a time axis states so that an axis of
+    ; months is not ticked every nine days. A number or a signal, like the
+    ; count beside it.
+    fn axisTickMinStep:double (adef:VlJson) {
+        def v:VlJson (adef.get("tickMinStep"))
+        if (v.isNumber()) {
+            return v.num
+        }
+        if (v.isObject()) {
+            if (v.has("signal")) {
+                def out:VlJson (this.evalExpr((v.stringOr("signal" ""))))
+                return (out.asDouble())
+            }
+        }
+        return 0.0
     }
 
     ; Where a grid line starts and ends: the crossing scale's range, expressed

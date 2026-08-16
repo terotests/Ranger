@@ -246,7 +246,7 @@ class VlAxis {
     ; --------------------------------------------------------------- ticks ----
     ; A band or point scale is labelled by its domain; a quantitative one by the
     ; tick algorithm. `bandPosition` centres a band's label under its band.
-    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string formatType:string tickBand:string) {
+    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string formatType:string tickBand:string tickMinStep:double) {
         def out:[VlAxisTickValue]
         ; A binned scale is labelled at its bin boundaries. Asking the tick
         ; algorithm instead gives a tick count that has nothing to do with the
@@ -311,7 +311,7 @@ class VlAxis {
             }
             return out
         }
-        def values:[double] (sc.ticks(tickCount))
+        def values:[double] (sc.ticksAbove(tickCount tickMinStep))
         ; A log axis labels only some of the ticks it draws, and formats those
         ; with grouped digits rather than to one shared precision — its ticks
         ; have no shared step to take a precision from.

@@ -1148,7 +1148,7 @@ class VlTime {
     ; ends of the table — finer than a second, and longer than a year. They are
     ; passed in rather than computed here so that this file knows about the
     ; calendar and nothing else.
-    sfn ticks:[double] (start:double stop:double count:int msStep:double yearStep:double zone:VlTimeZone) {
+    sfn ticks:[double] (start:double stop:double count:int msStep:double yearStep:double zone:VlTimeZone minStep:double) {
         def out:[double]
         def lo:double start
         def hi:double stop
@@ -1183,6 +1183,14 @@ class VlTime {
         VlTime.pushInterval(units steps spans "month" 1 2592000000.0)
         VlTime.pushInterval(units steps spans "month" 3 7776000000.0)
         VlTime.pushInterval(units steps spans "year" 1 31536000000.0)
+
+        ; An axis of MONTHS has nothing to say between one month and the next,
+        ; and a tick count computed from the pixels will happily ask for one
+        ; every nine days. `tickMinStep` is the floor the specification puts
+        ; under it — the reference emits one for every time unit it compiles.
+        if (target < minStep) {
+            target = minStep
+        }
 
         def total:int (array_length spans)
         def i:int 0

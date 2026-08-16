@@ -2420,6 +2420,21 @@ class VlCompile {
         return out
     }
 
+    ; Roughly how long a time unit is, in milliseconds — enough to choose a
+    ; tick interval with, which is all it is used for. A month is the average
+    ; one; the calendar decides where the ticks actually land.
+    sfn msOfUnit:double (unit:string) {
+        if (unit == "year") { return 31536000000.0 }
+        if (unit == "quarter") { return 7776000000.0 }
+        if (unit == "month") { return 2592000000.0 }
+        if (unit == "week") { return 604800000.0 }
+        if ((unit == "date") || (unit == "day")) { return 86400000.0 }
+        if (unit == "hours") { return 3600000.0 }
+        if (unit == "minutes") { return 60000.0 }
+        if (unit == "seconds") { return 1000.0 }
+        return 0.0
+    }
+
     sfn transformName:string (t:VlJson) {
         for t.keys key:string ki {
             if (key != "as") {
@@ -3673,6 +3688,12 @@ class VlCompile {
                 a.setMember("format" (VlJson.stringValue((VlTime.unitFormat(ch.timeUnits)))))
             }
             a.setMember("formatType" (VlJson.stringValue("time")))
+            ; And a floor under the tick step: an axis of months has nothing to
+            ; say between one month and the next, however many pixels it has.
+            def unitMs:double (VlCompile.msOfUnit((VlTime.finestUnit(ch.timeUnits))))
+            if (unitMs > 0.0) {
+                a.setMember("tickMinStep" (VlJson.numberValue(unitMs)))
+            }
         }
         if (ch.isContinuous()) {
             ; The first and last labels of a horizontal continuous axis are
