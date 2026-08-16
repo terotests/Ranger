@@ -2474,7 +2474,15 @@ class RangerFlowParser {
       def mArgs:CodeNode
       if( (has sec.vref) && ( (strlen sec.vref) > 0 ) ) {
         if ( (first sec.vref) == '.' ) {
-          mArgs = (sec.getSecond())
+          ; `o.m` with nothing after it has no argument list to take: getSecond
+          ; answers nothing, and copying that nothing is a null dereference off
+          ; JavaScript. An absent list is an EMPTY one, which is what the other
+          ; branch of this same `if` already builds.
+          if ( (size sec.children) > 1 ) {
+            mArgs = (sec.getSecond())
+          } {
+            mArgs = (node.newExpressionNode())
+          }
         } {
           return false
         }

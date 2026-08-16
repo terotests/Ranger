@@ -11681,7 +11681,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         let mArgs;
         if ( ((sec.vref.length) > 0) && ((sec.vref.length) > 0) ) {
           if ( (sec.vref[0]) == "." ) {
-            mArgs = sec.getSecond();
+            if ( (sec.children.length) > 1 ) {
+              mArgs = sec.getSecond();
+            } else {
+              mArgs = node.newExpressionNode();
+            }
           } else {
             return false;
           }
