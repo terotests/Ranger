@@ -393,7 +393,8 @@
     "test:evg:layout": "bash gallery/pdf_writer/test/run_layout.sh",
     "selfhost:compile:llvm": "bash scripts/selfhost-llvm.sh",
     "selfhost:check:llvm": "bash scripts/selfhost-llvm.sh verify",
-    "selfhost:build:llvm": "bash scripts/selfhost-llvm.sh build"
+    "selfhost:build:llvm": "bash scripts/selfhost-llvm.sh build",
+    "selfhost:round:llvm": "bash scripts/selfhost-llvm.sh round"
   },
   "repository": {
     "type": "git",

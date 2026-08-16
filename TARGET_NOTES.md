@@ -151,30 +151,32 @@ nothing about the result is checked by another compiler's front end.
 npm run selfhost:compile:llvm   # generate the IR, report the error count
 npm run selfhost:check:llvm     # ...and run `opt -passes=verify` over it
 npm run selfhost:build:llvm     # ...and link ./tmp/selfhost-llvm/rangerc
+npm run selfhost:round:llvm     # ...and compile the compiler WITH that binary
 ```
 
-**Where it stands.** The compiler compiles for LLVM with **zero errors** (631
-before this work), the ~525k lines / 22 MB of IR it produces for itself **pass
-`opt -passes=verify`**, and `clang` links them with the C runtime into a 3 MB
-`rangerc`.
+**Where it stands: LLVM is the seventh self-hosting target.** The compiler
+compiles for LLVM with **zero errors** (631 before this work), the ~528k lines
+/ 22 MB of IR it produces for itself **pass `opt -passes=verify`**, `clang`
+links them with the C runtime into a 3 MB `rangerc`, and **that binary compiles
+the compiler**.
 
-That binary **runs the whole pipeline and writes real output**. On a small
-class it produces JavaScript byte-identical to the Node build's, and the
-JavaScript runs:
+`npm run selfhost:round:llvm` runs the whole chain and checks the two things
+that make it self-hosting rather than merely finishing:
 
-```bash
-npm run selfhost:build:llvm
-./tmp/selfhost-llvm/rangerc -l=es6 tmp/probe/hello2.rgr -nodecli -d=tmp/probe -o=hello2.js
-node tmp/probe/hello2.js
+```
+==> gen2: the native rangerc compiles the compiler
+    3027537 bytes
+==> reference: the Node build compiles the same sources
+    identical to the Node build
+==> gen3: gen2 compiles the compiler
+    gen2 == gen3 -- fixed point
 ```
 
-`compiler/CLIProgress.rgr` -- 250 lines, a class with a dozen methods, string
-building, ANSI escapes and a switch -- also comes out byte-identical.
-
-It is **not yet** a self-hosting target the way C++, Dart, Python, C#, Go and
-Kotlin are: pointed at the compiler's own sources it still stops. On the larger
-library files it now runs the front end cleanly (`ng_CodeNode.rgr` and
-`ng_writer.rgr` type-check with no errors) and fails in the writer.
+The native binary reproduces the Node build's output **byte for byte** from the
+same sources, and the JavaScript it emits is itself a working compiler that
+reproduces itself. Smaller files check out the same way: `ng_writer.rgr` (50 KB
+of output), `ng_CodeNode.rgr` (29 KB, with an `@serialize` class) and
+`CLIProgress.rgr` all come out byte-identical.
 
 `lib/CmdParams.rgr` -- the compiler's own command-line parser, which has a
 `main` of its own -- is the useful small program to check against, because it
@@ -307,24 +309,58 @@ any code-generating target:
     — which is how the compiler copies a string literal through `EncodeString`
     — turned every non-ASCII character into mojibake.
 
+### What the SELF-HOST ROUND took
+
+Eight more, after the binary already ran and wrote correct code for a small
+class. Every one of them needed the compiler's own sources to show up at all:
+
+17. **A `Constructor` that is not one.** The field-default initialisation was
+    injected into any instance method NAMED `Constructor`, on the strength of
+    the name. RangerFlowParser has one that is the handler for the `constructor`
+    keyword, so calling it reset every field of the live parser -- `walkAlso`
+    lost the generated `@serialize` extensions before StartWalk could walk them,
+    which left every generated method with no fnCtx.
+18. **The closure record reserved four bytes for the lambda-table index**, which
+    is stored and read back pointer sized. The first capture landed at offset 4
+    and overwrote the top half of the index, so the call jumped through a
+    garbage slot of the table.
+19. **Lambda bodies were lowered in naming order.** A capture layout is computed
+    where the closure is CREATED, and a nested lambda is created inside its
+    parent's body -- so a child named first had its body emitted before anything
+    knew what it captured. Bodies now go outermost first.
+20. **A lambda released a string it only captured.** The closure record owns its
+    captures; assigning to one took the ordinary owned-local path, and the
+    scope-end release freed the record's own buffer, which the record then freed
+    again.
+21. **An array literal passed straight to a call was never built.**
+    `fromList( ([] _:CodeNode (a b c)) )` -- what the variadic `r.expression`
+    macro expands to -- handed the callee the FIRST element. A single-child
+    expression is still a grouping, not a one-element literal.
+22. **Lambdas inside operator classes had no names.** collectLambdas skipped
+    those classes although their static methods are emitted, so the closure got
+    table index 0 and jumped to whatever lambda was first in the module.
+23. **An expression receiver whose shape the table did not recognise became
+    NULL.** The front end has already resolved which method the call names, so
+    its declaring class is now the fallback.
+24. **A local or parameter did not shadow a class field** of the same name, so
+    `hasDuplicateMethodSignature(fnDesc: ...)` read RangerAppClassDesc's own
+    inherited `fnDesc` field -- an overloaded method anywhere in a program
+    crashed the compiler.
+
 ### What is left
 
-- **The writer.** The front end is clean on the compiler's own library files;
-  `RangerJavaScriptClassWriter.writeClass` then stores through a null object.
-  That is the next thing to bisect.
-- **The second `initOpList`** — the pass that re-reads the operator table after
-  the program's own `operators { }` blocks are merged — was the last thing to
-  stop the run and is worth watching: it walks `stdCommands.children`, which is
-  where a use-after-free shows up first.
-- **Closures are incomplete.** A lambda whose capture layout was never built —
-  one only ever *called*, never constructed in the same module — loses its
-  captures; the calls it makes through an unresolved receiver are dropped rather
-  than emitted, which keeps the module valid and loses the call.
+- **Closures are still incomplete.** A lambda that MUTATES a captured value
+  writes to a copy unless the value is boxed, and boxing covers `i32`/`i1`
+  locals only. A lambda whose capture layout was never built -- one only ever
+  *called*, never constructed in the same module -- loses its captures; the
+  calls it makes through an unresolved receiver are dropped rather than emitted,
+  which keeps the module valid and loses the call.
 - **`remove` and `clear` leak** an owned element instead of releasing it. That
   is deliberate for now: leaking is safer than a double free while the
   ownership analysis on this backend is young. `array_extract` hands the
   element to the caller, which is what its `@(strong)` says. A block-scoped
-  redeclaration leaks its inner value for the same reason.
+  redeclaration, and an assignment to a captured string, leak for the same
+  reason.
 - **Plugins cannot work.** `load_compiler_plugin` loads an npm module; a native
   binary has no Node to load it into.
 - **No exceptions.** `try` has no unwinding. The handler is an ordinary block
