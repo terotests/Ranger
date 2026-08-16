@@ -2474,7 +2474,6 @@ class LowIRBuilderPass {
     def lenTypes:[string]
     push lenArgs desc
     push lenTypes lctx.ptrType
-    def len (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
     def zero (builder.emitConst("i32" "0"))
     ; The loop's own index and item SHADOW anything of the same name outside
     ; it: nested `for … i` is ordinary Ranger, and sharing one slot let the
@@ -2487,6 +2486,13 @@ class LowIRBuilderPass {
     def incLabel (builder.freshLabel("for_inc"))
     builder.terminateBr(condLabel)
     builder.startBlock(condLabel)
+    ; The length is read HERE, once per iteration, not once before the loop.
+    ; JavaScript's `i < arr.length` and C++'s `i < v.size()` are both
+    ; re-evaluated, so a body that grows or shrinks the array it is walking --
+    ; which expandShapesInScope does, inserting the classes a shape desugars to
+    ; into the very list it is iterating -- sees the new elements on every
+    ; target except this one, where the loop stopped at the old count.
+    def len (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
     def idxVal (this.loadSlot(idxName "i32" lctx))
     def cond (builder.emitIcmp("slt" idxVal len))
     builder.terminateBrIf(cond bodyLabel exitLabel)
@@ -3016,6 +3022,14 @@ class LowIRBuilderPass {
     ; came back out of the compiler's own parameter map as another string.
     if (LowIRUtil.isStringType(valueTypeName)) {
       return 2
+    }
+    ; An ARRAY value is owned too (kind 3). A `[string:[string]]` used to be
+    ; kind 0: the map stored the descriptor without a retain while the local it
+    ; was built in was released at scope end, so the map was left pointing at a
+    ; freed array -- reading one back handed RtPtrArray_get whatever had reused
+    ; that memory.
+    if (LowIRUtil.isArrayTypeName(valueTypeName)) {
+      return 3
     }
     return 0
   }
@@ -5474,10 +5488,44 @@ class LowIRBuilderPass {
     if ((this.memEnabled(lctx)) == false) {
       return
     }
-    if (valNode.value_type != RangerNodeType.VRef) {
+    if (valNode.value_type == RangerNodeType.VRef) {
+      this.emitPtrArrayRetain(desc lctx)
       return
     }
-    this.emitPtrArrayRetain(desc lctx)
+    ; Reading an array OUT of a collection is an alias too -- the map or the
+    ; array it came from still holds it. `def gs:[string] (unwrap (get m k))`
+    ; bound an owned local with no matching retain, so the scope-end release
+    ; freed an array the map was still pointing at.
+    if (this.isBorrowedArrayExpr(valNode)) {
+      this.emitPtrArrayRetain(desc lctx)
+    }
+  }
+
+  ; An expression that hands back an array somebody ELSE owns: a read out of a
+  ; map or an array, or the same read behind an `unwrap`. A call result is not
+  ; one of these -- it arrives with the caller's own reference, and retaining it
+  ; would leak.
+  fn isBorrowedArrayExpr:boolean (valNode:CodeNode) {
+    if ((array_length valNode.children) == 0) {
+      return false
+    }
+    def head:CodeNode (valNode.getFirst())
+    if (head.vref == "unwrap") {
+      if ((array_length valNode.children) > 1) {
+        return (this.isBorrowedArrayExpr((valNode.getSecond())))
+      }
+      return false
+    }
+    if (head.vref == "get") {
+      return true
+    }
+    if (head.vref == "itemAt") {
+      return true
+    }
+    if (head.vref == "at") {
+      return true
+    }
+    return false
   }
 
   ; Bump a string map's refcount: the value gains another owner.

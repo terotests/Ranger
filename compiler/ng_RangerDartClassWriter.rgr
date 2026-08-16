@@ -71,8 +71,7 @@ class RangerDartClassWriter {
         ; shift character spans, and a raw slice then injects `\r` into the
         ; output (which rewinds the line and garbles every later double).
         def dd_str:string ("" + node.double_value)
-        def ii_str:string ("" + (to_int node.double_value))
-        if (dd_str == ii_str) {
+        if (this.doubleNeedsPointZero(dd_str)) {
           wr.out((dd_str + ".0") false)
         } {
           wr.out(dd_str false)

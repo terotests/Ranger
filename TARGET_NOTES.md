@@ -425,6 +425,49 @@ spelled out only `"int"` as a non-reference element type, so a `[boolean]` or
 scope-end release called `ranger_obj_release` on the literal `true`. Those
 element types now take the same plain-value path `[double]` takes.
 
+### The four the game engine took
+
+With the stack no longer the limit, the native binary reached code no earlier
+round had run, and four defects came out of it in a row. Each was reduced to a
+program of about thirty lines before it was fixed, and the yardstick was the
+same every time: the Node build compiles these files (with
+`--stack-size=8000`), so the native binary must produce **the same bytes**.
+
+25. **A map whose values are arrays owned nothing.** `smapValueOwnKind` knew
+    objects (kind 1) and strings (kind 2); a `[string:[string]]` fell through
+    to kind 0, so the map stored the descriptor with no retain while the local
+    it was built in was released at scope end. The map was left pointing at a
+    freed array. Both map runtimes gained kind 3 — retain and release through
+    `ranger_ptrarray_*`.
+26. **Reading an array OUT of a collection bound an owned local with no
+    matching retain.** `def gs:[string] (unwrap (get m k))` names an array the
+    map still holds; `retainAliasedArray` only recognised a bare VRef as an
+    alias, so the scope-end release freed it out from under the map.
+27. **The `for` loop read the array's length ONCE, before the loop.**
+    JavaScript's `i < arr.length` and C++'s `i < v.size()` are both
+    re-evaluated. `expandShapesInScope` walks a scope's children and inserts
+    the classes each shape desugars to into that very list — so on LLVM the
+    loop stopped at the old count and the second shape in a file was never
+    expanded. Its case fields ended up read as the preceding class's, which is
+    why `EvalValue.rgr` answered "Duplicate class property 'value' in class
+    EvMapEntry" natively and compiled cleanly everywhere else.
+28. **Doubles did not print the way JavaScript prints them.** Two separate
+    halves. In the writers, `.0` was appended to a whole-number literal by
+    rendering `to_int` of the value and comparing the strings — and `int` is 32
+    bits wide on the native backends, so the round trip overflowed and `2^52`
+    lost its suffix. That is a source-level bug on every non-JavaScript target,
+    now one shared `doubleNeedsPointZero` that asks the rendering instead. In
+    the C runtime, `%g` switches to exponent form at 1e-4 (JavaScript switches
+    at 1e-6), pads the exponent to two digits (`1e-07` for `1e-7`), and the
+    integral fast path printed a large double's exact value rather than its
+    shortest form. `ranger_double_to_string` now implements ECMA-262
+    `Number::toString` directly; it agrees with `String(v)` on 4623 values —
+    4000 random 64-bit patterns and every power of ten from 1e-320 to 1e308.
+
+`EvalValue.rgr`, `EvHandle.rgr`, `ComponentEngine.rgr` (2.09 MB of output) and
+`RgRegistryBridge.rgr` (2.58 MB) now come out of the native binary byte for
+byte the same as out of the Node build.
+
 ### What is left
 
 - **Closures are still incomplete.** A lambda that MUTATES a captured value

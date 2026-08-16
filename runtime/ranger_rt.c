@@ -27,6 +27,11 @@
  * not start.
  */
 
+/* The ptr-array runtime lives in ranger_mem.c; a map whose values are ARRAYS
+ * owns them the way it owns objects and strings, so it needs both halves. */
+void ranger_ptrarray_retain(int64_t desc_addr);
+void ranger_ptrarray_release(int64_t desc_addr);
+
 typedef int (*RangerMainFn)(int, char **);
 
 static RangerMainFn g_main_fn;
@@ -409,7 +414,7 @@ typedef struct {
   int32_t live;         /* entries with key != NULL */
   int32_t *index;       /* open-addressed: entry slot + 1, or 0 when empty */
   int32_t index_cap;
-  int32_t valkind;      /* 0 plain / 1 owned object / 2 owned string */
+  int32_t valkind;      /* 0 plain / 1 owned object / 2 owned string / 3 owned array */
   int32_t rc;           /* shared maps: a field and a local can both hold one */
 } RtSMap;
 
@@ -464,6 +469,10 @@ static int64_t rt_smap_own_value(RtSMap *m, int64_t v) {
   if (m->valkind == 2) {
     return (int64_t)(intptr_t)ranger_strdup((const char *)(intptr_t)v);
   }
+  if (m->valkind == 3) {
+    ranger_ptrarray_retain(v);
+    return v;
+  }
   return v;
 }
 
@@ -475,6 +484,8 @@ static void rt_smap_release_value(RtSMap *m, int64_t v) {
     ranger_obj_release(v);
   } else if (m->valkind == 2) {
     free((void *)(intptr_t)v);
+  } else if (m->valkind == 3) {
+    ranger_ptrarray_release(v);
   }
 }
 
@@ -767,7 +778,7 @@ typedef struct {
   int32_t cap;    /* power of two, 0 until the first put */
   int32_t live;
   int32_t used;   /* live + tombstones, drives the resize */
-  int32_t valkind; /* 0 plain / 1 owned object / 2 owned string */
+  int32_t valkind; /* 0 plain / 1 owned object / 2 owned string / 3 owned array */
   int32_t rc;
 } RtIMap;
 
@@ -780,8 +791,13 @@ static uint32_t rt_imap_hash(int64_t k) {
 }
 
 static void rt_imap_retain_value(RtIMap *m, int64_t v) {
-  if (m->valkind == 1 && v != 0) {
+  if (v == 0) {
+    return;
+  }
+  if (m->valkind == 1) {
     ranger_obj_retain(v);
+  } else if (m->valkind == 3) {
+    ranger_ptrarray_retain(v);
   }
 }
 
@@ -793,6 +809,8 @@ static void rt_imap_release_value(RtIMap *m, int64_t v) {
     ranger_obj_release(v);
   } else if (m->valkind == 2) {
     free((void *)(intptr_t)v);
+  } else if (m->valkind == 3) {
+    ranger_ptrarray_release(v);
   }
 }
 
@@ -1278,7 +1296,6 @@ int64_t ranger_str_split(const char *text, const char *sep) {
  * reads back as the same double. */
 char *ranger_double_to_string(double v) {
   char buf[64];
-  int prec;
   if (v != v) {
     return ranger_strdup("NaN");
   }
@@ -1291,19 +1308,85 @@ char *ranger_double_to_string(double v) {
   if (v == 0.0) {
     return ranger_strdup("0");
   }
+  /* Everything else follows ECMA-262 Number::toString, which "%g" does not
+   * implement: JavaScript switches to exponent form only outside 1e-6 .. 1e21,
+   * and never pads the exponent to two digits. %g switches at 1e-4 and pads,
+   * so it wrote 1e-6 for 0.000001 and 1e-07 for 1e-7 -- and the compiler
+   * emitting a JS source file then differed from the reference build.
+   *
+   * Take the SHORTEST decimal that reads back as the same double, then place
+   * the point the way the spec says. */
   {
-    double a = v < 0 ? -v : v;
-    /* floor(a) == a means integral; below 1e21 JavaScript writes it out */
-    if (a < 1e21 && a == (double)(long long)a) {
-      snprintf(buf, sizeof(buf), "%lld", (long long)v);
-      return ranger_strdup(buf);
+    char sci[64];
+    char digits[32];
+    char *out = buf;
+    const char *q;
+    int p, k, n, expv, i, neg = 0;
+
+    for (p = 0; p < 17; p++) {
+      snprintf(sci, sizeof(sci), "%.*e", p, v);
+      if (strtod(sci, NULL) == v) {
+        break;
+      }
     }
-  }
-  for (prec = 15; prec <= 17; prec++) {
-    snprintf(buf, sizeof(buf), "%.*g", prec, v);
-    if (strtod(buf, NULL) == v) {
-      break;
+    if (p >= 17) {
+      snprintf(sci, sizeof(sci), "%.17e", v);
     }
+
+    q = sci;
+    if (*q == '-') {
+      neg = 1;
+      q++;
+    }
+    k = 0;
+    while (*q != '\0' && *q != 'e' && *q != 'E') {
+      if (*q >= '0' && *q <= '9' && k < (int)sizeof(digits) - 1) {
+        digits[k++] = *q;
+      }
+      q++;
+    }
+    digits[k] = '\0';
+    expv = (*q == 'e' || *q == 'E') ? atoi(q + 1) : 0;
+    /* trailing zeros carry no information once the point is placed by hand */
+    while (k > 1 && digits[k - 1] == '0') {
+      digits[--k] = '\0';
+    }
+    n = expv + 1; /* the point sits after n digits */
+
+    if (neg) {
+      *out++ = '-';
+    }
+    if (n >= k && n <= 21) {
+      memcpy(out, digits, (size_t)k);
+      out += k;
+      for (i = 0; i < n - k; i++) {
+        *out++ = '0';
+      }
+    } else if (n > 0 && n <= 21) {
+      memcpy(out, digits, (size_t)n);
+      out += n;
+      *out++ = '.';
+      memcpy(out, digits + n, (size_t)(k - n));
+      out += k - n;
+    } else if (n > -6 && n <= 0) {
+      *out++ = '0';
+      *out++ = '.';
+      for (i = 0; i < -n; i++) {
+        *out++ = '0';
+      }
+      memcpy(out, digits, (size_t)k);
+      out += k;
+    } else {
+      *out++ = digits[0];
+      if (k > 1) {
+        *out++ = '.';
+        memcpy(out, digits + 1, (size_t)(k - 1));
+        out += k - 1;
+      }
+      *out++ = 'e';
+      out += snprintf(out, 12, "%+d", n - 1);
+    }
+    *out = '\0';
   }
   return ranger_strdup(buf);
 }
