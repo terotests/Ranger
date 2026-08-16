@@ -49177,9 +49177,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           };
                           return false;
                         };
+                        emitBoxCell (lctx) {
+                          const builder = lctx.builder;
+                          const cellTarget = LowIRTarget.resolve((lctx.ctx));
+                          const bytes = builder.emitConst("i32", "4");
+                          if ( cellTarget.usesLibc ) {
+                            this.usedMemRuntime = true;
+                            this.ensureMemExtern(cellTarget);
+                            let la = [];
+                            let lat = [];
+                            la.push(bytes);
+                            lat.push("i32");
+                            la.push("ptr null");
+                            lat.push("");
+                            return builder.emitCallWithSig("ranger_obj_new", lctx.ptrType, "i32, ptr", la, lat);
+                          }
+                          let ca = [];
+                          let cat = [];
+                          ca.push(bytes);
+                          cat.push("i32");
+                          ca.push(builder.emitConst("i32", "0"));
+                          cat.push("i32");
+                          return builder.emitCall("ranger_obj_new", lctx.ptrType, ca, cat);
+                        };
                         computeBoxedCandidates (fnDesc, lctx) {
-                          const ctx = lctx.ctx;
-                          if ( ctx.hasCompilerFlag("wat") == false ) {
+                          if ( this.objRcEnabled(lctx) == false ) {
                             return;
                           }
                           this.collectBoxedCandidates(fnDesc, lctx);
@@ -50451,16 +50473,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( this.objRcEnabled(lctx) ) {
                             if ( ( typeof(lctx.boxedCandidates[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedCandidates, varName) ) ) {
                               if ( (irType == "i32") || (irType == "i1") ) {
-                                const cellBytes = lctx.builder.emitConst("i32", "4");
-                                const cellTd = lctx.builder.emitConst("i32", "0");
-                                let ca = [];
-                                let cat = [];
-                                ca.push(cellBytes);
-                                cat.push("i32");
-                                ca.push(cellTd);
-                                cat.push("i32");
-                                const cell = lctx.builder.emitCall("ranger_obj_new", lctx.ptrType, ca, cat);
-                                lctx.builder.emitStoreI32At(cell, 0, tmp);
+                                const cell = this.emitBoxCell(lctx);
+                                let cellVal = tmp;
+                                if ( irType == "i1" ) {
+                                  cellVal = lctx.builder.emitZextI1ToI32(tmp);
+                                }
+                                lctx.builder.emitStoreI32At(cell, 0, cellVal);
                                 this.bindSlot(varName, lctx.ptrType, cell, lctx);
                                 lctx.boxedLocals[varName] = 4;
                                 if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
@@ -51796,7 +51814,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             if ( ( typeof(lctx.boxedLocals[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, node.vref) ) ) {
                               const cellPtr = this.loadSlot(node.vref, lctx.ptrType, lctx);
-                              return builder.emitLoadI32At(cellPtr, 0);
+                              return builder.emitLoadTypedAt(cellPtr, 0, "i32");
                             }
                             if ( (node.vref.indexOf(".")) >= 0 ) {
                               const parts = node.vref.split(".");

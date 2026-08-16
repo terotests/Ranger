@@ -6620,15 +6620,44 @@ class LowIRBuilderPass {
   ; Pre-pass over a method: any captured local that some capturing lambda in the
   ; method MUTATES is a boxing candidate (finalised in lowerVarDef once its type
   ; is known to be a value type). Recurses into nested lambdas. WAT-only.
+  ; L3 value boxing runs on the native path too. Without it a captured local is
+  ; COPIED into the closure, so a lambda that mutates one never writes it back
+  ; -- and the flow parser counts a method's `static` prefix that way:
+  ;   def idx 0
+  ;   node.children.forEach({ if(item.vref == 'static') { idx = idx + 1 } })
+  ; With idx stuck at 0 every `static fn` in a class was read one child off, so
+  ; the natively built compiler reported "Class X does not have method y" for
+  ; every static method there is.
+  ; A four-byte reference-counted cell with no typedesc, for a boxed value
+  ; local. The two backends spell ranger_obj_new differently: natively the
+  ; second parameter is a POINTER (a literal `ptr null` here), on WASM it is a
+  ; data-segment offset, which is an i32 there.
+  fn emitBoxCell:string (lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def cellTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    def bytes (builder.emitConst("i32" "4"))
+    if cellTarget.usesLibc {
+      this.usedMemRuntime = true
+      this.ensureMemExtern(cellTarget)
+      def la:[string]
+      def lat:[string]
+      push la bytes
+      push lat "i32"
+      push la "ptr null"
+      push lat ""
+      return (builder.emitCallWithSig("ranger_obj_new" lctx.ptrType "i32, ptr" la lat))
+    }
+    def ca:[string]
+    def cat:[string]
+    push ca bytes
+    push cat "i32"
+    push ca (builder.emitConst("i32" "0"))
+    push cat "i32"
+    return (builder.emitCall("ranger_obj_new" lctx.ptrType ca cat))
+  }
+
   fn computeBoxedCandidates:void (fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
-    ; L3 value boxing is still WAT-only. The cell is allocated with the WASM
-    ; two-integer form of ranger_obj_new and written with an i32 store, neither
-    ; of which is right on the native path -- a boolean local boxed there wrote
-    ; an i1 through an i32 store. Natively a captured local is copied into the
-    ; closure, so a lambda that MUTATES one does not write it back; see
-    ; TARGET_NOTES.md.
-    def ctx (unwrap lctx.ctx)
-    if (ctx.hasCompilerFlag("wat") == false) {
+    if (this.objRcEnabled(lctx) == false) {
       return
     }
     this.collectBoxedCandidates(fnDesc lctx)
@@ -8154,16 +8183,14 @@ class LowIRBuilderPass {
     if (this.objRcEnabled(lctx)) {
       if (has lctx.boxedCandidates varName) {
         if ((irType == "i32") || (irType == "i1")) {
-          def cellBytes (lctx.builder.emitConst("i32" "4"))
-          def cellTd (lctx.builder.emitConst("i32" "0"))
-          def ca:[string]
-          def cat:[string]
-          push ca cellBytes
-          push cat "i32"
-          push ca cellTd
-          push cat "i32"
-          def cell (lctx.builder.emitCall("ranger_obj_new" lctx.ptrType ca cat))
-          lctx.builder.emitStoreI32At(cell 0 tmp)
+          def cell (this.emitBoxCell(lctx))
+          ; an i1 does not fit an i32 store; widen it the way every other
+          ; boolean-to-word path here does
+          def cellVal:string tmp
+          if (irType == "i1") {
+            cellVal = (lctx.builder.emitZextI1ToI32(tmp))
+          }
+          lctx.builder.emitStoreI32At(cell 0 cellVal)
           this.bindSlot(varName lctx.ptrType cell lctx)
           set lctx.boxedLocals varName 4
           if (this.isOwnedObjectLocal(varName lctx) == false) {
@@ -9760,7 +9787,9 @@ class LowIRBuilderPass {
       ; L3: a boxed value local — read the current value through the shared cell.
       if (has lctx.boxedLocals node.vref) {
         def cellPtr (this.loadSlot(node.vref lctx.ptrType lctx))
-        return (builder.emitLoadI32At(cellPtr 0))
+        ; the cell holds an i32; emitLoadI32At reads a POINTER-sized word, which
+        ; is the same thing only on wasm
+        return (builder.emitLoadTypedAt(cellPtr 0 "i32"))
       }
       if ((indexOf node.vref ".") >= 0) {
         def parts:[string] (strsplit node.vref ".")
