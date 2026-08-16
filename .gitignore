@@ -105,3 +105,5 @@ rgr_fs_ops_probe/
 
 # Vela build artifacts (compiled by gallery/vela/tests/run.sh)
 gallery/vela/bin/
+# and the paste-a-specification page's build (npm run vela:web)
+gallery/vela/web/dist/

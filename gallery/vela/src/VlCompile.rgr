@@ -1540,6 +1540,13 @@ class VlCompile {
         return (prefix + base)
     }
 
+    ; Did the specification state this dimension as a number? `"width": "container"`
+    ; and a step object are both sizes, and neither is one this can use.
+    fn sizeGiven:boolean (dimension:string) {
+        def given:VlJson (source.get(dimension))
+        return (given.isNumber())
+    }
+
     ; The signal a dimension reads. A shared dimension is the chart's own.
     fn sizeSignal:string (dimension:string) {
         if (dimension == "width") {
@@ -1797,6 +1804,13 @@ class VlCompile {
         ; a point has no width to leave room around, so its inner padding is
         ; one whole step and its outer is half of one.
         def banded:boolean ((type == "band") || (type == "point"))
+        ; …unless the specification stated the size. A discrete scale sizes the
+        ; chart from its steps only when nobody said how big the chart is; a
+        ; declared `width` is not a suggestion, and ignoring it drew a
+        ; six-category bar chart twenty pixels wide.
+        if (this.sizeGiven(dimension)) {
+            banded = false
+        }
         if banded {
             def step (VlJson.objectValue())
             step.setMember("name" (VlJson.stringValue((prefix + (axis + "_step")))))
@@ -1865,6 +1879,7 @@ class VlCompile {
         def transforms (VlJson.arrayValue())
 
         this.pushTimeParse(transforms)
+        this.pushSpecTransforms(transforms)
         this.pushBin(transforms)
         this.pushAggregate(transforms)
         this.pushImpute(transforms)
@@ -1875,6 +1890,63 @@ class VlCompile {
         push out.arr derived
         dataName = dataLabel
         return out
+    }
+
+    ; The transforms the SPECIFICATION asked for, as opposed to the ones its
+    ; encoding implies. They were not read at all: a spec with a `transform`
+    ; array compiled to one without it, drew whatever the untransformed data
+    ; said, and reported nothing. A filter that removed half the rows simply
+    ; did not happen, and the chart looked entirely reasonable.
+    ;
+    ; They run before the encoding's own, which is the order Vega-Lite states
+    ; and the order anyone writing one assumes: a filter is expected to reach
+    ; the aggregate below it.
+    ;
+    ; What is not translated is REFUSED. Vega-Lite has a couple of dozen
+    ; transforms and the runtime has ten; the gap is real, and a compiler that
+    ; drops the difference silently is worse than one that has never heard of
+    ; them.
+    fn pushSpecTransforms:void (transforms:VlJson) {
+        def own:VlJson (source.get("transform"))
+        if (! (own.isArray())) {
+            return
+        }
+        def total:int (own.count())
+        def k:int 0
+        while (k < total) {
+            def t:VlJson (own.at(k))
+            k = (k + 1)
+            if (t.has("filter")) {
+                def expr:VlJson (t.get("filter"))
+                if (expr.isString()) {
+                    push transforms.arr (VlCompile.filterOf(expr.str))
+                } {
+                    this.fail("only a filter written as an expression string is compiled here")
+                }
+            } {
+                if (t.has("calculate")) {
+                    def f (VlJson.objectValue())
+                    f.setMember("type" (VlJson.stringValue("formula")))
+                    f.setMember("expr" (VlJson.stringValue((t.stringOr("calculate" "")))))
+                    f.setMember("as" (VlJson.stringValue((t.stringOr("as" "")))))
+                    push transforms.arr f
+                } {
+                    ; The rest name themselves by their leading key, which is
+                    ; how Vega-Lite writes a transform, so the refusal can say
+                    ; which one it was.
+                    this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
+            }
+        }
+    }
+
+    sfn transformName:string (t:VlJson) {
+        for t.keys key:string ki {
+            if (key != "as") {
+                return key
+            }
+        }
+        return "?"
     }
 
     ; A date arrives as text and has to become an instant before a scale can
@@ -2204,11 +2276,21 @@ class VlCompile {
         sc.setMember("type" (VlJson.stringValue(type)))
         sc.setMember("domain" (this.domainFor(ch)))
         if ((type == "band") || (type == "point")) {
-            def range (VlJson.objectValue())
-            def step (VlJson.objectValue())
-            step.setMember("signal" (VlJson.stringValue((prefix + (axis + "_step")))))
-            range.setMember("step" step)
-            sc.setMember("range" range)
+            def sized:string "width"
+            if (axis == "y") {
+                sized = "height"
+            }
+            if (this.sizeGiven(sized)) {
+                ; The chart's size was declared, so the scale spans it rather
+                ; than deciding it.
+                sc.setMember("range" (this.positionRange(axis)))
+            } {
+                def range (VlJson.objectValue())
+                def step (VlJson.objectValue())
+                step.setMember("signal" (VlJson.stringValue((prefix + (axis + "_step")))))
+                range.setMember("step" step)
+                sc.setMember("range" range)
+            }
             if (type == "point") {
                 sc.setMember("padding" (VlJson.numberValue(0.5)))
             } {

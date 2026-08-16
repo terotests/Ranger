@@ -74,6 +74,38 @@ that was not a square as a circle and every curve as straight segments. Nothing
 could tell, because the scene said `shape: "diamond"` and the scene was what was
 being compared.
 
+## Paste a specification and watch it draw
+
+```bash
+npm run vela:web        # build gallery/vela/web/dist
+python3 -m http.server -d gallery/vela/web/dist
+```
+
+One HTML file and one compiled script. Paste Vega or Vega-Lite, press Render,
+and what appears is drawn by `gallery/vela/src/*.rgr` — the runtime, the
+Vega-Lite compiler and the SVG renderer, compiled to JavaScript by the same
+toolchain that compiles them to C++. The page also shows the Vega a Vega-Lite
+specification became, which is most of what a playground is for.
+
+Two things about it are deliberate:
+
+* **The page fetches, the runtime does not.** A `data.url` is loaded and parsed
+  by the page and handed to the runtime as values, because the runtime has no
+  loader and should not grow one — it compiles to eight targets, and seven of
+  them have no idea what a URL is. A relative url resolves against the Vega
+  editor's own data directory, so an example copied from the Vega site works as
+  pasted.
+* **What it will not draw, it says.** A transform Vela does not have comes back
+  as `the transform 'loess' is not compiled here` rather than as a chart with a
+  line missing from it. A blank pane and a wrong chart are the same thing to
+  whoever is looking at it.
+
+`node gallery/vela/web/smoke.mjs` opens the page in a real browser and checks
+all four paths: Vega in, Vega-Lite in, a fetched url, and a refusal. The page
+is the one part of this that a CLI cannot check — it depends on a browser
+loading a compiled script and on that script having no `require` left in it,
+and both fail as an empty pane rather than as an error.
+
 ## Try it
 
 ```bash
@@ -725,10 +757,18 @@ intermediate value is ever larger than a digit.
   that read it, but the guides are rebuilt whichever one changed. They are
   cheap, so this is a deliberate stop rather than an oversight —
   see [Changing one number](#changing-one-number).
-* **The rest of the Vega-Lite compiler.** All forty sources in the suite
+* **The rest of the Vega-Lite compiler.** All forty-one sources in the suite
   compile in Ranger — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). What is
   still refused, out loud rather than drawn as something else: an `errorbar`,
-  an `errorband`, and the top-level `facet` operator.
+  an `errorband`, the top-level `facet` operator, and every spec-level
+  `transform` except `filter` and `calculate` — `loess`, `regression`,
+  `window`, `fold`, `pivot`, `density` and the rest. Those were not refused
+  before they were listed: a `transform` array was read by nobody, so a filter
+  that removed half the rows simply did not happen and the chart looked
+  entirely reasonable.
+* **No loader.** `data.url` is refused by the runtime; the browser page fetches
+  it and passes values instead. Seven of the eight targets have no idea what a
+  URL is, so this belongs to the host rather than to the runtime.
 * **Gradients are drawn as their own stops.** No target Vela compiles to paints
   one, so a ramp becomes one flat band per pair of stops, in the reference's own
   stop colours. The renderer comparison checks that the bands tile exactly the
@@ -769,7 +809,12 @@ gallery/vela/
 │   ├── vela_svg.rgr      CLI: spec → SVG
 │   ├── vela_compile.rgr  CLI: a Vega-Lite spec → a Vega one
 │   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
+│   ├── vela_web.rgr      the same, with no file system: for the browser
 │   └── reference/        the harness that compares against official Vega
+├── web/                  paste a specification, see what it draws
+│   ├── index.html        the page
+│   ├── build.sh          compile the script beside it
+│   └── smoke.mjs         open it in a browser and check it drew
 ├── tests/
 │   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow)
 │   ├── specs/            generated Vega-Lite sources and compiled Vega specs

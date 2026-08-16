@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vela — paste a Vega specification</title>
+<style>
+  /* Light is the base; the dark values only redefine the tokens. */
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --panel: #f6f7f9;
+    --ink: #1a1d21;
+    --muted: #5d6570;
+    --line: #d9dde3;
+    --accent: #2b6cb0;
+    --bad-bg: #fdf0ee;
+    --bad-line: #e5b4ab;
+    --bad-ink: #8a2c18;
+    --warn-bg: #fdf8e8;
+    --warn-line: #e3d29a;
+    --warn-ink: #6b551a;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --panel: #1c2024;
+      --ink: #e6e9ed;
+      --muted: #97a1ad;
+      --line: #2f353c;
+      --accent: #7aa9dd;
+      --bad-bg: #2c1a17;
+      --bad-line: #6b3529;
+      --bad-ink: #f0a892;
+      --warn-bg: #2a2517;
+      --warn-line: #5f5327;
+      --warn-ink: #e2cd8a;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0 0 4px; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13.5px; max-width: 78ch; }
+  header code { font-family: var(--mono); font-size: 12.5px; }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1px;
+    background: var(--line);
+    min-height: calc(100vh - 92px);
+  }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+
+  section { background: var(--bg); display: flex; flex-direction: column; min-width: 0; }
+  .bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .bar strong { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+  .grow { flex: 1; }
+
+  button, select {
+    font: inherit; font-size: 13px;
+    padding: 4px 10px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 550; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  textarea {
+    flex: 1; min-height: 340px; resize: none;
+    border: 0; outline: 0; padding: 12px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+    background: var(--bg); color: var(--ink);
+    tab-size: 2;
+  }
+
+  .out { flex: 1; overflow: auto; padding: 16px; }
+  .out svg { max-width: 100%; height: auto; }
+  .stage {
+    display: inline-block;
+    background: #fff;              /* a chart with no background of its own */
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+
+  pre.vega {
+    margin: 0; padding: 12px; overflow: auto;
+    font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    color: var(--ink);
+  }
+
+  .note {
+    margin: 0 0 12px; padding: 10px 12px;
+    border: 1px solid; border-radius: 6px;
+    font-size: 13px;
+  }
+  .note ul { margin: 6px 0 0; padding-left: 20px; }
+  .note li { font-family: var(--mono); font-size: 12px; }
+  .note.bad  { background: var(--bad-bg);  border-color: var(--bad-line);  color: var(--bad-ink); }
+  .note.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+  .status { color: var(--muted); font-size: 12.5px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Vela — paste a Vega specification</h1>
+  <p>
+    This runs <strong>Ranger</strong>, not Vega. The runtime, the Vega-Lite compiler and the SVG
+    renderer below are all compiled from <code>gallery/vela/src/*.rgr</code> — the same sources that
+    compile to C++ — so what you see is what this repository draws. Paste Vega or Vega-Lite;
+    a <code>data.url</code> is fetched by the page and handed to the runtime as values, because the
+    runtime has no loader of its own. What it cannot draw, it says so rather than drawing something else.
+  </p>
+</header>
+
+<main>
+  <section>
+    <div class="bar">
+      <strong>Specification</strong>
+      <select id="examples" aria-label="Examples">
+        <option value="">Examples…</option>
+      </select>
+      <select id="zone" aria-label="Time zone">
+        <option value="">UTC</option>
+        <option>Europe/Helsinki</option>
+        <option>Europe/London</option>
+        <option>America/New_York</option>
+        <option>Australia/Sydney</option>
+      </select>
+      <span class="grow"></span>
+      <button class="primary" id="run">Render</button>
+    </div>
+    <textarea id="spec" spellcheck="false" placeholder="Paste a Vega or Vega-Lite specification here."></textarea>
+  </section>
+
+  <section>
+    <div class="bar">
+      <strong>Result</strong>
+      <span class="grow"></span>
+      <span class="status" id="status"></span>
+      <button id="tab-svg" class="primary">Chart</button>
+      <button id="tab-vega">Compiled Vega</button>
+      <button id="download">Download SVG</button>
+    </div>
+    <div class="out" id="out">
+      <div id="messages"></div>
+      <div id="chart"></div>
+      <pre class="vega hidden" id="vega"></pre>
+    </div>
+  </section>
+</main>
+
+<script src="vela_web.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // A relative `data.url` in a Vega-Lite example means the Vega editor's own
+  // data directory. Same base, so the examples from the Vega site work as
+  // pasted. Overridable so the page can be tested against a local server
+  // rather than against the internet.
+  var DATA_BASE = window.__VELA_DATA_BASE || "https://vega.github.io/editor/";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var specBox = $("spec"), out = $("out"), chart = $("chart"), vegaPane = $("vega");
+  var messages = $("messages"), status = $("status");
+  var lastSvg = "";
+
+  var EXAMPLES = {
+    "Bar chart (Vega-Lite)": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "values": [
+        { "a": "A", "b": 28 }, { "a": "B", "b": 55 }, { "a": "C", "b": 43 },
+        { "a": "D", "b": 91 }, { "a": "E", "b": 81 }, { "a": "F", "b": 53 }
+      ] },
+      "mark": "bar",
+      "encoding": {
+        "x": { "field": "a", "type": "nominal" },
+        "y": { "field": "b", "type": "quantitative" }
+      }
+    },
+    "Scatter from a URL, coloured": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "url": "data/cars.json" },
+      "mark": "point",
+      "encoding": {
+        "x": { "field": "Horsepower", "type": "quantitative" },
+        "y": { "field": "Miles_per_Gallon", "type": "quantitative" },
+        "color": { "field": "Origin", "type": "nominal" }
+      }
+    },
+    "Faceted by column": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "url": "data/cars.json" },
+      "mark": "bar",
+      "encoding": {
+        "x": { "field": "Cylinders", "type": "ordinal" },
+        "y": { "aggregate": "mean", "field": "Horsepower", "type": "quantitative" },
+        "column": { "field": "Origin", "type": "nominal" }
+      }
+    },
+    "Every symbol shape (Vega)": {
+      "$schema": "https://vega.github.io/schema/vega/v5.json",
+      "background": "white",
+      "width": 300, "height": 54, "padding": 5,
+      "data": [ { "name": "shapes", "values": [
+        { "s": "circle" }, { "s": "square" }, { "s": "cross" }, { "s": "diamond" },
+        { "s": "triangle-up" }, { "s": "triangle-down" }, { "s": "triangle-right" },
+        { "s": "triangle-left" }, { "s": "triangle" }, { "s": "wedge" },
+        { "s": "arrow" }, { "s": "stroke" }
+      ] } ],
+      "scales": [ { "name": "x", "type": "point", "domain": { "data": "shapes", "field": "s" },
+        "range": [0, { "signal": "width" }], "padding": 0.5 } ],
+      "axes": [ { "scale": "x", "orient": "bottom", "labelAngle": -40, "labelAlign": "right", "labelBaseline": "middle" } ],
+      "marks": [ { "type": "symbol", "from": { "data": "shapes" }, "encode": { "update": {
+        "x": { "scale": "x", "field": "s" }, "y": { "signal": "height / 2" },
+        "size": { "value": 260 }, "shape": { "field": "s" },
+        "fill": { "value": "#4c78a8" }, "fillOpacity": { "value": 0.55 },
+        "stroke": { "value": "#1c3f5e" }, "strokeWidth": { "value": 1.5 }
+      } } } ]
+    },
+    "A line the runtime refuses": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+      "data": { "url": "data/movies.json" },
+      "layer": [
+        { "mark": { "type": "point", "filled": true },
+          "encoding": {
+            "x": { "field": "Rotten Tomatoes Rating", "type": "quantitative" },
+            "y": { "field": "IMDB Rating", "type": "quantitative" }
+          } },
+        { "mark": { "type": "line", "color": "firebrick" },
+          "transform": [ { "loess": "IMDB Rating", "on": "Rotten Tomatoes Rating" } ],
+          "encoding": {
+            "x": { "field": "Rotten Tomatoes Rating", "type": "quantitative" },
+            "y": { "field": "IMDB Rating", "type": "quantitative" }
+          } }
+      ]
+    }
+  };
+
+  // ---- data loading -------------------------------------------------------
+  // The runtime takes values, not URLs. Everything about fetching, parsing and
+  // guessing what a CSV column meant belongs out here, in the host.
+
+  function urlsIn(spec) {
+    var found = [];
+    (function walk(node) {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      if (typeof node.url === "string" && !("values" in node)) found.push(node);
+      Object.keys(node).forEach(function (k) { walk(node[k]); });
+    })(spec);
+    return found;
+  }
+
+  function parseData(text, url, format) {
+    var type = (format && format.type) || guessType(url);
+    if (type === "json") {
+      var parsed = JSON.parse(text);
+      if (format && format.property) parsed = parsed[format.property];
+      return parsed;
+    }
+    return parseDelimited(text, type === "tsv" ? "\t" : ((format && format.delimiter) || ","));
+  }
+
+  function guessType(url) {
+    var clean = String(url).split("?")[0].toLowerCase();
+    if (clean.endsWith(".tsv")) return "tsv";
+    if (clean.endsWith(".csv")) return "csv";
+    return "json";
+  }
+
+  // Enough of a delimited-text reader for the example data sets: quoted
+  // fields, doubled quotes inside them, and CRLF.
+  function parseDelimited(text, delim) {
+    var rows = [], row = [], field = "", quoted = false, i = 0;
+    while (i < text.length) {
+      var c = text[i];
+      if (quoted) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+          quoted = false; i++; continue;
+        }
+        field += c; i++; continue;
+      }
+      if (c === '"') { quoted = true; i++; continue; }
+      if (c === delim) { row.push(field); field = ""; i++; continue; }
+      if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(field); rows.push(row); row = []; field = ""; i++; continue;
+      }
+      field += c; i++;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    if (!rows.length) return [];
+
+    var header = rows.shift();
+    return rows.filter(function (r) { return r.length > 1 || r[0] !== ""; })
+      .map(function (r) {
+        var o = {};
+        header.forEach(function (name, k) { o[name] = coerce(r[k]); });
+        return o;
+      });
+  }
+
+  // A delimited file has no types. A column that reads as a number is one —
+  // the same guess every loader makes, and the reason an axis comes out
+  // ordinal when one row holds a stray dash.
+  function coerce(v) {
+    if (v === undefined || v === "") return null;
+    var n = Number(v);
+    return (v.trim() !== "" && !Number.isNaN(n)) ? n : v;
+  }
+
+  async function inlineData(spec) {
+    var pending = urlsIn(spec);
+    if (!pending.length) return [];
+    var notes = [];
+    for (var i = 0; i < pending.length; i++) {
+      var node = pending[i];
+      var url = /^[a-z]+:\/\//i.test(node.url) ? node.url : DATA_BASE + node.url;
+      status.textContent = "fetching " + node.url + "…";
+      var response = await fetch(url);
+      if (!response.ok) throw new Error("could not fetch " + url + " (" + response.status + ")");
+      var values = parseData(await response.text(), node.url, node.format);
+      notes.push(node.url + " — " + values.length + " rows");
+      node.values = values;
+      delete node.url;
+      delete node.format;
+    }
+    return notes;
+  }
+
+  // ---- rendering ----------------------------------------------------------
+
+  function note(kind, title, lines) {
+    var el = document.createElement("div");
+    el.className = "note " + kind;
+    el.appendChild(Object.assign(document.createElement("div"), { textContent: title }));
+    if (lines && lines.length) {
+      var ul = document.createElement("ul");
+      lines.forEach(function (line) {
+        ul.appendChild(Object.assign(document.createElement("li"), { textContent: line }));
+      });
+      el.appendChild(ul);
+    }
+    messages.appendChild(el);
+  }
+
+  // Counted so that a test can tell "the render I asked for has finished" from
+  // "the previous render's output is still on screen". Waiting for the status
+  // line to change cannot: the new render may not have started yet.
+  window.__velaRenders = 0;
+
+  async function render() {
+    try {
+      await draw();
+    } finally {
+      window.__velaRenders++;
+    }
+  }
+
+  async function draw() {
+    messages.textContent = "";
+    chart.textContent = "";
+    vegaPane.textContent = "";
+    lastSvg = "";
+    status.textContent = "…";
+
+    var text = specBox.value.trim();
+    if (!text) { status.textContent = ""; return; }
+
+    var spec;
+    try {
+      spec = JSON.parse(text);
+    } catch (err) {
+      // Not JSON yet — let the runtime say so, since its message names the
+      // place. But a trailing comma is worth naming here.
+      spec = null;
+    }
+
+    var loaded = [];
+    if (spec) {
+      try {
+        loaded = await inlineData(spec);
+      } catch (err) {
+        status.textContent = "";
+        note("bad", String(err.message || err));
+        return;
+      }
+      text = JSON.stringify(spec);
+    }
+
+    var answer;
+    try {
+      answer = JSON.parse(VelaWeb.render(text, $("zone").value));
+    } catch (err) {
+      status.textContent = "";
+      note("bad", "the runtime threw: " + (err && err.message ? err.message : String(err)));
+      return;
+    }
+
+    if (loaded.length) note("warn", "Fetched by the page, not by the runtime:", loaded);
+
+    if (!answer.ok) {
+      status.textContent = "did not draw";
+      note("bad", "Vela will not draw this:", answer.errors || []);
+      return;
+    }
+    if (answer.warnings && answer.warnings.length) {
+      note("warn", "Drawn, with reservations:", answer.warnings);
+    }
+
+    lastSvg = answer.svg;
+    var stage = document.createElement("div");
+    stage.className = "stage";
+    stage.innerHTML = answer.svg;
+    chart.appendChild(stage);
+    vegaPane.textContent = answer.vega || "(this was already Vega — nothing to compile)";
+    status.textContent = answer.commands + " draw commands";
+  }
+
+  // ---- wiring -------------------------------------------------------------
+
+  function showTab(which) {
+    var isSvg = which === "svg";
+    chart.classList.toggle("hidden", !isSvg);
+    vegaPane.classList.toggle("hidden", isSvg);
+    $("tab-svg").className = isSvg ? "primary" : "";
+    $("tab-vega").className = isSvg ? "" : "primary";
+  }
+
+  $("run").addEventListener("click", render);
+  $("tab-svg").addEventListener("click", function () { showTab("svg"); });
+  $("tab-vega").addEventListener("click", function () { showTab("vega"); });
+  $("zone").addEventListener("change", render);
+
+  $("download").addEventListener("click", function () {
+    if (!lastSvg) return;
+    var blob = new Blob([lastSvg], { type: "image/svg+xml" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "vela.svg";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  // Ctrl/Cmd+Enter renders, which is what anyone who has used an editor
+  // expects; typing does not, because fetching on every keystroke is rude to
+  // whoever is hosting the data.
+  specBox.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); render(); }
+  });
+
+  var picker = $("examples");
+  Object.keys(EXAMPLES).forEach(function (name) {
+    if (!EXAMPLES[name]) return;
+    picker.appendChild(Object.assign(document.createElement("option"), { value: name, textContent: name }));
+  });
+  picker.addEventListener("change", function () {
+    var chosen = EXAMPLES[picker.value];
+    if (!chosen) return;
+    specBox.value = JSON.stringify(chosen, null, 2);
+    picker.value = "";
+    render();
+  });
+
+  specBox.value = JSON.stringify(EXAMPLES["Bar chart (Vega-Lite)"], null, 2);
+  render();
+})();
+</script>
+</body>
+</html>
