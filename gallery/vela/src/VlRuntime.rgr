@@ -958,6 +958,21 @@ class VlRuntime {
         ; categories put in order of it. "Biggest first" is written this way.
         def by:string (sortDef.stringOr("field" ""))
         def op:string (sortDef.stringOr("op" "sum"))
+        ; The rows this domain reads may be the AGGREGATED ones, where the
+        ; column the sort names has already become `sum_people`. The reference
+        ; points the domain at the rows before the aggregate; pointing it at
+        ; the rows after and looking for the raw name finds nothing, and the
+        ; order comes out unchanged.
+        if ((array_length rows) > 0) {
+            def sample:VlJson (itemAt rows 0)
+            if (! (sample.has(by))) {
+                def aggregated:string ((op + "_") + by)
+                if (sample.has(aggregated)) {
+                    by = aggregated
+                    op = "min"
+                }
+            }
+        }
         def keyed:[string:double]
         for values v:string vi {
             def gathered:[double]

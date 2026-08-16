@@ -3357,9 +3357,57 @@ class VlCompile {
         }
         out.setMember("field" (VlJson.stringValue((ch.outField()))))
         if (ch.isDiscrete()) {
-            out.setMember("sort" (VlJson.boolValue(true)))
+            out.setMember("sort" (this.domainSortFor(ch)))
         }
         return out
+    }
+
+    ; How a discrete domain is ordered. Ascending by its own values unless the
+    ; channel says otherwise, and the interesting form is `"sort": "-x"` — put
+    ; the categories in order of what the X CHANNEL measures, biggest first,
+    ; which is how a bar chart is told to rank itself.
+    fn domainSortFor:VlJson (ch:VlChannel) {
+        def given:VlJson (ch.def0.get("sort"))
+        if (given.isNull()) {
+            return (VlJson.boolValue(true))
+        }
+        if (given.isBool()) {
+            return given
+        }
+        if (given.isObject()) {
+            return given
+        }
+        if (given.isString()) {
+            def text:string given.str
+            if (text == "ascending") { return (VlJson.boolValue(true)) }
+            if (text == "descending") {
+                def down (VlJson.objectValue())
+                down.setMember("order" (VlJson.stringValue("descending")))
+                return down
+            }
+            ; "-x" or "x": the channel to rank by, and which way round.
+            def descending:boolean false
+            def name:string text
+            if ((substring text 0 1) == "-") {
+                descending = true
+                name = (substring text 1 (strlen text))
+            }
+            def by:VlChannel (this.channel(name))
+            if by.defined {
+                def spec (VlJson.objectValue())
+                def op:string by.aggregate
+                if ((strlen op) == 0) { op = "min" }
+                spec.setMember("op" (VlJson.stringValue(op)))
+                spec.setMember("field" (VlJson.stringValue(by.field)))
+                if descending {
+                    spec.setMember("order" (VlJson.stringValue("descending")))
+                }
+                return spec
+            }
+        }
+        ; An explicit list of values is an order in itself, and the runtime
+        ; reads a domain given as an array without asking anything else.
+        return (VlJson.boolValue(true))
     }
 
     fn pushColourScale:void (out:VlJson) {
