@@ -3451,18 +3451,21 @@ class VlCompile {
         ; the reference emits and therefore the order they are compared in.
         ; A binned axis has no grid: its own tick marks are the bin edges, and
         ; a grid drawn on them would be a line down every bar.
+        ; A grid is drawn for a CONTINUOUS scale — its lines stand for numbers
+        ; between the marks — unless the specification asks for one everywhere,
+        ; which a heat map does: `"config": {"axis": {"grid": true}}` rules the
+        ; cells off from each other.
+        def gridEverywhere:boolean (this.configSaysGrid())
         if hasX {
-            if (x.isContinuous()) {
-                if (! x.hasBin) {
-                    push out.arr (this.gridAxis("x" "bottom" hasY "y"))
-                }
+            def xGrid:boolean ((x.isContinuous()) && (! x.hasBin))
+            if (gridEverywhere || xGrid) {
+                push out.arr (this.gridAxis("x" "bottom" hasY "y"))
             }
         }
         if hasY {
-            if (y.isContinuous()) {
-                if (! y.hasBin) {
-                    push out.arr (this.gridAxis("y" "left" hasX "x"))
-                }
+            def yGrid:boolean ((y.isContinuous()) && (! y.hasBin))
+            if (gridEverywhere || yGrid) {
+                push out.arr (this.gridAxis("y" "left" hasX "x"))
             }
         }
         if hasX {
@@ -3472,6 +3475,19 @@ class VlCompile {
             push out.arr (this.labelAxis(y "y" "left"))
         }
         return out
+    }
+
+    ; Does the specification's own configuration ask for a grid on every axis?
+    fn configSaysGrid:boolean () {
+        def config:VlJson (source.get("config"))
+        if (! (config.isObject())) {
+            return false
+        }
+        def axisConfig:VlJson (config.get("axis"))
+        if (! (axisConfig.isObject())) {
+            return false
+        }
+        return (axisConfig.boolOr("grid" false))
     }
 
     ; Did the channel ask for this piece of furniture to be left off? Written

@@ -552,7 +552,10 @@ class VlAxis {
             item.setNumber("opacity" 1.0)
             item.setNumber("angle" labelAngle)
             item.setNumber("limit" labelLimit)
-            item.setString("text" tv.label)
+            ; An axis label is cut to fit too — a hundred and eighty pixels by
+            ; default — and the extent the axis reserves is measured from what
+            ; is left, not from what was asked for.
+            item.setString("text" (VlText.truncate(tv.label labelFontSize labelLimit)))
             if vertical {
                 item.setNumber("y" tv.labelPosition)
                 if (orient == "left") {
