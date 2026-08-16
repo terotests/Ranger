@@ -8,22 +8,27 @@ It is an independent implementation of the Vega grammar's semantics, not a port
 of the Vega JavaScript sources and not affiliated with the Vega project. See
 [Attribution and licensing](#attribution-and-licensing).
 
-**Status:** it draws. Marks, scales, transforms, signals, expressions, axes,
-legends and layout produce a scene that matches the reference implementation
-item for item on **970 of 970 marks** across 24 chart types at three sizes, and
-the EVG backend renders that scene to **PDF, PNG and HTML** — twenty-two charts
-on three pages of the project's
-[EVG showcase](https://terotests.github.io/Ranger/evg/). Compiled to **C++**
-and built with `g++`, the runtime reproduces every one of those goldens byte
-for byte, with no JavaScript engine underneath
-([the C++ check](#the-c-check-the-javascript-is-the-host-not-the-answer)).
-Every chart type the triage asked for is built; see
+**Status:** it draws, and it compiles what it draws. Marks, scales, transforms,
+signals, expressions, axes, legends and layout produce a scene that matches the
+reference implementation item for item on **1743 of 1743 marks** across 40 chart
+types at several sizes; **40 of 40** Vega-Lite sources compile in Ranger and draw
+the same scene as the official compiler feeding official Vega; and the EVG
+backend renders that scene to **PDF, PNG and HTML** — forty-six charts on six
+pages of the project's [EVG showcase](https://terotests.github.io/Ranger/evg/).
+
+Compiled to **C++** and built with `g++`, the whole chain reproduces every one of
+those goldens byte for byte with no JavaScript engine underneath
+([the C++ check](#the-c-check-the-javascript-is-the-host-not-the-answer)). A
+`time` scale is read in a zone that is
+[supplied rather than discovered](#a-time-zone-is-supplied-not-discovered), and
+changing one signal
+[recomputes only what reads it](#changing-one-number). See
 [What is not there yet](#what-is-not-there-yet) for what remains.
 
 ```
                    Vega-Lite JSON
-                         │  VlCompile — single views; the rest is still
-                         ▼  the official compiler's
+                         │  VlCompile — layers, facets, concatenation,
+                         ▼  composite marks
                      Vega JSON
                          │
    ┌─────────────────────┴──────────────────────┐
