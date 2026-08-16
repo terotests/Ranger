@@ -355,6 +355,49 @@ Install the compiler from npm:
  npm install -g ranger-compiler
 ```
 
+### Native binaries (macOS, Linux)
+
+The compiler also ships as a **native binary** with no Node.js in the picture:
+`rangerc` is the compiler compiled to C++ **by itself** and linked ahead of
+time. Downloads are attached to each [release](https://github.com/terotests/Ranger/releases)
+as `ranger-<version>-<platform>.tar.gz` — `linux-x64`, `linux-arm64`, and one
+`macos-universal` (arm64 + x86_64):
+
+```bash
+tar -xzf ranger-3.3.1-linux-x64.tar.gz
+cd ranger-3.3.1-linux-x64
+./rangerc -es6 hello.rgr -d=./out -o=hello.js
+```
+
+The archive is the whole product: the binary plus `Lang.rgr`, `stdops.rgr` and
+`lib/`. The compiler looks for its library in the directory of the executable
+(`install_directory` is the directory of `argv[0]`), so keep those files beside
+`rangerc` or point `RANGER_LIB` at them. On macOS the download is unsigned, so
+Gatekeeper quarantines it: `xattr -d com.apple.quarantine rangerc`.
+
+It is also the fastest way to run the compiler. Compiling the compiler itself
+(the largest Ranger program here, ~63k lines of generated output) takes **3.2 s**
+with the native binary against **9.1 s** on Node — 2.8× — and the JavaScript the
+two write is identical, byte for byte. On small files the difference is
+startup-sized (0.48 s vs 0.66 s on `hello.rgr`), so the win is for large sources
+and for build loops that invoke the compiler many times.
+
+Building one yourself needs Node (to generate the C++) and a C++17 compiler:
+
+```bash
+npm run native:build            # -> tmp/native/ranger-<version>-<platform>/
+npm run native:dist             # ...plus a tarball, and the bootstrap check
+npm run native:bench            # native vs Node on the compiler's own source
+```
+
+`.github/workflows/release-binaries.yml` does exactly that on `ubuntu-22.04`,
+`ubuntu-22.04-arm` and `macos-14`, and uploads the archives when a release is
+published (`workflow_dispatch` builds them on demand). Each platform runs the
+bootstrap check first: the freshly linked binary compiles the compiler, and the
+JavaScript has to match what the Node build writes from the same sources —
+so a binary that reaches a release has already compiled a 40k-line Ranger
+program correctly on that platform.
+
 Running `ranger-compiler` without arguments shows available command-line options:
 
 ```

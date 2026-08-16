@@ -51,9 +51,62 @@ its library beside the executable, and `install_directory` on C++ is the
 directory of `argv[0]`.
 
 The JavaScript the C++ build writes for the compiler is byte-identical to what
-the Node build writes, save for one line — see *32-bit `int`* below — and the
-compiler that comes out of it compiles the compiler again to a file that
-matches the Node build exactly.
+the Node build writes — the one line that used to differ (see *32-bit `int`*
+below) is gone, because the source no longer contains the literal that provoked
+it — and the compiler that comes out of it compiles the compiler again to a file
+that matches the Node build exactly.
+
+### The C++ build is the fastest compiler in the repository, and it ships
+
+Linked with `-O2`, the C++ build compiles the compiler in **3.2 s** against
+**9.1 s** for the Node build of the same sources on the same machine — 2.8× —
+and writes the same bytes. On a small file the gap is startup-sized
+(0.48 s against 0.66 s on `tests/fixtures/hello.rgr`), so this is a win for big
+sources and for loops that invoke the compiler many times, not a blanket 3×.
+`npm run native:bench` re-measures both on any machine.
+
+What it costs is build time on the other side: `g++ -O2` over the 63k-line,
+2.7 MB translation unit takes ~2m20s and ~2 GB of memory, once, and the result
+is a 5.8 MB stripped binary. `selfhost:build:cpp` uses `-O1` for the same reason
+`-fsyntax-only` is the CI gate — it is a check, not a product.
+
+`scripts/build-native-compiler.sh` is the product: it generates the C++, links
+it, stages `Lang.rgr` / `stdops.rgr` / `lib/` beside the binary, and then proves
+the result before packing it — a smoke compile run from an unrelated working
+directory with `RANGER_LIB` unset (so the staged directory has to be
+self-contained), and with `--bootstrap`, the binary compiling the compiler and
+the JavaScript diffed against what Node writes from the same sources. A binary
+that passes has already run a 115k-line Ranger program correctly on that
+platform.
+
+```bash
+npm run native:build      # tmp/native/ranger-<version>-<platform>/
+npm run native:dist       # ...plus bootstrap check and a .tar.gz + .sha256
+npm run native:bench      # native against Node on the compiler's own source
+```
+
+`.github/workflows/release-binaries.yml` runs it on `ubuntu-22.04` (x64),
+`ubuntu-22.04-arm` and `macos-14`, and uploads the archives when a release is
+published. Three packaging decisions worth keeping:
+
+- **Linux links `-static-libstdc++ -static-libgcc`.** The binary otherwise
+  carries the builder's libstdc++ ABI to every distribution older than the
+  runner image. glibc stays dynamic: a fully static glibc link warns about
+  `getaddrinfo`/`dlopen` and buys nothing a compiler needs. Building on the
+  oldest supported image keeps the glibc floor low.
+- **macOS ships one universal binary**, built with `-arch arm64 -arch x86_64`
+  in a single clang invocation on the arm64 runner, rather than two downloads.
+  `-mmacosx-version-min=11.0` sets the floor.
+- **The macOS download is unsigned**, so Gatekeeper quarantines it:
+  `xattr -d com.apple.quarantine rangerc`. Signing and notarization need an
+  Apple Developer identity in repository secrets; until then the `xattr` line
+  is in the archive's README.
+
+The generated C++ has nothing GCC-specific in it — the `__gnu_cxx::_S_single`
+aliases in the source are strings the compiler *emits* for `-cpp-single-thread`
+programs, not code it is built from — so Apple clang builds it. That is the
+opposite of the jsengine case in `scripts/cpp-toolchain.sh`, which does need
+libstdc++ internals.
 
 **Dart** goes the same way, and there is no build step — `dart run` takes the
 file:
@@ -227,11 +280,14 @@ fourth need a diff against the JavaScript build.
 Ranger `int` is 64 bits on Go (`int64`), Rust (`i64`), Java (`long`), Kotlin
 and Python, and **32 bits** on C++ (`int`) — even though `int_buffer` on C++ is
 `std::vector<int64_t>`. The compiler contains the literal `2147483648`, which
-has no C++ `int` to land in: `std::stoi` threw and the value silently became
+had no C++ `int` to land in: `std::stoi` threw and the value silently became
 `0`, so the C++ build read its own `INT_MIN` bound as zero. `str2int` now
-saturates instead, which leaves one line of difference between the C++ build's
+saturates instead, which left one line of difference between the C++ build's
 output and the Node build's (`0 - 2147483647` against `0 - 2147483648`) rather
-than a wrong answer.
+than a wrong answer. That line is gone as well: the bound is written
+`(0 - 2147483647) - 1` in the source now (the Kotlin writer needed the same
+thing, for the same reason), so nothing asks `str2int` to hold `2147483648` and
+the two outputs are byte-identical.
 
 Widening C++ `int` to `int64_t` would remove the difference and is the change
 this note argues for, but it moves every scalar in the generated C++ and the
