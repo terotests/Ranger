@@ -8,6 +8,11 @@ npm run showcase          # -> gallery/evg/showcase/dist/index.html
 npm run showcase:gl       # check the WebGL viewer actually drew the pages
 ```
 
+The index opens with a list of every page, because eleven sections is more than
+a reader should have to scroll past to find one. Each entry opens the rendered
+page itself; the *details* link beside it jumps to that page's section, where
+its other themes and its PDF, PNG and WebGL versions are.
+
 Each page is rendered under **two themes** — the generated chart pages under
 **three**, adding `autumn` — and to **three targets** — PDF (the
 print target), PNG (the raster preview) and HTML (the debug view) — from one
