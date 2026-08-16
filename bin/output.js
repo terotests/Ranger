@@ -49893,39 +49893,45 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.lowerBlockBody(block, lctx);
                           this.popReslots(reslotMark, lctx);
                         };
+                        blockClosed (lctx) {
+                          if ( typeof(lctx.builder.currentBlock) === "undefined" ) {
+                            return false;
+                          }
+                          const cur = lctx.builder.currentBlock;
+                          return cur.termKind != "";
+                        };
+                        lowerStmtList (stmts, lctx) {
+                          const n = stmts.length;
+                          let si = 0;
+                          while (si < n) {
+                            if ( this.blockClosed(lctx) ) {
+                              return;
+                            }
+                            this.lowerStmt(stmts[si], lctx);
+                            si = si + 1;
+                          };
+                        };
                         lowerBlockBody (block, lctx) {
                           if ( block.is_block_node ) {
                             const childCnt = block.children.length;
                             if ( childCnt > 0 ) {
-                              for ( let i = 0; i < block.children.length; i++) {
-                                var stmt = block.children[i];
-                                this.lowerStmt(stmt, lctx);
-                              };
+                              this.lowerStmtList(block.children, lctx);
                               return;
                             }
                             if ( (block.register_expressions.length) > 0 ) {
-                              for ( let i_1 = 0; i_1 < block.register_expressions.length; i_1++) {
-                                var reg = block.register_expressions[i_1];
-                                this.lowerStmt(reg, lctx);
-                              };
+                              this.lowerStmtList(block.register_expressions, lctx);
                             }
                             return;
                           }
                           if ( block.expression ) {
                             const childCnt_1 = block.children.length;
                             if ( childCnt_1 > 0 ) {
-                              for ( let i_2 = 0; i_2 < block.children.length; i_2++) {
-                                var stmt_1 = block.children[i_2];
-                                this.lowerStmt(stmt_1, lctx);
-                              };
+                              this.lowerStmtList(block.children, lctx);
                               return;
                             }
                           }
                           if ( (block.register_expressions.length) > 0 ) {
-                            for ( let i_3 = 0; i_3 < block.register_expressions.length; i_3++) {
-                              var reg_1 = block.register_expressions[i_3];
-                              this.lowerStmt(reg_1, lctx);
-                            };
+                            this.lowerStmtList(block.register_expressions, lctx);
                             return;
                           }
                           this.lowerStmt(block, lctx);
@@ -50125,10 +50131,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return;
                           }
                           if ( node.expression ) {
-                            for ( let i = 0; i < node.children.length; i++) {
-                              var item = node.children[i];
-                              this.lowerStmt(item, lctx);
-                            };
+                            this.lowerStmtList(node.children, lctx);
                           }
                         };
                         declaredIrTypeOf (nameNode, lctx) {

@@ -7508,35 +7508,59 @@ class LowIRBuilderPass {
     this.popReslots(reslotMark lctx)
   }
 
+  ; Has the block being written already ended (return / break / continue)?
+  ; Everything after that in the same statement list is unreachable.
+  fn blockClosed:boolean (lctx:LowIRLowerContext) {
+    if (null? lctx.builder.currentBlock) {
+      return false
+    }
+    def cur (unwrap lctx.builder.currentBlock)
+    return (cur.termKind != "")
+  }
+
+  ; Lower a statement list, STOPPING at the first terminator.
+  ;
+  ; A LowIRBlock keeps its terminator apart from its instructions and the writer
+  ; prints the instructions first, so anything lowered after a `return` was
+  ; emitted BEFORE the `ret` -- and therefore ran. RangerFlowParser's
+  ; WalkCollectMethods has a bare `return` with a page of dead code after it,
+  ; so the release epilogue the return emitted was followed by the dead code AND
+  ; by the function's own epilogue: every owned local was released twice, and
+  ; the freshly built operator nodes were handed back to the allocator while
+  ; stdCommands still pointed at them.
+  fn lowerStmtList:void (stmts:[CodeNode] lctx:LowIRLowerContext) {
+    def n (array_length stmts)
+    def si:int 0
+    while (si < n) {
+      if (this.blockClosed(lctx)) {
+        return
+      }
+      this.lowerStmt((itemAt stmts si) lctx)
+      si = si + 1
+    }
+  }
+
   fn lowerBlockBody:void (block:CodeNode lctx:LowIRLowerContext) {
     if block.is_block_node {
       def childCnt (array_length block.children)
       if (childCnt > 0) {
-        for block.children stmt:CodeNode i {
-          this.lowerStmt(stmt lctx)
-        }
+        this.lowerStmtList(block.children lctx)
         return
       }
       if (has block.register_expressions) {
-        for block.register_expressions reg:CodeNode i {
-          this.lowerStmt(reg lctx)
-        }
+        this.lowerStmtList(block.register_expressions lctx)
       }
       return
     }
     if block.expression {
       def childCnt (array_length block.children)
       if (childCnt > 0) {
-        for block.children stmt:CodeNode i {
-          this.lowerStmt(stmt lctx)
-        }
+        this.lowerStmtList(block.children lctx)
         return
       }
     }
     if (has block.register_expressions) {
-      for block.register_expressions reg:CodeNode i {
-        this.lowerStmt(reg lctx)
-      }
+      this.lowerStmtList(block.register_expressions lctx)
       return
     }
     this.lowerStmt(block lctx)
@@ -7771,9 +7795,7 @@ class LowIRBuilderPass {
       return
     }
     if node.expression {
-      for node.children item:CodeNode i {
-        this.lowerStmt(item lctx)
-      }
+      this.lowerStmtList(node.children lctx)
     }
   }
 
