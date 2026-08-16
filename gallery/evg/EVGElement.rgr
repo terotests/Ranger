@@ -229,6 +229,18 @@ class EVGElement {
     
     ; SVG Path properties
     def svgPath:string ""
+    ; An entire imported SVG document, as markup. Where `svgPath` is one `d`
+    ; string with the element's own fill and stroke, this is a drawing with its
+    ; own shapes, groups, transforms and paint, which SvgParser resolves into a
+    ; flat list of drawables (PLAN_VECTOR_IR.md Stage 4). The two are mutually
+    ; exclusive on one element and an import wins, because a document that set
+    ; both meant the document.
+    ;
+    ; It lives on the path element rather than on a new element type: an
+    ; imported drawing is laid out, sized and positioned exactly like a `<Path>`
+    ; is, so a separate type would mean a second copy of that in the layout
+    ; engine and in all three renderers for no behavioural difference.
+    def svgSource:string ""
     def viewBox:string ""
     def fillColor:EVGColor
     def strokeColor:EVGColor
@@ -1300,6 +1312,10 @@ class EVGElement {
         ; SVG Path attributes
         if ((name == "d") || (name == "svgPath")) {
             svgPath = value
+            return
+        }
+        if ((name == "svg") || (name == "svgSource")) {
+            svgSource = value
             return
         }
         if (name == "viewBox") {

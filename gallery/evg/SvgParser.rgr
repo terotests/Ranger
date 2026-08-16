@@ -1,0 +1,1730 @@
+Import "SVGPathParser.rgr"
+Import "VectorShapes.rgr"
+Import "VectorViewBox.rgr"
+Import "EVGColor.rgr"
+
+; ==============================================================================
+; SvgParser.rgr — an SVG document, read into the vector layer
+; ==============================================================================
+; PLAN_VECTOR_IR.md Stage 4 and Stage 5.
+;
+; The plan's central decision is that EVG does not become an SVG engine: it has
+; a renderer-neutral vector layer, and SVG is one importer into it. Stages 0-3
+; built the layer — the shared viewBox transform, the full path grammar, the
+; shared rasterizer, the basic shapes as paths. This file is the importer, and
+; it is deliberately the only place in the tree that knows any XML.
+;
+; What comes out is not a node tree. It is a flat list of `SvgVectorItem` —
+; resolved geometry plus resolved paint — because that is what every renderer
+; can already draw:
+;
+;     markup ──► SvgParser ──► [SvgVectorItem] ──┬──► PDF    (path operators)
+;                                                ├──► HTML   (inline <svg>)
+;                                                └──► raster (VectorRasterizer)
+;
+; Three consequences worth stating, because they are the point rather than
+; side effects.
+;
+; **Transforms are baked.** Each item's commands are absolute, in the document's
+; own user space, with every enclosing `transform` already applied. A renderer
+; therefore needs no transform stack, no group traversal and no state machine —
+; it draws a list. Affine maps take cubics to cubics exactly, so nothing is
+; approximated by doing this.
+;
+; **Paint is resolved.** Inheritance down groups, `fill="none"`, the opacity
+; properties: all settled here, once, so the three renderers cannot disagree
+; about what colour a shape is the way they disagree about gradients today
+; (§6).
+;
+; **HTML goes through the IR too.** It would be less code to hand the original
+; markup to the browser and let it render — and it would immediately reintroduce
+; the whole class of defect this plan exists to remove, because the browser
+; would draw filters, gradients, text and clip paths that PDF and PNG cannot.
+; Out of profile has to mean out of profile everywhere, or the profile is not
+; real.
+;
+; The profile is §8: no script, no animation, no foreignObject, no filters, no
+; masks, no external CSS, no external references. Everything outside it is
+; *reported* rather than silently dropped (§7.4) — that is what makes a small
+; profile safe to ship, because "not supported" is a state you can see instead
+; of a shape that quietly went missing.
+;
+; Imported SVG is untrusted input, so the parser also refuses by construction
+; rather than by mitigation: no entity machinery exists at all (which is what
+; rules out billion-laughs and XXE), no href leaves the document, and node,
+; depth and command counts are capped and reported.
+; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; SvgVectorItem — one drawable, ready to render.
+; ------------------------------------------------------------------------------
+; `commands` are absolute PathCommands in the document's user space. An unset
+; fill or stroke colour means that operation does not happen at all — the same
+; convention EVGElement already uses, so a renderer's existing "is there a fill?"
+; check works unchanged.
+class SvgVectorItem {
+    def commands:[PathCommand]
+    def fillColor:EVGColor
+    def strokeColor:EVGColor
+    def strokeWidth:double 1.0
+    def fillRule:string "nonzero"
+    def dashArray:string ""
+    def dashOffset:double 0.0
+
+    Constructor () {
+        def c:[PathCommand]
+        commands = c
+        fillColor = (EVGColor.noColor())
+        strokeColor = (EVGColor.noColor())
+        strokeWidth = 1.0
+        fillRule = "nonzero"
+        dashArray = ""
+        dashOffset = 0.0
+    }
+
+    fn hasFill:boolean () {
+        return fillColor.isSet
+    }
+
+    fn hasStroke:boolean () {
+        if (strokeColor.isSet == false) {
+            return false
+        }
+        return (strokeWidth > 0.0)
+    }
+
+    ; The `d` string for this item, for targets that speak path data. Round-trips
+    ; through SVGPathParser, which is what vector_shapes_test already asserts of
+    ; VectorShapes.asPathData.
+    fn pathData:string () {
+        return (VectorShapes.asPathData(commands))
+    }
+}
+
+; ------------------------------------------------------------------------------
+; SvgStyleState — what a shape inherits from the groups above it.
+; ------------------------------------------------------------------------------
+; SVG's initial values, not EVG's: fill is black, stroke is none, stroke-width
+; is 1. An imported file that sets no fill anywhere is black in a browser, so it
+; is black here.
+;
+; The three opacity properties are kept apart while parsing and multiplied into
+; the paint alpha at emit time. Group opacity is genuinely NOT the same thing —
+; the spec composites a group off-screen and then fades it as a unit, so
+; overlapping children inside a faded group show through each other under this
+; treatment and would not in a browser. Doing it properly needs an off-screen
+; buffer per group, which the raster target has no notion of and the PDF target
+; would need a transparency group for; it is recorded here rather than left to
+; be discovered, and PLAN_VECTOR_IR.md Stage 4 lists it among what did not
+; land.
+class SvgStyleState {
+    def ctm:Matrix2D
+    def fill:EVGColor
+    def stroke:EVGColor
+    def strokeWidth:double 1.0
+    def fillRule:string "nonzero"
+    def dashArray:string ""
+    def dashOffset:double 0.0
+    def fillOpacity:double 1.0
+    def strokeOpacity:double 1.0
+    def groupOpacity:double 1.0
+
+    Constructor () {
+        ctm = (Matrix2D.identity())
+        fill = (EVGColor.black())
+        stroke = (EVGColor.noColor())
+        strokeWidth = 1.0
+        fillRule = "nonzero"
+        dashArray = ""
+        dashOffset = 0.0
+        fillOpacity = 1.0
+        strokeOpacity = 1.0
+        groupOpacity = 1.0
+    }
+
+    fn copy:SvgStyleState () {
+        def s (new SvgStyleState())
+        s.ctm = ctm
+        s.fill = fill
+        s.stroke = stroke
+        s.strokeWidth = strokeWidth
+        s.fillRule = fillRule
+        s.dashArray = dashArray
+        s.dashOffset = dashOffset
+        s.fillOpacity = fillOpacity
+        s.strokeOpacity = strokeOpacity
+        s.groupOpacity = groupOpacity
+        return s
+    }
+}
+
+; ------------------------------------------------------------------------------
+; SvgDocument — the parse result.
+; ------------------------------------------------------------------------------
+; `errors` are conditions that stopped or truncated the parse. `warnings` are
+; things the document asked for that this profile does not do — the document is
+; still drawable, just not completely. Keeping the two apart matters for a
+; caller deciding whether to print or to fail.
+class SvgDocument {
+    def items:[SvgVectorItem]
+    def viewBox:ViewBoxRect
+    ; The `width`/`height` attributes on the root, in user units. Zero when
+    ; absent or given in a unit this profile does not resolve (%, em, ...).
+    def width:double 0.0
+    def height:double 0.0
+    def warnings:[string]
+    def errors:[string]
+    def truncated:boolean false
+
+    Constructor () {
+        def it:[SvgVectorItem]
+        items = it
+        def w:[string]
+        warnings = w
+        def e:[string]
+        errors = e
+        viewBox = (new ViewBoxRect())
+        width = 0.0
+        height = 0.0
+        truncated = false
+    }
+
+    fn itemCount:int () {
+        return (array_length items)
+    }
+
+    fn hasErrors:boolean () {
+        return ((array_length errors) > 0)
+    }
+
+    fn hasWarnings:boolean () {
+        return ((array_length warnings) > 0)
+    }
+
+    fn commandCount:int () {
+        def total:int 0
+        def k:int 0
+        while (k < (array_length items)) {
+            def it:SvgVectorItem (itemAt items k)
+            total = (total + (array_length it.commands))
+            k = (k + 1)
+        }
+        return total
+    }
+
+    fn joinLines:string (lines:[string]) {
+        def n:int (array_length lines)
+        if (n == 0) {
+            return ""
+        }
+        def out:string (itemAt lines 0)
+        def k:int 1
+        while (k < n) {
+            out = (out + "; " + (itemAt lines k))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn errorSummary:string () {
+        return (this.joinLines(errors))
+    }
+
+    fn warningSummary:string () {
+        return (this.joinLines(warnings))
+    }
+
+    ; The ink bounds of every item, control points included — the same
+    ; over-estimate SVGPathParser.calculateBounds makes, deliberately, so a
+    ; document with no viewBox is fitted the same way a `<Path>` with no viewBox
+    ; is.
+    fn bounds:PathBounds () {
+        def b (new PathBounds())
+        def minX:double 999999.0
+        def minY:double 999999.0
+        def maxX:double -999999.0
+        def maxY:double -999999.0
+        def any:boolean false
+
+        def k:int 0
+        while (k < (array_length items)) {
+            def it:SvgVectorItem (itemAt items k)
+            def j:int 0
+            while (j < (array_length it.commands)) {
+                def c:PathCommand (itemAt it.commands j)
+                if ((c.type == "Z") == false) {
+                    any = true
+                    if (c.x < minX) { minX = c.x }
+                    if (c.x > maxX) { maxX = c.x }
+                    if (c.y < minY) { minY = c.y }
+                    if (c.y > maxY) { maxY = c.y }
+                }
+                if ((c.type == "C") || (c.type == "Q")) {
+                    if (c.x1 < minX) { minX = c.x1 }
+                    if (c.x1 > maxX) { maxX = c.x1 }
+                    if (c.y1 < minY) { minY = c.y1 }
+                    if (c.y1 > maxY) { maxY = c.y1 }
+                }
+                if (c.type == "C") {
+                    if (c.x2 < minX) { minX = c.x2 }
+                    if (c.x2 > maxX) { maxX = c.x2 }
+                    if (c.y2 < minY) { minY = c.y2 }
+                    if (c.y2 > maxY) { maxY = c.y2 }
+                }
+                j = (j + 1)
+            }
+            k = (k + 1)
+        }
+
+        if (any == false) {
+            return b
+        }
+        b.minX = minX
+        b.minY = minY
+        b.maxX = maxX
+        b.maxY = maxY
+        b.width = (maxX - minX)
+        b.height = (maxY - minY)
+        return b
+    }
+
+    ; Which viewBox governs this document: the declared one, else one
+    ; synthesised from the ink. Same rule, same fallback and same shared
+    ; implementation a `<Path>` goes through (VectorViewBox §2.1), so an
+    ; imported file and a hand-written path are placed by the same code.
+    fn effectiveViewBox:ViewBoxRect () {
+        if viewBox.isSet {
+            return (unwrap viewBox)
+        }
+        if ((width > 0.0) && (height > 0.0)) {
+            return (ViewBoxRect.create(0.0 0.0 width height))
+        }
+        def b:PathBounds (this.bounds())
+        return (VectorViewBox.effectiveViewBox("" b.minX b.minY b.width b.height))
+    }
+}
+
+; ------------------------------------------------------------------------------
+; XML scanning
+; ------------------------------------------------------------------------------
+class SvgAttr {
+    def name:string ""
+    def value:string ""
+}
+
+class SvgTag {
+    def name:string ""
+    def isEnd:boolean false
+    def selfClose:boolean false
+    def attrs:[SvgAttr]
+    ; False at end of input, or when scanning gave up.
+    def valid:boolean false
+
+    Constructor () {
+        def a:[SvgAttr]
+        attrs = a
+        name = ""
+        isEnd = false
+        selfClose = false
+        valid = false
+    }
+
+    fn has:boolean (n:string) {
+        def k:int 0
+        while (k < (array_length attrs)) {
+            def a:SvgAttr (itemAt attrs k)
+            if (a.name == n) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    fn attr:string (n:string) {
+        def k:int 0
+        while (k < (array_length attrs)) {
+            def a:SvgAttr (itemAt attrs k)
+            if (a.name == n) {
+                return a.value
+            }
+            k = (k + 1)
+        }
+        return ""
+    }
+}
+
+; ------------------------------------------------------------------------------
+; SvgParser
+; ------------------------------------------------------------------------------
+class SvgParser {
+    def src:string ""
+    def pos:int 0
+    def len:int 0
+    def doc:SvgDocument
+
+    ; Caps. These exist so a hostile or merely enormous file fails with a
+    ; sentence rather than with an out-of-memory (§8).
+    def maxNodes:int 50000
+    def maxDepth:int 64
+    def maxCommands:int 500000
+    def maxUseDepth:int 8
+
+    ; The paint a shape gets when neither it nor anything above it names one.
+    ; SVG's initial value is black, and that is the default here — but the
+    ; hosting element can set it, which is what lets a themed icon set work:
+    ; the file declares geometry, the element (and therefore the stylesheet)
+    ; decides the colour, exactly as a hand-written `<Path>` already does. A
+    ; document that sets its own fills is unaffected, because its own value
+    ; wins. It is also the only sensible answer for `currentColor`, which is
+    ; otherwise a reference to a CSS property an imported file cannot see.
+    def initialFill:EVGColor
+
+    def nodeCount:int 0
+    def emittedCommands:int 0
+    def useDepth:int 0
+    def aborted:boolean false
+
+    ; id -> that element's own markup, for same-document <use>. Recorded in a
+    ; first pass so a <use> may appear before its target, which is legal and
+    ; common (Illustrator puts <defs> at the end as often as at the start).
+    def spans:[string:string]
+
+    ; Warnings are deduplicated by key. A file with four hundred gradient fills
+    ; should say "gradient paint is not supported" once; four hundred copies of
+    ; it is the same as saying nothing.
+    def warnedKeys:[string:boolean]
+
+    Constructor () {
+        doc = (new SvgDocument())
+        initialFill = (EVGColor.black())
+    }
+
+    fn setInitialFill:void (c:EVGColor) {
+        initialFill = c
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Diagnostics
+    ; --------------------------------------------------------------------------
+
+    fn warn:void (key:string msg:string) {
+        def seen@(optional):boolean (get warnedKeys key)
+        if seen {
+            return
+        }
+        set warnedKeys key true
+        push doc.warnings msg
+    }
+
+    fn fail:void (msg:string) {
+        push doc.errors msg
+        doc.truncated = true
+        aborted = true
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Entry point
+    ; --------------------------------------------------------------------------
+    fn parse:SvgDocument (source:string) {
+        doc = (new SvgDocument())
+        def emptySpans:[string:string]
+        spans = emptySpans
+        def emptyWarned:[string:boolean]
+        warnedKeys = emptyWarned
+        nodeCount = 0
+        emittedCommands = 0
+        useDepth = 0
+        aborted = false
+
+        src = source
+        len = (strlen source)
+        pos = 0
+
+        this.indexIds()
+        if aborted {
+            return (unwrap doc)
+        }
+
+        src = source
+        len = (strlen source)
+        pos = 0
+
+        def root (new SvgStyleState())
+        root.fill = (unwrap initialFill)
+        this.parseChildren(root 0 "")
+
+        return (unwrap doc)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Pass one: where every id'd element starts and ends
+    ; --------------------------------------------------------------------------
+    ; Only `id` matters here, and only so that <use href="#id"> can re-parse the
+    ; target's markup as a fragment. Storing the SOURCE rather than a parsed node
+    ; is what keeps <use> honest: the referenced element goes through exactly the
+    ; same code path as if it had been written inline, including its own
+    ; transform and its own inheritance.
+    fn indexIds:void () {
+        def openNames:[string]
+        def openIds:[string]
+        def openStarts:[int]
+
+        while (aborted == false) {
+            def tagStart:int (this.findTagStart())
+            if (tagStart < 0) {
+                return
+            }
+            def tag:SvgTag (this.readTag())
+            if (tag.valid == false) {
+                return
+            }
+
+            if tag.isEnd {
+                def depth:int (array_length openNames)
+                if (depth > 0) {
+                    def openName:string (itemAt openNames (depth - 1))
+                    if (openName == tag.name) {
+                        def id:string (itemAt openIds (depth - 1))
+                        if ((strlen id) > 0) {
+                            def from:int (itemAt openStarts (depth - 1))
+                            set spans id (substring src from pos)
+                        }
+                        removeLast openNames
+                        removeLast openIds
+                        removeLast openStarts
+                    }
+                }
+            } {
+                def id2:string (tag.attr("id"))
+                if tag.selfClose {
+                    if ((strlen id2) > 0) {
+                        set spans id2 (substring src tagStart pos)
+                    }
+                } {
+                    push openNames tag.name
+                    push openIds id2
+                    push openStarts tagStart
+                    if ((array_length openNames) > maxDepth) {
+                        this.fail("nesting deeper than " + (to_string maxDepth) + " levels")
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Pass two: the walk that produces items
+    ; --------------------------------------------------------------------------
+    ; `endName` is the element whose closing tag ends this level, or "" at the
+    ; top of a document or of a <use> fragment, where end of input ends it.
+    fn parseChildren:void (inherited:SvgStyleState depth:int endName:string) {
+        if (depth > maxDepth) {
+            this.fail("nesting deeper than " + (to_string maxDepth) + " levels")
+            return
+        }
+
+        while (aborted == false) {
+            def tagStart:int (this.findTagStart())
+            if (tagStart < 0) {
+                return
+            }
+            def tag:SvgTag (this.readTag())
+            if (tag.valid == false) {
+                return
+            }
+            if tag.isEnd {
+                ; The matching end tag, or a stray one. Either way this level is
+                ; over: XML is well-formed or it is not, and guessing which tag
+                ; a stray `</g>` was meant to close invents structure.
+                return
+            }
+
+            nodeCount = (nodeCount + 1)
+            if (nodeCount > maxNodes) {
+                this.fail("more than " + (to_string maxNodes) + " elements")
+                return
+            }
+
+            this.handleElement(tag inherited depth)
+        }
+    }
+
+    fn handleElement:void (tag:SvgTag inherited:SvgStyleState depth:int) {
+        def name:string tag.name
+
+        ; ---- out of profile, and said so ------------------------------------
+        if (this.isRefused(name)) {
+            this.refuse(name)
+            if (tag.selfClose == false) {
+                this.skipSubtree(name)
+            }
+            return
+        }
+
+        ; ---- carries no geometry --------------------------------------------
+        ; title/desc/metadata are documentation, not drawing. Skipping them is
+        ; not a limitation and needs no warning.
+        if (((name == "title") || (name == "desc")) || (name == "metadata")) {
+            if (tag.selfClose == false) {
+                this.skipSubtree(name)
+            }
+            return
+        }
+
+        ; ---- <defs> ----------------------------------------------------------
+        ; Definitions are drawn only where they are referenced. Pass one already
+        ; recorded their markup by id, so nothing is lost by not walking in.
+        if (name == "defs") {
+            if (tag.selfClose == false) {
+                this.skipSubtree(name)
+            }
+            return
+        }
+
+        ; ---- the root, and any nested viewport -------------------------------
+        if (name == "svg") {
+            if (depth == 0) {
+                this.readRootAttributes(tag)
+                def rootState:SvgStyleState (this.applyPresentation(inherited tag depth))
+                if (tag.selfClose == false) {
+                    this.parseChildren(rootState (depth + 1) name)
+                }
+                return
+            }
+            ; A nested <svg> establishes a new viewport with its own viewBox and
+            ; its own clip. Drawing its children in the OUTER coordinate system
+            ; would put them in the wrong place at the wrong size, which is worse
+            ; than not drawing them, so it is refused rather than approximated.
+            this.warn("nested-svg" "a nested <svg> element establishes its own viewport and is not supported; its contents are not drawn")
+            if (tag.selfClose == false) {
+                this.skipSubtree(name)
+            }
+            return
+        }
+
+        ; ---- groups ----------------------------------------------------------
+        ; <a> is a group that happens to link somewhere. The link is meaningless
+        ; in a printed page and harmless in the others, so its children are
+        ; drawn and the href is ignored.
+        if ((name == "g") || (name == "a")) {
+            def groupState:SvgStyleState (this.applyPresentation(inherited tag depth))
+            if (tag.selfClose == false) {
+                this.parseChildren(groupState (depth + 1) name)
+            }
+            return
+        }
+
+        ; ---- <switch> --------------------------------------------------------
+        ; Real conditional processing needs requiredFeatures/requiredExtensions/
+        ; systemLanguage evaluation. This profile has no feature strings to test
+        ; against, so it would render every branch — which is why the branches
+        ; are refused instead.
+        if (name == "switch") {
+            this.warn("switch" "<switch> conditional processing is not supported; its contents are not drawn")
+            if (tag.selfClose == false) {
+                this.skipSubtree(name)
+            }
+            return
+        }
+
+        ; ---- <use> -----------------------------------------------------------
+        if (name == "use") {
+            this.handleUse(tag inherited depth)
+            if (tag.selfClose == false) {
+                this.skipSubtree(name)
+            }
+            return
+        }
+
+        ; ---- shapes ----------------------------------------------------------
+        if (this.isShape(name)) {
+            def shapeState:SvgStyleState (this.applyPresentation(inherited tag depth))
+            this.emitShape(tag shapeState)
+            ; A shape may carry <title>/<desc>/<animate> children. Nothing in
+            ; there is geometry.
+            if (tag.selfClose == false) {
+                this.skipSubtree(name)
+            }
+            return
+        }
+
+        ; ---- anything else ---------------------------------------------------
+        this.warn(("unknown-" + name) ("<" + name + "> is not part of the supported SVG profile and was skipped"))
+        if (tag.selfClose == false) {
+            this.skipSubtree(name)
+        }
+    }
+
+    ; Elements the profile refuses by name, each for a stated reason (§8, §6).
+    fn isRefused:boolean (name:string) {
+        if (name == "script") { return true }
+        if (name == "foreignObject") { return true }
+        if (name == "filter") { return true }
+        if (name == "mask") { return true }
+        if (name == "clipPath") { return true }
+        if (name == "pattern") { return true }
+        if (name == "marker") { return true }
+        if (name == "symbol") { return true }
+        if (name == "style") { return true }
+        if (name == "text") { return true }
+        if (name == "image") { return true }
+        if (name == "linearGradient") { return true }
+        if (name == "radialGradient") { return true }
+        if (name == "animate") { return true }
+        if (name == "animateTransform") { return true }
+        if (name == "animateMotion") { return true }
+        if (name == "set") { return true }
+        return false
+    }
+
+    fn refuse:void (name:string) {
+        ; <text> gets its own sentence because it is the single most likely
+        ; cause of a "your SVG support is broken" report: Illustrator and Figma
+        ; exports carry live text constantly, and a logo that quietly loses its
+        ; wordmark looks like a rendering bug rather than an unsupported feature
+        ; (§8). Converting it needs the font machinery and text layout, which is
+        ; a different piece of work entirely.
+        if (name == "text") {
+            this.warn("text" "<text> is not supported; convert text to outlines before export, or the wordmark will be missing")
+            return
+        }
+        if (name == "image") {
+            this.warn("image" "<image> references an external resource, which the importer does not fetch; it was skipped")
+            return
+        }
+        if (name == "style") {
+            this.warn("style" "a <style> element is not applied; CSS in the document is outside the profile, so use presentation attributes instead")
+            return
+        }
+        if ((name == "linearGradient") || (name == "radialGradient")) {
+            this.warn("gradient" "gradient paint is deferred (PLAN_VECTOR_IR.md §6): the three renderers do not agree on gradients yet, so a gradient fill is dropped rather than rendered differently in each output")
+            return
+        }
+        if ((name == "clipPath") || (name == "mask")) {
+            this.warn(("clip-" + name) ("<" + name + "> is not supported; the shapes it would have cut are drawn whole"))
+            return
+        }
+        this.warn(("refused-" + name) ("<" + name + "> is outside the supported SVG profile and was skipped"))
+    }
+
+    fn isShape:boolean (name:string) {
+        if (name == "path") { return true }
+        if (name == "rect") { return true }
+        if (name == "circle") { return true }
+        if (name == "ellipse") { return true }
+        if (name == "line") { return true }
+        if (name == "polyline") { return true }
+        if (name == "polygon") { return true }
+        return false
+    }
+
+    ; --------------------------------------------------------------------------
+    ; <use>
+    ; --------------------------------------------------------------------------
+    ; Same-document fragments only. `href` to anything else — another file, a
+    ; URL — is dropped, which is the profile's "no network or filesystem access
+    ; from inside the parser" rule enforced rather than documented (§8).
+    fn handleUse:void (tag:SvgTag inherited:SvgStyleState depth:int) {
+        def href:string (tag.attr("href"))
+        if ((strlen href) == 0) {
+            href = (tag.attr("xlink:href"))
+        }
+        if ((strlen href) == 0) {
+            this.warn("use-nohref" "<use> without an href draws nothing")
+            return
+        }
+        if ((charAt href 0) != 35) {
+            this.warn("use-external" "<use> may only reference a fragment in the same document; an external reference was dropped")
+            return
+        }
+
+        def id:string (substring href 1 (strlen href))
+        def target@(optional):string (get spans id)
+        def fragment:string ""
+        if target {
+            fragment = (unwrap target)
+        } {
+            this.warn(("use-missing-" + id) ("<use href=\"#" + id + "\"> refers to an id that is not in this document"))
+            return
+        }
+
+        if (useDepth >= maxUseDepth) {
+            ; A <use> whose target contains a <use> back to it is a cycle, and
+            ; the spec calls it an error. Bounding the depth ends it without
+            ; needing to track which ids are currently open.
+            this.warn("use-depth" ("<use> references nested more than " + (to_string maxUseDepth) + " deep, which is either a cycle or deeper than this profile expands"))
+            return
+        }
+
+        ; x/y on a <use> is a translation of the referenced content. width and
+        ; height only apply when the target is a <symbol> or an <svg>, both of
+        ; which this profile refuses anyway.
+        def state:SvgStyleState (this.applyPresentation(inherited tag depth))
+        def ux:double (this.numAttr(tag "x" 0.0))
+        def uy:double (this.numAttr(tag "y" 0.0))
+        if (((ux == 0.0) && (uy == 0.0)) == false) {
+            state.ctm = (state.ctm.multiply((Matrix2D.translate(ux uy))))
+        }
+
+        ; The fragment is re-parsed with its own scanner position, then the
+        ; outer one is put back exactly where it was.
+        def savedSrc:string src
+        def savedPos:int pos
+        def savedLen:int len
+
+        src = fragment
+        len = (strlen src)
+        pos = 0
+        useDepth = (useDepth + 1)
+        this.parseChildren(state (depth + 1) "")
+        useDepth = (useDepth - 1)
+
+        src = savedSrc
+        pos = savedPos
+        len = savedLen
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Presentation attributes
+    ; --------------------------------------------------------------------------
+    ; Order matters and is the CSS one: presentation attributes first, then the
+    ; `style` attribute, which outranks them. An exporter that writes both —
+    ; and they do — otherwise gets the losing value.
+    fn applyPresentation:SvgStyleState (inherited:SvgStyleState tag:SvgTag depth:int) {
+        def s:SvgStyleState (inherited.copy())
+
+        def k:int 0
+        while (k < (array_length tag.attrs)) {
+            def a:SvgAttr (itemAt tag.attrs k)
+            this.applyProperty(s a.name a.value)
+            k = (k + 1)
+        }
+
+        def styleAttr:string (tag.attr("style"))
+        if ((strlen styleAttr) > 0) {
+            this.applyStyleAttribute(s styleAttr)
+        }
+
+        ; The transform composes onto whatever the parent established, and is
+        ; applied after the parent's — the CTM is parent ∘ own.
+        def tf:string (tag.attr("transform"))
+        if ((strlen tf) > 0) {
+            def m:Matrix2D (this.parseTransform(tf))
+            s.ctm = (s.ctm.multiply(m))
+        }
+
+        return s
+    }
+
+    ; "fill:#f00; stroke : none" — the same property names as the attributes.
+    fn applyStyleAttribute:void (s:SvgStyleState style:string) {
+        def decls:[string] (this.splitOn(style 59))
+        def k:int 0
+        while (k < (array_length decls)) {
+            def decl:string (itemAt decls k)
+            def colon:int (indexOf decl ":")
+            if (colon > 0) {
+                def n:string (trim (substring decl 0 colon))
+                def v:string (trim (substring decl (colon + 1) (strlen decl)))
+                this.applyProperty(s n v)
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn applyProperty:void (s:SvgStyleState name:string value:string) {
+        def v:string (trim value)
+
+        if (name == "fill") {
+            s.fill = (this.parsePaint(v (unwrap s.fill)))
+            return
+        }
+        if (name == "stroke") {
+            s.stroke = (this.parsePaint(v (unwrap s.stroke)))
+            return
+        }
+        if (name == "stroke-width") {
+            def w@(optional):double (str2double v)
+            if w {
+                s.strokeWidth = (unwrap w)
+            }
+            return
+        }
+        if (name == "fill-rule") {
+            if (v == "evenodd") {
+                s.fillRule = "evenodd"
+            }
+            if (v == "nonzero") {
+                s.fillRule = "nonzero"
+            }
+            return
+        }
+        if (name == "stroke-dasharray") {
+            if (v == "none") {
+                s.dashArray = ""
+            } {
+                s.dashArray = v
+            }
+            return
+        }
+        if (name == "stroke-dashoffset") {
+            def o@(optional):double (str2double v)
+            if o {
+                s.dashOffset = (unwrap o)
+            }
+            return
+        }
+        if (name == "fill-opacity") {
+            s.fillOpacity = (this.parseOpacity(v s.fillOpacity))
+            return
+        }
+        if (name == "stroke-opacity") {
+            s.strokeOpacity = (this.parseOpacity(v s.strokeOpacity))
+            return
+        }
+        if (name == "opacity") {
+            ; Group opacity accumulates down the tree. See the note on
+            ; SvgStyleState for what this does not reproduce.
+            def o2:double (this.parseOpacity(v 1.0))
+            s.groupOpacity = (s.groupOpacity * o2)
+            return
+        }
+
+        ; Accepted and ignored, once, out loud. The raster target strokes with
+        ; round joins and butt caps (Stage 2), so a document asking for anything
+        ; else gets something that is close but not what it asked for — which is
+        ; worth one line of output and not worth failing over.
+        if (((name == "stroke-linecap") || (name == "stroke-linejoin")) || (name == "stroke-miterlimit")) {
+            this.warn("stroke-joins" "stroke-linecap/linejoin/miterlimit are not represented; strokes are drawn with butt caps and round joins")
+            return
+        }
+        if (name == "class") {
+            this.warn("class" "class attributes have no effect because the profile applies no CSS")
+            return
+        }
+    }
+
+    ; A paint value. `none` means the operation does not happen; anything
+    ; unreadable keeps what was inherited rather than inventing a colour, so a
+    ; misspelling shows up as a warning and the wrong-but-visible shape rather
+    ; than as a hole in the drawing.
+    fn parsePaint:EVGColor (v:string inheritedPaint:EVGColor) {
+        if (v == "none") {
+            return (EVGColor.noColor())
+        }
+        if (v == "inherit") {
+            return inheritedPaint
+        }
+        if (v == "currentColor") {
+            ; `currentColor` names the CSS `color` property, which an imported
+            ; file cannot see. The element's own paint is what it is asking for.
+            return (unwrap initialFill)
+        }
+        if ((indexOf v "url(") == 0) {
+            this.warn("gradient" "gradient paint is deferred (PLAN_VECTOR_IR.md §6): the three renderers do not agree on gradients yet, so a gradient fill is dropped rather than rendered differently in each output")
+            return (EVGColor.noColor())
+        }
+        def c:EVGColor (EVGColor.parse(v))
+        if (c.isSet == false) {
+            this.warn(("color-" + v) ("could not read the colour \"" + v + "\"; the inherited paint was used instead"))
+            return inheritedPaint
+        }
+        return c
+    }
+
+    fn parseOpacity:double (v:string fallback:double) {
+        def pct:boolean false
+        def s:string v
+        if ((strlen s) > 0) {
+            if ((charAt s ((strlen s) - 1)) == 37) {
+                pct = true
+                s = (substring s 0 ((strlen s) - 1))
+            }
+        }
+        def d@(optional):double (str2double s)
+        def out:double fallback
+        if d {
+            out = (unwrap d)
+        } {
+            return fallback
+        }
+        if pct {
+            out = (out / 100.0)
+        }
+        if (out < 0.0) {
+            out = 0.0
+        }
+        if (out > 1.0) {
+            out = 1.0
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------------------
+    ; transform
+    ; --------------------------------------------------------------------------
+    ; matrix / translate / scale / rotate / skewX / skewY, composed left to
+    ; right, which is the order SVG applies them in.
+    fn parseTransform:Matrix2D (s:string) {
+        def m:Matrix2D (Matrix2D.identity())
+        def i:int 0
+        def n:int (strlen s)
+
+        while (i < n) {
+            ; function name up to '('
+            def open:int (this.findFrom(s i 40))
+            if (open < 0) {
+                return m
+            }
+            def fname:string (trim (substring s i open))
+            def close:int (this.findFrom(s (open + 1) 41))
+            if (close < 0) {
+                this.warn("transform-unclosed" ("a transform is missing its closing parenthesis: " + s))
+                return m
+            }
+            def args:[double] (this.parseNumberList((substring s (open + 1) close)))
+            def na:int (array_length args)
+            i = (close + 1)
+
+            ; A transform list may be separated by commas as well as spaces.
+            def part:Matrix2D (Matrix2D.identity())
+            def known:boolean true
+
+            if (fname == "matrix") {
+                if (na == 6) {
+                    part = (Matrix2D.create((itemAt args 0) (itemAt args 1) (itemAt args 2) (itemAt args 3) (itemAt args 4) (itemAt args 5)))
+                } {
+                    known = false
+                }
+            } {
+                if (fname == "translate") {
+                    if (na == 1) {
+                        part = (Matrix2D.translate((itemAt args 0) 0.0))
+                    } {
+                        if (na == 2) {
+                            part = (Matrix2D.translate((itemAt args 0) (itemAt args 1)))
+                        } {
+                            known = false
+                        }
+                    }
+                } {
+                    if (fname == "scale") {
+                        if (na == 1) {
+                            part = (Matrix2D.scale((itemAt args 0) (itemAt args 0)))
+                        } {
+                            if (na == 2) {
+                                part = (Matrix2D.scale((itemAt args 0) (itemAt args 1)))
+                            } {
+                                known = false
+                            }
+                        }
+                    } {
+                        if (fname == "rotate") {
+                            if (na == 1) {
+                                part = (this.rotation((itemAt args 0)))
+                            } {
+                                if (na == 3) {
+                                    ; rotate(a cx cy) is translate(cx cy) rotate(a) translate(-cx -cy)
+                                    def cx:double (itemAt args 1)
+                                    def cy:double (itemAt args 2)
+                                    def r:Matrix2D (this.rotation((itemAt args 0)))
+                                    part = (Matrix2D.translate(cx cy))
+                                    part = (part.multiply(r))
+                                    part = (part.multiply((Matrix2D.translate((0.0 - cx) (0.0 - cy)))))
+                                } {
+                                    known = false
+                                }
+                            }
+                        } {
+                            if (fname == "skewX") {
+                                if (na == 1) {
+                                    part = (Matrix2D.create(1.0 0.0 (this.tanDeg((itemAt args 0))) 1.0 0.0 0.0))
+                                } {
+                                    known = false
+                                }
+                            } {
+                                if (fname == "skewY") {
+                                    if (na == 1) {
+                                        part = (Matrix2D.create(1.0 (this.tanDeg((itemAt args 0))) 0.0 1.0 0.0 0.0))
+                                    } {
+                                        known = false
+                                    }
+                                } {
+                                    known = false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (known == false) {
+                this.warn(("transform-" + fname) ("the transform \"" + fname + "\" was not applied: unknown, or given the wrong number of arguments"))
+            } {
+                m = (m.multiply(part))
+            }
+        }
+        return m
+    }
+
+    fn rotation:Matrix2D (deg:double) {
+        def rad:double ((deg * 3.141592653589793) / 180.0)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        return (Matrix2D.create(cs sn (0.0 - sn) cs 0.0 0.0))
+    }
+
+    fn tanDeg:double (deg:double) {
+        def rad:double ((deg * 3.141592653589793) / 180.0)
+        return ((sin rad) / (cos rad))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Shapes
+    ; --------------------------------------------------------------------------
+    fn emitShape:void (tag:SvgTag s:SvgStyleState) {
+        def name:string tag.name
+        def cmds:[PathCommand]
+
+        if (name == "path") {
+            def d:string (tag.attr("d"))
+            if ((strlen d) == 0) {
+                return
+            }
+            def p (new SVGPathParser())
+            p.parse(d)
+            ; The path grammar reports what it refused (Stage 1). Passing that
+            ; through is the difference between "this icon looks wrong" and
+            ; "this icon used an arc flag the parser could not read".
+            if (p.hasErrors()) {
+                this.warn(("pathdata-" + (p.errorSummary())) ("path data was not fully read: " + (p.errorSummary())))
+            }
+            cmds = (p.getCommands())
+        } {
+            if (name == "rect") {
+                def rx:double (this.numAttr(tag "rx" -1.0))
+                def ry:double (this.numAttr(tag "ry" -1.0))
+                cmds = (VectorShapes.rect((this.numAttr(tag "x" 0.0)) (this.numAttr(tag "y" 0.0)) (this.numAttr(tag "width" 0.0)) (this.numAttr(tag "height" 0.0)) rx ry))
+            } {
+                if (name == "circle") {
+                    cmds = (VectorShapes.circle((this.numAttr(tag "cx" 0.0)) (this.numAttr(tag "cy" 0.0)) (this.numAttr(tag "r" 0.0))))
+                } {
+                    if (name == "ellipse") {
+                        cmds = (VectorShapes.ellipse((this.numAttr(tag "cx" 0.0)) (this.numAttr(tag "cy" 0.0)) (this.numAttr(tag "rx" 0.0)) (this.numAttr(tag "ry" 0.0))))
+                    } {
+                        if (name == "line") {
+                            cmds = (VectorShapes.line((this.numAttr(tag "x1" 0.0)) (this.numAttr(tag "y1" 0.0)) (this.numAttr(tag "x2" 0.0)) (this.numAttr(tag "y2" 0.0))))
+                        } {
+                            if (name == "polyline") {
+                                cmds = (VectorShapes.polyline((this.parseNumberList((tag.attr("points"))))))
+                            } {
+                                if (name == "polygon") {
+                                    cmds = (VectorShapes.polygon((this.parseNumberList((tag.attr("points"))))))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        def count:int (array_length cmds)
+        if (count == 0) {
+            return
+        }
+
+        emittedCommands = (emittedCommands + count)
+        if (emittedCommands > maxCommands) {
+            this.fail("more than " + (to_string maxCommands) + " path commands")
+            return
+        }
+
+        def item (new SvgVectorItem())
+        item.commands = (this.transformCommands(cmds (unwrap s.ctm)))
+        item.fillRule = s.fillRule
+        item.dashArray = s.dashArray
+        item.dashOffset = s.dashOffset
+
+        if s.fill.isSet {
+            item.fillColor = (this.withAlpha((unwrap s.fill) (s.fillOpacity * s.groupOpacity)))
+        }
+        if s.stroke.isSet {
+            item.strokeColor = (this.withAlpha((unwrap s.stroke) (s.strokeOpacity * s.groupOpacity)))
+            ; A stroke is drawn in the shape's own space, so a scaled group
+            ; scales the pen with it. Under a non-uniform scale there is no
+            ; single width that is right — SVG strokes an outline in user space
+            ; and transforms THAT — so the geometric mean is used, which is
+            ; exact whenever the scale is uniform and is the usual approximation
+            ; when it is not.
+            item.strokeWidth = (s.strokeWidth * (this.scaleOf((unwrap s.ctm))))
+        }
+
+        ; A shape that is neither filled nor stroked draws nothing. Keeping it
+        ; would make item counts misleading for no gain.
+        if ((item.hasFill() == false) && (item.hasStroke() == false)) {
+            return
+        }
+
+        push doc.items item
+    }
+
+    fn withAlpha:EVGColor (c:EVGColor mul:double) {
+        if (mul >= 1.0) {
+            return c
+        }
+        return (EVGColor.create(c.r c.g c.b (c.a * mul)))
+    }
+
+    ; sqrt of |det|: the factor by which the transform changes area, which is
+    ; the scale a uniform transform applies and the sensible middle otherwise.
+    fn scaleOf:double (m:Matrix2D) {
+        def det:double ((m.a * m.d) - (m.b * m.c))
+        if (det < 0.0) {
+            det = (0.0 - det)
+        }
+        if (det == 0.0) {
+            return 0.0
+        }
+        return (sqrt det)
+    }
+
+    ; An affine map takes a cubic to a cubic and a quadratic to a quadratic, so
+    ; transforming the control points transforms the curve exactly. This is the
+    ; whole reason the IR can be flat: there is nothing a transform stack could
+    ; do later that cannot be done here, once.
+    fn transformCommands:[PathCommand] (cmds:[PathCommand] m:Matrix2D) {
+        def out:[PathCommand]
+        if (m.isIdentity()) {
+            return cmds
+        }
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds k)
+            def n (new PathCommand())
+            n.type = c.type
+            n.x = (m.applyX(c.x c.y))
+            n.y = (m.applyY(c.x c.y))
+            n.x1 = (m.applyX(c.x1 c.y1))
+            n.y1 = (m.applyY(c.x1 c.y1))
+            n.x2 = (m.applyX(c.x2 c.y2))
+            n.y2 = (m.applyY(c.x2 c.y2))
+            push out n
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Root attributes
+    ; --------------------------------------------------------------------------
+    fn readRootAttributes:void (tag:SvgTag) {
+        def vb:string (tag.attr("viewBox"))
+        if ((strlen vb) > 0) {
+            def parsed:ViewBoxRect (VectorViewBox.parseViewBox(vb))
+            if parsed.isSet {
+                doc.viewBox = parsed
+            } {
+                this.warn("viewbox" ("the root viewBox \"" + vb + "\" is not four numbers with a positive width and height, and was ignored"))
+            }
+        }
+        doc.width = (this.lengthAttr(tag "width"))
+        doc.height = (this.lengthAttr(tag "height"))
+
+        def par:string (tag.attr("preserveAspectRatio"))
+        if ((strlen par) > 0) {
+            ; The element box decides how an imported document is fitted, the
+            ; same way it does for a <Path>. Honouring the file's own
+            ; preserveAspectRatio would mean two different fitting rules for the
+            ; same element depending on where the geometry came from.
+            this.warn("par" "preserveAspectRatio on the imported root is ignored; the element that hosts the drawing decides how it is fitted")
+        }
+    }
+
+    ; A root width/height in user units. `100%` is the SVG default and means
+    ; "fill the viewport", which for an imported drawing is exactly what the
+    ; hosting element already decides — so it, and any other unit this profile
+    ; does not resolve, reads as "unspecified" rather than as a number.
+    fn lengthAttr:double (tag:SvgTag name:string) {
+        def raw:string (trim (tag.attr(name)))
+        if ((strlen raw) == 0) {
+            return 0.0
+        }
+        def s:string raw
+        if ((indexOf s "px") > 0) {
+            s = (substring s 0 (indexOf s "px"))
+        }
+        if ((this.isPlainNumber((trim s))) == false) {
+            return 0.0
+        }
+        def d@(optional):double (str2double (trim s))
+        def out:double 0.0
+        if d {
+            out = (unwrap d)
+        } {
+            return 0.0
+        }
+        if (out < 0.0) {
+            return 0.0
+        }
+        return out
+    }
+
+    ; str2double is happy to read "100%" as 100, which is exactly the wrong
+    ; answer for a length: a percentage is relative to a viewport this profile
+    ; does not resolve, and reading it as user units would size a drawing by a
+    ; number that means something else. So a value is a number only if every
+    ; character in it belongs to one.
+    fn isPlainNumber:boolean (s:string) {
+        def n:int (strlen s)
+        if (n == 0) {
+            return false
+        }
+        def k:int 0
+        while (k < n) {
+            def c:int (charAt s k)
+            def ok:boolean false
+            if ((c >= 48) && (c <= 57)) { ok = true }
+            if (c == 46) { ok = true }
+            if (c == 45) { ok = true }
+            if (c == 43) { ok = true }
+            if (c == 101) { ok = true }
+            if (c == 69) { ok = true }
+            if (ok == false) {
+                return false
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    fn numAttr:double (tag:SvgTag name:string fallback:double) {
+        def raw:string (trim (tag.attr(name)))
+        if ((strlen raw) == 0) {
+            return fallback
+        }
+        def s:string raw
+        if ((indexOf s "px") > 0) {
+            s = (substring s 0 (indexOf s "px"))
+        }
+        if (this.isPlainNumber((trim s))) {
+            def d@(optional):double (str2double (trim s))
+            if d {
+                return (unwrap d)
+            }
+        }
+        this.warn(("num-" + name) ("the value \"" + raw + "\" on " + name + " is not a plain number, and this profile resolves no units; it was treated as unspecified"))
+        return fallback
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Scanning primitives
+    ; --------------------------------------------------------------------------
+
+    ; Move `pos` to the next '<' that starts a tag, stepping over comments,
+    ; CDATA, processing instructions and declarations on the way. Returns the
+    ; offset of that '<', or -1 at end of input.
+    fn findTagStart:int () {
+        while (pos < len) {
+            def c:int (charAt src pos)
+            if (c != 60) {
+                pos = (pos + 1)
+            } {
+                ; <!-- comment -->
+                if (this.matchesAt((pos + 1) "!--")) {
+                    def end:int (this.findString((pos + 4) "-->"))
+                    if (end < 0) {
+                        pos = len
+                        return -1
+                    }
+                    pos = (end + 3)
+                } {
+                    ; <![CDATA[ ... ]]>
+                    if (this.matchesAt((pos + 1) "![CDATA[")) {
+                        def cend:int (this.findString((pos + 9) "]]>"))
+                        if (cend < 0) {
+                            pos = len
+                            return -1
+                        }
+                        pos = (cend + 3)
+                    } {
+                        ; <?xml ... ?>
+                        if (this.matchesAt((pos + 1) "?")) {
+                            def pend:int (this.findString((pos + 2) "?>"))
+                            if (pend < 0) {
+                                pos = len
+                                return -1
+                            }
+                            pos = (pend + 2)
+                        } {
+                            ; <!DOCTYPE ...>
+                            if (this.matchesAt((pos + 1) "!")) {
+                                this.skipDeclaration()
+                                if aborted {
+                                    return -1
+                                }
+                            } {
+                                return pos
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return -1
+    }
+
+    ; A `<!...>` declaration. The internal subset — the `[ ... ]` part of a
+    ; DOCTYPE — is where entity declarations live, and this parser implements no
+    ; entities at all, so a document carrying one is refused rather than parsed
+    ; with the entities left as literal text. That is the §8 rule "no XML entity
+    ; expansion" enforced at the only place it could enter: billion-laughs and
+    ; XXE are ruled out by there being nothing to expand.
+    fn skipDeclaration:void () {
+        def i:int (pos + 2)
+        while (i < len) {
+            def c:int (charAt src i)
+            if (c == 91) {
+                this.fail("this document has a DOCTYPE internal subset, which is where entity declarations live; the importer implements no entities and will not guess at one")
+                pos = len
+                return
+            }
+            if (c == 62) {
+                pos = (i + 1)
+                return
+            }
+            i = (i + 1)
+        }
+        pos = len
+    }
+
+    ; Read one tag, assuming `pos` is on its '<'. Leaves `pos` just past '>'.
+    fn readTag:SvgTag () {
+        def tag (new SvgTag())
+        if (pos >= len) {
+            return tag
+        }
+        def i:int (pos + 1)
+
+        if (i < len) {
+            if ((charAt src i) == 47) {
+                tag.isEnd = true
+                i = (i + 1)
+            }
+        }
+
+        def nameStart:int i
+        while (i < len) {
+            def c:int (charAt src i)
+            if (this.isNameChar(c)) {
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        tag.name = (this.localName((substring src nameStart i)))
+        if ((strlen tag.name) == 0) {
+            ; A '<' that starts nothing. Step over it so the scan makes
+            ; progress; the caller sees an invalid tag and stops this level.
+            pos = (pos + 1)
+            return tag
+        }
+
+        while (i < len) {
+            i = (this.skipSpaceFrom(i))
+            if (i >= len) {
+                break
+            }
+            def c2:int (charAt src i)
+
+            if (c2 == 62) {
+                i = (i + 1)
+                tag.valid = true
+                pos = i
+                return tag
+            }
+            if (c2 == 47) {
+                tag.selfClose = true
+                i = (i + 1)
+                ; The '>' after '/'. Anything else is malformed; the tag still
+                ; ends here rather than running into the document.
+                if (i < len) {
+                    if ((charAt src i) == 62) {
+                        i = (i + 1)
+                    }
+                }
+                tag.valid = true
+                pos = i
+                return tag
+            }
+
+            def attrStart:int i
+            while (i < len) {
+                def c3:int (charAt src i)
+                if (this.isNameChar(c3)) {
+                    i = (i + 1)
+                } {
+                    break
+                }
+            }
+            if (i == attrStart) {
+                ; Not a name character and not a tag terminator: skip it rather
+                ; than spin.
+                i = (i + 1)
+            } {
+                def attrName:string (substring src attrStart i)
+                i = (this.skipSpaceFrom(i))
+                def value:string ""
+                if (i < len) {
+                    if ((charAt src i) == 61) {
+                        i = (i + 1)
+                        i = (this.skipSpaceFrom(i))
+                        if (i < len) {
+                            def q:int (charAt src i)
+                            if ((q == 34) || (q == 39)) {
+                                def vstart:int (i + 1)
+                                def vend:int (this.findFrom(src vstart q))
+                                if (vend < 0) {
+                                    this.warn("unquoted" ("an attribute value on <" + tag.name + "> is missing its closing quote"))
+                                    pos = len
+                                    return tag
+                                }
+                                value = (this.decodeEntities((substring src vstart vend)))
+                                i = (vend + 1)
+                            } {
+                                ; XML requires quoted values. HTML tolerance
+                                ; here would mean guessing where the value ends.
+                                this.warn("unquoted" ("an attribute value on <" + tag.name + "> is not quoted; XML requires quotes, so it was skipped"))
+                                while (i < len) {
+                                    def c4:int (charAt src i)
+                                    if ((c4 == 62) || (this.isSpace(c4))) {
+                                        break
+                                    }
+                                    i = (i + 1)
+                                }
+                            }
+                        }
+                    }
+                }
+                def a (new SvgAttr())
+                a.name = (this.attrName(attrName))
+                a.value = value
+                push tag.attrs a
+            }
+        }
+
+        pos = len
+        return tag
+    }
+
+    ; Everything from here to the matching `</name>`, counting nested opens of
+    ; the same name so that a <g> inside a skipped <g> does not end it early.
+    fn skipSubtree:void (name:string) {
+        def depth:int 1
+        while ((depth > 0) && (aborted == false)) {
+            def start:int (this.findTagStart())
+            if (start < 0) {
+                return
+            }
+            def tag:SvgTag (this.readTag())
+            if (tag.valid == false) {
+                return
+            }
+            if (tag.selfClose == false) {
+                if (tag.name == name) {
+                    if tag.isEnd {
+                        depth = (depth - 1)
+                    } {
+                        depth = (depth + 1)
+                    }
+                }
+            }
+        }
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Small string helpers
+    ; --------------------------------------------------------------------------
+
+    ; The five entities XML predefines, and nothing else. They cannot nest or
+    ; recurse, so expanding them costs nothing in safety; every other `&name;`
+    ; is left exactly as written, with one warning, because a document that
+    ; needs a custom entity needs an entity machinery this parser deliberately
+    ; does not have.
+    fn decodeEntities:string (s:string) {
+        if ((indexOf s "&") < 0) {
+            return s
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c != 38) {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            } {
+                def semi:int (this.findFrom(s i 59))
+                def handled:boolean false
+                if (semi > i) {
+                    def ent:string (substring s i (semi + 1))
+                    if (ent == "&amp;") {
+                        out = (out + "&")
+                        handled = true
+                    }
+                    if (ent == "&lt;") {
+                        out = (out + "<")
+                        handled = true
+                    }
+                    if (ent == "&gt;") {
+                        out = (out + ">")
+                        handled = true
+                    }
+                    if (ent == "&quot;") {
+                        out = (out + "\"")
+                        handled = true
+                    }
+                    if (ent == "&apos;") {
+                        out = (out + "'")
+                        handled = true
+                    }
+                    if handled {
+                        i = (semi + 1)
+                    } {
+                        this.warn("entity" "only the five predefined XML entities are expanded; any other reference is left as written")
+                        out = (out + "&")
+                        i = (i + 1)
+                    }
+                } {
+                    out = (out + "&")
+                    i = (i + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    ; "svg:path" -> "path". Namespace prefixes are common in exported files and
+    ; carry no meaning this profile acts on.
+    fn localName:string (raw:string) {
+        def colon:int (indexOf raw ":")
+        if (colon < 0) {
+            return raw
+        }
+        return (substring raw (colon + 1) (strlen raw))
+    }
+
+    ; Attribute names keep their prefix only where the prefix is the name:
+    ; `xlink:href` is how most exporters still write a reference.
+    fn attrName:string (raw:string) {
+        if ((indexOf raw "xlink:") == 0) {
+            return raw
+        }
+        def colon:int (indexOf raw ":")
+        if (colon < 0) {
+            return raw
+        }
+        return (substring raw (colon + 1) (strlen raw))
+    }
+
+    fn isSpace:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9) { return true }
+        if (c == 10) { return true }
+        if (c == 13) { return true }
+        return false
+    }
+
+    fn isNameChar:boolean (c:int) {
+        if ((c >= 65) && (c <= 90)) { return true }
+        if ((c >= 97) && (c <= 122)) { return true }
+        if ((c >= 48) && (c <= 57)) { return true }
+        if (c == 58) { return true }
+        if (c == 45) { return true }
+        if (c == 95) { return true }
+        if (c == 46) { return true }
+        return false
+    }
+
+    fn skipSpaceFrom:int (from:int) {
+        def i:int from
+        while (i < len) {
+            if (this.isSpace((charAt src i))) {
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        return i
+    }
+
+    fn findFrom:int (s:string from:int ch:int) {
+        def i:int from
+        def n:int (strlen s)
+        while (i < n) {
+            if ((charAt s i) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn findString:int (from:int needle:string) {
+        def nl:int (strlen needle)
+        def i:int from
+        while ((i + nl) <= len) {
+            if (this.matchesAt(i needle)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn matchesAt:boolean (at:int needle:string) {
+        def nl:int (strlen needle)
+        if ((at + nl) > len) {
+            return false
+        }
+        return ((substring src at (at + nl)) == needle)
+    }
+
+    fn splitOn:[string] (s:string sep:int) {
+        def out:[string]
+        def n:int (strlen s)
+        def start:int 0
+        def i:int 0
+        while (i < n) {
+            if ((charAt s i) == sep) {
+                push out (substring s start i)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push out (substring s start n)
+        return out
+    }
+
+    ; Numbers separated by whitespace and/or commas, which is how points lists
+    ; and transform arguments are both written. A token that is not a number
+    ; ends the list rather than being read as zero — inventing a coordinate is
+    ; how malformed data turns into geometry that looks deliberate.
+    fn parseNumberList:[double] (s:string) {
+        def out:[double]
+        def toks:[string] (VectorViewBox.splitTokens(s))
+        def k:int 0
+        while (k < (array_length toks)) {
+            def d@(optional):double (str2double (itemAt toks k))
+            if d {
+                push out (unwrap d)
+            } {
+                this.warn(("numlist-" + (itemAt toks k)) ("\"" + (itemAt toks k) + "\" is not a number; the rest of that list was not read"))
+                return out
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+}

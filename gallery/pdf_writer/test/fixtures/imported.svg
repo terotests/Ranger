@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fixture for run_vector.sh. Every construct here is one the importer has to
+     get right, and every number is chosen so the expected output can be worked
+     out by hand rather than read off a renderer:
+
+       frame    a path inheriting its fill from the group around it
+       dot      a circle inside a translated group, so the transform has to be
+                baked into the geometry: r=3 about (0,0) translated to (6,6)
+                starts its outline at (9,6)
+       pip      a <use> of a definition, offset to (16,16)
+       text     out of profile, and must be REPORTED rather than dropped in
+                silence
+
+     Pure colours throughout, so "0 0 1 rg" in a PDF stream is unambiguous. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <title>An imported drawing</title>
+  <defs>
+    <rect id="pip" x="0" y="0" width="4" height="4"/>
+  </defs>
+  <g fill="#0000ff">
+    <path d="M2 2 L22 2 L22 22 L2 22 Z"/>
+    <g transform="translate(6,6)">
+      <circle cx="0" cy="0" r="3" fill="#ff0000"/>
+    </g>
+  </g>
+  <use href="#pip" x="16" y="16" fill="#00ff00"/>
+  <text x="2" y="12">this wordmark cannot be drawn</text>
+</svg>
