@@ -61,7 +61,9 @@ class VlFlowTest {
   \"marks\": [
     {\"type\": \"rect\", \"from\": {\"data\": \"points\"}, \"encode\": {\"update\": {
       \"x\": {\"scale\": \"x\", \"field\": \"a\"}, \"width\": {\"scale\": \"x\", \"band\": 1},
-      \"y\": {\"scale\": \"y\", \"field\": \"b\"}, \"y2\": {\"scale\": \"y\", \"value\": 0}}}}
+      \"y\": {\"scale\": \"y\", \"field\": \"b\"}, \"y2\": {\"scale\": \"y\", \"value\": 0}}}},
+    {\"type\": \"symbol\", \"from\": {\"data\": \"labels\"}, \"encode\": {\"update\": {
+      \"x\": {\"scale\": \"all\", \"field\": \"a\"}, \"y\": {\"value\": 10}}}}
   ]
 }"
     }
@@ -101,7 +103,7 @@ class VlFlowTest {
         ; --- the graph is read off the spec ---
         def rt (new VlRuntime())
         def first:VlSceneMark (rt.run((VlFlowTest.spec())))
-        this.check("the graph has a node per named thing" (VlJson.intToText((array_length rt.flowNodes))) "8")
+        this.check("the graph has a node per named thing" (VlJson.intToText((array_length rt.flowNodes))) "10")
 
         ; --- changing the signal gives the same scene as a fresh run ---
         def incremental:string (this.write((rt.update("cutoff" (VlJson.numberValue(50.0))))))
@@ -114,7 +116,10 @@ class VlFlowTest {
         ; their domains from `points`. `source` is upstream of everything and
         ; reads nothing, `labels` filters on a constant, and `all` reads
         ; `labels` — none of those three may run.
-        this.check("only the dependants ran" (this.ranText(rt)) "signal:headline data:points scale:x scale:y")
+        ; …and only the MARK that reads them was re-encoded. The second mark
+        ; reads `labels` through the `all` scale, neither of which the change
+        ; reaches, so its items are the items it already had.
+        this.check("only the dependants ran" (this.ranText(rt)) "signal:headline data:points scale:x scale:y mark:0")
 
         ; --- a second change from the new state is still right ---
         def again:string (this.write((rt.update("cutoff" (VlJson.numberValue(90.0))))))

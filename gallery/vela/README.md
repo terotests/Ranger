@@ -222,7 +222,7 @@ which is also what pins the legend's own size and position.
 | Time zones | a `time` scale is read in a **supplied** zone — roughly sixty named ones with the EU, US and southern summer-time rules, or a plain offset — never in the host's. `utc` is UTC whatever the runtime was told |
 | Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
 | Theming | colours from the spec, or from a stylesheet by class; `config.axis` and `config.style` are read |
-| Dataflow | a dependency graph over signals, data and scales: `update(signal, value)` recomputes only what reads it, and the scene is re-encoded |
+| Dataflow | a dependency graph over signals, data, scales **and marks**: `update(signal, value)` recomputes only what reads it, and a mark nothing dirty reaches keeps the items it already had |
 | Interaction | **not built** |
 
 ## Legends: a layout that measures its own ink
@@ -489,14 +489,28 @@ Two things have to be true, and a test that checks one of them is worthless:
 
 * **It is right.** The scene after a change must be the scene a fresh run with
   that value produces, character for character, through the same writer the
-  goldens use. `tests/run.sh` puts **every committed spec** through it — run the
-  chart, set `width` to the value it already has, require the incremental scene
-  to be the golden — which also catches anything accumulated and not cleared.
+  goldens use. `tests/run.sh` puts **every committed spec** through both paths —
+  set `width` to the value it already has, which dirties every scale and
+  re-encodes every mark, then set a signal nothing reads, which dirties nothing
+  and keeps every mark. Both have to answer the golden. The first catches
+  anything accumulated and not cleared; the second catches a reused mark the
+  layout failed to re-place.
 * **It is shorter.** A graph that prunes nothing draws the right chart and has
   done nothing. So `flowRan` is asserted by name: in the unit test's chart, of
-  eight nodes, changing `cutoff` runs the signal that quotes it, the data set
-  that filters on it and the two scales that take their domains from that data
-  set — and leaves the source data, the other filter and its scale alone.
+  ten nodes, changing `cutoff` runs the signal that quotes it, the data set that
+  filters on it, the two scales that take their domains from that data set, and
+  the one **mark** drawn from it — leaving the source data, the other filter,
+  its scale and the mark that reads them alone.
+
+**Marks are part of the graph.** A mark reads the data set it is drawn from,
+every scale its encode block names, and every signal any expression in it
+mentions; a group mark reads whatever the marks inside it read. A mark nothing
+dirty reaches is not re-encoded at all — its items are the same items, and the
+layout re-places them. That needed one thing from the layout: a mark's
+contribution to it is remembered with the mark, so a kept mark keeps its box
+too. Axes and legends are still rebuilt whichever mark changed: they are drawn
+from the scales, they are cheap, and a chart has a handful of them against
+however many marks its data has rows.
 
 ## A time zone is supplied, not discovered
 
@@ -622,11 +636,10 @@ intermediate value is ever larger than a digit.
   *everything* drawn, so a chart with a symbol or a label hanging over the plot
   edge can still differ by a few pixels — a backend should not clip to the plot
   rectangle. `VlBounds` is what that fix would be built on.
-* **Per-mark incremental encoding.** A signal change reruns only the data and
-  scales that read it, but the scene itself is re-encoded whole — see
-  [Changing one number](#changing-one-number). Most marks read most scales, so
-  a per-mark graph would dirty nearly all of them anyway; it would pay on a
-  concatenated view whose plots share nothing.
+* **Incremental axes and legends.** A signal change re-encodes only the marks
+  that read it, but the guides are rebuilt whichever one changed. They are
+  cheap, so this is a deliberate stop rather than an oversight —
+  see [Changing one number](#changing-one-number).
 * **The rest of the Vega-Lite compiler.** Single-view specifications compile
   in Ranger now — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). Layering,
   faceting, concatenation, `bin`, `xOffset`, arcs and the composite marks that

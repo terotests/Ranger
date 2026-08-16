@@ -74,9 +74,12 @@ else
 fi
 
 # The dataflow, against every chart rather than against the one its unit test
-# builds: run the chart, change `width` to the value it already has, and require
-# the incremental scene to be the golden. A recomputation that is not
-# repeatable — anything accumulated and not cleared — shows up here.
+# builds, and down BOTH of its paths: change `width` to the value it already
+# has, which dirties every scale and re-encodes every mark, and then change a
+# signal nothing reads, which dirties nothing and keeps every mark from the last
+# encode. Both have to answer the golden. A recomputation that is not repeatable
+# — anything accumulated and not cleared — shows up in the first; a reused mark
+# that the layout failed to re-place shows up in the second.
 say "the same scene, recomputed incrementally"
 reflowed=0
 for spec in $VELA/tests/specs/*.vg.json; do

@@ -38,6 +38,9 @@ class VlGroupBox {
     def right:double 0.0
     def top:double 0.0
     def bottom:double 0.0
+    ; Which top-level mark produced this box, so that a mark whose items are
+    ; kept from the last encode can have its box kept with them.
+    def markIndex:int -1
     ; Half the frame stroke, which the extents above include and a title does
     ; not: a title is placed clear of the plot rectangle and its guides, not
     ; clear of the outer edge of the line drawn around them.
@@ -87,6 +90,13 @@ class VlRuntime {
     ; The dependency graph, and what the last `update` actually recomputed.
     def flowNodes:[VlFlowNode]
     def flowRan:[string]
+    ; The marks the last encode produced, and the boxes they contributed to the
+    ; layout. A mark that reads nothing a change touched is not re-encoded: its
+    ; items are the same items, and the layout re-places them.
+    def lastMarks:[VlSceneMark]
+    def lastBoxes:[VlGroupBox]
+    def cleanMarks:[string:int]
+    def reusing:boolean false
     def dataSets:[string:VlDataSet]
     def dataOrder:[string]
     def scaleOrder:[string]
@@ -213,6 +223,70 @@ class VlRuntime {
                 k3 = (k3 + 1)
             }
         }
+
+        ; Marks last, because a mark reads scales and the dirty pass walks the
+        ; list once, forward: a node may only depend on one written before it.
+        def marks:VlJson (spec.get("marks"))
+        if (marks.isArray()) {
+            def totalMarks:int (marks.count())
+            def km:int 0
+            while (km < totalMarks) {
+                def mdef:VlJson (marks.at(km))
+                def markNode (new VlFlowNode())
+                markNode.kind = "mark"
+                markNode.name = (VlJson.intToText(km))
+                markNode.key = ("mark:" + (VlJson.intToText(km)))
+                markNode.def0 = mdef
+                this.dependOnMark(markNode mdef)
+                this.addFlowNode(markNode)
+                km = (km + 1)
+            }
+        }
+    }
+
+    ; What a mark reads: the data set it is drawn from, every scale its encode
+    ; block names, and every signal any expression in it mentions. A group mark
+    ; reads whatever the marks inside it read.
+    fn dependOnMark:void (node:VlFlowNode mdef:VlJson) {
+        def from:VlJson (mdef.get("from"))
+        if (from.isObject()) {
+            def dataName:string (from.stringOr("data" ""))
+            if ((strlen dataName) > 0) {
+                VlRuntime.addDep(node ("data:" + dataName))
+            }
+            def facet:VlJson (from.get("facet"))
+            if (facet.isObject()) {
+                def facetSource:string (facet.stringOr("data" ""))
+                if ((strlen facetSource) > 0) {
+                    VlRuntime.addDep(node ("data:" + facetSource))
+                }
+            }
+        }
+        this.dependOnJson(node (mdef.get("encode")))
+        this.dependOnJson(node (mdef.get("sort")))
+        def inner:VlJson (mdef.get("marks"))
+        if (inner.isArray()) {
+            def total:int (inner.count())
+            def k:int 0
+            while (k < total) {
+                this.dependOnMark(node (inner.at(k)))
+                k = (k + 1)
+            }
+        }
+        def axes:VlJson (mdef.get("axes"))
+        if (axes.isArray()) {
+            def totalAxes:int (axes.count())
+            def ka:int 0
+            while (ka < totalAxes) {
+                def adef:VlJson (axes.at(ka))
+                def scaleName:string (adef.stringOr("scale" ""))
+                if ((strlen scaleName) > 0) {
+                    VlRuntime.addDep(node ("scale:" + scaleName))
+                }
+                this.dependOnJson(node adef)
+                ka = (ka + 1)
+            }
+        }
     }
 
     fn addFlowNode:void (node:VlFlowNode) {
@@ -259,6 +333,10 @@ class VlRuntime {
             if (child.isString()) {
                 if (((key == "signal") || (key == "expr")) || (key == "update")) {
                     this.dependOnExpr(node child.str)
+                }
+                ; A channel that names a scale reads it.
+                if ((key == "scale") || (key == "gridScale")) {
+                    VlRuntime.addDep(node ("scale:" + child.str))
                 }
             } {
                 this.dependOnJson(node child)
@@ -354,6 +432,8 @@ class VlRuntime {
             }
         }
 
+        def freshClean:[string:int]
+        cleanMarks = freshClean
         for flowNodes node2:VlFlowNode ni2 {
             if (has dirty node2.key) {
                 if (node2.key != ("signal:" + signalName)) {
@@ -371,13 +451,20 @@ class VlRuntime {
                         }
                     }
                 }
+            } {
+                ; A mark nothing dirty reaches keeps the items it already has.
+                if (node2.kind == "mark") {
+                    set cleanMarks node2.key 1
+                }
             }
         }
-        ; The scene itself is rebuilt whole. Every mark reads a scale and most
-        ; read the same ones, so a per-mark graph would dirty nearly all of them
-        ; anyway; the work this saves is the transforms, which is where a chart
-        ; of any size spends its time.
-        return (this.encodeScene())
+        ; The axes and the legends are rebuilt whichever mark changed: they are
+        ; drawn from the scales, they are cheap, and a chart has a handful of
+        ; them against however many marks its data has rows.
+        reusing = true
+        def scene:VlSceneMark (this.encodeScene())
+        reusing = false
+        return scene
     }
 
     fn fail:void (msg:string) {
@@ -1120,14 +1207,50 @@ class VlRuntime {
         this.encodeAxes(rootItem (spec.get("axes")))
 
         def marks:VlJson (spec.get("marks"))
+        def encoded:[VlSceneMark]
         if (marks.isArray()) {
             def total:int (marks.count())
             def k:int 0
             while (k < total) {
-                def mdef:VlJson (marks.at(k))
-                push rootItem.marks (this.encodeMark(mdef))
+                def key:string ("mark:" + (VlJson.intToText(k)))
+                def reuse:boolean false
+                if reusing {
+                    if (has cleanMarks key) {
+                        if (k < (array_length lastMarks)) {
+                            reuse = true
+                        }
+                    }
+                }
+                if reuse {
+                    ; The same mark object, with the same items in it. The
+                    ; layout will move them; nothing recomputes what they say.
+                    def kept:VlSceneMark (itemAt lastMarks k)
+                    push rootItem.marks kept
+                    push encoded kept
+                    for lastBoxes box:VlGroupBox bi {
+                        if (box.markIndex == k) {
+                            push groupBoxes box
+                        }
+                    }
+                } {
+                    def before:int (array_length groupBoxes)
+                    def fresh:VlSceneMark (this.encodeMark((marks.at(k))))
+                    def bj:int before
+                    while (bj < (array_length groupBoxes)) {
+                        def stamped:VlGroupBox (itemAt groupBoxes bj)
+                        stamped.markIndex = k
+                        bj = (bj + 1)
+                    }
+                    push rootItem.marks fresh
+                    push encoded fresh
+                }
                 k = (k + 1)
             }
+        }
+        lastMarks = encoded
+        clear lastBoxes
+        for groupBoxes box2:VlGroupBox bk {
+            push lastBoxes box2
         }
 
         ; Several plots side by side are placed once they all exist, because

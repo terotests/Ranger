@@ -108,7 +108,14 @@ class VelaSceneTool {
         rt.timeZoneName = zoneName
         def scene:VlSceneMark (rt.run(specJson))
         if reflow {
+            ; Twice, because there are two paths through an incremental encode
+            ; and both have to answer the same scene. Setting `width` to the
+            ; value it already has dirties every scale and re-encodes every
+            ; mark; setting a signal nothing reads dirties nothing, so every
+            ; mark is kept from the last encode and the layout re-places the
+            ; items it already had.
             scene = (rt.update("width" (VlJson.numberValue((rt.chartWidth)))))
+            scene = (rt.update("__reflow_probe" (VlJson.numberValue(0.0))))
         }
 
         for rt.warnings w:string wi {
