@@ -254,7 +254,20 @@ class LowIRBuilderPass {
         continue _
       }
       def cl (unwrap (get appCtx.definedClasses cName))
-      if (cl.is_operator_class || cl.is_trait || cl.is_system || cl.is_union) {
+      ; An OPERATOR class is the synthetic holder the matcher creates for an
+      ; `operator type:T { fn forEach … }` extension: no fields, no instance
+      ; methods, but its STATIC methods are what every call to such an
+      ; extension resolves to. Skipping the whole class left 44 functions
+      ; called and never emitted.
+      if (cl.is_trait || cl.is_system || cl.is_union) {
+        continue
+      }
+      if cl.is_operator_class {
+        for cl.static_methods om:RangerAppFunctionDesc oi {
+          if (this.canLowerFunction(om appCtx)) {
+            this.lowerFunction(om cl.name appCtx false false false)
+          }
+        }
         continue
       }
       for cl.static_methods m:RangerAppFunctionDesc i {
@@ -286,8 +299,15 @@ class LowIRBuilderPass {
         }
       }
       for cl.methods m:RangerAppFunctionDesc i {
+        ; A method named `Constructor` is skipped here only when it really IS
+        ; the class constructor (emitted above). RangerFlowParser has an
+        ; ordinary method of that name -- its handler for the keyword -- and
+        ; skipping it left every `this.Constructor(node ctx wr)` calling a
+        ; function the module did not contain.
         if (m.name == "Constructor") {
-          continue
+          if cl.has_constructor {
+            continue
+          }
         }
         if (this.canLowerInstanceMethod(m appCtx)) {
           this.lowerFunction(m cl.name appCtx false false true)
@@ -1666,13 +1686,35 @@ class LowIRBuilderPass {
 
   fn lowerPtrIsNull:string (ptr:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
+    def vt:string (builder.emittedType(ptr))
+    if ((vt == "i32") || (vt == "i1")) {
+      def zeroI (builder.emitConst(vt "0"))
+      return (builder.emitIcmpTyped("eq" vt ptr zeroI))
+    }
+    if (vt == "f64") {
+      def zeroF (builder.emitConst("f64" "0.0"))
+      return (builder.emitIcmpTyped("eq" "f64" ptr zeroF))
+    }
     def asInt (builder.emitPtrToInt(ptr))
     def zero (builder.emitConst(lctx.ptrType "0"))
     return (builder.emitIcmpTyped("eq" lctx.ptrType asInt zero))
   }
 
+  ; `!null? x`. `x` is usually a POINTER, but an optional whose value type is a
+  ; primitive (`def idx@(optional) (get someIntMap k)`) is already an integer,
+  ; and ptrtoint over one does not assemble. The type the builder actually
+  ; emitted says which it is.
   fn lowerPtrIsNotNull:string (ptr:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
+    def vt:string (builder.emittedType(ptr))
+    if ((vt == "i32") || (vt == "i1")) {
+      def zeroI (builder.emitConst(vt "0"))
+      return (builder.emitIcmpTyped("ne" vt ptr zeroI))
+    }
+    if (vt == "f64") {
+      def zeroF (builder.emitConst("f64" "0.0"))
+      return (builder.emitIcmpTyped("ne" "f64" ptr zeroF))
+    }
     def asInt (builder.emitPtrToInt(ptr))
     def zero (builder.emitConst(lctx.ptrType "0"))
     return (builder.emitIcmpTyped("ne" lctx.ptrType asInt zero))
@@ -2319,7 +2361,31 @@ class LowIRBuilderPass {
       def elemStr (builder.emitIntToI8Ptr(elemAddr lctx.ptrType))
       this.bindSlot(itemName "i8*" elemStr lctx)
     } {
-      this.bindSlot(itemName lctx.ptrType elemAddr lctx)
+      ; A `[int]` / `[boolean]` / `[double]` element is stored widened in the
+      ; array's pointer-sized slot. Binding the raw i64 gave the loop variable
+      ; the wrong type: `for bytes b:int i { this.hexByte(b) }` passed an i64
+      ; to a parameter declared i32.
+      def elemTn:string (this.arrayElemTypeName(listNode lctx))
+      if ((strlen elemTn) == 0) {
+        elemTn = itemNode.type_name
+      }
+      if (elemTn == "int") {
+        this.bindSlot(itemName "i32" (builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx)
+      } {
+        if (elemTn == "char") {
+          this.bindSlot(itemName "i32" (builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx)
+        } {
+          if (elemTn == "boolean") {
+            this.bindSlot(itemName "i1" (this.toI1((builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx)) lctx)
+          } {
+            if ((elemTn == "double") || (elemTn == "float")) {
+              this.bindSlot(itemName "f64" (builder.emitCast("bitcast" "f64" "i64" elemAddr)) lctx)
+            } {
+              this.bindSlot(itemName lctx.ptrType elemAddr lctx)
+            }
+          }
+        }
+      }
     }
     ; Not for a string item: objectSlots forces loadSlot to the POINTER type,
     ; which would read the i8* slot back as an integer.
@@ -2973,6 +3039,35 @@ class LowIRBuilderPass {
 
   fn ensureJsonExtern:void (fnName:string retType:string params:[string]) {
     this.ensureExternDecl(fnName retType params false)
+  }
+
+  ; The ANSI escape operators of CLIProgress. Each is a constant string; they
+  ; all carry a `*` template (the empty string), so they type checked here and
+  ; then emitted their own name as a value. The escapes match the es6 and cpp
+  ; templates rather than the empty fallback -- a native build writes to a
+  ; terminal, and is_tty already guards the colour output.
+  fn emitAnsiConst:string (code:string lctx:LowIRLowerContext) {
+    def esc:string ((strfromcode 27) + "[" + code + "m")
+    def g (this.internStringGlobal(esc false))
+    def bl (this.stringGlobalByteLen(g))
+    return (lctx.builder.emitStrPtr(g bl))
+  }
+
+  fn tryLowerAnsi:string (opName:string lctx:LowIRLowerContext) {
+    if (opName == "ansi_reset") { return (this.emitAnsiConst("0" lctx)) }
+    if (opName == "ansi_bold") { return (this.emitAnsiConst("1" lctx)) }
+    if (opName == "ansi_dim") { return (this.emitAnsiConst("2" lctx)) }
+    if (opName == "ansi_green") { return (this.emitAnsiConst("32" lctx)) }
+    if (opName == "ansi_red") { return (this.emitAnsiConst("31" lctx)) }
+    if (opName == "ansi_yellow") { return (this.emitAnsiConst("33" lctx)) }
+    if (opName == "ansi_blue") { return (this.emitAnsiConst("34" lctx)) }
+    if (opName == "ansi_magenta") { return (this.emitAnsiConst("35" lctx)) }
+    if (opName == "ansi_cyan") { return (this.emitAnsiConst("36" lctx)) }
+    if (opName == "ansi_gray") { return (this.emitAnsiConst("90" lctx)) }
+    if (opName == "ansi_white") { return (this.emitAnsiConst("37" lctx)) }
+    if (opName == "ansi_bg_red") { return (this.emitAnsiConst("41" lctx)) }
+    if (opName == "ansi_bg_green") { return (this.emitAnsiConst("42" lctx)) }
+    return ""
   }
 
   fn emitJsonCall:string (fnName:string retType:string args:[string] argTypes:[string] cParams:[string] lctx:LowIRLowerContext) {
@@ -5603,10 +5698,16 @@ class LowIRBuilderPass {
             ctorDesc = (unwrap cl.constructor_fn)
           }
         }
+        ; ...but only when the class really HAS one. RangerFlowParser has an
+        ; ordinary method named `Constructor` (its handler for the keyword),
+        ; and taking that for a constructor made `new RangerFlowParser()` call
+        ; a four-parameter function with one argument.
         if (null? ctorDesc) {
-          for cl.methods m:RangerAppFunctionDesc i {
-            if (m.name == "Constructor") {
-              ctorDesc = m
+          if cl.has_constructor {
+            for cl.methods m:RangerAppFunctionDesc i {
+              if (m.name == "Constructor") {
+                ctorDesc = m
+              }
             }
           }
         }
@@ -7783,6 +7884,7 @@ class LowIRBuilderPass {
       if (bOp == "dir_exists") { return true }
       if (bOp == "isArray") { return true }
       if (bOp == "getBoolean") { return true }
+      if (bOp == "is_tty") { return true }
       ; A COMPARISON is an i1 by construction. Leaving this out made
       ; `if (isStatic == false)` wrap the icmp in a second `icmp ne i32`.
       if (this.isCompareOp(bOp)) { return true }
@@ -7912,6 +8014,18 @@ class LowIRBuilderPass {
     ; Testing it against an i32 zero emitted `icmp ne i32 <i64 value>, 0`, which
     ; is invalid IR on a 64-bit target and would have looked only at the low
     ; half of the address if it had been accepted.
+    ; The type the builder actually emitted decides the comparison; the
+    ; source-shape tests below are only for values it did not produce (a
+    ; parameter, a global).
+    def emitted:string (builder.emittedType(v))
+    if ((strlen emitted) > 0) {
+      if (emitted == "f64") {
+        def zeroFe (builder.emitConst("f64" "0.0"))
+        return (builder.emitIcmpTyped("ne" "f64" v zeroFe))
+      }
+      def zeroE (builder.emitConst(emitted "0"))
+      return (builder.emitIcmpTyped("ne" emitted v zeroE))
+    }
     if (lctx.ptrType != "i32") {
       if (this.exprIsObjectPtr(condNode lctx)) {
         def zeroP (builder.emitConst(lctx.ptrType "0"))
@@ -8372,6 +8486,17 @@ class LowIRBuilderPass {
         return jRes
       }
       ; `current_time_ms` -- the same wall clock `wall_clock_ms` already reads.
+      def ansiV:string (this.tryLowerAnsi(opName lctx))
+      if ((strlen ansiV) > 0) {
+        return ansiV
+      }
+      if (opName == "is_tty") {
+        def ttyPs:[string]
+        this.ensureExternDecl("ranger_is_tty" "i32" ttyPs false)
+        def ttyArgs:[string]
+        def ttyTypes:[string]
+        return (this.toI1((lctx.builder.emitCall("ranger_is_tty" "i32" ttyArgs ttyTypes)) lctx))
+      }
       if (opName == "current_time_ms") {
         def tPs:[string]
         this.ensureExternDecl("ranger_wall_clock_ms" "double" tPs false)
@@ -8400,7 +8525,8 @@ class LowIRBuilderPass {
       if (opName == "normalize") {
         return (this.lowerStr1Fn(node "ranger_path_normalize" lctx))
       }
-      if (opName == "path_dirname") {
+      ; `pathname` is the compiler's own name for dirname.
+      if ((opName == "path_dirname") || (opName == "pathname")) {
         return (this.lowerStr1Fn(node "ranger_path_dirname" lctx))
       }
       if (opName == "current_directory") {
@@ -8824,7 +8950,9 @@ class LowIRBuilderPass {
     if (op == "trim_right") { return true }
     if (op == "normalize") { return true }
     if (op == "path_dirname") { return true }
+    if (op == "pathname") { return true }
     if (op == "current_directory") { return true }
+    if ((indexOf op "ansi_") == 0) { return true }
     if (op == "install_directory") { return true }
     if (op == "to_lowercase") { return true }
     if (op == "to_uppercase") { return true }
@@ -8888,6 +9016,26 @@ class LowIRBuilderPass {
           if (LowIRUtil.isStringType(rn.type_name)) {
             return true
           }
+        }
+      }
+    }
+    ; A ZERO-ARGUMENT operator (`(ansi_green)`, `(current_directory)`) does not
+    ; always carry has_operator on the node the concat sees, so ask the head
+    ; name directly as well -- otherwise the format took %d for a value that
+    ; was an i8*.
+    if ((array_length exprNode.children) > 0) {
+      def headVref:string (exprNode.getVRefAt(0))
+      if ((strlen headVref) > 0) {
+        if (this.operatorReturnsString(headVref)) {
+          return true
+        }
+      }
+    }
+    ; ...and once the wrappers are peeled the call can be the bare name.
+    if ((strlen exprNode.vref) > 0) {
+      if ((has lctx.slots exprNode.vref) == false) {
+        if (this.operatorReturnsString(exprNode.vref)) {
+          return true
         }
       }
     }
@@ -9039,8 +9187,21 @@ class LowIRBuilderPass {
       ; new/vref object: a local bound from a map read, a `this`, or a call
       ; answering a class are all pointer sized, and asking about only some of
       ; them left `(ast == this)` comparing two i64 values as i32.
+      ;
+      ; What the builder EMITTED settles it when it knows: an enum field is an
+      ; i32 even though the shape tests below call a chained field read an
+      ; object.
+      def aEmit:string (builder.emittedType(a))
+      def bEmit:string (builder.emittedType(b))
+      if ((aEmit == "i32") && (bEmit == "i32")) {
+        return (builder.emitIcmp(pred a b))
+      }
       def aPtr:boolean ((this.exprIsObjectPtr(aNode lctx)) || ((this.argIrType(aNode lctx)) == lctx.ptrType))
       def bPtr:boolean ((this.exprIsObjectPtr(bNode lctx)) || ((this.argIrType(bNode lctx)) == lctx.ptrType))
+      if (aEmit == lctx.ptrType) { aPtr = true }
+      if (bEmit == lctx.ptrType) { bPtr = true }
+      if (aEmit == "i32") { aPtr = false }
+      if (bEmit == "i32") { bPtr = false }
       if (aPtr || bPtr) {
         if (aPtr && bPtr) {
           return (builder.emitIcmpTyped(pred lctx.ptrType a b))
@@ -9448,6 +9609,23 @@ class LowIRBuilderPass {
       }
       return ""
     }
+    ; A plain NAME as the innermost operand: `(unwrap nn).hasFlag(…)` bottoms
+    ; out here, and answering "" left the receiver pointer empty -- the call
+    ; came out as `inttoptr i64 % to %struct.CodeNode*`.
+    if (node.value_type == RangerNodeType.VRef) {
+      if ((strlen node.vref) > 0) {
+        def vcls:string (this.resolveObjectClassChain(node.vref lctx))
+        if ((strlen vcls) > 0) {
+          return vcls
+        }
+        if ((strlen node.eval_type_name) > 0) {
+          if (this.isObjectTypeName(node.eval_type_name)) {
+            return node.eval_type_name
+          }
+        }
+      }
+      return ""
+    }
     if ((node.has_operator) == false) {
       return ""
     }
@@ -9660,6 +9838,49 @@ class LowIRBuilderPass {
     return (this.llvmTypeForRanger(pn.type_name lctx.ptrType))
   }
 
+  ; The class whose emitted function actually carries `methodName`: the class
+  ; itself when it declares it, otherwise the nearest base that does.
+  fn methodOwnerClass:string (className:string methodName:string lctx:LowIRLowerContext) {
+    if ((strlen className) == 0) {
+      return className
+    }
+    if (null? lctx.ctx) {
+      return className
+    }
+    def appCtx (unwrap lctx.ctx)
+    return (this.methodOwnerClassIn(className methodName appCtx 0))
+  }
+
+  fn methodOwnerClassIn:string (className:string methodName:string appCtx:RangerAppWriterContext depth:int) {
+    if (depth > 16) {
+      return className
+    }
+    if ((has appCtx.definedClasses className) == false) {
+      return className
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    for cl.methods m:RangerAppFunctionDesc i {
+      if (m.name == methodName) {
+        return className
+      }
+    }
+    for cl.extends_classes baseName:string bi {
+      def found:string (this.methodOwnerClassIn(baseName methodName appCtx (depth + 1)))
+      if (found != baseName) {
+        return found
+      }
+      if (appCtx.isDefinedClass(baseName)) {
+        def bcl (appCtx.findClass(baseName))
+        for bcl.methods bm:RangerAppFunctionDesc bj {
+          if (bm.name == methodName) {
+            return baseName
+          }
+        }
+      }
+    }
+    return className
+  }
+
   fn lowerInstanceCallOn:string (node:CodeNode receiverName:string recvNode:CodeNode methodName:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def objPtr:string ""
@@ -9702,7 +9923,12 @@ class LowIRBuilderPass {
         className = fd.container_class.name
       }
     }
-    def fnName (LowIRUtil.mangleMethod(className methName))
+    ; Methods are NOT inherited into the derived class's emitted functions --
+    ; each is emitted once, under the name of the class that declares it. A
+    ; call to an inherited method has to name that class or it references a
+    ; function the module does not contain.
+    def ownerCls:string (this.methodOwnerClass(className methName lctx))
+    def fnName (LowIRUtil.mangleMethod(ownerCls methName))
     def voidType:string "void"
     def retType:string "i32"
     if (!null? node.fnDesc) {
@@ -9718,7 +9944,7 @@ class LowIRBuilderPass {
     def args:[string]
     def argTypes:[string]
     push args objPtr
-    push argTypes (LowIRUtil.structPtrType(className))
+    push argTypes (LowIRUtil.structPtrType(ownerCls))
     def argsNode (this.callArgsNode(node))
     def argIdx:int 0
     for argsNode.children arg:CodeNode i {

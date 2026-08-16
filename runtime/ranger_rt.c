@@ -1767,3 +1767,7 @@ char *ranger_install_directory(void) {
   }
   return ranger_path_dirname(argv0);
 }
+
+/* `is_tty` -- whether stdout is a terminal, which is what the progress output
+ * asks before it emits colours. */
+int ranger_is_tty(void) { return isatty(1) != 0 ? 1 : 0; }
