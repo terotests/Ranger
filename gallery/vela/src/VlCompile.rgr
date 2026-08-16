@@ -193,6 +193,11 @@ class VlCompile {
         if (markName == "boxplot") {
             return (this.compileBoxplot(src))
         }
+        ; `point: true` on a line is not a property of the line: it is a second
+        ; mark drawn over it, which is a layer under another name.
+        if (markDef.boolOr("point" false)) {
+            return (this.compileLayers((VlCompile.withPointLayer(src markDef))))
+        }
         this.decideStack()
 
         def out:VlJson (VlJson.objectValue())
@@ -292,6 +297,7 @@ class VlCompile {
         def axes (VlJson.arrayValue())
         def legends (VlJson.arrayValue())
         def legendNames:[string:int]
+        def titles:[string:string]
         def first:boolean true
 
         def index:int 0
@@ -348,10 +354,12 @@ class VlCompile {
                 VlCompile.mergeSignals(signals signalNames (piece.get("signals")))
                 VlCompile.mergeScales(scales scaleNames domains (piece.get("scales")))
                 VlCompile.mergeLegends(legends legendNames (piece.get("legends")))
+                VlCompile.collectAxisTitles(titles (piece.get("axes")))
             }
             index = (index + 1)
         }
         VlCompile.applyMergedDomains(scales scaleNames domains)
+        VlCompile.mergeAxisTitles(axes titles)
 
         out.setMember("data" data)
         if ((signals.count()) > 0) {
@@ -1232,6 +1240,42 @@ class VlCompile {
         return out
     }
 
+    ; The same chart written the long way: the mark as it was, minus the flag,
+    ; and a plain point mark over it.
+    sfn withPointLayer:VlJson (src:VlJson markDef:VlJson) {
+        def out (VlJson.objectValue())
+        for src.keys key:string ki {
+            if (key == "mark") {
+                ; replaced by the layer below
+            } {
+                out.setMember(key (src.get(key)))
+            }
+        }
+        def line (VlJson.objectValue())
+        def lineMark (VlJson.objectValue())
+        for markDef.keys mk:string mi {
+            if (mk == "point") {
+                ; the flag is what is being expanded
+            } {
+                lineMark.setMember(mk (markDef.get(mk)))
+            }
+        }
+        line.setMember("mark" lineMark)
+        ; The dots on a line are FILLED, unlike a scatter plot's, because they
+        ; mark where the line's own vertices are rather than standing for rows
+        ; of their own.
+        def dots (VlJson.objectValue())
+        def dotMark (VlJson.objectValue())
+        dotMark.setMember("type" (VlJson.stringValue("point")))
+        dotMark.setMember("filled" (VlJson.boolValue(true)))
+        dots.setMember("mark" dotMark)
+        def layer (VlJson.arrayValue())
+        push layer.arr line
+        push layer.arr dots
+        out.setMember("layer" layer)
+        return out
+    }
+
     ; A layer is a specification with the outer one's data, size and shared
     ; encoding behind it. The layer's own keys win.
     sfn mergeSpec:VlJson (outer:VlJson layer:VlJson) {
@@ -1366,6 +1410,55 @@ class VlCompile {
         }
     }
 
+    ; One axis over several layers names all of them: a scatter plot with a mean
+    ; line reads "b, Mean of b", because the axis is measuring both.
+    sfn collectAxisTitles:void (titles:[string:string] from:VlJson) {
+        if (! (from.isArray())) {
+            return
+        }
+        def i:int 0
+        while (i < (from.count())) {
+            def axis:VlJson (from.at(i))
+            def scale:string (axis.stringOr("scale" ""))
+            def title:string (axis.stringOr("title" ""))
+            if ((strlen title) > 0) {
+                if (has titles scale) {
+                    def already:string (unwrap (get titles scale))
+                    if (! (VlCompile.namesInclude(already title))) {
+                        set titles scale ((already + ", ") + title)
+                    }
+                } {
+                    set titles scale title
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn namesInclude:boolean (list:string name:string) {
+        if (list == name) {
+            return true
+        }
+        if ((indexOf list (name + ", ")) == 0) {
+            return true
+        }
+        return ((indexOf list (", " + name)) >= 0)
+    }
+
+    sfn mergeAxisTitles:void (axes:VlJson titles:[string:string]) {
+        def i:int 0
+        while (i < (axes.count())) {
+            def axis:VlJson (axes.at(i))
+            def scale:string (axis.stringOr("scale" ""))
+            if (axis.has("title")) {
+                if (has titles scale) {
+                    axis.setMember("title" (VlJson.stringValue((unwrap (get titles scale)))))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     sfn mergeLegends:void (legends:VlJson seen:[string:int] from:VlJson) {
         if (! (from.isArray())) {
             return
@@ -1471,6 +1564,12 @@ class VlCompile {
         return (((name == "row") || (name == "column")) || (name == "facet"))
     }
 
+    ; A second position field belongs to the channel it extends, not to one of
+    ; its own: it gets no scale, no axis and no line of the description.
+    sfn isSecondaryChannel:boolean (name:string) {
+        return ((name == "x2") || (name == "y2"))
+    }
+
     fn facetFields:[string] () {
         def out:[string]
         for channels ch:VlChannel ci {
@@ -1512,6 +1611,16 @@ class VlCompile {
         }
         ; A histogram is already one total per bin: there is nothing to pile up
         ; unless something separates the bars within a bin.
+        ; A radial chart is read by comparing wedges, not by walking round the
+        ; circle, so its angles start from nothing rather than from each other.
+        if (this.hasChannel("radius")) {
+            return
+        }
+        ; A bar that already says where both its ends are is not stacked: it is
+        ; drawn between two values, which is what a Gantt chart is.
+        if (this.hasChannel((measure.name + "2"))) {
+            return
+        }
         def binned:VlChannel (this.stackDimension())
         if binned.defined {
             if binned.hasBin {
@@ -1646,23 +1755,57 @@ class VlCompile {
         return "linear"
     }
 
+    ; Whether the chart is placed on axes at all.
+    fn hasPosition:boolean () {
+        for channels ch:VlChannel ci {
+            if ((ch.name == "x") || (ch.name == "y")) {
+                if ((strlen (ch.outField())) > 0) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     fn sizeAndSignals:void (out:VlJson signals:VlJson) {
         this.sizeOne(out signals (this.channel("x")) "width" "x")
         this.sizeOne(out signals (this.channel("y")) "height" "y")
     }
 
     fn sizeOne:void (out:VlJson signals:VlJson ch:VlChannel dimension:string axis:string) {
-        def banded:boolean false
-        if ch.defined {
-            if ((this.scaleTypeFor(ch)) == "band") {
-                banded = true
+        ; A chart with nothing on ONE axis is one step tall on that axis: a strip
+        ; plot is a single row of ticks, not a three-hundred-pixel plot with one
+        ; row in it. A chart with nothing on EITHER — a pie — is not a strip
+        ; plot, it is a chart drawn some other way, and keeps its full size.
+        def empty:boolean (! ch.defined)
+        if (! empty) {
+            if ((strlen (ch.outField())) == 0) {
+                empty = true
             }
         }
+        if empty {
+            if (this.hasPosition()) {
+                out.setMember(dimension (VlJson.numberValue(20.0)))
+                return
+            }
+            out.setMember(dimension (VlJson.numberValue(300.0)))
+            return
+        }
+        def type:string (this.scaleTypeFor(ch))
+        ; A discrete scale of EITHER kind sizes the chart from its own steps.
+        ; They differ only in the padding: a band leaves room between the bands,
+        ; a point has no width to leave room around, so its inner padding is
+        ; one whole step and its outer is half of one.
+        def banded:boolean ((type == "band") || (type == "point"))
         if banded {
             def step (VlJson.objectValue())
             step.setMember("name" (VlJson.stringValue((prefix + (axis + "_step")))))
             def inner:double (this.bandPaddingInner())
             def outer:double (this.bandPaddingOuter())
+            if (type == "point") {
+                inner = 1.0
+                outer = 0.5
+            }
             if ((this.hasChannel("xOffset")) && (axis == "x")) {
                 ; A band that holds a group of bars is as wide as the group
                 ; needs, so its step is computed from the sub-scale rather than
@@ -1964,9 +2107,29 @@ class VlCompile {
         this.pushPositionScale(out (this.channel("y")) "y")
         this.pushOffsetScale(out)
         this.pushThetaScale(out)
+        this.pushRadiusScale(out)
+        this.pushShapeScale(out)
         this.pushColourScale(out)
         this.pushSizeScale(out)
         return out
+    }
+
+    ; A shape scale is ordinal like a colour scale, and its range is the
+    ; reference's own sequence of symbols rather than a palette.
+    fn pushShapeScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("shape"))
+        if (! ch.defined) {
+            return
+        }
+        if ch.hasValue {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("shape")))))
+        sc.setMember("type" (VlJson.stringValue("ordinal")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        sc.setMember("range" (VlJson.stringValue("symbol")))
+        push out.arr sc
     }
 
     ; The scale a group of bars is spread across INSIDE its band: a band scale
@@ -1983,6 +2146,30 @@ class VlCompile {
         def range (VlJson.objectValue())
         range.setMember("step" (VlJson.numberValue(20.0)))
         sc.setMember("range" range)
+        push out.arr sc
+    }
+
+    ; A radial chart measures twice: the wedge's ANGLE says one thing and its
+    ; LENGTH says another. The length is a square-root scale, because a wedge's
+    ; area grows with the square of its radius and area is what a reader judges.
+    fn pushRadiusScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("radius"))
+        if (! ch.defined) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("radius")))))
+        sc.setMember("type" (VlJson.stringValue((this.scaleTypeFor(ch)))))
+        sc.setMember("domain" (this.domainFor(ch)))
+        def range (VlJson.arrayValue())
+        def declared:VlJson (ch.def0.get("scale"))
+        def from:double (declared.doubleOr("rangeMin" 0.0))
+        push range.arr (VlJson.numberValue(from))
+        def outer (VlJson.objectValue())
+        outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
+        push range.arr outer
+        sc.setMember("range" range)
+        sc.setMember("zero" (VlJson.boolValue(true)))
         push out.arr sc
     }
 
@@ -2016,18 +2203,21 @@ class VlCompile {
         sc.setMember("name" (VlJson.stringValue((this.sname(axis)))))
         sc.setMember("type" (VlJson.stringValue(type)))
         sc.setMember("domain" (this.domainFor(ch)))
-        if (type == "band") {
+        if ((type == "band") || (type == "point")) {
             def range (VlJson.objectValue())
             def step (VlJson.objectValue())
             step.setMember("signal" (VlJson.stringValue((prefix + (axis + "_step")))))
             range.setMember("step" step)
             sc.setMember("range" range)
-            sc.setMember("paddingInner" (VlJson.numberValue((this.bandPaddingInner()))))
-            sc.setMember("paddingOuter" (VlJson.numberValue((this.bandPaddingOuter()))))
-        } {
-            sc.setMember("range" (this.positionRange(axis)))
             if (type == "point") {
                 sc.setMember("padding" (VlJson.numberValue(0.5)))
+            } {
+                sc.setMember("paddingInner" (VlJson.numberValue((this.bandPaddingInner()))))
+                sc.setMember("paddingOuter" (VlJson.numberValue((this.bandPaddingOuter()))))
+            }
+        } {
+            sc.setMember("range" (this.positionRange(axis)))
+            if (false) {
             } {
                 ; A binned axis already knows where its ticks go — the bin
                 ; edges — so it is neither niced nor extended to zero.
@@ -2124,6 +2314,17 @@ class VlCompile {
                 push fields.arr (VlJson.stringValue((stackField + "_start")))
                 push fields.arr (VlJson.stringValue((stackField + "_end")))
                 out.setMember("fields" fields)
+                return out
+            }
+        }
+        ; A channel with a second field takes its domain from both of them.
+        def second:VlChannel (this.channel((ch.name + "2")))
+        if second.defined {
+            if ((strlen second.field) > 0) {
+                def pair (VlJson.arrayValue())
+                push pair.arr (VlJson.stringValue((ch.outField())))
+                push pair.arr (VlJson.stringValue((second.outField())))
+                out.setMember("fields" pair)
                 return out
             }
         }
@@ -2260,7 +2461,15 @@ class VlCompile {
         a.setMember("scale" (VlJson.stringValue((this.sname(scale)))))
         a.setMember("orient" (VlJson.stringValue(orient)))
         a.setMember("grid" (VlJson.boolValue(false)))
-        a.setMember("title" (VlJson.stringValue((ch.title()))))
+        ; An axis measuring a channel with two ends names both of them.
+        def axisTitle:string (ch.title())
+        def secondary:VlChannel (this.channel((ch.name + "2")))
+        if secondary.defined {
+            if ((strlen secondary.field) > 0) {
+                axisTitle = ((axisTitle + ", ") + (secondary.title()))
+            }
+        }
+        a.setMember("title" (VlJson.stringValue(axisTitle)))
         def given:VlJson (ch.def0.get("axis"))
         if (given.isObject()) {
             for given.keys key:string ki {
@@ -2361,6 +2570,22 @@ class VlCompile {
                 push out.arr l
             }
         }
+        def shapeCh:VlChannel (this.channel("shape"))
+        if shapeCh.defined {
+            if (! shapeCh.hasValue) {
+                def l3 (VlJson.objectValue())
+                l3.setMember("shape" (VlJson.stringValue((this.sname("shape")))))
+                l3.setMember("title" (VlJson.stringValue((shapeCh.title()))))
+                if (markName == "point") {
+                    def shapeEncode:VlJson (VlCompile.pointSymbolEncode())
+                    def shapeSymbols:VlJson (shapeEncode.get("symbols"))
+                    def shapeUpdate:VlJson (shapeSymbols.get("update"))
+                    shapeUpdate.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+                    l3.setMember("encode" shapeEncode)
+                }
+                push out.arr l3
+            }
+        }
         def size:VlChannel (this.channel("size"))
         if size.defined {
             if (! size.hasValue) {
@@ -2368,14 +2593,17 @@ class VlCompile {
                 l2.setMember("size" (VlJson.stringValue((this.sname("size")))))
                 l2.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
                 l2.setMember("title" (VlJson.stringValue((size.title()))))
+                ; A size key stands for the same dot the chart draws, and its
+                ; colour is the mark's constant since nothing encodes one.
                 if (markName == "point") {
-                    ; A size key stands for the same outlined dot, and its
-                    ; colour is the mark's constant since nothing encodes one.
                     def encode:VlJson (VlCompile.pointSymbolEncode())
                     def symbols:VlJson (encode.get("symbols"))
                     def update:VlJson (symbols.get("update"))
                     update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
                     l2.setMember("encode" encode)
+                }
+                if ((markName == "circle") || (markName == "square")) {
+                    l2.setMember("encode" (VlCompile.filledSymbolEncode()))
                 }
                 push out.arr l2
             }
@@ -2385,6 +2613,18 @@ class VlCompile {
 
     ; The key of an outlined mark is an outline too: transparent inside, and
     ; the same partial opacity the points are drawn with.
+    sfn filledSymbolEncode:VlJson () {
+        def update (VlJson.objectValue())
+        update.setMember("fill" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+        update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("transparent")))))
+        def symbols (VlJson.objectValue())
+        symbols.setMember("update" update)
+        def out (VlJson.objectValue())
+        out.setMember("symbols" symbols)
+        return out
+    }
+
     sfn pointSymbolEncode:VlJson () {
         def update (VlJson.objectValue())
         update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
@@ -2510,7 +2750,7 @@ class VlCompile {
         ; The mark definition may nudge every instance — a label six pixels
         ; above the bar it names.
         for markDef.keys key:string ki {
-            if (((key == "dx") || (key == "dy")) || (key == "opacity")) {
+            if ((((key == "dx") || (key == "dy")) || (key == "opacity")) || (key == "interpolate")) {
                 update.setMember(key (VlCompile.literal((markDef.get(key)))))
             }
         }
@@ -2550,9 +2790,14 @@ class VlCompile {
         halfDown.setMember("signal" (VlJson.stringValue("height")))
         halfDown.setMember("mult" (VlJson.numberValue(0.5)))
         update.setMember("y" halfDown)
-        def outer (VlJson.objectValue())
-        outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
-        update.setMember("outerRadius" outer)
+        def radius:VlChannel (this.channel("radius"))
+        if radius.defined {
+            update.setMember("outerRadius" (this.scaled("radius" (radius.outField()))))
+        } {
+            def outer (VlJson.objectValue())
+            outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
+            update.setMember("outerRadius" outer)
+        }
         def inner:VlJson (markDef.get("innerRadius"))
         if (inner.isNumber()) {
             update.setMember("innerRadius" (VlCompile.literal(inner)))
@@ -2562,23 +2807,52 @@ class VlCompile {
         if ((strlen stackField) > 0) {
             update.setMember("startAngle" (this.scaled("theta" (stackField + "_end"))))
             update.setMember("endAngle" (this.scaled("theta" (stackField + "_start"))))
+        } {
+            ; Unstacked, every wedge starts at nothing: the chart is read by
+            ; comparing the wedges rather than by walking round the circle.
+            def theta:VlChannel (this.channel("theta"))
+            if theta.defined {
+                update.setMember("startAngle" (this.scaled("theta" (theta.outField()))))
+                def zero (VlJson.objectValue())
+                zero.setMember("scale" (VlJson.stringValue((this.sname("theta")))))
+                zero.setMember("value" (VlJson.numberValue(0.0)))
+                update.setMember("endAngle" zero)
+            }
         }
     }
 
     ; The colour a mark carries. A point is drawn as an outline, everything else
     ; as a fill, and a colour channel replaces the constant with a scale.
     fn encodePaint:void (update:VlJson) {
-        def outlined:boolean (markName == "point")
+        def outlined:boolean ((markName == "point") && (! (markDef.boolOr("filled" false))))
         if outlined {
             update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
             update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
         }
-        if (markName == "tick") {
+        ; A filled dot is drawn solid: it is part of the line, not a
+        ; measurement of its own that might be sitting on top of another.
+        if (markName == "point") {
+            if (! outlined) {
+                update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(1.0)))))
+            }
+        }
+        ; A tick and a filled dot are both drawn slightly transparent, so that
+        ; the ones that land on the same spot can be told apart.
+        if (((markName == "tick") || (markName == "circle")) || (markName == "square")) {
             update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
         }
         def key:string "fill"
         if ((outlined || (markName == "line")) || (markName == "rule")) {
             key = "stroke"
+        }
+        ; A rule is a line drawn over a chart rather than a series in it, so it
+        ; is black by default rather than the palette's first colour.
+        if (markName == "rule") {
+            def ruleColour:VlChannel (this.channel("color"))
+            if (! ruleColour.defined) {
+                update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("black")))))
+                return
+            }
         }
         if (markName == "text") {
             update.setMember("align" (VlCompile.literal((VlJson.stringValue("center")))))
@@ -2620,10 +2894,34 @@ class VlCompile {
     ; formatted the way the reference formats it — a number through `format`, a
     ; category through the array-or-scalar test that keeps a multi-valued field
     ; readable.
+    ; The order the channels are named in is the REFERENCE's, not the
+    ; specification's: position first and along the page before down it, then
+    ; everything else in the order it was written. A horizontal bar chart says
+    ; "b: 28; a: A" whether or not the spec put `y` first.
+    fn describedChannels:[VlChannel] () {
+        def out:[VlChannel]
+        for channels first:VlChannel fi {
+            if (first.name == "x") {
+                push out first
+            }
+        }
+        for channels second:VlChannel si {
+            if (second.name == "y") {
+                push out second
+            }
+        }
+        for channels rest:VlChannel ri {
+            if ((rest.name != "x") && (rest.name != "y")) {
+                push out rest
+            }
+        }
+        return out
+    }
+
     fn describeExpr:string () {
         def out:string ""
         def seen:[string:int]
-        for channels ch:VlChannel ci {
+        for (this.describedChannels()) ch:VlChannel ci {
             if (ch.hasValue) {
                 ; a constant is not described
             } {
@@ -2726,6 +3024,26 @@ class VlCompile {
                 update.setMember("size" (this.scaled("size" (size.outField()))))
             }
         }
+        def shape:VlChannel (this.channel("shape"))
+        if shape.defined {
+            if shape.hasValue {
+                update.setMember("shape" (VlCompile.literal(shape.value)))
+            } {
+                update.setMember("shape" (this.scaled("shape" (shape.outField()))))
+            }
+        }
+        ; A rule given only one position is a line ACROSS the plot at that
+        ; value — a mean line, a threshold — so it spans the other axis.
+        if (markName == "rule") {
+            if (! (this.hasChannel("x"))) {
+                update.setMember("x" (VlCompile.groupField("width")))
+                update.setMember("x2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+            }
+            if (! (this.hasChannel("y"))) {
+                update.setMember("y" (VlCompile.groupField("height")))
+                update.setMember("y2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+            }
+        }
         def text:VlChannel (this.channel("text"))
         if text.defined {
             if (! text.hasValue) {
@@ -2764,13 +3082,30 @@ class VlCompile {
     ; an edge instead of overlapping on it — and, when a bin is narrower than a
     ; quarter of a pixel, so that it does not vanish. Both edges carry the same
     ; expression with the sign flipped; `upper` is the bin's end.
-    sfn binNudge:VlJson (startField:string endField:string axis:string upper:boolean) {
+    ; How much room a mark leaves between one bin and the next: a bar stands a
+    ; pixel clear of its neighbour, a heat map's cells touch.
+    fn binSpacing:double () {
+        if (markName == "rect") {
+            return 0.0
+        }
+        return 1.0
+    }
+
+    sfn binNudge:VlJson (startField:string endField:string axis:string upper:boolean spacing:double) {
         def gap:string (((((("abs(scale(\"" + axis) + "\", datum[\"") + endField) + "\"]) - scale(\"" + axis) + "\", datum[\"") + startField) + "\"]))")
-        def toward:string "-0.5"
-        def away:string "0.5"
+        def half:string (VlJson.formatNumber((spacing / 2.0) 6))
+        def toward:string ("-" + half)
+        def away:string half
         if upper {
+            toward = half
+            away = ("-" + half)
+        }
+        if (spacing == 0.0) {
             toward = "0.5"
-            away = "-0.5"
+            away = "0"
+            if (! upper) {
+                toward = "-0.5"
+            }
         }
         def expr:string ((((((("0.5 + (" + gap) + " < 0.25 ? ") + toward) + " * (0.25 - (") + gap) + ")) : ") + away) + ")")
         def out (VlJson.objectValue())
@@ -2817,10 +3152,10 @@ class VlCompile {
         ; bin narrower than a quarter pixel from disappearing entirely.
         if ch.hasBin {
             def from:VlJson (this.scaled(axis (ch.binEndField())))
-            from.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis true)))
+            from.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis true (this.binSpacing()))))
             update.setMember(axis from)
             def to:VlJson (this.scaled(axis (ch.outField())))
-            to.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis false)))
+            to.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis false (this.binSpacing()))))
             update.setMember((axis + "2") to)
             return
         }
@@ -2836,7 +3171,34 @@ class VlCompile {
         if (markName == "tick") {
             update.setMember((axis + "c") (this.scaled(axis (ch.outField()))))
             update.setMember(dimension (VlCompile.literal((VlJson.numberValue(1.0)))))
+            ; With nothing on the other axis there is no band to cross, so the
+            ; tick crosses the plot itself — three quarters of it, centred.
+            def other:string "y"
+            def otherSize:string "height"
+            if (axis == "y") {
+                other = "x"
+                otherSize = "width"
+            }
+            if (! (this.hasChannel(other))) {
+                def centre (VlJson.objectValue())
+                centre.setMember("signal" (VlJson.stringValue((this.sizeSignal(otherSize)))))
+                centre.setMember("mult" (VlJson.numberValue(0.5)))
+                update.setMember((other + "c") centre)
+                def across (VlJson.objectValue())
+                across.setMember("signal" (VlJson.stringValue((("0.75 * " + (this.sizeSignal(otherSize)))))))
+                update.setMember(otherSize across)
+            }
             return
+        }
+        ; A channel may name a SECOND field — a bar from one value to another,
+        ; which is what a Gantt chart is — and then both ends are given.
+        def second:VlChannel (this.channel((axis + "2")))
+        if second.defined {
+            if ((strlen second.field) > 0) {
+                update.setMember(axis (this.scaled(axis (ch.outField()))))
+                update.setMember((axis + "2") (this.scaled(axis (second.outField()))))
+                return
+            }
         }
         update.setMember(axis (this.scaled(axis (ch.outField()))))
         ; A bar has LENGTH, so it needs both ends. A stacked one gets them from

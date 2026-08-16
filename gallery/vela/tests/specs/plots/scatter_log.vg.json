@@ -208,6 +208,10 @@
       "gridColor": "#8a8f98",
       "gridOpacity": 0.25
     },
+    "legend": {
+      "labelColor": "#8a8f98",
+      "titleColor": "#8a8f98"
+    },
     "style": {
       "cell": {
         "stroke": "#8a8f98",

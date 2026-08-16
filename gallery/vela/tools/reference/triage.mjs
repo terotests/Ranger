@@ -227,6 +227,47 @@ const CANDIDATES = {
       ],
     },
   },
+  // Binned on BOTH axes: a two-dimensional histogram, whose cells are counts
+  // rather than values. The Vega-Lite gallery calls it a binned heat map.
+  heatmap_binned: {
+    group: 'table',
+    spec: {
+      data: { values },
+      mark: 'rect',
+      encoding: {
+        x: { field: 'c', type: 'quantitative', bin: true },
+        y: { field: 'b', type: 'quantitative', bin: true },
+        color: { aggregate: 'count', type: 'quantitative' },
+      },
+    },
+  },
+  // A punch card: two discrete axes and a size, so the cells are dots whose
+  // area is the value rather than blocks whose colour is.
+  table_bubble: {
+    group: 'table',
+    spec: {
+      data: { values },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'a', type: 'nominal' },
+        y: { field: 'g', type: 'nominal' },
+        size: { field: 'b', type: 'quantitative' },
+      },
+    },
+  },
+  // A heat map of a count rather than of a value.
+  heatmap_count: {
+    group: 'table',
+    spec: {
+      data: { values },
+      mark: 'rect',
+      encoding: {
+        x: { field: 'a', type: 'nominal' },
+        y: { field: 'g', type: 'nominal' },
+        color: { aggregate: 'count', type: 'quantitative' },
+      },
+    },
+  },
   // --- circular -------------------------------------------------------------
   donut: {
     group: 'circular',

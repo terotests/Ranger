@@ -252,6 +252,96 @@ const SPECS = {
       y: { field: 'b', type: 'quantitative' },
     },
   },
+  // --- table-based plots: a grid whose cells carry the value ---------------
+  // Binned on BOTH axes: a two-dimensional histogram, whose cells are counts
+  // rather than values.
+  heatmap_binned: {
+    data: { values },
+    mark: 'rect',
+    encoding: {
+      x: { field: 'c', type: 'quantitative', bin: true },
+      y: { field: 'b', type: 'quantitative', bin: true },
+      color: { aggregate: 'count', type: 'quantitative' },
+    },
+  },
+  // A punch card: two discrete axes and a size, so the cells are dots whose
+  // area is the value rather than blocks whose colour is.
+  table_bubble: {
+    data: { values },
+    mark: 'circle',
+    encoding: {
+      x: { field: 'a', type: 'nominal' },
+      y: { field: 'g', type: 'nominal' },
+      size: { field: 'b', type: 'quantitative' },
+    },
+  },
+  heatmap_labelled: {
+    data: { values },
+    layer: [
+      { mark: 'rect', encoding: { x: { field: 'a', type: 'nominal' }, y: { field: 'g', type: 'nominal' }, color: { field: 'b', type: 'quantitative' } } },
+      { mark: 'text', encoding: { x: { field: 'a', type: 'nominal' }, y: { field: 'g', type: 'nominal' }, text: { field: 'b', type: 'quantitative' } } },
+    ],
+  },
+  // --- the variants a chart type has ---------------------------------------
+  bar_negative: {
+    data: { values: values.map((d) => ({ ...d, b: d.b - 50 })) },
+    mark: 'bar',
+    encoding: { x: { field: 'a', type: 'nominal' }, y: { field: 'b', type: 'quantitative' } },
+  },
+  bar_horizontal: {
+    data: { values },
+    mark: 'bar',
+    encoding: { y: { field: 'a', type: 'nominal' }, x: { field: 'b', type: 'quantitative' } },
+  },
+  bar_gantt: {
+    data: { values },
+    mark: 'bar',
+    encoding: {
+      y: { field: 'a', type: 'nominal' },
+      x: { field: 'c', type: 'quantitative' },
+      x2: { field: 'b' },
+    },
+  },
+  line_step: {
+    data: { values },
+    mark: { type: 'line', interpolate: 'step-after' },
+    encoding: { x: { field: 'c', type: 'quantitative' }, y: { field: 'b', type: 'quantitative' } },
+  },
+  line_with_points: {
+    data: { values },
+    mark: { type: 'line', point: true },
+    encoding: { x: { field: 'c', type: 'quantitative' }, y: { field: 'b', type: 'quantitative' } },
+  },
+  strip_plot: {
+    data: { values },
+    mark: 'tick',
+    encoding: { x: { field: 'b', type: 'quantitative' } },
+  },
+  scatter_shapes: {
+    data: { values },
+    mark: 'point',
+    encoding: {
+      x: { field: 'c', type: 'quantitative' },
+      y: { field: 'b', type: 'quantitative' },
+      shape: { field: 'g', type: 'nominal' },
+    },
+  },
+  scatter_mean_rule: {
+    data: { values },
+    layer: [
+      { mark: 'point', encoding: { x: { field: 'c', type: 'quantitative' }, y: { field: 'b', type: 'quantitative' } } },
+      { mark: 'rule', encoding: { y: { field: 'b', type: 'quantitative', aggregate: 'mean' } } },
+    ],
+  },
+  radial: {
+    data: { values },
+    mark: { type: 'arc', innerRadius: 20 },
+    encoding: {
+      theta: { field: 'b', type: 'quantitative' },
+      radius: { field: 'b', type: 'quantitative', scale: { type: 'sqrt', zero: true, rangeMin: 20 } },
+      color: { field: 'a', type: 'nominal' },
+    },
+  },
   // The other two ways a trellis can be arranged. A row facet stacks the cells
   // and turns the shared title on its side; a wrapped facet has neither row
   // headers nor column headers and titles every cell instead, its grid sized by
@@ -351,6 +441,11 @@ const MORE = {
 
 const PLOTS_CONFIG = {
   ...SHOWCASE.config,
+  // A legend's own text, for the same reason the axis colours are stated: a
+  // gradient key's title is drawn in black by default and vanishes on the dark
+  // theme, and a key is not worth much without the word that says what it is
+  // measuring.
+  legend: { labelColor: '#8a8f98', titleColor: '#8a8f98' },
   // A text mark is the one data mark whose default colour is black, which
   // disappears on the dark theme the same way the guides would. Same reason,
   // same answer: the chart states a colour that reads on both.
@@ -361,6 +456,26 @@ const PLOTS = {
   width: 150,
   height: 78,
   charts: ['bar_grouped', 'area', 'bubble', 'scatter_colored', 'scatter_log', 'layered', 'text_labels', 'tick'],
+  config: PLOTS_CONFIG,
+};
+
+// A fifth page: the variants a chart type has. Every one of these is the same
+// mark as a chart already on the showcase, drawn a different way — which is
+// the point, because it is the variants that break a runtime rather than the
+// types.
+const VARIANTS = {
+  width: 150,
+  height: 78,
+  charts: ['bar_negative', 'bar_horizontal', 'bar_gantt', 'line_step', 'line_with_points', 'strip_plot', 'scatter_shapes', 'scatter_mean_rule'],
+  config: PLOTS_CONFIG,
+};
+
+// And a sixth: the plots that are TABLES, where the cell is the datum and the
+// two axes are both categories or both bins.
+const TABLES = {
+  width: 130,
+  height: 70,
+  charts: ['heatmap_binned', 'table_bubble', 'heatmap_labelled', 'radial'],
   config: PLOTS_CONFIG,
 };
 
@@ -429,6 +544,30 @@ for (const name of MORE.charts) {
   const compiled = vl.compile(spec).spec;
   fs.writeFileSync(path.join(MORE_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
   console.log(`more/${name}.vg.json`);
+}
+
+const VARIANTS_DIR = path.join(SPEC_DIR, 'variants');
+fs.mkdirSync(VARIANTS_DIR, { recursive: true });
+for (const name of VARIANTS.charts) {
+  const spec = { ...SPECS[name], width: VARIANTS.width, height: VARIANTS.height, config: VARIANTS.config };
+  // A horizontal chart needs a row per category rather than a fixed height.
+  if ((name === 'bar_horizontal') || (name === 'bar_gantt')) { spec.height = 108; }
+  spec.background = null;
+  const compiled = vl.compile(spec).spec;
+  fs.writeFileSync(path.join(VARIANTS_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
+  console.log(`variants/${name}.vg.json`);
+}
+
+const TABLES_DIR = path.join(SPEC_DIR, 'tables');
+fs.mkdirSync(TABLES_DIR, { recursive: true });
+for (const name of TABLES.charts) {
+  const spec = { ...SPECS[name], width: TABLES.width, height: TABLES.height, config: TABLES.config };
+  // A radial chart is square: its radius is min(width, height) / 2.
+  if (name === 'radial') { spec.width = 110; spec.height = 110; }
+  spec.background = null;
+  const compiled = vl.compile(spec).spec;
+  fs.writeFileSync(path.join(TABLES_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
+  console.log(`tables/${name}.vg.json`);
 }
 
 const VIEWS_DIR = path.join(SPEC_DIR, 'views');

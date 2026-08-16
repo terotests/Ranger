@@ -1,0 +1,71 @@
+rect x=0 y=0 w=180 h=300 stroke=#ddd strokeWidth=1
+group-begin
+group-begin
+line x=0.5 y=300.5 x2=180.5 y2=300.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=267.5 x2=180.5 y2=267.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=233.5 x2=180.5 y2=233.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=200.5 x2=180.5 y2=200.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=167.5 x2=180.5 y2=167.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=133.5 x2=180.5 y2=133.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=100.5 x2=180.5 y2=100.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=67.5 x2=180.5 y2=67.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=33.5 x2=180.5 y2=33.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=0.5 x2=180.5 y2=0.5 stroke=#ddd strokeWidth=1
+group-end
+group-begin
+line x=10.5 y=300.5 x2=10.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=30.5 y=300.5 x2=30.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=50.5 y=300.5 x2=50.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=70.5 y=300.5 x2=70.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=90.5 y=300.5 x2=90.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=110.5 y=300.5 x2=110.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=130.5 y=300.5 x2=130.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=150.5 y=300.5 x2=150.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=170.5 y=300.5 x2=170.5 y2=305.5 stroke=#888 strokeWidth=1
+text x=10 y=307.5 size=10 align=right text=A fill=#000
+text x=30 y=307.5 size=10 align=right text=B fill=#000
+text x=50 y=307.5 size=10 align=right text=C fill=#000
+text x=70 y=307.5 size=10 align=right text=D fill=#000
+text x=90 y=307.5 size=10 align=right text=E fill=#000
+text x=110 y=307.5 size=10 align=right text=F fill=#000
+text x=130 y=307.5 size=10 align=right text=G fill=#000
+text x=150 y=307.5 size=10 align=right text=H fill=#000
+text x=170 y=307.5 size=10 align=right text=I fill=#000
+line x=0.5 y=300.5 x2=180.5 y2=300.5 stroke=#888 strokeWidth=1
+text x=90.5 y=319.5 size=11 align=center text=a fill=#000
+group-end
+group-begin
+line x=0.5 y=300.5 x2=-4.5 y2=300.5 stroke=#888 strokeWidth=1
+line x=0.5 y=267.5 x2=-4.5 y2=267.5 stroke=#888 strokeWidth=1
+line x=0.5 y=233.5 x2=-4.5 y2=233.5 stroke=#888 strokeWidth=1
+line x=0.5 y=200.5 x2=-4.5 y2=200.5 stroke=#888 strokeWidth=1
+line x=0.5 y=167.5 x2=-4.5 y2=167.5 stroke=#888 strokeWidth=1
+line x=0.5 y=133.5 x2=-4.5 y2=133.5 stroke=#888 strokeWidth=1
+line x=0.5 y=100.5 x2=-4.5 y2=100.5 stroke=#888 strokeWidth=1
+line x=0.5 y=67.5 x2=-4.5 y2=67.5 stroke=#888 strokeWidth=1
+line x=0.5 y=33.5 x2=-4.5 y2=33.5 stroke=#888 strokeWidth=1
+line x=0.5 y=0.5 x2=-4.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-6.5 y=300.5 size=10 align=right text=−40 fill=#000
+text x=-6.5 y=267.167 size=10 align=right text=−30 fill=#000
+text x=-6.5 y=233.833 size=10 align=right text=−20 fill=#000
+text x=-6.5 y=200.5 size=10 align=right text=−10 fill=#000
+text x=-6.5 y=167.167 size=10 align=right text=0 fill=#000
+text x=-6.5 y=133.833 size=10 align=right text=10 fill=#000
+text x=-6.5 y=100.5 size=10 align=right text=20 fill=#000
+text x=-6.5 y=67.167 size=10 align=right text=30 fill=#000
+text x=-6.5 y=33.833 size=10 align=right text=40 fill=#000
+text x=-6.5 y=0.5 size=10 align=right text=50 fill=#000
+line x=0.5 y=300.5 x2=0.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-34.5 y=150.5 size=11 align=center text=b fill=#000
+group-end
+rect x=1 y=166.667 w=18 h=73.333 fill=#4c78a8
+rect x=21 y=150 w=18 h=16.667 fill=#4c78a8
+rect x=41 y=166.667 w=18 h=23.333 fill=#4c78a8
+rect x=61 y=30 w=18 h=136.667 fill=#4c78a8
+rect x=81 y=63.333 w=18 h=103.333 fill=#4c78a8
+rect x=101 y=156.667 w=18 h=10 fill=#4c78a8
+rect x=121 y=166.667 w=18 h=103.333 fill=#4c78a8
+rect x=141 y=43.333 w=18 h=123.333 fill=#4c78a8
+rect x=161 y=160 w=18 h=6.667 fill=#4c78a8
+group-end
+

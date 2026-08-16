@@ -21,9 +21,35 @@ class VlText {
     ; The reference's canvas-free estimate, truncated toward zero exactly as its
     ; `~~` does.
     sfn estimateWidth:double (text:string fontSize:double) {
-        def chars:int (strlen text)
+        def chars:int (VlText.characterCount(text))
         def w:double ((0.8 * (to_double chars)) * fontSize)
         return (to_double (floor w))
+    }
+
+    ; How many CHARACTERS a string has, which is not how many bytes it has and
+    ; not what `strlen` answers on every target. A JavaScript string counts
+    ; code units, a C++ one counts bytes, and an axis label of negative numbers
+    ; is written with the typographic minus (U+2212) — three bytes and one
+    ; character. Measured in bytes, "−20" is five characters wide, every axis
+    ; with a negative value on it reserves too much room, and the chart is
+    ; sixteen pixels wider in C++ than in JavaScript.
+    ;
+    ; UTF-8 marks its continuation bytes 10xxxxxx and nothing else does, so the
+    ; characters are the bytes that are not continuations. A target whose
+    ; strings are not bytes has no continuation bytes to find and counts them
+    ; all, which is the same answer.
+    sfn characterCount:int (text:string) {
+        def n:int (strlen text)
+        def count:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            if ((c < 128) || (c > 191)) {
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        return count
     }
 
     ; How wide the string will actually be DRAWN, which is a different question

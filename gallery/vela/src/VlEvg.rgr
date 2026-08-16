@@ -441,7 +441,7 @@ class VlEvgWriter {
                 k = (k + 1)
             }
             if (cmd.op == "polyline") {
-                builder.addPolyline(pts)
+                builder.addPolyline((VlEvgWriter.stepped(pts cmd.interpolate)))
             } {
                 builder.addPolygon(pts)
             }
@@ -454,6 +454,53 @@ class VlEvgWriter {
         if (cmd.op == "path") {
             builder.addPathData(cmd.pathData)
         }
+    }
+
+    ; A stepped line does not slope: it holds its value and then jumps. Which
+    ; way round decides what the line CLAIMS — `step-after` says the value held
+    ; until the next reading, `step-before` says it had already changed by the
+    ; time the reading was taken, and `step` splits the difference and admits it
+    ; does not know. A renderer that draws all three as a slope says none of it.
+    sfn stepped:[double] (pts:[double] interpolate:string) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return pts
+        }
+        def after:boolean (interpolate == "step-after")
+        def before:boolean (interpolate == "step-before")
+        def middle:boolean (interpolate == "step")
+        if (((! after) && (! before)) && (! middle)) {
+            return pts
+        }
+        def out:[double]
+        push out (itemAt pts 0)
+        push out (itemAt pts 1)
+        def i:int 1
+        while (i < n) {
+            def px:double (itemAt pts ((i - 1) * 2))
+            def py:double (itemAt pts (((i - 1) * 2) + 1))
+            def x:double (itemAt pts (i * 2))
+            def y:double (itemAt pts ((i * 2) + 1))
+            if after {
+                push out x
+                push out py
+            }
+            if before {
+                push out px
+                push out y
+            }
+            if middle {
+                def mid:double ((px + x) / 2.0)
+                push out mid
+                push out py
+                push out mid
+                push out y
+            }
+            push out x
+            push out y
+            i = (i + 1)
+        }
+        return out
     }
 
     ; A symbol's `size` is an AREA, which is what makes two symbols of size 30

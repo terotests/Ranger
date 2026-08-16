@@ -1425,7 +1425,7 @@ class VlRuntime {
         def total:int (legends.count())
         def k:int 0
         while (k < total) {
-            def ldef:VlJson (this.resolveSignalMembers((legends.at(k))))
+            def ldef:VlJson (this.resolveSignalMembers((config.mergedLegend((legends.at(k))))))
             def legend (new VlLegend())
             def named:boolean false
             for legend.channelOrder channel:string ci {

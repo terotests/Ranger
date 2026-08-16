@@ -220,6 +220,9 @@ class VlAxis {
         ; bins the data was actually put in.
         if ((array_length sc.binValues) > 0) {
             def labels:[string] (VlAxis.labelSet(sc.binValues format))
+            if ((strlen format) == 0) {
+                labels = (VlScale.binLabels(sc.binValues sc.domainMin sc.domainMax tickCount))
+            }
             for sc.binValues v:double idx {
                 def tvb (new VlAxisTickValue())
                 tvb.value = (VlJson.numberValue(v))
@@ -235,7 +238,17 @@ class VlAxis {
                 def tv (new VlAxisTickValue())
                 tv.value = (VlJson.stringValue(name))
                 tv.position = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * bandPosition))
-                tv.labelPosition = (tv.position - 0.5)
+                ; A BAND's label takes back the half pixel the axis group was
+                ; offset by, because a band's own positions are whole numbers
+                ; and the label wants to sit on one. A POINT scale's are not —
+                ; nine points across two hundred pixels land on 11.111, 33.333,
+                ; 55.555 — so there is no half pixel to take back, and taking
+                ; one anyway moves the label off its own point and rounds the
+                ; tick to the wrong pixel.
+                tv.labelPosition = tv.position
+                if (sc.scaleType == "band") {
+                    tv.labelPosition = (tv.position - 0.5)
+                }
                 tv.label = name
                 push out tv
             }
@@ -358,7 +371,14 @@ class VlAxis {
                 flushFrom = 0.0
                 flushTo = range
             }
-            push group.marks (this.buildLabels(ticks orient vertical flushFrom flushTo))
+            def labelMark:VlSceneMark (this.buildLabels(ticks orient vertical flushFrom flushTo))
+            push group.marks labelMark
+            ; A label that was thinned away takes up no room: the widest one is
+            ; the widest DRAWN one, measured after the overlap pass rather than
+            ; before it. A binned axis is where this shows — its last edge is
+            ; the widest label it has and often the first one to go, and
+            ; counting it reserves eight pixels nothing is printed in.
+            widest = (VlAxis.widestVisible(labelMark labelFontSize widest))
             def turned:boolean (this.labelsAreTurned())
             if vertical {
                 def alongV:double widest
@@ -588,6 +608,21 @@ class VlAxis {
             return 1
         }
         return -1
+    }
+
+    ; The widest label still being drawn. A mark with nothing hidden answers the
+    ; same number it was given, so an axis that never thinned pays nothing.
+    sfn widestVisible:double (mark:VlSceneMark fontSize:double whenEmpty:double) {
+        def shown:[string]
+        for mark.items item:VlSceneItem idx {
+            if ((item.number("opacity")) > 0.0) {
+                push shown (item.text("text"))
+            }
+        }
+        if ((array_length shown) == 0) {
+            return whenEmpty
+        }
+        return (VlText.widestLabel(shown fontSize))
     }
 
     fn hideOverlappingLabels:void (mark:VlSceneMark) {

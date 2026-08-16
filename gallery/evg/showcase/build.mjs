@@ -87,6 +87,22 @@ const PAGES = [
     themes: ["editorial", "studio", "autumn"],
   },
   {
+    id: "variants",
+    title: "Variants",
+    blurb:
+      "The same marks a chart already on this showcase uses, drawn a different way — bars that go down as well as up, bars that lie on their side, a bar between two values rather than from a baseline, a line that steps instead of sloping, a line that shows its own vertices, a single row of ticks, a shape legend, a mean drawn across the plot, and a pie whose wedges differ in length as well as angle. It is the variants that break a runtime rather than the types.",
+    shows: ["negative bars", "horizontal bars", "step interpolation", "shape scales", "rules across a plot", "radial scales"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "tables",
+    title: "Tables",
+    blurb:
+      "The plots where the cell is the datum: both axes are categories, or both are bins, and the value is carried by the cell's colour, its area, or the number printed in it. The two-dimensional histogram is the one that exercises the most — it bins on both axes, counts what lands in each cell, and ticks its axes on the bin edges rather than wherever a tick algorithm would have put them.",
+    shows: ["binning on both axes", "counts as colour", "point scales", "layered labels"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "views",
     title: "More than one chart",
     blurb:
@@ -143,6 +159,8 @@ const PAGE_CSS = {
   plots: [path.join(HERE, "themes/plots-default.css")],
   more: [path.join(HERE, "themes/more-default.css")],
   views: [path.join(HERE, "themes/views-default.css")],
+  variants: [path.join(HERE, "themes/variants-default.css")],
+  tables: [path.join(HERE, "themes/tables-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {

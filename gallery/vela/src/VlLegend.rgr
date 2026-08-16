@@ -427,9 +427,24 @@ class VlLegend {
         if ((array_length values) < 3) {
             clear values
             push values sc.domainMin
-            push values sc.domainMax
+            ; A domain with no width has ONE end, not two: a heat map of a count
+            ; where every cell counts the same has a single number to label, and
+            ; labelling it twice prints it on top of itself.
+            if (sc.domainMax != sc.domainMin) {
+                push values sc.domainMax
+            }
         }
         def labels:[string] (VlScale.tickLabels(values))
+        ; A shared precision is read off the STEP between the labels, and a
+        ; single label has no step. The reference's formatter then falls back on
+        ; its own default — six decimals, which is what `f` means when nothing
+        ; says otherwise — so the one number on a flat ramp reads "1.000000".
+        if (sc.domainMax == sc.domainMin) {
+            clear labels
+            for values only:double oi {
+                push labels (VlScale.padDecimals((VlJson.formatNumber(only 6)) 6))
+            }
+        }
 
         def labelMark (new VlSceneMark())
         labelMark.markType = "text"

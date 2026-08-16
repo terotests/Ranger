@@ -8,8 +8,8 @@ npm run showcase          # -> gallery/evg/showcase/dist/index.html
 npm run showcase:gl       # check the WebGL viewer actually drew the pages
 ```
 
-The index opens with a list of every page, because twelve sections is more than
-a reader should have to scroll past to find one. Each entry opens the rendered
+The index opens with a list of every page, because fourteen sections is more
+than a reader should have to scroll past to find one. Each entry opens the rendered
 page itself; the *details* link beside it jumps to that page's section, where
 its other themes and its PDF, PNG and WebGL versions are.
 
@@ -18,10 +18,10 @@ Each page is rendered under **two themes** — the generated chart pages under
 print target), PNG (the raster preview) and HTML (the debug view) — from one
 source tree and one stylesheet.
 
-### Four pages are generated
+### Six pages are generated
 
-`pages/charts.tsx`, `pages/plots.tsx`, `pages/more.tsx` and `pages/views.tsx`
-are written by a tool, not by hand: `npm run vela:showcase` runs a set of Vega specifications
+`pages/charts.tsx`, `plots.tsx`, `more.tsx`, `views.tsx`, `variants.tsx` and
+`tables.tsx` are written by a tool, not by hand: `npm run vela:showcase` runs a set of Vega specifications
 through the [Vela](../../vela/README.md) runtime and emits the paths and labels
 they produce, together with a stylesheet each.
 
@@ -36,7 +36,15 @@ quartiles are computed. **More than one chart** is the multi-view grammar: a
 trellis by column, by row, and wrapped onto a grid whose shape is computed from
 the data, plus two plots concatenated.
 
-That last page is the one whose size is not a size anyone declared. A trellis is
+**Variants** is the same marks drawn a different way — bars that go down as well
+as up, bars on their side, a bar between two values rather than from a baseline,
+a line that steps instead of sloping, a line showing its own vertices, a single
+row of ticks, a shape legend, and a mean drawn across the plot. It is the
+variants that break a runtime rather than the types. **Tables** is the plots
+where the cell is the datum: both axes categories, or both bins, and the value
+carried by the cell's colour, its area, or the number printed in it.
+
+*More than one chart* is the page whose size is not a size anyone declared. A trellis is
 as wide as its panels and the furniture between them, so it is *shaped* to fit a
 printed column rather than sized to fit one — nine panels three across is three
 rows and fits; two across is five rows and does not. A concatenation has no

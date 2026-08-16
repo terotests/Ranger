@@ -1,0 +1,53 @@
+group-begin
+arc x=150 y=150 r=20..92.111 a=1.9333..0 fill=#4c78a8
+arc x=150 y=150 r=20..121.066 a=3.7975..0 fill=#f58518
+arc x=150 y=150 r=20..109.363 a=2.969..0 fill=#e45756
+arc x=150 y=150 r=20..150 a=6.2832..0 fill=#72b7b2
+arc x=150 y=150 r=20..142.649 a=5.5927..0 fill=#54a24b
+arc x=150 y=150 r=20..119.211 a=3.6594..0 fill=#eeca3b
+arc x=150 y=150 r=20..79.402 a=1.3119..0 fill=#b279a2
+arc x=150 y=150 r=20..147.111 a=6.007..0 fill=#ff9da6
+arc x=150 y=150 r=20..118.271 a=3.5904..0 fill=#9d755d
+group-begin
+group-begin
+group-begin
+symbol x=324 y=22 size=100 shape=circle fill=#4c78a8
+text x=334 y=22 size=10 align=left text=A fill=#000
+group-end
+group-begin
+symbol x=324 y=35 size=100 shape=circle fill=#f58518
+text x=334 y=35 size=10 align=left text=B fill=#000
+group-end
+group-begin
+symbol x=324 y=48 size=100 shape=circle fill=#e45756
+text x=334 y=48 size=10 align=left text=C fill=#000
+group-end
+group-begin
+symbol x=324 y=61 size=100 shape=circle fill=#72b7b2
+text x=334 y=61 size=10 align=left text=D fill=#000
+group-end
+group-begin
+symbol x=324 y=74 size=100 shape=circle fill=#54a24b
+text x=334 y=74 size=10 align=left text=E fill=#000
+group-end
+group-begin
+symbol x=324 y=87 size=100 shape=circle fill=#eeca3b
+text x=334 y=87 size=10 align=left text=F fill=#000
+group-end
+group-begin
+symbol x=324 y=100 size=100 shape=circle fill=#b279a2
+text x=334 y=100 size=10 align=left text=G fill=#000
+group-end
+group-begin
+symbol x=324 y=113 size=100 shape=circle fill=#ff9da6
+text x=334 y=113 size=10 align=left text=H fill=#000
+group-end
+group-begin
+symbol x=324 y=126 size=100 shape=circle fill=#9d755d
+text x=334 y=126 size=10 align=left text=I fill=#000
+group-end
+group-end
+text x=318 y=0 size=11 align=left text=a fill=#000
+group-end
+group-end
+

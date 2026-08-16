@@ -164,6 +164,9 @@ Each of these was found by the harness, not by reading the spec:
 | A log axis printed ten labels on top of each other | `labelOverlap` is `"greedy"` there, not `true` — hide each label that runs into the last one KEPT, since halving drops the readable ticks and keeps the crowded ones |
 | The last label of an axis was pulled inside the plot when it did not need to be | `labelFlush` is a threshold in PIXELS, and `true` means one pixel — not "the first and last label" |
 | A band tick sat one pixel right of its own label | ticks and labels share the axis group's half-pixel offset; only the label was taking it |
+| A heat map of a count came out uniformly pale | a domain with no width maps every value to the MIDDLE of the range, not to zero — "all the same" is not "all lowest" |
+| A point-scale axis was half a pixel out | only a BAND takes back the half pixel the axis group is offset by; a point scale's own positions are not whole numbers, so there is none to take |
+| An axis reserved room for a label it had hidden | the widest label is the widest DRAWN one, measured after the overlap pass |
 | An axis thinned to two labels dropped its own last one | when parity halving has got an axis down to two labels or fewer, the reference gives up the last SURVIVOR and shows the last LABEL — two labels that are not the ends of the scale do not read as one |
 
 ## Compatibility
@@ -458,10 +461,16 @@ asked for things the committed specs never had:
 * the JSON writer rounded every number to six decimals, which is right for a
   scene measured in pixels and wrong for a specification carrying a full turn
   in radians;
-* and `strfromcode` truncated a code point to a byte in **C++** — so a bin's
-  label read `20 30` instead of `20 – 30`, in that target only. Fixed in the
+* `strfromcode` truncated a code point to a byte in **C++** — so a bin's label
+  read `20 30` instead of `20 – 30`, in that target only. Fixed in the
   compiler's own C++ template, where it had been wrong for every program, not
-  only this one.
+  only this one;
+* and `strlen` counts **bytes** in C++ and code units in JavaScript, so a
+  negative axis label — written with the typographic minus, three bytes and one
+  character — measured five characters wide and reserved sixteen pixels nothing
+  was printed in. Every chart with a negative value on an axis was that much
+  wider in C++ than in JavaScript. Labels are measured in characters now, which
+  is the same number on every target.
 
 ## Changing one number
 

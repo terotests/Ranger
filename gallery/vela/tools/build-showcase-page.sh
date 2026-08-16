@@ -20,6 +20,10 @@
 #           row and wrapped onto a computed grid, and two plots concatenated.
 #           Their size is not the size of a plot: a trellis is as wide as its
 #           panels and the furniture between them
+#   variants the variants a chart type has — the same marks drawn a different
+#           way, which is what breaks a runtime rather than the types
+#   tables  the plots that are tables: the cell is the datum and both axes are
+#           categories or bins
 #
 # The specs under tests/specs/showcase and tests/specs/plots are the same charts
 # as the parity specs at a size that fits a printed page; regenerate them with
@@ -32,10 +36,14 @@ SPECS=gallery/vela/tests/specs/showcase
 PLOTS=gallery/vela/tests/specs/plots
 MORE=gallery/vela/tests/specs/more
 VIEWS=gallery/vela/tests/specs/views
+VARIANTS=gallery/vela/tests/specs/variants
+TABLES=gallery/vela/tests/specs/tables
 PAGE=gallery/evg/showcase/pages/charts.tsx
 PLOTS_PAGE=gallery/evg/showcase/pages/plots.tsx
 MORE_PAGE=gallery/evg/showcase/pages/more.tsx
 VIEWS_PAGE=gallery/evg/showcase/pages/views.tsx
+VARIANTS_PAGE=gallery/evg/showcase/pages/variants.tsx
+TABLES_PAGE=gallery/evg/showcase/pages/tables.tsx
 
 mkdir -p "$BIN"
 log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 \
@@ -79,5 +87,21 @@ node "$BIN/vela_evg.js" "$VIEWS_PAGE" --title=Näkymät --compact \
   "$VIEWS/facet_rows.vg.json"    "Rivifasetointi" \
   "$VIEWS/facet_wrapped.vg.json" "Kääritty ruudukko" \
   "$VIEWS/concat_two.vg.json"    "Konkatenaatio"
+
+node "$BIN/vela_evg.js" "$VARIANTS_PAGE" --title=Muunnelmat --compact \
+  "$VARIANTS/bar_negative.vg.json"     "Negatiiviset arvot" \
+  "$VARIANTS/bar_horizontal.vg.json"   "Vaakapylväät" \
+  "$VARIANTS/bar_gantt.vg.json"        "Jana kahden arvon välissä" \
+  "$VARIANTS/line_step.vg.json"        "Porrasviiva" \
+  "$VARIANTS/line_with_points.vg.json" "Viiva ja pisteet" \
+  "$VARIANTS/strip_plot.vg.json"       "Nauhakaavio" \
+  "$VARIANTS/scatter_shapes.vg.json"   "Muotoselite" \
+  "$VARIANTS/scatter_mean_rule.vg.json" "Keskiarvoviiva"
+
+node "$BIN/vela_evg.js" "$TABLES_PAGE" --title=Taulukot --compact \
+  "$TABLES/heatmap_binned.vg.json"   "2D-histogrammi" \
+  "$TABLES/table_bubble.vg.json"     "Kuplataulukko" \
+  "$TABLES/heatmap_labelled.vg.json" "Lämpökartta arvoineen" \
+  "$TABLES/radial.vg.json"           "Sädekaavio"
 
 echo "render them with:  npm run showcase"

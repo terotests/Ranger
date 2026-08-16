@@ -1,0 +1,232 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "background": null,
+  "padding": 5,
+  "width": 150,
+  "height": 78,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "a": "A",
+          "b": -22,
+          "c": 5,
+          "g": "x"
+        },
+        {
+          "a": "B",
+          "b": 5,
+          "c": 9,
+          "g": "y"
+        },
+        {
+          "a": "C",
+          "b": -7,
+          "c": 2,
+          "g": "x"
+        },
+        {
+          "a": "D",
+          "b": 41,
+          "c": 7,
+          "g": "y"
+        },
+        {
+          "a": "E",
+          "b": 31,
+          "c": 4,
+          "g": "x"
+        },
+        {
+          "a": "F",
+          "b": 3,
+          "c": 6,
+          "g": "y"
+        },
+        {
+          "a": "G",
+          "b": -31,
+          "c": 8,
+          "g": "x"
+        },
+        {
+          "a": "H",
+          "b": 37,
+          "c": 1,
+          "g": "y"
+        },
+        {
+          "a": "I",
+          "b": 2,
+          "c": 3,
+          "g": "x"
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "stack",
+          "groupby": [
+            "a"
+          ],
+          "field": "b",
+          "sort": {
+            "field": [],
+            "order": []
+          },
+          "as": [
+            "b_start",
+            "b_end"
+          ],
+          "offset": "zero"
+        },
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"b\"]) && isFinite(+datum[\"b\"])"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "rect",
+      "style": [
+        "bar"
+      ],
+      "from": {
+        "data": "data_0"
+      },
+      "encode": {
+        "update": {
+          "fill": {
+            "value": "#4c78a8"
+          },
+          "ariaRoleDescription": {
+            "value": "bar"
+          },
+          "description": {
+            "signal": "\"a: \" + (isValid(datum[\"a\"]) ? isArray(datum[\"a\"]) ? join(datum[\"a\"], ' ') : datum[\"a\"] : \"\"+datum[\"a\"]) + \"; b: \" + (format(datum[\"b\"], \"\"))"
+          },
+          "x": {
+            "scale": "x",
+            "field": "a"
+          },
+          "width": {
+            "signal": "max(0.25, bandwidth('x'))"
+          },
+          "y": {
+            "scale": "y",
+            "field": "b_end"
+          },
+          "y2": {
+            "scale": "y",
+            "field": "b_start"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "band",
+      "domain": {
+        "data": "data_0",
+        "field": "a",
+        "sort": true
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ],
+      "paddingInner": 0.1,
+      "paddingOuter": 0.05
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "fields": [
+          "b_start",
+          "b_end"
+        ]
+      },
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ],
+      "nice": true,
+      "zero": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "a",
+      "labelAlign": "right",
+      "labelAngle": 270,
+      "labelBaseline": "middle",
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "b",
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "zindex": 0
+    }
+  ],
+  "config": {
+    "axis": {
+      "labelColor": "#8a8f98",
+      "titleColor": "#8a8f98",
+      "domainColor": "#8a8f98",
+      "tickColor": "#8a8f98",
+      "gridColor": "#8a8f98",
+      "gridOpacity": 0.25
+    },
+    "legend": {
+      "labelColor": "#8a8f98",
+      "titleColor": "#8a8f98"
+    },
+    "style": {
+      "cell": {
+        "stroke": "#8a8f98",
+        "strokeOpacity": 0.4
+      }
+    }
+  }
+}
