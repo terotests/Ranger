@@ -58,12 +58,11 @@ that matches the Node build exactly.
 
 ### The C++ build is the fastest compiler in the repository, and it ships
 
-Linked with `-O2`, the C++ build compiles the compiler in **3.2 s** against
-**9.1 s** for the Node build of the same sources on the same machine — 2.8× —
-and writes the same bytes. On a small file the gap is startup-sized
-(0.48 s against 0.66 s on `tests/fixtures/hello.rgr`), so this is a win for big
-sources and for loops that invoke the compiler many times, not a blanket 3×.
-`npm run native:bench` re-measures both on any machine.
+Linked with `-O2`, the C++ build compiles the compiler in **3.1 s** against
+**7.3 s** for the Node build of the same sources on the same machine, and
+`tests/fixtures/hello.rgr` in **153 ms** against **310 ms** (best of 3 and of 5
+runs, `npm run native:bench`). Both write the same bytes. That is 2.0–2.4×, and
+it holds at both ends of the size range: the win is not only amortized startup.
 
 What it costs is build time on the other side: `g++ -O2` over the 63k-line,
 2.7 MB translation unit takes ~2m20s and ~2 GB of memory, once, and the result

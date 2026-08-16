@@ -375,12 +375,11 @@ The archive is the whole product: the binary plus `Lang.rgr`, `stdops.rgr` and
 `rangerc` or point `RANGER_LIB` at them. On macOS the download is unsigned, so
 Gatekeeper quarantines it: `xattr -d com.apple.quarantine rangerc`.
 
-It is also the fastest way to run the compiler. Compiling the compiler itself
-(the largest Ranger program here, ~63k lines of generated output) takes **3.2 s**
-with the native binary against **9.1 s** on Node — 2.8× — and the JavaScript the
-two write is identical, byte for byte. On small files the difference is
-startup-sized (0.48 s vs 0.66 s on `hello.rgr`), so the win is for large sources
-and for build loops that invoke the compiler many times.
+It is also the fastest way to run the compiler. Compiling the compiler itself —
+the largest Ranger program here — takes **3.1 s** with the native binary against
+**7.3 s** on Node, and `hello.rgr` takes **153 ms** against **310 ms** (best of
+several runs, `npm run native:bench`). So roughly **2–2.4×** across the range,
+and the JavaScript the two write is identical, byte for byte.
 
 Building one yourself needs Node (to generate the C++) and a C++17 compiler:
 
@@ -395,8 +394,8 @@ npm run native:bench            # native vs Node on the compiler's own source
 published (`workflow_dispatch` builds them on demand). Each platform runs the
 bootstrap check first: the freshly linked binary compiles the compiler, and the
 JavaScript has to match what the Node build writes from the same sources —
-so a binary that reaches a release has already compiled a 40k-line Ranger
-program correctly on that platform.
+so a binary that reaches a release has already compiled the 115k lines of
+Ranger under `compiler/` correctly on that platform.
 
 Running `ranger-compiler` without arguments shows available command-line options:
 
