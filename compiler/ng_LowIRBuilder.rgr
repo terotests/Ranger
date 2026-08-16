@@ -624,6 +624,14 @@ class LowIRBuilderPass {
     if (node.hasNewOper) {
       return true
     }
+    ; `this` is the self POINTER, converted with ptrtoint wherever it is used
+    ; as a value. It is a parameter, not a slot, so the name-based tests below
+    ; never saw it: `(ast == this)` compared two i64s as i32.
+    if (node.value_type == RangerNodeType.VRef) {
+      if (node.vref == "this") {
+        return true
+      }
+    }
     ; `unwrap x` is a no-op at this level: it has the pointer-ness of its
     ; operand. Without this `push kids (unwrap node.body)` looked like a scalar
     ; and the already-pointer-sized field load was widened with `zext i32`.
@@ -720,6 +728,12 @@ class LowIRBuilderPass {
       return false
     }
     if (LowIRUtil.isSupportedPrimitive(typeName)) {
+      return false
+    }
+    ; An enum is an int. Counting it as an object made every call returning one
+    ; look like a reference the caller owns, and the scope end handed the enum
+    ; VALUE to ranger_obj_release.
+    if (this.isEnumTypeName(typeName)) {
       return false
     }
     return true
@@ -1690,10 +1704,31 @@ class LowIRBuilderPass {
       return false
     }
     def op (itemNode.getOperator())
+    ; `unwrap` is transparent: `push list (unwrap (get m n))` is the same read
+    ; with a wrapper around it, and stopping at the wrapper widened a value
+    ; that was already pointer sized.
+    if (op == "unwrap") {
+      return (this.exprIsPtrSizedRead((itemNode.getSecond()) lctx))
+    }
     if ((op != "itemAt") && (op != "get")) {
       return false
     }
     def collNode (itemNode.getSecond())
+    ; `(get m k)` on a MAP: the runtime answers i64 for every value kind except
+    ; int, so an object or string value is already pointer sized. Only the
+    ; array element type was consulted, so `push list (get map n)` widened a
+    ; value that was an i64 already.
+    if (op == "get") {
+      if (collNode.value_type == RangerNodeType.VRef) {
+        def mk:string (this.smapValueKind(collNode.vref lctx))
+        if (this.isStringMapVref(collNode.vref lctx)) {
+          if (mk == "int") {
+            return false
+          }
+          return true
+        }
+      }
+    }
     def elemType (this.arrayElemTypeName(collNode lctx))
     if ((strlen elemType) == 0) {
       return false
@@ -1808,7 +1843,11 @@ class LowIRBuilderPass {
     ; `zext i32 <i64 value>`.
     if (elemIsStr == false) {
       if ((this.argIrType(valNode lctx)) == "i32") {
-        needle = (builder.emitCast("zext" "i64" "i32" needle))
+        if (this.exprProducesI1(valNode lctx)) {
+          needle = (builder.emitCast("zext" "i64" "i1" needle))
+        } {
+          needle = (builder.emitCast("zext" "i64" "i32" needle))
+        }
       }
     }
     this.usedPtrArrayRuntime = true
@@ -1900,7 +1939,13 @@ class LowIRBuilderPass {
     ; the conversion passed `i64 <ptr value>`, which clang rejects.
     if (lctx.ptrType == "i64") {
       if (this.pushItemNeedsWiden(itemNode lctx)) {
-        itemAddr = (lctx.builder.emitCast("zext" "i64" "i32" itemAddr))
+        ; A boolean element arrives as i1, an int one as i32 -- widen from
+        ; whichever it really is, the way lowerCollectionSet already did.
+        if (this.exprProducesI1(itemNode lctx)) {
+          itemAddr = (lctx.builder.emitCast("zext" "i64" "i1" itemAddr))
+        } {
+          itemAddr = (lctx.builder.emitCast("zext" "i64" "i32" itemAddr))
+        }
       } {
         if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
           ; The array OWNS its string elements (element kind 2 -- released with
@@ -2384,6 +2429,33 @@ class LowIRBuilderPass {
     def codeRes (builder.emitCall(fnName "i8*" args argTypes))
     this.registerFreshStringTemp(codeRes lctx)
     return codeRes
+  }
+
+  ; strlen of an ALREADY-CHOSEN operand node (lowerStrlen takes the operator
+  ; node and reads its second child).
+  fn lowerStrlenOn:string (textNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def strPtr (this.lowerExpr(textNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    def lenFn:string "strlen"
+    if (this.wasmStrEnabled(lctx)) {
+      lenFn = "ranger_str_len"
+    }
+    return (builder.emitCall(lenFn "i32" args argTypes))
+  }
+
+  ; Peel `(unwrap x)` wrappers off an expression.
+  fn unwrapUnwrapOper:CodeNode (node:CodeNode) {
+    def n (this.unwrapCondExpr(node))
+    if n.has_operator {
+      if ((n.getOperator()) == "unwrap") {
+        return (this.unwrapUnwrapOper((n.getSecond())))
+      }
+    }
+    return n
   }
 
   fn lowerStrlen:string (node:CodeNode lctx:LowIRLowerContext) {
@@ -3191,7 +3263,11 @@ class LowIRBuilderPass {
     ; the array's slots are pointer sized: widen a 32-bit element the same way
     ; lowerPush does, and convert a string pointer to its integer form.
     if (this.pushItemNeedsWiden(valNode lctx)) {
-      val = (lctx.builder.emitCast("zext" "i64" "i32" val))
+      if (this.exprProducesI1(valNode lctx)) {
+        val = (lctx.builder.emitCast("zext" "i64" "i1" val))
+      } {
+        val = (lctx.builder.emitCast("zext" "i64" "i32" val))
+      }
     } {
       if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
         def ownedStr:string val
@@ -4328,6 +4404,34 @@ class LowIRBuilderPass {
   }
 
   ; "int", "string" or "" (an object/pointer value) for the map named by vref.
+  ; Does this name refer to a [string:T] map? Reads type information only --
+  ; smapDescFromVref EMITS a field load, so it can not be used as a predicate.
+  fn isStringMapVref:boolean (vref:string lctx:LowIRLowerContext) {
+    if (has lctx.smapValueTypes vref) {
+      return true
+    }
+    if ((this.collectionKind(vref lctx)) == "smap") {
+      return true
+    }
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      def n:int (array_length parts)
+      if (n >= 2) {
+        def recv:string (this.joinDotPrefix(parts (n - 1)))
+        def fld (itemAt parts (n - 1))
+        def cls (this.resolveObjectClassChain(recv lctx))
+        if ((strlen cls) > 0) {
+          return (this.fieldIsStringMapSlot(cls fld))
+        }
+      }
+      return false
+    }
+    if (this.isClassField(vref lctx.className this.irModule)) {
+      return (this.fieldIsStringMapSlot(lctx.className vref))
+    }
+    return false
+  }
+
   fn smapValueKind:string (vref:string lctx:LowIRLowerContext) {
     ; A LOCAL string map records its value type on the context (no field to
     ; carry it), so answer from there before looking for a class field.
@@ -4481,16 +4585,20 @@ class LowIRBuilderPass {
       if ((array_length parts) < 2) {
         return ""
       }
-      def recv (itemAt parts 0)
-      def fld (itemAt parts 1)
-      def cls (this.resolveObjectClass(recv lctx))
+      ; The receiver is EVERYTHING before the last segment, so a chain such as
+      ; `cl.node.children` resolves too. Reading only parts 0 and 1 made a
+      ; three-deep array reference produce a bare `%cl.node.children`.
+      def n:int (array_length parts)
+      def recv:string (this.joinDotPrefix(parts (n - 1)))
+      def fld (itemAt parts (n - 1))
+      def cls (this.resolveObjectClassChain(recv lctx))
       if ((strlen cls) == 0) {
         return ""
       }
       if (this.fieldIsPtrArraySlot(cls fld) == false) {
         return ""
       }
-      def sptr (this.resolveObjectPtr(recv cls lctx))
+      def sptr (this.resolveObjectPtrChain(recv cls lctx))
       return (this.emitFieldLoadOn(cls sptr fld lctx))
     }
     if (this.isClassField(vref lctx.className this.irModule)) {
@@ -4533,7 +4641,10 @@ class LowIRBuilderPass {
       return ""
     }
     def cl (unwrap (get appCtx.definedClasses className))
-    for cl.variables v:RangerAppParamDesc i {
+    ; INHERITED fields too -- the struct is flat, and a field declared on a
+    ; base class is just as much a field of this one.
+    def allVars (this.collectStructVars(cl appCtx))
+    for allVars v:RangerAppParamDesc i {
       if (v.name == fieldName) {
         if (null? v.nameNode) {
           return ""
@@ -4940,7 +5051,11 @@ class LowIRBuilderPass {
       return ""
     }
     def cl (unwrap (get appCtx.definedClasses className))
-    for cl.variables v:RangerAppParamDesc i {
+    ; INHERITED fields too: `cl.node.children` walks through RangerAppClassDesc's
+    ; `node`, which is declared on the base class. Without this the chain
+    ; resolved to nothing and the array read emitted a bare `%cl.node.children`.
+    def allVars (this.collectStructVars(cl appCtx))
+    for allVars v:RangerAppParamDesc i {
       if (v.name == fieldName) {
         if (null? v.nameNode) {
           return ""
@@ -5148,7 +5263,10 @@ class LowIRBuilderPass {
       return
     }
     def cl (unwrap (get appCtx.definedClasses className))
-    for cl.variables v:RangerAppParamDesc i {
+    ; Inherited fields need their defaults too, or a base-class field starts as
+    ; whatever the allocator left there.
+    def allVars (this.collectStructVars(cl appCtx))
+    for allVars v:RangerAppParamDesc i {
       if (this.isObjectArrayField(v)) {
         continue
       }
@@ -7343,6 +7461,14 @@ class LowIRBuilderPass {
       this.claimObjectTemp(tmp lctx)
       this.flushObjectTempsFrom(0 lctx)
       this.emitReleaseOwnedLocals(lctx)
+      ; A boolean function returns i1, but plenty of boolean-valued
+      ; expressions arrive as i32 -- a `[string:boolean]` map read comes back
+      ; through the int path, for one. Narrow rather than emit `ret i1 <i32>`.
+      if (retType == "i1") {
+        if ((this.exprProducesI1(valNode lctx)) == false) {
+          tmp = (this.toI1(tmp lctx))
+        }
+      }
       builder.terminateRet(retType tmp)
     } {
       this.emitReleaseOwnedLocals(lctx)
@@ -8018,6 +8144,9 @@ class LowIRBuilderPass {
       if (opName == "trim") {
         return (this.lowerStr1Fn(node "ranger_str_trim" lctx))
       }
+      if (opName == "trim_right") {
+        return (this.lowerStr1Fn(node "ranger_str_trim_right" lctx))
+      }
       if (opName == "to_lowercase") {
         return (this.lowerStr1Fn(node "ranger_str_lower" lctx))
       }
@@ -8136,6 +8265,20 @@ class LowIRBuilderPass {
         ; read, a call) is the remaining case; anything else is a collection.
         if (this.exprIsStringish(lenNode lctx)) {
           return (this.lowerStrlen(node lctx))
+        }
+        ; A `charbuffer` IS the string's own bytes on this backend (that is what
+        ; to_charbuffer answers), so its length is the string length. Sending it
+        ; to the collection path answered the pointer itself.
+        def lenInner (this.unwrapUnwrapOper(lenNode))
+        def lenTn:string lenInner.eval_type_name
+        if ((strlen lenTn) == 0) {
+          lenTn = lenInner.type_name
+        }
+        if (lenTn == "charbuffer") {
+          return (this.lowerStrlenOn(lenInner lctx))
+        }
+        if (LowIRUtil.isStringType(lenTn)) {
+          return (this.lowerStrlenOn(lenInner lctx))
         }
         return (this.lowerCollectionLen(node lctx))
       }
@@ -8414,6 +8557,7 @@ class LowIRBuilderPass {
     ; argument was passed as i32 while the value was an i8*, which clang
     ; rejects outright.
     if (op == "trim") { return true }
+    if (op == "trim_right") { return true }
     if (op == "to_lowercase") { return true }
     if (op == "to_uppercase") { return true }
     if (op == "replace") { return true }
@@ -8623,24 +8767,25 @@ class LowIRBuilderPass {
     ; invalid IR and, if it had been accepted, would have compared only the low
     ; half of the address.
     if (lctx.ptrType != "i32") {
-      def aPtr:boolean (this.exprIsObjectPtr(aNode lctx))
-      def bPtr:boolean (this.exprIsObjectPtr(bNode lctx))
+      ; The width each side ACTUALLY has, not just whether it is recognisably a
+      ; new/vref object: a local bound from a map read, a `this`, or a call
+      ; answering a class are all pointer sized, and asking about only some of
+      ; them left `(ast == this)` comparing two i64 values as i32.
+      def aPtr:boolean ((this.exprIsObjectPtr(aNode lctx)) || ((this.argIrType(aNode lctx)) == lctx.ptrType))
+      def bPtr:boolean ((this.exprIsObjectPtr(bNode lctx)) || ((this.argIrType(bNode lctx)) == lctx.ptrType))
       if (aPtr || bPtr) {
         if (aPtr && bPtr) {
           return (builder.emitIcmpTyped(pred lctx.ptrType a b))
         }
-        ; One side is a pointer and the other an integer literal (null is 0):
-        ; widen the literal rather than truncating the address.
+        ; One side is pointer sized and the other is not (an integer literal --
+        ; null is 0 -- or a 32-bit value): widen it rather than truncating the
+        ; address.
         if aPtr {
-          if (bNode.value_type == RangerNodeType.Integer) {
-            def bw (builder.emitCast("zext" lctx.ptrType "i32" b))
-            return (builder.emitIcmpTyped(pred lctx.ptrType a bw))
-          }
+          def bw (builder.emitCast("zext" lctx.ptrType "i32" b))
+          return (builder.emitIcmpTyped(pred lctx.ptrType a bw))
         } {
-          if (aNode.value_type == RangerNodeType.Integer) {
-            def aw (builder.emitCast("zext" lctx.ptrType "i32" a))
-            return (builder.emitIcmpTyped(pred lctx.ptrType aw b))
-          }
+          def aw (builder.emitCast("zext" lctx.ptrType "i32" a))
+          return (builder.emitIcmpTyped(pred lctx.ptrType aw b))
         }
       }
     }

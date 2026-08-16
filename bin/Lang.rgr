@@ -4621,6 +4621,7 @@ inline std::string  r_cpp_trim(const std::string &s)
         trim_right       cmdTrimRight:string       ( value:string ) { 
             templates {
                 ranger ( "(trim_right " (e 1 ) ")")                
+                llvm ( "(trim_right " (e 1) ")" )
                 swift3 ( (e 1 ) ".trimmingCharacters(in: .whitespaces)" (imp "Foundation"))                
                 swift6 ( (e 1 ) ".trimmingCharacters(in: .whitespaces)" (imp "Foundation"))                
                 php ( "rtrim(" (e 1 ) ")")

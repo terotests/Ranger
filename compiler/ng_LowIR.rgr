@@ -17,6 +17,13 @@ class LowIRUtil {
       case "double" {
         return "f64"
       }
+      ; A `char` is a code unit -- charAt and ccode both answer one, and every
+      ; other target treats it as an integer. Leaving it out of this table made
+      ; isObjectTypeName call it an object, so `firstC == (ccode "-")` compared
+      ; an i32 against a value the backend had decided was pointer sized.
+      case "char" {
+        return "i32"
+      }
       case "void" {
         return "void"
       }
@@ -29,7 +36,15 @@ class LowIRUtil {
     return ((strlen t) > 0)
   }
 
+  ; `charbuffer` is the string's own bytes on this backend -- `to_charbuffer`
+  ; hands back the pointer it was given, the way the C++ template answers
+  ; `c_str()`. Treating it as anything else made a charbuffer FIELD an object:
+  ; the assignment emitted ranger_obj_retain over an i8*, and `length` on one
+  ; went to the collection path and answered the pointer.
   static fn isStringType:boolean (typeName:string) {
+    if (typeName == "charbuffer") {
+      return true
+    }
     return (typeName == "string")
   }
 

@@ -1603,3 +1603,29 @@ char *ranger_str_join(int64_t desc_addr, const char *sep) {
   *w = '\0';
   return out;
 }
+
+/* `trim_right` -- trailing whitespace only. */
+char *ranger_str_trim_right(const char *text) {
+  const char *e;
+  char *out;
+  size_t n;
+  if (text == NULL) {
+    return ranger_strdup("");
+  }
+  e = text + strlen(text);
+  while (e > text) {
+    char c = *(e - 1);
+    if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+      break;
+    }
+    e--;
+  }
+  n = (size_t)(e - text);
+  out = (char *)malloc(n + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  memcpy(out, text, n);
+  out[n] = '\0';
+  return out;
+}
