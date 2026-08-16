@@ -271,11 +271,19 @@ function bounds(points) {
 // the curve's SIZE rather than being a constant: a fixed count samples a
 // 300px-wide arc so coarsely that the chords sag three quarters of a pixel
 // inside it, and the comparison then reports the sag as a difference in the
-// chart. The target is a twentieth of a pixel, well under the tolerance.
+// chart.
+//
+// FLATNESS is the sag an arc is allowed, and it sets the step angle directly.
+// A bezier has no radius to compute one from, so it gets a chord of about a
+// pixel and a half instead — on the tightest curve a chart contains, a
+// symbol only a few pixels across, that sags well under a twentieth of a
+// pixel. Both are far inside the quarter-pixel tolerance, which is the point:
+// the sampling must never be what a difference is measuring.
 const FLATNESS = 0.05;
+const CHORD = 1.5;
 
 function stepsFor(span) {
-  return Math.max(4, Math.min(400, Math.ceil(span / 3)));
+  return Math.max(6, Math.min(600, Math.ceil(span / CHORD)));
 }
 
 function flattenPath(d) {
