@@ -1035,6 +1035,31 @@ class LowIRBuilderPass {
     if (bType == "i32") {
       bVal = (this.coerceArg(bVal "i32" lctx))
     }
+    ; Both sides ended up strings, which is the overwhelmingly common `+`.
+    ; Formatting them costs five traversals of the operands and two
+    ; allocations, all through printf: measure with snprintf, allocate, format
+    ; with sprintf, strdup the result, free the buffer. callgrind on the
+    ; compiler compiling itself put strlen at 46% of all instructions and
+    ; malloc at another 11%, and this is where they came from. One runtime call
+    ; does it in one traversal each and one allocation.
+    def concatTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (concatTarget.usesLibc && ((aType == "i8*") && (bType == "i8*"))) {
+      def ccParams:[string]
+      push ccParams "i8*"
+      push ccParams "i8*"
+      this.ensureExternDecl("ranger_str_concat2" "i8*" ccParams false)
+      def ccArgs:[string]
+      def ccTypes:[string]
+      push ccArgs aVal
+      push ccTypes "i8*"
+      push ccArgs bVal
+      push ccTypes "i8*"
+      def ccRes (builder.emitCall("ranger_str_concat2" "i8*" ccArgs ccTypes))
+      ; the result is a fresh malloc'd buffer bound to no local, exactly like
+      ; the strdup the general path returns
+      this.registerFreshStringTemp(ccRes lctx)
+      return ccRes
+    }
     def fmtLit:string (aFmt + bFmt)
     def fmtG (this.internStringGlobal(fmtLit false))
     def fmtPtr (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))

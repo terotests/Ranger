@@ -177,6 +177,37 @@ int ranger_str2int(const char *text) {
  * result is owned by the caller and ranger_str_release frees it. Handing back
  * a static buffer aborted the process the first time such a string went out
  * of scope ("munmap_chunk(): invalid pointer"). */
+/* `a + b` where both sides are already strings.
+ *
+ * The general concat path measures with snprintf, allocates, formats with
+ * sprintf and then strdups the result: five traversals of the operands and two
+ * allocations for every `+`, all of it through printf's format machinery.
+ * callgrind on the compiler compiling itself put strlen at 46% of all
+ * instructions and malloc at another 11%. This is one traversal of each
+ * operand and one allocation.
+ *
+ * A NULL operand is the empty string, the same convention ranger_strdup uses. */
+char *ranger_str_concat2(const char *a, const char *b) {
+  size_t la, lb;
+  char *out;
+  if (a == NULL) {
+    a = "";
+  }
+  if (b == NULL) {
+    b = "";
+  }
+  la = strlen(a);
+  lb = strlen(b);
+  out = (char *)malloc(la + lb + 1);
+  if (out == NULL) {
+    return NULL;
+  }
+  memcpy(out, a, la);
+  memcpy(out + la, b, lb);
+  out[la + lb] = '\0';
+  return out;
+}
+
 char *ranger_strdup(const char *text) {
   size_t n;
   char *copy;

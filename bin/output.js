@@ -44333,6 +44333,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( bType == "i32" ) {
                             bVal = this.coerceArg(bVal, "i32", lctx);
                           }
+                          const concatTarget = LowIRTarget.resolve((lctx.ctx));
+                          if ( concatTarget.usesLibc && ((aType == "i8*") && (bType == "i8*")) ) {
+                            let ccParams = [];
+                            ccParams.push("i8*");
+                            ccParams.push("i8*");
+                            this.ensureExternDecl("ranger_str_concat2", "i8*", ccParams, false);
+                            let ccArgs = [];
+                            let ccTypes = [];
+                            ccArgs.push(aVal);
+                            ccTypes.push("i8*");
+                            ccArgs.push(bVal);
+                            ccTypes.push("i8*");
+                            const ccRes = builder.emitCall("ranger_str_concat2", "i8*", ccArgs, ccTypes);
+                            this.registerFreshStringTemp(ccRes, lctx);
+                            return ccRes;
+                          }
                           const fmtLit = aFmt + bFmt;
                           const fmtG = this.internStringGlobal(fmtLit, false);
                           const fmtPtr = builder.emitStrPtr(fmtG, this.stringGlobalByteLen(fmtG));
