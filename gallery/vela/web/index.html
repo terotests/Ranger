@@ -97,6 +97,23 @@
     border-radius: 4px;
   }
 
+  /* The faces the EVG layout resolved to, so the GPU viewer draws the text
+     with the same metrics the layout measured. */
+  /* The family names are the ones the display list carries, which are the
+     names the layout registered — "Noto Sans-Bold" is a family here, not a
+     weight, because that is how the canvas atlas asks for it. */
+  @font-face { font-family: "Noto Sans"; src: url("gl/fonts/NotoSans-Regular.ttf") format("truetype"); }
+  @font-face { font-family: "Noto Sans-Bold"; src: url("gl/fonts/NotoSans-Bold.ttf") format("truetype"); }
+
+  #glWrap canvas, #pngWrap img {
+    border: 1px solid var(--line); border-radius: 4px; background: #fff; max-width: 100%;
+  }
+  #pngWrap img[src=""] { display: none; }
+  #pdfWrap iframe {
+    width: 100%; height: 70vh; min-height: 320px;
+    border: 1px solid var(--line); border-radius: 4px; background: #fff;
+  }
+
   pre.vega {
     margin: 0; padding: 12px; overflow: auto;
     font-family: var(--mono); font-size: 12px; line-height: 1.5;
@@ -126,6 +143,11 @@
     compile to C++ — so what you see is what this repository draws. Paste Vega or Vega-Lite;
     a <code>data.url</code> is fetched by the page and handed to the runtime as values, because the
     runtime has no loader of its own. What it cannot draw, it says so rather than drawing something else.
+    The same chart is offered three ways: <strong>Chart</strong> is Vela's own SVG,
+    <strong>WebGL</strong> takes it through the EVG layout engine to a display list drawn on the GPU,
+    and <strong>PNG</strong> and <strong>PDF</strong> are finished bytes — an image from this
+    repository's own rasteriser and encoder, and a print file from its own PDF writer, faces
+    embedded. Four backends sharing one scene: if they agree, the geometry is the chart's.
   </p>
 </header>
 
@@ -155,18 +177,44 @@
       <span class="grow"></span>
       <span class="status" id="status"></span>
       <button id="tab-svg" class="primary">Chart</button>
+      <button id="tab-gl">WebGL</button>
+      <button id="tab-png">PNG</button>
+      <button id="tab-pdf">PDF</button>
       <button id="tab-vega">Compiled Vega</button>
       <button id="download">Download SVG</button>
     </div>
     <div class="out" id="out">
       <div id="messages"></div>
       <div id="chart"></div>
+      <div id="glWrap" class="hidden">
+        <p class="status" id="glNote">…</p>
+        <canvas id="gl"></canvas>
+      </div>
+      <div id="pngWrap" class="hidden">
+        <p class="status" id="pngNote">…</p>
+        <img id="pngImg" alt="">
+      </div>
+      <div id="pdfWrap" class="hidden">
+        <p class="status" id="pdfNote">…</p>
+        <iframe id="pdfFrame" title="the chart as a PDF"></iframe>
+        <p class="status">
+          The preview is your browser's own PDF viewer. Some browsers — and every headless
+          one — will not display a PDF in a frame; the file itself is fine, and
+          <strong>Download PDF</strong> gets it.
+        </p>
+      </div>
       <pre class="vega hidden" id="vega"></pre>
     </div>
   </section>
 </main>
 
 <script src="vela_web.js"></script>
+<script type="module">
+  // The GPU viewer is a module; the page's own script is not, so it is handed
+  // over on the window rather than imported twice.
+  import { renderDisplayList } from "./gl/evg-webgl.js";
+  window.__evgRender = renderDisplayList;
+</script>
 <script>
 (function () {
   "use strict";
@@ -181,6 +229,10 @@
   var specBox = $("spec"), out = $("out"), chart = $("chart"), vegaPane = $("vega");
   var messages = $("messages"), status = $("status");
   var lastSvg = "";
+  // The specification as the runtime saw it — data already inlined by the
+  // page. The other backends have to be given this and not what is in the
+  // box, or they would draw a different chart from the same paste.
+  var lastSpec = "";
 
   var EXAMPLES = {
     "Bar chart (Vega-Lite)": {
@@ -396,6 +448,12 @@
   async function render() {
     try {
       await draw();
+      // The other backends are only rebuilt when one of them is the tab being
+      // looked at — laying a chart out again for a pane nobody has opened is
+      // waste, and the rasteriser is not cheap.
+      if (glTab.active) await drawGl();
+      if (pngTab.active) await drawPng();
+      if (pdfTab.active) await drawPdf();
     } finally {
       window.__velaRenders++;
     }
@@ -406,6 +464,7 @@
     chart.textContent = "";
     vegaPane.textContent = "";
     lastSvg = "";
+    lastSpec = "";
     status.textContent = "…";
 
     var text = specBox.value.trim();
@@ -453,6 +512,7 @@
     }
 
     lastSvg = answer.svg;
+    lastSpec = text;
     var stage = document.createElement("div");
     stage.className = "stage";
     stage.innerHTML = answer.svg;
@@ -461,26 +521,326 @@
     status.textContent = answer.commands + " draw commands";
   }
 
+  // ---- the GPU target -----------------------------------------------------
+  // The same chart, taken the other way round the repository: the
+  // specification becomes EVG page source, that source is parsed, styled and
+  // laid out with real TrueType metrics, and the flat display list which falls
+  // out of the layout is handed to the WebGL viewer. Everything up to the
+  // viewer is Ranger — the runtime, the EVG writer, the JSX parser, the layout
+  // engine — and the viewer is the same one the EVG showcase uses.
+  //
+  // So the two tabs are not two drawings of one picture. They are two
+  // backends, sharing only the scene: if they agree, the geometry is the
+  // scene's and not the renderer's.
+  //
+  // Fonts are the one thing the browser has to hand over. The layout measures
+  // with the actual faces, and the loader that would read them off disk has no
+  // disk here, so the page fetches the TTFs and passes the bytes in.
+
+  var FACES = [
+    ["Noto Sans", "gl/fonts/NotoSans-Regular.ttf"],
+    ["Noto Sans-Bold", "gl/fonts/NotoSans-Bold.ttf"]
+  ];
+
+  var glWrap = $("glWrap"), glNote = $("glNote"), glCanvas = $("gl");
+  var pngWrap = $("pngWrap"), pngNote = $("pngNote"), pngImg = $("pngImg");
+  var pdfWrap = $("pdfWrap"), pdfNote = $("pdfNote"), pdfFrame = $("pdfFrame");
+  var glTab = { active: false, drawn: null, loading: null, targets: null };
+  var pngTab = { active: false, drawn: null, url: "", bytes: 0 };
+  var pdfTab = { active: false, drawn: null, url: "", bytes: 0 };
+
+  // The EVG bundle is a second copy of the whole engine and is about a
+  // megabyte, so it is fetched when the tab is first opened rather than on
+  // load. Nobody pays for a target they never look at.
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error(src + " did not load")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function glTargets() {
+    if (glTab.loading) return glTab.loading;
+    glTab.loading = (async function () {
+      if (typeof window.VelaTargets !== "function") await loadScript("vela_targets.js");
+      if (typeof window.VelaTargets !== "function") {
+        throw new Error("vela_targets.js loaded but defines no VelaTargets");
+      }
+      var t = new window.VelaTargets();
+      for (var i = 0; i < FACES.length; i++) {
+        var res = await fetch(FACES[i][1]);
+        if (!res.ok) throw new Error(FACES[i][1] + " — HTTP " + res.status);
+        var bytes = await res.arrayBuffer();
+        // A Ranger `buffer` is an ArrayBuffer with a DataView hung off it —
+        // that is what its own loader attaches, so handing bytes in from
+        // outside means doing the same.
+        bytes._view = new DataView(bytes);
+        if (!t.addFont(FACES[i][0], bytes)) {
+          throw new Error(FACES[i][1] + " is not a TrueType font");
+        }
+      }
+      glTab.targets = t;
+      return t;
+    })();
+    return glTab.loading;
+  }
+
+  // A fresh canvas per drawing. A WebGL context lives as long as the element
+  // it came from, and the viewer builds its programs and atlas on every call,
+  // so reusing one canvas would pile up a context's worth of state per render.
+  function freshCanvas(width, height, dpr) {
+    var c = document.createElement("canvas");
+    c.id = "gl";
+    c.style.width = width + "px";
+    c.style.height = height + "px";
+    c.width = Math.round(width * dpr);
+    c.height = Math.round(height * dpr);
+    glCanvas.replaceWith(c);
+    glCanvas = c;
+    return c;
+  }
+
+  async function drawGl() {
+    var key = lastSpec + "\u0000" + $("zone").value;
+    if (!lastSpec) {
+      glNote.textContent = "Nothing has been drawn yet.";
+      glTab.drawn = null;
+      return;
+    }
+    if (glTab.drawn === key) return;      // already on screen
+    glTab.drawn = null;
+
+    glNote.textContent = "reading the faces…";
+    var targets;
+    try {
+      targets = await glTargets();
+    } catch (err) {
+      glNote.textContent = "the fonts the layout measures with could not be read: "
+        + (err && err.message ? err.message : String(err));
+      return;
+    }
+
+    glNote.textContent = "laying the chart out with TrueType metrics…";
+    var tsx = targets.evgSource(lastSpec, $("zone").value);
+    if (!tsx) {
+      glNote.textContent = "the EVG backend would not draw this: " + targets.errors.join(" · ");
+      return;
+    }
+    var json = targets.displayList(tsx, "", "", targets.pageWidth, targets.pageHeight);
+    if (!json) {
+      glNote.textContent = "the layout produced nothing: " + targets.errors.join(" · ");
+      return;
+    }
+    var doc = JSON.parse(json);
+
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var canvas = freshCanvas(doc.width, doc.height, dpr);
+    var gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+    if (!gl) {
+      glNote.textContent = "this browser has no WebGL 2, so there is nothing to draw the display list with";
+      return;
+    }
+
+    // A face nothing has used yet is not fetched until something asks for it
+    // at a size, and the atlas is drawn on a canvas — which would silently
+    // fall back to a default face if the real one had not arrived.
+    await document.fonts.ready;
+    await Promise.all(doc.list.cmds.filter(function (c) { return c.text; })
+      .map(function (c) {
+        return document.fonts.load(c.size + 'px "' + c.font + '"').catch(function () {});
+      }));
+
+    if (typeof window.__evgRender !== "function") {
+      glNote.textContent = "the WebGL viewer module did not load (gl/evg-webgl.js)";
+      return;
+    }
+    var stats;
+    try {
+      stats = window.__evgRender(gl, doc, { dpr });
+    } catch (err) {
+      window.__evgStats = { error: String(err) };
+      glNote.textContent = "the viewer threw: " + (err && err.message ? err.message : String(err));
+      return;
+    }
+    window.__evgStats = stats;
+    glTab.drawn = key;
+    glNote.textContent = doc.width + "×" + doc.height + " · " + stats.drawn + " quads · "
+      + (stats.paths || 0) + " paths · " + stats.textRuns + " text runs"
+      + (stats.skippedFills ? " · " + stats.skippedFills + " fills need a stencil buffer" : "")
+      + (targets.errors.length ? " · " + targets.errors.join(" · ") : "");
+  }
+
+  // ---- the raster target --------------------------------------------------
+  // The third way out of the same layout: this repository's own scan-line
+  // rasteriser fills the paths and paints the glyph outlines, and its own
+  // encoder deflates the result into a PNG. The browser is handed finished
+  // bytes — no canvas, no GPU — so what is on screen here was computed by
+  // Ranger down to the last row of the image.
+
+  async function drawPng() {
+    var key = lastSpec + "\u0000" + $("zone").value;
+    if (!lastSpec) {
+      pngNote.textContent = "Nothing has been drawn yet.";
+      pngTab.drawn = null;
+      return;
+    }
+    if (pngTab.drawn === key) return;
+    pngTab.drawn = null;
+
+    var targets;
+    try {
+      targets = await glTargets();
+    } catch (err) {
+      pngNote.textContent = "the fonts the rasteriser paints with could not be read: "
+        + (err && err.message ? err.message : String(err));
+      return;
+    }
+
+    var tsx = targets.evgSource(lastSpec, $("zone").value);
+    if (!tsx) {
+      pngNote.textContent = "the EVG backend would not draw this: " + targets.errors.join(" · ");
+      return;
+    }
+    var scale = Math.min(2, window.devicePixelRatio || 1);
+    var wide = Math.round(targets.pageWidth), tall = Math.round(targets.pageHeight);
+    pngNote.textContent = "rasterising " + Math.round(wide * scale) + "×" + Math.round(tall * scale)
+      + " pixels in Ranger…";
+    // The rasteriser runs on this thread, so the line above has to be given a
+    // frame to appear in before the page stops answering.
+    await new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
+
+    var started = performance.now();
+    var bytes;
+    try {
+      bytes = targets.png(tsx, "", "", targets.pageWidth, targets.pageHeight, scale);
+    } catch (err) {
+      pngNote.textContent = "the rasteriser threw: " + (err && err.message ? err.message : String(err));
+      return;
+    }
+    if (!bytes || !bytes.byteLength) {
+      pngNote.textContent = "the rasteriser produced no image: " + targets.errors.join(" · ");
+      return;
+    }
+    var took = Math.round(performance.now() - started);
+
+    if (pngTab.url) URL.revokeObjectURL(pngTab.url);
+    pngTab.url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    pngTab.bytes = bytes.byteLength;
+    pngImg.src = pngTab.url;
+    pngImg.style.width = wide + "px";
+    pngImg.style.height = tall + "px";
+    pngTab.drawn = key;
+    pngNote.textContent = Math.round(wide * scale) + "×" + Math.round(tall * scale) + " pixels · "
+      + Math.round(bytes.byteLength / 1024) + " kB · encoded in " + took + " ms by Ranger's own"
+      + " rasteriser and PNG writer";
+    window.__velaPng = { bytes: bytes.byteLength, width: Math.round(wide * scale), ms: took };
+  }
+
+  // ---- the print target ---------------------------------------------------
+  // Where the EVG layer started: a real PDF, with the faces embedded, written
+  // by this repository's own PDF writer. The browser is only asked to display
+  // it — which it does with its own viewer, from a blob — so nothing about
+  // the file is the page's doing.
+
+  async function drawPdf() {
+    var key = lastSpec + "\u0000" + $("zone").value;
+    if (!lastSpec) {
+      pdfNote.textContent = "Nothing has been drawn yet.";
+      pdfTab.drawn = null;
+      return;
+    }
+    if (pdfTab.drawn === key) return;
+    pdfTab.drawn = null;
+
+    var targets;
+    try {
+      targets = await glTargets();
+    } catch (err) {
+      pdfNote.textContent = "the fonts the PDF embeds could not be read: "
+        + (err && err.message ? err.message : String(err));
+      return;
+    }
+
+    var tsx = targets.evgSource(lastSpec, $("zone").value);
+    if (!tsx) {
+      pdfNote.textContent = "the EVG backend would not draw this: " + targets.errors.join(" \u00b7 ");
+      return;
+    }
+    pdfNote.textContent = "writing a PDF, with the faces embedded\u2026";
+    await new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
+
+    var started = performance.now();
+    var bytes;
+    try {
+      bytes = targets.pdf(tsx, "", "", targets.pageWidth, targets.pageHeight);
+    } catch (err) {
+      pdfNote.textContent = "the PDF writer threw: " + (err && err.message ? err.message : String(err));
+      return;
+    }
+    if (!bytes || !bytes.byteLength) {
+      pdfNote.textContent = "no PDF was produced: " + targets.errors.join(" \u00b7 ");
+      return;
+    }
+    var took = Math.round(performance.now() - started);
+
+    if (pdfTab.url) URL.revokeObjectURL(pdfTab.url);
+    pdfTab.url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    pdfTab.bytes = bytes.byteLength;
+    pdfFrame.src = pdfTab.url;
+    pdfTab.drawn = key;
+    // Most of the size is the embedded face, which is worth saying — a 240 kB
+    // PDF of a bar chart looks alarming until you know what is in it.
+    pdfNote.textContent = Math.round(targets.pageWidth) + "\u00d7" + Math.round(targets.pageHeight)
+      + " pt \u00b7 " + Math.round(bytes.byteLength / 1024) + " kB, mostly the embedded faces \u00b7 written in "
+      + took + " ms by this repository's own PDF writer"
+      + (targets.errors.length ? " \u00b7 " + targets.errors.join(" \u00b7 ") : "");
+    window.__velaPdf = { bytes: bytes.byteLength, ms: took };
+  }
+
   // ---- wiring -------------------------------------------------------------
 
   function showTab(which) {
-    var isSvg = which === "svg";
-    chart.classList.toggle("hidden", !isSvg);
-    vegaPane.classList.toggle("hidden", isSvg);
-    $("tab-svg").className = isSvg ? "primary" : "";
-    $("tab-vega").className = isSvg ? "" : "primary";
+    chart.classList.toggle("hidden", which !== "svg");
+    vegaPane.classList.toggle("hidden", which !== "vega");
+    glWrap.classList.toggle("hidden", which !== "gl");
+    pngWrap.classList.toggle("hidden", which !== "png");
+    pdfWrap.classList.toggle("hidden", which !== "pdf");
+    ["svg", "gl", "png", "pdf", "vega"].forEach(function (id) {
+      $("tab-" + id).className = which === id ? "primary" : "";
+    });
+    glTab.active = which === "gl";
+    pngTab.active = which === "png";
+    pdfTab.active = which === "pdf";
+    // What the download button hands over follows the tab, since the three
+    // panes are three different files and only one of them is on screen.
+    $("download").textContent = which === "png" ? "Download PNG"
+      : which === "pdf" ? "Download PDF" : "Download SVG";
+    if (glTab.active) drawGl();
+    if (pngTab.active) drawPng();
+    if (pdfTab.active) drawPdf();
   }
 
   $("run").addEventListener("click", render);
-  $("tab-svg").addEventListener("click", function () { showTab("svg"); });
-  $("tab-vega").addEventListener("click", function () { showTab("vega"); });
+  ["svg", "gl", "png", "pdf", "vega"].forEach(function (id) {
+    $("tab-" + id).addEventListener("click", function () { showTab(id); });
+  });
   $("zone").addEventListener("change", render);
 
   $("download").addEventListener("click", function () {
-    if (!lastSvg) return;
-    var blob = new Blob([lastSvg], { type: "image/svg+xml" });
     var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
+    if (pngTab.active || pdfTab.active) {
+      var tab = pngTab.active ? pngTab : pdfTab;
+      if (!tab.url) return;
+      a.href = tab.url;                    // already an object URL; not revoked
+      a.download = pngTab.active ? "vela.png" : "vela.pdf";
+      a.click();
+      return;
+    }
+    if (!lastSvg) return;
+    a.href = URL.createObjectURL(new Blob([lastSvg], { type: "image/svg+xml" }));
     a.download = "vela.svg";
     a.click();
     URL.revokeObjectURL(a.href);
