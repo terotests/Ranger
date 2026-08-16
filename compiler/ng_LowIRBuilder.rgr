@@ -14,6 +14,26 @@ class LowIRLowerContext {
   ; know -- an unknown name used to be emitted verbatim, which is a value
   ; nothing defines.
   def paramNames:[string]
+  ; One entry per active loop shadow (used only to balance push/pop), and a
+  ; monotonic counter that makes every shadow alloca name unique.
+  def shadowStack:[string]
+  def shadowCounter:int 0
+  ; Names whose NEXT bindSlot must allocate a brand-new alloca instead of
+  ; storing into the existing one, because a `def` redeclared a name that is
+  ; already live. Sharing the slot is wrong twice over: with a narrower outer
+  ; type it stores 8 bytes into an `alloca i32` and smashes the frame, and with
+  ; the same type it makes the scope-end release free whatever the OUTER binding
+  ; held on paths where the declaration never ran.
+  def forceFreshSlots:[string]
+  ; Redeclaration journal, unwound by lowerBlock so an inner block's `def` does
+  ; not permanently steal the name from the enclosing scope: slot, IR type, and
+  ; whether the outer binding was an owned string/object/collection local.
+  def reslotNames:[string]
+  def reslotPrevSlots:[string]
+  def reslotPrevTypes:[string]
+  def reslotOwnedStr:[int]
+  def reslotOwnedObj:[int]
+  def reslotOwnedColl:[int]
   def slotTypes:[string:string]
   def objectSlots:[string:string]
   def collectionSlots:[string:string]
@@ -71,6 +91,12 @@ class LambdaCaptureInfo {
   def totalBytes:int 4
   def hasOwned:boolean false
   def tdName:string ""
+  ; The enclosing object. A lambda body has no `self` parameter, so `this.m()`
+  ; inside one had nothing to call through; the closure carries the enclosing
+  ; receiver like any other capture.
+  def capturesSelf:boolean false
+  def selfOffset:int 0
+  def selfClass:string ""
 }
 
 class LowIRBuilderPass {
@@ -2330,7 +2356,12 @@ class LowIRBuilderPass {
     def keyPtr (this.emitSMapCall("RtSMap_keyAt" "i8*" desc kRest kTypes lctx))
     ; The key is the MAP's own buffer, borrowed for the body. It is not
     ; registered as an owned string local: releasing it would free the map's key.
-    this.bindSlot(keyName "i8*" keyPtr lctx)
+    ; Both names SHADOW anything outside the loop, for the same reason the
+    ; array loop shadows its index.
+    push lctx.shadowStack keyName
+    def prevKeySlot:string (this.shadowBind(keyName "i8*" keyPtr lctx))
+    def prevItemSlotM:string ""
+    def itemNameM:string ""
     if hasItem {
       def vRest:[string]
       def vTypes:[string]
@@ -2339,13 +2370,15 @@ class LowIRBuilderPass {
       def rawVal (this.emitSMapCall("RtSMap_get" "i64" desc vRest vTypes lctx))
       def vKind (this.smapValueKind(hashNode.vref lctx))
       def itemName:string itemNode.vref
+      itemNameM = itemName
+      push lctx.shadowStack itemName
       if (vKind == "int") {
-        this.bindSlot(itemName "i32" (builder.emitCast("trunc" "i32" "i64" rawVal)) lctx)
+        prevItemSlotM = (this.shadowBind(itemName "i32" (builder.emitCast("trunc" "i32" "i64" rawVal)) lctx))
       } {
         if (vKind == "string") {
-          this.bindSlot(itemName "i8*" (builder.emitIntToI8Ptr(rawVal lctx.ptrType)) lctx)
+          prevItemSlotM = (this.shadowBind(itemName "i8*" (builder.emitIntToI8Ptr(rawVal lctx.ptrType)) lctx))
         } {
-          this.bindSlot(itemName lctx.ptrType rawVal lctx)
+          prevItemSlotM = (this.shadowBind(itemName lctx.ptrType rawVal lctx))
           def itemClass (this.resolveItemClass(itemNode))
           if ((strlen itemClass) > 0) {
             set lctx.objectSlots itemName itemClass
@@ -2381,6 +2414,12 @@ class LowIRBuilderPass {
     builder.terminateBr(condL)
 
     builder.startBlock(exitL)
+    if hasItem {
+      this.restoreShadow(itemNameM prevItemSlotM lctx)
+      removeLast lctx.shadowStack
+    }
+    this.restoreShadow(keyName prevKeySlot lctx)
+    removeLast lctx.shadowStack
     return true
   }
 
@@ -2405,7 +2444,11 @@ class LowIRBuilderPass {
     push lenTypes lctx.ptrType
     def len (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
     def zero (builder.emitConst("i32" "0"))
-    this.bindSlot(idxName "i32" zero lctx)
+    ; The loop's own index and item SHADOW anything of the same name outside
+    ; it: nested `for … i` is ordinary Ranger, and sharing one slot let the
+    ; inner loop reset the outer counter.
+    push lctx.shadowStack idxName
+    def prevIdxSlot:string (this.shadowBind(idxName "i32" zero lctx))
     def condLabel (builder.freshLabel("for_cond"))
     def bodyLabel (builder.freshLabel("for_body"))
     def exitLabel (builder.freshLabel("for_exit"))
@@ -2430,9 +2473,11 @@ class LowIRBuilderPass {
     ; slot made the declared type (string) and the slot type (i64) disagree, and
     ; every consumer then received an i64 where it wanted i8*.
     def itemIsString:boolean (LowIRUtil.isStringType(itemNode.type_name))
+    push lctx.shadowStack itemName
+    def prevItemSlot:string ""
     if itemIsString {
       def elemStr (builder.emitIntToI8Ptr(elemAddr lctx.ptrType))
-      this.bindSlot(itemName "i8*" elemStr lctx)
+      prevItemSlot = (this.shadowBind(itemName "i8*" elemStr lctx))
     } {
       ; A `[int]` / `[boolean]` / `[double]` element is stored widened in the
       ; array's pointer-sized slot. Binding the raw i64 gave the loop variable
@@ -2443,18 +2488,18 @@ class LowIRBuilderPass {
         elemTn = itemNode.type_name
       }
       if (elemTn == "int") {
-        this.bindSlot(itemName "i32" (builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx)
+        prevItemSlot = (this.shadowBind(itemName "i32" (builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx))
       } {
         if (elemTn == "char") {
-          this.bindSlot(itemName "i32" (builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx)
+          prevItemSlot = (this.shadowBind(itemName "i32" (builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx))
         } {
           if (elemTn == "boolean") {
-            this.bindSlot(itemName "i1" (this.toI1((builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx)) lctx)
+            prevItemSlot = (this.shadowBind(itemName "i1" (this.toI1((builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx)) lctx))
           } {
             if ((elemTn == "double") || (elemTn == "float")) {
-              this.bindSlot(itemName "f64" (builder.emitCast("bitcast" "f64" "i64" elemAddr)) lctx)
+              prevItemSlot = (this.shadowBind(itemName "f64" (builder.emitCast("bitcast" "f64" "i64" elemAddr)) lctx))
             } {
-              this.bindSlot(itemName lctx.ptrType elemAddr lctx)
+              prevItemSlot = (this.shadowBind(itemName lctx.ptrType elemAddr lctx))
             }
           }
         }
@@ -2501,6 +2546,11 @@ class LowIRBuilderPass {
     builder.emitStore("i32" idxNext idxSlot)
     builder.terminateBr(condLabel)
     builder.startBlock(exitLabel)
+    ; the loop's names go out of scope here
+    this.restoreShadow(itemName prevItemSlot lctx)
+    this.restoreShadow(idxName prevIdxSlot lctx)
+    removeLast lctx.shadowStack
+    removeLast lctx.shadowStack
   }
 
   fn emitStrcmpEq:string (lhs:string rhs:string ctx:LowIRLowerContext) {
@@ -2938,8 +2988,14 @@ class LowIRBuilderPass {
     return 0
   }
 
-  fn emitSMapCall:string (fnName:string retType:string desc:string rest:[string] restTypes:[string] lctx:LowIRLowerContext) {
+  fn emitSMapCall:string (fnName:string retType:string descIn:string rest:[string] restTypes:[string] lctx:LowIRLowerContext) {
     this.ensureSMapExterns()
+    ; A descriptor the resolution could not work out used to be emitted as an
+    ; empty operand -- `call i32 @RtSMap_size(i64 )`, which does not parse.
+    def desc:string descIn
+    if ((strlen desc) == 0) {
+      desc = (lctx.builder.emitConst("i64" "0"))
+    }
     def args:[string]
     def argTypes:[string]
     push args desc
@@ -3077,6 +3133,12 @@ class LowIRBuilderPass {
     ; itself says what comes back, and an inline call has no declared type.
     if node.has_operator {
       def op (node.getOperator())
+      ; `(unwrap v)` keeps the type of what is inside. The generated
+      ; fromDictionary is written as `def o (unwrap values)`, so without this
+      ; `keys o` went to the string-map runtime instead of the JSON one.
+      if (op == "unwrap") {
+        return (this.jsonTypeNameOfNode((node.getSecond()) lctx))
+      }
       if (op == "json_object") { return "JSONDataObject" }
       if (op == "json_array") { return "JSONArrayObject" }
       if (op == "getObject") { return "JSONDataObject" }
@@ -4600,15 +4662,75 @@ class LowIRBuilderPass {
     return 0
   }
 
-  fn bindSlot:void (varName:string irType:string value:string lctx:LowIRLowerContext) {
-    def builder (lctx.builder)
-    if (has lctx.slots varName) {
-      def slot (unwrap (get lctx.slots varName))
-      builder.emitStore(irType value slot)
-      set lctx.slotTypes varName irType
+  ; A loop's item and index names SHADOW anything of the same name outside it.
+  ; Without that a nested loop reuses the enclosing loop's slot -- and the
+  ; compiler's own source nests `for … i { … for … i { … } }` freely -- so the
+  ; inner loop reset the outer loop's counter and the outer loop never ended.
+  ; That is what made the native build allocate until the process died.
+  ;
+  ; The inner binding gets its OWN alloca under a generated name; the previous
+  ; mapping is put back by restoreShadow when the body is done.
+  fn shadowBind:string (varName:string irType:string value:string lctx:LowIRLowerContext) {
+    if ((has lctx.slots varName) == false) {
+      this.bindSlot(varName irType value lctx)
+      return ""
+    }
+    def prev:string (unwrap (get lctx.slots varName))
+    ; A MONOTONIC counter, not the stack depth: two sibling loops at the same
+    ; depth would otherwise pick the same alloca name.
+    lctx.shadowCounter = (lctx.shadowCounter + 1)
+    def fresh:string ("%" + varName + "_sh" + ("" + lctx.shadowCounter))
+    lctx.builder.emitAlloca(irType fresh)
+    lctx.builder.emitStore(irType value fresh)
+    set lctx.slots varName fresh
+    set lctx.slotTypes varName irType
+    return prev
+  }
+
+  fn restoreShadow:void (varName:string prev:string lctx:LowIRLowerContext) {
+    if ((strlen prev) == 0) {
       return
     }
+    set lctx.slots varName prev
+  }
+
+  ; True when varName is queued for a fresh alloca (see forceFreshSlots); the
+  ; entry is consumed, so a second bindSlot for the same name reuses the new slot.
+  fn takeForceFresh:boolean (varName:string lctx:LowIRLowerContext) {
+    def n (array_length lctx.forceFreshSlots)
+    def idx:int -1
+    def fi:int 0
+    while (fi < n) {
+      if ((itemAt lctx.forceFreshSlots fi) == varName) {
+        idx = fi
+        fi = n
+      } {
+        fi = fi + 1
+      }
+    }
+    if (idx < 0) {
+      return false
+    }
+    remove_index lctx.forceFreshSlots idx
+    return true
+  }
+
+  fn bindSlot:void (varName:string irType:string value:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def wantFresh:boolean (this.takeForceFresh(varName lctx))
+    if (wantFresh == false) {
+      if (has lctx.slots varName) {
+        def slot (unwrap (get lctx.slots varName))
+        builder.emitStore(irType value slot)
+        set lctx.slotTypes varName irType
+        return
+      }
+    }
     def slotName:string ("%" + varName + "_addr")
+    if wantFresh {
+      lctx.shadowCounter = (lctx.shadowCounter + 1)
+      slotName = ("%" + varName + "_rd" + ("" + lctx.shadowCounter) + "_addr")
+    }
     builder.emitAlloca(irType slotName)
     ; Zero-init pointer slots in the entry block (before the value store) so that
     ; owned object/collection locals defined inside a conditional branch but
@@ -6389,6 +6511,13 @@ class LowIRBuilderPass {
         }
         ci = (+ ci 1)
       }
+      ; ...and the enclosing receiver, so `this.m()` inside the lambda has
+      ; something to call through.
+      if cinfo.capturesSelf {
+        def selfRaw (builder.emitLoadTypedAt(envRef cinfo.selfOffset lctx.ptrType))
+        lctx.selfPtr = (builder.emitIntToStructPtr(cinfo.selfClass selfRaw))
+        lctx.className = cinfo.selfClass
+      }
     }
 
     ; nested lambdas inside this lambda body may themselves mutate captures
@@ -6521,6 +6650,26 @@ class LowIRBuilderPass {
     return 4
   }
 
+  ; The class a lambda ultimately belongs to: its own container, or the one of
+  ; the function it was written inside, following `insideFn` up through nested
+  ; lambdas. Asking the lowering CONTEXT instead is order dependent -- the
+  ; layout is cached per lambda and the first body to build it wins.
+  fn lambdaOwnerClass:string (lam:RangerAppFunctionDesc depth:int) {
+    if (depth > 16) {
+      return ""
+    }
+    if (!null? lam.container_class) {
+      def cc (unwrap lam.container_class)
+      if ((strlen cc.name) > 0) {
+        return cc.name
+      }
+    }
+    if (!null? lam.insideFn) {
+      return (this.lambdaOwnerClass((unwrap lam.insideFn) (depth + 1)))
+    }
+    return ""
+  }
+
   fn computeLambdaCaptures:LambdaCaptureInfo (node:CodeNode lam:RangerAppFunctionDesc lctx:LowIRLowerContext) {
     def key:string lam.compiledName
     if (has this.lambdaCaptures key) {
@@ -6604,6 +6753,24 @@ class LowIRBuilderPass {
           off = (+ off w)
         }
       }
+    }
+    ; ...and the enclosing receiver. Decided from the lambda's DECLARING class,
+    ; not from the context that happens to build it first: the layout is cached
+    ; per lambda, and lowerLambdaBodies lowers even a lambda whose closure is
+    ; never built, so a dead body could fix the layout of a nested lambda
+    ; before the live creation site was reached.
+    def selfCls:string (this.lambdaOwnerClass(lam 0))
+    if ((strlen selfCls) == 0) {
+      selfCls = lctx.className
+    }
+    if ((strlen selfCls) > 0) {
+      if (((idiv off 8) * 8) != off) {
+        off = (+ off 4)
+      }
+      info.capturesSelf = true
+      info.selfOffset = off
+      info.selfClass = selfCls
+      off = (+ off (this.irTypeBytes(lctx.ptrType lctx)))
     }
     info.totalBytes = off
     ; a closure typedesc lets obj_destroyFields free owned captures for free
@@ -6758,6 +6925,13 @@ class LowIRBuilderPass {
       }
       builder.emitStoreTypedAt(rec coff cval cirt)
       k = (+ k 1)
+    }
+    if info.capturesSelf {
+      def selfWord:string (builder.emitConst(lctx.ptrType "0"))
+      if ((strlen lctx.selfPtr) > 0) {
+        selfWord = (builder.emitPtrToInt(lctx.selfPtr))
+      }
+      builder.emitStoreTypedAt(rec info.selfOffset selfWord lctx.ptrType)
     }
     ; no local owns it yet — register for statement-scoped release so an inline
     ; lambda argument (`apply((fn…){}) v)`) does not leak. A binding claims it.
@@ -7163,7 +7337,69 @@ class LowIRBuilderPass {
     }
   }
 
+  fn dropFromNameList:void (names:[string] varName:string) {
+    def n (array_length names)
+    def di:int (n - 1)
+    while (di >= 0) {
+      if ((itemAt names di) == varName) {
+        remove_index names di
+      }
+      di = di - 1
+    }
+  }
+
+  ; Undo every redeclaration journalled since `mark`, putting the enclosing
+  ; scope's slot, IR type and OWNERSHIP back in place.
+  ;
+  ; The ownership half is the part that bites. The owned-local lists hold NAMES
+  ; and are walked once at function exit, where the name is bound to the outer
+  ; slot again. `fn f(wr:CodeWriter) { … if c { def wr (new CodeWriter) … } }`
+  ; -- which the flow parser's convertToUnion does verbatim -- therefore had the
+  ; exit path release whatever `wr` held, and on the paths where the `if` never
+  ; ran that is the CALLER's writer. The caller went on using freed memory.
+  ;
+  ; The inner value is NOT released here. Emitting a block-end release for it
+  ; looks tidier but is wrong whenever the block did not run to its end on every
+  ; path, and freeing a still-referenced object hands the next `new` the same
+  ; address. Redeclarations are rare and the process is short-lived, so the inner
+  ; value is left to leak rather than risk that.
+  fn popReslots:void (mark:int lctx:LowIRLowerContext) {
+    def cnt (array_length lctx.reslotNames)
+    while (cnt > mark) {
+      def last:int (cnt - 1)
+      def nm:string (itemAt lctx.reslotNames last)
+      def ps:string (itemAt lctx.reslotPrevSlots last)
+      def pt:string (itemAt lctx.reslotPrevTypes last)
+      if ((itemAt lctx.reslotOwnedStr last) == 0) {
+        this.dropFromNameList(lctx.ownedStringLocals nm)
+      }
+      if ((itemAt lctx.reslotOwnedObj last) == 0) {
+        this.dropFromNameList(lctx.ownedObjectLocals nm)
+      }
+      if ((itemAt lctx.reslotOwnedColl last) == 0) {
+        this.dropFromNameList(lctx.ownedCollectionLocals nm)
+      }
+      set lctx.slots nm ps
+      if ((strlen pt) > 0) {
+        set lctx.slotTypes nm pt
+      }
+      removeLast lctx.reslotNames
+      removeLast lctx.reslotPrevSlots
+      removeLast lctx.reslotPrevTypes
+      removeLast lctx.reslotOwnedStr
+      removeLast lctx.reslotOwnedObj
+      removeLast lctx.reslotOwnedColl
+      cnt = cnt - 1
+    }
+  }
+
   fn lowerBlock:void (block:CodeNode lctx:LowIRLowerContext) {
+    def reslotMark:int (array_length lctx.reslotNames)
+    this.lowerBlockBody(block lctx)
+    this.popReslots(reslotMark lctx)
+  }
+
+  fn lowerBlockBody:void (block:CodeNode lctx:LowIRLowerContext) {
     if block.is_block_node {
       def childCnt (array_length block.children)
       if (childCnt > 0) {
@@ -7357,6 +7593,29 @@ class LowIRBuilderPass {
         this.lowerNullify(node lctx)
         return
       }
+      ; `try { … } { … }` -- this backend has no unwinding, so the try block
+      ; runs and the catch block is not written, exactly as the Rust target
+      ; does. `try` carries a `*` template, so it matched here all along and
+      ; then reached no lowering at all: the whole block was DROPPED. The
+      ; compiler wraps its entire pipeline in one, which is why the native
+      ; build printed its header and then stopped without a diagnostic.
+      ; `switch v { case a { … } … default { … } }`. There is no jump table
+      ; here: the cases become an if / else-if chain, which is what the `*`
+      ; template's C `switch` means anyway (every Ranger case ends in a break).
+      ;
+      ; `switch` carried a `*` template and no lowering, so the whole statement
+      ; -- every case with it -- was DROPPED. The compiler's writers are
+      ; switch-driven, so the native build wrote out bare identifiers and
+      ; nothing else.
+      if (opName == "switch") {
+        this.lowerSwitch(node lctx)
+        return
+      }
+      if (opName == "try") {
+        def tryBlock (node.getSecond())
+        this.lowerBlock(tryBlock lctx)
+        return
+      }
       if (opName == "insert") {
         this.lowerArrayInsert(node lctx)
         return
@@ -7410,7 +7669,79 @@ class LowIRBuilderPass {
     }
   }
 
+  ; The IR type a declaration asks for, or "" when it cannot be told from the
+  ; node alone. Used only to notice that a re-`def` of a live name needs a slot
+  ; of a different width.
+  fn declaredIrTypeOf:string (nameNode:CodeNode lctx:LowIRLowerContext) {
+    if (this.isIntArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isStringArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isDoubleArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isObjectPtrArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isStringKeyMapTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isIntKeyValueMapTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isIntIntMapTypeNode(nameNode)) { return lctx.ptrType }
+    def tn:string (this.varTypeName(nameNode))
+    if ((strlen tn) == 0) {
+      return ""
+    }
+    if (LowIRUtil.isStringType(tn)) { return "i8*" }
+    if (this.isEnumTypeName(tn)) { return "i32" }
+    if (LowIRUtil.isSupportedPrimitive(tn)) { return (LowIRUtil.typeFromRanger(tn)) }
+    if (this.isObjectTypeName(tn)) { return lctx.ptrType }
+    return ""
+  }
+
+  ; `def x …` when `x` is already bound -- a parameter, or a local of an
+  ; enclosing block. Every other Ranger backend gives that declaration a
+  ; variable of its own (a C++/JS block-scoped `let`); sharing the outer slot
+  ; broke two ways here:
+  ;
+  ;   * ng_TTypes' baseTypeAsEval declares `vType` as an enum and again, in the
+  ;     else branch, as a string. The shared `alloca i32` then took an 8-byte
+  ;     `store i8*` and smashed the locals next to it.
+  ;   * ng_RangerFlowParser's convertToUnion takes `wr:CodeWriter` and does
+  ;     `def wr (new CodeWriter)` inside an `if`. The name went on the owned-
+  ;     object list, and the single scope-end release then freed whatever the
+  ;     slot held -- on the paths where that `if` never ran, the CALLER's writer.
+  ;
+  ; So the trigger is the redeclaration itself, not a change of type. Give it its
+  ; own alloca and journal the old binding (slot, IR type, ownership) so
+  ; lowerBlock can hand the name back to the enclosing scope intact.
+  fn noteRedeclaration:void (varName:string nameNode:CodeNode lctx:LowIRLowerContext) {
+    if ((has lctx.slots varName) == false) {
+      return
+    }
+    def curIr:string ""
+    if (has lctx.slotTypes varName) {
+      curIr = (unwrap (get lctx.slotTypes varName))
+    }
+    def wasStr:int 0
+    def wasObj:int 0
+    def wasColl:int 0
+    if (this.isOwnedStringLocal(varName lctx)) { wasStr = 1 }
+    if (this.isOwnedObjectLocal(varName lctx)) { wasObj = 1 }
+    if (this.isOwnedCollectionLocal(varName lctx)) { wasColl = 1 }
+    push lctx.reslotNames varName
+    push lctx.reslotPrevSlots (unwrap (get lctx.slots varName))
+    push lctx.reslotPrevTypes curIr
+    push lctx.reslotOwnedStr wasStr
+    push lctx.reslotOwnedObj wasObj
+    push lctx.reslotOwnedColl wasColl
+    push lctx.forceFreshSlots varName
+  }
+
   fn lowerVarDef:void (node:CodeNode lctx:LowIRLowerContext) {
+    def nameNode0 (node.getSecond())
+    def varName0:string nameNode0.vref
+    this.noteRedeclaration(varName0 nameNode0 lctx)
+    this.lowerVarDefBody(node lctx)
+    ; Not every declaration reaches a bindSlot (a `def` of a type this backend
+    ; does not model falls through). Consume the request so it cannot fire on
+    ; some later assignment to the same name and silently move it off its slot.
+    this.takeForceFresh(varName0 lctx)
+  }
+
+  fn lowerVarDefBody:void (node:CodeNode lctx:LowIRLowerContext) {
     def nameNode (node.getSecond())
     def varName:string nameNode.vref
     def valNode@(optional):CodeNode
@@ -7745,6 +8076,12 @@ class LowIRBuilderPass {
       if (this.exprIsI64Operator(val)) {
         tmp = (lctx.builder.emitCast("trunc" "i32" "i64" tmp))
       }
+    }
+    ; A JSON-typed initialiser (`def o (unwrap values)`) records its class, so
+    ; that keys / array_length / set on the name reach the JSON runtime.
+    def jsonTn:string (this.jsonTypeNameOfNode(val lctx))
+    if ((strlen jsonTn) > 0) {
+      set lctx.objectSlots varName jsonTn
     }
     ; A declared `boolean` local holds an i1. Several sources answer a wider
     ; integer -- a `[string:boolean]` map read comes back through the int path
@@ -8313,6 +8650,79 @@ class LowIRBuilderPass {
     }
     def zero (builder.emitConst("i32" "0"))
     return (builder.emitIcmp("ne" v zero))
+  }
+
+  ; Compare an already-lowered switch subject against one case value.
+  fn emitSwitchCaseTest:string (subj:string subjNode:CodeNode caseNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def subjIsStr:boolean false
+    if ((builder.emittedType(subj)) == "i8*") {
+      subjIsStr = true
+    }
+    if (this.exprIsStringish(subjNode lctx)) {
+      subjIsStr = true
+    }
+    if subjIsStr {
+      def caseVal (this.lowerExpr(caseNode lctx))
+      return (this.emitStrcmpEq(subj caseVal lctx))
+    }
+    def cv (this.lowerExpr(caseNode lctx))
+    def st:string (builder.emittedType(subj))
+    if ((strlen st) == 0) {
+      st = "i32"
+    }
+    return (builder.emitIcmpTyped("eq" st subj cv))
+  }
+
+  fn lowerSwitch:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    if ((array_length node.children) < 3) {
+      return
+    }
+    def subjNode (node.getSecond())
+    def caseList (node.getThird())
+    def subj (this.lowerExpr(subjNode lctx))
+    def endL (builder.freshLabel("switch_end"))
+    def defaultBlock@(optional):CodeNode
+    def savedBreak:string lctx.breakLabel
+    lctx.breakLabel = endL
+    for caseList.children arm:CodeNode ai {
+      if ((array_length arm.children) < 2) {
+        continue
+      }
+      def head:string (arm.getVRefAt(0))
+      if (head == "default") {
+        defaultBlock = (arm.getSecond())
+        continue
+      }
+      if (head != "case") {
+        continue
+      }
+      def caseVal (arm.getSecond())
+      def bodyNode (arm.getThird())
+      def hit (this.emitSwitchCaseTest(subj subjNode caseVal lctx))
+      def bodyL (builder.freshLabel("case_body"))
+      def nextL (builder.freshLabel("case_next"))
+      builder.terminateBrIf(hit bodyL nextL)
+      builder.startBlock(bodyL)
+      this.lowerBlock(bodyNode lctx)
+      def bb (unwrap builder.currentBlock)
+      if (bb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+      builder.startBlock(nextL)
+    }
+    if (!null? defaultBlock) {
+      this.lowerBlock((unwrap defaultBlock) lctx)
+      def dbb (unwrap builder.currentBlock)
+      if (dbb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+    } {
+      builder.terminateBr(endL)
+    }
+    builder.startBlock(endL)
+    lctx.breakLabel = savedBreak
   }
 
   fn lowerIf:void (node:CodeNode lctx:LowIRLowerContext) {

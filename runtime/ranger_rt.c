@@ -591,7 +591,21 @@ void RtSMap_remove(int64_t map, const char *key) {
 /* Live entry count. */
 int RtSMap_size(int64_t map) {
   RtSMap *m = (RtSMap *)(intptr_t)map;
-  return (m == NULL) ? 0 : m->live;
+  if (m == NULL) {
+    return 0;
+  }
+#ifdef RANGER_SMAP_GUARD
+  /* Temporary diagnostic: a handle that is not a map at all reads a wild
+   * `live`, and the walk that follows allocates until the process dies. */
+  if (m->live < 0 || m->cap < 0 || m->count < 0 || m->live > m->count ||
+      m->count > m->cap) {
+    fprintf(stderr,
+            "RtSMap_size: implausible map %p live=%d count=%d cap=%d\n",
+            (void *)m, (int)m->live, (int)m->count, (int)m->cap);
+    abort();
+  }
+#endif
+  return m->live;
 }
 
 /* The i-th LIVE key in insertion order, or NULL. Callers walk 0..size-1. */

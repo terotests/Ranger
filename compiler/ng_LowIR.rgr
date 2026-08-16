@@ -459,7 +459,7 @@ class LowIRBuilder {
           ; parameter is a pointer; a null of the right one keeps the call
           ; well typed.
           if (want == "i8*") {
-            if ((got == "i32") || (got == "i64")) {
+            if (((got == "i32") || (got == "i64")) || (got == "i1")) {
               fixed = (this.emitIntToI8Ptr(a got))
             }
           }
@@ -632,10 +632,17 @@ class LowIRBuilder {
     ; does not assemble. Trust what was emitted for it over what the caller
     ; assumed.
     def addrType:string addrTypeIn
+    def addrVal:string addr
     if (has destTypes addr) {
       def at:string (unwrap (get destTypes addr))
       if ((at == "i32") || (at == "i64")) {
         addrType = at
+      }
+      ; An i1 is not an address at all. Widening it first keeps the
+      ; instruction well formed; the value was already wrong upstream.
+      if (at == "i1") {
+        addrVal = (this.emitZextI1ToI32(addr))
+        addrType = "i32"
       }
     }
     def dest (this.freshTemp(tag))
@@ -646,7 +653,7 @@ class LowIRBuilder {
     ; report a pointer as a 32-bit integer, and every decision that consults it
     ; (widen-before-push, condition type, comparison width) then went wrong.
     ins.irType = "i8*"
-    ins.arg1 = addr
+    ins.arg1 = addrVal
     ins.arg2 = addrType
     this.emit(ins)
     return dest
@@ -666,8 +673,24 @@ class LowIRBuilder {
     return dest
   }
 
-  fn emitCast:string (castOp:string destType:string srcType:string value:string) {
+  fn emitCast:string (castOp:string destType:string srcTypeIn:string value:string) {
     def tag:string "cast"
+    ; The SOURCE type has to be the one the value really has: a widen written
+    ; as `zext i32 <i1 value>` does not assemble. Callers name the type they
+    ; expect, and a handful of shapes (a boolean from a map or an array) hand
+    ; over an i1 instead.
+    def srcType:string srcTypeIn
+    if (has destTypes value) {
+      def got:string (unwrap (get destTypes value))
+      if ((got == "i1") || (got == "i32")) {
+        if ((srcTypeIn == "i1") || (srcTypeIn == "i32")) {
+          srcType = got
+        }
+      }
+    }
+    if (srcType == destType) {
+      return value
+    }
     def dest (this.freshTemp(tag))
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = castOp
@@ -995,7 +1018,7 @@ class LowIRBuilder {
     if ((want == "i32") && (got == "i64")) {
       return (this.emitCast("trunc" "i32" "i64" v))
     }
-    if ((want == "i8*") && ((got == "i32") || (got == "i64"))) {
+    if ((want == "i8*") && ((got == "i32") || (got == "i64") || (got == "i1"))) {
       return (this.emitIntToI8Ptr(v got))
     }
     if (got == "i8*") {

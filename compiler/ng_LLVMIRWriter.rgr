@@ -439,6 +439,16 @@ class LLVMIRWriter {
       case "zext_i1" {
         wr.out((ins.dest + " = zext i1 " + ins.arg1 + " to i32") true)
       }
+      ; A SIGNED widen. `set obj key intValue` on a JSON object widens an i32
+      ; to the i64 the runtime takes, and a negative value has to stay
+      ; negative; nothing wrote this case, so the marker landed mid-function.
+      case "sext" {
+        def ssrc:string "i32"
+        if ((strlen ins.arg2) > 0) {
+          ssrc = ins.arg2
+        }
+        wr.out((ins.dest + " = sext " + (this.llTy(ssrc)) + " " + ins.arg1 + " to " + (this.llTy(ins.irType))) true)
+      }
       case "global_get" {
         wr.out((ins.dest + " = load " + (this.llTy(ins.irType)) + ", " + (this.llTy(ins.irType)) + "* @" + ins.arg1) true)
       }

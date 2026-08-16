@@ -889,8 +889,17 @@ static int rt_obj_pool_enabled(void) {
   return g_obj_pool_on;
 }
 
-/* Bucket index for a body size, or -1 when the size is not poolable. */
+/* Bucket index for a body size, or -1 when the size is not poolable.
+ *
+ * A pooled block keeps its free-list link in the BODY (block + header), so a
+ * body smaller than a pointer has nowhere to put it. A class with no fields at
+ * all -- the compiler's own sources have several -- has size 0, and pooling one
+ * wrote eight bytes past the end of the allocation and read them back on the
+ * next alloc, which corrupts the malloc arena. Such bodies are never pooled. */
 static int rt_pool_bucket(uint32_t size) {
+  if (size < (uint32_t)sizeof(char *)) {
+    return -1;
+  }
   if (size > RT_POOL_MAX_SIZE) {
     return -1;
   }
