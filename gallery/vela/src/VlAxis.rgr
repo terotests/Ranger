@@ -31,6 +31,11 @@ class VlAxisTickValue {
     ; The reference does the same, and only for band and point scales — a
     ; continuous axis puts both at the same place.
     def labelPosition:double 0.0
+    ; Where the TICK and its grid line go, which on a band scale is not where
+    ; the label goes either. `tickBand: "extent"` rules a heat map's cells off
+    ; from each other: the tick sits on the band's far EDGE while the label
+    ; stays under its middle. Everywhere else the two are the same number.
+    def tickPosition:double 0.0
     def label:string ""
 }
 
@@ -261,6 +266,7 @@ class VlAxis {
                 tvb.value = (VlJson.numberValue(v))
                 tvb.position = (sc.mapNumber(v))
                 tvb.labelPosition = tvb.position
+                tvb.tickPosition = tvb.position
                 tvb.label = (itemAt labels idx)
                 push out tvb
             }
@@ -272,7 +278,7 @@ class VlAxis {
             ; positions part company here.
             def onEdges:boolean (tickBand == "extent")
             def tickAt:double bandPosition
-            if onEdges { tickAt = 0.0 }
+            if onEdges { tickAt = 1.0 }
             for sc.domainValues name:string idx {
                 def tv (new VlAxisTickValue())
                 tv.value = (VlJson.stringValue(name))
@@ -285,8 +291,10 @@ class VlAxis {
                 ; one anyway moves the label off its own point and rounds the
                 ; tick to the wrong pixel.
                 tv.labelPosition = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * bandPosition))
+                tv.tickPosition = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * tickAt))
                 if (sc.scaleType == "band") {
                     tv.labelPosition = (tv.labelPosition - 0.5)
+                    tv.tickPosition = (tv.tickPosition - 0.5)
                 }
                 ; A discrete domain of INSTANTS is what a time unit produces —
                 ; twelve months are twelve categories, and each one is a date.
@@ -301,10 +309,21 @@ class VlAxis {
             if onEdges {
                 def last:int ((array_length sc.domainValues) - 1)
                 if (last >= 0) {
+                    ; The N ticks above sit on the FAR edge of each band, which
+                    ; leaves the near edge of the first one unmarked. This is
+                    ; the tick that marks it — and the reference builds it as a
+                    ; tick with no value at all rather than as a position, so
+                    ; the scale is asked where nothing goes and answers zero.
+                    ;
+                    ; Its label is empty and draws no ink, but an empty label is
+                    ; still a font high, and at the origin that height hangs off
+                    ; the near edge of the plot and makes the page five pixels
+                    ; bigger than the plot and its axes asked for.
                     def extra (new VlAxisTickValue())
                     extra.value = (VlJson.stringValue(""))
-                    extra.position = ((sc.mapIndex(last)) + (sc.step()))
-                    extra.labelPosition = extra.position
+                    extra.position = 0.0
+                    extra.labelPosition = 0.0
+                    extra.tickPosition = 0.0
                     extra.label = ""
                     push out extra
                 }
@@ -344,6 +363,7 @@ class VlAxis {
             tv.value = (VlJson.numberValue(v))
             tv.position = (sc.mapNumber(v))
             tv.labelPosition = tv.position
+            tv.tickPosition = tv.position
             tv.label = (itemAt labels idx)
             push out tv
         }
@@ -508,7 +528,7 @@ class VlAxis {
             if gridDashSet {
                 item.setValue("strokeDash" gridDash)
             }
-            def at:double tv.labelPosition
+            def at:double tv.tickPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
             }
@@ -544,7 +564,7 @@ class VlAxis {
             if tickDashSet {
                 item.setValue("strokeDash" tickDash)
             }
-            def at:double tv.labelPosition
+            def at:double tv.tickPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
             }

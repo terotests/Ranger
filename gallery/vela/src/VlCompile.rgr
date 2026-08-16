@@ -202,6 +202,27 @@ class VlCompile {
         push errors msg
     }
 
+    ; The whole of a specification, compiled. `compile` is called again for
+    ; every layer and every pane, so the things that belong to the CHART rather
+    ; than to a piece of it are attached here instead of in there.
+    ;
+    ; The configuration is one of them. A heat map writes `"config": {"axis":
+    ; {"tickBand": "extent"}}` and means it for every axis in the chart; the
+    ; reference copies the block into the Vega it emits and lets the runtime
+    ; merge it into each axis. Dropping it here left the runtime with no way to
+    ; know, and the ticks sat under the cells rather than between them.
+    fn compileSpec:VlJson (src:VlJson) {
+        def out:VlJson (this.compile(src))
+        if (! (out.isObject())) {
+            return out
+        }
+        def cfg:VlJson (src.get("config"))
+        if ((cfg.isObject()) && (!(out.has("config")))) {
+            out.setMember("config" cfg)
+        }
+        return out
+    }
+
     fn compile:VlJson (src:VlJson) {
         source = src
         clear errors

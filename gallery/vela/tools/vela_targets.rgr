@@ -69,7 +69,7 @@ class VelaTargets {
         def spec:VlJson source
         if (VelaTargets.looksLikeVegaLite(source)) {
             def compiler (new VlCompile())
-            def compiled:VlJson (compiler.compile(source))
+            def compiled:VlJson (compiler.compileSpec(source))
             for compiler.errors ce:string cei {
                 push errors ce
             }

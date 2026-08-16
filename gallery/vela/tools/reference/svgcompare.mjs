@@ -130,9 +130,17 @@ export function parseSvg(text) {
       // letting the scanner meet it as a separate token, is what makes a label
       // comparable at all — the first cut of this harness never captured it and
       // silently compared nothing but shapes.
-      const close = text.indexOf('</text>', tag.lastIndex);
-      const content = close < 0 ? '' : text.slice(tag.lastIndex, close);
-      if (close >= 0) tag.lastIndex = close + 7;
+      // An EMPTY label is written `<text …/>` with nothing inside and no
+      // closing tag, and scanning ahead for one swallows every element up to
+      // the next label that does have text — a whole axis read as one string.
+      // The reference writes one of those on every axis with `tickBand:
+      // "extent"`, so this is not a corner case.
+      let content = '';
+      if (!selfClosing) {
+        const close = text.indexOf('</text>', tag.lastIndex);
+        content = close < 0 ? '' : text.slice(tag.lastIndex, close);
+        if (close >= 0) tag.lastIndex = close + 7;
+      }
       const [x, y] = apply(matrix, 0, 0);
       out.push({
         kind: 'text',
