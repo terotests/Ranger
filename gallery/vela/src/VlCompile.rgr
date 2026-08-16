@@ -3575,6 +3575,12 @@ class VlCompile {
                     if (! (a.has("labelAngle"))) {
                         a.setMember("labelAngle" (VlJson.numberValue(270.0)))
                     }
+                } {
+                    ; A discrete axis of DATES keeps its labels level, and
+                    ; twelve level month names do not fit where twelve turned
+                    ; ones would — so the reference thins them, and an axis
+                    ; that does not thin them prints Jan over Feb.
+                    a.setMember("labelOverlap" (VlJson.boolValue(true)))
                 }
             }
         }
