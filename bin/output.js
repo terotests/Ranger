@@ -15124,6 +15124,42 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.rewriteShapeRefs(ch, renames);
       };
     };
+    isClassMemberForm (node) {
+      if ( node.isFirstVref("extends") ) {
+        return true;
+      }
+      if ( node.isFirstVref("Extends") ) {
+        return true;
+      }
+      if ( node.isFirstVref("constructor") ) {
+        return true;
+      }
+      if ( node.isFirstVref("Constructor") ) {
+        return true;
+      }
+      if ( node.isFirstVref("def") ) {
+        return true;
+      }
+      if ( node.isFirstVref("let") ) {
+        return true;
+      }
+      if ( node.isFirstVref("static") ) {
+        return true;
+      }
+      if ( node.isFirstVref("StaticMethod") ) {
+        return true;
+      }
+      if ( node.isFirstVref("sfn") ) {
+        return true;
+      }
+      if ( node.isFirstVref("PublicMethod") ) {
+        return true;
+      }
+      if ( node.isFirstVref("fn") ) {
+        return true;
+      }
+      return false;
+    };
     markParentClass (ee, childName, ctx) {
       if ( ctx.isDefinedClass(ee.vref) == false ) {
         ctx.addError(ee, ((("Class " + childName) + " extends ") + ee.vref) + ", which is not defined");
@@ -15637,6 +15673,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( node.isFirstVref("systemclass") ) {
         this.registerSystemClassFromNode(node, ctx);
         return;
+      }
+      if ( this.isClassMemberForm(node) ) {
+        if ( typeof(ctx.currentClass) === "undefined" ) {
+          ctx.addError(node, ("`" + node.getVRefAt(0)) + "` can only appear inside a class");
+          return;
+        }
       }
       if ( node.isFirstVref("extends") ) {
         if ( (node.children.length) > 1 ) {

@@ -6405,6 +6405,23 @@ class RangerFlowParser {
   ; throws where the compiler already catches: every other target dies on the
   ; spot, so `Extends` naming an unknown class killed the process instead of
   ; producing a diagnostic.
+  ; The node forms that only make sense inside a class body, and that
+  ; WalkCollectMethods handles by reading ctx.currentClass.
+  fn isClassMemberForm:boolean (node:CodeNode) {
+    if (node.isFirstVref("extends")) { return true }
+    if (node.isFirstVref("Extends")) { return true }
+    if (node.isFirstVref("constructor")) { return true }
+    if (node.isFirstVref("Constructor")) { return true }
+    if (node.isFirstVref("def")) { return true }
+    if (node.isFirstVref("let")) { return true }
+    if (node.isFirstVref("static")) { return true }
+    if (node.isFirstVref("StaticMethod")) { return true }
+    if (node.isFirstVref("sfn")) { return true }
+    if (node.isFirstVref("PublicMethod")) { return true }
+    if (node.isFirstVref("fn")) { return true }
+    return false
+  }
+
   fn markParentClass:void (ee:CodeNode childName:string ctx:RangerAppWriterContext) {
     if ((ctx.isDefinedClass(ee.vref)) == false) {
       ctx.addError(ee ("Class " + childName + " extends " + ee.vref + ", which is not defined"))
@@ -7028,6 +7045,18 @@ class RangerFlowParser {
     if (node.isFirstVref("systemclass")) {
       this.registerSystemClassFromNode(node ctx)
       return
+    }
+    ; Everything from here on is a CLASS MEMBER form, and every one of them
+    ; reads ctx.currentClass. At the top level of a file there is no current
+    ; class, so that answers nothing and the first field read went through it.
+    ; JavaScript throws where the compiler already catches; every other host
+    ; dies, so a stray member declaration killed the natively built compiler
+    ; instead of being reported.
+    if (this.isClassMemberForm(node)) {
+      if (null? ctx.currentClass) {
+        ctx.addError(node ("`" + (node.getVRefAt(0)) + "` can only appear inside a class"))
+        return
+      }
     }
     if (node.isFirstVref("extends")) {
       if( ( size node.children ) > 1 ) {
