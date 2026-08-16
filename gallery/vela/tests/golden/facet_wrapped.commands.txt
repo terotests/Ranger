@@ -164,7 +164,7 @@ line x=62.5 y=1669.5 x2=102.5 y2=1669.5 stroke=#888 strokeWidth=1
 text x=82.5 y=1688.5 size=11 align=center text=g fill=#000
 group-end
 group-end
-rect x=0 y=0 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=0.5 y=0.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=0.5 y=300.5 x2=40.5 y2=300.5 stroke=#ddd strokeWidth=1
@@ -184,7 +184,7 @@ group-begin
 text x=20 y=-20 size=10 align=center text=A fill=#000
 group-end
 group-end
-rect x=62 y=0 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=62.5 y=0.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=62.5 y=300.5 x2=102.5 y2=300.5 stroke=#ddd strokeWidth=1
@@ -204,7 +204,7 @@ group-begin
 text x=82 y=-20 size=10 align=center text=B fill=#000
 group-end
 group-end
-rect x=0 y=342 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=0.5 y=342.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=0.5 y=642.5 x2=40.5 y2=642.5 stroke=#ddd strokeWidth=1
@@ -224,7 +224,7 @@ group-begin
 text x=20 y=322 size=10 align=center text=C fill=#000
 group-end
 group-end
-rect x=62 y=342 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=62.5 y=342.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=62.5 y=642.5 x2=102.5 y2=642.5 stroke=#ddd strokeWidth=1
@@ -244,7 +244,7 @@ group-begin
 text x=82 y=322 size=10 align=center text=D fill=#000
 group-end
 group-end
-rect x=0 y=684 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=0.5 y=684.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=0.5 y=984.5 x2=40.5 y2=984.5 stroke=#ddd strokeWidth=1
@@ -264,7 +264,7 @@ group-begin
 text x=20 y=664 size=10 align=center text=E fill=#000
 group-end
 group-end
-rect x=62 y=684 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=62.5 y=684.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=62.5 y=984.5 x2=102.5 y2=984.5 stroke=#ddd strokeWidth=1
@@ -284,7 +284,7 @@ group-begin
 text x=82 y=664 size=10 align=center text=F fill=#000
 group-end
 group-end
-rect x=0 y=1026 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=0.5 y=1026.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=0.5 y=1326.5 x2=40.5 y2=1326.5 stroke=#ddd strokeWidth=1
@@ -304,7 +304,7 @@ group-begin
 text x=20 y=1006 size=10 align=center text=G fill=#000
 group-end
 group-end
-rect x=62 y=1026 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=62.5 y=1026.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=62.5 y=1326.5 x2=102.5 y2=1326.5 stroke=#ddd strokeWidth=1
@@ -324,7 +324,7 @@ group-begin
 text x=82 y=1006 size=10 align=center text=H fill=#000
 group-end
 group-end
-rect x=0 y=1368 w=40 h=300 stroke=#ddd strokeWidth=1
+rect x=0.5 y=1368.5 w=40 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=0.5 y=1668.5 x2=40.5 y2=1668.5 stroke=#ddd strokeWidth=1

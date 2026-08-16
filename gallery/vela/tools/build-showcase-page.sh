@@ -24,6 +24,10 @@
 #           way, which is what breaks a runtime rather than the types
 #   tables  the plots that are tables: the cell is the datum and both axes are
 #           categories or bins
+#   drawing what a RENDERER has to get right rather than what a runtime does:
+#           every symbol shape, every curve, the paint channels that are not a
+#           colour, and a label against every anchor. These four are the specs
+#           the renderer comparison exists for — see tools/reference/render.mjs
 #
 # The specs under tests/specs/showcase and tests/specs/plots are the same charts
 # as the parity specs at a size that fits a printed page; regenerate them with
@@ -38,12 +42,14 @@ MORE=gallery/vela/tests/specs/more
 VIEWS=gallery/vela/tests/specs/views
 VARIANTS=gallery/vela/tests/specs/variants
 TABLES=gallery/vela/tests/specs/tables
+DRAWING=gallery/vela/tests/specs
 PAGE=gallery/evg/showcase/pages/charts.tsx
 PLOTS_PAGE=gallery/evg/showcase/pages/plots.tsx
 MORE_PAGE=gallery/evg/showcase/pages/more.tsx
 VIEWS_PAGE=gallery/evg/showcase/pages/views.tsx
 VARIANTS_PAGE=gallery/evg/showcase/pages/variants.tsx
 TABLES_PAGE=gallery/evg/showcase/pages/tables.tsx
+DRAWING_PAGE=gallery/evg/showcase/pages/drawing.tsx
 
 mkdir -p "$BIN"
 log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 \
@@ -103,5 +109,11 @@ node "$BIN/vela_evg.js" "$TABLES_PAGE" --title=Taulukot --compact \
   "$TABLES/table_bubble.vg.json"     "Kuplataulukko" \
   "$TABLES/heatmap_labelled.vg.json" "Lämpökartta arvoineen" \
   "$TABLES/radial.vg.json"           "Sädekaavio"
+
+node "$BIN/vela_evg.js" "$DRAWING_PAGE" --title=Piirto --compact \
+  "$DRAWING/symbol_shapes.vg.json"  "Kaikki merkkimuodot" \
+  "$DRAWING/curves.vg.json"         "Interpolaatiot" \
+  "$DRAWING/paint_channels.vg.json" "Katkoviiva, pyöristys, läpinäkyvyys" \
+  "$DRAWING/text_placement.vg.json" "Tekstin ankkurointi"
 
 echo "render them with:  npm run showcase"

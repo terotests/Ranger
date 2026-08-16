@@ -1,0 +1,21 @@
+group-begin
+symbol x=10 y=20 size=16 shape=circle fill=#b03a2e
+symbol x=130 y=20 size=16 shape=circle fill=#b03a2e
+symbol x=250 y=20 size=16 shape=circle fill=#b03a2e
+symbol x=10 y=60 size=16 shape=circle fill=#b03a2e
+symbol x=130 y=60 size=16 shape=circle fill=#b03a2e
+symbol x=250 y=60 size=16 shape=circle fill=#b03a2e
+symbol x=30 y=120 size=16 shape=circle fill=#b03a2e
+symbol x=130 y=120 size=16 shape=circle fill=#b03a2e
+symbol x=240 y=120 size=16 shape=circle fill=#b03a2e
+text x=10 y=20 size=12 align=left text=alphabetic fill=#1c3f5e
+text x=130 y=20 size=12 align=center text=top fill=#1c3f5e
+text x=250 y=20 size=12 align=right text=middle fill=#1c3f5e
+text x=10 y=60 size=12 align=left text=bottom fill=#1c3f5e
+text x=130 y=60 size=12 align=center text=nudged fill=#1c3f5e
+text x=250 y=60 size=12 align=center text=turned -90 fill=#1c3f5e
+text x=30 y=120 size=12 align=center text=turned 90 fill=#1c3f5e
+text x=130 y=120 size=12 align=right text=turned -45 fill=#1c3f5e
+text x=240 y=120 size=12 align=center text=turned 270 fill=#1c3f5e
+group-end
+

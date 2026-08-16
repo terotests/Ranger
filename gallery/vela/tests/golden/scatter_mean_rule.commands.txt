@@ -1,4 +1,4 @@
-rect x=0 y=0 w=300 h=300 stroke=#ddd strokeWidth=1
+rect x=0.5 y=0.5 w=300 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=0.5 y=0.5 x2=0.5 y2=300.5 stroke=#ddd strokeWidth=1

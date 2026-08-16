@@ -8,10 +8,13 @@ It is an independent implementation of the Vega grammar's semantics, not a port
 of the Vega JavaScript sources and not affiliated with the Vega project. See
 [Attribution and licensing](#attribution-and-licensing).
 
-**Status:** it draws, and it compiles what it draws. Marks, scales, transforms,
+**Status:** it draws, and it compiles what it draws, and what it draws is
+compared against the reference's own renderer. Marks, scales, transforms,
 signals, expressions, axes, legends and layout produce a scene that matches the
-reference implementation item for item on **1743 of 1743 marks** across 40 chart
-types at several sizes; **40 of 40** Vega-Lite sources compile in Ranger and draw
+reference implementation item for item on **1806 of 1806 marks** across 44 chart
+types at several sizes; the SVG it renders from that scene matches the SVG
+official Vega renders on **4651 of 4651 drawn outlines and labels**, to a
+quarter of a pixel; **40 of 40** Vega-Lite sources compile in Ranger and draw
 the same scene as the official compiler feeding official Vega; and the EVG
 backend renders that scene to **PDF, PNG and HTML** — forty-six charts on six
 pages of the project's [EVG showcase](https://terotests.github.io/Ranger/evg/).
@@ -43,27 +46,40 @@ changing one signal
    │  VlAxis      ticks, labels, grid, title    │
    │  VlLegend    symbols, keys, title          │
    │  VlBounds    how big a drawn thing is      │
+   │  VlViewBox   how big the whole picture is  │
    │  VlScene     mark / item tree              │
    │  VlCommand   flat draw commands            │
+   │  VlShape     the geometry a mark IS        │
+   │  VlSvg       commands → SVG                │
    │  VlEvg       commands → EVG path data      │
    └─────────────────────┬──────────────────────┘
                          │
-              ┌──────────┼──────────┐
-              ▼          ▼          ▼
-        scene JSON    commands    EVG page
-       (compared to   (text, in   → PDF · PNG · HTML
-        the reference) a golden)
+          ┌──────────┬───┴──────┬──────────┐
+          ▼          ▼          ▼          ▼
+    scene JSON    commands    SVG      EVG page
+   (compared to   (text, in  (compared  → PDF · PNG · HTML
+    the reference) a golden)  to Vega's
+                              renderer)
 ```
 
 The command layer is the seam: it knows nothing about EVG, and the EVG backend
 knows nothing about Vega. Both are tested on their own — the commands as text
-against a golden, the scene against the reference implementation.
+against a golden, the scene against the reference implementation, and the SVG
+against the SVG the reference's own renderer produces.
+
+`VlShape` sits beside the seam rather than inside a backend, and that placement
+is load-bearing. The symbol outlines, wedges, curves and rounded rectangles used
+to live in the EVG backend, and while they did, that backend drew every symbol
+that was not a square as a circle and every curve as straight segments. Nothing
+could tell, because the scene said `shape: "diamond"` and the scene was what was
+being compared.
 
 ## Try it
 
 ```bash
 bash gallery/vela/tests/run.sh          # build, unit tests, goldens, parity
 bash gallery/vela/tests/run_cpp.sh      # the same goldens, from a C++ binary
+node gallery/vela/tools/reference/render.mjs  # the DRAWING, against Vega's renderer
 node gallery/vela/tools/reference/zones.mjs   # a time axis, in eight zones
 npm run vela:compiler                  # Vega-Lite, compiled in Ranger
 ```
@@ -80,8 +96,9 @@ npm run vela:showcase && npm run showcase
 ```
 
 ```
-rect x=0 y=0 w=180 h=300 stroke=#ddd strokeWidth=1
-group-begin
+rect x=0.5 y=0.5 w=180 h=300 stroke=#ddd strokeWidth=1   ← the frame, on the
+group-begin                                                  half pixel so its
+                                                             stroke stays crisp
 group-begin
 line x=0.5 y=300.5 x2=180.5 y2=300.5 stroke=#ddd strokeWidth=1     ← grid
 …
@@ -126,6 +143,46 @@ hand-written expectations. It is tested against **official Vega**:
 channel of every item. `tools/reference/compile_specs.mjs` generates the specs
 themselves with the official compiler, so the inputs cannot drift into
 something convenient either.
+
+### And then the drawing, because a scenegraph is not a picture
+
+A scenegraph says `shape: "diamond"`, `baseline: "middle"`, `interpolate:
+"basis"` and stops. It takes a renderer to say what a diamond looks like, where
+a middle-baselined label's glyphs actually sit, and which curve joins eight
+points. All of that lived below the comparison, checked only against this
+repository's own golden files — and a golden file pins what *changed*. It can
+never tell you that what you drew was wrong from the start.
+
+So the reference renders to SVG, Vela renders to SVG (`VlSvg.rgr`, `vela_svg`),
+and `tools/reference/render.mjs` puts both documents through **one** parser:
+
+```
+                 Vega JSON
+                  │      │
+       official vega     Vela
+                  │      │
+          view.toSVG()   vela_svg
+                  │      │
+                  └ diff ┘        outlines and text anchors, in page pixels
+```
+
+Shapes are not compared as path strings — the reference writes a circle as two
+elliptical arcs and Vela writes it as four cubics, and those are the same
+circle. Each outline is flattened and the two are compared by **symmetric
+Hausdorff distance**, point to nearest *segment*: the furthest either outline
+strays from the other, independent of where a path started or which way round
+it went. The tolerance is a quarter of a pixel, so it means something.
+
+The first run of it disagreed on 704 of 3004 drawn primitives, in ways the
+scene comparison had no way to see — see the table below. It now agrees on all
+of them, and `run_cpp.sh` requires the native binary to produce the same SVG
+byte for byte.
+
+Four specs exist only to be drawn, because a harness proves nothing about a
+path nothing takes: `symbol_shapes` (all twelve builtin shapes),
+`curves` (all nine interpolations), `paint_channels` (dashes, corner radii,
+stroke caps, fill and stroke opacity apart) and `text_placement` (every
+alignment, baseline, nudge and angle).
 
 Every spec under `tests/specs` is compared, **including the smaller copies the
 showcase draws**. Those are the same charts at the size a printed page needs,
@@ -173,6 +230,28 @@ Each of these was found by the harness, not by reading the spec:
 | A point-scale axis was half a pixel out | only a BAND takes back the half pixel the axis group is offset by; a point scale's own positions are not whole numbers, so there is none to take |
 | An axis reserved room for a label it had hidden | the widest label is the widest DRAWN one, measured after the overlap pass |
 | An axis thinned to two labels dropped its own last one | when parity halving has got an axis down to two labels or fewer, the reference gives up the last SURVIVOR and shows the last LABEL — two labels that are not the ends of the scale do not read as one |
+
+### And what the RENDERER comparison caught, which none of the above could
+
+The scene was right in every one of these. The picture was not.
+
+| What was wrong | What the reference does |
+| --- | --- |
+| **Forty-two of the eighty charts were a different size than the reference's**, one of them by fifteen pixels | a view is sized from the BOUNDS of everything drawn, not from what the axes asked for. A bottom axis' last label sticks out to the *right*, and its extent only ever described how far it reached *down* |
+| An axis' domain line made every page a pixel taller | an axis contributes the box its TICKS and LABELS occupy, squared off against the scale's range. The grid and the domain line are drawn but do not get to grow the page |
+| Every framed chart's border was a blurred two-pixel grey | a stroked group is nudged half a pixel, so a one-pixel line lands inside a row of pixels instead of straddling two |
+| Every symbol that was not a circle or a square **was drawn as a circle** | there are twelve builtin shapes, and a diamond legend key beside diamond-less points is a chart that lies about its own data |
+| Every curve was drawn as straight segments | nine interpolations, of which `basis`, `cardinal`, `catmull-rom`, `monotone` and `natural` are real splines — and `monotone` is a claim about the data, not a matter of taste |
+| A rounded bar had square corners | `cornerRadius`, per corner, clamped to half the shorter side |
+| A dashed grid line came out solid | `gridDash` was read from the spec and stored nowhere. The scene comparison could not see it either: a dash is an ARRAY, and arrays were skipped along with the back-references |
+| A translucent fill inside a solid outline was drawn washed out | `fillOpacity` and `strokeOpacity` are separate channels; EVG carries one opacity per element, so the shape is written twice rather than averaged |
+| The page was painted white when the spec said `"background": null` | a background is a rectangle the specification asked for, not a default |
+| A `stroke-cap: square` rule was measured as if it were butt | a square cap reaches `sqrt(2)/2` of the stroke width past the end |
+
+Two of them were bugs in the harness itself, found the same way: it flattened
+curves at a fixed resolution, so a 300px arc read as three quarters of a pixel
+wrong when it was exact; and its SVG parser never captured text content, so for
+its first run it silently compared no labels at all.
 
 ## Compatibility
 
@@ -642,23 +721,22 @@ intermediate value is ever larger than a digit.
   this repository ships, and sizes the box a label is drawn in. Neither has to
   be exact: the box only has to be wide enough, and the alignment inside it —
   resolved by the renderer's own metrics — is what positions the string.
-* **Bounds-based layout, outside a legend.** The view is sized from what the
-  axes ask for, which agrees with the reference exactly on the charts whose
-  marks stay inside the plot (a bar chart is 236×347 with the plot at 51,10 in
-  both, and every chart with a legend now agrees to the pixel because the
-  legend's own box is measured). The reference measures the true bounds of
-  *everything* drawn, so a chart with a symbol or a label hanging over the plot
-  edge can still differ by a few pixels — a backend should not clip to the plot
-  rectangle. `VlBounds` is what that fix would be built on.
 * **Incremental axes and legends.** A signal change re-encodes only the marks
   that read it, but the guides are rebuilt whichever one changed. They are
   cheap, so this is a deliberate stop rather than an oversight —
   see [Changing one number](#changing-one-number).
-* **The rest of the Vega-Lite compiler.** Single-view specifications compile
-  in Ranger now — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). Layering,
-  faceting, concatenation, `bin`, `xOffset`, arcs and the composite marks that
-  expand into layers are still the official compiler's, and each one refuses
-  out loud rather than drawing something else.
+* **The rest of the Vega-Lite compiler.** All forty sources in the suite
+  compile in Ranger — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). What is
+  still refused, out loud rather than drawn as something else: an `errorbar`,
+  an `errorband`, and the top-level `facet` operator.
+* **Gradients are drawn as their own stops.** No target Vela compiles to paints
+  one, so a ramp becomes one flat band per pair of stops, in the reference's own
+  stop colours. The renderer comparison checks that the bands tile exactly the
+  rectangle the reference filled rather than pretending the two are the same
+  thing.
+* **A custom symbol `shape` given as path data.** The twelve builtins are
+  drawn; a shape named by an SVG path is not, and `vela_svg` says so on the
+  error stream rather than drawing a circle.
 
 ## Layout
 
@@ -680,11 +758,15 @@ gallery/vela/
 │   ├── VlConfig.rgr      the defaults a mark inherits
 │   ├── VlScene.rgr       scene graph + canonical JSON
 │   ├── VlCommand.rgr     flat draw commands (renderer-agnostic)
+│   ├── VlShape.rgr       the geometry a mark IS, shared by every backend
+│   ├── VlViewBox.rgr     how big the picture is, from the bounds of the ink
+│   ├── VlSvg.rgr         the SVG backend — the one that is compared
 │   ├── VlCompile.rgr     Vega-Lite → Vega
 │   └── VlRuntime.rgr     spec → scene
 ├── tools/
 │   ├── vela_scene.rgr    CLI: spec → scene JSON
 │   ├── vela_commands.rgr CLI: spec → draw commands
+│   ├── vela_svg.rgr      CLI: spec → SVG
 │   ├── vela_compile.rgr  CLI: a Vega-Lite spec → a Vega one
 │   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
 │   └── reference/        the harness that compares against official Vega

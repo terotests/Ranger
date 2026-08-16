@@ -103,6 +103,14 @@ const PAGES = [
     themes: ["editorial", "studio", "autumn"],
   },
   {
+    id: "drawing",
+    title: "What a renderer has to get right",
+    blurb:
+      "Four specifications that exist to be drawn rather than to say anything: every symbol shape the grammar offers, every interpolation that joins a line's points, the paint channels that change the ink without moving it — a dash pattern, a rounded corner, a square cap, a fill more translucent than its own outline — and a label against each alignment, baseline, nudge and angle. A scenegraph says \"diamond\" and stops; these are the specs that make a renderer say what a diamond looks like, and each of them is compared against the picture official Vega's own renderer produces.",
+    shows: ["twelve symbol shapes", "nine interpolations", "dashes and corner radii", "separate fill and stroke opacity", "text anchoring"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "views",
     title: "More than one chart",
     blurb:
@@ -161,6 +169,7 @@ const PAGE_CSS = {
   views: [path.join(HERE, "themes/views-default.css")],
   variants: [path.join(HERE, "themes/variants-default.css")],
   tables: [path.join(HERE, "themes/tables-default.css")],
+  drawing: [path.join(HERE, "themes/drawing-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {

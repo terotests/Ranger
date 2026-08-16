@@ -1,0 +1,56 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A label against every anchor the reference offers: three alignments, four baselines, a nudge, and a turn. The reference works its own baseline out and folds it into the transform rather than handing SVG a dominant-baseline, so a backend that trusts a font's idea of the baseline puts every label somewhere else.",
+  "background": "white",
+  "padding": 5,
+  "width": 260,
+  "height": 160,
+  "data": [
+    {
+      "name": "labels",
+      "values": [
+        {"t": "alphabetic", "a": "left",   "b": "alphabetic", "x": 10,  "y": 20,  "g": 0,   "dx": 0, "dy": 0},
+        {"t": "top",        "a": "center", "b": "top",        "x": 130, "y": 20,  "g": 0,   "dx": 0, "dy": 0},
+        {"t": "middle",     "a": "right",  "b": "middle",     "x": 250, "y": 20,  "g": 0,   "dx": 0, "dy": 0},
+        {"t": "bottom",     "a": "left",   "b": "bottom",     "x": 10,  "y": 60,  "g": 0,   "dx": 0, "dy": 0},
+        {"t": "nudged",     "a": "center", "b": "middle",     "x": 130, "y": 60,  "g": 0,   "dx": 12, "dy": -6},
+        {"t": "turned -90", "a": "center", "b": "middle",     "x": 250, "y": 60,  "g": -90, "dx": 0, "dy": 0},
+        {"t": "turned 90",  "a": "center", "b": "middle",     "x": 30,  "y": 120, "g": 90,  "dx": 0, "dy": 0},
+        {"t": "turned -45", "a": "right",  "b": "top",        "x": 130, "y": 120, "g": -45, "dx": 0, "dy": 0},
+        {"t": "turned 270", "a": "center", "b": "bottom",     "x": 240, "y": 120, "g": 270, "dx": 4, "dy": 2}
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "type": "symbol",
+      "from": {"data": "labels"},
+      "encode": {
+        "update": {
+          "x": {"field": "x"},
+          "y": {"field": "y"},
+          "size": {"value": 16},
+          "fill": {"value": "#b03a2e"}
+        }
+      }
+    },
+    {
+      "type": "text",
+      "from": {"data": "labels"},
+      "encode": {
+        "update": {
+          "x": {"field": "x"},
+          "y": {"field": "y"},
+          "dx": {"field": "dx"},
+          "dy": {"field": "dy"},
+          "angle": {"field": "g"},
+          "text": {"field": "t"},
+          "align": {"field": "a"},
+          "baseline": {"field": "b"},
+          "fontSize": {"value": 12},
+          "fill": {"value": "#1c3f5e"}
+        }
+      }
+    }
+  ]
+}

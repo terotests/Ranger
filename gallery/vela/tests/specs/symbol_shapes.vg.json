@@ -1,0 +1,58 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "Every shape the reference draws, and the paint channels a symbol carries. Nothing in the rest of the suite asks for a shape that is not a circle or a square, so nothing in the rest of the suite would notice a renderer that drew them all round.",
+  "background": "white",
+  "padding": 5,
+  "width": 340,
+  "height": 70,
+  "data": [
+    {
+      "name": "shapes",
+      "values": [
+        {"s": "circle"},
+        {"s": "square"},
+        {"s": "cross"},
+        {"s": "diamond"},
+        {"s": "triangle-up"},
+        {"s": "triangle-down"},
+        {"s": "triangle-right"},
+        {"s": "triangle-left"},
+        {"s": "triangle"},
+        {"s": "wedge"},
+        {"s": "arrow"},
+        {"s": "stroke"}
+      ]
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "point",
+      "domain": {"data": "shapes", "field": "s"},
+      "range": [0, {"signal": "width"}],
+      "padding": 0.5
+    }
+  ],
+  "axes": [
+    {"scale": "x", "orient": "bottom", "labelAngle": -40, "labelAlign": "right", "labelBaseline": "middle"}
+  ],
+  "marks": [
+    {
+      "type": "symbol",
+      "from": {"data": "shapes"},
+      "encode": {
+        "update": {
+          "x": {"scale": "x", "field": "s"},
+          "y": {"signal": "height / 2"},
+          "size": {"value": 260},
+          "shape": {"field": "s"},
+          "fill": {"value": "#4c78a8"},
+          "fillOpacity": {"value": 0.55},
+          "stroke": {"value": "#1c3f5e"},
+          "strokeWidth": {"value": 1.5},
+          "strokeOpacity": {"value": 0.9}
+        }
+      }
+    }
+  ]
+}

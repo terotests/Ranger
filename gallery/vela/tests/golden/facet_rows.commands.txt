@@ -90,7 +90,7 @@ line x=0.5 y=623.5 x2=180.5 y2=623.5 stroke=#888 strokeWidth=1
 text x=90.5 y=642.5 size=11 align=center text=a fill=#000
 group-end
 group-end
-rect x=0 y=0 w=180 h=300 stroke=#ddd strokeWidth=1
+rect x=0.5 y=0.5 w=180 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=0.5 y=300.5 x2=180.5 y2=300.5 stroke=#ddd strokeWidth=1
@@ -111,7 +111,7 @@ rect x=81 y=57 w=18 h=243 fill=#4c78a8
 rect x=121 y=243 w=18 h=57 fill=#4c78a8
 rect x=161 y=144 w=18 h=156 fill=#4c78a8
 group-end
-rect x=0 y=322 w=180 h=300 stroke=#ddd strokeWidth=1
+rect x=0.5 y=322.5 w=180 h=300 stroke=#ddd strokeWidth=1
 group-begin
 group-begin
 line x=0.5 y=622.5 x2=180.5 y2=622.5 stroke=#ddd strokeWidth=1

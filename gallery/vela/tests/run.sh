@@ -38,6 +38,7 @@ compile $VELA/tests/flow_test.rgr flow_test.js
 compile $VELA/tools/vela_scene.rgr vela_scene.js
 compile $VELA/tools/vela_commands.rgr vela_commands.js
 compile $VELA/tools/vela_compile.rgr vela_compile.js
+compile $VELA/tools/vela_svg.rgr vela_svg.js
 echo "ok"
 
 status=0
@@ -95,6 +96,11 @@ echo "$reflowed specs reflow to the same scene"
 
 say "parity against the reference implementation"
 node $VELA/tools/reference/parity.mjs || status=1
+
+# The scene says `shape: diamond`; it takes a renderer to say what a diamond
+# looks like. This runs both renderers and compares the ink.
+say "the drawing, against the reference renderer"
+node $VELA/tools/reference/render.mjs || status=1
 
 say "the Vega-Lite compiler, drawn against the official one"
 node $VELA/tools/reference/compiler.mjs || status=1

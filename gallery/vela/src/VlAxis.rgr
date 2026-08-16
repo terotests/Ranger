@@ -73,6 +73,17 @@ class VlAxis {
     ; reference leaves `opacity` at 1 and puts the number on `strokeOpacity`,
     ; which is a different thing to a renderer that strokes and fills.
     def gridOpacitySet:boolean false
+    ; A dash pattern belongs to the guide that asked for it. It reached nothing
+    ; before: `gridDash` was read from the specification, stored nowhere, and a
+    ; dashed grid came out solid. The scene comparison could not see it either,
+    ; because a dash is an ARRAY and the comparison only looked at channels
+    ; whose value was a single number or string.
+    def gridDash:VlJson (new VlJson)
+    def gridDashSet:boolean false
+    def tickDash:VlJson (new VlJson)
+    def tickDashSet:boolean false
+    def domainDash:VlJson (new VlJson)
+    def domainDashSet:boolean false
     def tickOpacitySet:boolean false
     def tickOpacity:double 1.0
     def domainOpacitySet:boolean false
@@ -117,6 +128,18 @@ class VlAxis {
         gridOpacity = (adef.doubleOr("gridOpacity" gridOpacity))
         tickRound = (adef.boolOr("tickRound" tickRound))
         gridOpacitySet = (adef.has("gridOpacity"))
+        gridDashSet = (adef.has("gridDash"))
+        if gridDashSet {
+            gridDash = (adef.get("gridDash"))
+        }
+        tickDashSet = (adef.has("tickDash"))
+        if tickDashSet {
+            tickDash = (adef.get("tickDash"))
+        }
+        domainDashSet = (adef.has("domainDash"))
+        if domainDashSet {
+            domainDash = (adef.get("domainDash"))
+        }
         tickOpacitySet = (adef.has("tickOpacity"))
         tickOpacity = (adef.doubleOr("tickOpacity" tickOpacity))
         domainOpacitySet = (adef.has("domainOpacity"))
@@ -436,6 +459,9 @@ class VlAxis {
             }
             item.setString("stroke" gridColor)
             item.setNumber("strokeWidth" gridWidth)
+            if gridDashSet {
+                item.setValue("strokeDash" gridDash)
+            }
             def at:double tv.labelPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
@@ -469,6 +495,9 @@ class VlAxis {
             }
             item.setString("stroke" tickColor)
             item.setNumber("strokeWidth" tickWidth)
+            if tickDashSet {
+                item.setValue("strokeDash" tickDash)
+            }
             def at:double tv.labelPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
@@ -755,6 +784,9 @@ class VlAxis {
         }
         item.setString("stroke" domainColor)
         item.setNumber("strokeWidth" domainWidth)
+        if domainDashSet {
+            item.setValue("strokeDash" domainDash)
+        }
         if vertical {
             item.setNumber("x" 0.0)
             item.setNumber("y" rangeFrom)

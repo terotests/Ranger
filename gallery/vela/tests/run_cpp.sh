@@ -38,7 +38,7 @@ mkdir -p "$OUT"
 status=0
 
 say "compile to C++"
-for tool in vela_scene vela_commands vela_evg vela_compile; do
+for tool in vela_scene vela_commands vela_evg vela_compile vela_svg; do
   log=$(node --max-old-space-size=8192 bin/output.js -l=cpp "$VELA/tools/$tool.rgr" \
     -d="$OUT" -o="$tool.cpp" -nodecli 2>&1)
   if ! echo "$log" | grep -q "\[OK\]"; then
@@ -50,7 +50,7 @@ for tool in vela_scene vela_commands vela_evg vela_compile; do
 done
 
 say "build with $CXX"
-for tool in vela_scene vela_commands vela_evg vela_compile; do
+for tool in vela_scene vela_commands vela_evg vela_compile vela_svg; do
   if "$CXX" -std=c++17 -O1 -o "$OUT/$tool" "$OUT/$tool.cpp" 2> "$OUT/$tool.log"; then
     echo "  ok   $tool"
   else
@@ -91,6 +91,24 @@ for spec in $(find $VELA/tests/specs -name '*.vg.json' | sort); do
   fi
 done
 [ $status -eq 0 ] && echo "  $both specs, byte for byte"
+
+# The drawing itself, from the native binary. This is the one that reaches
+# furthest down: an SVG document is path data and text placement, so a
+# difference in how a target does floating point or counts a string shows up
+# here as a different picture rather than as a different number in a scene.
+say "the same SVG, from the native binary"
+drawn=0
+for spec in $(find $VELA/tests/specs -name '*.vg.json' | sort); do
+  key=$(echo "$spec" | sed "s|$VELA/tests/specs/||; s|/|_|g; s|\.vg\.json||")
+  node "$VELA/bin/vela_svg.js" "$spec" > "$OUT/$key.js.svg" 2>&1
+  "$OUT/vela_svg" "$spec" > "$OUT/$key.cpp.svg" 2>&1
+  if diff -q "$OUT/$key.js.svg" "$OUT/$key.cpp.svg" > /dev/null; then
+    drawn=$((drawn + 1))
+  else
+    echo "  DIFF $spec"; diff "$OUT/$key.js.svg" "$OUT/$key.cpp.svg" | head -10; status=1
+  fi
+done
+[ $status -eq 0 ] && echo "  $drawn drawings, byte for byte"
 
 # The compiler, from the native binary: a Vega-Lite source in, and the same
 # Vega specification out as the JavaScript build wrote.

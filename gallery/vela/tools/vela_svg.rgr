@@ -1,0 +1,133 @@
+; ==============================================================================
+; vela_svg.rgr — run a Vega specification and write what it draws, as SVG.
+; ==============================================================================
+;   vela_svg <spec.vg.json> [out.svg] [--zone=Europe/Helsinki] [--no-background]
+;
+; The reference implementation renders to SVG. So does this, which is what lets
+; `tools/reference/render.mjs` put the two documents through one parser and
+; compare the geometry rather than compare this repository against itself.
+;
+; It is also just a renderer: the file it writes opens in a browser.
+; ==============================================================================
+
+Import "../src/VlRuntime.rgr"
+Import "../src/VlCommand.rgr"
+Import "../src/VlSvg.rgr"
+
+class VelaSvgTool {
+
+    sfn dirOf:string (path:string) {
+        def lastSep:int (lastIndexOf path "/")
+        if (lastSep >= 0) {
+            return (substring path 0 (lastSep + 1))
+        }
+        return "./"
+    }
+
+    sfn nameOf:string (path:string) {
+        def lastSep:int (lastIndexOf path "/")
+        if (lastSep >= 0) {
+            return (substring path (lastSep + 1) (strlen path))
+        }
+        return path
+    }
+
+    sfn flagValue:string (arg:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen arg) <= n) {
+            return ""
+        }
+        if ((substring arg 0 n) != prefix) {
+            return ""
+        }
+        return (substring arg n (strlen arg))
+    }
+
+    sfn main:void () {
+        def argCount:int (shell_arg_cnt)
+        if (argCount < 1) {
+            print "usage: vela_svg <spec.vg.json> [out.svg] [--zone=…] [--no-background]"
+            return
+        }
+        def inputPath:string ""
+        def outputPath:string ""
+        def zoneName:string ""
+        ; `--no-background` forces a transparent page. Otherwise the page is
+        ; painted only if the specification asked for it — `"background": null`
+        ; means no rectangle at all, and painting one anyway is the difference
+        ; between a chart that sits on the page and one that covers it.
+        def paint:boolean true
+        def positional:int 0
+        def ai:int 0
+        while (ai < argCount) {
+            def arg:string (shell_arg ai)
+            if ((VelaSvgTool.flagValue(arg "--zone=")) != "") {
+                zoneName = (VelaSvgTool.flagValue(arg "--zone="))
+            } {
+                if (arg == "--no-background") {
+                    paint = false
+                } {
+                    if (positional == 0) {
+                        inputPath = arg
+                    } {
+                        if (positional == 1) {
+                            outputPath = arg
+                        }
+                    }
+                    positional = (positional + 1)
+                }
+            }
+            ai = (ai + 1)
+        }
+        if ((strlen inputPath) == 0) {
+            print "usage: vela_svg <spec.vg.json> [out.svg] [--zone=…] [--no-background]"
+            return
+        }
+
+        def text@(optional):string (read_file (VelaSvgTool.dirOf(inputPath)) (VelaSvgTool.nameOf(inputPath)))
+        if (null? text) {
+            print ("could not read " + inputPath)
+            return
+        }
+        def parser (new VlJsonParser())
+        def specJson:VlJson (parser.parse((unwrap text)))
+        if (! parser.ok) {
+            print ("spec is not valid JSON: " + parser.err)
+            return
+        }
+
+        def rt (new VlRuntime())
+        rt.timeZoneName = zoneName
+        def scene:VlSceneMark (rt.run(specJson))
+        for rt.errors e:string ei {
+            print ("error: " + e)
+        }
+        if ((array_length rt.errors) > 0) {
+            return
+        }
+
+        def background:string ""
+        if paint {
+            background = rt.background
+        }
+
+        def list:VlCommandList (VlSceneCommands.build(scene))
+        def root:VlSceneItem (itemAt scene.items 0)
+        def writer (new VlSvgWriter())
+        def doc:string (writer.writeDocument(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY")) background))
+
+        ; What the geometry layer did not recognise. Printed to the error
+        ; stream rather than dropped, because a shape that came out round when
+        ; the spec asked for a diamond still draws a chart that looks fine.
+        for writer.unsupported what:string wi {
+            print ("not drawn as asked: " + what)
+        }
+
+        if ((strlen outputPath) > 0) {
+            write_file (VelaSvgTool.dirOf(outputPath)) (VelaSvgTool.nameOf(outputPath)) doc
+            print ("wrote " + outputPath)
+        } {
+            print doc
+        }
+    }
+}

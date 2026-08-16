@@ -1,0 +1,487 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "One line per interpolation over the same eight readings. Nothing else in the suite asks for a curve, so nothing else would notice a renderer that drew every one of them as straight segments \u2014 nine identical lines under a legend naming nine different shapes.",
+  "background": "white",
+  "padding": 5,
+  "width": 260,
+  "height": 150,
+  "data": [
+    {
+      "name": "table",
+      "values": [
+        {
+          "c": "linear",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "linear",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "linear",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "linear",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "linear",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "linear",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "linear",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "linear",
+          "u": 7,
+          "v": 87
+        },
+        {
+          "c": "basis",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "basis",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "basis",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "basis",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "basis",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "basis",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "basis",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "basis",
+          "u": 7,
+          "v": 87
+        },
+        {
+          "c": "cardinal",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "cardinal",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "cardinal",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "cardinal",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "cardinal",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "cardinal",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "cardinal",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "cardinal",
+          "u": 7,
+          "v": 87
+        },
+        {
+          "c": "catmull-rom",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "catmull-rom",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "catmull-rom",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "catmull-rom",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "catmull-rom",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "catmull-rom",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "catmull-rom",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "catmull-rom",
+          "u": 7,
+          "v": 87
+        },
+        {
+          "c": "monotone",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "monotone",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "monotone",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "monotone",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "monotone",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "monotone",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "monotone",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "monotone",
+          "u": 7,
+          "v": 87
+        },
+        {
+          "c": "natural",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "natural",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "natural",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "natural",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "natural",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "natural",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "natural",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "natural",
+          "u": 7,
+          "v": 87
+        },
+        {
+          "c": "step",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "step",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "step",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "step",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "step",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "step",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "step",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "step",
+          "u": 7,
+          "v": 87
+        },
+        {
+          "c": "step-before",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "step-before",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "step-before",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "step-before",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "step-before",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "step-before",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "step-before",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "step-before",
+          "u": 7,
+          "v": 87
+        },
+        {
+          "c": "step-after",
+          "u": 0,
+          "v": 28
+        },
+        {
+          "c": "step-after",
+          "u": 1,
+          "v": 55
+        },
+        {
+          "c": "step-after",
+          "u": 2,
+          "v": 43
+        },
+        {
+          "c": "step-after",
+          "u": 3,
+          "v": 91
+        },
+        {
+          "c": "step-after",
+          "u": 4,
+          "v": 81
+        },
+        {
+          "c": "step-after",
+          "u": 5,
+          "v": 53
+        },
+        {
+          "c": "step-after",
+          "u": 6,
+          "v": 19
+        },
+        {
+          "c": "step-after",
+          "u": 7,
+          "v": 87
+        }
+      ]
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": {
+        "data": "table",
+        "field": "u"
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ]
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": [
+        0,
+        100
+      ],
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ]
+    },
+    {
+      "name": "colour",
+      "type": "ordinal",
+      "domain": [
+        "linear",
+        "basis",
+        "cardinal",
+        "catmull-rom",
+        "monotone",
+        "natural",
+        "step",
+        "step-before",
+        "step-after"
+      ],
+      "range": {
+        "scheme": "tableau10"
+      }
+    }
+  ],
+  "axes": [
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "tickCount": 7
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": true
+    }
+  ],
+  "legends": [
+    {
+      "stroke": "colour",
+      "title": "interpolate",
+      "symbolType": "stroke"
+    }
+  ],
+  "marks": [
+    {
+      "type": "group",
+      "from": {
+        "facet": {
+          "name": "one",
+          "data": "table",
+          "groupby": "c"
+        }
+      },
+      "marks": [
+        {
+          "type": "line",
+          "from": {
+            "data": "one"
+          },
+          "encode": {
+            "update": {
+              "x": {
+                "scale": "x",
+                "field": "u"
+              },
+              "y": {
+                "scale": "y",
+                "field": "v"
+              },
+              "stroke": {
+                "scale": "colour",
+                "field": "c"
+              },
+              "strokeWidth": {
+                "value": 1.5
+              },
+              "strokeOpacity": {
+                "value": 0.85
+              },
+              "interpolate": {
+                "field": "c"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

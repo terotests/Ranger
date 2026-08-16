@@ -1,0 +1,339 @@
+; ==============================================================================
+; VlSvg.rgr — the draw commands as an SVG document.
+; ==============================================================================
+; This backend exists to be COMPARED. The scene has been checked against the
+; reference implementation mark for mark since the beginning, but everything
+; below the scene — how a symbol's shape becomes an outline, where a label's
+; glyphs sit relative to its anchor, what a wedge's edge actually is — was
+; only ever checked against this repository's own golden files. A golden file
+; pins what changed; it cannot tell you that what you drew was never right.
+;
+; The reference renders to SVG. So does this. `tools/reference/render.mjs`
+; flattens both documents through one parser and compares the geometry, which
+; is the only way to ask "does it draw the same picture" and get an answer that
+; is not this repository marking its own work.
+;
+; The output deliberately mirrors the reference's conventions, because a
+; difference in convention would drown the differences that matter:
+;
+;   * a `rule` is a <line>, everything else with an outline is a <path>
+;   * a label is a <text> with `text-anchor`, positioned by a transform, and
+;     its baseline offset is folded into that transform the way the reference
+;     folds it — see VlSvg.baselineOffset
+;   * coordinates are absolute; the command layer already flattened the groups
+;
+; It is a real renderer and not a test fixture: `vela_svg` writes a file any
+; browser opens. But being comparable is what it is FOR.
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlCommand.rgr"
+Import "VlShape.rgr"
+Import "../../evg/PathBuilder.rgr"
+
+class VlSvgWriter {
+    ; Shapes the geometry layer did not recognise, so a chart that came out
+    ; round when it asked for diamonds says so instead of looking fine.
+    def unsupported:[string]
+
+    fn writeDocument:string (list:VlCommandList width:double height:double originX:double originY:double background:string) {
+        def nl:string (strfromcode 10)
+        def out:string ""
+        out = (out + "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\"")
+        out = ((((out + " width=\"") + (VlJson.formatNumber(width 3))) + "\" height=\"") + (VlJson.formatNumber(height 3)))
+        out = ((((((out + "\" viewBox=\"0 0 ") + (VlJson.formatNumber(width 3))) + " ") + (VlJson.formatNumber(height 3))) + "\">") + nl)
+        if ((strlen background) > 0) {
+            out = ((((((out + "<rect width=\"") + (VlJson.formatNumber(width 3))) + "\" height=\"") + (VlJson.formatNumber(height 3))) + ("\" fill=\"" + background)) + ("\"/>" + nl))
+        }
+        out = (out + (this.writeCommands(list originX originY)))
+        out = ((out + "</svg>") + nl)
+        return out
+    }
+
+    ; One element per command. The EVG backend merges a run of same-paint
+    ; geometry into a single path because a document with fewer elements draws
+    ; faster; this one does not, because a one-to-one document is what makes a
+    ; disagreement point at the command that caused it.
+    fn writeCommands:string (list:VlCommandList originX:double originY:double) {
+        def nl:string (strfromcode 10)
+        def out:string ""
+        for list.commands cmd:VlDrawCommand idx {
+            def element:string (this.element(cmd originX originY))
+            if ((strlen element) > 0) {
+                out = ((out + element) + nl)
+            }
+        }
+        return out
+    }
+
+    fn element:string (cmd:VlDrawCommand originX:double originY:double) {
+        if (cmd.op == "group-begin") {
+            return ""
+        }
+        if (cmd.op == "group-end") {
+            return ""
+        }
+        ; Nothing invisible is written out at all. A renderer that ignores an
+        ; opacity attribute would otherwise paint what the overlap pass had
+        ; already decided to hide.
+        if (cmd.opacity <= 0.0) {
+            return ""
+        }
+        if (cmd.op == "text") {
+            return (this.textElement(cmd originX originY))
+        }
+        if (cmd.op == "line") {
+            return (this.lineElement(cmd originX originY))
+        }
+        if (cmd.op == "image") {
+            return (this.imageElement(cmd originX originY))
+        }
+        return (this.pathElement(cmd originX originY))
+    }
+
+    ; --------------------------------------------------------------- geometry ---
+    fn pathElement:string (cmd:VlDrawCommand originX:double originY:double) {
+        def builder (new PathBuilder())
+        this.appendGeometry(builder cmd originX originY)
+        def data:string (builder.asPathData())
+        if ((strlen data) == 0) {
+            return ""
+        }
+        def out:string (("<path d=\"" + data) + "\"")
+        out = (out + (this.paintAttributes(cmd)))
+        return (out + "/>")
+    }
+
+    ; A rule keeps the reference's own element: a <line> placed by a transform
+    ; with the far end given relative to it. Written as a path it would compare
+    ; the same, but a document a person opens should look like what it is.
+    fn lineElement:string (cmd:VlDrawCommand originX:double originY:double) {
+        def x:double (cmd.x + originX)
+        def y:double (cmd.y + originY)
+        def out:string ((("<line transform=\"translate(" + (VlJson.formatNumber(x 4))) + ",") + (VlJson.formatNumber(y 4)))
+        out = (out + ")\"")
+        out = ((((out + " x2=\"") + (VlJson.formatNumber((cmd.x2 - cmd.x) 4))) + "\" y2=\"") + (VlJson.formatNumber((cmd.y2 - cmd.y) 4)))
+        out = (out + "\"")
+        out = (out + (this.paintAttributes(cmd)))
+        return (out + "/>")
+    }
+
+    fn imageElement:string (cmd:VlDrawCommand originX:double originY:double) {
+        def out:string ((("<image x=\"" + (VlJson.formatNumber((cmd.x + originX) 4))) + "\" y=\"") + (VlJson.formatNumber((cmd.y + originY) 4)))
+        out = ((((out + "\" width=\"") + (VlJson.formatNumber(cmd.width 4))) + "\" height=\"") + (VlJson.formatNumber(cmd.height 4)))
+        out = ((((out + "\" href=\"") + (VlSvgWriter.escapeAttribute(cmd.url))) + "\"/>"))
+        return out
+    }
+
+    fn appendGeometry:void (builder:PathBuilder cmd:VlDrawCommand originX:double originY:double) {
+        def ox:double originX
+        def oy:double originY
+
+        if (cmd.op == "rect") {
+            VlShape.appendRect(builder (cmd.x + ox) (cmd.y + oy) cmd.width cmd.height cmd.cornerTL cmd.cornerTR cmd.cornerBR cmd.cornerBL)
+            return
+        }
+        if (cmd.op == "symbol") {
+            if (! (VlShape.known(cmd.shape))) {
+                this.noteUnsupported(("shape " + cmd.shape))
+            }
+            VlShape.appendSymbol(builder cmd.shape cmd.size (cmd.x + ox) (cmd.y + oy))
+            return
+        }
+        if ((cmd.op == "polyline") || (cmd.op == "polygon")) {
+            if (! (VlShape.curveKnown(cmd.interpolate))) {
+                this.noteUnsupported(("interpolate " + cmd.interpolate))
+            }
+            def pts:[double]
+            def total:int (array_length cmd.points)
+            def k:int 0
+            while (k < total) {
+                def v:double (itemAt cmd.points k)
+                if ((k % 2) == 0) {
+                    push pts (v + ox)
+                } {
+                    push pts (v + oy)
+                }
+                k = (k + 1)
+            }
+            VlShape.appendCurve(builder pts cmd.interpolate cmd.tension (cmd.op == "polygon"))
+            return
+        }
+        if (cmd.op == "arc") {
+            VlShape.appendArc(builder (cmd.x + ox) (cmd.y + oy) cmd.startAngle cmd.endAngle cmd.innerRadius cmd.outerRadius)
+            return
+        }
+        if (cmd.op == "path") {
+            builder.addPathData(cmd.pathData)
+        }
+    }
+
+    fn noteUnsupported:void (what:string) {
+        for unsupported seen:string si {
+            if (seen == what) {
+                return
+            }
+        }
+        push unsupported what
+    }
+
+    ; ------------------------------------------------------------------- text ---
+    ; The reference does not hand SVG a `dominant-baseline`; it works the
+    ; baseline out itself and folds the answer into the transform, so that every
+    ; renderer it has — canvas, SVG, and whatever a browser does with the font —
+    ; puts the glyphs in the same place. Matching that is the whole point.
+    fn textElement:string (cmd:VlDrawCommand originX:double originY:double) {
+        def x:double (cmd.x + originX)
+        def y:double (cmd.y + originY)
+        def dx:double cmd.dx
+        def dy:double (cmd.dy + (VlSvgWriter.baselineOffset(cmd.baseline cmd.fontSize)))
+
+        def out:string ("<text text-anchor=\"" + (VlSvgWriter.anchorFor(cmd.align)))
+        out = (out + "\" transform=\"")
+        if (cmd.angle != 0.0) {
+            out = (out + (VlSvgWriter.translate(x y)))
+            out = ((out + " rotate(") + (VlJson.formatNumber(cmd.angle 4)))
+            out = (out + ")")
+            if ((dx != 0.0) || (dy != 0.0)) {
+                out = ((out + " ") + (VlSvgWriter.translate(dx dy)))
+            }
+        } {
+            out = (out + (VlSvgWriter.translate((x + dx) (y + dy))))
+        }
+        out = (out + "\"")
+        out = ((((out + " font-family=\"") + (VlSvgWriter.escapeAttribute(cmd.font))) + "\" font-size=\"") + (VlJson.formatNumber(cmd.fontSize 3)))
+        out = (out + "px\"")
+        if ((strlen cmd.fontWeight) > 0) {
+            out = ((((out + " font-weight=\"") + cmd.fontWeight) + "\""))
+        }
+        if cmd.hasFill {
+            out = ((((out + " fill=\"") + cmd.fill) + "\""))
+        }
+        if (cmd.opacity != 1.0) {
+            out = ((((out + " opacity=\"") + (VlJson.formatNumber(cmd.opacity 4))) + "\""))
+        }
+        out = ((((out + ">") + (VlSvgWriter.escapeText(cmd.text))) + "</text>"))
+        return out
+    }
+
+    ; top 0.79, middle 0.30, bottom -0.21 of the font size, ROUNDED — the
+    ; reference rounds, so a label at 10px moves by a whole 3 and not by 3.0
+    ; and something. Rounding is what makes two renderers agree on a pixel.
+    sfn baselineOffset:double (baseline:string fontSize:double) {
+        def h:double fontSize
+        if (baseline == "top") {
+            return (VlSvgWriter.roundHalf(0.79 * h))
+        }
+        if (baseline == "middle") {
+            return (VlSvgWriter.roundHalf(0.30 * h))
+        }
+        if (baseline == "bottom") {
+            return (VlSvgWriter.roundHalf((0.0 - 0.21) * h))
+        }
+        return 0.0
+    }
+
+    ; Rounds half away from zero for a negative value the way the reference's
+    ; own rounding does: -2.31 is -2, not -3.
+    sfn roundHalf:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - (to_double (to_int ((0.0 - v) + 0.5))))
+        }
+        return (to_double (to_int (v + 0.5)))
+    }
+
+    sfn anchorFor:string (align:string) {
+        if (align == "center") {
+            return "middle"
+        }
+        if (align == "right") {
+            return "end"
+        }
+        return "start"
+    }
+
+    sfn translate:string (x:double y:double) {
+        return (((("translate(" + (VlJson.formatNumber(x 4))) + ",") + (VlJson.formatNumber(y 4))) + ")")
+    }
+
+    ; ------------------------------------------------------------------ paint ---
+    ; fill and stroke each have their own opacity as well as the shared one, and
+    ; a backend that reads only the shared one draws a translucent mark solid.
+    fn paintAttributes:string (cmd:VlDrawCommand) {
+        def out:string ""
+        if cmd.hasFill {
+            out = ((((out + " fill=\"") + cmd.fill) + "\""))
+        } {
+            out = (out + " fill=\"none\"")
+        }
+        if cmd.hasStroke {
+            out = ((((out + " stroke=\"") + cmd.stroke) + "\""))
+            out = ((((out + " stroke-width=\"") + (VlJson.formatNumber(cmd.strokeWidth 4))) + "\""))
+            if ((strlen cmd.strokeDash) > 0) {
+                out = ((((out + " stroke-dasharray=\"") + cmd.strokeDash) + "\""))
+            }
+            if ((strlen cmd.strokeCap) > 0) {
+                out = ((((out + " stroke-linecap=\"") + cmd.strokeCap) + "\""))
+            }
+        }
+        if (cmd.fillOpacity != 1.0) {
+            out = ((((out + " fill-opacity=\"") + (VlJson.formatNumber(cmd.fillOpacity 4))) + "\""))
+        }
+        if (cmd.strokeOpacity != 1.0) {
+            out = ((((out + " stroke-opacity=\"") + (VlJson.formatNumber(cmd.strokeOpacity 4))) + "\""))
+        }
+        if (cmd.opacity != 1.0) {
+            out = ((((out + " opacity=\"") + (VlJson.formatNumber(cmd.opacity 4))) + "\""))
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------- escaping ---
+    sfn escapeText:string (text:string) {
+        def out:string ""
+        def total:int (strlen text)
+        def k:int 0
+        while (k < total) {
+            def c:string (substring text k (k + 1))
+            if (c == "&") {
+                out = (out + "&amp;")
+            } {
+                if (c == "<") {
+                    out = (out + "&lt;")
+                } {
+                    if (c == ">") {
+                        out = (out + "&gt;")
+                    } {
+                        out = (out + c)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn escapeAttribute:string (text:string) {
+        def out:string ""
+        def total:int (strlen text)
+        def k:int 0
+        while (k < total) {
+            def c:string (substring text k (k + 1))
+            if (c == "&") {
+                out = (out + "&amp;")
+            } {
+                if (c == "\"") {
+                    out = (out + "&quot;")
+                } {
+                    if (c == "<") {
+                        out = (out + "&lt;")
+                    } {
+                        out = (out + c)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+}

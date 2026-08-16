@@ -26,6 +26,7 @@ Import "VlScene.rgr"
 Import "VlConfig.rgr"
 Import "VlAxis.rgr"
 Import "VlLegend.rgr"
+Import "VlViewBox.rgr"
 
 ; A group that is a plot in its own right: its own size, and the room its own
 ; axes take outside it. A concatenated or faceted view is a row of these.
@@ -1262,13 +1263,14 @@ class VlRuntime {
         ; the axes have said how far that reaches.
         this.encodeLegends(rootItem)
 
-        ; The drawing surface, now that the axes have said how much room they
-        ; need. A renderer reads these four and needs no idea what an axis is:
-        ; make a canvas this big, translate by the origin, draw the commands.
-        rootItem.setNumber("viewWidth" (this.viewWidth()))
-        rootItem.setNumber("viewHeight" (this.viewHeight()))
-        rootItem.setNumber("originX" (this.plotOriginX()))
-        rootItem.setNumber("originY" (this.plotOriginY()))
+        ; The drawing surface, now that everything that will be drawn exists. A
+        ; renderer reads these four and needs no idea what an axis is: make a
+        ; canvas this big, translate by the origin, draw the commands.
+        def box:[double] (VlViewBox.measure(rootItem chartWidth chartHeight padding))
+        rootItem.setNumber("viewWidth" (itemAt box 0))
+        rootItem.setNumber("viewHeight" (itemAt box 1))
+        rootItem.setNumber("originX" (itemAt box 2))
+        rootItem.setNumber("originY" (itemAt box 3))
         return root
     }
 

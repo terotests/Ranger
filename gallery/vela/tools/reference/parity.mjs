@@ -145,7 +145,17 @@ function dumpItem(it) {
   for (const key of Object.keys(it)) {
     if (IGNORED.has(key) || key === 'items') continue;
     const v = it[key];
-    if (v === null || v === undefined || typeof v === 'object' || typeof v === 'function') continue;
+    if (v === null || v === undefined || typeof v === 'function') continue;
+    // An ARRAY channel is a value like any other — `strokeDash` is the one that
+    // matters, and it was skipped along with the back-references for years
+    // because both are `typeof 'object'`. A dashed grid line therefore compared
+    // equal to a solid one, and Vela drew solid.
+    if (typeof v === 'object') {
+      if (Array.isArray(v) && v.every(e => typeof e === 'number' || typeof e === 'string')) {
+        out[key] = v.join(',');
+      }
+      continue;
+    }
     out[key] = v;
   }
   if (it.items && it.items.length && it.items[0].marktype) out.items = it.items.map(dumpMark);

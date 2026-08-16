@@ -48,6 +48,18 @@ class VlDrawCommand {
     def strokeWidth:double 1.0
     def strokeOpacity:double 1.0
     def opacity:double 1.0
+    ; The dash pattern as the specification wrote it, and the shape of a
+    ; stroke's ends. Both change what is on the page and neither is a colour,
+    ; so neither belongs to a theme.
+    def strokeDash:string ""
+    def strokeCap:string ""
+
+    ; A rectangle's corners, clockwise from the top left. Named separately
+    ; because a bar in a stack rounds only the end that is exposed.
+    def cornerTL:double 0.0
+    def cornerTR:double 0.0
+    def cornerBR:double 0.0
+    def cornerBL:double 0.0
 
     def text:string ""
     def font:string "sans-serif"
@@ -56,6 +68,10 @@ class VlDrawCommand {
     def align:string "left"
     def baseline:string "alphabetic"
     def angle:double 0.0
+    ; A label nudged off its anchor. Small, and the only thing that puts a
+    ; value label clear of the bar it belongs to.
+    def dx:double 0.0
+    def dy:double 0.0
 
     ; SVG path data, in the command's own coordinate space. Set for `path`
     ; commands and for a symbol whose shape is not a plain circle.
@@ -69,6 +85,11 @@ class VlDrawCommand {
     ; it into path syntax is the backend's decision, not this layer's.
     def points:[double]
     def interpolate:string "linear"
+    ; What a cardinal or catmull-rom curve is asked to do with its tangents.
+    ; The reference's defaults differ per interpolation, so the command carries
+    ; whether one was given rather than a number that might be a default.
+    def tension:double 0.0
+    def hasTension:boolean false
 
     ; An arc is a wedge: a centre, two angles and two radii. Angles are the
     ; reference's — radians, clockwise, zero pointing UP — and a backend has to
@@ -201,9 +222,7 @@ class VlSceneCommands {
             push cmd.points (offsetY + (item.number("y")))
         }
         def first:VlSceneItem (itemAt mark.items 0)
-        if (first.has("interpolate")) {
-            cmd.interpolate = (first.text("interpolate"))
-        }
+        VlSceneCommands.applyCurve(cmd first)
         VlSceneCommands.applyStyle(cmd first)
         push list.commands cmd
     }
@@ -241,11 +260,30 @@ class VlSceneCommands {
             }
             k = (k - 1)
         }
-        if (first.has("interpolate")) {
-            cmd.interpolate = (first.text("interpolate"))
-        }
+        VlSceneCommands.applyCurve(cmd first)
         VlSceneCommands.applyStyle(cmd first)
         push list.commands cmd
+    }
+
+    ; Which curve joins the points, and how hard it is pulled. The reference's
+    ; tension defaults are per-interpolation rather than global — 0 for a
+    ; cardinal, 0.5 for a catmull-rom — so an unstated tension is filled in from
+    ; the curve's own default and not from a single number that would be wrong
+    ; for one of them.
+    sfn applyCurve:void (cmd:VlDrawCommand item:VlSceneItem) {
+        if (item.has("interpolate")) {
+            cmd.interpolate = (item.text("interpolate"))
+        }
+        if (item.has("tension")) {
+            cmd.tension = (item.number("tension"))
+            cmd.hasTension = true
+            return
+        }
+        if (cmd.interpolate == "catmull-rom") {
+            cmd.tension = 0.5
+        } {
+            cmd.tension = 0.0
+        }
     }
 
     sfn emitGroup:void (list:VlCommandList mark:VlSceneMark item:VlSceneItem offsetX:double offsetY:double) {
@@ -266,8 +304,15 @@ class VlSceneCommands {
             bg.op = "rect"
             bg.markType = "group"
             bg.role = mark.role
-            bg.x = gx
-            bg.y = gy
+            ; A stroked frame is nudged onto the half pixel. A one-pixel line
+            ; centred on a whole coordinate straddles two rows of pixels and is
+            ; drawn as two rows of half-strength grey; moved half a pixel it
+            ; lands inside one row and comes out as the crisp line it was meant
+            ; to be. The reference does this for every group it strokes, which
+            ; is why its frames look sharper than the ones here did.
+            def nudge:double (VlSceneCommands.strokeNudge(item))
+            bg.x = (gx + nudge)
+            bg.y = (gy + nudge)
             bg.width = (item.number("width"))
             bg.height = (item.number("height"))
             VlSceneCommands.applyStyle(bg item)
@@ -293,6 +338,65 @@ class VlSceneCommands {
         end.op = "group-end"
         end.markType = "group"
         push list.commands end
+    }
+
+    ; `cornerRadius` sets all four; a named corner overrides its own. The
+    ; fallback order is the reference's and it is not symmetric: an unstated
+    ; bottom-left follows the top-RIGHT, so a bar rounded at one end by two
+    ; values rounds the diagonal pair.
+    sfn applyCorners:void (cmd:VlDrawCommand item:VlSceneItem) {
+        def all:double 0.0
+        if (item.has("cornerRadius")) {
+            all = (item.number("cornerRadius"))
+        }
+        def tl:double all
+        def tr:double all
+        def br:double all
+        if (item.has("cornerRadiusTopLeft")) {
+            tl = (item.number("cornerRadiusTopLeft"))
+        }
+        if (item.has("cornerRadiusTopRight")) {
+            tr = (item.number("cornerRadiusTopRight"))
+        }
+        if (item.has("cornerRadiusBottomRight")) {
+            br = (item.number("cornerRadiusBottomRight"))
+        }
+        def bl:double tr
+        if (item.has("cornerRadiusBottomLeft")) {
+            bl = (item.number("cornerRadiusBottomLeft"))
+        }
+        cmd.cornerTL = tl
+        cmd.cornerTR = tr
+        cmd.cornerBR = br
+        cmd.cornerBL = bl
+    }
+
+    ; Half a pixel, but only for a stroke thin enough for it to matter: the
+    ; correction is `0.5 - |strokeWidth - 1|`, which is a half at width one and
+    ; tapers to nothing by width 0.5 or 1.5. A thick border covers whole pixels
+    ; on its own and does not want moving.
+    sfn strokeNudge:double (item:VlSceneItem) {
+        if (item.has("strokeOffset")) {
+            return (item.number("strokeOffset"))
+        }
+        if (! (item.has("stroke"))) {
+            return 0.0
+        }
+        if ((item.text("stroke")) == "transparent") {
+            return 0.0
+        }
+        def sw:double 1.0
+        if (item.has("strokeWidth")) {
+            sw = (item.number("strokeWidth"))
+        }
+        if ((sw <= 0.5) || (sw >= 1.5)) {
+            return 0.0
+        }
+        def off:double (sw - 1.0)
+        if (off < 0.0) {
+            off = (0.0 - off)
+        }
+        return (0.5 - off)
     }
 
     sfn emitItem:void (list:VlCommandList mark:VlSceneMark item:VlSceneItem offsetX:double offsetY:double) {
@@ -324,6 +428,7 @@ class VlSceneCommands {
                 cmd.y = (cmd.y + cmd.height)
                 cmd.height = (0.0 - cmd.height)
             }
+            VlSceneCommands.applyCorners(cmd item)
         }
         if (mark.markType == "rule") {
             cmd.op = "line"
@@ -361,6 +466,12 @@ class VlSceneCommands {
             }
             if (item.has("angle")) {
                 cmd.angle = (item.number("angle"))
+            }
+            if (item.has("dx")) {
+                cmd.dx = (item.number("dx"))
+            }
+            if (item.has("dy")) {
+                cmd.dy = (item.number("dy"))
             }
         }
         if (mark.markType == "symbol") {
@@ -489,5 +600,31 @@ class VlSceneCommands {
         if (item.has("opacity")) {
             cmd.opacity = (item.number("opacity"))
         }
+        ; A dash pattern is a list of lengths; it reaches a backend as the text
+        ; an SVG attribute wants, which is also what the reference writes.
+        if (item.has("strokeDash")) {
+            cmd.strokeDash = (VlSceneCommands.dashText((item.props.get("strokeDash"))))
+        }
+        if (item.has("strokeCap")) {
+            cmd.strokeCap = (item.text("strokeCap"))
+        }
+    }
+
+    sfn dashText:string (value:VlJson) {
+        if (value.isString()) {
+            return (value.str)
+        }
+        def out:string ""
+        def total:int (value.count())
+        def k:int 0
+        while (k < total) {
+            if (k > 0) {
+                out = (out + ",")
+            }
+            def part:VlJson (value.at(k))
+            out = (out + (VlJson.formatNumber(part.num 3)))
+            k = (k + 1)
+        }
+        return out
     }
 }
