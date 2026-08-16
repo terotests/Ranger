@@ -52337,15 +52337,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               return this.lowerCompareI32(aNode_2, bNode_2, "ne", lctx);
                             case "||" : 
-                              const a_9 = this.lowerCondOperand(node.getSecond(), lctx);
-                              const b_8 = this.lowerCondOperand(node.getThird(), lctx);
-                              return builder.emitBin("or", "i1", a_9, b_8);
+                              return this.lowerShortCircuit(node, false, lctx);
                             case "&&" : 
-                              const a_10 = this.lowerCondOperand(node.getSecond(), lctx);
-                              const b_9 = this.lowerCondOperand(node.getThird(), lctx);
-                              return builder.emitBin("and", "i1", a_10, b_9);
+                              return this.lowerShortCircuit(node, true, lctx);
                           };
                           return "";
+                        };
+                        lowerShortCircuit (node, isAnd, lctx) {
+                          const builder = lctx.builder;
+                          lctx.shadowCounter = lctx.shadowCounter + 1;
+                          const slot = "%sc" + ("" + lctx.shadowCounter);
+                          builder.emitAlloca("i1", slot);
+                          const a = this.lowerCondOperand(node.getSecond(), lctx);
+                          builder.emitStore("i1", a, slot);
+                          const rhsL = builder.freshLabel("sc_rhs");
+                          const endL = builder.freshLabel("sc_end");
+                          if ( isAnd ) {
+                            builder.terminateBrIf(a, rhsL, endL);
+                          } else {
+                            builder.terminateBrIf(a, endL, rhsL);
+                          }
+                          builder.startBlock(rhsL);
+                          const b = this.lowerCondOperand(node.getThird(), lctx);
+                          builder.emitStore("i1", b, slot);
+                          if ( (typeof(builder.currentBlock) !== "undefined" && builder.currentBlock != null )  ) {
+                            const rb = builder.currentBlock;
+                            if ( rb.termKind == "" ) {
+                              builder.terminateBr(endL);
+                            }
+                          }
+                          builder.startBlock(endL);
+                          return builder.emitLoad("i1", slot);
                         };
                         tryLowerIntrinsic (fnName, argsNode, lctx) {
                           const builder = lctx.builder;

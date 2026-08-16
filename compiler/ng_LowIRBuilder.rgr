@@ -10399,17 +10399,55 @@ class LowIRBuilderPass {
       ; `and i1 <i64 value>, …` does not assemble -- narrow whatever is not
       ; already an i1.
       case "||" {
-        def a (this.lowerCondOperand((node.getSecond()) lctx))
-        def b (this.lowerCondOperand((node.getThird()) lctx))
-        return (builder.emitBin("or" "i1" a b))
+        return (this.lowerShortCircuit(node false lctx))
       }
       case "&&" {
-        def a (this.lowerCondOperand((node.getSecond()) lctx))
-        def b (this.lowerCondOperand((node.getThird()) lctx))
-        return (builder.emitBin("and" "i1" a b))
+        return (this.lowerShortCircuit(node true lctx))
       }
     }
     return ""
+  }
+
+  ; `&&` and `||` SHORT CIRCUIT: the right operand is only evaluated when the
+  ; left does not already settle the answer. Emitting `and i1 a, b` instead
+  ; evaluated both, which is not merely wasteful -- the compiler's own sources
+  ; guard a dereference that way:
+  ;
+  ;   if ( returnedValue.hasParamDesc && (!null? returnedValue.paramDesc.nameNode) )
+  ;
+  ; With both sides evaluated, the guarded read of a null paramDesc happened
+  ; anyway. JavaScript, C++ and every other target short circuit, so code like
+  ; this is everywhere.
+  ;
+  ; The answer travels through a slot rather than a phi: allocas are hoisted to
+  ; the entry block, and on WAT an alloca slot is just a local, so the same
+  ; shape works on both backends.
+  fn lowerShortCircuit:string (node:CodeNode isAnd:boolean lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    lctx.shadowCounter = (lctx.shadowCounter + 1)
+    def slot:string ("%sc" + ("" + lctx.shadowCounter))
+    builder.emitAlloca("i1" slot)
+    def a (this.lowerCondOperand((node.getSecond()) lctx))
+    builder.emitStore("i1" a slot)
+    def rhsL (builder.freshLabel("sc_rhs"))
+    def endL (builder.freshLabel("sc_end"))
+    ; `a && b` runs b when a is TRUE; `a || b` runs it when a is FALSE.
+    if isAnd {
+      builder.terminateBrIf(a rhsL endL)
+    } {
+      builder.terminateBrIf(a endL rhsL)
+    }
+    builder.startBlock(rhsL)
+    def b (this.lowerCondOperand((node.getThird()) lctx))
+    builder.emitStore("i1" b slot)
+    if (!null? builder.currentBlock) {
+      def rb (unwrap builder.currentBlock)
+      if (rb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+    }
+    builder.startBlock(endL)
+    return (builder.emitLoad("i1" slot))
   }
 
   fn tryLowerIntrinsic:string (fnName:string argsNode:CodeNode lctx:LowIRLowerContext) {
