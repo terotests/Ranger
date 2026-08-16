@@ -410,7 +410,12 @@ class VlCompile {
                 VlCompile.mergeSignals(signals signalNames (piece.get("signals")))
                 VlCompile.mergeScales(scales scaleNames domains (piece.get("scales")))
                 VlCompile.mergeLegends(legends legendNames (piece.get("legends")))
-                VlCompile.collectAxisTitles(titles (piece.get("axes")))
+                ; Titles come from layers that STATED one. A layer that merely
+                ; happens to read another column contributes its field name to
+                ; nothing: the reference emits one axis per scale, the first
+                ; layer's, and a chart of `previous_sum` and `sum` is titled
+                ; "Amount" and not "Amount, sum, center".
+                VlCompile.collectAxisTitles(titles (piece.get("axes")) (VlCompile.statedTitles((layers.at(index)))))
             }
             index = (index + 1)
         }
@@ -1492,7 +1497,33 @@ class VlCompile {
 
     ; One axis over several layers names all of them: a scatter plot with a mean
     ; line reads "b, Mean of b", because the axis is measuring both.
-    sfn collectAxisTitles:void (titles:[string:string] from:VlJson) {
+    ; Which of a layer's channels named their own axis title. A title the
+    ; layer did not ask for is derived from a field name, and a field name
+    ; another layer happens to read is not something to append to the axis.
+    sfn statedTitles:[string:boolean] (layer:VlJson) {
+        def out:[string:boolean]
+        def encoding:VlJson (layer.get("encoding"))
+        if (encoding.isObject()) {
+            for encoding.keys key:string ki {
+                def cdef:VlJson (encoding.get(key))
+                if (cdef.isObject()) {
+                    def named:boolean (cdef.has("title"))
+                    if (! named) {
+                        def axisDef:VlJson (cdef.get("axis"))
+                        if (axisDef.isObject()) {
+                            named = (axisDef.has("title"))
+                        }
+                    }
+                    if named {
+                        set out key true
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn collectAxisTitles:void (titles:[string:string] from:VlJson stated:[string:boolean]) {
         if (! (from.isArray())) {
             return
         }
@@ -1501,6 +1532,13 @@ class VlCompile {
             def axis:VlJson (from.at(i))
             def scale:string (axis.stringOr("scale" ""))
             def title:string (axis.stringOr("title" ""))
+            def first:boolean (! (has titles scale))
+            def welcome:boolean (first || (has stated scale))
+            if ((strlen title) > 0) {
+                if (! welcome) {
+                    title = ""
+                }
+            }
             if ((strlen title) > 0) {
                 if (has titles scale) {
                     def already:string (unwrap (get titles scale))
