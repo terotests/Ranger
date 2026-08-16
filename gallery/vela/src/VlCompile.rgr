@@ -2291,6 +2291,31 @@ class VlCompile {
                     }
                     push transforms.arr kd
                 } {
+                if (t.has("stack")) {
+                    ; A stack the SPECIFICATION asked for, rather than one the
+                    ; encoding implied. Same transform, and the runtime already
+                    ; has it; what it needs is the two names the spec gives the
+                    ; running start and end.
+                    def sk (VlJson.objectValue())
+                    sk.setMember("type" (VlJson.stringValue("stack")))
+                    if (t.has("groupby")) {
+                        sk.setMember("groupby" (t.get("groupby")))
+                    } {
+                        sk.setMember("groupby" (VlJson.arrayValue()))
+                    }
+                    sk.setMember("field" (VlJson.stringValue((t.stringOr("stack" "")))))
+                    sk.setMember("sort" (VlCompile.sortSpec((t.get("sort")))))
+                    def skNames (VlJson.arrayValue())
+                    if (t.has("as")) {
+                        skNames = (t.get("as"))
+                    } {
+                        push skNames.arr (VlJson.stringValue(((t.stringOr("stack" "")) + "_start")))
+                        push skNames.arr (VlJson.stringValue(((t.stringOr("stack" "")) + "_end")))
+                    }
+                    sk.setMember("as" skNames)
+                    sk.setMember("offset" (VlJson.stringValue((t.stringOr("offset" "zero")))))
+                    push transforms.arr sk
+                } {
                 if (t.has("fold")) {
                     ; Columns into rows. The `as` pair names the two columns
                     ; that come out — the name of the folded column and its
@@ -2326,6 +2351,7 @@ class VlCompile {
                     ; how Vega-Lite writes a transform, so the refusal can say
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
                 }
                 }
                 }
@@ -3633,7 +3659,11 @@ class VlCompile {
                 ; axis has two fields because a bin has two ends, and naming
                 ; both of them titles the axis "IMDB Rating, bin_IMDB_Rating_end".
                 def binPair:boolean (ch.hasBin || ch.binnedAlready)
-                if (! binPair) {
+                ; …nor when the channel NAMED itself. A stated title is the
+                ; whole title; appending the other end's field name to it
+                ; produces "Percentage, nx2".
+                def named:boolean ((strlen (ch.def0.stringOr("title" ""))) > 0)
+                if ((! binPair) && (! named)) {
                     axisTitle = ((axisTitle + ", ") + (secondary.title()))
                 }
             }
