@@ -10625,10 +10625,11 @@ class LowIRBuilderPass {
     def argTypes:[string]
     def argIdx:int 0
     for argsNode.children arg:CodeNode i {
-      push args (this.lowerExpr(arg lctx))
       if (!null? node.fnDesc) {
+        push args (this.lowerCallArgValue(arg argIdx (unwrap node.fnDesc) lctx))
         push argTypes (this.paramIrTypeFromDesc(argIdx (unwrap node.fnDesc) lctx))
       } {
+        push args (this.lowerExpr(arg lctx))
         push argTypes (this.argIrType(arg lctx))
       }
       argIdx = argIdx + 1
@@ -10889,6 +10890,40 @@ class LowIRBuilderPass {
       return "i8*"
     }
     return "i32"
+  }
+
+  ; An ARRAY LITERAL in argument position -- `fromList( ([] _:CodeNode (a b c)) )`,
+  ; which is what the variadic `r.expression` macro expands to -- has no `def`
+  ; to hang its element type on, so nothing built the array and the call was
+  ; handed the FIRST element instead. The parameter's declaration supplies the
+  ; type; everything else is the same path a `def` takes.
+  fn lowerCallArgValue:string (arg:CodeNode paramIndex:int fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    if (paramIndex < (array_length fnDesc.params)) {
+      def p (itemAt fnDesc.params paramIndex)
+      if (!null? p.nameNode) {
+        def pn (unwrap p.nameNode)
+        ; The ARGUMENT has to look like a literal too. isArrayLiteralValue is
+        ; written for the `def xs:[T] …` position, where the declaration alone
+        ; settles it; in argument position any parenthesised expression with
+        ; children would otherwise match and be built as an array.
+        if (this.isArrayLiteralValue(pn arg)) {
+          ; A single-child expression is usually a GROUPING, not a one-element
+          ; literal: `f( (fnDesc.params) )` passes the array through. Only a
+          ; child that is not itself an array makes it a literal.
+          def literal:boolean true
+          if ((array_length arg.children) == 1) {
+            if (this.nodeIsArrayExpr((arg.getFirst()) lctx)) {
+              literal = false
+            }
+          }
+          if literal {
+            this.usedPtrArrayRuntime = true
+            return (this.lowerArrayLiteral(pn arg lctx))
+          }
+        }
+      }
+    }
+    return (this.lowerExpr(arg lctx))
   }
 
   fn paramIrTypeFromDesc:string (paramIndex:int fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
@@ -11338,11 +11373,13 @@ class LowIRBuilderPass {
     def argsNode (this.callArgsNode(node))
     def argIdx:int 0
     for argsNode.children arg:CodeNode i {
-      def argVal:string (this.lowerExpr(arg lctx))
+      def argVal:string ""
       def wantT:string ""
       if (!null? node.fnDesc) {
+        argVal = (this.lowerCallArgValue(arg argIdx (unwrap node.fnDesc) lctx))
         wantT = (this.paramIrTypeFromDesc(argIdx (unwrap node.fnDesc) lctx))
       } {
+        argVal = (this.lowerExpr(arg lctx))
         wantT = (this.argIrType(arg lctx))
       }
       push args (this.coerceArg(argVal wantT lctx))

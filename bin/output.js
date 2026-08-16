@@ -52536,10 +52536,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           let argIdx = 0;
                           for ( let i = 0; i < argsNode.children.length; i++) {
                             var arg = argsNode.children[i];
-                            args.push(this.lowerExpr(arg, lctx));
                             if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                              args.push(this.lowerCallArgValue(arg, argIdx, (node.fnDesc), lctx));
                               argTypes.push(this.paramIrTypeFromDesc(argIdx, (node.fnDesc), lctx));
                             } else {
+                              args.push(this.lowerExpr(arg, lctx));
                               argTypes.push(this.argIrType(arg, lctx));
                             }
                             argIdx = argIdx + 1;
@@ -52769,6 +52770,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return "i8*";
                           }
                           return "i32";
+                        };
+                        lowerCallArgValue (arg, paramIndex, fnDesc, lctx) {
+                          if ( paramIndex < (fnDesc.params.length) ) {
+                            const p = fnDesc.params[paramIndex];
+                            if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+                              const pn = p.nameNode;
+                              if ( this.isArrayLiteralValue(pn, arg) ) {
+                                let literal = true;
+                                if ( (arg.children.length) == 1 ) {
+                                  if ( this.nodeIsArrayExpr(arg.getFirst(), lctx) ) {
+                                    literal = false;
+                                  }
+                                }
+                                if ( literal ) {
+                                  this.usedPtrArrayRuntime = true;
+                                  return this.lowerArrayLiteral(pn, arg, lctx);
+                                }
+                              }
+                            }
+                          }
+                          return this.lowerExpr(arg, lctx);
                         };
                         paramIrTypeFromDesc (paramIndex, fnDesc, lctx) {
                           if ( paramIndex >= (fnDesc.params.length) ) {
@@ -53169,11 +53191,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           let argIdx = 0;
                           for ( let i = 0; i < argsNode.children.length; i++) {
                             var arg = argsNode.children[i];
-                            const argVal = this.lowerExpr(arg, lctx);
+                            let argVal = "";
                             let wantT = "";
                             if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                              argVal = this.lowerCallArgValue(arg, argIdx, (node.fnDesc), lctx);
                               wantT = this.paramIrTypeFromDesc(argIdx, (node.fnDesc), lctx);
                             } else {
+                              argVal = this.lowerExpr(arg, lctx);
                               wantT = this.argIrType(arg, lctx);
                             }
                             args.push(this.coerceArg(argVal, wantT, lctx));
