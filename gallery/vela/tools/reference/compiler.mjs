@@ -20,8 +20,9 @@
  * pleasant and a mismatch is not a failure.)
  *
  * Coverage is reported rather than assumed. A specification this compiler does
- * not cover — a layer, a facet, a concatenation, a composite mark that expands
- * into one — refuses out loud and is counted as `skipped`, not as passing.
+ * not cover refuses out loud and is counted as `skipped`, not as passing — a
+ * compiler that quietly drew the wrong chart would be worse than one that says
+ * it cannot.
  *
  * Needs the reference (`npm install --no-save vega vega-lite`) and a built
  * runtime (`bash gallery/vela/tests/run.sh`).

@@ -423,22 +423,45 @@ scenes must agree mark for mark.
 npm run vela:compiler
 ```
 
-**14 of 14** covered charts draw the same scene — bar, stacked bar, normalized
-stack, scatter, coloured scatter, bubble, log scale, line, temporal line, area,
-tick, text, heat map and a clock-change line. Several come out as the *same
-specification*, byte for byte, key order included.
+**27 of 27** — every committed Vega-Lite source compiles in Ranger and draws the
+same scene, with nothing refused. Several come out as the *same specification*,
+byte for byte, key order included, which was never the goal and is a good sign
+about the defaults.
 
-Coverage is reported rather than assumed. Thirteen of the committed sources are
-**refused out loud** — a layer, a facet, a concatenation, `bin`, `xOffset`, an
-arc, a series-coloured line, a composite mark like a box plot — and counted as
-not covered, never as passing. A compiler that quietly drew the wrong chart
-would be worse than one that says it cannot.
+That covers the four ways a chart can be more than one chart:
 
-Two defects in the *runtime* surfaced while building it, because the compiler
-asked for things the committed specs never had: a turned axis label was anchored
-by its middle instead of its end (`labelAngle: 270` is what a category axis
-defaults to, and no parity spec used it), and a `size` legend over an outlined
-mark was drawn filled.
+| | |
+| --- | --- |
+| **Layer** | several marks over one pair of axes. The scale types have to be settled *across* the layers before any of them compiles — a text label layered over bars sits on the **bars'** band scale, and on its own would have asked for a point scale and stood in the wrong place |
+| **Facet** | one chart drawn once per value, with the furniture that says which is which. The grid axes stay in the cell; the labelled x axis moves to the column footer and the labelled y axis to the row header, because those are drawn once per column or row rather than once per panel |
+| **Concat** | panes side by side or stacked, sharing only the dimension that runs across the join — so every scale carries the pane's name, because two panes both have an `x` |
+| **Composite** | a box plot is five marks over eight derived data sets. Quartiles are computed **twice**: joined back onto every row, so a row can be compared with its own group's hinges, and again as an aggregate, which is what the box is drawn from |
+
+…and the single-view features that had been missing: `bin` (two transforms and
+two signals, because a binned axis ticks on bin *edges*), `xOffset` (a band
+scale inside a band scale), arcs, and a series-coloured line, which is not one
+line — a line joins its points in order, so the rows are partitioned into a
+faceted group before the shape is drawn.
+
+**Coverage is reported, not assumed.** A specification this compiler does not
+cover refuses out loud and is counted as not covered, never as passing. What is
+still refused: an `errorbar`, an `errorband`, and the top-level `facet`
+operator (the `row`, `column` and `facet` *channels* are built).
+
+Four defects in the *runtime* surfaced while building it, because the compiler
+asked for things the committed specs never had:
+
+* a turned axis label was anchored by its middle instead of its end —
+  `labelAngle: 270` is what a category axis defaults to, and no parity spec had
+  ever used it;
+* a `size` legend over an outlined mark was drawn filled;
+* the JSON writer rounded every number to six decimals, which is right for a
+  scene measured in pixels and wrong for a specification carrying a full turn
+  in radians;
+* and `strfromcode` truncated a code point to a byte in **C++** — so a bin's
+  label read `20 30` instead of `20 – 30`, in that target only. Fixed in the
+  compiler's own C++ template, where it had been wrong for every program, not
+  only this one.
 
 ## Changing one number
 
