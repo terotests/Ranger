@@ -1,10 +1,22 @@
 
 ; ============================================================================
-; value_and_mutable.rgr — the four ways to declare data, side by side.
+; value_and_mutable.rgr — the ways to declare data, side by side.
 ;
 ;                    mutable                  immutable / value
 ;   class            class C { }              class C@(immutable) { }
 ;   record           record R { }             record R@(immutable) { }
+;   struct                                    struct S { }
+;
+; `struct S { }` is `class S@(immutable) { }` under a name that says what it is.
+; It has no generated constructor on purpose, so it is built the way its own
+; fields already describe it:
+;
+;     (new AppState)                   every field's declared default
+;     (with (new Point) x 30 y 40)     named, order-independent
+;
+; `record R@(immutable)` is the positional form; a record's constructor takes
+; every field, which is right for a 3-field Point and unusable for a 16-field
+; application state.
 ;
 ; The difference is not how you read them — `p.x` is `p.x` in all four — but
 ; what you may do to them:
@@ -73,7 +85,39 @@ class ValueRange@(immutable) {
   }
 }
 
+; ----------------------------------------------------------------------------
+; 5. struct — the value form for state, view models and messages.
+; ----------------------------------------------------------------------------
+struct StructPoint {
+  def x:int 1
+  def y:int 2
+  def label:string "origin"
+}
+
+struct StructState {
+  def phase:string "idle"
+  def count:int 0
+  def tags:[string]
+  def roles:#[string]
+}
+
 class ValueDemo {
+
+  sfn structs:void () {
+    ; Named construction: no constructor to write, no field order to remember.
+    def p (with (new StructPoint) x 30 y 40)
+    print (((("6 struct: " + (to_string p.x)) + ",") + (to_string p.y)) + "," + p.label)
+
+    ; A wide state needs no argument list at all.
+    def s0 (new StructState)
+    print ((("   defaults '" + s0.phase) + "' ") + (to_string s0.count) + " tags=" + (to_string (array_length s0.tags)) + " roles=" + (to_string (size s0.roles)))
+
+    def s1 (with s0 phase "ready" count 5)
+    def r1 (conj s1.roles "admin")
+    def s2 (s1.set_roles(r1))
+    print ((("   updated '" + s1.phase) + "' ") + (to_string s1.count) + " / old '" + s0.phase + "' " + (to_string s0.count))
+    print ("   roles " + (to_string (size s1.roles)) + (to_string (size s2.roles)) + " tags shared " + (to_string (s1.tags == s2.tags)))
+  }
 
   sfn mutableClass:void () {
     def u (new MutableUser)
@@ -136,5 +180,6 @@ class ValueDemo {
     ValueDemo.mutableRecord()
     ValueDemo.valueRecord()
     ValueDemo.valueWithConstructor()
+    ValueDemo.structs()
   }
 }

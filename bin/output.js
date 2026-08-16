@@ -10099,6 +10099,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           case "record" : 
             await this.EnterClass(node, ctx, wr);
             break;
+          case "struct" : 
+            await this.EnterClass(node, ctx, wr);
+            break;
           case "defn" : 
             this.DefineOpFn(node, ctx, wr);
             break;
@@ -11459,7 +11462,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             var param = vFnDef.params[i_2];
             if ( (callParams.children.length) <= i_2 ) {
               if ( param.nameNode.hasFlag("default") ) {
-                continue;
+                ctx.addError(node, "@(default) parameters are not supported: there is no syntax for the default value, and the argument cannot be omitted. Pass the argument, or use @(optional) and (?? v fallback) in the body.");
+                ctx.addError(param.nameNode, "NOTE: To fix the previous error: Check original function declaration which was");
+                break;
               }
               ctx.addError(node, "Missing arguments for function");
               ctx.addError(param.nameNode, "NOTE: To fix the previous error: Check original function declaration which was");
@@ -13359,6 +13364,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         childScope = false;
       }
       if ( node.isFirstVref("record") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("struct") ) {
         childScope = false;
       }
       if ( node.isFirstVref("extension") ) {
@@ -15787,7 +15795,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         new_class_3.node = node;
         new_class_3.is_trait = true;
       }
-      if ( (node.isFirstVref("CreateClass") || node.isFirstVref("class")) || node.isFirstVref("record") ) {
+      if ( ((node.isFirstVref("CreateClass") || node.isFirstVref("class")) || node.isFirstVref("record")) || node.isFirstVref("struct") ) {
         if ( (node.children.length) < 3 ) {
           ctx.addError(node, "Not enough arguments for creating a class");
           return;
@@ -15806,6 +15814,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         new_class_4.compiledName = s_1;
         if ( node.isFirstVref("record") ) {
           new_class_4.is_record = true;
+        }
+        if ( node.isFirstVref("struct") ) {
+          classNameNode_1.setFlag("immutable");
         }
         classNameNode_1.evalTypeClass = TFactory.new_class_signature(classNameNode_1, ctx, wr);
         const notOkNames = ["main"];

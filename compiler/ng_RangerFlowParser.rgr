@@ -627,6 +627,9 @@ class RangerFlowParser {
         case 'record' {
           this.EnterClass(node ctx wr)
         }
+        case 'struct' {
+          this.EnterClass(node ctx wr)
+        }
         case 'defn' {
           this.DefineOpFn(node ctx wr)
         }
@@ -2224,7 +2227,16 @@ class RangerFlowParser {
         for vFnDef.params param:RangerAppParamDesc i {
           if( (size callParams.children) <= i) {
             if (param.nameNode.hasFlag("default")) {
-              continue 
+              ; `@(default)` let the call through here and then crashed the
+              ; writer — "Cannot read properties of undefined (reading
+              ; 'getFirst')" — because the argument list it went on to emit was
+              ; shorter than the parameter list. The flag has never worked:
+              ; nothing declares what value it would default TO (a value written
+              ; after the type parses as the next parameter), and no class writer
+              ; emits one. A diagnostic is the honest answer until it does.
+              ctx.addError(node "@(default) parameters are not supported: there is no syntax for the default value, and the argument cannot be omitted. Pass the argument, or use @(optional) and (?? v fallback) in the body.")
+              ctx.addError( (unwrap param.nameNode) "NOTE: To fix the previous error: Check original function declaration which was")
+              break
             }
             ctx.addError(node "Missing arguments for function")
             ctx.addError( (unwrap param.nameNode) "NOTE: To fix the previous error: Check original function declaration which was")
@@ -4517,6 +4529,9 @@ class RangerFlowParser {
       childScope = false
     }
     if (node.isFirstVref("record")) {
+      childScope = false
+    }
+    if (node.isFirstVref("struct")) {
       childScope = false
     }
     if (node.isFirstVref("extension")) {
@@ -7207,7 +7222,7 @@ class RangerFlowParser {
       new_class.is_trait = true
     }
 
-    if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class")) || (node.isFirstVref("record"))) {
+    if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class")) || (node.isFirstVref("record")) || (node.isFirstVref("struct"))) {
 
       if( (size node.children) < 3) {
         ctx.addError(node "Not enough arguments for creating a class")
@@ -7231,6 +7246,42 @@ class RangerFlowParser {
       new_class.compiledName = s
       if (node.isFirstVref("record")) {
         new_class.is_record = true
+      }
+      ; `struct X { }` is `class X@(immutable) { }` under a name that says what
+      ; it is. Value semantics, a set_<field> per field, and `with`.
+      ;
+      ; It is a separate keyword rather than a change to `record` because
+      ; `record` cannot become immutable: every `case` of every `shape` lowers to
+      ; one (see the shape desugar below), so flipping it would silently change
+      ; the semantics of a shipped feature across the 34 shapes in this
+      ; repository. Measured, not assumed — the experiment failed most of
+      ; tests/shapes.test.ts.
+      ;
+      ; It is deliberately NOT `record` + immutable either. A record's generated
+      ; constructor takes every field, and there is no way to omit one: the
+      ; `@(default)` parameter flag is dead (the arity guard returns before it is
+      ; consulted, no syntax declares what value it would default TO, and
+      ; omitting the argument crashes the writer). That is bearable for a 3-field
+      ; Point and unusable for a 16-field application state — the case this whole
+      ; layer exists for. Without a generated constructor, a struct is built the
+      ; way its fields already describe:
+      ;
+      ;     def s  (new AppState)                     ; every field's default
+      ;     def p  (with (new Point) x 30 y 40)       ; named, order-independent
+      ;
+      ; `record X@(immutable)` is still there when positional construction is
+      ; what is wanted.
+      ;
+      ; The flag goes on the NAME NODE, not just on the descriptor: the field
+      ; protection and the assignment rewrite both read
+      ; `classNameNode.hasFlag("immutable")` rather than `cl.is_immutable`, so
+      ; setting only the latter produced a struct whose set_<field> methods were
+      ; generated but whose fields could still be mutated in place — `push
+      ; s.rows "x"` compiled and changed the value. Marking the node makes a
+      ; struct the same thing as `class X@(immutable)` everywhere, by
+      ; construction rather than by keeping two lists in step.
+      if (node.isFirstVref("struct")) {
+        classNameNode.setFlag("immutable")
       }
 
       classNameNode.evalTypeClass = (TFactory.new_class_signature(classNameNode ctx wr))

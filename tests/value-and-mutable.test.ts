@@ -4,8 +4,9 @@
 //                  mutable                  immutable / value
 //   class          class C { }              class C@(immutable) { }
 //   record         record R { }             record R@(immutable) { }
+//   struct                                  struct S { }
 //
-// Two of these four did not work before this file existed:
+// Two of the first four did not work before this file existed:
 // `record R@(immutable)` could not be compiled at all, and neither could an
 // @(immutable) class with a hand-written constructor. Both failed inside
 // generated code (`__CopySelf` emitting `(new C)` against a constructor that
@@ -96,6 +97,66 @@ describe("value", () => {
 
   it("a hand-written constructor is called by the generated copy", () => {
     expect(output).toContain("5 value + ctor: 9 -> 19");
+  });
+});
+
+describe("struct", () => {
+  it("is built by naming fields, with no constructor to write", () => {
+    // `with` over a defaulted instance: order-independent and self-documenting,
+    // and nothing has to list the fields twice.
+    expect(output).toContain("6 struct: 30,40,origin");
+  });
+
+  it("needs no argument list at all for a wide state", () => {
+    // The case a record cannot serve: every field, including collections,
+    // starts at its declared default. A record's generated constructor takes
+    // every field and there is no way to omit one.
+    expect(output).toContain("defaults 'idle' 0 tags=0 roles=0");
+  });
+
+  it("updates through `with` and leaves the earlier value intact", () => {
+    expect(output).toContain("updated 'ready' 5 / old 'idle' 0");
+    expect(output).toContain("roles 01 tags shared true");
+  });
+
+  it("refuses mutation of its fields", () => {
+    const src = [
+      "struct S {",
+      "  def count:int 0",
+      "  def rows:[string]",
+      "}",
+      "class M {",
+      "  sfn main:void () {",
+      "    def s0 (new S)",
+      '    push s0.rows "x"',
+      "    print (to_string (array_length s0.rows))",
+      "  }",
+      "}",
+    ].join("\n");
+    expect(compileSource(src, "struct_mutate.rgr")).toContain("[FAIL]");
+  });
+});
+
+describe("@(default) parameters", () => {
+  it("say they are unsupported instead of crashing the writer", () => {
+    // The flag let the call through and then died in code generation with
+    // "Cannot read properties of undefined (reading 'getFirst')", because the
+    // argument list it emitted was shorter than the parameter list. Nothing
+    // declares what value it would default to — a value written after the type
+    // parses as the next parameter — so a diagnostic is the honest answer.
+    const src = [
+      "class M {",
+      "  sfn f:int (a:int b@(default):int) {",
+      "    return (a + b)",
+      "  }",
+      "  sfn main:void () {",
+      "    print (to_string (M.f(5)))",
+      "  }",
+      "}",
+    ].join("\n");
+    const out = compileSource(src, "default_param.rgr");
+    expect(out).toContain("@(default) parameters are not supported");
+    expect(out).not.toContain("Unexpected compiler error");
   });
 });
 

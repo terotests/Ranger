@@ -152,10 +152,13 @@ Four ways to declare data. The difference is not how you read them — `p.x` is
 
 ```ranger
 class  User          { def name:string "" }   ; mutable, reference semantics
-class  User@(immutable) { def name:string "" } ; value: set_/with, no mutation
+struct State         { def phase:string "" }  ; value: set_/with, no mutation
 record Point         { def x:int 0 }          ; mutable + positional ctor
 record Point@(immutable) { def x:int 0 }      ; value + positional ctor
 ```
+
+`struct S { }` is `class S@(immutable) { }` under a name that says what it is —
+use it for application state, view models and messages.
 
 ```ranger
 ; mutable
@@ -163,11 +166,18 @@ def u (new User)
 u.name = "Ada"
 push u.tags "admin"
 
-; value
+; value — a struct has no constructor, so it is built by naming fields
+def s0 (new State)                     ; every field's declared default
+def s1 (with s0 phase "ready" n 5)     ; named, order-independent
+def s2 (s1.set_phase("done"))          ; one field
+
+; a value record is positional instead
 def p0 (new Point(1 2))
 def p1 (with p0 x 9)          ; p0 is still (1 2)
-def p2 (p1.set_y(4))          ; one field
 ```
+
+A record's constructor takes **every** field and none may be omitted, which is
+right for a 3-field Point and unusable for a 16-field state — hence `struct`.
 
 On a value the compiler **refuses** in-place mutation — `push`, `set_at`,
 `removeLast` and `clear` against a value's field are all compile errors, not
