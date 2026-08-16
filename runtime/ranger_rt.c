@@ -148,7 +148,14 @@ char *ranger_str_fromcode(int code) {
   if (code < 0) {
     code = 0;
   }
-  if (code < 0x80) {
+  /* A string is BYTES on this target and charAt hands back one byte, so
+   * `strfromcode (charAt s i)` has to round-trip. Re-encoding a 0x80..0xFF byte
+   * as two-byte UTF-8 turned every non-ASCII character the compiler copied out
+   * of a source file into mojibake -- the box-drawing and check-mark literals
+   * in CLIProgress came back as "â". This matches the C++ target, whose
+   * strfromcode is std::string(1, char(x)). Real codepoints above 0xFF, which
+   * no byte-wise read can produce, are still encoded. */
+  if (code < 0x100) {
     out[n++] = (char)code;
   } else if (code < 0x800) {
     out[n++] = (char)(0xC0 | (code >> 6));

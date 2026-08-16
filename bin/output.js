@@ -43381,6 +43381,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.selfPtr = "";
                           this.breakLabel = "";
                           this.continueLabel = "";
+                          this.catchLabel = "";
                           this.loopOwnedMark = 0;
                           this.loopOwnedStrMark = 0;
                           this.loopOwnedCollMark = 0;
@@ -50079,8 +50080,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return;
                             }
                             if ( opName_1 == "try" ) {
-                              const tryBlock = node.getSecond();
-                              this.lowerBlock(tryBlock, lctx);
+                              this.lowerTry(node, lctx);
                               return;
                             }
                             if ( opName_1 == "insert" ) {
@@ -50985,6 +50985,63 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return builder.emitIcmpTyped("eq", st, subj, cv);
                         };
+                        lowerTry (node, lctx) {
+                          const builder = lctx.builder;
+                          const cnt = node.children.length;
+                          if ( cnt < 2 ) {
+                            return;
+                          }
+                          const tryBlock = node.getSecond();
+                          const catchL = builder.freshLabel("catch");
+                          const endL = builder.freshLabel("try_end");
+                          const savedCatch = lctx.catchLabel;
+                          lctx.catchLabel = catchL;
+                          this.lowerBlock(tryBlock, lctx);
+                          lctx.catchLabel = savedCatch;
+                          if ( (typeof(builder.currentBlock) !== "undefined" && builder.currentBlock != null )  ) {
+                            const tb = builder.currentBlock;
+                            if ( tb.termKind == "" ) {
+                              builder.terminateBr(endL);
+                            }
+                          }
+                          builder.startBlock(catchL);
+                          if ( cnt > 2 ) {
+                            const catchBlock = node.getThird();
+                            this.lowerBlock(catchBlock, lctx);
+                          }
+                          if ( (typeof(builder.currentBlock) !== "undefined" && builder.currentBlock != null )  ) {
+                            const cb = builder.currentBlock;
+                            if ( cb.termKind == "" ) {
+                              builder.terminateBr(endL);
+                            }
+                          }
+                          builder.startBlock(endL);
+                        };
+                        guardUnwrapInTry (value, lctx) {
+                          if ( (lctx.catchLabel.length) == 0 ) {
+                            return;
+                          }
+                          const builder = lctx.builder;
+                          const vt = builder.emittedType(value);
+                          let isPtr = false;
+                          if ( vt == lctx.ptrType ) {
+                            isPtr = true;
+                          }
+                          if ( vt == "i8*" ) {
+                            isPtr = true;
+                          }
+                          if ( isPtr == false ) {
+                            return;
+                          }
+                          let zero = "null";
+                          if ( vt != "i8*" ) {
+                            zero = builder.emitConst(vt, "0");
+                          }
+                          const isNull = builder.emitIcmpTyped("eq", vt, value, zero);
+                          const okL = builder.freshLabel("unwrap_ok");
+                          builder.terminateBrIf(isNull, lctx.catchLabel, okL);
+                          builder.startBlock(okL);
+                        };
                         lowerSwitch (node, lctx) {
                           const builder = lctx.builder;
                           if ( (node.children.length) < 3 ) {
@@ -51676,7 +51733,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             if ( opName == "unwrap" ) {
                               const argNode_2 = node.getSecond();
-                              return this.lowerExpr(argNode_2, lctx);
+                              const uv = this.lowerExpr(argNode_2, lctx);
+                              this.guardUnwrapInTry(uv, lctx);
+                              return uv;
                             }
                             const binResult = this.lowerBinaryOp(opName, node, lctx);
                             if ( (binResult.length) > 0 ) {

@@ -64,6 +64,12 @@ class LowIRLowerContext {
   ; makes nesting work.
   def breakLabel:string ""
   def continueLabel:string ""
+  ; Innermost `try` block's catch label, empty outside one. This backend has no
+  ; exceptions, so the one raise the compiler's own sources rely on --
+  ; `(unwrap x)` where x is null -- is turned into a branch here. Cleared while
+  ; the catch body itself is lowered, so a failing unwrap in the handler does
+  ; not loop back into it.
+  def catchLabel:string ""
   ; Where the innermost loop body's owned locals begin. `break`/`continue` jump
   ; PAST the end-of-body release, so they have to emit it themselves.
   def loopOwnedMark:int 0
@@ -7715,8 +7721,7 @@ class LowIRBuilderPass {
         return
       }
       if (opName == "try") {
-        def tryBlock (node.getSecond())
-        this.lowerBlock(tryBlock lctx)
+        this.lowerTry(node lctx)
         return
       }
       if (opName == "insert") {
@@ -8777,6 +8782,71 @@ class LowIRBuilderPass {
     return (builder.emitIcmpTyped("eq" st subj cv))
   }
 
+  ; `try { … } { … }`. There is no unwinding on this backend and nothing that
+  ; throws except a failing `unwrap`, so the handler is an ordinary block the
+  ; failing unwrap branches to. That is exactly what the compiler's own sources
+  ; use it for: RangerFlowParser's EnterStaticMethod does
+  ;   try { def m (unwrap (desc.findStaticMethod(…))) … } { ctx.addError(…) }
+  ; and with the handler dropped, the null went straight into `m.fnCtx = …`.
+  fn lowerTry:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def cnt (array_length node.children)
+    if (cnt < 2) {
+      return
+    }
+    def tryBlock (node.getSecond())
+    def catchL (builder.freshLabel("catch"))
+    def endL (builder.freshLabel("try_end"))
+    def savedCatch:string lctx.catchLabel
+    lctx.catchLabel = catchL
+    this.lowerBlock(tryBlock lctx)
+    lctx.catchLabel = savedCatch
+    if (!null? builder.currentBlock) {
+      def tb (unwrap builder.currentBlock)
+      if (tb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+    }
+    builder.startBlock(catchL)
+    if (cnt > 2) {
+      def catchBlock (node.getThird())
+      this.lowerBlock(catchBlock lctx)
+    }
+    if (!null? builder.currentBlock) {
+      def cb (unwrap builder.currentBlock)
+      if (cb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+    }
+    builder.startBlock(endL)
+  }
+
+  ; A null `unwrap` inside a `try` jumps to the handler. Only pointer-shaped
+  ; values are checked: `unwrap` over an int or a boolean cannot be the failing
+  ; kind, and comparing one against zero would branch on a legitimate 0.
+  fn guardUnwrapInTry:void (value:string lctx:LowIRLowerContext) {
+    if ((strlen lctx.catchLabel) == 0) {
+      return
+    }
+    def builder (lctx.builder)
+    def vt:string (builder.emittedType(value))
+    def isPtr:boolean false
+    if (vt == lctx.ptrType) { isPtr = true }
+    if (vt == "i8*") { isPtr = true }
+    if (isPtr == false) {
+      return
+    }
+    ; an i8* zero is spelled `null`; `add i8* 0, 0` is not an instruction
+    def zero:string "null"
+    if (vt != "i8*") {
+      zero = (builder.emitConst(vt "0"))
+    }
+    def isNull (builder.emitIcmpTyped("eq" vt value zero))
+    def okL (builder.freshLabel("unwrap_ok"))
+    builder.terminateBrIf(isNull lctx.catchLabel okL)
+    builder.startBlock(okL)
+  }
+
   fn lowerSwitch:void (node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     if ((array_length node.children) < 3) {
@@ -9591,7 +9661,9 @@ class LowIRBuilderPass {
       }
       if (opName == "unwrap") {
         def argNode (node.getSecond())
-        return (this.lowerExpr(argNode lctx))
+        def uv (this.lowerExpr(argNode lctx))
+        this.guardUnwrapInTry(uv lctx)
+        return uv
       }
       def binResult (this.lowerBinaryOp(opName node lctx))
       if ((strlen binResult) > 0) {
