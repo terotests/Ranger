@@ -35,7 +35,7 @@ Import "RgBytecode.rgr"
 class RgModuleIO {
 
   sfn formatVersion:int () {
-    return 1
+    return 2
   }
 
   ; ---- opcode names --------------------------------------------------------
@@ -676,9 +676,14 @@ class RgModuleIO {
     return false
   }
 
-  sfn kindName:string (k:RgKind) {
+  ; `I` is a numeric slot holding an integer and `N` one holding a double.
+  ; The interpreter treats them alike; a native backend does not.
+  sfn kindName:string (k:RgKind isInt:boolean) {
     switch k {
       case RgKind.Num {
+        if isInt {
+          return "I"
+        }
         return "N"
       }
       case RgKind.Ref {
@@ -692,10 +697,17 @@ class RgModuleIO {
     if (s == "N") {
       return RgKind.Num
     }
+    if (s == "I") {
+      return RgKind.Num
+    }
     if (s == "R") {
       return RgKind.Ref
     }
     return RgKind.Void
+  }
+
+  sfn kindIsInt:boolean (s:string) {
+    return (s == "I")
   }
 
   sfn tierName:string (t:RgTier) {
@@ -821,9 +833,15 @@ class RgModuleIO {
       if f.isStatic {
         st = "1"
       }
-      push out ("s " + st + " " + (RgModuleIO.kindName(f.retKind)) + " " + f.numRegs + " " + f.refRegs + " " + (RgModuleIO.tierName(f.tier)))
-      for f.paramKinds pk:RgKind pi {
-        push out ("p " + (RgModuleIO.kindName(pk)))
+      push out ("s " + st + " " + (RgModuleIO.kindName(f.retKind f.retIsInt)) + " " + f.numRegs + " " + f.refRegs + " " + (RgModuleIO.tierName(f.tier)))
+      def pi:int 0
+      while (pi < (array_length f.paramKinds)) {
+        def pInt:boolean false
+        if (pi < (array_length f.paramIsInt)) {
+          pInt = (itemAt f.paramIsInt pi)
+        }
+        push out ("p " + (RgModuleIO.kindName((itemAt f.paramKinds pi) pInt)))
+        pi = (pi + 1)
       }
       for f.nums d:double di {
         push out ("d " + (RgModuleIO.numText(d)))
@@ -962,12 +980,14 @@ class RgModuleIO {
           }
           f.isStatic = ((itemAt sparts 0) == "1")
           f.retKind = (RgModuleIO.kindFromName((itemAt sparts 1)))
+          f.retIsInt = (RgModuleIO.kindIsInt((itemAt sparts 1)))
           f.numRegs = (RgModuleIO.intOf((itemAt sparts 2)))
           f.refRegs = (RgModuleIO.intOf((itemAt sparts 3)))
           f.tier = (RgModuleIO.tierFromName((itemAt sparts 4)))
         }
         case "p" {
           push f.paramKinds (RgModuleIO.kindFromName(rest))
+          push f.paramIsInt (RgModuleIO.kindIsInt(rest))
         }
         case "d" {
           push f.nums (RgModuleIO.doubleOf(rest))

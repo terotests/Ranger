@@ -4,6 +4,8 @@
 ;   rangercli [options] program.rgb [program arguments…]
 ;
 ;   -steps     print the instruction count and the elapsed time afterwards
+;   -jit=N     compile a function to native code after N calls (needs a C
+;              compiler on PATH; ignored where there is none)
 ;   -entry=C   run C.main instead of the first main the module has
 ;   -dump      print the module's functions and their sizes, then run
 ;
@@ -17,6 +19,7 @@
 
 Import "../src/RgVM.rgr"
 Import "../src/RgModuleIO.rgr"
+Import "../src/RgCJit.rgr"
 
 class RangerCli {
 
@@ -75,6 +78,7 @@ class RangerCli {
     print "  rangercli [options] program.rgb [program arguments...]"
     print ""
     print "  -steps      print instructions executed and elapsed time"
+    print "  -jit=N      compile hot functions to native code with cc -O2"
     print "  -entry=C    run C.main instead of the first main in the module"
     print "  -dump       list the module's functions before running"
     print ""
@@ -96,7 +100,7 @@ class RangerCli {
       print "rangercli: no such file: " + file
       exit 1
     }
-    def text:string (?? (read_file "." file) "")
+    def text:string (rg_read_text "." file)
     if ((strlen text) == 0) {
       print "rangercli: " + file + " is empty"
       exit 1
@@ -110,6 +114,17 @@ class RangerCli {
 
     def vm:RgVM (new RgVM())
     vm.module = m
+    def jitOpt:string (RangerCli.optionValue("-jit=" fileAt))
+    def jit:RgCJit (new RgCJit())
+    if ((strlen jitOpt) > 0) {
+      if (rg_cjit_available) {
+        jit.enabled = true
+        jit.threshold = (?? (str2int jitOpt) 1)
+        vm.jit = jit
+      } {
+        print "rangercli: this build has no C compiler tier; running as bytecode"
+      }
+    }
     ; Everything after the bytecode file is the program's own argument list.
     def ai:int (fileAt + 1)
     while (ai < (shell_arg_cnt)) {
@@ -146,7 +161,11 @@ class RangerCli {
     }
     if showSteps {
       print ""
-      print ("[" + vm.steps + " instructions, " + (to_int (t1 - t0)) + " ms]")
+      def line:string ("[" + vm.steps + " instructions, " + (to_int (t1 - t0)) + " ms")
+      if (jit.compiled > 0) {
+        line = (line + ", " + jit.compiled + " functions compiled in " + (to_int jit.compileMs) + " ms")
+      }
+      print (line + "]")
     }
   }
 }

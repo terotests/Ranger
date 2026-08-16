@@ -297,7 +297,7 @@ describe("Ranger engine — bytecode files and the CLI", () => {
   it("round-trips a program through a bytecode file", () => {
     const rgb = buildBytecode("demo.rgr");
     const text = fs.readFileSync(rgb, "utf8");
-    expect(text.startsWith("rgb 1")).toBe(true);
+    expect(text.startsWith("rgb 2")).toBe(true);
     // Opcodes are written by name, which is what makes a stale name table a
     // build error instead of a program that quietly does something else.
     expect(text).toContain("o RETN ");
@@ -343,7 +343,7 @@ describe("Ranger engine — bytecode files and the CLI", () => {
       expect(e.stdout).toContain("unknown opcode NOTANOP");
     }
 
-    fs.writeFileSync(broken, fs.readFileSync(rgb, "utf8").replace("rgb 1", "rgb 99"));
+    fs.writeFileSync(broken, fs.readFileSync(rgb, "utf8").replace("rgb 2", "rgb 99"));
     try {
       runCli([path.relative(ROOT, broken)]);
       throw new Error("a future format version should have been refused");
@@ -376,4 +376,88 @@ describe("Ranger engine — bytecode files and the CLI", () => {
     // The point of the exercise: it is small, and it carries no frontend.
     expect(fs.statSync(NATIVE_CLI).size).toBeLessThan(1024 * 1024);
   }, 300000);
+
+  /**
+   * Tier 3: the native runtime writes the hot call group out as C, runs
+   * `cc -O3 -shared` on it and dlopens the result. It exists only in the
+   * native build, and only where a C compiler is on PATH.
+   */
+  describe("the native C tier", () => {
+    let native = false;
+    beforeAll(() => {
+      try {
+        execFileSync("g++", ["--version"], { stdio: "pipe" });
+        execFileSync("cc", ["--version"], { stdio: "pipe" });
+      } catch {
+        return;
+      }
+      execFileSync("bash", [path.join(ROOT, "scripts/ranger-engine-build.sh"), "native"], {
+        cwd: ROOT,
+        stdio: "pipe",
+      });
+      native = true;
+    }, 300000);
+
+    function runNative(args: string[], env?: Record<string, string>) {
+      return execFileSync(NATIVE_CLI, args, {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: { ...process.env, ...(env || {}) },
+      }).trimEnd();
+    }
+
+    it("gives the compiled tier the same answers as the interpreter", () => {
+      if (!native) return;
+      const rgb = path.relative(ROOT, buildBytecode("cli_signed.rgr"));
+      // Signed idiv and % are where an integer register file could differ from
+      // the interpreter's doubles, so they are what gets compared.
+      expect(runNative(["-jit=0", rgb])).toBe(runNative([rgb]));
+    }, 300000);
+
+    it("agrees with the ordinary compiled program too", () => {
+      if (!native) return;
+      const rgb = path.relative(ROOT, buildBytecode("cli_signed.rgr"));
+      const outDir = path.join(ROOT, "tmp/ranger-engine-test");
+      execFileSync(
+        "node",
+        [
+          "bin/output.js",
+          "-es6",
+          path.join(ENGINE, "examples/cli_signed.rgr"),
+          "-d=./tmp/ranger-engine-test",
+          "-o=cli_signed.js",
+        ],
+        {
+          cwd: ROOT,
+          env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+          stdio: "pipe",
+        },
+      );
+      const compiled = execFileSync("node", [path.join(outDir, "cli_signed.js")], {
+        cwd: ROOT,
+        encoding: "utf8",
+      }).trimEnd();
+      expect(runNative(["-jit=0", rgb])).toBe(compiled);
+    }, 300000);
+
+    it("compiles the hot call group and says so", () => {
+      if (!native) return;
+      const rgb = path.relative(ROOT, buildBytecode("bench_cli.rgr"));
+      const out = runNative(["-steps", "-jit=2", rgb]);
+      expect(out).toContain("functions compiled in");
+      // fib, loopSum, loopChunks, collatzSteps, collatzMax
+      expect(out).toMatch(/(\d+) functions compiled/);
+      expect(out).toContain("fib(27)              = 196418");
+      expect(out).toContain("collatzMax(30000)    = 307");
+    }, 300000);
+
+    it("keeps running when there is no C compiler to call", () => {
+      if (!native) return;
+      const rgb = path.relative(ROOT, buildBytecode("cli_signed.rgr"));
+      // An empty PATH means `cc` cannot be found; the tier has to notice that
+      // and leave the program interpreting rather than fail it.
+      const withoutCc = runNative(["-jit=0", rgb], { PATH: "/nonexistent" });
+      expect(withoutCc).toBe(runNative([rgb]));
+    }, 300000);
+  });
 });

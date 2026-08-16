@@ -1,0 +1,862 @@
+; =============================================================================
+; RgCJit — tier 3: bytecode to C, compiled by the system compiler at run time
+; =============================================================================
+; The JavaScript tier reaches about 1.3× of what the Ranger compiler's own
+; JavaScript output does on V8, and it cannot do better: it hands source to the
+; same engine that runs that output. Beating the JavaScript build needs real
+; machine code, and the measurements say how much is there to win —
+;
+;   fib(27):  compiled JavaScript on V8   3 ms
+;             compiled C++ at -O2         0 ms
+;             the bytecode interpreter   65 ms (native) / 335 ms (Node)
+;
+; — so the ceiling is the C compiler, and the way to reach it is to *be* the C
+; compiler: write the hot function out as C, run `cc -O2 -shared` on it, and
+; `dlopen` the result. The compile costs a hundred milliseconds or two, once
+; per unit, which a program that is hot enough to be worth compiling repays
+; immediately.
+;
+; A whole CALL GROUP goes into one translation unit: the hot function plus
+; everything it calls that this tier can also compile. That is what lets `cc`
+; inline across them, which is most of the difference between "compiled" and
+; "compiled well" on a recursion like fib.
+;
+; This tier exists only where the host can run a C compiler, which today means
+; the native build. On every other target `rg_cjit_available` is false and the
+; hook never promotes anything.
+
+Import "RgVM.rgr"
+
+; A loaded compilation unit: the shared object, the entry point in it, and the
+; flag it sets when it refuses a division. Opaque to Ranger.
+systemclass RgNativeFn {
+  cpp "void*"
+  es6 Object
+}
+
+operators {
+
+  rg_cjit_available _:boolean () {
+    templates {
+      cpp ( "true" )
+      * ( "false" )
+    }
+  }
+
+  ; Write the source, compile it, load it, resolve `symbol`. Returns a null
+  ; handle when anything fails — no C compiler on the machine, a syntax error
+  ; in what we generated, a missing symbol — and the caller keeps interpreting.
+  rg_cjit_compile _:RgNativeFn ( src:string symbol:string ) {
+    templates {
+      cpp ( "rg_cjit_compile_impl(" (e 1) ", " (e 2) ")"
+        (imp "<dlfcn.h>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<string>") (imp "<unistd.h>")
+(create_polyfill "
+// ---- RgCJit: the C compiler as a JIT backend -------------------------------
+// One of these per loaded compilation unit. `failed` points at the unit's own
+// flag, so a division by zero inside compiled code is reportable rather than
+// silently producing an infinity the interpreter would have refused.
+struct RgNativeUnit {
+  void* lib;
+  void* fn;
+  int*  failed;
+  int   fallback;
+};
+
+static int rg_cjit_serial = 0;
+
+static void* rg_cjit_compile_impl(const std::string& src, const std::string& symbol) {
+  const char* tmpdir = getenv(\"TMPDIR\");
+  std::string dir = tmpdir ? std::string(tmpdir) : std::string(\"/tmp\");
+  char stem[64];
+  snprintf(stem, sizeof(stem), \"/rgjit_%d_%d\", (int)getpid(), rg_cjit_serial++);
+  std::string cfile = dir + stem + \".c\";
+  std::string sofile = dir + stem + \".so\";
+  FILE* out = fopen(cfile.c_str(), \"w\");
+  if (out == NULL) {
+    return NULL;
+  }
+  fwrite(src.data(), 1, src.size(), out);
+  fclose(out);
+  // -O2 is the whole point: without it this tier is slower than the
+  // interpreter it replaces.
+  std::string cmd = std::string(\"cc -O3 -fPIC -shared -o \") + sofile + \" \" + cfile + \" -lm 2>/dev/null\";
+  int rc = system(cmd.c_str());
+  if (rc != 0) {
+    remove(cfile.c_str());
+    return NULL;
+  }
+  void* lib = dlopen(sofile.c_str(), RTLD_NOW | RTLD_LOCAL);
+  // The files are only needed until the mapping exists; the loaded image
+  // survives the unlink on every platform this runs on.
+  remove(cfile.c_str());
+  remove(sofile.c_str());
+  if (lib == NULL) {
+    return NULL;
+  }
+  void* fnp = dlsym(lib, symbol.c_str());
+  if (fnp == NULL) {
+    dlclose(lib);
+    return NULL;
+  }
+  RgNativeUnit* u = new RgNativeUnit();
+  u->lib = lib;
+  u->fn = fnp;
+  u->fallback = 0;
+  u->failed = (int*)dlsym(lib, \"rg_jit_failed_flag\");
+  if (u->failed == NULL) {
+    u->failed = &u->fallback;
+  }
+  return (void*)u;
+}
+
+static bool rg_cjit_ok_impl(void* h) {
+  return h != NULL;
+}
+
+static bool rg_cjit_failed_impl(void* h) {
+  if (h == NULL) {
+    return true;
+  }
+  return *(((RgNativeUnit*)h)->failed) != 0;
+}
+
+static double rg_cjit_call0_impl(void* h) {
+  RgNativeUnit* u = (RgNativeUnit*)h;
+  *(u->failed) = 0;
+  return ((double (*)(void))u->fn)();
+}
+
+static double rg_cjit_call1_impl(void* h, double a0) {
+  RgNativeUnit* u = (RgNativeUnit*)h;
+  *(u->failed) = 0;
+  return ((double (*)(double))u->fn)(a0);
+}
+
+static double rg_cjit_call2_impl(void* h, double a0, double a1) {
+  RgNativeUnit* u = (RgNativeUnit*)h;
+  *(u->failed) = 0;
+  return ((double (*)(double, double))u->fn)(a0, a1);
+}
+
+static double rg_cjit_call3_impl(void* h, double a0, double a1, double a2) {
+  RgNativeUnit* u = (RgNativeUnit*)h;
+  *(u->failed) = 0;
+  return ((double (*)(double, double, double))u->fn)(a0, a1, a2);
+}
+")
+      )
+      * ( "null" )
+    }
+  }
+
+  rg_cjit_ok _:boolean ( f:RgNativeFn ) {
+    templates {
+      cpp ( "rg_cjit_ok_impl(" (e 1) ")" )
+      * ( "false" )
+    }
+  }
+
+  rg_cjit_failed _:boolean ( f:RgNativeFn ) {
+    templates {
+      cpp ( "rg_cjit_failed_impl(" (e 1) ")" )
+      * ( "true" )
+    }
+  }
+
+  rg_cjit_call0 _:double ( f:RgNativeFn ) {
+    templates {
+      cpp ( "rg_cjit_call0_impl(" (e 1) ")" )
+      * ( "0" )
+    }
+  }
+
+  rg_cjit_call1 _:double ( f:RgNativeFn a0:double ) {
+    templates {
+      cpp ( "rg_cjit_call1_impl(" (e 1) ", " (e 2) ")" )
+      * ( "0" )
+    }
+  }
+
+  rg_cjit_call2 _:double ( f:RgNativeFn a0:double a1:double ) {
+    templates {
+      cpp ( "rg_cjit_call2_impl(" (e 1) ", " (e 2) ", " (e 3) ")" )
+      * ( "0" )
+    }
+  }
+
+  rg_cjit_call3 _:double ( f:RgNativeFn a0:double a1:double a2:double ) {
+    templates {
+      cpp ( "rg_cjit_call3_impl(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" )
+      * ( "0" )
+    }
+  }
+}
+
+class RgCJit {
+  Extends (RgJitHook)
+
+  def handles:[RgNativeFn]
+  ; Functions this tier has looked at and refused, so a hot one outside the
+  ; compilable subset is not re-examined on every call.
+  def refused:[int:boolean]
+  def lastSource:string ""
+  ; How many C compiler invocations this run has paid for, and how long they
+  ; took: the cost side of the trade, reported by the CLI.
+  def compileMs:double 0.0
+
+  fn shouldCompile:boolean (f:RgFunction) {
+    if (false == enabled) {
+      return false
+    }
+    if (false == (rg_cjit_available)) {
+      return false
+    }
+    if (f.tier != RgTier.Bytecode) {
+      return false
+    }
+    return (f.callCount > threshold)
+  }
+
+  ; ---- the compilable subset ----------------------------------------------
+
+  fn canCompile:boolean (f:RgFunction) {
+    if (f.refRegs > 0) {
+      return false
+    }
+    if ((array_length f.paramKinds) > 3) {
+      return false
+    }
+    for f.paramKinds pk:RgKind i {
+      if (pk != RgKind.Num) {
+        return false
+      }
+    }
+    if (f.retKind == RgKind.Ref) {
+      return false
+    }
+    for f.ops op:RgOp i {
+      if (false == (this.opSupported(op))) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn opSupported:boolean (op:RgOp) {
+    switch op {
+      case RgOp.NOP {
+        return true
+      }
+      case RgOp.KNUM {
+        return true
+      }
+      case RgOp.MOVN {
+        return true
+      }
+      case RgOp.ADD {
+        return true
+      }
+      case RgOp.SUB {
+        return true
+      }
+      case RgOp.MUL {
+        return true
+      }
+      case RgOp.DIV {
+        return true
+      }
+      case RgOp.IDIV {
+        return true
+      }
+      case RgOp.MOD {
+        return true
+      }
+      case RgOp.NEG {
+        return true
+      }
+      case RgOp.LT {
+        return true
+      }
+      case RgOp.LE {
+        return true
+      }
+      case RgOp.GT {
+        return true
+      }
+      case RgOp.GE {
+        return true
+      }
+      case RgOp.EQ {
+        return true
+      }
+      case RgOp.NEQ {
+        return true
+      }
+      case RgOp.NOT {
+        return true
+      }
+      case RgOp.JMP {
+        return true
+      }
+      case RgOp.JZ {
+        return true
+      }
+      case RgOp.JNZ {
+        return true
+      }
+      case RgOp.RETN {
+        return true
+      }
+      case RgOp.RETV {
+        return true
+      }
+      case RgOp.ARGN {
+        return true
+      }
+      case RgOp.CALLN {
+        return true
+      }
+      case RgOp.CALLV {
+        return true
+      }
+      case RgOp.TRUNC {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Everything the entry point calls, transitively, as long as all of it can be
+  ; compiled. An empty result means the group is not closed and the entry stays
+  ; interpreted — a compiled function may not call back into the VM, because
+  ; the whole point is that the VM is not involved while it runs.
+  fn callGroup:[int] (module:RgModule entryId:int) {
+    def group:[int]
+    def empty:[int]
+    push group entryId
+    def at:int 0
+    while (at < (array_length group)) {
+      def fnId:int (itemAt group at)
+      def f:RgFunction (itemAt module.functions fnId)
+      if (false == (this.canCompile(f))) {
+        return empty
+      }
+      def pc:int 0
+      while (pc < (array_length f.ops)) {
+        def op (itemAt f.ops pc)
+        if ((op == RgOp.CALLN) || (op == RgOp.CALLV)) {
+          def calleeId:int (itemAt f.rb pc)
+          if ((indexOf group calleeId) < 0) {
+            if ((array_length group) > 63) {
+              ; A group this large is a whole program, and the C compiler bill
+              ; stops being worth it.
+              return empty
+            }
+            push group calleeId
+          }
+        }
+        pc = (pc + 1)
+      }
+      at = (at + 1)
+    }
+    return group
+  }
+
+  ; ---- register typing -----------------------------------------------------
+  ; The bytecode's numeric bank is doubles, because that is what an interpreter
+  ; wants: one representation, no conversions. Machine code wants the opposite.
+  ; Ranger knew which values were integers, the parameters and return types
+  ; carry that across the file format, and this pass propagates it to every
+  ; register: start optimistic and knock a register out of the integer set as
+  ; soon as a double can reach it, until nothing changes.
+  ;
+  ; Getting it wrong in the safe direction costs speed; getting it wrong the
+  ; other way would truncate a double, so every case that cannot be proved
+  ; integral is treated as one that is not.
+  fn intRegisters:[boolean] (module:RgModule f:RgFunction) {
+    def isInt:[boolean]
+    def i:int 0
+    while (i < f.numRegs) {
+      push isInt true
+      i = (i + 1)
+    }
+    ; Parameters are what the declaration says they are.
+    def p:int 0
+    while (p < (array_length f.paramKinds)) {
+      if (p < f.numRegs) {
+        def pInt:boolean false
+        if (p < (array_length f.paramIsInt)) {
+          pInt = (itemAt f.paramIsInt p)
+        }
+        set_at isInt p pInt
+      }
+      p = (p + 1)
+    }
+    def changed:boolean true
+    def rounds:int 0
+    while (changed && (rounds < 16)) {
+      changed = false
+      rounds = (rounds + 1)
+      def pc:int 0
+      while (pc < (array_length f.ops)) {
+        def op (itemAt f.ops pc)
+        def a:int (itemAt f.ra pc)
+        def b:int (itemAt f.rb pc)
+        def c:int (itemAt f.rc pc)
+        def dst:int (0 - 1)
+        def value:boolean true
+        switch op {
+          case RgOp.KNUM {
+            dst = a
+            def k:double (itemAt f.nums b)
+            value = ((to_double (to_int k)) == k)
+          }
+          case RgOp.MOVN {
+            dst = a
+            value = (itemAt isInt b)
+          }
+          case RgOp.ADD {
+            dst = a
+            value = ((itemAt isInt b) && (itemAt isInt c))
+          }
+          case RgOp.SUB {
+            dst = a
+            value = ((itemAt isInt b) && (itemAt isInt c))
+          }
+          case RgOp.MUL {
+            dst = a
+            value = ((itemAt isInt b) && (itemAt isInt c))
+          }
+          case RgOp.NEG {
+            dst = a
+            value = (itemAt isInt b)
+          }
+          case RgOp.DIV {
+            ; Ranger's `/` is real division even between ints.
+            dst = a
+            value = false
+          }
+          case RgOp.CLOCK {
+            dst = a
+            value = false
+          }
+          case RgOp.AGETN {
+            ; The element type is not in the instruction.
+            dst = a
+            value = false
+          }
+          case RgOp.GETFN {
+            dst = a
+            value = false
+          }
+          case RgOp.CALLN {
+            dst = a
+            def callee:RgFunction (itemAt module.functions b)
+            value = callee.retIsInt
+          }
+          case RgOp.IDIV {
+            dst = a
+          }
+          case RgOp.MOD {
+            dst = a
+          }
+          case RgOp.LT {
+            dst = a
+          }
+          case RgOp.LE {
+            dst = a
+          }
+          case RgOp.GT {
+            dst = a
+          }
+          case RgOp.GE {
+            dst = a
+          }
+          case RgOp.EQ {
+            dst = a
+          }
+          case RgOp.NEQ {
+            dst = a
+          }
+          case RgOp.NOT {
+            dst = a
+          }
+          case RgOp.TRUNC {
+            dst = a
+          }
+        }
+        if (dst >= 0) {
+          if (dst < f.numRegs) {
+            if (false == value) {
+              if (itemAt isInt dst) {
+                set_at isInt dst false
+                changed = true
+              }
+            }
+          }
+        }
+        pc = (pc + 1)
+      }
+    }
+    return isInt
+  }
+
+  ; ---- C generation --------------------------------------------------------
+
+  fn reg:string (i:int) {
+    return ("n" + i)
+  }
+
+  fn symbolOf:string (fnId:int) {
+    return ("rg_f" + fnId)
+  }
+
+  fn numLit:string (v:double) {
+    def asInt:int (to_int v)
+    if ((to_double asInt) == v) {
+      return ("" + asInt + ".0")
+    }
+    return (double2str v)
+  }
+
+  ; The ABI stays `double` in and `double` out — the VM speaks doubles and the
+  ; entry point has to match `rg_cjit_call*`. Integer typing is internal: a
+  ; parameter that holds an integer is copied into a `long long` local on the
+  ; way in.
+  fn signature:string (f:RgFunction fnId:int isEntry:boolean) {
+    def out:string ""
+    if (false == isEntry) {
+      out = "static "
+    }
+    out = (out + "double " + (this.symbolOf(fnId)) + "(")
+    if ((array_length f.paramKinds) == 0) {
+      return (out + "void)")
+    }
+    def p:int 0
+    while (p < (array_length f.paramKinds)) {
+      if (p > 0) {
+        out = (out + ", ")
+      }
+      out = (out + "double a" + p)
+      p = (p + 1)
+    }
+    return (out + ")")
+  }
+
+  fn generate:string (module:RgModule group:[int] entryId:int) {
+    def out:[string]
+    push out "#include <math.h>"
+    ; The unit's own failure flag. The runtime resolves it by name and clears
+    ; it before every call.
+    push out "int rg_jit_failed_flag = 0;"
+    ; Forward declarations first: a group is a call graph, not a list, and
+    ; mutual recursion is ordinary.
+    for group fnId:int gi {
+      def f:RgFunction (itemAt module.functions fnId)
+      push out ((this.signature(f fnId (fnId == entryId))) + ";")
+    }
+    for group fnId2:int gi2 {
+      def f2:RgFunction (itemAt module.functions fnId2)
+      push out ""
+      push out ("/* " + f2.name + " */")
+      push out ((this.signature(f2 fnId2 (fnId2 == entryId))) + " {")
+      def isInt:[boolean] (this.intRegisters(module f2))
+      def i:int 0
+      while (i < f2.numRegs) {
+        def decl:string "  double "
+        if (itemAt isInt i) {
+          decl = "  long long "
+        }
+        if (i < (array_length f2.paramKinds)) {
+          push out (decl + (this.reg(i)) + " = a" + i + ";")
+        } {
+          push out (decl + (this.reg(i)) + " = 0;")
+        }
+        i = (i + 1)
+      }
+      push out "  int pc = 0;"
+      push out "  for(;;) { switch(pc) {"
+      def pc:int 0
+      while (pc < (array_length f2.ops)) {
+        push out ("  case " + pc + ":")
+        push out ("    " + (this.instruction(module f2 pc isInt)))
+        pc = (pc + 1)
+      }
+      push out "  }"
+      push out "  return 0.0;"
+      push out "  }"
+      push out "}"
+    }
+    return (join out (strfromcode 10))
+  }
+
+  ; A destination that is an integer register wants the C expression converted
+  ; to an integer; one that is not wants the double. Both directions are plain
+  ; C conversions, and the cast is written out rather than left implicit so the
+  ; generated source says what it means.
+  fn asInt:string (expr:string sourceIsInt:boolean) {
+    if sourceIsInt {
+      return expr
+    }
+    return ("(long long)(" + expr + ")")
+  }
+
+  fn asDouble:string (expr:string sourceIsInt:boolean) {
+    if sourceIsInt {
+      return ("(double)(" + expr + ")")
+    }
+    return expr
+  }
+
+  fn instruction:string (module:RgModule f:RgFunction pc:int isInt:[boolean]) {
+    def op (itemAt f.ops pc)
+    def a:int (itemAt f.ra pc)
+    def b:int (itemAt f.rb pc)
+    def c:int (itemAt f.rc pc)
+    def ra:string (this.reg(a))
+    def rb:string (this.reg(b))
+    def rc:string (this.reg(c))
+    switch op {
+      case RgOp.NOP {
+        return ";"
+      }
+      case RgOp.KNUM {
+        def k:double (itemAt f.nums b)
+        if (itemAt isInt a) {
+          return (ra + " = " + (to_int k) + "LL;")
+        }
+        return (ra + " = " + (this.numLit(k)) + ";")
+      }
+      case RgOp.MOVN {
+        return (ra + " = " + (this.convert(rb (itemAt isInt b) (itemAt isInt a))) + ";")
+      }
+      case RgOp.ADD {
+        return (this.arith(ra a rb b rc c " + " isInt))
+      }
+      case RgOp.SUB {
+        return (this.arith(ra a rb b rc c " - " isInt))
+      }
+      case RgOp.MUL {
+        return (this.arith(ra a rb b rc c " * " isInt))
+      }
+      case RgOp.DIV {
+        ; Real division, always in doubles, whatever the operands are.
+        def dl:string (this.asDouble(rb (itemAt isInt b)))
+        def dr:string (this.asDouble(rc (itemAt isInt c)))
+        return ("if (" + rc + " == 0) { rg_jit_failed_flag = 1; return 0.0; } " + ra + " = " + (this.convert(("(" + dl + " / " + dr + ")") false (itemAt isInt a))) + ";")
+      }
+      case RgOp.IDIV {
+        ; Ranger's `idiv` is declared over ints, so both operands are whole
+        ; numbers by construction and this is an integer division — one machine
+        ; instruction, where `trunc(a / b)` on doubles is a division plus a
+        ; libm call. Same answer, a fraction of the time.
+        def il:string (this.asInt(rb (itemAt isInt b)))
+        def ir:string (this.asInt(rc (itemAt isInt c)))
+        return ("if (" + rc + " == 0) { rg_jit_failed_flag = 1; return 0.0; } " + ra + " = " + (this.convert(("(" + il + " / " + ir + ")") true (itemAt isInt a))) + ";")
+      }
+      case RgOp.MOD {
+        ; Likewise `%`: an int operator in Ranger, so an integer remainder
+        ; rather than fmod. Both truncate towards zero, so the interpreter and
+        ; this agree on every value an int can hold.
+        def ml:string (this.asInt(rb (itemAt isInt b)))
+        def mr:string (this.asInt(rc (itemAt isInt c)))
+        return ("if (" + rc + " == 0) { rg_jit_failed_flag = 1; return 0.0; } " + ra + " = " + (this.convert(("(" + ml + " % " + mr + ")") true (itemAt isInt a))) + ";")
+      }
+      case RgOp.NEG {
+        return (ra + " = " + (this.convert(("-" + rb) (itemAt isInt b) (itemAt isInt a))) + ";")
+      }
+      case RgOp.LT {
+        return (ra + " = (" + rb + " < " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.LE {
+        return (ra + " = (" + rb + " <= " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.GT {
+        return (ra + " = (" + rb + " > " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.GE {
+        return (ra + " = (" + rb + " >= " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.EQ {
+        return (ra + " = (" + rb + " == " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.NEQ {
+        return (ra + " = (" + rb + " != " + rc + ") ? 1 : 0;")
+      }
+      case RgOp.NOT {
+        return (ra + " = (" + rb + " == 0) ? 1 : 0;")
+      }
+      case RgOp.JMP {
+        return ("pc = " + a + "; continue;")
+      }
+      case RgOp.JZ {
+        return ("if (" + ra + " == 0) { pc = " + b + "; continue; }")
+      }
+      case RgOp.JNZ {
+        return ("if (" + ra + " != 0) { pc = " + b + "; continue; }")
+      }
+      case RgOp.RETN {
+        return ("return " + (this.asDouble(ra (itemAt isInt a))) + ";")
+      }
+      case RgOp.RETV {
+        return "return 0.0;"
+      }
+      case RgOp.ARGN {
+        ; Folded into the call below.
+        return ";"
+      }
+      case RgOp.CALLN {
+        ; The call itself returns a double; the destination may want an int.
+        return (ra + " = " + (this.convert((this.callText(module f pc isInt)) false (itemAt isInt a))) + "; if (rg_jit_failed_flag) { return 0.0; }")
+      }
+      case RgOp.CALLV {
+        return ((this.callText(module f pc isInt)) + "; if (rg_jit_failed_flag) { return 0.0; }")
+      }
+      case RgOp.TRUNC {
+        ; `to_int` is a floor on the JavaScript host and the interpreter goes
+        ; through the same operator, so the compiled form follows it. An
+        ; integer register is already floored.
+        if (itemAt isInt b) {
+          return (ra + " = " + (this.convert(rb true (itemAt isInt a))) + ";")
+        }
+        return (ra + " = " + (this.convert(("floor(" + rb + ")") false (itemAt isInt a))) + ";")
+      }
+    }
+    return "rg_jit_failed_flag = 1; return 0.0;"
+  }
+
+  ; A direct C call, with the arguments read back out of the ARGN run that
+  ; precedes it.
+  ; Convert an expression from the type it has to the type the destination
+  ; register keeps.
+  fn convert:string (expr:string exprIsInt:boolean wantInt:boolean) {
+    if (exprIsInt == wantInt) {
+      return expr
+    }
+    if wantInt {
+      return ("(long long)(" + expr + ")")
+    }
+    return ("(double)(" + expr + ")")
+  }
+
+  ; `n[a] = n[b] OP n[c]` with the operand and destination types respected.
+  ; When both operands are integers the arithmetic is integer arithmetic,
+  ; which is the whole point of the typing pass.
+  fn arith:string (ra:string a:int rb:string b:int rc:string c:int cop:string isInt:[boolean]) {
+    def bothInt:boolean ((itemAt isInt b) && (itemAt isInt c))
+    if bothInt {
+      return (ra + " = " + (this.convert(("(" + rb + cop + rc + ")") true (itemAt isInt a))) + ";")
+    }
+    def dl:string (this.asDouble(rb (itemAt isInt b)))
+    def dr:string (this.asDouble(rc (itemAt isInt c)))
+    return (ra + " = " + (this.convert(("(" + dl + cop + dr + ")") false (itemAt isInt a))) + ";")
+  }
+
+  fn callText:string (module:RgModule f:RgFunction pc:int isInt:[boolean]) {
+    def calleeId:int (itemAt f.rb pc)
+    def callee:RgFunction (itemAt module.functions calleeId)
+    def wanted:int (array_length callee.paramKinds)
+    def regs:[string]
+    def at:int (pc - 1)
+    def taken:int 0
+    while (taken < wanted) {
+      if (at < 0) {
+        taken = wanted
+      } {
+        def argReg:int (itemAt f.ra at)
+        push regs (this.asDouble((this.reg(argReg)) (itemAt isInt argReg)))
+        at = (at - 1)
+        taken = (taken + 1)
+      }
+    }
+    def args:string ""
+    def ri:int ((array_length regs) - 1)
+    def first:boolean true
+    while (ri >= 0) {
+      if (false == first) {
+        args = (args + ", ")
+      }
+      args = (args + (itemAt regs ri))
+      first = false
+      ri = (ri - 1)
+    }
+    return ((this.symbolOf(calleeId)) + "(" + args + ")")
+  }
+
+  ; ---- installation --------------------------------------------------------
+
+  fn compile:void (vm:RgVM f:RgFunction fnId:int) {
+    if (has refused fnId) {
+      return
+    }
+    def module:RgModule (unwrap vm.module)
+    def group:[int] (this.callGroup(module fnId))
+    if ((array_length group) == 0) {
+      set refused fnId true
+      return
+    }
+    def src:string (this.generate(module group fnId))
+    lastSource = src
+    f.jitSource = src
+    def t0:double (wall_clock_ms)
+    def handle:RgNativeFn (rg_cjit_compile src (this.symbolOf(fnId)))
+    def t1:double (wall_clock_ms)
+    compileMs = (compileMs + (t1 - t0))
+    if (false == (rg_cjit_ok handle)) {
+      ; No C compiler, or it refused what we wrote. Keep interpreting.
+      set refused fnId true
+      return
+    }
+    push handles handle
+    f.jitSlot = ((array_length handles) - 1)
+    f.tier = RgTier.Jit
+    compiled = (compiled + 1)
+  }
+
+  fn invoke:void (vm:RgVM f:RgFunction fnId:int) {
+    if (f.jitSlot < 0) {
+      vm.fail("cjit: no compiled body for " + f.name)
+      return
+    }
+    def handle:RgNativeFn (itemAt handles f.jitSlot)
+    def argc:int (array_length f.paramKinds)
+    def a0:double 0.0
+    def a1:double 0.0
+    def a2:double 0.0
+    if ((array_length vm.argNums) > 0) {
+      a0 = (itemAt vm.argNums 0)
+    }
+    if ((array_length vm.argNums) > 1) {
+      a1 = (itemAt vm.argNums 1)
+    }
+    if ((array_length vm.argNums) > 2) {
+      a2 = (itemAt vm.argNums 2)
+    }
+    def emptyArgs:[double]
+    vm.argNums = emptyArgs
+    def result:double 0.0
+    switch argc {
+      case 0 {
+        result = (rg_cjit_call0 handle)
+      }
+      case 1 {
+        result = (rg_cjit_call1 handle a0)
+      }
+      case 2 {
+        result = (rg_cjit_call2 handle a0 a1)
+      }
+      case 3 {
+        result = (rg_cjit_call3 handle a0 a1 a2)
+      }
+      default {
+        vm.fail("cjit: " + f.name + " takes too many arguments")
+        return
+      }
+    }
+    if (rg_cjit_failed handle) {
+      vm.fail("arithmetic error inside compiled " + f.name)
+      return
+    }
+    vm.retNum = result
+  }
+}

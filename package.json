@@ -81,6 +81,7 @@
     "engine:bench": "node scripts/ranger-engine-bench.mjs",
     "engine:native": "bash scripts/ranger-engine-build.sh build cli native",
     "engine:cli:demo": "bash scripts/ranger-engine-cli-demo.sh",
+    "engine:tiers": "bash scripts/ranger-engine-tiers.sh",
     "test:engine": "vitest run --config tests/vitest.config.ts ranger-engine.test.ts",
     "jsengine:check": "bash scripts/cpp-toolchain.sh",
     "jsengine:build": "bash scripts/engine-build.sh",

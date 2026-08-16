@@ -1,0 +1,125 @@
+; The same workload, timed from inside the program, so that every host can be
+; asked the same question: how long does THIS take where you run it?
+;
+;   node bin/rg_build.js examples/bench_cli.rgr -o=bench_cli.rgb
+;   ./bin/rangercli bench_cli.rgb            # native interpreter
+;   node bin/rg_cli.js bench_cli.rgb         # the same bytecode on Node
+;   node bin/output.js -es6 examples/bench_cli.rgr … && node bench_cli.js
+;   node bin/output.js -l=cpp … && g++ -O2 … && ./bench_cli
+;
+; The last two are the ceilings: what the ordinary compiler produces for
+; JavaScript and for C++.
+
+class BenchCli {
+
+  sfn fib:int (n:int) {
+    if (n < 2) {
+      return n
+    }
+    def a:int (BenchCli.fib((n - 1)))
+    def b:int (BenchCli.fib((n - 2)))
+    return (a + b)
+  }
+
+  sfn loopSum:int (n:int) {
+    def i:int 0
+    def total:int 0
+    while (i < n) {
+      total = (total + (i % 7))
+      i = (i + 1)
+    }
+    return total
+  }
+
+  sfn loopChunks:int (chunks:int size:int) {
+    def total:int 0
+    def i:int 0
+    while (i < chunks) {
+      total = (total + (BenchCli.loopSum(size)))
+      i = (i + 1)
+    }
+    return total
+  }
+
+  sfn collatzSteps:int (n:int) {
+    def steps:int 0
+    def v:int n
+    while (v > 1) {
+      if ((v % 2) == 0) {
+        v = (idiv v 2)
+      } {
+        v = ((3 * v) + 1)
+      }
+      steps = (steps + 1)
+    }
+    return steps
+  }
+
+  sfn collatzMax:int (limit:int) {
+    def best:int 0
+    def i:int 1
+    while (i <= limit) {
+      def s:int (BenchCli.collatzSteps(i))
+      if (s > best) {
+        best = s
+      }
+      i = (i + 1)
+    }
+    return best
+  }
+
+  ; Each case runs several times and the fastest run is reported: one timing of
+  ; a few milliseconds says more about what else the machine was doing.
+  sfn report:void (label:string value:int ms:int) {
+    print (label + " = " + value + "   " + ms + " ms")
+  }
+
+  sfn main:void () {
+    def reps:int 5
+
+    def bestFib:int 1000000
+    def fibVal:int 0
+    def i:int 0
+    while (i < reps) {
+      def t0:double (wall_clock_ms)
+      fibVal = (BenchCli.fib(27))
+      def t1:double (wall_clock_ms)
+      def d:int (to_int (t1 - t0))
+      if (d < bestFib) {
+        bestFib = d
+      }
+      i = (i + 1)
+    }
+    BenchCli.report("fib(27)             " fibVal bestFib)
+
+    def bestLoop:int 1000000
+    def loopVal:int 0
+    i = 0
+    while (i < reps) {
+      def t2:double (wall_clock_ms)
+      loopVal = (BenchCli.loopChunks(20 100000))
+      def t3:double (wall_clock_ms)
+      def d2:int (to_int (t3 - t2))
+      if (d2 < bestLoop) {
+        bestLoop = d2
+      }
+      i = (i + 1)
+    }
+    BenchCli.report("loopChunks(20,100k) " loopVal bestLoop)
+
+    def bestCollatz:int 1000000
+    def collatzVal:int 0
+    i = 0
+    while (i < reps) {
+      def t4:double (wall_clock_ms)
+      collatzVal = (BenchCli.collatzMax(30000))
+      def t5:double (wall_clock_ms)
+      def d3:int (to_int (t5 - t4))
+      if (d3 < bestCollatz) {
+        bestCollatz = d3
+      }
+      i = (i + 1)
+    }
+    BenchCli.report("collatzMax(30000)   " collatzVal bestCollatz)
+  }
+}

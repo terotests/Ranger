@@ -189,6 +189,21 @@ class RgLower {
     return ((this.kindOfTypeName(t)) == RgKind.Num)
   }
 
+  ; Integral, as opposed to `double`. `boolean` and `char` are integers here
+  ; because that is what they are in every backend the engine emits.
+  fn isIntTypeName:boolean (t:string) {
+    if (t == "int") {
+      return true
+    }
+    if (t == "boolean") {
+      return true
+    }
+    if (t == "char") {
+      return true
+    }
+    return false
+  }
+
   ; The declared type of a `def`/parameter name node. An array's own type_name
   ; is empty and the element type lives in array_type, so the two are read
   ; apart and the caller gets both.
@@ -355,6 +370,7 @@ class RgLower {
       ; `this` is the first reference parameter; the VM's MCALL puts the
       ; receiver there before the declared arguments.
       push f.paramKinds RgKind.Ref
+      push f.paramIsInt false
     }
     for fnDesc.params p:RangerAppParamDesc pi {
       if (null? p.nameNode) {
@@ -375,6 +391,7 @@ class RgLower {
         pkind = RgKind.Num
       }
       push f.paramKinds pkind
+      push f.paramIsInt (this.isIntTypeName(pn.type_name))
     }
     if (fnDesc.name == "Constructor") {
       f.retKind = RgKind.Void
@@ -385,6 +402,7 @@ class RgLower {
           f.retKind = RgKind.Ref
         } {
           f.retKind = (this.kindOfTypeName(rn.type_name))
+          f.retIsInt = (this.isIntTypeName(rn.type_name))
         }
       }
     }

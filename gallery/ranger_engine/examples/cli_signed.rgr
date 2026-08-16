@@ -1,0 +1,28 @@
+; Signed integer division and remainder, printed for a spread of operands.
+; Every tier has to agree on these: the interpreter computes them in doubles,
+; the C tier in machine integers, and `idiv` / `%` are exactly where truncation
+; and flooring part ways.
+
+class Signed {
+
+  sfn show:void (a:int b:int) {
+    print "" + a + " idiv " + b + " = " + (idiv a b) + "   " + a + " % " + b + " = " + (a % b)
+  }
+
+  sfn main:void () {
+    def values:[int]
+    push values 7
+    push values (0 - 7)
+    push values 1000003
+    push values (0 - 1000003)
+    def divisors:[int]
+    push divisors 2
+    push divisors (0 - 3)
+    push divisors 7
+    for values a:int i {
+      for divisors b:int j {
+        Signed.show(a b)
+      }
+    }
+  }
+}

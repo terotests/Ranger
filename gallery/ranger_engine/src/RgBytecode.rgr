@@ -134,7 +134,14 @@ class RgFunction {
   ; buffer in this order, so a call site's ARGN / ARGR sequence has to follow
   ; the same order.
   def paramKinds:[RgKind]
+  ; Which numeric parameters hold INTEGERS. The interpreter does not care — a
+  ; register is a double either way — but a backend that emits real machine
+  ; code does: an integer remainder is one instruction where fmod on doubles
+  ; is a library call. Ranger knows the answer at compile time; throwing it
+  ; away here would mean guessing it back later.
+  def paramIsInt:[boolean]
   def retKind:RgKind RgKind.Void
+  def retIsInt:boolean false
   def numRegs:int 0
   def refRegs:int 0
   ; The instruction stream, four parallel arrays rather than one interleaved

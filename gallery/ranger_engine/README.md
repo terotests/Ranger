@@ -11,6 +11,7 @@ npm run engine:demo      # run examples/demo.rgr through the engine
 npm run engine:bench     # tier 1 vs tier 2 vs the ordinary compiler
 npm run engine:native    # build `rangercli`, the compiler-free native runtime
 npm run engine:cli:demo  # bytecode -> native binary -> Node, side by side
+npm run engine:tiers     # the whole ladder: 5 ways to run one program
 npm run test:engine      # the vitest suite
 ```
 
@@ -43,13 +44,17 @@ frontend: 225 ms   lowering: 2 ms   interpreted steps: 1133
                      tier 1: RgVM                tier 2: RgJsJit
                   register machine,            bytecode → JavaScript
                   two typed banks              → new Function → V8
+                                               tier 3: RgCJit
+                                             bytecode → C → cc -O3
+                                             → dlopen → machine code
 ```
 
 | File | Role | Needs the compiler? |
 | --- | --- | --- |
 | `src/RgBytecode.rgr` | instruction set, module / class / function model | no |
 | `src/RgVM.rgr` | the interpreter, the heap, the calling convention | no |
-| `src/RgJsJit.rgr` | tier 2: bytecode → host source → `new Function` | no |
+| `src/RgJsJit.rgr` | tier 2: bytecode → JavaScript → `new Function` | no |
+| `src/RgCJit.rgr` | tier 3: bytecode → C → `cc -O3 -shared` → `dlopen` | no |
 | `src/RgModuleIO.rgr` | bytecode as a `.rgb` file: writer and reader | no |
 | `src/RgLower.rgr` | analyzed Ranger → bytecode | **yes** |
 | `src/RgEngine.rgr` | front door: load a file, run it, report tiers | **yes** |
@@ -240,6 +245,51 @@ program that silently does something else — the writer refuses to emit an
 opcode it cannot name, and the reader refuses a name it does not know. (That
 check earned its place immediately: `SPLIT` was written as `NOP` the first time
 the table lagged behind the enum.)
+
+## Tier 3: the C compiler as the JIT backend
+
+The JavaScript tier hands source to the same engine that runs the compiler's
+own JavaScript output, so parity is its ceiling. Beating that output needs real
+machine code — and on the native runtime there is a code generator already
+installed on the machine. `RgCJit` writes the hot function out as C, runs
+`cc -O3 -fPIC -shared` on it, `dlopen`s the result and calls it through a
+function pointer.
+
+Two things make it worth the compile:
+
+- **The whole call group goes into one translation unit.** When a function gets
+  hot, everything it calls that this tier can also compile comes with it, so
+  `cc` inlines across them. That is most of the difference on a recursion.
+- **The register file is typed.** The bytecode's numeric bank is doubles, which
+  is what an interpreter wants. Ranger knew which values were integers, the
+  `.rgb` carries that on parameters and return types (`I` versus `N`), and a
+  fixpoint pass propagates it to every register. An integer register becomes a
+  C `long long`, so `%` and `idiv` are machine instructions instead of `fmod`
+  and `trunc` calls — worth 4× on the Collatz loop by itself.
+
+```
+$ npm run engine:tiers
+1  bytecode, Node host           fib 111 ms   loop 226 ms   collatz 620 ms
+2  bytecode, native host         fib  74 ms   loop 158 ms   collatz 364 ms
+3  tier 3: cc -O3 JIT, native    fib   1 ms   loop   2 ms   collatz   7 ms
+4  compiled JavaScript (V8)      fib   3 ms   loop   6 ms   collatz  10 ms
+5  compiled C++ -O2              fib   0 ms   loop   1 ms   collatz   5 ms
+```
+
+Row 3 against row 4 is the answer to "can this be faster than the JavaScript
+version": **yes, on all three, by 1.4× to 3×**, and within 1.4–2× of what the
+ordinary C++ build does.
+
+The cost is on the same line: five functions cost **299 ms** of `cc`. A program
+that runs for a second repays that; one that runs for fifty milliseconds does
+not, which is why the tier is opt-in per run (`-jit=N`) rather than automatic.
+Where there is no C compiler on `PATH`, the compile fails, the tier says so by
+returning a null handle, and the program keeps interpreting.
+
+```bash
+./bin/rangercli -steps -jit=2 program.rgb
+[2600890 instructions, 380 ms, 5 functions compiled in 299 ms]
+```
 
 ## What lowers today
 

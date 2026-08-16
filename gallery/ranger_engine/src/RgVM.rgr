@@ -14,6 +14,30 @@
 
 Import "RgBytecode.rgr"
 
+operators {
+  ; A SYNCHRONOUS file read. Ranger's own `read_file` is declared
+  ; `@(optional async)` because its JavaScript template uses the callback API —
+  ; and one async operator anywhere inside `execute` makes the interpreter
+  ; loop, and every call into it, async on that target. An interpreter that
+  ; awaits once per instruction is not an interpreter, so this reads the file
+  ; the blocking way on every host.
+  rg_read_text _:string ( path:string filename:string ) {
+    templates {
+      es6 ( "(function(p,f){ try { return require('fs').readFileSync(p + '/' + f, 'utf8'); } catch (e) { return ''; } })(" (e 1) ", " (e 2) ")" )
+      cpp ( "rg_engine_read_text(" (e 1) ", " (e 2) ")" (imp "<fstream>") (imp "<string>") (imp "<iterator>")
+(create_polyfill "
+std::string rg_engine_read_text(const std::string& path, const std::string& filename) {
+  std::ifstream ifs(path + \"/\" + filename);
+  std::string content((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
+  return content;
+}
+")
+      )
+      * ( '""' )
+    }
+  }
+}
+
 Enum RgRefKind:int (
   Null
   Str
@@ -703,7 +727,7 @@ class RgVM {
         case RgOp.RDFILE {
           def rp:RgRef (itemAt refStack (rbase + b))
           def rn:RgRef (itemAt refStack (rbase + c))
-          def content:string (?? (read_file rp.s rn.s) "")
+          def content:string (rg_read_text rp.s rn.s)
           set_at refStack (rbase + a) (this.newStr(content))
         }
         case RgOp.WRFILE {

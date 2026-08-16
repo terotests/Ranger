@@ -1,8 +1,10 @@
 # A Ranger engine — running Ranger, compiling the hot parts
 
 Status: **works** (`gallery/ranger_engine/`, `npm run engine:demo`). Bytecode is
-a file (`.rgb`) and `rangercli` runs one as a 178 KB native binary with no
-compiler in it. Tier 3 (WebAssembly / LLVM) is designed here but not built.
+a file (`.rgb`) and `rangercli` runs one as a 237 KB native binary with no
+compiler in it. Tier 3 exists on the native runtime, through the system C
+compiler, and **beats the Ranger compiler's own JavaScript output by 1.4–3×**
+(`npm run engine:tiers`). The WebAssembly route is still only designed.
 
 ## The question
 
@@ -18,6 +20,7 @@ Two doubts come with the idea, and both deserve an answer before the design:
    get?*
 2. *Is there anything to gain on Node, where the alternative is JavaScript that
    V8 already compiles?*
+3. *Could it ever be FASTER than the JavaScript build?*
 
 ## The short answer
 
@@ -27,7 +30,7 @@ do not depend on each other:
 | Half | What it is | Built size (ES6) |
 | --- | --- | --- |
 | runtime | `RgBytecode` + `RgVM` + `RgJsJit` | **33 KB** |
-| runtime, as a native CLI | the same, `-l=cpp` + `g++ -O2` | **178 KB** |
+| runtime, as a native CLI | the same plus tier 3, `-l=cpp` + `g++ -O2` | **237 KB** |
 | build-time | the compiler frontend + `RgLower` | **2.9 MB** |
 
 The compiler is only large because it parses, analyzes and typechecks Ranger and
@@ -37,12 +40,17 @@ is Node, where the compiler is just another module, both halves load and the
 engine takes source directly.
 
 On the second doubt: the interpreter is 8–29× slower than compiled JavaScript
-output, and the JIT tier closes most of that without the engine containing a
-code generator of its own — it writes JavaScript and lets the host compile it.
-Call-heavy code lands **1.3×** off compiled output, loops 2–6×. So "not
-necessarily faster than JavaScript on Node" is right about the ceiling; the
-result worth having is how close the tiering gets to it, and what the remaining
-distance is made of.
+output, and the JavaScript JIT tier closes most of that without the engine
+containing a code generator of its own — it writes JavaScript and lets the host
+compile it. Call-heavy code lands **1.3×** off compiled output, loops 2–6×.
+Parity is its ceiling, because it is asking V8 to compile V8's own competition.
+
+On the third: **yes, on the native runtime.** There the host has a C compiler
+installed, and `RgCJit` uses it — the hot call group goes out as C, through
+`cc -O3 -fPIC -shared`, back in through `dlopen`. On the benchmark that is 1 ms
+against JavaScript's 3, 2 against 6, and 7 against 10, with the ordinary C++
+build at 0, 1 and 5. The price is 299 ms of `cc` for five functions, paid once
+per run, which is why the tier is opt-in.
 
 ## Shape
 
@@ -136,6 +144,28 @@ example programs through the engine and through the ordinary compiler and
 requires the same output from both, and pins signed `idiv` / `%` against the
 host's own semantics in both tiers.
 
+## The whole ladder (`npm run engine:tiers`, best of 5 inside the program)
+
+| way to run `bench_cli.rgr` | fib(27) | loopChunks | collatzMax |
+| --- | --- | --- | --- |
+| bytecode, Node host | 111 ms | 226 ms | 620 ms |
+| bytecode, native host | 74 ms | 158 ms | 364 ms |
+| **tier 3: `cc -O3` JIT, native** | **1 ms** | **2 ms** | **7 ms** |
+| compiled JavaScript on V8 | 3 ms | 6 ms | 10 ms |
+| compiled C++ at `-O2` | 0 ms | 1 ms | 5 ms |
+
+Two things that had to be true for the third row:
+
+- **The call group, not the function.** Compiling `fib` alone leaves every
+  recursive call going out through a function pointer; compiling `fib` and
+  everything it calls into one translation unit lets `cc` inline.
+- **Integer registers.** The interpreter's numeric bank is doubles, and the
+  first C backend inherited that: every `%` became `fmod` and every `idiv` a
+  `trunc`, both library calls. Ranger's types say which values are integers,
+  the `.rgb` carries it (`I` versus `N` on parameters and return types), and a
+  fixpoint over the instruction stream propagates it to the rest. Collatz went
+  17 ms → 9 ms on that alone, then 7 ms at `-O3`.
+
 ## What is missing, in the order it should be added
 
 ### 1. Structured control flow instead of the `pc` loop
@@ -156,27 +186,27 @@ function when a *back edge* has been taken often enough and re-enter the
 compiled body at the loop head (real OSR), or lower long-running loops into
 their own hidden functions so the existing call-count heuristic sees them.
 
-### 3. Tier 3: WebAssembly
+### 3. Tier 3, part two: WebAssembly
 
-Everything needed already exists in the repository:
-`ng_WATWriter.rgr` emits WAT from Low IR, `wabt` is a devDependency, and
-`npm run test:llvm` already assembles WAT and runs it under
+The C route (`RgCJit`) is built and is the fast one, but it needs a C compiler
+on the machine and a host that can `dlopen`. WebAssembly would cover the
+browser and the hosts where neither is true, and everything needed is already
+in the repository: `ng_WATWriter.rgr` emits WAT from Low IR, `wabt` is a
+devDependency, and `npm run test:llvm` already assembles WAT and runs it under
 `WebAssembly.Instance`. Two routes:
 
-- **From bytecode.** Emit WAT with the same `pc` dispatch the JavaScript tier
-  uses — WebAssembly has no arbitrary jumps, but the standard nested-`block` +
-  `br_table` shape reproduces a switch exactly. Numeric functions with numeric
-  calls need no imports; anything touching the heap needs the VM's memory to be
-  visible to wasm, which is the hard part and the reason to start numeric.
+- **From bytecode.** Emit WAT with the same `pc` dispatch the other two tiers
+  use — WebAssembly has no arbitrary jumps, but the standard nested-`block` +
+  `br_table` shape reproduces a switch exactly. The typed register pass
+  (`i32` versus `f64`) that tier 3 already needs is the same one WAT wants.
+  Numeric functions need no imports; anything touching the heap needs the VM's
+  memory to be visible to wasm, which is the hard part.
 - **From Low IR.** `RgLower` gains a second output and reuses
-  `ng_LowIRBuilder`'s existing lowering for the subset it already supports
-  (`int`/`double`/`bool`, static methods, `if`/`while`, heap through `Mem`
-  intrinsics). Less new code, narrower subset, and it inherits the LLVM path for
-  free — the same IR that already produces `.ll` for native builds.
+  `ng_LowIRBuilder`'s existing lowering for the subset it supports. Less new
+  code, narrower subset, and it inherits the LLVM path for free.
 
-On Node this is unlikely to beat tier 2, because V8 compiles both. It matters
-for the browser (where a compiled wasm module can be cached across loads) and
-for hosts where `eval` is unavailable but `WebAssembly.instantiate` is not.
+On Node this is unlikely to beat the C tier. It matters for the browser, where
+a compiled module can be cached across loads, and for hosts with no `cc`.
 
 ### 4. Bytecode as a file format — **done**
 
