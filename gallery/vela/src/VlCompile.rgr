@@ -3970,10 +3970,27 @@ class VlCompile {
         push transforms.arr t
     }
 
+    ; One shape drawn through many rows — a line, an area, a trail — is not a
+    ; row at a time, and the rows it must skip are marked rather than dropped.
+    ; The mark's own `defined` does that; see encodeMark.
+    sfn isPathMark:boolean (name:string) {
+        if (name == "line") { return true }
+        if (name == "area") { return true }
+        if (name == "trail") { return true }
+        return false
+    }
+
     ; Every continuous field a mark positions by has to be a finite number, and
     ; the reference drops the rows where it is not rather than drawing them at
     ; the origin.
     fn pushValidFilter:void (transforms:VlJson) {
+        ; Except along a path, where dropping a row would join across the gap
+        ; instead of leaving one. Those rows stay in the data and the mark
+        ; steps over them — and the rows are still in the data, so the SCALES
+        ; still see them.
+        if (VlCompile.isPathMark(markName)) {
+            return
+        }
         def expr:string ""
         for channels ch:VlChannel ci {
             if (((ch.name == "x") || (ch.name == "y")) || (ch.name == "theta")) {
@@ -6926,7 +6943,7 @@ class VlCompile {
         ; A line or an area is one shape through many rows, so the rows it must
         ; skip are marked rather than dropped: dropping them would join across
         ; the gap.
-        if ((markName == "line") || (markName == "area")) {
+        if (VlCompile.isPathMark(markName)) {
             def expr:string ""
             for channels ch:VlChannel ci {
                 if ((ch.name == "x") || (ch.name == "y")) {

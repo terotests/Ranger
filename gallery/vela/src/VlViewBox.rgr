@@ -280,10 +280,14 @@ class VlViewBox {
         if (interpolate == "catmull-rom") { tension = 0.5 }
         if (first.has("tension")) { tension = (first.number("tension")) }
 
+        ; A row the path could not place is not part of the shape, so it is
+        ; not part of the box either.
         def pts:[double]
         for mark.items item:VlSceneItem idx {
-            push pts (item.number("x"))
-            push pts (item.number("y"))
+            if (item.flag("defined" true)) {
+                push pts (item.number("x"))
+                push pts (item.number("y"))
+            }
         }
         def builder (new PathBuilder())
         VlShape.appendCurve(builder pts interpolate tension false)
@@ -294,12 +298,14 @@ class VlViewBox {
             def k:int (count - 1)
             while (k >= 0) {
                 def item:VlSceneItem (itemAt mark.items k)
-                if horizontal {
-                    push back (item.number("x2"))
-                    push back (item.number("y"))
-                } {
-                    push back (item.number("x"))
-                    push back (item.number("y2"))
+                if (item.flag("defined" true)) {
+                    if horizontal {
+                        push back (item.number("x2"))
+                        push back (item.number("y"))
+                    } {
+                        push back (item.number("x"))
+                        push back (item.number("y2"))
+                    }
                 }
                 k = (k - 1)
             }

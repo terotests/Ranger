@@ -397,6 +397,63 @@ class VlShape {
         return out
     }
 
+    sfn subrange:[double] (values:[double] from:int upto:int) {
+        def out:[double]
+        def k:int from
+        while (k < upto) {
+            push out (itemAt values k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; The same, for a path drawn in more than one stroke. `breaks` names the
+    ; vertex each stroke starts at, so a line whose data goes missing in the
+    ; middle stays ONE path with a hole in it rather than becoming two paths —
+    ; which is what the reference draws, and what a renderer that fills has to
+    ; be handed if the pieces are to share one fill.
+    sfn appendBrokenCurve:void (builder:PathBuilder pts:[double] breaks:[int] interpolate:string tension:double closed:boolean) {
+        def strokes:int (array_length breaks)
+        if (strokes < 2) {
+            VlShape.appendCurve(builder pts interpolate tension closed)
+            return
+        }
+        def total:int (array_length pts)
+        def b:int 0
+        while (b < strokes) {
+            def from:int ((itemAt breaks b) * 2)
+            def upto:int total
+            if ((b + 1) < strokes) {
+                upto = ((itemAt breaks (b + 1)) * 2)
+            }
+            b = (b + 1)
+            def run:[double] (VlShape.subrange(pts from upto))
+            VlShape.appendCurve(builder run interpolate tension closed)
+        }
+    }
+
+    ; A trail broken the same way: each stroke carries its own widths.
+    sfn appendBrokenTrail:void (builder:PathBuilder pts:[double] sizes:[double] breaks:[int]) {
+        def strokes:int (array_length breaks)
+        if (strokes < 2) {
+            VlShape.appendTrail(builder pts sizes)
+            return
+        }
+        def vertices:int (array_length sizes)
+        def b:int 0
+        while (b < strokes) {
+            def from:int (itemAt breaks b)
+            def upto:int vertices
+            if ((b + 1) < strokes) {
+                upto = (itemAt breaks (b + 1))
+            }
+            b = (b + 1)
+            def run:[double] (VlShape.subrange(pts (from * 2) (upto * 2)))
+            def wide:[double] (VlShape.subrange(sizes from upto))
+            VlShape.appendTrail(builder run wide)
+        }
+    }
+
     ; A run of points as the curve the specification asked for. Steps become
     ; more points and stay straight; the smooth interpolations become cubics,
     ; which is what the reference emits too — a curve flattened into segments
@@ -406,6 +463,15 @@ class VlShape {
         def stepped:[double] (VlShape.steppedPoints(pts interpolate))
         def n:int (idiv (array_length stepped) 2)
         if (n == 0) {
+            return
+        }
+        ; One point on its own is still drawn: the reference writes `M x,y Z`,
+        ; which a round cap paints as a dot. It is what a line looks like where
+        ; the data has one reading with nothing either side of it, and dropping
+        ; it silently loses the reading.
+        if (n == 1) {
+            builder.moveTo((itemAt stepped 0) (itemAt stepped 1))
+            builder.close()
             return
         }
         def smooth:boolean false

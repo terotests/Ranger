@@ -517,7 +517,7 @@ class VlEvgWriter {
                 }
                 k = (k + 1)
             }
-            VlShape.appendCurve(builder pts cmd.interpolate cmd.tension (cmd.op == "polygon"))
+            VlShape.appendBrokenCurve(builder pts cmd.breaks cmd.interpolate cmd.tension (cmd.op == "polygon"))
             return
         }
         if (cmd.op == "arc") {
@@ -540,7 +540,7 @@ class VlEvgWriter {
                 }
                 k = (k + 1)
             }
-            VlShape.appendTrail(builder pts cmd.widths)
+            VlShape.appendBrokenTrail(builder pts cmd.widths cmd.breaks)
             return
         }
         if (cmd.op == "path") {
