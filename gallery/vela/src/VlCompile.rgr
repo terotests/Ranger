@@ -3588,6 +3588,40 @@ class VlCompile {
         return (((markName == "bar") || (markName == "rect")) || (markName == "tick"))
     }
 
+    ; A time unit is an INTERVAL, not an instant: `"timeUnit": "month"` says
+    ; this row belongs to March, and a bar drawn for it fills March rather
+    ; than standing on the first of it. The transform computes both ends, and
+    ; this is the name of the far one — empty when nothing spans it, which is
+    ; every mark that is a point on a date rather than a block over one.
+    fn unitEndField:string (ch:VlChannel) {
+        if ((strlen ch.timeUnit) == 0) {
+            return ""
+        }
+        if ((markName != "bar") && (markName != "rect")) {
+            return ""
+        }
+        if (ch.hasBin || ch.binnedAlready) {
+            return ""
+        }
+        ; Only where the dates are a MEASUREMENT. A month on a band scale is
+        ; one of twelve categories and the band is already the whole of it.
+        if (! (this.continuousScale(ch))) {
+            return ""
+        }
+        if ((ch.name != "x") && (ch.name != "y")) {
+            return ""
+        }
+        ; A chart that named the far end itself is not asking for the unit's.
+        def partner:VlChannel (this.channel((ch.name + "2")))
+        if partner.defined {
+            return ""
+        }
+        if ((strlen (ch.outField())) == 0) {
+            return ""
+        }
+        return ((ch.outField()) + "_end")
+    }
+
     fn fillsBand:boolean () {
         return (((markName == "bar") || (markName == "rect")) || (markName == "tick"))
     }
@@ -4516,6 +4550,15 @@ class VlCompile {
                             ; a time unit groups by the truncated field, which
                             ; is the whole reason it was computed.
                             push groupby.arr (VlJson.stringValue((ch2.outField())))
+                            ; The far end of a time unit's interval travels
+                            ; with the near one: grouped only by the start, the
+                            ; column saying where March ends did not survive
+                            ; the aggregate and every bar came out standing on
+                            ; the first of the month instead of filling it.
+                            def unitEnd:string (this.unitEndField(ch2))
+                            if ((strlen unitEnd) > 0) {
+                                push groupby.arr (VlJson.stringValue(unitEnd))
+                            }
                             ; An aggregate keeps only what it groups by, so a
                             ; field computed purely to order the stack has to be
                             ; grouped by as well or it does not survive to be
@@ -6001,6 +6044,17 @@ class VlCompile {
                 }
                 return out
             }
+        }
+        ; …and a channel whose unit is an interval takes its domain from both
+        ; ends of it, so a scale of months reaches the end of December rather
+        ; than stopping on the first.
+        def spanEnd:string (this.unitEndField(ch))
+        if ((strlen spanEnd) > 0) {
+            def ends (VlJson.arrayValue())
+            push ends.arr (VlJson.stringValue((ch.outField())))
+            push ends.arr (VlJson.stringValue(spanEnd))
+            out.setMember("fields" ends)
+            return out
         }
         out.setMember("field" (VlJson.stringValue((ch.outField()))))
         if (ch.isDiscrete()) {
@@ -8461,6 +8515,9 @@ class VlCompile {
             if partner.defined {
                 endField = (partner.outField())
             }
+        }
+        if ((strlen endField) == 0) {
+            endField = (this.unitEndField(ch))
         }
         if ((strlen endField) > 0) {
             ; A bin has two edges, and whether a mark SPANS them or stands at
