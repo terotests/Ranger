@@ -6471,8 +6471,24 @@ class VlCompile {
         ; what a chart writes when the column's name would say less than the
         ; drawing already does. It is not the same as an absent title, which
         ; means "call it whatever the column is called".
+        ; …and a chart may say it once for every axis it has, which is what a
+        ; drawing whose columns are obvious writes. An empty name is no name
+        ; either: the reference writes nothing rather than an empty string.
+        def titledEverywhere:VlJson (this.configFlag("axis" "title"))
+        def refusedEverywhere:boolean (titledEverywhere.isNull())
+        if (! (titledEverywhere.isDefined())) {
+            refusedEverywhere = false
+        }
+        if refusedEverywhere {
+            ; nothing to call it
+        } {
+        if ((strlen axisTitle) == 0) {
+            ; nor anything to call it
+        } {
         if (! (VlCompile.suppressed(ch "title"))) {
             a.setMember("title" (VlJson.stringValue(axisTitle)))
+        }
+        }
         }
         def given:VlJson (ch.def0.get("axis"))
         if (given.isObject()) {
