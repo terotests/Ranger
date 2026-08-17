@@ -1405,9 +1405,16 @@ class VlCompile {
 
     fn compileFacet:VlJson (src:VlJson) {
         def fields:[string] (this.facetFields())
-        def rowField:string ((this.channel("row")).field)
-        def columnField:string ((this.channel("column")).field)
-        def wrapField:string ((this.channel("facet")).field)
+        ; The COLUMN a panel is picked out by, which is not always the column
+        ; the chart named: a trellis of hours reads a time unit's answer, and
+        ; grouping by the raw instants instead gave one panel per reading with
+        ; nothing in the header to name it.
+        def rowField:string ((this.channel("row")).outField())
+        def columnField:string ((this.channel("column")).outField())
+        def wrapField:string ((this.channel("facet")).outField())
+        def rowTitleField:string ((this.channel("row")).field)
+        def columnTitleField:string ((this.channel("column")).field)
+        def wrapTitleField:string ((this.channel("facet")).field)
         ; How many panels across. A repeated specification says it at the top
         ; level, but a wrapped FACET channel says it on the channel — and read
         ; only from the top level the grid never wrapped, so every panel of a
@@ -1533,7 +1540,14 @@ class VlCompile {
         if wrapped {
             facetKey = "facet"
         }
-        def titleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src facetKey facetField))))
+        def titleField:string columnTitleField
+        if ((strlen rowField) > 0) {
+            titleField = rowTitleField
+        }
+        if wrapped {
+            titleField = wrapTitleField
+        }
+        def titleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src facetKey titleField))))
         if wrapped {
             push marks.arr (VlCompile.titleGroup("facet-title" "column-title" titleText ""))
             push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false))
