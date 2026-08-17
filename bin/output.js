@@ -41568,6 +41568,82 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const t = LowIRUtil.typeFromRanger(typeName);
                         return (t.length) > 0;
                       };
+                      LowIRUtil.looksLikeUtf8Bytes = function(text) {
+                        const n = text.length;
+                        let i = 0;
+                        while (i < n) {
+                          const c = text.charCodeAt(i );
+                          if ( c > 255 ) {
+                            return false;
+                          }
+                          if ( c >= 128 ) {
+                            let extra = 0;
+                            if ( c >= 240 ) {
+                              extra = 3;
+                            } else {
+                              if ( c >= 224 ) {
+                                extra = 2;
+                              } else {
+                                if ( c >= 192 ) {
+                                  extra = 1;
+                                } else {
+                                  return false;
+                                }
+                              }
+                            }
+                            if ( (i + extra) >= n ) {
+                              return false;
+                            }
+                            let k = 1;
+                            while (k <= extra) {
+                              const cc = text.charCodeAt((i + k) );
+                              if ( cc < 128 ) {
+                                return false;
+                              }
+                              if ( cc > 191 ) {
+                                return false;
+                              }
+                              k = k + 1;
+                            };
+                            i = i + extra;
+                          }
+                          i = i + 1;
+                        };
+                        return true;
+                      };
+                      LowIRUtil.utf8Bytes = function(text) {
+                        let out = [];
+                        const n = text.length;
+                        let i = 0;
+                        if ( LowIRUtil.looksLikeUtf8Bytes(text) ) {
+                          while (i < n) {
+                            out.push(text.charCodeAt(i ));
+                            i = i + 1;
+                          };
+                          return out;
+                        }
+                        while (i < n) {
+                          const code = text.charCodeAt(i );
+                          if ( code < 128 ) {
+                            out.push(code);
+                          } else {
+                            if ( code < 2048 ) {
+                              const hi6 = Math.floor( (code / 64));
+                              out.push(192 + hi6);
+                              out.push(128 + (code - (hi6 * 64)));
+                            } else {
+                              const c1 = Math.floor( (code / 4096));
+                              const rem = code - (c1 * 4096);
+                              const mid = Math.floor( (rem / 64));
+                              out.push(224 + c1);
+                              out.push(128 + mid);
+                              out.push(128 + (rem - (mid * 64)));
+                            }
+                          }
+                          i = i + 1;
+                        };
+                        return out;
+                      };
                       LowIRUtil.isStringType = function(typeName) {
                         if ( typeName == "charbuffer" ) {
                           return true;
@@ -44472,23 +44548,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           return gname;
                         };
                         utf8ByteLen (text) {
-                          let i = 0;
-                          const n = text.length;
-                          let total = 0;
-                          while (i < n) {
-                            const code = text.charCodeAt(i );
-                            if ( code < 128 ) {
-                              total = total + 1;
-                            } else {
-                              if ( code < 2048 ) {
-                                total = total + 2;
-                              } else {
-                                total = total + 3;
-                              }
-                            }
-                            i = i + 1;
-                          };
-                          return total;
+                          return LowIRUtil.utf8Bytes(text).length;
                         };
                         stringGlobalByteLen (gname) {
                           for ( let i = 0; i < this.irModule.stringGlobals.length; i++) {
@@ -54088,44 +54148,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                         llvmEscapeCString (text) {
                           let out = "";
-                          let i = 0;
-                          const n = text.length;
-                          while (i < n) {
-                            const code = text.charCodeAt(i );
-                            if ( code == 34 ) {
+                          const bytes = LowIRUtil.utf8Bytes(text);
+                          for ( let i = 0; i < bytes.length; i++) {
+                            var b = bytes[i];
+                            if ( b == 34 ) {
                               out = out + "\\22";
                             } else {
-                              if ( code == 92 ) {
+                              if ( b == 92 ) {
                                 out = out + "\\\\";
                               } else {
-                                if ( (code >= 32) && (code < 127) ) {
-                                  out = out + (String.fromCharCode(code));
+                                if ( (b >= 32) && (b < 127) ) {
+                                  out = out + (String.fromCharCode(b));
                                 } else {
-                                  if ( code < 128 ) {
-                                    out = out + this.hexByte(code);
-                                  } else {
-                                    if ( code < 2048 ) {
-                                      const hi6 = Math.floor( (code / 64));
-                                      const b1 = 192 + hi6;
-                                      const b2 = 128 + (code - (hi6 * 64));
-                                      out = out + this.hexByte(b1);
-                                      out = out + this.hexByte(b2);
-                                    } else {
-                                      const c1 = Math.floor( (code / 4096));
-                                      const rem = code - (c1 * 4096);
-                                      const mid = Math.floor( (rem / 64));
-                                      const b1_1 = 224 + c1;
-                                      const b2_1 = 128 + mid;
-                                      const b3 = 128 + (rem - (mid * 64));
-                                      out = out + this.hexByte(b1_1);
-                                      out = out + this.hexByte(b2_1);
-                                      out = out + this.hexByte(b3);
-                                    }
-                                  }
+                                  out = out + this.hexByte(b);
                                 }
                               }
                             }
-                            i = i + 1;
                           };
                           return out;
                         };

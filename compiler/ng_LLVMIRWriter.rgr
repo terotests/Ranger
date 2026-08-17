@@ -87,48 +87,28 @@ class LLVMIRWriter {
     return ("\\" + (this.hexDigit(hi)) + (this.hexDigit(lo)))
   }
 
+  ; Walks BYTES, never characters -- see LowIRUtil.utf8Bytes for why the
+  ; distinction is not the same on JavaScript and on the C runtime. The byte
+  ; count this produces is the same one utf8ByteLen puts in the `[N x i8]`,
+  ; because both come from that one function.
   fn llvmEscapeCString:string (text:string) {
     def out:string ""
-    def i:int 0
-    def n:int (strlen text)
-    while (i < n) {
-      def code:int (charAt text i)
-      if (code == 34) {
+    def bytes:[int] (LowIRUtil.utf8Bytes(text))
+    for bytes b:int i {
+      if (b == 34) {
         out = out + "\\22"
       } {
-        if (code == 92) {
+        if (b == 92) {
           out = out + "\\\\"
         } {
-          if ((code >= 32) && (code < 127)) {
-            out = out + (strfromcode code)
+          if ((b >= 32) && (b < 127)) {
+            out = out + (strfromcode b)
           } {
-            ; Control chars and non-ASCII: emit raw UTF-8 bytes as \HH escapes
-            ; so the byte length matches utf8ByteLen and the constant is valid.
-            if (code < 128) {
-              out = out + (this.hexByte(code))
-            } {
-              if (code < 2048) {
-                def hi6:int (to_int (code / 64))
-                def b1:int (192 + hi6)
-                def b2:int (128 + (code - (hi6 * 64)))
-                out = out + (this.hexByte(b1))
-                out = out + (this.hexByte(b2))
-              } {
-                def c1:int (to_int (code / 4096))
-                def rem:int (code - (c1 * 4096))
-                def mid:int (to_int (rem / 64))
-                def b1:int (224 + c1)
-                def b2:int (128 + mid)
-                def b3:int (128 + (rem - (mid * 64)))
-                out = out + (this.hexByte(b1))
-                out = out + (this.hexByte(b2))
-                out = out + (this.hexByte(b3))
-              }
-            }
+            ; Control chars and non-ASCII alike go out as \HH.
+            out = out + (this.hexByte(b))
           }
         }
       }
-      i = i + 1
     }
     return out
   }

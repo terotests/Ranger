@@ -1198,24 +1198,11 @@ class LowIRBuilderPass {
   ; Count the UTF-8 byte length of a string. The host charAt returns a UTF-16
   ; code unit; codepoints in the BMP encode to 1-3 UTF-8 bytes. (Surrogate pairs
   ; / 4-byte sequences are rare in compiler string literals and counted as 3+3.)
+  ; Must stay derived from LowIRUtil.utf8Bytes, not recomputed here: this
+  ; length sizes the `[N x i8]` that llvmEscapeCString fills, and the two
+  ; agreeing with each other by accident is what hid the double-encoding bug.
   fn utf8ByteLen:int (text:string) {
-    def i:int 0
-    def n:int (strlen text)
-    def total:int 0
-    while (i < n) {
-      def code:int (charAt text i)
-      if (code < 128) {
-        total = total + 1
-      } {
-        if (code < 2048) {
-          total = total + 2
-        } {
-          total = total + 3
-        }
-      }
-      i = i + 1
-    }
-    return total
+    return (array_length (LowIRUtil.utf8Bytes(text)))
   }
 
   fn stringGlobalByteLen:int (gname:string) {

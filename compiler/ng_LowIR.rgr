@@ -36,6 +36,107 @@ class LowIRUtil {
     return ((strlen t) > 0)
   }
 
+  ; `strlen` and `charAt` count CODEPOINTS on JavaScript and BYTES on the C
+  ; runtime. Measured, not assumed: `def em:string "<em-dash>"` answers
+  ; strlen 1 / charAt 8212 under Node and strlen 3 / charAt 226 native.
+  ;
+  ; Everything that needs a string's UTF-8 BYTES goes through utf8Bytes below,
+  ; so the escaper and the byte count cannot drift apart. They used to compute
+  ; the same thing separately and agree with EACH OTHER while both were wrong,
+  ; which is precisely what hid the double-encoding bug: the `[N x i8]` sizes
+  ; matched the escapes, the IR was valid, it linked and ran, and only the
+  ; message text was mojibake.
+  ;
+  ; Deciding which semantics we are under cannot be done per character -- a
+  ; value in 128..255 is a plain byte natively and a Latin-1 codepoint on JS.
+  ; It IS decidable per string: a byte-semantics string is well-formed UTF-8
+  ; when read as bytes, and a codepoint-semantics string almost never is (a
+  ; lone U+00E9 is a lead byte with no continuation). Deliberately NOT the
+  ; tempting shortcut "emit 128..255 raw" -- that fixes native and silently
+  ; breaks Node for every codepoint in U+0080..U+00FF.
+  static fn looksLikeUtf8Bytes:boolean (text:string) {
+    def n:int (strlen text)
+    def i:int 0
+    while (i < n) {
+      def c:int (charAt text i)
+      ; Above 255 it cannot be a byte, so this is a codepoint string.
+      if (c > 255) {
+        return false
+      }
+      if (c >= 128) {
+        def extra:int 0
+        if (c >= 240) {
+          extra = 3
+        } {
+          if (c >= 224) {
+            extra = 2
+          } {
+            if (c >= 192) {
+              extra = 1
+            } {
+              ; A continuation byte with no lead byte before it.
+              return false
+            }
+          }
+        }
+        if ((i + extra) >= n) {
+          return false
+        }
+        def k:int 1
+        while (k <= extra) {
+          def cc:int (charAt text (i + k))
+          if (cc < 128) {
+            return false
+          }
+          if (cc > 191) {
+            return false
+          }
+          k = k + 1
+        }
+        i = i + extra
+      }
+      i = i + 1
+    }
+    return true
+  }
+
+  static fn utf8Bytes:[int] (text:string) {
+    def out:[int]
+    def n:int (strlen text)
+    def i:int 0
+    ; Already bytes (native, and any all-ASCII string on either target): the
+    ; charAt sequence IS the UTF-8 encoding, so copy it through untouched.
+    if (LowIRUtil.looksLikeUtf8Bytes(text)) {
+      while (i < n) {
+        push out (charAt text i)
+        i = i + 1
+      }
+      return out
+    }
+    ; Codepoints (JavaScript): encode each one.
+    while (i < n) {
+      def code:int (charAt text i)
+      if (code < 128) {
+        push out code
+      } {
+        if (code < 2048) {
+          def hi6:int (to_int (code / 64))
+          push out (192 + hi6)
+          push out (128 + (code - (hi6 * 64)))
+        } {
+          def c1:int (to_int (code / 4096))
+          def rem:int (code - (c1 * 4096))
+          def mid:int (to_int (rem / 64))
+          push out (224 + c1)
+          push out (128 + mid)
+          push out (128 + (rem - (mid * 64)))
+        }
+      }
+      i = i + 1
+    }
+    return out
+  }
+
   ; `charbuffer` is the string's own bytes on this backend -- `to_charbuffer`
   ; hands back the pointer it was given, the way the C++ template answers
   ; `c_str()`. Treating it as anything else made a charbuffer FIELD an object:
