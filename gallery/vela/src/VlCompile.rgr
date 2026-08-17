@@ -2964,7 +2964,11 @@ class VlCompile {
                 return named
             }
         }
-        if ((ch.name == "color") || (ch.name == "fill")) {
+        ; A chart may paint by `stroke` rather than by `color` — that is how a
+        ; line with a halo tells its series apart — and a stroke scale is the
+        ; same scale under another name. Left out, it was typed like a POSITION
+        ; scale, and five lines drawn through it came out the same blue.
+        if (((ch.name == "color") || (ch.name == "fill")) || (ch.name == "stroke")) {
             if (ch.isDiscrete()) {
                 return "ordinal"
             }
