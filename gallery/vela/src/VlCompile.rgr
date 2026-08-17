@@ -3864,7 +3864,67 @@ class VlCompile {
         a.setMember("minExtent" (VlJson.numberValue(0.0)))
         a.setMember("ticks" (VlJson.boolValue(false)))
         a.setMember("zindex" (VlJson.numberValue(0.0)))
+        this.gridCondition(a scale)
         return a
+    }
+
+    ; A grid line's paint may answer to the tick it is drawn at:
+    ;
+    ;   "gridColor": {"condition": {"test": "datum.value === 0",
+    ;                               "value": "black"}, "value": "#ddd"}
+    ;
+    ; is how a chart of negative values draws a black zero line without an axis
+    ; domain. The reference does not keep it as `gridColor` — a conditional is
+    ; not a colour — but moves it onto the grid mark's own encoding, where a
+    ; branch can be tested per tick.
+    fn gridCondition:void (a:VlJson scale:string) {
+        def ch:VlChannel (this.channel(scale))
+        if (! ch.defined) {
+            return
+        }
+        def given:VlJson (ch.def0.get("axis"))
+        if (! (given.isObject())) {
+            return
+        }
+        def update (VlJson.objectValue())
+        VlCompile.gridBranch(update given "gridColor" "stroke" (this))
+        VlCompile.gridBranch(update given "gridOpacity" "strokeOpacity" (this))
+        VlCompile.gridBranch(update given "gridWidth" "strokeWidth" (this))
+        VlCompile.gridBranch(update given "gridDash" "strokeDash" (this))
+        ; `count` is a list's length; an object's members are its keys.
+        if ((array_length update.keys) == 0) {
+            return
+        }
+        def gridEncode (VlJson.objectValue())
+        gridEncode.setMember("update" update)
+        def encode (VlJson.objectValue())
+        encode.setMember("grid" gridEncode)
+        a.setMember("encode" encode)
+    }
+
+    sfn gridBranch:void (update:VlJson given:VlJson key:string channel:string owner:VlCompile) {
+        def stated:VlJson (given.get(key))
+        if (! (stated.isObject())) {
+            return
+        }
+        def cond:VlJson (stated.get("condition"))
+        if (! (cond.isObject())) {
+            return
+        }
+        if (! (cond.has("test"))) {
+            return
+        }
+        def expr:string (owner.predicateExpr((cond.get("test"))))
+        if ((strlen expr) == 0) {
+            return
+        }
+        def branch (VlJson.objectValue())
+        branch.setMember("test" (VlJson.stringValue(expr)))
+        branch.setMember("value" (cond.get("value")))
+        def out (VlJson.arrayValue())
+        push out.arr branch
+        push out.arr (VlCompile.literal((stated.get("value"))))
+        update.setMember(channel out)
     }
 
     fn labelAxis:VlJson (ch:VlChannel scale:string orient:string) {

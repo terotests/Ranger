@@ -1652,6 +1652,7 @@ class VlRuntime {
                 axis.readConfig(adef)
                 def tickCount:int (this.axisTickCount(adef))
                 def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand (this.axisTickMinStep(adef))))
+                axis.useGridColors((this.axisGridStrokes(adef ticks)))
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))
@@ -1686,6 +1687,35 @@ class VlRuntime {
             }
             k = (k + 1)
         }
+    }
+
+    ; A grid line may be painted per TICK rather than per axis — a black rule at
+    ; zero and pale grey everywhere else — and the reference says so on the grid
+    ; mark's own encoding rather than on the axis. The branch is tested against
+    ; a row holding the tick's value, which is the only thing `datum` means
+    ; inside an axis encoding.
+    fn axisGridStrokes:[string] (adef:VlJson ticks:[VlAxisTickValue]) {
+        def out:[string]
+        def enc:VlJson (adef.get("encode"))
+        if (! (enc.isObject())) { return out }
+        def gridEnc:VlJson (enc.get("grid"))
+        if (! (gridEnc.isObject())) { return out }
+        def upd:VlJson (gridEnc.get("update"))
+        if (! (upd.isObject())) { return out }
+        def strokeDef:VlJson (upd.get("stroke"))
+        if (! (strokeDef.isArray())) { return out }
+        for ticks tv:VlAxisTickValue ti {
+            def row:VlJson (VlJson.objectValue())
+            row.setMember("value" tv.value)
+            scope.setDatum(row)
+            def painted:VlJson (this.encodeChannel("stroke" strokeDef row))
+            def colour:string ""
+            if (painted.isString()) {
+                colour = painted.str
+            }
+            push out colour
+        }
+        return out
     }
 
     ; `tickCount` is a number, or a signal such as `ceil(height/40)` — the

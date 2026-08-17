@@ -88,6 +88,9 @@ class VlAxis {
     ; dashed grid came out solid. The scene comparison could not see it either,
     ; because a dash is an ARRAY and the comparison only looked at channels
     ; whose value was a single number or string.
+    ; A colour per TICK, when the axis' grid paint was written as a condition.
+    ; Empty on every axis whose grid is one colour, which is nearly all of them.
+    def gridColors:[string]
     def gridDash:VlJson (new VlJson)
     def gridDashSet:boolean false
     def tickDash:VlJson (new VlJson)
@@ -118,6 +121,15 @@ class VlAxis {
     ; Filled in by build(), read by the layout step.
     def labelExtent:double 0.0
     def totalExtent:double 0.0
+
+    ; Ranger cannot assign a list field from outside the class, and it should
+    ; not have to: the axis owns its own paint.
+    fn useGridColors:void (colors:[string]) {
+        clear gridColors
+        for colors c:string ci {
+            push gridColors c
+        }
+    }
 
     fn readConfig:void (adef:VlJson) {
         tickSize = (adef.doubleOr("tickSize" tickSize))
@@ -460,7 +472,7 @@ class VlAxis {
                 flushFrom = 0.0
                 flushTo = range
             }
-            def labelMark:VlSceneMark (this.buildLabels(ticks orient vertical flushFrom flushTo))
+            def labelMark:VlSceneMark (this.buildLabels(ticks orient vertical flushFrom flushTo wantTicks))
             push group.marks labelMark
             ; A label that was thinned away takes up no room: the widest one is
             ; the widest DRAWN one, measured after the overlap pass rather than
@@ -469,18 +481,26 @@ class VlAxis {
             ; counting it reserves eight pixels nothing is printed in.
             widest = (VlAxis.widestVisible(labelMark labelFontSize widest))
             def turned:boolean (this.labelsAreTurned())
+            ; The room a label needs is measured from where the label actually
+            ; is, and with the ticks turned off it sits against the plot: the
+            ; reference gives the label mark a tick size of zero, so the axis
+            ; reserves five pixels less and its title moves in with it.
+            def clearance:double tickSize
+            if (! wantTicks) {
+                clearance = 0.0
+            }
             if vertical {
                 def alongV:double widest
                 if turned {
                     alongV = labelFontSize
                 }
-                labelExtent = ((tickSize + labelPadding) + alongV)
+                labelExtent = ((clearance + labelPadding) + alongV)
             } {
                 def alongH:double labelFontSize
                 if turned {
                     alongH = widest
                 }
-                labelExtent = ((tickSize + labelPadding) + alongH)
+                labelExtent = ((clearance + labelPadding) + alongH)
             }
         } {
             if wantTicks {
@@ -523,7 +543,14 @@ class VlAxis {
             if gridOpacitySet {
                 item.setNumber("strokeOpacity" gridOpacity)
             }
-            item.setString("stroke" gridColor)
+            def paint:string gridColor
+            if (idx < (array_length gridColors)) {
+                def perTick:string (itemAt gridColors idx)
+                if ((strlen perTick) > 0) {
+                    paint = perTick
+                }
+            }
+            item.setString("stroke" paint)
             item.setNumber("strokeWidth" gridWidth)
             if gridDashSet {
                 item.setValue("strokeDash" gridDash)
@@ -582,11 +609,19 @@ class VlAxis {
         return mark
     }
 
-    fn buildLabels:VlSceneMark (ticks:[VlAxisTickValue] orient:string vertical:boolean flushFrom:double flushTo:double) {
+    fn buildLabels:VlSceneMark (ticks:[VlAxisTickValue] orient:string vertical:boolean flushFrom:double flushTo:double drawnTicks:boolean) {
         def mark (new VlSceneMark())
         mark.markType = "text"
         mark.role = "axis-label"
-        def away:double (tickSize + labelPadding)
+        ; A label stands clear of the TICK, so an axis with its ticks turned off
+        ; has nothing to stand clear of: the reference hands the label mark a
+        ; tick size of zero rather than the size of the ticks it did not draw,
+        ; and the labels move five pixels in towards the plot.
+        def reach:double tickSize
+        if (! drawnTicks) {
+            reach = 0.0
+        }
+        def away:double (reach + labelPadding)
         for ticks tv:VlAxisTickValue idx {
             def item:VlSceneItem (mark.addItem())
             item.setString("fill" labelColor)
