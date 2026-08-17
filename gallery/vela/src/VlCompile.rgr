@@ -4329,11 +4329,77 @@ class VlCompile {
             this.fail("a filter predicate needs a field, or one of and/or/not")
             return ""
         }
+        def ref:string (("datum[\"" + field) + "\"]")
+        ; A predicate may compare a TIME UNIT of the column rather than the
+        ; column: "the first of January", whatever the year. Both sides are
+        ; reduced to the same instant in one arbitrary year — the reference
+        ; uses 2012, and which year it is cannot matter once both sides use it
+        ; — and then compared as numbers.
         if (pred.has("timeUnit")) {
-            this.fail("a filter predicate with a timeUnit is not compiled here")
+            def units:[string] (VlCompile.splitTimeUnit((pred.stringOr("timeUnit" ""))))
+            def reduced:string (VlCompile.unitInstant(ref units))
+            if (pred.has("equal")) {
+                return (this.unitPredicate(reduced units "===" (pred.get("equal"))))
+            }
+            if (pred.has("lt")) {
+                return (this.unitPredicate(reduced units "<" (pred.get("lt"))))
+            }
+            if (pred.has("lte")) {
+                return (this.unitPredicate(reduced units "<=" (pred.get("lte"))))
+            }
+            if (pred.has("gt")) {
+                return (this.unitPredicate(reduced units ">" (pred.get("gt"))))
+            }
+            if (pred.has("gte")) {
+                return (this.unitPredicate(reduced units ">=" (pred.get("gte"))))
+            }
+            ; A RANGE is two of those, and either end may be open.
+            if (pred.has("range")) {
+                def span:VlJson (pred.get("range"))
+                if ((! (span.isArray())) || ((span.count()) != 2)) {
+                    this.fail("a `range` filter needs a two-element array")
+                    return ""
+                }
+                def parts:string ""
+                if (! ((span.at(0)).isNull())) {
+                    parts = (this.unitPredicate(reduced units ">=" (span.at(0))))
+                }
+                if (! ((span.at(1)).isNull())) {
+                    def high:string (this.unitPredicate(reduced units "<=" (span.at(1))))
+                    if ((strlen parts) > 0) {
+                        parts = ((parts + " && ") + high)
+                    } {
+                        parts = high
+                    }
+                }
+                if ((strlen parts) == 0) {
+                    this.fail("a `range` filter open at both ends filters nothing")
+                    return ""
+                }
+                return (("(" + parts) + ")")
+            }
+            if (pred.has("oneOf")) {
+                def set:VlJson (pred.get("oneOf"))
+                if (! (set.isArray())) {
+                    this.fail("a `oneOf` filter needs an array of values")
+                    return ""
+                }
+                def any:string ""
+                def oi:int 0
+                while (oi < (set.count())) {
+                    def one:string (this.unitPredicate(reduced units "===" (set.at(oi))))
+                    if ((strlen any) > 0) {
+                        any = ((any + " || ") + one)
+                    } {
+                        any = one
+                    }
+                    oi = (oi + 1)
+                }
+                return (("(" + any) + ")")
+            }
+            this.fail("a filter predicate with a timeUnit needs a comparison")
             return ""
         }
-        def ref:string (("datum[\"" + field) + "\"]")
 
         ; `valid` is about the row having a usable number at all, which is two
         ; questions and not one: present, and finite.
@@ -4393,6 +4459,100 @@ class VlCompile {
         }
         this.fail((("no comparison in the filter predicate on '" + field) + "' is compiled here"))
         return ""
+    }
+
+    ; A value reduced to the units the predicate names, as an instant in 2012.
+    ; Every unit the predicate does not name is flattened to the same constant,
+    ; so what is left compares only what was asked about.
+    sfn unitInstant:string (ref:string units:[string]) {
+        def year:string "2012"
+        def month:string "0"
+        def day:string "1"
+        def hours:string "0"
+        def minutes:string "0"
+        def seconds:string "0"
+        for units u:string ui {
+            if (u == "year") { year = (("year(" + ref) + ")") }
+            if (u == "quarter") { month = (("(quarter(" + ref) + ") * 3)") }
+            if (u == "month") { month = (("month(" + ref) + ")") }
+            if (u == "date") { day = (("date(" + ref) + ")") }
+            if (u == "day") { day = (("(day(" + ref) + ") + 1)") }
+            if (u == "hours") { hours = (("hours(" + ref) + ")") }
+            if (u == "minutes") { minutes = (("minutes(" + ref) + ")") }
+            if (u == "seconds") { seconds = (("seconds(" + ref) + ")") }
+        }
+        def out:string (((("time(datetime(" + year) + ", ") + month) + ", ")
+        out = (((((out + day) + ", ") + hours) + ", ") + minutes)
+        return ((((out + ", ") + seconds) + ", 0))"))
+    }
+
+    ; The other side of that comparison: the value the predicate names, reduced
+    ; the same way. It may be a plain number — one month, one hour — or a date
+    ; object naming several parts at once.
+    fn unitPredicate:string (reduced:string units:[string] op:string want:VlJson) {
+        def year:string "2012"
+        def month:string "0"
+        def day:string "1"
+        def hours:string "0"
+        def minutes:string "0"
+        def seconds:string "0"
+        if (want.isObject()) {
+            if (want.has("year")) { year = (VlJson.intToText((want.intOr("year" 2012)))) }
+            if (want.has("quarter")) { month = (VlJson.intToText((((want.intOr("quarter" 1)) - 1) * 3))) }
+            if (want.has("month")) { month = (VlCompile.monthNumber((want.get("month")))) }
+            if (want.has("date")) { day = (VlJson.intToText((want.intOr("date" 1)))) }
+            if (want.has("day")) { day = (VlJson.intToText(((want.intOr("day" 0)) + 1))) }
+            if (want.has("hours")) { hours = (VlJson.intToText((want.intOr("hours" 0)))) }
+            if (want.has("minutes")) { minutes = (VlJson.intToText((want.intOr("minutes" 0)))) }
+            if (want.has("seconds")) { seconds = (VlJson.intToText((want.intOr("seconds" 0)))) }
+        } {
+            ; A bare value belongs to the one unit the predicate named.
+            def only:string ""
+            for units u2:string uj {
+                only = u2
+            }
+            def text:string (VlJson.intToText((to_int (want.asDouble()))))
+            if (only == "year") { year = text }
+            if (only == "quarter") { month = (VlJson.intToText((((to_int (want.asDouble())) - 1) * 3))) }
+            if (only == "month") { month = (VlCompile.monthNumber(want)) }
+            if (only == "date") { day = text }
+            if (only == "day") { day = (VlJson.intToText(((to_int (want.asDouble())) + 1))) }
+            if (only == "hours") { hours = text }
+            if (only == "minutes") { minutes = text }
+            if (only == "seconds") { seconds = text }
+        }
+        def other:string (((("time(datetime(" + year) + ", ") + month) + ", ")
+        other = (((((other + day) + ", ") + hours) + ", ") + minutes)
+        other = ((((other + ", ") + seconds) + ", 0))"))
+        return (((reduced + op) + other))
+    }
+
+    ; A month as the number `datetime` wants, which counts from zero. A
+    ; specification may write it as a number counting from one, or by name.
+    sfn monthNumber:string (given:VlJson) {
+        if (given.isNumber()) {
+            return (VlJson.intToText(((to_int given.num) - 1)))
+        }
+        def names:[string]
+        push names "january"
+        push names "february"
+        push names "march"
+        push names "april"
+        push names "may"
+        push names "june"
+        push names "july"
+        push names "august"
+        push names "september"
+        push names "october"
+        push names "november"
+        push names "december"
+        def wanted:string (VlRegex.lower((given.asString())))
+        for names name:string ni {
+            if ((substring name 0 3) == (substring wanted 0 3)) {
+                return (VlJson.intToText(ni))
+            }
+        }
+        return "0"
     }
 
     fn joinPredicates:string (list:VlJson glue:string) {
@@ -5380,6 +5540,38 @@ class VlCompile {
     ; domain. The reference does not keep it as `gridColor` — a conditional is
     ; not a colour — but moves it onto the grid mark's own encoding, where a
     ; branch can be tested per tick.
+    ; The same for the parts of the LABELLED axis: a chart may paint the tick
+    ; and the label at each January black and leave the rest of them out, which
+    ; is how a year is marked on an axis of days. Written only for the grid,
+    ; every tick came out the default grey.
+    fn labelCondition:void (a:VlJson ch:VlChannel) {
+        def given:VlJson (ch.def0.get("axis"))
+        if (! (given.isObject())) {
+            return
+        }
+        def encode (VlJson.objectValue())
+        def labels (VlJson.objectValue())
+        VlCompile.gridBranch(labels given "labelColor" "fill" (this))
+        VlCompile.gridBranch(labels given "labelOpacity" "opacity" (this))
+        if ((array_length labels.keys) > 0) {
+            def labelEncode (VlJson.objectValue())
+            labelEncode.setMember("update" labels)
+            encode.setMember("labels" labelEncode)
+        }
+        def ticks (VlJson.objectValue())
+        VlCompile.gridBranch(ticks given "tickColor" "stroke" (this))
+        VlCompile.gridBranch(ticks given "tickOpacity" "strokeOpacity" (this))
+        if ((array_length ticks.keys) > 0) {
+            def tickEncode (VlJson.objectValue())
+            tickEncode.setMember("update" ticks)
+            encode.setMember("ticks" tickEncode)
+        }
+        if ((array_length encode.keys) == 0) {
+            return
+        }
+        a.setMember("encode" encode)
+    }
+
     fn gridCondition:void (a:VlJson scale:string) {
         def ch:VlChannel (this.channel(scale))
         if (! ch.defined) {
@@ -5561,6 +5753,7 @@ class VlCompile {
                 }
             }
         }
+        this.labelCondition(a ch)
         a.setMember("zindex" (VlJson.numberValue(0.0)))
         return a
     }

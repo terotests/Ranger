@@ -468,7 +468,23 @@ class VlExprEval {
             if (a2.isNumber()) {
                 dp.day = (a2.asInt())
             }
+            def rest:int (array_length node.children)
+            if (rest > 3) {
+                dp.hours = ((VlExprEval.eval((itemAt node.children 3) scope)).asInt())
+            }
+            if (rest > 4) {
+                dp.minutes = ((VlExprEval.eval((itemAt node.children 4) scope)).asInt())
+            }
+            if (rest > 5) {
+                dp.seconds = ((VlExprEval.eval((itemAt node.children 5) scope)).asInt())
+            }
             return (VlJson.numberValue((VlTime.msOf(dp scope.zone))))
+        }
+        ; `time(d)` is the instant a date stands for, as a number. Everything
+        ; here already IS a number of milliseconds, so it is the value with a
+        ; written date parsed on the way through.
+        if (name == "time") {
+            return (VlJson.numberValue(when))
         }
         if (name == "timeFormat") {
             return (VlJson.stringValue((VlTime.format(when (a1.asString()) scope.zone))))
