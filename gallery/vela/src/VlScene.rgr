@@ -38,6 +38,16 @@ class VlSceneItem {
     fn text:string (key:string) {
         return (props.stringOr(key ""))
     }
+    ; The same, for a value that need not BE a string. A label reads whatever
+    ; column it was pointed at, and a running total is a number: asked for a
+    ; string it answered nothing, and every label of a waterfall came out
+    ; blank.
+    fn textOf:string (key:string) {
+        if (! (props.has(key))) {
+            return ""
+        }
+        return ((props.get(key)).asString())
+    }
     fn has:boolean (key:string) {
         return (props.has(key))
     }

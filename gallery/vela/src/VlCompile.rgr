@@ -6448,7 +6448,12 @@ class VlCompile {
             update.setMember("baseline" (VlCompile.literal((VlJson.stringValue((this.configText("text" "baseline" "middle")))))))
             def colour0:VlChannel (this.channel("color"))
             if (! colour0.defined) {
-                update.setMember("fill" (VlCompile.literal((VlJson.stringValue("black")))))
+                ; …in the colour the chart said labels are, which is black
+                ; unless it said. Written black regardless, a chart asking for
+                ; dark grey labels got none of them.
+                def inkName:string (this.configText("text" "fill" "black"))
+                inkName = (this.configText("text" "color" inkName))
+                update.setMember("fill" (VlCompile.literal((VlJson.stringValue(inkName)))))
                 this.applyMarkPaint(update "fill")
                 return
             }

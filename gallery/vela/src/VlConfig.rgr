@@ -141,6 +141,12 @@ class VlConfig {
         set markTypes "trail" trail
     }
 
+    ; A mark drawn as a line rather than as a block of colour, for which
+    ; `color` means the stroke.
+    sfn outlinedMark:boolean (name:string) {
+        return (((name == "line") || (name == "rule")) || (name == "path"))
+    }
+
     fn markTypeDefaults:VlJson (markType:string) {
         if (has markTypes markType) {
             return (unwrap (get markTypes markType))
@@ -211,7 +217,19 @@ class VlConfig {
                         mergedMark.setMember(key (base.get(key)))
                     }
                     for incomingMark.keys key:string ii {
-                        mergedMark.setMember(key (incomingMark.get(key)))
+                        ; `color` is what a person writes and `fill` or
+                        ; `stroke` is what a renderer reads — which of the two
+                        ; depends on the mark. Copied across as it stands it
+                        ; reached nothing, and a chart that asked for dark grey
+                        ; labels got black ones.
+                        def target:string key
+                        if (key == "color") {
+                            target = "fill"
+                            if (VlConfig.outlinedMark(name)) {
+                                target = "stroke"
+                            }
+                        }
+                        mergedMark.setMember(target (incomingMark.get(key)))
                     }
                     set markTypes name mergedMark
                 }

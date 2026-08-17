@@ -504,7 +504,7 @@ class VlSceneCommands {
                 cmd.x = (cmd.x + (r * (sin a)))
                 cmd.y = (cmd.y - (r * (cos a)))
             }
-            cmd.text = (item.text("text"))
+            cmd.text = (item.textOf("text"))
             cmd.fontSize = 11.0
             if (item.has("fontSize")) {
                 cmd.fontSize = (item.number("fontSize"))
