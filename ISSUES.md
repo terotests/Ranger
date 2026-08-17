@@ -2622,3 +2622,65 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #71: `tryDesugarNewMethodChain` exists only as hand-written JavaScript, so every self-hosted compiler is missing it
+
+`npm run compile` does not finish at the compiler. It ends with
+
+```
+node bin/output.js … -o=output.js && npm run compile:fixcrlf
+  && node scripts/patch-chain-desugar.js && npm run compile:copylibs
+```
+
+and that patch step **replaces a method body in the freshly built compiler** with
+about 45 lines of hand-written JavaScript kept in `scripts/patch-chain-desugar.js`.
+
+The script's header says the bootstrap compiler "cannot emit
+tryDesugarNewMethodChain from .rgr yet". That is not what is happening. The
+Ranger source, `compiler/ng_CodeNodeCompilerExtensions.rgr:402`, is:
+
+```ranger
+  fn tryDesugarNewMethodChain:boolean () {
+    return false
+  }
+```
+
+There is nothing to emit. **The only implementation of the feature is the
+JavaScript in the patch script.** The `.rgr` is a permanent stub that compiles
+to exactly the `return false` the patcher then looks for and overwrites.
+
+### What this costs
+
+The patch is applied in exactly two places in `package.json`:
+
+- `compile` → `bin/output.js`
+- `build:dist:module` → `dist/api.js`
+
+Every other build gets the stub. In particular **none of the `selfhost:*`
+scripts patch anything**, so the C++, Dart, Python, C#, Go and Kotlin
+self-hosted compilers all have `tryDesugarNewMethodChain` returning `false` and
+silently do not perform the `new X().a().b()` desugar at all. The self-hosting
+claim in `TARGET_NOTES.md` holds for the compiler's output being identical; it
+does not hold for this feature's behaviour.
+
+It is also a trap for anyone rebuilding the compiler. Compiling
+`ng_Compiler.rgr` and copying the result over `bin/output.js` — the obvious
+thing to do — silently removes a language feature. Nothing errors; chained
+method calls just stop desugaring.
+
+### Fix
+
+Write the desugar in Ranger, in the stub's place, and delete the patch script.
+The body is ordinary `CodeNode` manipulation — `copy`, `children`, `add`,
+`newVRefNode`, `getChildrenFrom` — and nothing in it obviously needs a construct
+the language lacks, so the "cannot emit it yet" explanation deserves rechecking
+before it is taken at face value.
+
+Until then, `scripts/patch-chain-desugar.js` should at minimum be run by the
+`selfhost:*` targets too, or those builds should be documented as feature-reduced.
+
+### Status
+
+Open. Surfaced while rebuilding the compiler for Issue #70: the rebuild had to
+re-apply the patch by hand to avoid regressing, which is what drew attention to
+what the patch actually contains.
