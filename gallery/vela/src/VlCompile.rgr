@@ -567,7 +567,7 @@ class VlCompile {
         if ((signals.count()) > 0) {
             out.setMember("signals" signals)
         }
-        out.setMember("marks" (this.buildMarks()))
+        out.setMember("marks" (this.withBrushes((this.buildMarks()))))
         out.setMember("scales" (this.buildScales()))
         def axes:VlJson (this.buildAxes())
         if ((axes.count()) > 0) {
@@ -7393,6 +7393,105 @@ class VlCompile {
             }
         }
         return ""
+    }
+
+    ; A rectangle for an interval selection that was given one to start with.
+    ;
+    ; `{"select": "interval", "value": {"x": [55, 160], "y": [13, 37]}}` is a
+    ; chart that opens with something already brushed, and the reference draws
+    ; the brush: a translucent dark rectangle under the marks and a white
+    ; outline over them. Nothing here can be dragged, so what is drawn is the
+    ; stated extent and it never moves — but a chart that says it starts
+    ; brushed and shows no brush is not the same picture.
+    fn withBrushes:VlJson (marks:VlJson) {
+        def params:VlJson (source.get("params"))
+        if (! (params.isArray())) {
+            return marks
+        }
+        def unders (VlJson.arrayValue())
+        def overs (VlJson.arrayValue())
+        def total:int (params.count())
+        def k:int 0
+        while (k < total) {
+            def p:VlJson (params.at(k))
+            if (VlCompile.selectsInterval(p)) {
+                def initial:VlJson (p.get("value"))
+                if (initial.isObject()) {
+                    def name:string (p.stringOr("name" "brush"))
+                    def under (VlJson.objectValue())
+                    under.setMember("name" (VlJson.stringValue((name + "_brush_bg"))))
+                    under.setMember("type" (VlJson.stringValue("rect")))
+                    def uEnc (VlJson.objectValue())
+                    def uUp (VlJson.objectValue())
+                    uUp.setMember("fill" (VlCompile.plainValue((VlJson.stringValue("#333")))))
+                    uUp.setMember("fillOpacity" (VlCompile.plainValue((VlJson.numberValue(0.125)))))
+                    this.brushExtent(uUp initial)
+                    uEnc.setMember("update" uUp)
+                    under.setMember("encode" uEnc)
+                    push unders.arr under
+
+                    def over (VlJson.objectValue())
+                    over.setMember("name" (VlJson.stringValue((name + "_brush"))))
+                    over.setMember("type" (VlJson.stringValue("rect")))
+                    def oEnc (VlJson.objectValue())
+                    def oUp (VlJson.objectValue())
+                    oUp.setMember("fill" (VlCompile.plainValue((VlJson.stringValue("transparent")))))
+                    oUp.setMember("stroke" (VlCompile.plainValue((VlJson.stringValue("white")))))
+                    this.brushExtent(oUp initial)
+                    oEnc.setMember("update" oUp)
+                    over.setMember("encode" oEnc)
+                    push overs.arr over
+                }
+            }
+            k = (k + 1)
+        }
+        if (((unders.count()) == 0)) {
+            return marks
+        }
+        def out (VlJson.arrayValue())
+        for unders.arr u:VlJson ui { push out.arr u }
+        for marks.arr m:VlJson mi { push out.arr m }
+        for overs.arr o:VlJson oi { push out.arr o }
+        return out
+    }
+
+    ; The two ends of each brushed channel, put through that channel's own
+    ; scale — which is what turns "from 55 to 160 horsepower" into pixels.
+    fn brushExtent:void (update:VlJson initial:VlJson) {
+        for initial.keys channel:string ci {
+            def span:VlJson (initial.get(channel))
+            if (span.isArray()) {
+                if ((span.count()) == 2) {
+                    def far:string (channel + "2")
+                    update.setMember(channel (this.scaledValue(channel (span.at(0)))))
+                    update.setMember(far (this.scaledValue(channel (span.at(1)))))
+                }
+            }
+        }
+    }
+
+    fn scaledValue:VlJson (channel:string value:VlJson) {
+        def out (VlJson.objectValue())
+        out.setMember("scale" (VlJson.stringValue((this.sname(channel)))))
+        out.setMember("value" value)
+        return out
+    }
+
+    sfn plainValue:VlJson (value:VlJson) {
+        def out (VlJson.objectValue())
+        out.setMember("value" value)
+        return out
+    }
+
+    sfn selectsInterval:boolean (p:VlJson) {
+        def sel:VlJson (p.get("select"))
+        if (sel.isString()) {
+            return (sel.str == "interval")
+        }
+        if (sel.isObject()) {
+            return ((sel.stringOr("type" "")) == "interval")
+        }
+        return false
     }
 
     fn buildMarks:VlJson () {

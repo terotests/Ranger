@@ -2840,7 +2840,18 @@ class VlRuntime {
         box.bottom = (VlRuntime.higher(box.bottom (covered.y2 - box.height)))
     }
 
-    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double rowGap:double) {
+    ; Whether a grid's panels are all one size. `"align": "all"` is what a
+    ; faceted view emits and what makes a trellis a trellis; a concatenation
+    ; emits `"each"`, and there two panes of different sizes are the point.
+    sfn alignsAll:boolean (layoutDef:VlJson) {
+        def align:VlJson (layoutDef.get("align"))
+        if (align.isString()) {
+            return (align.str == "all")
+        }
+        return false
+    }
+
+    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double rowGap:double uniform:boolean) {
         def gridX1:double 0.0
         def gridY1:double 0.0
         def gridX2:double 0.0
@@ -2881,10 +2892,18 @@ class VlRuntime {
             if (column == 0) {
                 x = 0.0
                 if (idx > 0) {
-                    y = (y + pitchY)
+                    if uniform {
+                        y = (y + pitchY)
+                    } {
+                        y = ((VlBounds.ceilTo(rowBottom)) + rowGap + (VlBounds.ceilTo(box.top)))
+                    }
                 }
             } {
-                x = (x + pitchX)
+                if uniform {
+                    x = (x + pitchX)
+                } {
+                    x = (x + gap + (VlBounds.ceilTo(box.left)))
+                }
             }
             box.item.setNumber("x" x)
             box.item.setNumber("y" y)
@@ -2899,6 +2918,14 @@ class VlRuntime {
                 gridY1 = (VlRuntime.lower(gridY1 (y - box.top)))
                 gridX2 = (VlRuntime.higher(gridX2 (x + box.width + box.right)))
                 gridY2 = (VlRuntime.higher(gridY2 (y + box.height + box.bottom)))
+            }
+            if (! uniform) {
+                if (column == 0) {
+                    rowBottom = ((y + box.height) + box.bottom)
+                } {
+                    rowBottom = (VlRuntime.higher(rowBottom ((y + box.height) + box.bottom)))
+                }
+                x = (VlBounds.ceilTo((x + box.width + box.right)))
             }
         }
         def reach (new VlBounds())
@@ -2967,7 +2994,7 @@ class VlRuntime {
         def gap:double (VlRuntime.layoutGap(layoutDef "column"))
         def rowGap:double (VlRuntime.layoutGap(layoutDef "row"))
         def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignsAll(layoutDef))))
         ; The group is exactly what its panes cover. Its own origin stays at
         ; zero, so whatever hangs off the top-left of the first pane — an axis,
         ; a label — is room the page has to leave in front of the group.
@@ -3005,7 +3032,7 @@ class VlRuntime {
             return
         }
         def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignsAll(layoutDef))))
         this.layoutTrellis(cells columns layoutDef reach)
 
         ; The view is what the placed plots and their furniture cover, and the
