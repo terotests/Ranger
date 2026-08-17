@@ -45377,6 +45377,50 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return (val.children.length) > 0;
                         };
+                        isArrayLiteralShape (val) {
+                          if ( val.has_operator ) {
+                            return false;
+                          }
+                          if ( val.has_call ) {
+                            return false;
+                          }
+                          if ( val.hasFnCall ) {
+                            return false;
+                          }
+                          if ( val.has_lambda ) {
+                            return false;
+                          }
+                          if ( val.has_lambda_call ) {
+                            return false;
+                          }
+                          if ( val.is_direct_method_call ) {
+                            return false;
+                          }
+                          if ( val.hasNewOper ) {
+                            return false;
+                          }
+                          if ( (val.vref.length) > 0 ) {
+                            return false;
+                          }
+                          return (val.children.length) > 1;
+                        };
+                        arrayElemTypeOfTypeName (typeName) {
+                          const n = typeName.length;
+                          if ( n < 3 ) {
+                            return "";
+                          }
+                          if ( (typeName.charCodeAt(0 )) != (91) ) {
+                            return "";
+                          }
+                          if ( (typeName.charCodeAt((n - 1) )) != (93) ) {
+                            return "";
+                          }
+                          const inner = typeName.substring(1, (n - 1) );
+                          if ( (inner.indexOf(":")) >= 0 ) {
+                            return "";
+                          }
+                          return inner;
+                        };
                         arrayLiteralElemType (nameNode, node, lctx) {
                           if ( (nameNode.array_type.length) > 0 ) {
                             return nameNode.array_type;
@@ -45405,8 +45449,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           return "";
                         };
                         lowerArrayLiteral (nameNode, node, lctx) {
+                          return this.lowerArrayLiteralTyped(this.arrayLiteralElemType(nameNode, node, lctx), node, lctx);
+                        };
+                        lowerArrayLiteralTyped (elemType, node, lctx) {
                           const builder = lctx.builder;
-                          const elemType = this.arrayLiteralElemType(nameNode, node, lctx);
                           let kind = 1;
                           if ( LowIRUtil.isStringType(elemType) ) {
                             kind = 2;
@@ -47582,6 +47628,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( LowIRUtil.isStringType(nn.array_type) ) {
                                 f.isIntMapStr = true;
                               }
+                              st.fields.push(f);
+                              continue;
                             }
                             if ( isStrMap ) {
                               f.irType = ptrType;
@@ -51057,10 +51105,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             let tmp = "";
-                            if ( valNode.has_call || valNode.is_direct_method_call ) {
-                              tmp = this.lowerCall(valNode, lctx);
-                            } else {
-                              tmp = this.lowerExpr(valNode, lctx);
+                            let builtArrayLit = false;
+                            if ( retArr ) {
+                              if ( this.isArrayLiteralShape(valNode) ) {
+                                const retElem = this.arrayElemTypeOfTypeName(lctx.currentRetType);
+                                if ( (retElem.length) > 0 ) {
+                                  this.usedPtrArrayRuntime = true;
+                                  tmp = this.lowerArrayLiteralTyped(retElem, valNode, lctx);
+                                  builtArrayLit = true;
+                                }
+                              }
+                            }
+                            if ( builtArrayLit == false ) {
+                              if ( valNode.has_call || valNode.is_direct_method_call ) {
+                                tmp = this.lowerCall(valNode, lctx);
+                              } else {
+                                tmp = this.lowerExpr(valNode, lctx);
+                              }
                             }
                             if ( retCounted ) {
                               if ( this.exprCarriesFreshRef(valNode, lctx) == false ) {
@@ -52047,6 +52108,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( opName == "is" ) {
                               if ( (node.children.length) > 2 ) {
                                 return this.lowerShapeIs(node, lctx);
+                              }
+                            }
+                            if ( opName == "to" ) {
+                              if ( (node.children.length) > 2 ) {
+                                return this.lowerExpr(node.getThird(), lctx);
+                              }
+                            }
+                            if ( opName == "identical" ) {
+                              if ( (node.children.length) > 2 ) {
+                                const idA = this.lowerExpr(node.getSecond(), lctx);
+                                const idB = this.lowerExpr(node.getThird(), lctx);
+                                return lctx.builder.emitIcmpTyped("eq", lctx.ptrType, idA, idB);
                               }
                             }
                             if ( opName == "length" ) {

@@ -2206,6 +2206,39 @@ class LowIRBuilderPass {
     return ((array_length val.children) > 0)
   }
 
+  ; Does this node look like a bare array literal -- `([] a b c)` -- rather
+  ; than a call, a `new`, a name or a grouping of one array?
+  fn isArrayLiteralShape:boolean (val:CodeNode) {
+    if (val.has_operator) { return false }
+    if (val.has_call) { return false }
+    if (val.hasFnCall) { return false }
+    if (val.has_lambda) { return false }
+    if (val.has_lambda_call) { return false }
+    if (val.is_direct_method_call) { return false }
+    if (val.hasNewOper) { return false }
+    if ((strlen val.vref) > 0) { return false }
+    return ((array_length val.children) > 1)
+  }
+
+  ; "[string]" -> "string". A map type ("[k:v]") is not an array and answers "".
+  fn arrayElemTypeOfTypeName:string (typeName:string) {
+    def n:int (strlen typeName)
+    if (n < 3) {
+      return ""
+    }
+    if ((charAt typeName 0) != (ccode "[")) {
+      return ""
+    }
+    if ((charAt typeName (n - 1)) != (ccode "]")) {
+      return ""
+    }
+    def inner:string (substring typeName 1 (n - 1))
+    if ((indexOf inner ":") >= 0) {
+      return ""
+    }
+    return inner
+  }
+
   fn arrayLiteralElemType:string (nameNode:CodeNode node:CodeNode lctx:LowIRLowerContext) {
     if ((strlen nameNode.array_type) > 0) {
       return nameNode.array_type
@@ -2235,8 +2268,13 @@ class LowIRBuilderPass {
   }
 
   fn lowerArrayLiteral:string (nameNode:CodeNode node:CodeNode lctx:LowIRLowerContext) {
+    return (this.lowerArrayLiteralTyped((this.arrayLiteralElemType(nameNode node lctx)) node lctx))
+  }
+
+  ; The same builder, told the element type outright -- `return ([] "a" "b")`
+  ; has no declaration to read it from, only the function's return type.
+  fn lowerArrayLiteralTyped:string (elemType:string node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
-    def elemType:string (this.arrayLiteralElemType(nameNode node lctx))
     def kind:int 1
     if (LowIRUtil.isStringType(elemType)) {
       kind = 2
@@ -4677,12 +4715,20 @@ class LowIRBuilderPass {
           }
         }
       }
+      ; An int-keyed reference map is a KIND of its own, and saying so has to
+      ; exclude the object fallback below -- this branch used to fall straight
+      ; through it, so the field came out flagged BOTH isIntMap and isObject.
+      ; lowerTypeDesc asks about isObject first, so the destructor handed an
+      ; RtIMap pointer to ranger_obj_release, which read an object header that
+      ; was never there. EvPropertyBag.slots is one of these.
       if isIntRefMap {
         f.irType = ptrType
         f.isIntMap = true
         if (LowIRUtil.isStringType(nn.array_type)) {
           f.isIntMapStr = true
         }
+        push st.fields f
+        continue
       }
       if isStrMap {
         f.irType = ptrType
@@ -8854,10 +8900,28 @@ class LowIRBuilderPass {
         }
       }
       def tmp:string ""
-      if (valNode.has_call || valNode.is_direct_method_call) {
-        tmp = (this.lowerCall(valNode lctx))
-      } {
-        tmp = (this.lowerExpr(valNode lctx))
+      ; `return ([] "a" "b" …)` -- an array literal with no declaration to read
+      ; its type from. Without this the literal fell through to lowerExpr,
+      ; which answered its FIRST ELEMENT: UnicodeProps.names() returned an i8*
+      ; from a function declared to return a ptr-array, which does not even
+      ; parse. The argument position had the same hole (see lowerCallArgValue).
+      def builtArrayLit:boolean false
+      if retArr {
+        if (this.isArrayLiteralShape(valNode)) {
+          def retElem:string (this.arrayElemTypeOfTypeName(lctx.currentRetType))
+          if ((strlen retElem) > 0) {
+            this.usedPtrArrayRuntime = true
+            tmp = (this.lowerArrayLiteralTyped(retElem valNode lctx))
+            builtArrayLit = true
+          }
+        }
+      }
+      if (builtArrayLit == false) {
+        if (valNode.has_call || valNode.is_direct_method_call) {
+          tmp = (this.lowerCall(valNode lctx))
+        } {
+          tmp = (this.lowerExpr(valNode lctx))
+        }
       }
       if (retCounted) {
         if ((this.exprCarriesFreshRef(valNode lctx)) == false) {
@@ -10011,6 +10075,29 @@ class LowIRBuilderPass {
       if (opName == "is") {
         if ((array_length node.children) > 2) {
           return (this.lowerShapeIs(node lctx))
+        }
+      }
+      ; `to <Union> v` -- widen a case value to the union that holds it. Every
+      ; target that boxes a case makes this the identity, and this one does
+      ; too: a union value IS the pointer to the case object. Without a
+      ; lowering the widened operand fell through to the unknown-name path and
+      ; became the constant 0, so `Value.equals(a b)` -- whose arguments the
+      ; front end widens -- compared 0 against 0.
+      if (opName == "to") {
+        if ((array_length node.children) > 2) {
+          return (this.lowerExpr((node.getThird()) lctx))
+        }
+      }
+      ; `identical a b` -- are these two names the SAME object? An object
+      ; travels as its pointer here, so the question is a pointer compare. It
+      ; had no lowering at all, so it answered false for every pair, including
+      ; a value and its own alias. The generated equality of a shape's
+      ; @(reference) case asks it (PLAN_SHAPES.md S4).
+      if (opName == "identical") {
+        if ((array_length node.children) > 2) {
+          def idA (this.lowerExpr((node.getSecond()) lctx))
+          def idB (this.lowerExpr((node.getThird()) lctx))
+          return (lctx.builder.emitIcmpTyped("eq" lctx.ptrType idA idB))
         }
       }
       if (opName == "length") {
