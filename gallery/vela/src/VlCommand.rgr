@@ -44,6 +44,19 @@ class VlDrawCommand {
 
     def fill:string ""
     def hasFill:boolean false
+    ; A fill need not be a colour. A gradient is a direction and a list of
+    ; stops, and it is carried as itself rather than flattened to one of its
+    ; ends: a target that can paint one paints it, and a target that cannot
+    ; still has the stops to approximate with. The direction is in the shape's
+    ; own bounding box, 0 to 1 on each axis, which is what SVG's
+    ; objectBoundingBox units mean and what the reference writes.
+    def gradientKind:string ""
+    def gradientX1:double 0.0
+    def gradientY1:double 0.0
+    def gradientX2:double 0.0
+    def gradientY2:double 0.0
+    def gradientOffsets:[double]
+    def gradientColors:[string]
     def fillOpacity:double 1.0
     def stroke:string ""
     def hasStroke:boolean false
@@ -707,11 +720,49 @@ class VlSceneCommands {
         }
     }
 
+    ; A fill written as an object rather than a colour: `{"gradient": "linear",
+    ; "x1": …, "stops": [{"offset": …, "color": …}]}`. The ends default to a
+    ; ramp left to right, which is what the reference defaults them to.
+    sfn applyGradient:void (cmd:VlDrawCommand paint:VlJson) {
+        def kind:string (paint.stringOr("gradient" ""))
+        if ((strlen kind) == 0) {
+            return
+        }
+        def stops:VlJson (paint.get("stops"))
+        if (! (stops.isArray())) {
+            return
+        }
+        def total:int (stops.count())
+        if (total == 0) {
+            return
+        }
+        cmd.gradientKind = kind
+        cmd.gradientX1 = (paint.doubleOr("x1" 0.0))
+        cmd.gradientY1 = (paint.doubleOr("y1" 0.0))
+        cmd.gradientX2 = (paint.doubleOr("x2" 1.0))
+        cmd.gradientY2 = (paint.doubleOr("y2" 0.0))
+        def k:int 0
+        while (k < total) {
+            def stop:VlJson (stops.at(k))
+            push cmd.gradientOffsets (stop.doubleOr("offset" 0.0))
+            push cmd.gradientColors (stop.stringOr("color" "black"))
+            k = (k + 1)
+        }
+        ; The nearest flat colour, for a target that cannot ramp: the last
+        ; stop, which is the end a gradient is usually named for.
+        cmd.fill = (itemAt cmd.gradientColors (total - 1))
+        cmd.hasFill = true
+    }
+
     ; The style channels are shared by every mark type, and "absent" is not the
     ; same as "zero": a rect with no fill is not painted at all, so the flag is
     ; what a backend reads, not the colour string.
     sfn applyStyle:void (cmd:VlDrawCommand item:VlSceneItem) {
         if (item.has("fill")) {
+            def painted:VlJson (item.props.get("fill"))
+            if (painted.isObject()) {
+                VlSceneCommands.applyGradient(cmd painted)
+            } {
             def fill:string (item.text("fill"))
             ; An empty fill is nothing to paint with — a label the axis asked
             ; not to draw — and it is not a colour.
@@ -721,6 +772,7 @@ class VlSceneCommands {
             if (fill != "transparent") {
                 cmd.fill = fill
                 cmd.hasFill = true
+            }
             }
         }
         if (item.has("stroke")) {

@@ -35,6 +35,11 @@ class VlSvgWriter {
     ; Shapes the geometry layer did not recognise, so a chart that came out
     ; round when it asked for diamonds says so instead of looking fine.
     def unsupported:[string]
+    ; The gradients this document has had to name, in the order it named them.
+    ; SVG paints a gradient by REFERENCE — a shape says `url(#gradient_0)` and
+    ; the definition lives in a `<defs>` block — so a definition is collected
+    ; as the shape that wants it is written, and the block is closed at the end.
+    def gradients:[string]
 
     fn writeDocument:string (list:VlCommandList width:double height:double originX:double originY:double background:string) {
         def nl:string (strfromcode 10)
@@ -46,6 +51,13 @@ class VlSvgWriter {
             out = ((((((out + "<rect width=\"") + (VlJson.formatNumber(width 3))) + "\" height=\"") + (VlJson.formatNumber(height 3))) + ("\" fill=\"" + background)) + ("\"/>" + nl))
         }
         out = (out + (this.writeCommands(list originX originY)))
+        if ((array_length gradients) > 0) {
+            out = (out + "<defs>")
+            for gradients def0:string gi {
+                out = (out + def0)
+            }
+            out = ((out + "</defs>") + nl)
+        }
         out = ((out + "</svg>") + nl)
         return out
     }
@@ -276,14 +288,42 @@ class VlSvgWriter {
     }
 
     ; ------------------------------------------------------------------ paint ---
+    ; A gradient, written once into `<defs>` and answered by the name a shape
+    ; refers to it by. Two shapes asking for the same ramp still get one
+    ; definition each, which is what the reference does too — the names are
+    ; handed out in the order the shapes are drawn.
+    fn defineGradient:string (cmd:VlDrawCommand) {
+        def name:string ("gradient_" + (to_string (array_length gradients)))
+        def out:string "<linearGradient id=\""
+        out = (out + name)
+        out = ((((out + "\" x1=\"") + (VlJson.formatNumber(cmd.gradientX1 4))) + "\" x2=\"") + (VlJson.formatNumber(cmd.gradientX2 4)))
+        out = ((((out + "\" y1=\"") + (VlJson.formatNumber(cmd.gradientY1 4))) + "\" y2=\"") + (VlJson.formatNumber(cmd.gradientY2 4)))
+        out = (out + "\">")
+        def total:int (array_length cmd.gradientOffsets)
+        def k:int 0
+        while (k < total) {
+            out = ((out + "<stop offset=\"") + (VlJson.formatNumber((itemAt cmd.gradientOffsets k) 4)))
+            out = ((((out + "\" stop-color=\"") + (itemAt cmd.gradientColors k)) + "\"/>"))
+            k = (k + 1)
+        }
+        out = (out + "</linearGradient>")
+        push gradients out
+        return name
+    }
+
+
     ; fill and stroke each have their own opacity as well as the shared one, and
     ; a backend that reads only the shared one draws a translucent mark solid.
     fn paintAttributes:string (cmd:VlDrawCommand) {
         def out:string ""
+        if ((strlen cmd.gradientKind) > 0) {
+            out = ((((out + " fill=\"url(#") + (this.defineGradient(cmd))) + ")\""))
+        } {
         if cmd.hasFill {
             out = ((((out + " fill=\"") + cmd.fill) + "\""))
         } {
             out = (out + " fill=\"none\"")
+        }
         }
         if (cmd.hasStroke || cmd.strokeNamed) {
             out = ((((out + " stroke=\"") + cmd.stroke) + "\""))

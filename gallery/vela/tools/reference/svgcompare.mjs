@@ -501,6 +501,19 @@ export function comparePrimitives(refs, gots) {
     // is that the bands tile exactly the rectangle the reference filled; that
     // is checked here rather than reported as forty separate differences.
     if (ref.gradient) {
+      // Unless this renderer painted a real one. SVG can, and where it does
+      // the comparison is the ordinary one between two shapes: same outline,
+      // same place. Falling through to the banding rule below would sweep up
+      // every OTHER shape standing inside the gradient's box — the line drawn
+      // along the top of a gradient-filled area is inside it — and report the
+      // pair as a gradient covering twice the ground it covers.
+      const painted = gots.findIndex((got, i) =>
+        !taken.has(i) && got.kind === 'shape' && got.gradient && sameBox(got.box, ref.box));
+      if (painted >= 0) {
+        taken.add(painted);
+        matched++;
+        continue;
+      }
       const bands = [];
       for (let i = 0; i < gots.length; i++) {
         if (taken.has(i) || gots[i].kind !== 'shape') continue;
