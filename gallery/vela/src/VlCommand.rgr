@@ -629,6 +629,11 @@ class VlSceneCommands {
     sfn applyStyle:void (cmd:VlDrawCommand item:VlSceneItem) {
         if (item.has("fill")) {
             def fill:string (item.text("fill"))
+            ; An empty fill is nothing to paint with — a label the axis asked
+            ; not to draw — and it is not a colour.
+            if ((strlen fill) == 0) {
+                fill = "transparent"
+            }
             if (fill != "transparent") {
                 cmd.fill = fill
                 cmd.hasFill = true

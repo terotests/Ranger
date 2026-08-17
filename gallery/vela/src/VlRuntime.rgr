@@ -1761,6 +1761,12 @@ class VlRuntime {
                 ticks = (this.statedTicks(sc adef axis ticks))
                 this.relabelTicks(adef ticks)
                 axis.useGridColors((this.axisGridStrokes(adef ticks)))
+                if (VlRuntime.axisPaints(adef "ticks" "stroke")) {
+                    axis.useTickColors((this.axisPartPaint(adef ticks "ticks" "stroke")))
+                }
+                if (VlRuntime.axisPaints(adef "labels" "fill")) {
+                    axis.useLabelColors((this.axisPartPaint(adef ticks "labels" "fill")))
+                }
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 def orient:string (adef.stringOr("orient" "left"))
@@ -1802,6 +1808,37 @@ class VlRuntime {
     ; mark's own encoding rather than on the axis. The branch is tested against
     ; a row holding the tick's value, which is the only thing `datum` means
     ; inside an axis encoding.
+    ; Does the axis paint that part of itself per tick?
+    sfn axisPaints:boolean (adef:VlJson part:string channel:string) {
+        def enc:VlJson (adef.get("encode"))
+        if (! (enc.isObject())) { return false }
+        def block:VlJson (enc.get(part))
+        if (! (block.isObject())) { return false }
+        def upd:VlJson (block.get("update"))
+        if (! (upd.isObject())) { return false }
+        return ((upd.get(channel)).isArray())
+    }
+
+    ; …and what it paints each one. An answer that is not a colour — the
+    ; reference writes `null` for a tick it does not want drawn — comes back
+    ; as nothing, which is what the axis draws.
+    fn axisPartPaint:[string] (adef:VlJson ticks:[VlAxisTickValue] part:string channel:string) {
+        def out:[string]
+        def branches:VlJson ((((adef.get("encode")).get(part)).get("update")).get(channel))
+        for ticks tv:VlAxisTickValue ti {
+            def row:VlJson (VlJson.objectValue())
+            row.setMember("value" tv.value)
+            scope.setDatum(row)
+            def painted:VlJson (this.encodeChannel(channel branches row))
+            def colour:string ""
+            if (painted.isString()) {
+                colour = painted.str
+            }
+            push out colour
+        }
+        return out
+    }
+
     fn axisGridStrokes:[string] (adef:VlJson ticks:[VlAxisTickValue]) {
         def out:[string]
         def enc:VlJson (adef.get("encode"))

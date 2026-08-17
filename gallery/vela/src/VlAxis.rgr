@@ -91,6 +91,10 @@ class VlAxis {
     ; A colour per TICK, when the axis' grid paint was written as a condition.
     ; Empty on every axis whose grid is one colour, which is nearly all of them.
     def gridColors:[string]
+    def tickColors:[string]
+    def tickColorsSet:boolean false
+    def labelColors:[string]
+    def labelColorsSet:boolean false
     def gridDash:VlJson (new VlJson)
     def gridDashSet:boolean false
     def tickDash:VlJson (new VlJson)
@@ -128,6 +132,25 @@ class VlAxis {
         clear gridColors
         for colors c:string ci {
             push gridColors c
+        }
+    }
+
+    ; The same, per tick and per label. A chart may paint the tick and the
+    ; label at each January black and leave the rest of them out, so an empty
+    ; answer here means NOT DRAWN rather than "use the default" — which is why
+    ; the flag is separate from the list being empty.
+    fn useTickColors:void (colors:[string]) {
+        clear tickColors
+        tickColorsSet = true
+        for colors c:string ci {
+            push tickColors c
+        }
+    }
+    fn useLabelColors:void (colors:[string]) {
+        clear labelColors
+        labelColorsSet = true
+        for colors c:string ci {
+            push labelColors c
         }
     }
 
@@ -604,7 +627,14 @@ class VlAxis {
             if tickOpacitySet {
                 item.setNumber("strokeOpacity" tickOpacity)
             }
-            item.setString("stroke" tickColor)
+            def tickPaint:string tickColor
+            if tickColorsSet {
+                tickPaint = ""
+                if (idx < (array_length tickColors)) {
+                    tickPaint = (itemAt tickColors idx)
+                }
+            }
+            item.setString("stroke" tickPaint)
             item.setNumber("strokeWidth" tickWidth)
             if tickDashSet {
                 item.setValue("strokeDash" tickDash)
@@ -642,7 +672,14 @@ class VlAxis {
         def away:double (reach + labelPadding)
         for ticks tv:VlAxisTickValue idx {
             def item:VlSceneItem (mark.addItem())
-            item.setString("fill" labelColor)
+            def labelPaint:string labelColor
+            if labelColorsSet {
+                labelPaint = ""
+                if (idx < (array_length labelColors)) {
+                    labelPaint = (itemAt labelColors idx)
+                }
+            }
+            item.setString("fill" labelPaint)
             item.setString("font" labelFont)
             item.setNumber("fontSize" labelFontSize)
             item.setNumber("opacity" 1.0)
