@@ -187,6 +187,56 @@ class VlTransform {
         return out
     }
 
+    ; --- flatten --------------------------------------------------------------
+    ; A column holding a LIST becomes one row per element, the rest of the row
+    ; repeated beside each. Several columns flatten together, element by
+    ; element, and a row whose lists are different lengths is padded with
+    ; nothing rather than truncated — which is the reference's rule and the
+    ; only one that does not silently drop data.
+    sfn flatten:[VlJson] (rows:[VlJson] fields:[string] asNames:[string]) {
+        def out:[VlJson]
+        if ((array_length fields) == 0) {
+            return rows
+        }
+        for rows row:VlJson ri {
+            def longest:int 0
+            for fields field:string fi {
+                def cell:VlJson (row.get(field))
+                if (cell.isArray()) {
+                    if ((cell.count()) > longest) {
+                        longest = (cell.count())
+                    }
+                }
+            }
+            if (longest == 0) {
+                ; Nothing to flatten in this row: the reference drops it.
+            } {
+                def k:int 0
+                while (k < longest) {
+                    def made:VlJson (VlTransform.copyRow(row))
+                    def fi2:int 0
+                    while (fi2 < (array_length fields)) {
+                        def name:string (itemAt fields fi2)
+                        def target:string name
+                        if (fi2 < (array_length asNames)) {
+                            target = (itemAt asNames fi2)
+                        }
+                        def cell2:VlJson (row.get(name))
+                        if (cell2.isArray()) {
+                            made.setMember(target (cell2.at(k)))
+                        } {
+                            made.setMember(target (VlJson.nullValue()))
+                        }
+                        fi2 = (fi2 + 1)
+                    }
+                    push out made
+                    k = (k + 1)
+                }
+            }
+        }
+        return out
+    }
+
     ; --- stack ----------------------------------------------------------------
     ; Accumulates `field` within each group, writing the running start and end
     ; into the two names in `asNames`. `offset` is "zero", "normalize" or

@@ -749,6 +749,11 @@ class VlRuntime {
             def kShared:boolean ((tdef.stringOr("resolve" "independent")) == "shared")
             return (VlTransform.kde(rows (tdef.stringOr("field" "")) kGroupby (tdef.doubleOr("bandwidth" 0.0)) kLo kHi kHas kShared (tdef.boolOr("counts" false)) (tdef.intOr("steps" 0)) (tdef.intOr("minsteps" 25)) (tdef.intOr("maxsteps" 200)) kAs))
         }
+        if (ttype == "flatten") {
+            def flatFields:[string] (VlRuntime.stringList((tdef.get("fields"))))
+            def flatAs:[string] (VlRuntime.stringList((tdef.get("as"))))
+            return (VlTransform.flatten(rows flatFields flatAs))
+        }
         if (ttype == "fold") {
             def foldFields:[string] (VlRuntime.stringList((tdef.get("fields"))))
             def foldAs:[string] (VlRuntime.stringList((tdef.get("as"))))

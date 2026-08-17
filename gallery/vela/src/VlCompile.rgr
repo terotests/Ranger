@@ -3096,6 +3096,18 @@ class VlCompile {
                     sk.setMember("offset" (VlJson.stringValue((t.stringOr("offset" "zero")))))
                     push transforms.arr sk
                 } {
+                if (t.has("flatten")) {
+                    ; A column holding a LIST becomes one row per element, the
+                    ; rest of the row repeated beside each. It is how data that
+                    ; arrived already summarised carries its outliers.
+                    def fl (VlJson.objectValue())
+                    fl.setMember("type" (VlJson.stringValue("flatten")))
+                    fl.setMember("fields" (t.get("flatten")))
+                    if (t.has("as")) {
+                        fl.setMember("as" (t.get("as")))
+                    }
+                    push transforms.arr fl
+                } {
                 if (t.has("fold")) {
                     ; Columns into rows. The `as` pair names the two columns
                     ; that come out — the name of the folded column and its
@@ -3131,6 +3143,7 @@ class VlCompile {
                     ; how Vega-Lite writes a transform, so the refusal can say
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
                 }
                 }
                 }
