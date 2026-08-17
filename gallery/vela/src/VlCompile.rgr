@@ -229,6 +229,12 @@ class VlCompile {
     def warnings:[string]
     def channels:[VlChannel]
     def source:VlJson (new VlJson)
+    ; The WHOLE specification, as opposed to the piece of it this compiler was
+    ; handed. A parameter is declared once and read anywhere — a layered chart
+    ; brushes in one layer and paints by the selection in another — and a piece
+    ; that only knows its own half of the tree cannot find it. Every child is
+    ; given this, so the search is over the chart rather than over the layer.
+    def rootSource:VlJson (new VlJson)
     def markName:string "point"
     def markDef:VlJson (new VlJson)
     def stackField:string ""
@@ -287,6 +293,9 @@ class VlCompile {
 
     fn compile:VlJson (src:VlJson) {
         source = src
+        if (! (rootSource.isObject())) {
+            rootSource = src
+        }
         clear errors
         clear channels
 
@@ -575,6 +584,7 @@ class VlCompile {
         def probeIndex:int 0
         while (probeIndex < total) {
             def probe (new VlCompile())
+            probe.rootSource = rootSource
             probe.source = (VlCompile.mergeSpec(src (layers.at(probeIndex))))
             probe.readMark()
             probe.readEncoding()
@@ -609,6 +619,7 @@ class VlCompile {
         def index:int 0
         while (index < total) {
             def child (new VlCompile())
+            child.rootSource = rootSource
             ; A layer inside a layer names its data and its marks after the
             ; whole path down to it. Named after its own index alone, the
             ; second layer of the first layer and the second layer of the chart
@@ -1225,6 +1236,7 @@ class VlCompile {
         clear channels
 
         def child (new VlCompile())
+        child.rootSource = rootSource
         child.insidePanel = true
         child.widthSignal = "child_width"
         child.heightSignal = "child_height"
@@ -1585,6 +1597,7 @@ class VlCompile {
             ; are both called `concat_0_` and quietly share a scale.
             def label:string ((prefix + ("concat_" + (VlJson.intToText(index)))) + "_")
             def child (new VlCompile())
+            child.rootSource = rootSource
             child.prefix = label
             child.dataLabel = ("data_" + (VlJson.intToText((index + 1))))
             child.markLabel = (label + "marks")
@@ -1907,6 +1920,7 @@ class VlCompile {
     ; band-ness already, so there is nothing to settle there.
     fn resizeAcrossLayers:void (out:VlJson src:VlJson layers:VlJson bandX:boolean bandY:boolean) {
         def sizer (new VlCompile())
+        sizer.rootSource = rootSource
         sizer.source = (VlCompile.mergeSpec(src (VlCompile.unionOfLayers(layers))))
         if bandX {
             set sizer.forcedTypes "x" "band"
@@ -2533,22 +2547,15 @@ class VlCompile {
             if (cdef.has("value")) {
                 ch.hasValue = true
                 ch.value = (cdef.get("value"))
-                ; A channel written as a SELECTION and a fallback —
-                ; `{"condition": {"param": "industry", "value": 1},
-                ;   "value": 0.2}` — has two answers and this drawing is
-                ; static, so which one it shows is decided by what an EMPTY
-                ; selection means. A point selection's default is that an empty
-                ; one matches everything, so the condition's value is what a
-                ; chart looks like before anyone touches it; `"empty": false`
-                ; reverses that, and the fallback is what shows.
+                ; The channel's own value is the FALLBACK — what a row the
+                ; condition does not hold for is drawn with. Which of the two
+                ; answers a static drawing shows is decided where the condition
+                ; is compiled, and decided here as well it was applied twice:
+                ; a hover chart that fades every series but one faded none of
+                ; them, because the fallback had already become the highlight.
                 def cond:VlJson (cdef.get("condition"))
                 if (cond.isObject()) {
                     if (cond.has("param")) {
-                        if (cond.has("value")) {
-                            if (cond.boolOr("empty" true)) {
-                                ch.value = (cond.get("value"))
-                            }
-                        }
                         ; A condition may name a FIELD rather than a value —
                         ; `{"condition": {"param": "brush", "field":
                         ; "Cylinders"}, "value": "grey"}` is how a chart greys
@@ -4034,6 +4041,40 @@ class VlCompile {
         return out
     }
 
+    ; What a conditional channel actually shows in a drawing nobody has touched
+    ; yet: the first branch whose condition is known to hold, or the fallback.
+    ; A key stands for the mark it names, so it has to be painted with the same
+    ; answer the mark is — read from the fallback alone, the key to a chart
+    ; that fades on selection was faded when nothing was selected.
+    fn resolvedConstant:VlJson (ch:VlChannel) {
+        def given:VlJson (ch.def0.get("condition"))
+        def list (VlJson.arrayValue())
+        if (given.isArray()) {
+            def gi:int 0
+            while (gi < (given.count())) {
+                push list.arr (given.at(gi))
+                gi = (gi + 1)
+            }
+        } {
+            if (given.isObject()) {
+                push list.arr given
+            }
+        }
+        def i:int 0
+        while (i < (list.count())) {
+            def cond:VlJson (list.at(i))
+            if (cond.has("param")) {
+                if ((this.selectionExpr(cond)) == "true") {
+                    if (cond.has("value")) {
+                        return (cond.get("value"))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ch.value
+    }
+
     ; What one branch of a conditional channel paints with: a constant, or the
     ; same scale the channel itself reads. Answers a non-object when the branch
     ; cannot be written — a field read through a scale the chart never built.
@@ -4088,7 +4129,7 @@ class VlCompile {
     ; the search is over the whole spec rather than over the layer that asked.
     fn paramNamed:VlJson (name:string) {
         def found (VlJson.objectValue())
-        VlCompile.findParam(source name found)
+        VlCompile.findParam(rootSource name found)
         return found
     }
 
@@ -5068,6 +5109,22 @@ class VlCompile {
             return false
         }
         if (! (ch.def0.has(key))) {
+            ; A conditional channel says what it reads in the CONDITION — the
+            ; field, its type, and whether it wants a key drawn for it. Read
+            ; only from the channel, a `"legend": null` written where the field
+            ; is written was never seen, and a hover chart grew a key for a
+            ; colour nothing is meant to look up.
+            def cond:VlJson (ch.def0.get("condition"))
+            if (cond.isArray()) {
+                if ((cond.count()) > 0) {
+                    cond = (cond.at(0))
+                }
+            }
+            if (cond.isObject()) {
+                if (cond.has(key)) {
+                    return ((cond.get(key)).isNull())
+                }
+            }
             return false
         }
         def given:VlJson (ch.def0.get(key))
@@ -5371,7 +5428,7 @@ class VlCompile {
                     def markOpacity:VlChannel (this.channel("opacity"))
                     if markOpacity.defined {
                         if markOpacity.hasValue {
-                            l.setMember("encode" (VlCompile.symbolOpacityEncode(markOpacity.value)))
+                            l.setMember("encode" (VlCompile.symbolOpacityEncode((this.resolvedConstant(markOpacity)))))
                         }
                     }
                 }
@@ -5673,7 +5730,12 @@ class VlCompile {
         }
         def colour:VlChannel (this.channel("color"))
         if (colour.encodes()) {
-            if (! colour.hasValue) {
+            ; A colour written as a CONDITION and a fallback still names a
+            ; column — the selected rows are painted by it and the rest grey —
+            ; and a line is one shape per value of that column either way.
+            ; Read as a constant, four series came out as one line running
+            ; back and forth across the plot.
+            if ((! colour.hasValue) || colour.conditional) {
                 return (colour.outField())
             }
         }
@@ -6341,7 +6403,7 @@ class VlCompile {
                 sizeKey = "strokeWidth"
             }
             if size.hasValue {
-                update.setMember(sizeKey (VlCompile.literal(size.value)))
+                update.setMember(sizeKey (this.withCondition(size (VlCompile.literal(size.value)))))
             } {
                 update.setMember(sizeKey (this.scaled("size" (size.outField()))))
             }
@@ -6367,10 +6429,13 @@ class VlCompile {
         ; noted, and never written, so the chart came out opaque and the series
         ; behind was invisible. A condition writes its fallback here, which is
         ; what a drawing with no interaction in it shows.
+        ; …and it may answer to a selection rather than being flat: a hover
+        ; chart fades every series but the one under the pointer, and that is
+        ; the same conditional every other paint channel carries.
         def opacity:VlChannel (this.channel("opacity"))
         if opacity.defined {
             if opacity.hasValue {
-                update.setMember("opacity" (VlCompile.literal(opacity.value)))
+                update.setMember("opacity" (this.withCondition(opacity (VlCompile.literal(opacity.value)))))
             } {
                 this.fail("an opacity read from a field is not compiled here")
             }
