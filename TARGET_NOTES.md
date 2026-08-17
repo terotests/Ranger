@@ -617,6 +617,54 @@ found in is the order of their cost:
    plus a copy of every method name) to answer a single map lookup, and
    `hasMethod` asked each parent twice — 2^depth over an inheritance chain.
 
+### The C++/node ratio is not a constant — it inverts on a large input
+
+The table above measures one input, `ng_Compiler.rgr`. That turns out to be the
+C++ rendering's best case. Same machine (this one is smaller than the Xeon
+above, so the absolute numbers are not comparable across sections — the ratios
+are), median of three, interleaved so machine drift cancels:
+
+| Input | Character | node | C++ | C++ vs node |
+| --- | --- | ---: | ---: | ---: |
+| `Regex.rgr` + `BigIntNum.rgr` | ordinary code, ~3.1k lines | 603 ms | 229 ms | **2.63x faster** |
+| `EvHandle.rgr` | ordinary code, ~3.0k lines | 1633 ms | 665 ms | **2.46x faster** |
+| `UnicodeProps.rgr` + `LocaleData.rgr` | generated data tables, ~2.3k lines | 542 ms | 438 ms | 1.24x faster |
+| `ng_Compiler.rgr` | the compiler | 7183 ms | 3040 ms | **2.36x faster** |
+| `ComponentEngine.rgr` | 45,221 lines | 7196 ms | 8443 ms | **0.85x — SLOWER** |
+
+Two separate effects are visible:
+
+- **Generated data tables narrow the gap** (2.5x down to 1.24x). Those files are
+  thousands of `push out <literal>` statements and almost no control flow.
+- **Size inverts it.** At 45k lines the C++ compiler is 20% *slower* than node
+  on the same input, while being 2.4x faster on the 3k-line files. node's cost
+  grows roughly with input size across the whole range; C++'s grows faster than
+  that. Something in the C++ rendering scales worse than linearly with the
+  program being compiled — this is not the data-table effect, since the tables
+  are still on the faster side of parity.
+
+Worth knowing before reaching for a self-hosted C++ compiler for a large
+program, and worth chasing: the same defect class as the seven dead `getLine`
+lookups above (a per-node pass over the whole source) would produce exactly this
+shape, and that one cost 86% of the C++ run when it was found.
+
+### The parser frame fix (ISSUES #70) is not a performance change
+
+`parseBuf` used to keep one live stack frame per parsed statement; it now
+returns when the node it opened closes, taking `ComponentEngine.rgr` from parse
+depth 2117 to 36. That is a correctness fix — the old depth put the engine at
+the edge of V8's default stack and made its compilation fail about two runs in
+five — and it costs nothing measurable either way:
+
+| Compiler | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| node, self-compile (8 interleaved pairs) | 7225 ms | 7183 ms | −0.6% (noise) |
+| C++, self-compile (6 interleaved pairs) | 3134 ms | 3040 ms | −3.0% |
+
+The node figure is inside the run-to-run spread; three-run samples taken before
+the interleaved measurement pointed both ways. The C++ figure is small but
+consistent — the current build won five of six pairs.
+
 ## Dart (`-l=dart`)
 
 Flutter-ready **package** generation for shared application logic (models,
