@@ -35,6 +35,7 @@
 
 Import "VlJson.rgr"
 Import "VlTime.rgr"
+Import "VlRegex.rgr"
 
 ; One entry of the `encoding` block, read once so the rest of the file asks
 ; questions of a field rather than of a JSON object.
@@ -3214,6 +3215,9 @@ class VlCompile {
         this.pushSpecTransforms(transforms)
         this.pushDomainOrder(transforms)
         this.pushTimeUnits(transforms)
+        ; After the time units, because the column it reads is one of theirs: a
+        ; list of day names is looked up by the name the instant formats to.
+        this.pushStatedOrder(transforms)
         this.pushBin(transforms)
         this.pushAggregate(transforms)
         this.pushImpute(transforms)
@@ -3801,6 +3805,15 @@ class VlCompile {
                             def orderField:string (this.domainOrderField(ch2))
                             if ((strlen orderField) > 0) {
                                 push groupby.arr (VlJson.stringValue(orderField))
+                            }
+                            ; The column holding a value's place in the list
+                            ; its channel named travels with the value: an
+                            ; aggregate that dropped it left the domain with
+                            ; nothing to sort by, and the categories came out
+                            ; in the order they were first seen.
+                            def statedField:string (this.statedOrderField(ch2))
+                            if ((strlen statedField) > 0) {
+                                push groupby.arr (VlJson.stringValue(statedField))
                             }
                         }
                     }
@@ -4995,9 +5008,85 @@ class VlCompile {
                 return spec
             }
         }
-        ; An explicit list of values is an order in itself, and the runtime
-        ; reads a domain given as an array without asking anything else.
+        ; An explicit LIST is an order in itself: the categories go in the
+        ; order it names, whatever they sort as on their own. It is answered
+        ; the way the reference answers it — by a column holding each value's
+        ; place in the list, and a domain sorted by that.
+        if (given.isArray()) {
+            def by:string (this.statedOrderField(ch))
+            if ((strlen by) > 0) {
+                def spec (VlJson.objectValue())
+                spec.setMember("op" (VlJson.stringValue("min")))
+                spec.setMember("field" (VlJson.stringValue(by)))
+                return spec
+            }
+        }
         return (VlJson.boolValue(true))
+    }
+
+    ; The column holding a value's place in the list its channel named, or ""
+    ; when it named none.
+    fn statedOrderField:string (ch:VlChannel) {
+        if (! ((ch.def0.get("sort")).isArray())) {
+            return ""
+        }
+        if ((strlen (ch.outField())) == 0) {
+            return ""
+        }
+        return (((prefix + (ch.name + "_")) + (ch.outField())) + "_sort_index")
+    }
+
+    ; …and the formula that computes it. A plain column is looked up as it
+    ; stands; a TIME UNIT is looked up by its name, because a list of days is
+    ; written "mon", "tue" and the column holds instants. Both the short name
+    ; and the long one are tried, which is what the reference accepts.
+    fn pushStatedOrder:void (transforms:VlJson) {
+        for channels ch:VlChannel ci {
+            def name:string (this.statedOrderField(ch))
+            if ((strlen name) > 0) {
+                def w (new VlJsonWriter())
+                def list:string (w.write((VlCompile.lowerList((ch.def0.get("sort"))))))
+                def read:string (VlCompile.datumRef((ch.outField())))
+                def expr:string (((("indexof(" + list) + ", ") + read) + ")")
+                if ((strlen ch.timeUnit) > 0) {
+                    def short:string "%a"
+                    def long:string "%A"
+                    if (VlCompile.namesMonths(ch.timeUnits)) {
+                        short = "%b"
+                        long = "%B"
+                    }
+                    def a1:string (((("indexof(" + list) + ", lower(timeFormat(") + read) + ((", \"" + short) + "\")))"))
+                    def a2:string (((("indexof(" + list) + ", lower(timeFormat(") + read) + ((", \"" + long) + "\")))"))
+                    expr = ((("max(" + a1) + ", ") + a2) + ")"
+                }
+                def t (VlJson.objectValue())
+                t.setMember("type" (VlJson.stringValue("formula")))
+                t.setMember("expr" (VlJson.stringValue(expr)))
+                t.setMember("as" (VlJson.stringValue(name)))
+                push transforms.arr t
+            }
+        }
+    }
+
+    sfn namesMonths:boolean (units:[string]) {
+        for units u:string ui {
+            if (u == "month") {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; The same list, lowercased, so that "Monday" and "mon" both match what a
+    ; date formats to.
+    sfn lowerList:VlJson (given:VlJson) {
+        def out (VlJson.arrayValue())
+        def k:int 0
+        while (k < (given.count())) {
+            push out.arr (VlJson.stringValue((VlRegex.lower((given.at(k).asString())))))
+            k = (k + 1)
+        }
+        return out
     }
 
     ; A `fill` or `stroke` channel builds the same scale a `color` channel
@@ -5619,7 +5708,7 @@ class VlCompile {
                     l2.setMember("encode" encode)
                 }
                 if ((markName == "circle") || (markName == "square")) {
-                    l2.setMember("encode" (VlCompile.filledSymbolEncode()))
+                    l2.setMember("encode" (VlCompile.filledSymbolEncode((this.dotOpacity()))))
                 }
                 push out.arr l2
             }
@@ -5674,10 +5763,10 @@ class VlCompile {
 
     ; The key of an outlined mark is an outline too: transparent inside, and
     ; the same partial opacity the points are drawn with.
-    sfn filledSymbolEncode:VlJson () {
+    sfn filledSymbolEncode:VlJson (opacity:double) {
         def update (VlJson.objectValue())
         update.setMember("fill" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
-        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(opacity)))))
         update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("transparent")))))
         def symbols (VlJson.objectValue())
         symbols.setMember("update" update)
