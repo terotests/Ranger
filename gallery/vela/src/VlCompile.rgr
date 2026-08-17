@@ -4100,6 +4100,29 @@ class VlCompile {
     ; the scale to parse.
     fn pushTimeParse:void (transforms:VlJson) {
         def done:[string]
+        ; A field a time unit TRANSFORM reads needs the same treatment as one a
+        ; channel reads: rounding text to the nearest year answers nothing.
+        def stated:VlJson (source.get("transform"))
+        if (stated.isArray()) {
+            def si:int 0
+            while (si < (stated.count())) {
+                def one:VlJson (stated.at(si))
+                si = (si + 1)
+                if (one.has("timeUnit")) {
+                    def named:string (one.stringOr("field" ""))
+                    if ((strlen named) > 0) {
+                        if (! (VlTime.hasUnit(done named))) {
+                            push done named
+                            def parse (VlJson.objectValue())
+                            parse.setMember("type" (VlJson.stringValue("formula")))
+                            parse.setMember("expr" (VlJson.stringValue((("toDate(datum[\"" + named) + "\"])"))))
+                            parse.setMember("as" (VlJson.stringValue(named)))
+                            push transforms.arr parse
+                        }
+                    }
+                }
+            }
+        }
         for channels ch:VlChannel ci {
             ; A field a time unit reads has to be a date first, whatever the
             ; channel calls its own type — `timeUnit: "month"` with
