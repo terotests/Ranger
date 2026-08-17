@@ -1598,8 +1598,24 @@ class VlCompile {
         out.setMember("marks" marks)
 
         ; Where the panels go, and how far the title stands clear of them.
+        ; How far apart the panels stand. `spacing` may be one number for
+        ; both directions or one for each — a trellis of twenty-four hours
+        ; sets its rows a pixel apart, and given twenty it was three times the
+        ; height of the page.
         def layout (VlJson.objectValue())
-        layout.setMember("padding" (VlJson.numberValue(20.0)))
+        def spacing:VlJson (src.get("spacing"))
+        if (spacing.isNumber()) {
+            layout.setMember("padding" spacing)
+        } {
+        if (spacing.isObject()) {
+            def gap (VlJson.objectValue())
+            gap.setMember("row" (VlJson.numberValue((spacing.doubleOr("row" 20.0)))))
+            gap.setMember("column" (VlJson.numberValue((spacing.doubleOr("column" 20.0)))))
+            layout.setMember("padding" gap)
+        } {
+            layout.setMember("padding" (VlJson.numberValue(20.0)))
+        }
+        }
         if (! wrapped) {
             ; …and the title only stands clear of them if there is a title.
             def offset (VlJson.objectValue())

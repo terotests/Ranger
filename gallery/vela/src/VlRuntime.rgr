@@ -2782,7 +2782,18 @@ class VlRuntime {
     ; boxes go, and what the lot of them reaches. Answered rather than applied
     ; to the chart, because the same arrangement is wanted twice — once for the
     ; page, and once for every group that is a grid of its own.
-    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double) {
+    ; How far apart the panels stand in one direction. A layout's padding is
+    ; one number for both, or one for each — a trellis of twenty-four hours
+    ; sets its rows a pixel apart and leaves its columns alone.
+    sfn layoutGap:double (layoutDef:VlJson which:string) {
+        def given:VlJson (layoutDef.get("padding"))
+        if (given.isObject()) {
+            return (given.doubleOr(which 0.0))
+        }
+        return (layoutDef.doubleOr("padding" 0.0))
+    }
+
+    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double rowGap:double) {
         def gridX1:double 0.0
         def gridY1:double 0.0
         def gridX2:double 0.0
@@ -2800,7 +2811,7 @@ class VlRuntime {
             if (column == 0) {
                 x = 0.0
                 if (idx > 0) {
-                    y = ((VlBounds.ceilTo(rowBottom)) + gap + (VlBounds.ceilTo(box.top)))
+                    y = ((VlBounds.ceilTo(rowBottom)) + rowGap + (VlBounds.ceilTo(box.top)))
                 }
             } {
                 x = (x + gap + (VlBounds.ceilTo(box.left)))
@@ -2889,9 +2900,10 @@ class VlRuntime {
         if ((array_length cells) == 0) {
             return
         }
-        def gap:double (layoutDef.doubleOr("padding" 0.0))
+        def gap:double (VlRuntime.layoutGap(layoutDef "column"))
+        def rowGap:double (VlRuntime.layoutGap(layoutDef "row"))
         def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-        def reach:VlBounds (VlRuntime.placeCells(cells columns gap))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap))
         ; The group is exactly what its panes cover. Its own origin stays at
         ; zero, so whatever hangs off the top-left of the first pane — an axis,
         ; a label — is room the page has to leave in front of the group.
@@ -2921,14 +2933,15 @@ class VlRuntime {
         if (! (layoutDef.isObject())) {
             return
         }
-        def gap:double (layoutDef.doubleOr("padding" 0.0))
+        def gap:double (VlRuntime.layoutGap(layoutDef "column"))
+        def rowGap:double (VlRuntime.layoutGap(layoutDef "row"))
 
         def cells:[VlGroupBox] (this.boxesWithRole("scope"))
         if ((array_length cells) == 0) {
             return
         }
         def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-        def reach:VlBounds (VlRuntime.placeCells(cells columns gap))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap))
         this.layoutTrellis(cells columns layoutDef reach)
 
         ; The view is what the placed plots and their furniture cover, and the
