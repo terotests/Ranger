@@ -5695,6 +5695,19 @@ class VlCompile {
         }
     }
 
+    ; Whether a channel's SCALE runs continuously. The column's type is the
+    ; usual answer, but not the only one: a chart may say `"scale": {"type":
+    ; "log"}` and say nothing about the type, and a scale nobody could type
+    ; from the data was read as a list of categories — its labels turned
+    ; upright, its ends centred, and no grid drawn for it at all.
+    fn continuousScale:boolean (ch:VlChannel) {
+        def kind:string (this.scaleTypeFor(ch))
+        if (kind == "band") { return false }
+        if (kind == "point") { return false }
+        if (kind == "ordinal") { return false }
+        return true
+    }
+
     ; What the whole chart's configuration says about one guide property, or
     ; nothing at all if it does not say.
     fn configFlag:VlJson (block:string key:string) {
@@ -5739,11 +5752,7 @@ class VlCompile {
         if (ch.isBinned()) {
             return false
         }
-        def kind:string (this.scaleTypeFor(ch))
-        if (kind == "band") { return false }
-        if (kind == "point") { return false }
-        if (kind == "ordinal") { return false }
-        return true
+        return (this.continuousScale(ch))
     }
 
     ; Does the specification's own configuration ask for a grid on every axis?
@@ -5990,7 +5999,7 @@ class VlCompile {
             ; …but a month is not a category name. A channel with a time unit
             ; is labelled with dates, which are short and which the reference
             ; leaves level however discrete the scale under them is.
-            if (ch.isDiscrete()) {
+            if (! (this.continuousScale(ch))) {
                 if ((strlen ch.timeUnit) == 0) {
                     if (! (a.has("labelAngle"))) {
                         a.setMember("labelAngle" (VlJson.numberValue(270.0)))
@@ -6042,7 +6051,7 @@ class VlCompile {
                 a.setMember("tickMinStep" (VlJson.numberValue(unitMs)))
             }
         }
-        if (ch.isContinuous()) {
+        if (this.continuousScale(ch)) {
             ; The first and last labels of a horizontal continuous axis are
             ; pulled inside the plot rather than allowed to hang off it, which
             ; is what `labelFlush` means and why they are left- and
