@@ -3896,6 +3896,32 @@ class VlCompile {
         ; descending, so the first colour in the legend is the top segment.
         def sortFields (VlJson.arrayValue())
         def sortOrders (VlJson.arrayValue())
+        ; An `order` channel says outright which segment goes first, and it
+        ; beats anything derived from the colour: a pyramid names its three
+        ; pieces in the order they are stacked, and sorted by their names
+        ; instead the sky ended up between the two sides of the pyramid.
+        def ordering:VlChannel (this.channel("order"))
+        if ordering.defined {
+            if ((strlen (ordering.outField())) > 0) {
+                push sortFields.arr (VlJson.stringValue((ordering.outField())))
+                def dir:string "ascending"
+                if ((ordering.def0.stringOr("sort" "")) == "descending") {
+                    dir = "descending"
+                }
+                push sortOrders.arr (VlJson.stringValue(dir))
+                def sortOrder (VlJson.objectValue())
+                sortOrder.setMember("field" sortFields)
+                sortOrder.setMember("order" sortOrders)
+                t.setMember("sort" sortOrder)
+                def asOrdered (VlJson.arrayValue())
+                push asOrdered.arr (VlJson.stringValue((stackField + "_start")))
+                push asOrdered.arr (VlJson.stringValue((stackField + "_end")))
+                t.setMember("as" asOrdered)
+                t.setMember("offset" (VlJson.stringValue(stackOffset)))
+                push transforms.arr t
+                return
+            }
+        }
         def colour:VlChannel (this.channel("color"))
         if colour.defined {
             if ((strlen colour.field) > 0) {
@@ -4748,6 +4774,9 @@ class VlCompile {
         push range.arr (VlJson.numberValue(6.283185307179586))
         sc.setMember("range" range)
         sc.setMember("zero" (VlJson.boolValue(true)))
+        ; …unless the chart said where the angles run. A pyramid is a pie with
+        ; a bite taken out of it, and the bite is a stated range.
+        this.applyDeclaredScale(sc ch)
         push out.arr sc
     }
 

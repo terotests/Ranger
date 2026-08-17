@@ -2093,6 +2093,15 @@ class VlRuntime {
                     px = ((chartWidth - legend.width) - offset)
                     py = ((chartHeight - legend.height) - offset)
                 }
+                ; `"orient": "none"` is a chart placing its key by hand:
+                ; `legendX` and `legendY` are where its top left corner goes,
+                ; in the plot's own coordinates, and nothing is cleared or
+                ; stacked. Read as one of the edges it went wherever the
+                ; default put it.
+                if (orient == "none") {
+                    px = (ldef.doubleOr("legendX" 0.0))
+                    py = (ldef.doubleOr("legendY" 0.0))
+                }
                 group.setNumber("x" px)
                 group.setNumber("y" py)
 
