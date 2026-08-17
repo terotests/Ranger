@@ -258,8 +258,24 @@ class VlJson {
     ; target-specific string is better than a silently wrong one.
     sfn formatNumber:string (value:double maxDecimals:int) {
         def v:double value
+        ; A number that is not one. Nothing here can print an infinity — the
+        ; big-number path looks for the highest power of ten in it and never
+        ; finds one — so the loop ran until the process ran out of memory. An
+        ; expression that divides by a category name is all it takes.
+        if (! (value == value)) {
+            return "NaN"
+        }
+        ; An infinity is the only non-zero number that is unchanged by halving,
+        ; which is an exact test and not a threshold — a chart of large numbers
+        ; is not an infinity and must not be printed as one.
         if (v == 0.0) {
             return "0"
+        }
+        if ((value * 0.5) == value) {
+            if (value > 0.0) {
+                return "Infinity"
+            }
+            return "-Infinity"
         }
         def neg:boolean false
         if (v < 0.0) {

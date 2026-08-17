@@ -1706,6 +1706,12 @@ class VlRuntime {
                 axis.readConfig(adef)
                 def tickCount:int (this.axisTickCount(adef))
                 def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand (this.axisTickMinStep(adef))))
+                ; An axis may name the values it wants ticked rather than let
+                ; the algorithm choose, and may rewrite what each one is called.
+                ; Both are the specification being specific, and ignoring them
+                ; drew an axis of numbers where the chart asked for three words.
+                ticks = (this.statedTicks(sc adef axis ticks))
+                this.relabelTicks(adef ticks)
                 axis.useGridColors((this.axisGridStrokes(adef ticks)))
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
@@ -1770,6 +1776,60 @@ class VlRuntime {
             push out colour
         }
         return out
+    }
+
+    ; The ticks the axis ASKED for, if it asked. Each stated value is placed by
+    ; the scale and labelled the way the algorithm's own would have been.
+    fn statedTicks:[VlAxisTickValue] (sc:VlScale adef:VlJson axis:VlAxis given:[VlAxisTickValue]) {
+        def values:VlJson (adef.get("values"))
+        if (! (values.isArray())) {
+            return given
+        }
+        def out:[VlAxisTickValue]
+        def numbers:[double]
+        def total:int (values.count())
+        def k:int 0
+        while (k < total) {
+            push numbers (values.at(k).asDouble())
+            k = (k + 1)
+        }
+        def labels:[string] (VlAxis.labelSet(numbers axis.labelFormat))
+        k = 0
+        while (k < total) {
+            def tv (new VlAxisTickValue())
+            tv.value = (values.at(k))
+            tv.position = (sc.mapValue((values.at(k))))
+            tv.labelPosition = tv.position
+            tv.tickPosition = tv.position
+            tv.label = (itemAt labels k)
+            if (axis.labelFormatType == "time") {
+                tv.label = (VlTime.format((itemAt numbers k) axis.labelFormat sc.zone))
+            }
+            push out tv
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; `labelExpr` rewrites a label from what it would otherwise have been:
+    ; `datum.label[0]` keeps a month's initial, `datum.value === 0 ? 'Poor' : …`
+    ; replaces numbers with words. Both `value` and `label` are in scope, which
+    ; is what the reference puts there.
+    fn relabelTicks:void (adef:VlJson ticks:[VlAxisTickValue]) {
+        def expr:string (adef.stringOr("labelExpr" ""))
+        if ((strlen expr) == 0) {
+            return
+        }
+        for ticks tv:VlAxisTickValue ti {
+            def row:VlJson (VlJson.objectValue())
+            row.setMember("value" tv.value)
+            row.setMember("label" (VlJson.stringValue(tv.label)))
+            scope.setDatum(row)
+            def answer:VlJson (this.evalExpr(expr))
+            if (answer.isDefined()) {
+                tv.label = (answer.asString())
+            }
+        }
     }
 
     ; `tickCount` is a number, or a signal such as `ceil(height/40)` — the
