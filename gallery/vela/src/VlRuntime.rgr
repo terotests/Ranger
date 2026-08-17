@@ -1454,7 +1454,16 @@ class VlRuntime {
             ; Anything else is a list of output values — an ordinal range.
             def k:int 0
             while (k < total) {
-                push sc.rangeValues (r.at(k).asString())
+                def value:VlJson (r.at(k))
+                if (value.isArray()) {
+                    ; A dash PATTERN is a list of on/off lengths, and the range
+                    ; of a strokeDash scale is a list of those. Flattened to the
+                    ; comma-separated text a renderer wants, it goes through the
+                    ; same machinery every other ordinal output does.
+                    push sc.rangeValues (VlRuntime.joinNumbers(value))
+                } {
+                    push sc.rangeValues (value.asString())
+                }
                 k = (k + 1)
             }
             return
@@ -1483,6 +1492,20 @@ class VlRuntime {
                 return
             }
         }
+    }
+
+    sfn joinNumbers:string (value:VlJson) {
+        def out:string ""
+        def total:int (value.count())
+        def k:int 0
+        while (k < total) {
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + (value.at(k).asString()))
+            k = (k + 1)
+        }
+        return out
     }
 
     ; A range entry is a number, or a `{"signal": …}` that answers one.

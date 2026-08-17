@@ -63,6 +63,26 @@ class VlChannel {
     def stack:string ""
     def def0:VlJson (new VlJson)
 
+    ; Does this channel have anything to say about a mark's paint or size? A
+    ; channel written only as a CONDITION —
+    ;
+    ;   "color": {"condition": {"test": …, "value": "#aaa"}}
+    ;
+    ; names no field and states no value, so there is nothing to build a scale
+    ; from and nothing for a legend to be a key to: the condition decides the
+    ; colour and the mark's own default is what shows otherwise. Read as an
+    ; encoded channel it produced a scale with no domain, a legend with no
+    ; title, and thirty-three pixels of empty page beside the chart.
+    fn encodes:boolean () {
+        if (! defined) {
+            return false
+        }
+        if hasValue {
+            return true
+        }
+        return ((strlen (this.outField())) > 0)
+    }
+
     ; The name the field carries after the transforms have run: `sum_b` once it
     ; is aggregated, `bin_maxbins_10_b` once it is binned.
     fn outField:string () {
@@ -3283,8 +3303,57 @@ class VlCompile {
         this.pushThetaScale(out)
         this.pushRadiusScale(out)
         this.pushShapeScale(out)
+        this.pushStrokeDashScale(out)
         this.pushColourScale(out)
         this.pushSizeScale(out)
+        return out
+    }
+
+    ; A dash pattern is a scale like any other: an ordinal one whose outputs
+    ; are the five patterns the reference cycles through, from a solid line to
+    ; a dot-dash. They are written as lists of on/off lengths, which is what
+    ; both renderers already understand — nothing here has to know what a dash
+    ; looks like, only which one each series gets.
+    fn pushStrokeDashScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("strokeDash"))
+        if (! (ch.encodes())) {
+            return
+        }
+        if (ch.hasValue) {
+            return
+        }
+        if (VlCompile.suppressed(ch "scale")) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("strokeDash")))))
+        sc.setMember("type" (VlJson.stringValue("ordinal")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        sc.setMember("range" (VlCompile.dashPatterns()))
+        this.applyDeclaredScale(sc ch)
+        push out.arr sc
+    }
+
+    ; The reference's own five, in its own order.
+    sfn dashPatterns:VlJson () {
+        def out (VlJson.arrayValue())
+        push out.arr (VlCompile.numberList2(1.0 0.0))
+        push out.arr (VlCompile.numberList2(4.0 2.0))
+        push out.arr (VlCompile.numberList2(2.0 1.0))
+        push out.arr (VlCompile.numberList2(1.0 1.0))
+        def last (VlJson.arrayValue())
+        push last.arr (VlJson.numberValue(1.0))
+        push last.arr (VlJson.numberValue(2.0))
+        push last.arr (VlJson.numberValue(4.0))
+        push last.arr (VlJson.numberValue(2.0))
+        push out.arr last
+        return out
+    }
+
+    sfn numberList2:VlJson (a:double b:double) {
+        def out (VlJson.arrayValue())
+        push out.arr (VlJson.numberValue(a))
+        push out.arr (VlJson.numberValue(b))
         return out
     }
 
@@ -3749,10 +3818,17 @@ class VlCompile {
 
     fn pushColourScale:void (out:VlJson) {
         def ch:VlChannel (this.channel("color"))
-        if (! ch.defined) {
+        if (! (ch.encodes())) {
             return
         }
         if (ch.hasValue) {
+            return
+        }
+        ; `"scale": null` says the column already holds colours. There is
+        ; nothing to map and nothing to be a key to: the values go straight
+        ; through, and a legend of red, green and blue named after themselves
+        ; would only be seventy-four pixels of restating the bars.
+        if (VlCompile.suppressed(ch "scale")) {
             return
         }
         def sc (VlJson.objectValue())
@@ -4107,7 +4183,10 @@ class VlCompile {
         if (VlCompile.suppressed(colour "legend")) {
             colour = (new VlChannel())
         }
-        if colour.defined {
+        if (VlCompile.suppressed(colour "scale")) {
+            colour = (new VlChannel())
+        }
+        if (colour.encodes()) {
             if (! colour.hasValue) {
                 def l (VlJson.objectValue())
                 ; A key stands for the mark it names. A line is drawn with a
@@ -4147,6 +4226,30 @@ class VlCompile {
                     }
                 }
                 push out.arr l
+            }
+        }
+        ; A dash pattern's key is a short line drawn in that pattern, in the
+        ; mark's own colour — there is nothing else to paint it with, since the
+        ; whole point of the channel is that the series are told apart by their
+        ; dashes rather than by their colours.
+        def dashCh:VlChannel (this.channel("strokeDash"))
+        if (VlCompile.suppressed(dashCh "legend")) {
+            dashCh = (new VlChannel())
+        }
+        if (dashCh.encodes()) {
+            if (! dashCh.hasValue) {
+                def ld (VlJson.objectValue())
+                ld.setMember("strokeDash" (VlJson.stringValue((this.sname("strokeDash")))))
+                ld.setMember("symbolType" (VlJson.stringValue("stroke")))
+                ld.setMember("title" (VlJson.stringValue((dashCh.title()))))
+                def dashUpdate (VlJson.objectValue())
+                dashUpdate.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+                def dashSymbols (VlJson.objectValue())
+                dashSymbols.setMember("update" dashUpdate)
+                def dashEncode (VlJson.objectValue())
+                dashEncode.setMember("symbols" dashSymbols)
+                ld.setMember("encode" dashEncode)
+                push out.arr ld
             }
         }
         def shapeCh:VlChannel (this.channel("shape"))
@@ -4270,13 +4373,22 @@ class VlCompile {
             return ""
         }
         def colour:VlChannel (this.channel("color"))
-        if (! colour.defined) {
-            return ""
+        if (colour.encodes()) {
+            if (! colour.hasValue) {
+                return (colour.outField())
+            }
         }
-        if colour.hasValue {
-            return ""
+        ; A line is one shape per series however the series are told apart, and
+        ; a dash pattern tells them apart as well as a colour does. Without this
+        ; a chart of five dashed lines is ONE line that runs back and forth
+        ; across the plot five times.
+        def dash:VlChannel (this.channel("strokeDash"))
+        if (dash.encodes()) {
+            if (! dash.hasValue) {
+                return (dash.outField())
+            }
         }
-        return (colour.outField())
+        return ""
     }
 
     fn buildMarks:VlJson () {
@@ -4473,9 +4585,17 @@ class VlCompile {
         if colour.defined {
             def base:VlJson (VlCompile.literal(colour.value))
             if (! colour.hasValue) {
-                base = (VlJson.objectValue())
-                base.setMember("scale" (VlJson.stringValue("color")))
-                base.setMember("field" (VlJson.stringValue((colour.outField()))))
+                if (colour.encodes()) {
+                    base = (VlJson.objectValue())
+                    if (! (VlCompile.suppressed(colour "scale"))) {
+                        base.setMember("scale" (VlJson.stringValue("color")))
+                    }
+                    base.setMember("field" (VlJson.stringValue((colour.outField()))))
+                } {
+                    ; Nothing encoded: whatever the condition does not catch is
+                    ; drawn in the mark's own colour.
+                    base = (VlCompile.literal((VlJson.stringValue("#4c78a8"))))
+                }
             }
             update.setMember(key (this.withCondition(colour base)))
             this.applyMarkPaint(update key)
@@ -4746,6 +4866,14 @@ class VlCompile {
                 update.setMember("shape" (VlCompile.literal(shape.value)))
             } {
                 update.setMember("shape" (this.scaled("shape" (shape.outField()))))
+            }
+        }
+        def dash:VlChannel (this.channel("strokeDash"))
+        if dash.defined {
+            if dash.hasValue {
+                update.setMember("strokeDash" (VlCompile.literal(dash.value)))
+            } {
+                update.setMember("strokeDash" (this.scaled("strokeDash" (dash.outField()))))
             }
         }
         ; `"opacity": {"value": 0.7}` is how two overlapping bars are drawn so
