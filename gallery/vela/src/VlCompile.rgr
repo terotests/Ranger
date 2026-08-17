@@ -287,8 +287,61 @@ class VlCompile {
         }
         def cfg:VlJson (src.get("config"))
         if ((cfg.isObject()) && (!(out.has("config")))) {
-            out.setMember("config" cfg)
+            out.setMember("config" (VlCompile.vegaConfig(cfg)))
         }
+        return out
+    }
+
+    sfn viewSizing:boolean (key:string) {
+        if (key == "step") { return true }
+        if (key == "continuousWidth") { return true }
+        if (key == "continuousHeight") { return true }
+        if (key == "discreteWidth") { return true }
+        if (key == "discreteHeight") { return true }
+        return false
+    }
+
+    ; A configuration block, in the words Vega uses. Most of it passes straight
+    ; through, but `view` is Vega-Lite's name for the plotting rectangle and
+    ; Vega's name for it is the `cell` style — so what a chart says about its
+    ; view is said again as a style, which is where the runtime looks for it.
+    sfn vegaConfig:VlJson (cfg:VlJson) {
+        def view:VlJson (cfg.get("view"))
+        if (! (view.isObject())) {
+            return cfg
+        }
+        def out (VlJson.objectValue())
+        for cfg.keys k:string ki {
+            if (k != "view") {
+                out.setMember(k (cfg.get(k)))
+            }
+        }
+        def style:VlJson (cfg.get("style"))
+        def styles (VlJson.objectValue())
+        if (style.isObject()) {
+            for style.keys sk:string ski {
+                styles.setMember(sk (style.get(sk)))
+            }
+        }
+        def cell (VlJson.objectValue())
+        def existing:VlJson (styles.get("cell"))
+        if (existing.isObject()) {
+            for existing.keys ek:string eki {
+                cell.setMember(ek (existing.get(ek)))
+            }
+        }
+        for view.keys vk:string vki {
+            ; …except the ones that are not properties of a rectangle at all.
+            ; A view's `step` is how wide one band of a discrete scale is and
+            ; its continuous sizes are how big a plot is when nobody said —
+            ; sizes the compiler has already used, and which mean nothing to
+            ; something drawing a box.
+            if (! (VlCompile.viewSizing(vk))) {
+                cell.setMember(vk (view.get(vk)))
+            }
+        }
+        styles.setMember("cell" cell)
+        out.setMember("style" styles)
         return out
     }
 
