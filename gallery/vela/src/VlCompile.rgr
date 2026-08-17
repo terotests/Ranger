@@ -3511,6 +3511,15 @@ class VlCompile {
         this.pushStack(transforms)
         this.pushValidFilter(transforms)
 
+        ; A derived data set with nothing to derive is not a data set. The
+        ; reference points the marks straight at the source, and an extra node
+        ; renames every node after it — which is most of what a chart with
+        ; nothing to transform differed by.
+        if ((transforms.count()) == 0) {
+            dataLabel = "source_0"
+            dataName = dataLabel
+            return out
+        }
         derived.setMember("transform" transforms)
         push out.arr derived
         dataName = dataLabel
