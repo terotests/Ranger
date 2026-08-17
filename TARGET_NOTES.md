@@ -226,13 +226,16 @@ Binaries out of each route, which is also where the LLVM target keeps its edge:
 
 One caveat that matters for a fully self-hosted rebuild: the figures above are
 NODE-driven. Driving codegen with the native binary instead, `.cpp` output takes
-33,669 ms (2.9x node) and `.ll` output takes TENS OF MINUTES — measured off file
-timestamps rather than a clean timer, so treat the magnitude and not the digits.
-Emitting 21 MB through the native string builder is the pathological case; the
-shape of it (7x the output, orders of magnitude the time) is what quadratic
-concatenation looks like, and it is the same class of defect that
-`ranger_str_concat2` already fixed once on the ES6 path. Until that is chased
-down, the fast build is the node-driven one.
+33,669 ms (2.9x node) and `.ll` output takes **2,483 s — 41 minutes**, against
+node's 9.9 s for the same file. That is a 250x gap and it is the single worst
+number on this target.
+
+Emitting 21 MB through the native string builder is the pathological case, and
+the shape of it — 7x the output, 250x the time — is what quadratic concatenation
+looks like. It is the same class of defect `ranger_str_concat2` already fixed
+once on the ES6 path, so there is a known place to start. Until it is chased
+down, the fast build is the node-driven one, and a from-scratch rebuild with no
+Node anywhere is technically possible but not practical.
 
 `npm run selfhost:round:llvm` runs the whole chain and checks the two things
 that make it self-hosting rather than merely finishing:
@@ -635,37 +638,52 @@ assumed.
   BUILT; with no construction site there is nothing to compute it from, and the
   calls such a lambda makes through an unresolved receiver are dropped rather
   than emitted -- which keeps the module valid and loses the call.
-- **`strlen` and `charAt` count CODEPOINTS on JS and BYTES natively**, and the
-  LLVM writer straddles the difference. Measured, not inferred — the same
-  `def em:string "—"` answers `strlen 1, charAt 8212` under Node and
-  `strlen 3, charAt 226` native. `llvmEscapeCString` (`ng_LLVMIRWriter.rgr`) and
-  `utf8ByteLen` (`ng_LowIRBuilder.rgr`) both walk a string and UTF-8-*encode*
-  every code >= 128, which is right when the code is a codepoint and doubles the
-  encoding when it is already a UTF-8 byte. So the native binary emitting LLVM IR
-  turns `—` (`E2 80 94`) into `C3 A2 C2 80 C2 94`: 53 literals in the compiler's
-  own IR, every one a diagnostic string. The two functions share the assumption,
-  so they stay consistent with EACH OTHER — the `[N x i8]` sizes match the
-  escapes, the IR is valid, it links and runs, and only the message text is
-  mojibake. That mutual consistency is why nothing caught it.
-
-  Nothing in the suite covers it either: `selfhost:round:llvm` checks the native
-  binary emitting **ES6**, never emitting **LLVM IR**, and the ES6 writer copies
-  string literals through verbatim without ever looking at a character. The bug
-  needs a compiler that reads a non-ASCII literal and re-encodes it — which only
-  happens compiling the compiler *to LLVM* *with* the LLVM build.
-
-  A fix needs no new runtime primitive, because the divergence is detectable
-  from inside the language: `(strlen "—")` is 1 under codepoint semantics and 3
-  under byte semantics, so both functions can probe once and branch. What is NOT
-  safe is the tempting narrow version — "emit 128..255 raw, encode only above
-  255" — which fixes native and silently breaks Node for every codepoint in
-  U+0080..U+00FF.
-
-  The wider point outranks the writer bug: this is a language-level semantic
-  divergence. Any Ranger program that INDEXES a non-ASCII string means something
-  different on the two targets.
+- **`strlen` and `charAt` count CODEPOINTS on JS and BYTES natively.** The
+  writer bug this caused is fixed (below), but the divergence itself is still
+  there and is a language-level fact, not a backend detail: measured, the same
+  `def em:string "<em-dash>"` answers `strlen 1, charAt 8212` under Node and
+  `strlen 3, charAt 226` native. Any Ranger program that INDEXES a non-ASCII
+  string means something different on the two targets. Everything in the
+  compiler that needs bytes now goes through `LowIRUtil.utf8Bytes`; anything
+  else that indexes strings has not been audited.
 
 **Closed since this section was written:**
+
+- **The LLVM writer double-encoded every non-ASCII literal.**
+  `llvmEscapeCString` and `utf8ByteLen` each walked a string and UTF-8-*encoded*
+  every code >= 128 — right for a codepoint, a second encoding for a byte that
+  was already UTF-8 — so the native binary emitting LLVM IR turned `—`
+  (`E2 80 94`) into `C3 A2 C2 80 C2 94`, across 53 literals of the compiler's
+  own IR, every one a diagnostic string.
+
+  Worth keeping for the shape of it: the two functions computed the same thing
+  separately and agreed with EACH OTHER while both were wrong. The `[N x i8]`
+  sizes matched the escapes, so the IR was valid, linked, and ran — only the
+  message text was mojibake. Mutual consistency is what hid it, so the fix makes
+  both derive from one `LowIRUtil.utf8Bytes` where they cannot drift again.
+
+  Nothing in the suite could have caught it: `selfhost:round:llvm` checks the
+  native binary emitting **ES6**, never emitting **LLVM IR**, and the ES6 writer
+  copies literals verbatim without inspecting a character. It takes a compiler
+  that READS a non-ASCII literal and RE-ENCODES it, which only happens compiling
+  the compiler *to LLVM* *with* the LLVM build. That case now has a check.
+
+  Which semantics we are under is not decidable per character — a value in
+  128..255 is a byte natively and a Latin-1 codepoint on JS — but it is
+  decidable per string, so `looksLikeUtf8Bytes` validates the UTF-8 structure:
+  nothing above 255, every lead byte carrying its continuation bytes. Two
+  rejected alternatives are worth recording. "Emit 128..255 raw" fixes native
+  and silently breaks Node for every codepoint in U+0080..U+00FF. A
+  `(strlen "<em-dash>")` probe is briefer but stakes the compiler's encoding
+  correctness on one non-ASCII source character surviving every future editor —
+  and line 2 of `ng_LowIR.rgr` still carries an ASCII `?` where an em-dash was
+  lost to a bad transcode, so that is a live risk in this repo, not a
+  theoretical one.
+
+  Verified: Node's IR byte-identical to before the fix; the rebuilt native
+  binary's IR for the whole compiler **byte-identical to Node's** — 20,962,553
+  bytes, 495,821 lines, all 53 literals — where it used to differ; ES6
+  self-hosting intact; `test:llvm` 40/40; and a 1,485-file sweep with 0 crashes.
 
 - *"boxing covers `i32`/`i1` locals only"* — it now covers **every** local a
   capturing lambda assigns to: `i32`, `i1`, `f64`, strings and object or
