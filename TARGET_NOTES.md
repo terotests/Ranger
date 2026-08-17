@@ -154,11 +154,31 @@ npm run selfhost:build:llvm     # ...and link ./tmp/selfhost-llvm/rangerc
 npm run selfhost:round:llvm     # ...and compile the compiler WITH that binary
 ```
 
-**Where it stands: LLVM is the seventh self-hosting target.** The compiler
-compiles for LLVM with **zero errors** (631 before this work), the ~528k lines
-/ 22 MB of IR it produces for itself **pass `opt -passes=verify`**, `clang`
-links them with the C runtime into a 3 MB `rangerc`, and **that binary compiles
-the compiler**.
+**Where it stands: LLVM is the seventh self-hosting target, and it now carries
+every language feature the others do.** The compiler compiles for LLVM with
+**zero errors** (631 before this work), the ~490k lines / 20 MB of IR it
+produces for itself **pass `opt -passes=verify`**, `clang` links them with the C
+runtime into a 3 MB `rangerc`, and **that binary compiles the compiler**. It
+also compiles and runs `ComponentEngine.rgr`, the JavaScript interpreter in
+`gallery/game_engine/` — see *Shapes, and the game engine's interpreter* below.
+
+Two measurements worth keeping, both taken compiling the compiler itself
+(3.04 MB of ES6 out, 4-core Xeon 2.10 GHz, best of three, all three builds
+producing byte-identical output):
+
+| | time | binary | peak RSS |
+|---|---|---|---|
+| C++ `g++ -O2` | 3,519 ms | 6.28 MB | 797 MB |
+| Node `bin/output.js` | 7,071 ms | — | 1,093 MB |
+| LLVM `clang -O2` | 7,121 ms | **1.77 MB** | 1,596 MB |
+
+So the native binary is level with the Node build and about 2x behind C++,
+while being **3.5x smaller** than the C++ one — it emits direct code over a
+small C runtime where C++ instantiates `std::string`/`std::vector`/
+`std::shared_ptr` throughout. Memory is the weak spot: the refcounting frees
+very little (96% of objects are still live at exit), so memory grows
+monotonically and is reclaimed at process exit. That is survivable for a batch
+compiler and would not be for a language server.
 
 `npm run selfhost:round:llvm` runs the whole chain and checks the two things
 that make it self-hosting rather than merely finishing:
@@ -468,6 +488,71 @@ same every time: the Node build compiles these files (with
 `RgRegistryBridge.rgr` (2.58 MB) now come out of the native binary byte for
 byte the same as out of the Node build.
 
+### Shapes, and the game engine's interpreter
+
+A `shape` -- a closed variant family -- is the one language feature LLVM did not
+carry. PLAN_SHAPES.md listed ten targets that give a family its own
+representation and LLVM was not among them, so `ComponentEngine.rgr`, the
+JavaScript interpreter this repo writes in Ranger and the largest shape user in
+it, compiled TO JavaScript through the native binary but could not be compiled
+FOR it: 203 "Could not match argument types for case" and 19 for `is`.
+
+The representation costs nothing new. A shape already desugars to one record
+class per case plus a union over them, every object already carries its
+`RangerTypeDesc`, and the virtual dispatcher already narrows on it. So on this
+backend a shape value **is** the pointer to its case object:
+
+- `is v _:Shape.Case` is `ranger_obj_type(v) == @Shape_Case_typeDesc`
+- `case v x:Shape.Case { … }` is that same test, with the arm bound to the very
+  same pointer -- nothing copied, the way C#/Kotlin/Dart narrow
+- `to <Union> v`, the widening the front end inserts, is the identity
+- a union over SYSTEM classes (the JSON family, which lives in
+  `ranger_json.c` and has no object header) is not a descriptor compare and is
+  left alone
+
+An operator only matches when it has a template for the target
+(`findLanguageOper`), so `case` and `is` needed `llvm` entries in `stdlib.rgr`.
+LLVM is a code generator rather than a source writer, so those templates are
+markers that exist to make the operator bind; the lowering reads the call node.
+
+Six defects stood between that and a working shape, and only the first is about
+shapes at all:
+
+29. **No `record` ever had a constructor emitted**, shapes or not. The
+    synthesized constructor of a `record` carries a keyword MARKER parameter
+    beside each value parameter; the marker has no type, so `canLowerMethod`
+    refused the whole constructor. Every other writer filters those out
+    (`RangerCppClassWriter.writeArgsDef`). `record Pt { def x:int 0 }` did not
+    work on this backend at all.
+30. **`hasNewOper` is set on the enclosing node as well as on the `new`**, so a
+    caller's `node.getThird()` hands back the whole `(new Class (args))` rather
+    than the argument list -- which it does for a dotted class name like
+    `new Val.Num(42)`.
+31. **`to` had no lowering**, so every widened operand became the constant 0 and
+    `Value.equals(a b)` compared 0 with 0. This one lowering took the fixtures
+    from 14 passing to 26.
+32. **`identical` had no lowering** and answered false for every pair, including
+    a value and its own alias.
+33. **An int-keyed reference map FIELD was flagged both `isIntMap` and
+    `isObject`** -- the int-map branch fell through to the object fallback below
+    it. Field kinds are asked in order and object comes first, so the destructor
+    handed an `RtIMap` pointer to `ranger_obj_release`, which read an object
+    header that was never there: `free(): invalid pointer`.
+34. **An array literal in RETURN position was never built.** `return ([] "a" "b"
+    …)` answered its FIRST ELEMENT, so `UnicodeProps.names()` returned an `i8*`
+    from a function declared to return a ptr-array -- IR that does not parse.
+    The argument position had the same hole (defect 21); this is its twin.
+
+Also fixed on the way, and not shape-specific: `to_string` of a BOOLEAN wrote
+`1` / `0` through `"%d"` where every other target writes `true` / `false`.
+
+**Where it stands:** all 28 shape fixtures produce output identical to the ES6
+build, and all 16 negative fixtures are rejected with the same diagnostics. The
+native `engine_probe` loads a JS script, calls `init()` and `tick()`, and
+answers 42; `probe_main` evaluates arbitrary JavaScript and agrees with the ES6
+build on arithmetic, loops, `[3,1,2].sort().join("-")`,
+`"abc".toUpperCase()`, `Object.keys`, and a recursive `fib(15)`.
+
 ### What is left
 
 - **Closures are still incomplete.** A lambda that MUTATES a captured value
@@ -483,7 +568,7 @@ byte the same as out of the Node build.
   redeclaration, and an assignment to a captured string, leak for the same
   reason.
 - **Plugins cannot work.** `load_compiler_plugin` loads an npm module; a native
-  binary has no Node to load it into.
+  binary has no Node to load it into. This one is a boundary, not a gap.
 - **No exceptions.** `try` has no unwinding. The handler is an ordinary block
   and a null `unwrap` inside a `try` branches to it, which covers the one thing
   the compiler's own sources use `try` for; `error_msg` answers the same
