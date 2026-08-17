@@ -1110,7 +1110,17 @@ class VlCompile {
         }
 
         def marks (VlJson.arrayValue())
-        def titleText:VlJson (VlJson.stringValue(facetField))
+        ; What the strip of panels is CALLED, which is the facet channel's own
+        ; title where it stated one. Without it a grid of panels was named
+        ; after the column — "a" rather than "Factor A".
+        def facetKey:string "column"
+        if ((strlen rowField) > 0) {
+            facetKey = "row"
+        }
+        if wrapped {
+            facetKey = "facet"
+        }
+        def titleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src facetKey facetField))))
         if wrapped {
             push marks.arr (VlCompile.titleGroup("facet-title" "column-title" titleText ""))
             push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false))
@@ -1607,6 +1617,24 @@ class VlCompile {
         }
         out.setMember("encoding" encoding)
         return out
+    }
+
+    ; The channel's own title, read from the specification rather than from the
+    ; compiler's channel list: by the time a trellis is assembled the channels
+    ; have been re-read for the PANEL, which is a chart with no facet channel
+    ; in it at all.
+    sfn facetTitle:string (src:VlJson key:string fallback:string) {
+        def encoding:VlJson (src.get("encoding"))
+        if (encoding.isObject()) {
+            def cdef:VlJson (encoding.get(key))
+            if (cdef.isObject()) {
+                def stated:string (cdef.stringOr("title" ""))
+                if ((strlen stated) > 0) {
+                    return stated
+                }
+            }
+        }
+        return fallback
     }
 
     ; A layer is a specification with the outer one's data, size and shared
