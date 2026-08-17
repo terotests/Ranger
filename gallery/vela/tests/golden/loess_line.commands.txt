@@ -1,0 +1,104 @@
+rect x=0.5 y=0.5 w=180 h=120 stroke=#ddd strokeWidth=1
+group-begin
+group-begin
+line x=0.5 y=0.5 x2=0.5 y2=120.5 stroke=#ddd strokeWidth=1
+line x=36.5 y=0.5 x2=36.5 y2=120.5 stroke=#ddd strokeWidth=1
+line x=72.5 y=0.5 x2=72.5 y2=120.5 stroke=#ddd strokeWidth=1
+line x=108.5 y=0.5 x2=108.5 y2=120.5 stroke=#ddd strokeWidth=1
+line x=144.5 y=0.5 x2=144.5 y2=120.5 stroke=#ddd strokeWidth=1
+line x=180.5 y=0.5 x2=180.5 y2=120.5 stroke=#ddd strokeWidth=1
+group-end
+group-begin
+line x=0.5 y=120.5 x2=180.5 y2=120.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=72.5 x2=180.5 y2=72.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=24.5 x2=180.5 y2=24.5 stroke=#ddd strokeWidth=1
+group-end
+group-begin
+line x=0.5 y=120.5 x2=0.5 y2=125.5 stroke=#888 strokeWidth=1
+line x=36.5 y=120.5 x2=36.5 y2=125.5 stroke=#888 strokeWidth=1
+line x=72.5 y=120.5 x2=72.5 y2=125.5 stroke=#888 strokeWidth=1
+line x=108.5 y=120.5 x2=108.5 y2=125.5 stroke=#888 strokeWidth=1
+line x=144.5 y=120.5 x2=144.5 y2=125.5 stroke=#888 strokeWidth=1
+line x=180.5 y=120.5 x2=180.5 y2=125.5 stroke=#888 strokeWidth=1
+text x=0.5 y=127.5 size=10 align=left text=0 fill=#000
+text x=36.5 y=127.5 size=10 align=center text=20 fill=#000
+text x=72.5 y=127.5 size=10 align=center text=40 fill=#000
+text x=108.5 y=127.5 size=10 align=center text=60 fill=#000
+text x=144.5 y=127.5 size=10 align=center text=80 fill=#000
+text x=180.5 y=127.5 size=10 align=right text=100 fill=#000
+line x=0.5 y=120.5 x2=180.5 y2=120.5 stroke=#888 strokeWidth=1
+text x=90.5 y=141.5 size=11 align=center text=u fill=#000
+group-end
+group-begin
+line x=0.5 y=120.5 x2=-4.5 y2=120.5 stroke=#888 strokeWidth=1
+line x=0.5 y=72.5 x2=-4.5 y2=72.5 stroke=#888 strokeWidth=1
+line x=0.5 y=24.5 x2=-4.5 y2=24.5 stroke=#888 strokeWidth=1
+text x=-6.5 y=120.5 size=10 align=right text=0 fill=#000
+text x=-6.5 y=72.5 size=10 align=right text=20 fill=#000
+text x=-6.5 y=24.5 size=10 align=right text=40 fill=#000
+line x=0.5 y=120.5 x2=0.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-26.5 y=60.5 size=11 align=center text=v fill=#000
+group-end
+symbol x=2.358 y=65.417 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=5.31 y=64.903 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=7.619 y=51.902 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=10.809 y=49.874 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=12.443 y=45.343 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=17.372 y=45.485 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=18.353 y=31.387 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=23.002 y=20.35 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=25.922 y=28.433 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=27.86 y=22.138 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=29.7 y=18.082 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=34.259 y=10.241 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=35.744 y=20.39 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=39.991 y=13.162 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=40.943 y=28.466 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=46.017 y=28.109 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=48.231 y=24.415 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=50.963 y=19.838 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=53.271 y=28.774 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=57.046 y=19.476 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=58.698 y=16.663 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=63.484 y=32.338 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=65.898 y=41.554 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=68.429 y=36.247 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=71.64 y=32.719 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=73.429 y=38.65 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=77.107 y=60.85 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=79.11 y=63.538 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=82.658 y=62.688 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=84.06 y=58.118 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=86.659 y=78.382 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=89.989 y=65.479 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=94.136 y=78.816 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=96.394 y=91.498 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=99.553 y=91.003 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=102.157 y=98.712 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=107.084 y=87.588 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=108.124 y=95.41 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=109.516 y=89.371 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=112.894 y=104.594 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=117.895 y=98.105 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=121.075 y=110.717 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=123.475 y=114.026 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=127.408 y=114.449 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=127.298 y=93.048 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=132.035 y=112.579 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=133.349 y=98.004 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=135.929 y=90.07 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=139.82 y=88.51 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=142.915 y=100.603 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=146.812 y=100.651 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=149.747 y=90.646 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=150.228 y=88.205 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=154.26 y=83.34 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=158.189 y=68.65 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=159.415 y=74.868 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=163.701 y=61.673 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=167.33 y=65.201 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=167.521 y=53.014 size=30 shape=circle fill=#4c78a8 opacity=0.5
+symbol x=173.475 y=51.06 size=30 shape=circle fill=#4c78a8 opacity=0.5
+polyline points=2.358,62.847 5.31,58.187 7.619,54.594 10.809,49.708 12.443,47.241 17.372,39.955 18.353,38.533 23.002,31.904 25.922,27.851 27.86,26.284 29.7,24.558 34.259,22.502 35.744,22.275 39.991,21.8 40.943,21.677 46.017,22.447 48.231,23.159 50.963,24.439 53.271,25.719 57.046,28.13 58.698,29.063 63.484,33.148 65.898,36.413 68.429,39.82 71.64,44.139 73.429,46.884 77.107,52.753 79.11,56.109 82.658,62.164 84.06,64.576 86.659,69.166 89.989,74.237 94.136,79.455 96.394,82.306 99.553,85.776 102.157,88.862 107.084,94.079 108.124,94.975 109.516,96.098 112.894,98.263 117.895,100.459 121.075,100.903 123.475,101.06 127.298,101.583 127.408,101.551 132.035,100.85 133.349,100.275 135.929,98.746 139.82,95.736 142.915,93.15 146.812,88.776 149.747,85.318 150.228,84.663 154.26,79.151 158.189,73.692 159.415,71.959 163.701,65.783 167.33,60.42 167.521,60.135 173.475,51.13 stroke=firebrick strokeWidth=2
+group-end
+

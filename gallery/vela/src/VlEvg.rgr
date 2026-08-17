@@ -64,6 +64,13 @@ class VlEvgWriter {
     def chromeColour:[string:string]
     def chromeOrder:[string]
 
+    ; The size of the last chart written. The caller passes a view size in and
+    ; gets a box back that may be wider than it — a rotated title spills past
+    ; the extent that made room for it — so anything that has to size a page
+    ; around the chart has to be told, not assume.
+    def lastWidth:double 0.0
+    def lastHeight:double 0.0
+
     ; ------------------------------------------------------------------ page ---
     ; The chart as a fragment of EVG TSX: one absolutely positioned box with the
     ; paths and labels inside it.
@@ -90,6 +97,9 @@ class VlEvgWriter {
         ; a pie is the obvious case. The wrapper is what a stylesheet can centre
         ; it in; the chart itself keeps its own size, because that size is the
         ; drawing's and not the page's.
+        lastWidth = width
+        lastHeight = height
+
         def out:string ""
         out = (((out + indentText) + "<View className=\"chartBox\">") + (strfromcode 10))
         out = (((((out + indentText) + "  <View className=\"chart\" position=\"relative\" width=\"") + (VlEvgWriter.px(width))) + "\" height=\"") + (VlEvgWriter.px(height)))

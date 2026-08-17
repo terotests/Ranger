@@ -1959,6 +1959,79 @@ class VlCompile {
                     this.fail("only a filter written as an expression string is compiled here")
                 }
             } {
+                if (t.has("bin")) {
+                    ; A binning the SPECIFICATION asked for, rather than one an
+                    ; encoding implied. Same two transforms — the field's extent
+                    ; has to be known before the boundaries can be chosen — but
+                    ; the names come from the spec's own `as`.
+                    def bf:string (t.stringOr("field" ""))
+                    def bnames:[string] (VlCompile.namesOf((t.get("as")) bf))
+                    def base:string (itemAt bnames 0)
+                    def bext (VlJson.objectValue())
+                    bext.setMember("type" (VlJson.stringValue("extent")))
+                    bext.setMember("field" (VlJson.stringValue(bf)))
+                    bext.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                    push transforms.arr bext
+                    def bin (VlJson.objectValue())
+                    bin.setMember("type" (VlJson.stringValue("bin")))
+                    bin.setMember("field" (VlJson.stringValue(bf)))
+                    def binAs (VlJson.arrayValue())
+                    push binAs.arr (VlJson.stringValue(base))
+                    push binAs.arr (VlJson.stringValue((itemAt bnames 1)))
+                    bin.setMember("as" binAs)
+                    bin.setMember("signal" (VlJson.stringValue((base + "_bins"))))
+                    def bfrom (VlJson.objectValue())
+                    bfrom.setMember("signal" (VlJson.stringValue((base + "_extent"))))
+                    bin.setMember("extent" bfrom)
+                    bin.setMember("maxbins" (VlJson.numberValue(10.0)))
+                    push transforms.arr bin
+                } {
+                if (t.has("aggregate")) {
+                    def ag (VlJson.objectValue())
+                    ag.setMember("type" (VlJson.stringValue("aggregate")))
+                    if (t.has("groupby")) {
+                        ag.setMember("groupby" (t.get("groupby")))
+                    } {
+                        ag.setMember("groupby" (VlJson.arrayValue()))
+                    }
+                    VlCompile.spreadAggregate(ag (t.get("aggregate")))
+                    push transforms.arr ag
+                } {
+                if (t.has("joinaggregate")) {
+                    ; The same summary, kept BESIDE every row it summarises
+                    ; rather than replacing them, which is what lets a bar be
+                    ; drawn against its group's maximum.
+                    def ja (VlJson.objectValue())
+                    ja.setMember("type" (VlJson.stringValue("joinaggregate")))
+                    if (t.has("groupby")) {
+                        ja.setMember("groupby" (t.get("groupby")))
+                    }
+                    VlCompile.spreadAggregate(ja (t.get("joinaggregate")))
+                    push transforms.arr ja
+                } {
+                if (t.has("loess")) {
+                    ; A smoother over two fields, which REPLACES the data with
+                    ; one point per distinct x — so it is emitted as it stands
+                    ; and the runtime does the fitting.
+                    def lo (VlJson.objectValue())
+                    lo.setMember("type" (VlJson.stringValue("loess")))
+                    lo.setMember("x" (VlJson.stringValue((t.stringOr("on" "")))))
+                    lo.setMember("y" (VlJson.stringValue((t.stringOr("loess" "")))))
+                    if (t.has("groupby")) {
+                        lo.setMember("groupby" (t.get("groupby")))
+                    }
+                    if (t.has("bandwidth")) {
+                        lo.setMember("bandwidth" (t.get("bandwidth")))
+                    }
+                    def loNames (VlJson.arrayValue())
+                    push loNames.arr (VlJson.stringValue((t.stringOr("on" ""))))
+                    push loNames.arr (VlJson.stringValue((t.stringOr("loess" ""))))
+                    if (t.has("as")) {
+                        loNames = (t.get("as"))
+                    }
+                    lo.setMember("as" loNames)
+                    push transforms.arr lo
+                } {
                 if (t.has("calculate")) {
                     def f (VlJson.objectValue())
                     f.setMember("type" (VlJson.stringValue("formula")))
@@ -1971,8 +2044,67 @@ class VlCompile {
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
                 }
+                }
+                }
+                }
+                }
             }
         }
+    }
+
+    ; A Vega-Lite aggregate is a list of {op, field, as}; a Vega one is three
+    ; parallel lists. `count` names no field, and the reference writes a null
+    ; there rather than shortening the list.
+    sfn spreadAggregate:void (out:VlJson spec:VlJson) {
+        def ops (VlJson.arrayValue())
+        def fields (VlJson.arrayValue())
+        def names (VlJson.arrayValue())
+        def total:int (spec.count())
+        def k:int 0
+        while (k < total) {
+            def one:VlJson (spec.at(k))
+            def op:string (one.stringOr("op" "count"))
+            push ops.arr (VlJson.stringValue(op))
+            if (one.has("field")) {
+                push fields.arr (VlJson.stringValue((one.stringOr("field" ""))))
+            } {
+                push fields.arr (VlJson.nullValue())
+            }
+            def name:string (one.stringOr("as" ""))
+            if ((strlen name) == 0) {
+                name = op
+                if (one.has("field")) {
+                    name = ((op + "_") + (one.stringOr("field" "")))
+                }
+            }
+            push names.arr (VlJson.stringValue(name))
+            k = (k + 1)
+        }
+        out.setMember("ops" ops)
+        out.setMember("fields" fields)
+        out.setMember("as" names)
+    }
+
+    ; The two names a binning writes, from the spec's `as` when it gave one.
+    sfn namesOf:[string] (given:VlJson field:string) {
+        def out:[string]
+        if (given.isArray()) {
+            if ((given.count()) > 1) {
+                def a:VlJson (given.at(0))
+                def b:VlJson (given.at(1))
+                push out a.str
+                push out b.str
+                return out
+            }
+        }
+        if (given.isString()) {
+            push out given.str
+            push out (given.str + "_end")
+            return out
+        }
+        push out (("bin_maxbins_10_" + field))
+        push out (("bin_maxbins_10_" + field) + "_end")
+        return out
     }
 
     sfn transformName:string (t:VlJson) {
@@ -2455,6 +2587,10 @@ class VlCompile {
             sc.setMember("range" (this.positionRange(axis)))
             if (false) {
             } {
+                ; A continuous position scale that does NOT reach zero is
+                ; padded by five pixels, so a mark sitting on the lowest value
+                ; is not drawn half outside the plot. A scale extended to zero
+                ; already has that room and asks for none.
                 ; A binned axis already knows where its ticks go — the bin
                 ; edges — so it is neither niced nor extended to zero.
                 if ch.hasBin {
@@ -2467,13 +2603,46 @@ class VlCompile {
                     ; A bar's baseline is zero because its LENGTH is the value;
                     ; a line's is not, because only its height is read.
                     if (type != "log") {
-                        sc.setMember("zero" (VlJson.boolValue((this.zeroFor(ch)))))
+                        def reachesZero:boolean (this.zeroFor(ch))
+                        sc.setMember("zero" (VlJson.boolValue(reachesZero)))
+                        if (! reachesZero) {
+                            sc.setMember("padding" (VlJson.numberValue(5.0)))
+                        }
                     }
                 }
             }
         }
         this.applyDeclaredScale(sc ch)
         push out.arr sc
+    }
+
+    ; Was this field written by a `bin` the SPECIFICATION asked for? An
+    ; encoding-level bin is already known through `hasBin`; a spec-level one
+    ; produces an ordinary-looking field name that nothing downstream would
+    ; otherwise recognise as the edge of a bin.
+    fn fieldIsSpecBinned:boolean (field:string) {
+        if ((strlen field) == 0) {
+            return false
+        }
+        def own:VlJson (source.get("transform"))
+        if (! (own.isArray())) {
+            return false
+        }
+        def total:int (own.count())
+        def k:int 0
+        while (k < total) {
+            def t:VlJson (own.at(k))
+            if (t.has("bin")) {
+                def names:[string] (VlCompile.namesOf((t.get("as")) (t.stringOr("field" ""))))
+                for names name:string ni {
+                    if (name == field) {
+                        return true
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return false
     }
 
     ; The name of the field holding a value's place in its scale's declared
@@ -2547,14 +2716,25 @@ class VlCompile {
         if ((this.scaleTypeFor(ch)) == "log") {
             return false
         }
+        ; Nor does a BINNED field, however it came to be binned. A bin already
+        ; says where its own range starts, and extending that to zero draws a
+        ; chart of empty space with the bars crowded at one end.
+        if (this.fieldIsSpecBinned(ch.field)) {
+            return false
+        }
         ; A line or an area is read along one axis and measured up the other.
         ; The axis it is read ALONG starts wherever the data starts; the one it
         ; is measured up starts at nothing, because the height is the value.
         if ((markName == "line") || (markName == "area")) {
             return (ch.name == "y")
         }
+        ; A stack reaches from nothing — but only along the axis it stacks. The
+        ; other position channel was being extended to zero as well, which on a
+        ; chart whose both axes are numbers drags the whole plot sideways.
         if ((strlen stackField) > 0) {
-            return true
+            if ((ch.outField()) == stackField) {
+                return true
+            }
         }
         if ((markName == "bar") || (markName == "tick")) {
             return true
@@ -3179,9 +3359,62 @@ class VlCompile {
                 ref.setMember("field" (VlJson.stringValue((colour.outField()))))
                 update.setMember(key ref)
             }
+            this.applyMarkPaint(update key)
             return
         }
         update.setMember(key (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+        this.applyMarkPaint(update key)
+    }
+
+    ; What the MARK DEFINITION says about paint, as opposed to what a channel
+    ; says. `{"mark": {"type": "line", "color": "firebrick"}}` is how anyone
+    ; colours a single series, and it reached nothing: the colour came only
+    ; from a `color` channel, so a line asked to be firebrick came out the
+    ; palette's first blue and a text mark asked for white came out black.
+    ;
+    ; A channel still wins where there is one — that is Vega-Lite's order, and
+    ; it is why each of these asks whether its own channel was encoded before
+    ; it writes anything.
+    fn applyMarkPaint:void (update:VlJson key:string) {
+        if (markDef.has("color")) {
+            def hasColor:VlChannel (this.channel("color"))
+        if (! hasColor.defined) {
+                update.setMember(key (VlCompile.literal((markDef.get("color")))))
+            }
+        }
+        VlCompile.markLiteral(update markDef "fill" "fill")
+        VlCompile.markLiteral(update markDef "stroke" "stroke")
+        VlCompile.markLiteral(update markDef "fillOpacity" "fillOpacity")
+        VlCompile.markLiteral(update markDef "strokeOpacity" "strokeOpacity")
+        VlCompile.markLiteral(update markDef "strokeWidth" "strokeWidth")
+        VlCompile.markLiteral(update markDef "strokeDash" "strokeDash")
+        VlCompile.markLiteral(update markDef "cornerRadius" "cornerRadius")
+        VlCompile.markLiteral(update markDef "align" "align")
+        VlCompile.markLiteral(update markDef "baseline" "baseline")
+        VlCompile.markLiteral(update markDef "font" "font")
+        VlCompile.markLiteral(update markDef "fontSize" "fontSize")
+        VlCompile.markLiteral(update markDef "fontWeight" "fontWeight")
+        VlCompile.markLiteral(update markDef "tension" "tension")
+        ; opacity, size and shape each have a channel of their own, so they are
+        ; only taken from the mark when nothing encoded them.
+        def hasOpacity:VlChannel (this.channel("opacity"))
+        if (! hasOpacity.defined) {
+            VlCompile.markLiteral(update markDef "opacity" "opacity")
+        }
+        def hasSize:VlChannel (this.channel("size"))
+        if (! hasSize.defined) {
+            VlCompile.markLiteral(update markDef "size" "size")
+        }
+        def hasShape:VlChannel (this.channel("shape"))
+        if (! hasShape.defined) {
+            VlCompile.markLiteral(update markDef "shape" "shape")
+        }
+    }
+
+    sfn markLiteral:void (update:VlJson markDef:VlJson from:string to:string) {
+        if (markDef.has(from)) {
+            update.setMember(to (VlCompile.literal((markDef.get(from)))))
+        }
     }
 
     fn encodeAria:void (update:VlJson) {

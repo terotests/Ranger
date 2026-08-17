@@ -163,7 +163,10 @@ done
 
 node "$OUT/pdf_tool.js" "$FIXTURE" "$OUT/vector.pdf" >"$OUT/pdf_run.log" 2>&1
 node "$OUT/html_tool.js" "$FIXTURE" "$OUT/vector.html" >"$OUT/html_run.log" 2>&1
-node "$OUT/png_tool.js" "$FIXTURE" "$OUT/vector.png" >"$OUT/png_run.log" 2>&1
+# -debug because the check below reads the per-element render trace out of the
+# log; it used to be printed unconditionally, which made the tool unusable from
+# anywhere that is not a terminal.
+node "$OUT/png_tool.js" "$FIXTURE" "$OUT/vector.png" -debug >"$OUT/png_run.log" 2>&1
 
 check() {
   local label="$1" file="$2" needle="$3"
@@ -275,7 +278,7 @@ SVG_FIXTURE="gallery/pdf_writer/test/fixtures/imported_svg.tsx"
 
 node "$OUT/pdf_tool.js" "$SVG_FIXTURE" "$OUT/imported.pdf" >"$OUT/imported_pdf.log" 2>&1
 node "$OUT/html_tool.js" "$SVG_FIXTURE" "$OUT/imported.html" >"$OUT/imported_html.log" 2>&1
-node "$OUT/png_tool.js" "$SVG_FIXTURE" "$OUT/imported.png" >"$OUT/imported_png.log" 2>&1
+node "$OUT/png_tool.js" "$SVG_FIXTURE" "$OUT/imported.png" -debug >"$OUT/imported_png.log" 2>&1
 
 if [ ! -s "$OUT/imported.pdf" ]; then
   echo "  FAIL the imported-SVG PDF was not produced"

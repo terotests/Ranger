@@ -752,6 +752,18 @@ class VlRuntime {
         if (ttype == "identifier") {
             return rows
         }
+        ; A smoother: the curve a scatter plot implies, fitted locally. It
+        ; GENERATES its rows — the answer is one point per distinct x — so the
+        ; data set it produces replaces the one it read.
+        if (ttype == "loess") {
+            def lx:string (tdef.stringOr("x" ""))
+            def ly:string (tdef.stringOr("y" ""))
+            def lgroup:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            def bandwidth:double (tdef.doubleOr("bandwidth" 0.3))
+            def lnames:[string] (VlRuntime.stringList((tdef.get("as"))))
+            return (VlTransform.loess(rows lx ly lgroup bandwidth lnames))
+        }
+
         ; A date, reduced to the parts a chart groups by. Twelve bars for
         ; twelve months over four years of daily readings needs every March to
         ; become the SAME instant, which is what a time unit does — see

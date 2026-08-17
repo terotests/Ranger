@@ -63,7 +63,11 @@ const server = http.createServer((req, res) => {
   }
   const file = path.join(DIST, name === '/' ? 'index.html' : name);
   if (!file.startsWith(DIST) || !fs.existsSync(file)) { res.writeHead(404); res.end('no'); return; }
-  res.writeHead(200, { 'content-type': file.endsWith('.js') ? 'text/javascript' : 'text/html' });
+  const type = file.endsWith('.js') ? 'text/javascript'
+    : file.endsWith('.ttf') ? 'font/ttf'
+    : file.endsWith('.json') ? 'application/json'
+    : 'text/html';
+  res.writeHead(200, { 'content-type': type });
   res.end(fs.readFileSync(file));
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -166,12 +170,84 @@ async function render(spec) {
   const r = await render({
     $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
     data: { values: [{ x: 1, y: 2 }] },
-    transform: [{ loess: 'y', on: 'x' }],
+    transform: [{ density: 'y' }],
     mark: 'line',
-    encoding: { x: { field: 'x', type: 'quantitative' }, y: { field: 'y', type: 'quantitative' } }
+    encoding: { x: { field: 'value', type: 'quantitative' }, y: { field: 'density', type: 'quantitative' } }
   });
   const said = r.bad.join(' ');
-  check('an unimplemented transform is refused out loud', said.includes('loess'), said || '(said nothing)');
+  check('an unimplemented transform is refused out loud', said.includes('density'), said || '(said nothing)');
+}
+
+// 6. The second backend. The point of the WebGL tab is that the chart goes
+//    through the EVG stack instead — TSX, stylesheet, layout with the real
+//    faces — so this checks the whole of that chain reached the GPU, and that
+//    the text survived it, since text is what a missing font quietly loses.
+{
+  await render({
+    $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+    data: { values: [{ a: 'A', b: 28 }, { a: 'B', b: 55 }, { a: 'C', b: 43 }] },
+    mark: 'bar',
+    encoding: { x: { field: 'a', type: 'nominal' }, y: { field: 'b', type: 'quantitative' } }
+  });
+  await page.click('#tab-gl');
+  await page.waitForFunction(
+    () => window.__evgStats || /could not|no WebGL|would not|threw|did not/.test(
+      document.getElementById('glNote').textContent),
+    null, { timeout: 30000 });
+  const stats = await page.evaluate(() => window.__evgStats);
+  const note = await page.locator('#glNote').textContent();
+  if (stats && stats.error === undefined && !/no WebGL 2/.test(note)) {
+    check('the EVG display list is drawn on the GPU',
+      stats.drawn + (stats.paths || 0) >= 4 && stats.textRuns >= 4,
+      `${stats.drawn} quads, ${stats.paths || 0} paths, ${stats.textRuns} text runs`);
+    const size = await page.evaluate(() => {
+      const c = document.getElementById('gl');
+      return [c.width, c.height];
+    });
+    check('the canvas is sized from the display list', size[0] > 100 && size[1] > 100, size.join('x'));
+  } else if (/no WebGL 2/.test(note)) {
+    console.log('  --   this browser has no WebGL 2, so the GPU target was not drawn');
+  } else {
+    check('the EVG display list is drawn on the GPU', false, note);
+  }
+  await page.click('#tab-svg');
+}
+
+// 7. The raster target. Nothing in the browser draws this one — the bytes come
+//    back finished — so the check is that they are a PNG of the right size and
+//    that the <img> accepted them, which no amount of plausible-looking
+//    arithmetic would fake.
+{
+  await page.click('#tab-png');
+  await page.waitForFunction(
+    () => window.__velaPng || /could not|would not|threw|no image/.test(
+      document.getElementById('pngNote').textContent),
+    null, { timeout: 60000 });
+  const png = await page.evaluate(() => window.__velaPng);
+  const note = await page.locator('#pngNote').textContent();
+  check('Ranger rasterises the chart to PNG bytes', !!png && png.bytes > 1000, note);
+  if (png) {
+    const shown = await page.evaluate(() => {
+      const img = document.getElementById('pngImg');
+      return [img.naturalWidth, img.naturalHeight, img.complete];
+    });
+    check('the browser decodes them as an image', shown[2] && shown[0] === png.width,
+      `${shown[0]}x${shown[1]} decoded, ${png.width} encoded`);
+  }
+  await page.click('#tab-svg');
+}
+
+// 8. And the print target, which is a whole PDF with the faces embedded.
+{
+  await page.click('#tab-pdf');
+  await page.waitForFunction(
+    () => window.__velaPdf || /could not|would not|threw|no PDF/.test(
+      document.getElementById('pdfNote').textContent),
+    null, { timeout: 60000 });
+  const pdf = await page.evaluate(() => window.__velaPdf);
+  const note = await page.locator('#pdfNote').textContent();
+  check('Ranger writes the chart as a PDF', !!pdf && pdf.bytes > 1000, note);
+  await page.click('#tab-svg');
 }
 
 await browser.close();
@@ -180,5 +256,8 @@ server.close();
 for (const p of problems) console.log(`       ${p}`);
 if (problems.length) failed++;
 
-console.log(failed ? `\n${failed} check(s) failed` : `\nthe page works: Vega, Vega-Lite, a fetched url, and an honest refusal`);
+console.log(failed
+  ? `\n${failed} check(s) failed`
+  : `\nthe page works: Vega, Vega-Lite, a fetched url, an honest refusal,`
+    + `\nand the same chart through four backends — SVG, GPU, raster and print`);
 process.exit(failed ? 1 : 0);
