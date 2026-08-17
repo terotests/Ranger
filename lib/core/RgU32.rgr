@@ -1,0 +1,307 @@
+; =============================================================================
+; RgU32 — 32-bit unsigned algebra that means the same thing on every target
+; =============================================================================
+; SHA-256, HMAC, clz32, imul, ToInt32 and every checksum stand on this file.
+;
+; It is written the way it is because of measurements, not taste. The same four
+; expressions, compiled by this compiler and run:
+;
+;                          es6            python        go            cpp
+;   2147483647 + 1         2147483648     2147483648    2147483648    -2147483648
+;   bit_shl 1 31           -2147483648    2147483648    2147483648    -2147483648
+;   bit_shl 1 40           256            1099511627776 1099511627776 0
+;   bit_ushr (0-1) 4       268435455      268435455     1152921504606846975
+;
+; Three separate conclusions, each of which rules out an obvious implementation:
+;
+;   1. `int` IS 32-BIT SIGNED ON C++. Plain ARITHMETIC overflows there — the
+;      first row is not a shift, it is `+`. So a u32 cannot be held as an int in
+;      [0, 2^32); that range does not exist on C++. Every intermediate in this
+;      file therefore stays below 2^31, and the u32 is carried as a SIGNED
+;      32-bit BIT PATTERN, which is exactly the range C++ has and exactly what
+;      es6's bitwise operators already produce.
+;
+;   2. `bit_shl` IS NOT PORTABLE. On es6 it is JavaScript's `<<`: the result
+;      wraps to 32 bits and the COUNT is taken mod 32, so `1 << 40` is 256. On
+;      C++ it is undefined past the width and answers 0. On go and python it
+;      grows without bound. Shifts here are therefore bounded to 0..31 and
+;      re-wrapped, and never used to build a value wider than the pattern.
+;
+;   3. `bit_ushr` IS THREE DIFFERENT OPERATORS. 32-bit on es6 and python,
+;      64-bit on go, C++, rust and swift. It is NOT USED ANYWHERE in this file.
+;      `shr` below is built out of a mask, an arithmetic shift and one
+;      re-inserted sign bit instead.
+;
+; What IS safe on all four, and is all this file relies on:
+;   - `bit_and` / `bit_or` / `bit_xor` / `bit_not` on two signed 32-bit patterns.
+;     Wider targets sign-extend both operands identically above bit 31, so the
+;     low 32 bits and the sign agree with the narrow ones.
+;   - `+`, `-`, `*` and `bit_shl`/`bit_shr` on values that stay under 2^31.
+;   - Literals up to 2147483647. Nothing here writes a wider one: 2^32-1 and
+;     2^31 cannot be spelled as int literals on the C++ target at all.
+;
+; The cost is that and/or/xor over full patterns are single operators while
+; `add` and `wrap` split into 16-bit halves. That is a few instructions instead
+; of one, and it is the price of the same answer everywhere. BigIntNum.rgr made
+; the same trade for the same reason ("a product of two limbs is at most 2^30,
+; which is inside a 32-bit int on every target this compiles to").
+;
+; NOT HERE YET: `mul` (i.e. Math.imul). A 32x32 product mod 2^32 needs a 16x16
+; partial product, and 65535 * 65535 is 4294836225 — past what a C++ int holds,
+; so it needs 8-bit limbs and four more partial products. SHA-256, SHA-1, HMAC
+; and the CRC family use only add/xor/and/not/rot/shr, so nothing is blocked;
+; this is written down rather than half-done.
+; =============================================================================
+
+Import "RgNum.rgr"
+
+class RgU32 {
+
+    ; ---- constants that cannot be written as literals -----------------------
+
+    ; 2^31, as a double, because it does not fit a C++ int.
+    static sfn twoPow31D:double () {
+        return 2147483648.0
+    }
+
+    static sfn twoPow32D:double () {
+        return 4294967296.0
+    }
+
+    ; The bit pattern of 0x80000000, i.e. int32 min. Built by subtraction
+    ; because the literal 2147483648 overflows an int on the C++ target.
+    static sfn signBit:int () {
+        def m:int 2147483647
+        return (0 - (m + 1))
+    }
+
+    ; ---- halves -------------------------------------------------------------
+    ; Everything that has to survive a wider target goes through these. Each
+    ; half is in [0, 65535], so every product and sum below stays under 2^31.
+
+    static sfn loHalf:int (v:int) {
+        return (bit_and v 65535)
+    }
+
+    static sfn hiHalf:int (v:int) {
+        return (bit_and (bit_shr v 16) 65535)
+    }
+
+    ; Rebuild a signed 32-bit pattern from two 16-bit halves. The high half's
+    ; top bit becomes the sign, applied by SUBTRACTION rather than by shifting a
+    ; 1 into bit 31 — shifting there is the undefined case on C++.
+    static sfn fromHalves:int (hi:int lo:int) {
+        def h:int (bit_and hi 65535)
+        def l:int (bit_and lo 65535)
+        ; (h & 0x7FFF) << 16 is at most 0x7FFF0000, which fits every target.
+        def r:int (bit_or (bit_shl (bit_and h 32767) 16) l)
+        if ((bit_and h 32768) != 0) {
+            return (r + (RgU32.signBit()))
+        }
+        return r
+    }
+
+    ; Force any int into the signed 32-bit pattern its low 32 bits describe.
+    ; This is ECMAScript's ToInt32 over an integer, and it is what makes a
+    ; go/python result agree with an es6 one.
+    static sfn wrap32:int (v:int) {
+        return (RgU32.fromHalves((RgU32.hiHalf(v)) (RgU32.loHalf(v))))
+    }
+
+    ; ---- logical ------------------------------------------------------------
+    ; Safe as single operators — see the header. Named to avoid the global
+    ; operator namespace, which a static method may not enter.
+
+    static sfn band:int (a:int b:int) {
+        return (bit_and a b)
+    }
+
+    static sfn bor:int (a:int b:int) {
+        return (bit_or a b)
+    }
+
+    static sfn bxor:int (a:int b:int) {
+        return (bit_xor a b)
+    }
+
+    static sfn bnot:int (a:int) {
+        return (RgU32.wrap32((bit_not a)))
+    }
+
+    ; ---- shifts -------------------------------------------------------------
+    ; Counts are taken mod 32, as ECMAScript specifies, and then handled in
+    ; range so no target sees an out-of-width shift.
+
+    static sfn shiftCount:int (n:int) {
+        def c:int (bit_and n 31)
+        return c
+    }
+
+    static sfn shl:int (v:int n:int) {
+        def c:int (RgU32.shiftCount(n))
+        if (c == 0) {
+            return (RgU32.wrap32(v))
+        }
+        ; Shift the halves separately: the wide targets would otherwise carry
+        ; bits past bit 31 that es6 has already dropped.
+        def lo:int (RgU32.loHalf(v))
+        def hi:int (RgU32.hiHalf(v))
+        def full:int 0
+        if (c < 16) {
+            def newLo:int (bit_and (bit_shl lo c) 65535)
+            def carry:int (bit_shr lo (16 - c))
+            def newHi:int (bit_and ((bit_shl hi c) + carry) 65535)
+            full = (RgU32.fromHalves(newHi newLo))
+        } {
+            def d:int (c - 16)
+            def newHi:int (bit_and (bit_shl lo d) 65535)
+            full = (RgU32.fromHalves(newHi 0))
+        }
+        return full
+    }
+
+    ; LOGICAL right shift: zeroes come in at the top. bit_ushr is unusable, so
+    ; the sign bit is dropped, the rest shifted arithmetically, and the dropped
+    ; bit re-inserted at its new position.
+    static sfn shr:int (v:int n:int) {
+        def c:int (RgU32.shiftCount(n))
+        if (c == 0) {
+            return (RgU32.wrap32(v))
+        }
+        def body:int (bit_and v 2147483647)
+        def r:int (bit_shr body c)
+        if (v < 0) {
+            r = (bit_or r (bit_shl 1 (31 - c)))
+        }
+        return r
+    }
+
+    ; ARITHMETIC right shift: the sign bit is replicated. This one `bit_shr`
+    ; already does correctly on every target, once the input is a real pattern.
+    static sfn sar:int (v:int n:int) {
+        def c:int (RgU32.shiftCount(n))
+        if (c == 0) {
+            return (RgU32.wrap32(v))
+        }
+        return (bit_shr (RgU32.wrap32(v)) c)
+    }
+
+    static sfn rotl:int (v:int n:int) {
+        def c:int (RgU32.shiftCount(n))
+        if (c == 0) {
+            return (RgU32.wrap32(v))
+        }
+        def left:int (RgU32.shl(v c))
+        def right:int (RgU32.shr(v (32 - c)))
+        return (bit_or left right)
+    }
+
+    static sfn rotr:int (v:int n:int) {
+        def c:int (RgU32.shiftCount(n))
+        if (c == 0) {
+            return (RgU32.wrap32(v))
+        }
+        def right:int (RgU32.shr(v c))
+        def left:int (RgU32.shl(v (32 - c)))
+        return (bit_or left right)
+    }
+
+    ; ---- arithmetic ---------------------------------------------------------
+
+    ; (a + b) mod 2^32. Through the halves, because `a + b` itself overflows a
+    ; C++ int — which is signed-overflow undefined behaviour there, not merely a
+    ; wrap this code could rely on.
+    static sfn addU:int (a:int b:int) {
+        def lo:int ((RgU32.loHalf(a)) + (RgU32.loHalf(b)))
+        def carry:int (bit_shr lo 16)
+        def hi:int (((RgU32.hiHalf(a)) + (RgU32.hiHalf(b))) + carry)
+        return (RgU32.fromHalves((bit_and hi 65535) (bit_and lo 65535)))
+    }
+
+    static sfn sub:int (a:int b:int) {
+        return (RgU32.addU(a (RgU32.addU((RgU32.bnot(b)) 1))))
+    }
+
+    ; ---- unsigned view ------------------------------------------------------
+    ; The pattern as a NON-NEGATIVE value. It has to be a double: [0, 2^32) is
+    ; not an int range on the C++ target.
+
+    static sfn toUnsignedD:double (v:int) {
+        if (v >= 0) {
+            return (to_double v)
+        }
+        return ((to_double v) + (RgU32.twoPow32D()))
+    }
+
+    ; A non-negative double in [0, 2^32) back to a pattern.
+    static sfn fromUnsignedD:int (d:double) {
+        def two32:double (RgU32.twoPow32D())
+        def x:double d
+        ; Reduce into range without to_int, which saturates at 32 bits on C++.
+        def hiD:double 0.0
+        def loD:double 0.0
+        if (x < 0.0) {
+            x = (x + two32)
+        }
+        if (x >= two32) {
+            x = (x - (two32 * (RgNum.floorD((x / two32)))))
+        }
+        hiD = (RgNum.floorD((x / 65536.0)))
+        loD = (x - (hiD * 65536.0))
+        return (RgU32.fromHalves((to_int hiD) (to_int loD)))
+    }
+
+    ; ---- bit counting -------------------------------------------------------
+
+    ; Leading zeroes in the 32-bit pattern; 32 for zero. This is Math.clz32.
+    static sfn clz:int (v:int) {
+        def p:int (RgU32.wrap32(v))
+        if (p == 0) {
+            return 32
+        }
+        if (p < 0) {
+            return 0
+        }
+        def n:int 0
+        def probe:int 1073741824
+        while (n < 31) {
+            if ((bit_and p probe) != 0) {
+                return (n + 1)
+            }
+            probe = (bit_shr probe 1)
+            n = (n + 1)
+        }
+        return 31
+    }
+
+    static sfn popcount:int (v:int) {
+        def lo:int (RgU32.loHalf(v))
+        def hi:int (RgU32.hiHalf(v))
+        def n:int 0
+        def i:int 0
+        while (i < 16) {
+            if ((bit_and (bit_shr lo i) 1) != 0) {
+                n = (n + 1)
+            }
+            if ((bit_and (bit_shr hi i) 1) != 0) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ---- byte access --------------------------------------------------------
+    ; Big-endian, because every digest and every length field is.
+
+    static sfn byteAt:int (v:int i:int) {
+        def sh:int (8 * (3 - i))
+        return (bit_and (RgU32.shr(v sh)) 255)
+    }
+
+    static sfn fromBytesBE:int (b0:int b1:int b2:int b3:int) {
+        def hi:int ((bit_shl (bit_and b0 255) 8) + (bit_and b1 255))
+        def lo:int ((bit_shl (bit_and b2 255) 8) + (bit_and b3 255))
+        return (RgU32.fromHalves(hi lo))
+    }
+}

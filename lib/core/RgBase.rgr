@@ -1,0 +1,311 @@
+; =============================================================================
+; RgBase — hex, base64 and base64url
+; =============================================================================
+; There is no portable base64 in Ranger. There is no portable hex either. Both
+; are wanted by anything that moves bytes: data URIs, JWTs, HTTP basic auth,
+; digests printed for a human, binary embedded in JSON. `RgCrypto` needs all
+; three, and `btoa`/`atob` on the JS side map straight onto them.
+;
+; Bytes are `[int]` with each element in [0, 255]. Not `string`, because a Ranger
+; string is bytes on C++, code points on python/go/rust and UTF-16 units on es6
+; (see RgText) — "base64 of a string" would encode different input per target,
+; which is the exact bug this library exists to prevent. Text goes through
+; `RgText.toUtf8Bytes` first, which is the single place the string model is
+; handled.
+;
+; Decoding returns `RgBytesResult` rather than throwing: the core layer has no
+; `throw` (see lib/core/README.md), so a caller checks `ok` and the JS binding
+; turns `errorKind` into the exception the spec names.
+;
+; RFC 4648 throughout, including the parts people skip: padding is REQUIRED and
+; validated for base64, forbidden for base64url, and a non-zero tail bit in the
+; final quantum is rejected rather than silently discarded.
+; =============================================================================
+
+Import "RgText.rgr"
+
+; A decode either produced bytes or says why it did not.
+class RgBytesResult {
+    def ok:boolean false
+    def value:[int]
+    ; "" when ok. Otherwise the DOM/JS error name the binding should throw:
+    ; InvalidCharacterError for a bad character or a bad length.
+    def errorKind:string ""
+    def errorMessage:string ""
+
+    static sfn good:RgBytesResult (bytes:[int]) {
+        def r (new RgBytesResult)
+        r.ok = true
+        r.value = bytes
+        return r
+    }
+
+    static sfn bad:RgBytesResult (kind:string message:string) {
+        def r (new RgBytesResult)
+        r.ok = false
+        r.errorKind = kind
+        r.errorMessage = message
+        return r
+    }
+}
+
+class RgBase {
+
+    ; ---- alphabets ---------------------------------------------------------
+    ; As strings rather than arrays so the tables cost one literal each. Indexed
+    ; with RgText.unitAt, which is ASCII-safe on every model.
+
+    static sfn hexDigits:string () {
+        return "0123456789abcdef"
+    }
+
+    static sfn b64Alphabet:string () {
+        return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    }
+
+    static sfn b64UrlAlphabet:string () {
+        return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    }
+
+    ; The value of one base64 character, or -1. A table scan rather than
+    ; arithmetic on ranges: the two alphabets differ only in the last two
+    ; entries, so one function serves both and there is no second place for the
+    ; `+/` versus `-_` distinction to be got wrong.
+    static sfn b64ValueOf:int (alphabet:string ch:int) {
+        def i:int 0
+        while (i < 64) {
+            if ((RgText.unitAt(alphabet i)) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    static sfn hexValueOf:int (ch:int) {
+        if ((ch >= 48) && (ch <= 57)) {
+            return (ch - 48)
+        }
+        if ((ch >= 97) && (ch <= 102)) {
+            return ((ch - 97) + 10)
+        }
+        if ((ch >= 65) && (ch <= 70)) {
+            return ((ch - 65) + 10)
+        }
+        return (0 - 1)
+    }
+
+    ; ---- hex ----------------------------------------------------------------
+
+    ; Lowercase, two characters per byte, no separator. This is what every
+    ; digest in the wild is printed as.
+    static sfn hexEncode:string (bytes:[int]) {
+        def digits:string (RgBase.hexDigits())
+        def out:string ""
+        def i:int 0
+        def n:int (array_length bytes)
+        while (i < n) {
+            def b:int (bit_and (itemAt bytes i) 255)
+            def hi:int (bit_shr b 4)
+            def lo:int (bit_and b 15)
+            out = (out + (RgText.substr(digits hi (hi + 1))))
+            out = (out + (RgText.substr(digits lo (lo + 1))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Accepts either case. An odd length is an error rather than a silent
+    ; zero-pad, because "0f" and "f0" are different bytes and guessing which one
+    ; a caller meant is not this function's business.
+    static sfn hexDecode:RgBytesResult (s:string) {
+        def n:int (RgText.len(s))
+        if ((bit_and n 1) != 0) {
+            return (RgBytesResult.bad("InvalidCharacterError" "hex string has an odd length"))
+        }
+        def out:[int]
+        def i:int 0
+        while (i < n) {
+            def hi:int (RgBase.hexValueOf((RgText.unitAt(s i))))
+            def lo:int (RgBase.hexValueOf((RgText.unitAt(s (i + 1)))))
+            if ((hi < 0) || (lo < 0)) {
+                return (RgBytesResult.bad("InvalidCharacterError" "hex string has a non-hex character"))
+            }
+            push out ((hi * 16) + lo)
+            i = (i + 2)
+        }
+        return (RgBytesResult.good(out))
+    }
+
+    ; ---- base64 -------------------------------------------------------------
+
+    ; Shared by both alphabets. `pad` is what separates base64 (RFC 4648 §4,
+    ; padded) from base64url (§5, unpadded by convention and by every consumer
+    ; that matters — JWT forbids the padding outright).
+    static sfn encodeWith:string (alphabet:string bytes:[int] pad:boolean) {
+        def out:string ""
+        def n:int (array_length bytes)
+        def i:int 0
+        while ((i + 2) < n) {
+            def b0:int (bit_and (itemAt bytes i) 255)
+            def b1:int (bit_and (itemAt bytes (i + 1)) 255)
+            def b2:int (bit_and (itemAt bytes (i + 2)) 255)
+            def t:int (((b0 * 65536) + (b1 * 256)) + b2)
+            def c0:int (bit_and (bit_shr t 18) 63)
+            def c1:int (bit_and (bit_shr t 12) 63)
+            def c2:int (bit_and (bit_shr t 6) 63)
+            def c3:int (bit_and t 63)
+            out = (out + (RgText.substr(alphabet c0 (c0 + 1))))
+            out = (out + (RgText.substr(alphabet c1 (c1 + 1))))
+            out = (out + (RgText.substr(alphabet c2 (c2 + 1))))
+            out = (out + (RgText.substr(alphabet c3 (c3 + 1))))
+            i = (i + 3)
+        }
+        def left:int (n - i)
+        if (left == 1) {
+            def a0:int (bit_and (itemAt bytes i) 255)
+            def d0:int (bit_shr a0 2)
+            def d1:int (bit_and (a0 * 16) 63)
+            out = (out + (RgText.substr(alphabet d0 (d0 + 1))))
+            out = (out + (RgText.substr(alphabet d1 (d1 + 1))))
+            if pad {
+                out = (out + "==")
+            }
+        }
+        if (left == 2) {
+            def e0:int (bit_and (itemAt bytes i) 255)
+            def e1:int (bit_and (itemAt bytes (i + 1)) 255)
+            def f0:int (bit_shr e0 2)
+            def f1:int (bit_and ((e0 * 16) + (bit_shr e1 4)) 63)
+            def f2:int (bit_and (e1 * 4) 63)
+            out = (out + (RgText.substr(alphabet f0 (f0 + 1))))
+            out = (out + (RgText.substr(alphabet f1 (f1 + 1))))
+            out = (out + (RgText.substr(alphabet f2 (f2 + 1))))
+            if pad {
+                out = (out + "=")
+            }
+        }
+        return out
+    }
+
+    ; `strict` demands correct padding and rejects a final quantum whose unused
+    ; low bits are non-zero. A decoder that ignores those accepts several
+    ; different strings for the same bytes, which is how base64 malleability
+    ; bugs get in.
+    static sfn decodeWith:RgBytesResult (alphabet:string s:string requirePad:boolean) {
+        def units:[int] (RgText.toCodeUnits(s))
+        def clean:[int]
+        def padCount:int 0
+        def i:int 0
+        def n:int (array_length units)
+        while (i < n) {
+            def ch:int (itemAt units i)
+            if (ch == 61) {
+                padCount = (padCount + 1)
+            } {
+                if (padCount > 0) {
+                    return (RgBytesResult.bad("InvalidCharacterError" "base64 has a character after the padding"))
+                }
+                def v:int (RgBase.b64ValueOf(alphabet ch))
+                if (v < 0) {
+                    return (RgBytesResult.bad("InvalidCharacterError" "base64 has a character outside the alphabet"))
+                }
+                push clean v
+            }
+            i = (i + 1)
+        }
+        if (padCount > 2) {
+            return (RgBytesResult.bad("InvalidCharacterError" "base64 has more than two padding characters"))
+        }
+        def m:int (array_length clean)
+        def rem:int (m - ((idiv m 4) * 4))
+        if (rem == 1) {
+            return (RgBytesResult.bad("InvalidCharacterError" "base64 has a one-character final quantum"))
+        }
+        if requirePad {
+            if (rem != 0) {
+                def want:int 0
+                if (rem == 2) {
+                    want = 2
+                }
+                if (rem == 3) {
+                    want = 1
+                }
+                if (padCount != want) {
+                    return (RgBytesResult.bad("InvalidCharacterError" "base64 is not padded to a multiple of four"))
+                }
+            }
+        }
+        def out:[int]
+        def k:int 0
+        while ((k + 3) < m) {
+            def q0:int (itemAt clean k)
+            def q1:int (itemAt clean (k + 1))
+            def q2:int (itemAt clean (k + 2))
+            def q3:int (itemAt clean (k + 3))
+            def t:int ((((q0 * 262144) + (q1 * 4096)) + (q2 * 64)) + q3)
+            push out (bit_and (bit_shr t 16) 255)
+            push out (bit_and (bit_shr t 8) 255)
+            push out (bit_and t 255)
+            k = (k + 4)
+        }
+        def tail:int (m - k)
+        if (tail == 2) {
+            def r0:int (itemAt clean k)
+            def r1:int (itemAt clean (k + 1))
+            ; The low 4 bits of the second character are not part of any byte.
+            if ((bit_and r1 15) != 0) {
+                return (RgBytesResult.bad("InvalidCharacterError" "base64 final quantum has non-zero unused bits"))
+            }
+            push out (bit_and ((r0 * 4) + (bit_shr r1 4)) 255)
+        }
+        if (tail == 3) {
+            def u0:int (itemAt clean k)
+            def u1:int (itemAt clean (k + 1))
+            def u2:int (itemAt clean (k + 2))
+            ; The low 2 bits of the third character are likewise unused.
+            if ((bit_and u2 3) != 0) {
+                return (RgBytesResult.bad("InvalidCharacterError" "base64 final quantum has non-zero unused bits"))
+            }
+            push out (bit_and ((u0 * 4) + (bit_shr u1 4)) 255)
+            push out (bit_and ((u1 * 16) + (bit_shr u2 2)) 255)
+        }
+        return (RgBytesResult.good(out))
+    }
+
+    static sfn base64Encode:string (bytes:[int]) {
+        return (RgBase.encodeWith((RgBase.b64Alphabet()) bytes true))
+    }
+
+    static sfn base64Decode:RgBytesResult (s:string) {
+        return (RgBase.decodeWith((RgBase.b64Alphabet()) s true))
+    }
+
+    static sfn base64UrlEncode:string (bytes:[int]) {
+        return (RgBase.encodeWith((RgBase.b64UrlAlphabet()) bytes false))
+    }
+
+    static sfn base64UrlDecode:RgBytesResult (s:string) {
+        return (RgBase.decodeWith((RgBase.b64UrlAlphabet()) s false))
+    }
+
+    ; ---- text convenience ---------------------------------------------------
+    ; UTF-8 in, UTF-8 out. These are what a caller actually reaches for, and
+    ; routing them through RgText keeps the string model in one place.
+
+    static sfn base64EncodeText:string (text:string) {
+        return (RgBase.base64Encode((RgText.toUtf8Bytes(text))))
+    }
+
+    static sfn base64DecodeText:string (s:string) {
+        def r:RgBytesResult (RgBase.base64Decode(s))
+        if (false == r.ok) {
+            return ""
+        }
+        return (RgText.fromUtf8Bytes(r.value))
+    }
+
+    static sfn hexEncodeText:string (text:string) {
+        return (RgBase.hexEncode((RgText.toUtf8Bytes(text))))
+    }
+}

@@ -32,7 +32,7 @@
     "docs:lint": "vale --config docs/style/vale/.vale.ini docs/site/src/content/docs docs/descriptions",
     "build:dist": "npm run compile && npm run build:dist:copy && npm run build:dist:module",
     "build:dist:copy": "cp ./bin/output.js ./dist/rgrc.js && cp ./bin/Lang.rgr ./dist/Lang.rgr && cp ./bin/stdops.rgr ./dist/stdops.rgr && rm -rf dist/lib && cp -r ./lib ./dist/lib",
-    "build:dist:module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -d=./compiler/bin -o=api.ts && tsc --declaration --module commonjs --target es2015 --moduleResolution node --outDir ./dist ./compiler/bin/api.ts && node scripts/patch-chain-desugar.js",
+    "build:dist:module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -d=./compiler/bin -o=api.ts && tsc --declaration --module commonjs --target es2015 --moduleResolution node --outDir ./dist ./compiler/bin/api.ts",
     "prepublishOnly": "npm run build:dist && npm run test:publish",
     "test-any-ts": "node bin/testcomp.js ./features/any/test_any.rgr -es6 -typescript",
     "test-any-csharp": "node bin/testcomp.js ./features/any/test_any.rgr -l=csharp",
@@ -64,7 +64,7 @@
     "selfhost:check:kotlin": "npm run selfhost:compile:kotlin && kotlinc -J-Xmx12g ./tmp/selfhost-kotlin/ranger_compiler.kt -include-runtime -d ./tmp/selfhost-kotlin/rangerc.jar",
     "selfhost:build:kotlin": "npm run selfhost:check:kotlin && npm run selfhost:copylibs:kotlin",
     "selfhost:copylibs:kotlin": "cp ./compiler/Lang.rgr ./tmp/selfhost-kotlin/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost-kotlin/stdops.rgr && mkdir -p ./tmp/selfhost-kotlin/lib && cp ./lib/*.rgr ./tmp/selfhost-kotlin/lib/",
-    "compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js && npm run compile:fixcrlf && node scripts/patch-chain-desugar.js && npm run compile:copylibs",
+    "compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js && npm run compile:fixcrlf && npm run compile:copylibs",
     "compile:fixcrlf": "sed -i '' 's/\\r$//' bin/output.js || sed -i 's/\\r$//' bin/output.js || true",
     "compile:copylibs": "cp ./compiler/Lang.rgr ./bin/Lang.rgr && cp ./lib/stdops.rgr ./bin/stdops.rgr",
     "compile:win": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js && copy .\\compiler\\Lang.rgr .\\bin\\Lang.rgr && copy .\\lib\\stdops.rgr .\\bin\\stdops.rgr",
@@ -393,9 +393,12 @@
     "test:evg:all": "npm run test:evg && npm run test:evg:fonts && npm run test:evg:layout && npm run test:evg:frontend && npm run test:evg:vector",
     "showcase": "node gallery/evg/showcase/build.mjs",
     "showcase:gl": "node gallery/evg/showcase/tests/gl_smoke.mjs",
-  "evg:displaylist": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_displaylist_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_displaylist_tool.js -nodecli && node ./gallery/pdf_writer/bin/evg_displaylist_tool.js",
-  "check:stack": "node gallery/game_engine/build-support/check-stack-headroom.mjs",
-  "test:evg:layout": "bash gallery/pdf_writer/test/run_layout.sh"
+    "evg:displaylist": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_displaylist_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_displaylist_tool.js -nodecli && node ./gallery/pdf_writer/bin/evg_displaylist_tool.js",
+    "check:stack": "node gallery/game_engine/build-support/check-stack-headroom.mjs",
+    "test:evg:layout": "bash gallery/pdf_writer/test/run_layout.sh",
+    "test:core": "vitest run --config tests/vitest.core.config.ts",
+    "esprobes:gen": "node scripts/gen-es-conformance-probes.cjs",
+    "test:esconformance": "vitest run --config tests/vitest.esconformance.config.ts"
   },
   "repository": {
     "type": "git",
