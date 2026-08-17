@@ -47,6 +47,11 @@ class VlDrawCommand {
     def fillOpacity:double 1.0
     def stroke:string ""
     def hasStroke:boolean false
+    ; A stroke the specification NAMED but gave no width. It paints nothing —
+    ; the picture is the same either way — but the reference writes it out, and
+    ; a comparison that reads every attribute is the whole point of the
+    ; harness, so it is written out here too.
+    def strokeNamed:boolean false
     def strokeWidth:double 1.0
     def strokeOpacity:double 1.0
     def opacity:double 1.0
@@ -626,6 +631,7 @@ class VlSceneCommands {
             if (stroke != "transparent") {
                 cmd.stroke = stroke
                 cmd.hasStroke = true
+                cmd.strokeNamed = true
                 cmd.strokeWidth = 1.0
             }
         }

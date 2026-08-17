@@ -266,7 +266,7 @@ class VlSvgWriter {
         } {
             out = (out + " fill=\"none\"")
         }
-        if cmd.hasStroke {
+        if (cmd.hasStroke || cmd.strokeNamed) {
             out = ((((out + " stroke=\"") + cmd.stroke) + "\""))
             out = ((((out + " stroke-width=\"") + (VlJson.formatNumber(cmd.strokeWidth 4))) + "\""))
             if ((strlen cmd.strokeDash) > 0) {

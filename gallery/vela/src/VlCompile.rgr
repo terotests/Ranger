@@ -5736,6 +5736,14 @@ class VlCompile {
         ; different way, and each gets a scale of its own name. Read as
         ; nothing, the cells came out the palette's first blue and the chart
         ; had no key at all.
+        ; How solid the paint is, and how thick the outline. These are channels
+        ; too — a bar that fades until it is selected and outlines itself when
+        ; it is says so on `fillOpacity` and `strokeWidth`, and read as nothing
+        ; the chart drew every bar the same and lost the whole interaction.
+        this.paintValueChannel(update "fillOpacity")
+        this.paintValueChannel(update "strokeOpacity")
+        this.paintValueChannel(update "strokeWidth")
+        this.paintValueChannel(update "strokeDash")
         if (this.paintChannel(update "fill")) {
             this.paintChannel(update "stroke")
             this.applyMarkPaint(update "fill")
@@ -5822,6 +5830,29 @@ class VlCompile {
 
     ; One of the two paint channels, written on the mark if it was encoded.
     ; Answers whether it was.
+    ; A channel that is a plain number or colour rather than a category: how
+    ; opaque, how thick, how dashed. It takes a scale only when it reads a
+    ; field, which is rare — what these carry is nearly always a constant or a
+    ; condition over one.
+    fn paintValueChannel:void (update:VlJson name:string) {
+        def ch:VlChannel (this.channel(name))
+        if (! ch.defined) {
+            return
+        }
+        def base:VlJson (VlCompile.literal(ch.value))
+        if (! ch.hasValue) {
+            if (! (ch.encodes())) {
+                return
+            }
+            base = (VlJson.objectValue())
+            if (! (VlCompile.suppressed(ch "scale"))) {
+                base.setMember("scale" (VlJson.stringValue((this.sname(name)))))
+            }
+            base.setMember("field" (VlJson.stringValue((ch.outField()))))
+        }
+        update.setMember(name (this.withCondition(ch base)))
+    }
+
     fn paintChannel:boolean (update:VlJson name:string) {
         def ch:VlChannel (this.channel(name))
         if (! ch.defined) {
