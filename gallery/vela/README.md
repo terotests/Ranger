@@ -300,14 +300,14 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **100** |
-| drawn, but not the same picture | 106 | 61 |
-| refused, with a reason | 58 | 14 |
+| drawn exactly as the reference draws them | 11 | **111** |
+| drawn, but not the same picture | 106 | 53 |
+| refused, with a reason | 58 | 11 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **57.1% exact, 92.0% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **63.4% exact, 93.7% drawn** |
 
-Every one of those eighty-nine came from the report rather than from a guess,
+Every one of those hundred came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
 reaches a thousand, so nobody noticed that thousands were not grouped; none of
 its legend labels is long enough to be truncated, so nobody noticed that a
@@ -327,7 +327,7 @@ invisible. And `"point": {"filled": false}` was read as a boolean, which an
 object is not, so a line asked for dots came out bare. None of the four said
 anything; they each just drew the wrong picture.
 
-The remaining sixty-one are a long tail rather than a wall. Most come out within
+The remaining fifty-three are a long tail rather than a wall. Most come out within
 a few pixels of the reference and differ for their own reason — a rounding
 rule here, a guide default there — which is what a coverage report is for:
 without it, each of those would be found one paste at a time.
