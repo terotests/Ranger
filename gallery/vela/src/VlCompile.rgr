@@ -3834,10 +3834,36 @@ class VlCompile {
                     }
                     push transforms.arr pv
                 } {
+                if (t.has("timeUnit")) {
+                    ; A time unit as a TRANSFORM rather than on a channel: the
+                    ; same rounding, written where the data is prepared, so
+                    ; that everything after it can group by the answer. Both
+                    ; ends of the unit come out — the interval a year covers is
+                    ; a year, not an instant — under the stated name and that
+                    ; name with `_end`.
+                    def tu (VlJson.objectValue())
+                    tu.setMember("field" (VlJson.stringValue((t.stringOr("field" "")))))
+                    tu.setMember("type" (VlJson.stringValue("timeunit")))
+                    def tuUnits (VlJson.arrayValue())
+                    for (VlCompile.splitTimeUnit((t.stringOr("timeUnit" "")))) unit:string ui {
+                        push tuUnits.arr (VlJson.stringValue(unit))
+                    }
+                    tu.setMember("units" tuUnits)
+                    def named:string (t.stringOr("as" ""))
+                    if ((strlen named) == 0) {
+                        named = ((t.stringOr("timeUnit" "")) + ("_" + (t.stringOr("field" ""))))
+                    }
+                    def unitAs (VlJson.arrayValue())
+                    push unitAs.arr (VlJson.stringValue(named))
+                    push unitAs.arr (VlJson.stringValue((named + "_end")))
+                    tu.setMember("as" unitAs)
+                    push transforms.arr tu
+                } {
                     ; The rest name themselves by their leading key, which is
                     ; how Vega-Lite writes a transform, so the refusal can say
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
                 }
                 }
                 }
