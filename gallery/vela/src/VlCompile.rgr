@@ -5837,7 +5837,12 @@ class VlCompile {
                 def op:string by.aggregate
                 if ((strlen op) == 0) { op = "min" }
                 spec.setMember("op" (VlJson.stringValue(op)))
-                spec.setMember("field" (VlJson.stringValue(by.field)))
+                ; A COUNT counts rows and reads no column, so it names none.
+                ; Named as the empty string it was a column nobody has, and
+                ; the categories came out in the order they were first seen.
+                if ((strlen by.field) > 0) {
+                    spec.setMember("field" (VlJson.stringValue(by.field)))
+                }
                 if descending {
                     spec.setMember("order" (VlJson.stringValue("descending")))
                 }

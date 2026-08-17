@@ -973,13 +973,22 @@ class VlRuntime {
             return values
         }
         def descending:boolean ((sortDef.stringOr("order" "ascending")) == "descending")
+        ; A COUNT names no column — it counts rows — so a sort that names none
+        ; is not a sort by the values' own names. Read as one, a chart ordered
+        ; by how many cars share a name came out alphabetical.
         if (! (sortDef.has("field"))) {
-            return (VlRuntime.sortedNatural(values descending))
+            if ((sortDef.stringOr("op" "")) != "count") {
+                return (VlRuntime.sortedNatural(values descending))
+            }
         }
         ; By an aggregate of another column: one number per category, and the
         ; categories put in order of it. "Biggest first" is written this way.
         def by:string (sortDef.stringOr("field" ""))
         def op:string (sortDef.stringOr("op" "sum"))
+        if ((strlen by) == 0) {
+            by = domainField
+            op = "count"
+        }
         ; The rows this domain reads may be the AGGREGATED ones, where the
         ; column the sort names has already become `sum_people`. The reference
         ; points the domain at the rows before the aggregate; pointing it at
