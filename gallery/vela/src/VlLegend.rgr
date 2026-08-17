@@ -670,9 +670,19 @@ class VlLegend {
             box.translate(0.0 y)
             def extent:double (box.y2 - y)
             if (clipHeight > 0.0) {
-                if (extent > clipHeight) {
-                    extent = clipHeight
-                }
+                ; Clipping fixes the row height rather than capping it: every
+                ; row of the key is that tall, the small symbols centred in
+                ; their share and the big ones spilling over it. Treated as a
+                ; maximum, the rows nearest the top were as short as their own
+                ; symbols and the whole key rode up.
+                def own:double extent
+                ; Centred in its share whichever way it overflows: a symbol
+                ; smaller than the row sits in the middle of it, and one
+                ; bigger spills equally above and below.
+                def shift:double (VlBounds.roundHalfUp(((clipHeight - own) / 2.0)))
+                row.setNumber("y" (y + shift))
+                box.translate(0.0 shift)
+                extent = clipHeight
             }
             previousExtent = (VlBounds.ceilTo(extent))
             row.setNumber("height" extent)

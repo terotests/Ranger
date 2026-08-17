@@ -7300,7 +7300,7 @@ class VlCompile {
                     l2.setMember("encode" encode)
                 }
                 if ((markName == "circle") || (markName == "square")) {
-                    l2.setMember("encode" (VlCompile.filledSymbolEncode((this.dotOpacity()) (this.markColour()))))
+                    l2.setMember("encode" (VlCompile.filledSymbolEncode((this.markOpacity((this.dotOpacity()))) (this.markColour()) (this.markOutline()) (this.opacityStated()))))
                 }
                 push out.arr l2
             }
@@ -7403,11 +7403,20 @@ class VlCompile {
 
     ; The key of an outlined mark is an outline too: transparent inside, and
     ; the same partial opacity the points are drawn with.
-    sfn filledSymbolEncode:VlJson (opacity:double paint:string) {
+    sfn filledSymbolEncode:VlJson (opacity:double paint:string outline:string stated:boolean) {
         def update (VlJson.objectValue())
         update.setMember("fill" (VlCompile.literal((VlJson.stringValue(paint)))))
         update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(opacity)))))
-        update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("transparent")))))
+        ; A key stands for the mark, outline and all: a circle drawn with a
+        ; black edge is named by a dot with a black edge, not by one with none.
+        ; …and as see-through in its fill as the mark is, where the chart SAID
+        ; how see-through that is. A dot's own default transparency is not a
+        ; statement about its fill and the reference writes none; an opacity
+        ; the specification asked for is, and it writes it on both.
+        if stated {
+            update.setMember("fillOpacity" (VlCompile.literal((VlJson.numberValue(opacity)))))
+        }
+        update.setMember("stroke" (VlCompile.literal((VlJson.stringValue(outline)))))
         def symbols (VlJson.objectValue())
         symbols.setMember("update" update)
         def out (VlJson.objectValue())
@@ -7554,6 +7563,31 @@ class VlCompile {
     ; How transparent the mark is: the channel says first, because a channel is
     ; how a chart makes one layer's marks appear only on hover, and the mark
     ; definition second.
+    ; The outline a key's symbol is drawn with: the mark's own, where it has
+    ; one, and nothing where it does not.
+    ; Did the chart SAY how see-through the mark is, or is it the default a
+    ; dot is drawn with?
+    fn opacityStated:boolean () {
+        if (markDef.has("opacity")) {
+            return true
+        }
+        def ch:VlChannel (this.channel("opacity"))
+        if ch.defined {
+            if ch.hasValue {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn markOutline:string () {
+        def outline:VlJson (markDef.get("stroke"))
+        if (outline.isString()) {
+            return (outline.asString())
+        }
+        return "transparent"
+    }
+
     fn markOpacity:double (fallback:double) {
         def ch:VlChannel (this.channel("opacity"))
         if ch.defined {
