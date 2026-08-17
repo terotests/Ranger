@@ -57,6 +57,9 @@ class VlScale {
 
     ; Ordinal output values.
     def rangeValues:[string]
+    ; Whether those values are a RAMP rather than a list: a continuous scheme
+    ; handed to an ordinal scale is sampled along, not taken in turn.
+    def rampRange:boolean false
 
     ; Bin boundaries, when the scale was built for binned data. An axis over a
     ; binned scale labels the bins, not an arbitrary tick count.
@@ -297,7 +300,22 @@ class VlScale {
         if (n == 1) {
             return (itemAt rangeValues 0)
         }
-        def t:double (this.fraction(value))
+        return (this.colourAt((this.fraction(value))))
+    }
+
+    ; The colour a fraction of the way along the ramp, mixed in plain RGB one
+    ; segment per pair of adjacent stops — which is how the reference does it,
+    ; rounding each channel so that `rgb(94, 192, 191)` is arrived at rather
+    ; than approached.
+    fn colourAt:string (at:double) {
+        def n:int (array_length rangeValues)
+        if (n == 0) {
+            return ""
+        }
+        if (n == 1) {
+            return (itemAt rangeValues 0)
+        }
+        def t:double at
         if (t < 0.0) {
             t = 0.0
         }
@@ -354,6 +372,18 @@ class VlScale {
         def idx:int (this.indexOfValue((VlJson.domainKey(v))))
         if (idx < 0) {
             idx = 0
+        }
+        ; A CONTINUOUS scheme handed to an ordinal scale is not a list of
+        ; colours to take in turn: it is a ramp, and the categories are spread
+        ; ALONG it — the reference samples it at (i+1)/(n+1), which keeps both
+        ; ends of the ramp out of the picture where they are nearly black and
+        ; nearly white. Taken in turn instead, eight decades of carbon dioxide
+        ; came out in eight shades of the same near-black.
+        if rampRange {
+            def n:int (array_length domainValues)
+            if (n > 0) {
+                return (this.colourAt(((to_double (idx + 1)) / (to_double (n + 1)))))
+            }
         }
         return (itemAt rangeValues (idx % total))
     }

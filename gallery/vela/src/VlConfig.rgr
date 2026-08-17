@@ -305,6 +305,33 @@ class VlConfig {
         return (VlConfig.schemeColors(name))
     }
 
+    ; Is that scheme a RAMP — a continuous run of colour — rather than a list
+    ; of distinct ones? An ordinal scale is spread along the first and takes
+    ; the second in turn, and the two read completely differently.
+    fn schemeIsRamp:boolean (name:string) {
+        def resolved:string name
+        if (has rangeSchemes name) {
+            resolved = (unwrap (get rangeSchemes name))
+        }
+        return (VlConfig.rampScheme(resolved))
+    }
+
+    sfn rampScheme:boolean (name:string) {
+        if (((name == "blues") || (name == "greens")) || ((name == "greys") || (name == "oranges"))) {
+            return true
+        }
+        if (((name == "purples") || (name == "reds")) || ((name == "viridis") || (name == "magma"))) {
+            return true
+        }
+        if (((name == "rainbow") || (name == "greenblue")) || ((name == "inferno") || (name == "plasma"))) {
+            return true
+        }
+        if ((name == "yellowgreenblue") || (name == "yellowGreenBlue")) {
+            return true
+        }
+        return ((name == "lighttealblue") || (name == "lightTealBlue"))
+    }
+
     sfn schemeColors:[string] (name:string) {
         def out:[string]
         if ((name == "category") || ((name == "tableau10") || (name == "ordinal"))) {

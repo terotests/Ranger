@@ -1441,6 +1441,7 @@ class VlRuntime {
             }
             def scheme:[string] (config.schemeFor((r.str)))
             if ((array_length scheme) > 0) {
+                sc.rampRange = (config.schemeIsRamp((r.str)))
                 for scheme color:string ci {
                     push sc.rangeValues color
                 }
@@ -1496,6 +1497,7 @@ class VlRuntime {
             if (r.has("scheme")) {
                 def scheme:[string] (config.schemeFor((r.stringOr("scheme" ""))))
                 if ((array_length scheme) > 0) {
+                    sc.rampRange = (config.schemeIsRamp((r.stringOr("scheme" ""))))
                     for scheme color:string ci {
                         push sc.rangeValues color
                     }
