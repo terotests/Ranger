@@ -983,7 +983,11 @@ class VlRuntime {
             def gathered:[double]
             def seen:int 0
             for rows row:VlJson ri {
-                if (((row.get(domainField)).asString()) == v) {
+                ; Matched by the same NAME the domain is keyed by. A category
+                ; that is missing is called "null" there and an empty string
+                ; here, so no row ever matched it, and the one category with
+                ; nothing to sort by sorted to the front of the axis.
+                if ((VlJson.domainKey((row.get(domainField)))) == v) {
                     seen = (seen + 1)
                     def cell:VlJson (row.get(by))
                     if (cell.isNumber()) { push gathered cell.num }

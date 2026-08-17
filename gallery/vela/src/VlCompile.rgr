@@ -2920,6 +2920,20 @@ class VlCompile {
         return -1.0
     }
 
+    ; How see-through a dot is by default. Dots are drawn slightly transparent
+    ; so that two landing on the same spot can be told apart — but a dot that
+    ; stands for a whole GROUP has nothing to overlap with, so an aggregated
+    ; chart draws them solid. That is the reference's rule and it is why a plot
+    ; of mean ratings per genre came out faded.
+    fn dotOpacity:double () {
+        for channels ch:VlChannel ci {
+            if ((strlen ch.aggregate) > 0) {
+                return 1.0
+            }
+        }
+        return 0.7
+    }
+
     fn fillsBand:boolean () {
         return (((markName == "bar") || (markName == "rect")) || (markName == "tick"))
     }
@@ -5042,8 +5056,20 @@ class VlCompile {
             a.setMember("gridScale" (VlJson.stringValue((this.sname(other)))))
         }
         a.setMember("grid" (VlJson.boolValue(true)))
-        if (! (this.logGrid(scale))) {
-            a.setMember("tickCount" (this.tickCountSignal(orient)))
+        ; A grid is drawn at the axis's ticks, so an axis that names its own
+        ; tick values names the grid's too. Left to count ticks by the plot's
+        ; width, the grid crossed a chart of three stated values in four
+        ; places.
+        def stated:VlJson ((this.channel(scale)).def0.get("axis"))
+        if (stated.isObject()) {
+            if (stated.has("values")) {
+                a.setMember("values" (stated.get("values")))
+            }
+        }
+        if (! (a.has("values"))) {
+            if (! (this.logGrid(scale))) {
+                a.setMember("tickCount" (this.tickCountSignal(orient)))
+            }
         }
         a.setMember("domain" (VlJson.boolValue(false)))
         a.setMember("labels" (VlJson.boolValue(false)))
@@ -5210,8 +5236,14 @@ class VlCompile {
             ; pulled inside the plot rather than allowed to hang off it, which
             ; is what `labelFlush` means and why they are left- and
             ; right-aligned rather than centred.
+            ; …unless the specification said otherwise. `"labelFlush": false`
+            ; is a chart asking for its end labels to be centred on their
+            ; ticks and to hang off the plot, and overwritten it took nineteen
+            ; pixels of page off the right of the drawing.
             if (orient == "bottom") {
-                a.setMember("labelFlush" (VlJson.boolValue(true)))
+                if (! (a.has("labelFlush"))) {
+                    a.setMember("labelFlush" (VlJson.boolValue(true)))
+                }
             }
             ; A log axis's ticks are the whole multiples inside each decade,
             ; so there is no count to ask for — and they are unevenly spaced,
@@ -5849,8 +5881,11 @@ class VlCompile {
         ; A dot is drawn slightly transparent so that two that land on the same
         ; spot can be told apart — unless it says otherwise, which the dots on
         ; a line do: they mark that line's own vertices.
+        ; …and unless the dots stand for SUMMARIES rather than for rows. One
+        ; dot per group cannot land on another, so there is nothing to see
+        ; through and the reference draws them solid.
         if (markName == "point") {
-            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue((markDef.doubleOr("opacity" 0.7)))))))
+            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue((markDef.doubleOr("opacity" (this.dotOpacity()))))))))
         }
         if outlined {
             update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
@@ -5858,7 +5893,7 @@ class VlCompile {
         ; A tick and a filled dot are both drawn slightly transparent, so that
         ; the ones that land on the same spot can be told apart.
         if (((markName == "tick") || (markName == "circle")) || (markName == "square")) {
-            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue((markDef.doubleOr("opacity" (this.dotOpacity()))))))))
         }
         def key:string "fill"
         if ((outlined || (markName == "line")) || (markName == "rule")) {
