@@ -1095,7 +1095,7 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["json-roundtrip", "var o = { a: [1, 2] }; return JSON.parse(JSON.stringify(o)).a[1];", "builtins"],
   ["json-nan-null", "return JSON.stringify(NaN);", "builtins"],
   ["math-floor-neg", "return Math.floor(-1.5);", "builtins"],
-  ["math-max-empty", "return Math.max() === -Infinity;", "builtins"],
+  ["math-max-empty-identity", "return Math.max() === -Infinity;", "builtins"],
   ["date-epoch", "var d = new Date(0); return d.getTime();", "builtins"],
 
   // --- Date -----------------------------------------------------------------
@@ -2490,7 +2490,7 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["set-op-non-object", "try { new Set([1]).union(5); return 'no'; } catch (e) { return e.constructor.name; }", "es2025"],
   ["set-op-order", "return Array.from(new Set([3, 1]).union(new Set([2, 3]))).join(',');", "es2025"],
 
-  ["iter-map", "return [1, 2, 3].values().map(function (x) { return x * 2; }).toArray().join(',');", "es2025"],
+  ["iter-helper-map", "return [1, 2, 3].values().map(function (x) { return x * 2; }).toArray().join(',');", "es2025"],
   ["iter-filter", "return [1, 2, 3, 4].values().filter(function (x) { return x % 2 === 0; }).toArray().join(',');", "es2025"],
   ["iter-take", "return [1, 2, 3, 4].values().take(2).toArray().join(',');", "es2025"],
   ["iter-drop", "return [1, 2, 3, 4].values().drop(2).toArray().join(',');", "es2025"],

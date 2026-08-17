@@ -38586,10 +38586,10 @@ class ComponentEngine {
         }
         def aff:[string] (this.intlAffix(loc style neg currency))
         def sym:string (this.intlCurrencySymbol(loc currency))
-        this.intlPushAffix(out (itemAt aff 0) minus sym style pct)
+        out = (this.intlPushAffix(out (itemAt aff 0) minus sym style pct))
         if (false == (this.isFiniteNum(v))) {
             push out (this.intlPart("infinity" "∞"))
-            this.intlPushAffix(out (itemAt aff 1) minus sym style pct)
+            out = (this.intlPushAffix(out (itemAt aff 1) minus sym style pct))
             return out
         }
         def body:string (this.toFixedString(v maxFrac))
@@ -38642,7 +38642,7 @@ class ComponentEngine {
             push out (this.intlPart("decimal" dec))
             push out (this.intlPart("fraction" fracPart))
         }
-        this.intlPushAffix(out (itemAt aff 1) minus sym style pct)
+        out = (this.intlPushAffix(out (itemAt aff 1) minus sym style pct))
         return out
     }
 
@@ -38720,8 +38720,18 @@ class ComponentEngine {
     ; An affix is a run of literal text that may contain the minus sign, the
     ; percent sign or the currency symbol. Split it into those pieces so each
     ; is reported under its own type rather than lumped into one literal.
-    fn intlPushAffix:void (out:[EvHandle] affix:string minus:string sym:string style:string pct:string) {
-        if ((this.cuLen(affix)) == 0) { return }
+    ; Returns the LIST rather than pushing into the parameter.
+    ;
+    ; `push out x` on a parameter does not reach the caller on the Go target: a
+    ; slice is passed by value and the append rebinds the local. As a `:void`
+    ; that mutated `out`, every affix — minusSign, currency, percentSign and the
+    ; literal between them — was silently dropped on Go, so
+    ; `new Intl.NumberFormat("de-DE", {style:"currency", currency:"EUR"})`
+    ; formatted 1234.5 as "1.234,50" there and "1.234,50 EUR" everywhere else.
+    ; Eight Intl probes; found by tests/native/es_conformance_main.rgr, which is
+    ; the first thing to run the conformance corpus on a compiled target.
+    fn intlPushAffix:[EvHandle] (out:[EvHandle] affix:string minus:string sym:string style:string pct:string) {
+        if ((this.cuLen(affix)) == 0) { return out }
         def marks:[string]
         def types:[string]
         push marks minus
@@ -38777,6 +38787,7 @@ class ComponentEngine {
         if ((this.cuLen(rest)) > 0) {
             push out (this.intlPart("literal" rest))
         }
+        return out
     }
 
 
