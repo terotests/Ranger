@@ -718,7 +718,11 @@ class VlLegend {
         item.setString("fontWeight" titleFontWeight)
         item.setNumber("opacity" 1.0)
         item.setString("orient" titleOrient)
-        item.setString("text" title)
+        ; Cut to fit HERE, like every other guide label, because the legend's
+        ; width is measured from what it holds: a title that overhangs its
+        ; limit when it is drawn but not when it is measured makes the legend
+        ; wider than the reference's and takes the difference out of the page.
+        item.setString("text" (VlText.truncate(title titleFontSize titleLimit)))
         item.setNumber("limit" titleLimit)
         item.setNumber("x" padding)
         item.setNumber("y" padding)
