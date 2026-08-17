@@ -3033,6 +3033,46 @@ class VlCompile {
     ; refused by name, which is the same bargain the transforms above make.
     ;
     ; Returns "" when it refused, having said why.
+    ; A paint channel may be written as a TEST and a fallback:
+    ;
+    ;   "color": {"condition": {"test": "datum.n < 40", "value": "black"},
+    ;             "value": "white"}
+    ;
+    ; which is one encoding with two answers, and the reference emits it as an
+    ; array of them — the first whose test passes wins. Dropping the condition
+    ; kept the fallback and painted every label white, which is the failure
+    ; this cannot have: a chart that is wrong and says nothing.
+    ;
+    ; A condition on a PARAMETER is a different thing — it answers to a
+    ; selection rather than to the row — and is left alone here.
+    fn withCondition:VlJson (ch:VlChannel base:VlJson) {
+        def cond:VlJson (ch.def0.get("condition"))
+        if (! (cond.isObject())) {
+            return base
+        }
+        if (! (cond.has("test"))) {
+            return base
+        }
+        def expr:string (this.predicateExpr((cond.get("test"))))
+        if ((strlen expr) == 0) {
+            return base
+        }
+        def branch (VlJson.objectValue())
+        branch.setMember("test" (VlJson.stringValue(expr)))
+        if (cond.has("value")) {
+            branch.setMember("value" (cond.get("value")))
+        } {
+            ; A condition that names a FIELD reads it through the same scale
+            ; the channel already uses.
+            branch.setMember("scale" (VlJson.stringValue("color")))
+            branch.setMember("field" (cond.get("field")))
+        }
+        def out (VlJson.arrayValue())
+        push out.arr branch
+        push out.arr base
+        return out
+    }
+
     fn predicateExpr:string (pred:VlJson) {
         if (pred.isString()) {
             return (("(" + pred.str) + ")")
@@ -4292,14 +4332,13 @@ class VlCompile {
         }
         def colour:VlChannel (this.channel("color"))
         if colour.defined {
-            if colour.hasValue {
-                update.setMember(key (VlCompile.literal(colour.value)))
-            } {
-                def ref (VlJson.objectValue())
-                ref.setMember("scale" (VlJson.stringValue("color")))
-                ref.setMember("field" (VlJson.stringValue((colour.outField()))))
-                update.setMember(key ref)
+            def base:VlJson (VlCompile.literal(colour.value))
+            if (! colour.hasValue) {
+                base = (VlJson.objectValue())
+                base.setMember("scale" (VlJson.stringValue("color")))
+                base.setMember("field" (VlJson.stringValue((colour.outField()))))
             }
+            update.setMember(key (this.withCondition(colour base)))
             this.applyMarkPaint(update key)
             return
         }
