@@ -300,14 +300,14 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **70** |
-| drawn, but not the same picture | 106 | 78 |
-| refused, with a reason | 58 | 27 |
+| drawn exactly as the reference draws them | 11 | **93** |
+| drawn, but not the same picture | 106 | 66 |
+| refused, with a reason | 58 | 16 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **40.0% exact, 84.6% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **53.1% exact, 90.9% drawn** |
 
-Every one of those fifty-nine came from the report rather than from a guess,
+Every one of those eighty-two came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
 reaches a thousand, so nobody noticed that thousands were not grouped; none of
 its legend labels is long enough to be truncated, so nobody noticed that a
@@ -327,7 +327,7 @@ invisible. And `"point": {"filled": false}` was read as a boolean, which an
 object is not, so a line asked for dots came out bare. None of the four said
 anything; they each just drew the wrong picture.
 
-The remaining hundred are a long tail rather than a wall. Most come out within
+The remaining sixty-six are a long tail rather than a wall. Most come out within
 a few pixels of the reference and differ for their own reason — a rounding
 rule here, a guide default there — which is what a coverage report is for:
 without it, each of those would be found one paste at a time.
@@ -940,6 +940,7 @@ gallery/vela/
 │   ├── VlEvg.rgr         the EVG backend: commands → path data
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
+│   ├── VlRegex.rgr       a regular expression, matched
 │   ├── VlScale.rgr       band / point / linear / log / ordinal, ticks
 │   ├── VlTime.rgr        the calendar, and the zones it is read in
 │   ├── VlTransform.rgr   data transforms
@@ -966,7 +967,8 @@ gallery/vela/
 │   ├── data/             …and the files it writes
 │   └── smoke.mjs         open it in a browser and check it drew
 ├── tests/
-│   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow)
+│   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow,
+│   │                     regular expressions)
 │   ├── specs/            generated Vega-Lite sources and compiled Vega specs
 │   ├── golden/           committed scene and command output
 │   ├── run.sh            build + test everything
