@@ -300,12 +300,12 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **118** |
-| drawn, but not the same picture | 106 | 46 |
+| drawn exactly as the reference draws them | 11 | **122** |
+| drawn, but not the same picture | 106 | 42 |
 | refused, with a reason | 58 | 11 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **67.4% exact, 93.7% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **69.7% exact, 93.7% drawn** |
 
 Every one of those hundred came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
