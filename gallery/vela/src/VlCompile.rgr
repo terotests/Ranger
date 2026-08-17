@@ -2789,6 +2789,43 @@ class VlCompile {
         return (inner.doubleOr(key fallback))
     }
 
+    ; How long a colour ramp is drawn. It runs ALONG the legend, so a key at
+    ; the side of a chart is as long as the chart is tall and a key under it is
+    ; as wide as the chart is wide — and the two have different floors, 64 and
+    ; 100, which are the reference's. Measured against the wrong axis a
+    ; trellis's ramp came out twice the reference's length and took the extra
+    ; hundred pixels out of the page.
+    fn gradientLengthSignal:string (ch:VlChannel) {
+        def across:boolean (this.legendRunsAcross(ch))
+        if across {
+            return (("clamp(" + widthSignal) + ", 100, 200)")
+        }
+        return (("clamp(" + heightSignal) + ", 64, 200)")
+    }
+
+    ; Whether a legend is laid out left to right. A stated `direction` says so
+    ; outright; otherwise the side it sits on decides, because a key above or
+    ; below a chart has the width to run across and not the height to run down.
+    fn legendRunsAcross:boolean (ch:VlChannel) {
+        def stated:VlJson (ch.def0.get("legend"))
+        def direction:string ""
+        def orient:string ""
+        if (stated.isObject()) {
+            direction = (stated.stringOr("direction" ""))
+            orient = (stated.stringOr("orient" ""))
+        }
+        if ((strlen direction) == 0) {
+            direction = (this.configText("legend" "direction" ""))
+        }
+        if ((strlen orient) == 0) {
+            orient = (this.configText("legend" "orient" ""))
+        }
+        if ((strlen direction) > 0) {
+            return (direction == "horizontal")
+        }
+        return ((orient == "top") || (orient == "bottom"))
+    }
+
     ; The same, for a name rather than a number. It reads the WHOLE chart's
     ; configuration rather than the pane's, because a configuration block is
     ; stated once at the top and applies everywhere below it.
@@ -5875,7 +5912,7 @@ class VlCompile {
                     ; A continuous colour is a gradient bar, and the bar is as
                     ; long as the chart is tall, within reason.
                     def length (VlJson.objectValue())
-                    length.setMember("signal" (VlJson.stringValue("clamp(height, 64, 200)")))
+                    length.setMember("signal" (VlJson.stringValue((this.gradientLengthSignal(colour)))))
                     l.setMember("gradientLength" length)
                 } {
                     l.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
@@ -6119,7 +6156,7 @@ class VlCompile {
         l.setMember(name (VlJson.stringValue((this.sname(name)))))
         if (ch.isContinuous()) {
             def length (VlJson.objectValue())
-            length.setMember("signal" (VlJson.stringValue("clamp(height, 64, 200)")))
+            length.setMember("signal" (VlJson.stringValue((this.gradientLengthSignal(ch)))))
             l.setMember("gradientLength" length)
         } {
             l.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))

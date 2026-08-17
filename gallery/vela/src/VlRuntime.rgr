@@ -2068,14 +2068,18 @@ class VlRuntime {
                     py = stackY
                     stackY = ((stackY + legend.height) + 8.0)
                 }
+                ; A key above or below clears everything that is already
+                ; there, not just the axis: a trellis has no axis of its own
+                ; below its panels — it has panels — and measured against the
+                ; axis alone the key was drawn across them.
                 if (orient == "top") {
                     px = stackX
-                    py = (0.0 - (((VlBounds.ceilTo(axisTop)) + offset) + legend.height))
+                    py = (0.0 - (((VlBounds.ceilTo((VlRuntime.higher(axisTop extentTop)))) + offset) + legend.height))
                     stackX = ((stackX + legend.width) + 8.0)
                 }
                 if (orient == "bottom") {
                     px = stackX
-                    py = ((chartHeight + (VlBounds.ceilTo(axisBottom))) + offset)
+                    py = ((chartHeight + (VlBounds.ceilTo((VlRuntime.higher(axisBottom extentBottom))))) + offset)
                     stackX = ((stackX + legend.width) + 8.0)
                 }
                 if (orient == "top-left") {

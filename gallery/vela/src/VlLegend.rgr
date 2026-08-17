@@ -93,6 +93,10 @@ class VlLegend {
     def scales:[string:VlScale]
     def channelOrder:[string]
     def title:string ""
+    ; The entries the specification asked for by name, if it asked. A legend
+    ; over a continuous scale otherwise lists the ticks the scale suggests,
+    ; and a chart that wants two of them — say 20 and 60 bushels — gets seven.
+    def statedValues:VlJson (new VlJson)
 
     ; --- filled in by build(), read by the layout step -------------------------
     def width:double 0.0
@@ -162,6 +166,7 @@ class VlLegend {
         gradientStrokeWidth = (ldef.doubleOr("gradientStrokeWidth" gradientStrokeWidth))
         gradientLabelOffset = (ldef.doubleOr("gradientLabelOffset" gradientLabelOffset))
         title = (ldef.stringOr("title" title))
+        statedValues = (ldef.get("values"))
     }
 
     ; ------------------------------------------------------------- entries ----
@@ -170,6 +175,25 @@ class VlLegend {
     ; maps it to nothing — a zero-area symbol is not a legend entry.
     fn entriesFor:[VlLegendEntry] (sc:VlScale) {
         def out:[VlLegendEntry]
+        ; A stated list is the whole answer: it is neither a domain nor a set
+        ; of ticks, and nothing else gets a say.
+        if (statedValues.isArray()) {
+            def stated:int (statedValues.count())
+            def si:int 0
+            while (si < stated) {
+                def cell:VlJson (statedValues.at(si))
+                si = (si + 1)
+                def e (new VlLegendEntry())
+                e.value = cell
+                if (cell.isNumber()) {
+                    e.label = (VlScale.tickLabel(cell.num))
+                } {
+                    e.label = (VlText.truncate((cell.asString()) labelFontSize labelLimit))
+                }
+                push out e
+            }
+            return out
+        }
         def discrete:boolean ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal")))
         if discrete {
             for sc.domainValues name:string idx {
