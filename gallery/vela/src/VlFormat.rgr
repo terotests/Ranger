@@ -153,6 +153,20 @@ class VlFormat {
     }
 
     sfn apply:string (value:double spec:string) {
+        ; An infinity is written as the SIGN, which is what d3 writes and what
+        ; a chart of frame times shows at the end of an axis where the interval
+        ; is zero. Written as the word, an axis of rates read "Infinity".
+        if (value != value) {
+            return "NaN"
+        }
+        if (value != 0.0) {
+            if ((value * 0.5) == value) {
+                if (value > 0.0) {
+                    return (strfromcode 8734)
+                }
+                return ((VlJson.withMinusSign("-")) + (strfromcode 8734))
+            }
+        }
         if ((strlen spec) == 0) {
             return (VlJson.withMinusSign((VlJson.formatSignificant(value 12))))
         }
