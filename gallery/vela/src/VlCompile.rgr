@@ -1423,7 +1423,7 @@ class VlCompile {
         if wrapped {
             facetField = wrapField
         }
-        push data.arr (VlCompile.domainData(domainName facetField))
+        push data.arr (VlCompile.domainData(domainName facetField child.dataLabel))
         def columns:VlJson columnsDef
         if wrapped {
             ; A wrapped grid's shape is computed rather than declared, and both
@@ -1545,10 +1545,10 @@ class VlCompile {
         block.setMember("anchor" (VlJson.stringValue("start")))
     }
 
-    sfn domainData:VlJson (name:string field:string) {
+    sfn domainData:VlJson (name:string field:string from:string) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue(name)))
-        out.setMember("source" (VlJson.stringValue("data_0")))
+        out.setMember("source" (VlJson.stringValue(from)))
         def transform (VlJson.arrayValue())
         def t (VlJson.objectValue())
         t.setMember("type" (VlJson.stringValue("aggregate")))
