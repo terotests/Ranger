@@ -7056,7 +7056,11 @@ class LowIRBuilderPass {
     if (irType == "i1") { return true }
     if (irType == "f64") { return true }
     if (irType == "i8*") { return true }
-    if (irType == "i64") { return true }
+    ; NOT an object or collection pointer. A string is read back through
+    ; lowerExpr, which knows about the cell; an object is also reached as a
+    ; field receiver, a method receiver and a call argument, and those paths
+    ; read the slot directly -- they would see the CELL where they expect the
+    ; object. Boxing one silently corrupted every such read.
     return false
   }
 

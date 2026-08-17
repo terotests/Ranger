@@ -49616,9 +49616,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( irType == "i8*" ) {
                             return true;
                           }
-                          if ( irType == "i64" ) {
-                            return true;
-                          }
                           return false;
                         };
                         boxedStorageType (logicalType) {
