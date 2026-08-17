@@ -6982,6 +6982,23 @@ class VlCompile {
     ; What the specification said about the key itself — where it sits, how long
     ; its gradient is, what its symbols look like. Copied over whatever the
     ; defaults decided, the same way an axis definition is.
+    ; What fraction of its band a mark was told to take, or 0 when it was told
+    ; nothing. `{"height": {"band": 0.5}}` is a bar half as deep as its row.
+    fn bandShare:double (dimension:string) {
+        def given:VlJson (markDef.get(dimension))
+        if (! (given.isObject())) {
+            return 0.0
+        }
+        def part:VlJson (given.get("band"))
+        if (! (part.isNumber())) {
+            return 0.0
+        }
+        if (part.num >= 1.0) {
+            return 0.0
+        }
+        return part.num
+    }
+
     sfn applyStatedLegend:void (l:VlJson ch:VlChannel) {
         def given:VlJson (VlCompile.statedOn(ch "legend"))
         if (! (given.isObject())) {
@@ -7532,6 +7549,22 @@ class VlCompile {
         VlCompile.markLiteral(update markDef "strokeWidth" "strokeWidth")
         VlCompile.markLiteral(update markDef "strokeDash" "strokeDash")
         VlCompile.markLiteral(update markDef "cornerRadius" "cornerRadius")
+        ; `cornerRadiusEnd` rounds the end a bar GROWS toward and leaves the
+        ; end it stands on square, so which two corners those are depends on
+        ; which way the bar runs. Written as a plain corner radius it rounded
+        ; all four and a stacked bar's segments came apart at the joins.
+        if (markDef.has("cornerRadiusEnd")) {
+            def radius:VlJson (markDef.get("cornerRadiusEnd"))
+            def measured:VlChannel (this.stackMeasure())
+            def upright:boolean (measured.name != "x")
+            if upright {
+                update.setMember("cornerRadiusTopLeft" (VlCompile.literal(radius)))
+                update.setMember("cornerRadiusTopRight" (VlCompile.literal(radius)))
+            } {
+                update.setMember("cornerRadiusTopRight" (VlCompile.literal(radius)))
+                update.setMember("cornerRadiusBottomRight" (VlCompile.literal(radius)))
+            }
+        }
         VlCompile.markLiteral(update markDef "align" "align")
         VlCompile.markLiteral(update markDef "baseline" "baseline")
         VlCompile.markLiteral(update markDef "font" "font")
@@ -7607,6 +7640,15 @@ class VlCompile {
         def encoded:VlChannel (this.channel(channelName))
         if encoded.defined {
             return
+        }
+        ; A size written as a FRACTION of a band is not a size: it is a share
+        ; of whatever the band turns out to be, and the position encoder has
+        ; already turned it into one. Written out as a number as well, the
+        ; mark was given an object where a number goes and drew nothing.
+        if (update.has(key)) {
+            if ((this.bandShare(key)) > 0.0) {
+                return
+            }
         }
         def given:VlJson (markDef.get(key))
         ; "width" and "height" mean the group's own, which is a reference and
@@ -7976,6 +8018,20 @@ class VlCompile {
             if (offset.defined && (axis == "x")) {
                 at.setMember("offset" (this.scaled("xOffset" (offset.outField()))))
                 band = "xOffset"
+            }
+            ; A mark may take a FRACTION of its band rather than all of it —
+            ; `"height": {"band": 0.5}` is a bar half as deep as the row it
+            ; sits in — and the half it does not take is shared evenly either
+            ; side, so the mark starts a quarter of the way in.
+            def share:double (this.bandShare(dimension))
+            if (share > 0.0) {
+                at.setMember("band" (VlJson.numberValue(((1.0 - share) / 2.0))))
+                update.setMember(axis at)
+                def part (VlJson.objectValue())
+                def factor:string (VlJson.formatNumber(share 4))
+                part.setMember("signal" (VlJson.stringValue(((("max(0.25, " + factor) + " * bandwidth('") + (this.sname(band))) + "'))")))
+                update.setMember(dimension part)
+                return
             }
             update.setMember(axis at)
             def width (VlJson.objectValue())
