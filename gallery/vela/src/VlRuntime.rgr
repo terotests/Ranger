@@ -2067,14 +2067,19 @@ class VlRuntime {
     sfn markRightEdge:double (mark:VlSceneMark) {
         def out:double 0.0
         for mark.items item:VlSceneItem idx {
+            ; A rectangle states its far edge one way or the other — a second
+            ; coordinate, or a width from the first. Adding the width to the
+            ; second coordinate counted one bar TWICE, and a concatenation's
+            ; legend then stood a bar's width clear of the plot it belonged to.
             def at:double (item.number("x"))
             if (item.has("x2")) {
                 if ((item.number("x2")) > at) {
                     at = (item.number("x2"))
                 }
-            }
-            if (item.has("width")) {
-                at = (at + (item.number("width")))
+            } {
+                if (item.has("width")) {
+                    at = (at + (item.number("width")))
+                }
             }
             if (item.has("stroke")) {
                 def sw:double 1.0
