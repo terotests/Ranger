@@ -249,6 +249,9 @@ class LowIRModule {
   def lambdaTableFuncs:[string]
   ; distinct call_indirect signatures ("t0,t1,…:ret") that need a `(type …)`.
   def lambdaSigs:[string]
+  ; the module contains a `throw` or an `error_msg`, so it needs the global that
+  ; carries the thrown message from the one to the other
+  def usesErrorMsg:boolean false
   ; the @main body was emitted as @__rg_main_body and needs the entry-point shim
   ; that runs it on a thread with a large stack (see writeBigStackMain).
   def bigStackMain:boolean false

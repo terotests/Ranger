@@ -831,6 +831,19 @@ class LowIRBuilderPass {
     return false
   }
 
+  ; Is this a REFCOUNTED Ranger object -- one with an object header that
+  ; ranger_obj_retain / ranger_obj_release may be handed? A JSON value is not:
+  ; it belongs to runtime/ranger_json.c and has no header, so releasing one
+  ; freed `body - RANGER_HEADER_SIZE`, a pointer no allocator ever gave out.
+  ; Its slot is still recorded as an object slot, because that is what routes
+  ; `keys` / `length` / `set` on the name to the JSON runtime.
+  fn isRefCountedObjectType:boolean (typeName:string) {
+    if (LowIRUtil.isJsonTypeName(typeName)) {
+      return false
+    }
+    return (this.isObjectTypeName(typeName))
+  }
+
   fn isObjectTypeName:boolean (typeName:string) {
     if ((strlen typeName) == 0) {
       return false
@@ -8140,6 +8153,15 @@ class LowIRBuilderPass {
           return
         }
       }
+      ; `throw x` -- there is no unwinding here, and the front end already
+      ; refuses a throw that is not inside a `try`, so the throw is a branch to
+      ; that try's catch block with the message left where error_msg can find
+      ; it. Without a lowering the statement was dropped and control ran ON past
+      ; the throw into the rest of the try body, which every other target skips.
+      if (opName == "throw") {
+        this.lowerThrow(node lctx)
+        return
+      }
       if (opName == "while") {
         this.lowerWhile(node lctx)
         return
@@ -8521,7 +8543,7 @@ class LowIRBuilderPass {
           ; The callee handed over a reference; this local owns it and releases
           ; it at scope end. Without this `def v:T (this.f())` -- the shape every
           ; line of an evaluator has -- kept its object alive forever.
-          if (this.objRcEnabled(lctx)) {
+          if ((this.objRcEnabled(lctx)) && (this.isRefCountedObjectType(typeName))) {
             this.claimObjectTemp(callTmp lctx)
             if (this.isOwnedObjectLocal(varName lctx) == false) {
               push lctx.ownedObjectLocals varName
@@ -8676,7 +8698,7 @@ class LowIRBuilderPass {
       ; that merely aliased a field (`def out:T scriptReturnValue`) dangled the
       ; moment that field was overwritten later in the same function -- the
       ; overwrite released the only reference while the local still named it.
-      if (this.memEnabled(lctx)) {
+      if ((this.memEnabled(lctx)) && (this.isRefCountedObjectType(typeName))) {
         this.claimObjectTemp(tmp lctx)
         if ((this.exprCarriesFreshRef(val lctx)) == false) {
           this.emitObjRetainPtr(tmp lctx)
@@ -9352,6 +9374,61 @@ class LowIRBuilderPass {
   ; use it for: RangerFlowParser's EnterStaticMethod does
   ;   try { def m (unwrap (desc.findStaticMethod(…))) … } { ctx.addError(…) }
   ; and with the handler dropped, the null went straight into `m.fnCtx = …`.
+  ; `v == 0 ? fallback : v` for an i8*, without a select instruction.
+  fn emitStrOrDefault:string (value:string fallback:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    lctx.shadowCounter = (lctx.shadowCounter + 1)
+    def slot:string ("%eslot" + ("" + lctx.shadowCounter))
+    builder.emitAlloca("i8*" slot)
+    def asInt (builder.emitPtrToInt(value))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    def isNull (builder.emitIcmpTyped("eq" lctx.ptrType asInt zero))
+    def nullL (builder.freshLabel("em_null"))
+    def okL (builder.freshLabel("em_ok"))
+    def endL (builder.freshLabel("em_end"))
+    builder.terminateBrIf(isNull nullL okL)
+    builder.startBlock(nullL)
+    builder.emitStore("i8*" fallback slot)
+    builder.terminateBr(endL)
+    builder.startBlock(okL)
+    builder.emitStore("i8*" value slot)
+    builder.terminateBr(endL)
+    builder.startBlock(endL)
+    return (builder.emitLoad("i8*" slot))
+  }
+
+  fn lowerThrow:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    this.irModule.usesErrorMsg = true
+    if ((array_length node.children) > 1) {
+      def msg (this.lowerExpr((node.getSecond()) lctx))
+      ; the message outlives this statement -- the catch block reads it after
+      ; the branch -- so it is copied out of the statement arena
+      def owned (this.emitStrdupExpr(msg lctx))
+      builder.emitGlobalSet("__rg_error_msg" (builder.emitPtrToInt(owned)))
+    }
+    if ((strlen lctx.catchLabel) > 0) {
+      builder.terminateBr(lctx.catchLabel)
+      def deadL:string (builder.freshLabel("after_throw"))
+      builder.startBlock(deadL)
+      return
+    }
+    ; no enclosing try: the front end rejects this, but a module that reached
+    ; here anyway must not simply carry on
+    this.ensureExternDecl("abort" "void" (this.emptyStrList()) false)
+    def aArgs:[string]
+    def aTypes:[string]
+    builder.emitCall("abort" "void" aArgs aTypes)
+    def deadL2:string (builder.freshLabel("after_throw"))
+    builder.terminateBr(deadL2)
+    builder.startBlock(deadL2)
+  }
+
+  fn emptyStrList:[string] () {
+    def e:[string]
+    return e
+  }
+
   fn lowerTry:void (node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def cnt (array_length node.children)
@@ -10088,12 +10165,17 @@ class LowIRBuilderPass {
       if (opName == "cast") {
         return (this.lowerExpr((node.getSecond()) lctx))
       }
-      ; The `try` writer has no exception value to bind on this backend, so
-      ; `error_msg` answers the same placeholder the C++ template does.
+      ; The message the last `throw` stored. A module with no throw in it never
+      ; writes the global, so the load answers 0 and the empty string stands in
+      ; for the placeholder this used to return unconditionally.
       if (opName == "error_msg") {
-        def emG (this.internStringGlobal("unspecified error" false))
+        this.irModule.usesErrorMsg = true
+        def emRaw (lctx.builder.emitGlobalGet("__rg_error_msg"))
+        def emPtr (lctx.builder.emitIntToI8Ptr(emRaw lctx.ptrType))
+        def emG (this.internStringGlobal("" false))
         def emLen (this.stringGlobalByteLen(emG))
-        return (lctx.builder.emitStrPtr(emG emLen))
+        def emEmpty (lctx.builder.emitStrPtr(emG emLen))
+        return (this.emitStrOrDefault(emPtr emEmpty lctx))
       }
       if (opName == "M_PI") {
         return (lctx.builder.emitConst("f64" "3.141592653589793"))

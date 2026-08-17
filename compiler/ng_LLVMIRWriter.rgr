@@ -146,6 +146,12 @@ class LLVMIRWriter {
         wr.out(("@heap_ptr = global " + module.ptrType + " 0") true)
       }
     }
+    ; `throw` stores its message here and `error_msg` reads it back. There is no
+    ; unwinding on this backend -- a throw is a branch to the enclosing catch
+    ; block -- so the message needs somewhere to live across that branch.
+    if module.usesErrorMsg {
+      wr.out(("@__rg_error_msg = internal global " + module.ptrType + " 0") true)
+    }
     ; One mutable module global per @singleton class: the accessor builds the
     ; instance on first call and reads it back afterwards.
     for module.singletonClasses sc:string i {

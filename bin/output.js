@@ -41762,6 +41762,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.singletonClasses = [];
                           this.lambdaTableFuncs = [];
                           this.lambdaSigs = [];
+                          this.usesErrorMsg = false;
                           this.bigStackMain = false;
                         }
                       }
@@ -44152,6 +44153,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return true;
                           }
                           return false;
+                        };
+                        isRefCountedObjectType (typeName) {
+                          if ( LowIRUtil.isJsonTypeName(typeName) ) {
+                            return false;
+                          }
+                          return this.isObjectTypeName(typeName);
                         };
                         isObjectTypeName (typeName) {
                           if ( (typeName.length) == 0 ) {
@@ -50489,6 +50496,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 return;
                               }
                             }
+                            if ( opName_1 == "throw" ) {
+                              this.lowerThrow(node, lctx);
+                              return;
+                            }
                             if ( opName_1 == "while" ) {
                               this.lowerWhile(node, lctx);
                               return;
@@ -50844,7 +50855,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               irTypeFromCall = this.llvmTypeForRanger(typeName, lctx.ptrType);
                               if ( this.isObjectTypeName(typeName) ) {
                                 lctx.objectSlots[varName] = typeName;
-                                if ( this.objRcEnabled(lctx) ) {
+                                if ( this.objRcEnabled(lctx) && this.isRefCountedObjectType(typeName) ) {
                                   this.claimObjectTemp(callTmp, lctx);
                                   if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
                                     lctx.ownedObjectLocals.push(varName);
@@ -50961,7 +50972,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           if ( this.isObjectTypeName(typeName_1) ) {
                             lctx.objectSlots[varName] = typeName_1;
-                            if ( this.memEnabled(lctx) ) {
+                            if ( this.memEnabled(lctx) && this.isRefCountedObjectType(typeName_1) ) {
                               this.claimObjectTemp(tmp, lctx);
                               if ( this.exprCarriesFreshRef(val, lctx) == false ) {
                                 this.emitObjRetainPtr(tmp, lctx);
@@ -51505,6 +51516,53 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             st = "i32";
                           }
                           return builder.emitIcmpTyped("eq", st, subj, cv);
+                        };
+                        emitStrOrDefault (value, fallback, lctx) {
+                          const builder = lctx.builder;
+                          lctx.shadowCounter = lctx.shadowCounter + 1;
+                          const slot = "%eslot" + ("" + lctx.shadowCounter);
+                          builder.emitAlloca("i8*", slot);
+                          const asInt = builder.emitPtrToInt(value);
+                          const zero = builder.emitConst(lctx.ptrType, "0");
+                          const isNull = builder.emitIcmpTyped("eq", lctx.ptrType, asInt, zero);
+                          const nullL = builder.freshLabel("em_null");
+                          const okL = builder.freshLabel("em_ok");
+                          const endL = builder.freshLabel("em_end");
+                          builder.terminateBrIf(isNull, nullL, okL);
+                          builder.startBlock(nullL);
+                          builder.emitStore("i8*", fallback, slot);
+                          builder.terminateBr(endL);
+                          builder.startBlock(okL);
+                          builder.emitStore("i8*", value, slot);
+                          builder.terminateBr(endL);
+                          builder.startBlock(endL);
+                          return builder.emitLoad("i8*", slot);
+                        };
+                        lowerThrow (node, lctx) {
+                          const builder = lctx.builder;
+                          this.irModule.usesErrorMsg = true;
+                          if ( (node.children.length) > 1 ) {
+                            const msg = this.lowerExpr(node.getSecond(), lctx);
+                            const owned = this.emitStrdupExpr(msg, lctx);
+                            builder.emitGlobalSet("__rg_error_msg", builder.emitPtrToInt(owned));
+                          }
+                          if ( (lctx.catchLabel.length) > 0 ) {
+                            builder.terminateBr(lctx.catchLabel);
+                            const deadL = builder.freshLabel("after_throw");
+                            builder.startBlock(deadL);
+                            return;
+                          }
+                          this.ensureExternDecl("abort", "void", this.emptyStrList(), false);
+                          let aArgs = [];
+                          let aTypes = [];
+                          builder.emitCall("abort", "void", aArgs, aTypes);
+                          const deadL2 = builder.freshLabel("after_throw");
+                          builder.terminateBr(deadL2);
+                          builder.startBlock(deadL2);
+                        };
+                        emptyStrList () {
+                          let e = [];
+                          return e;
                         };
                         lowerTry (node, lctx) {
                           const builder = lctx.builder;
@@ -52107,9 +52165,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return this.lowerExpr(node.getSecond(), lctx);
                             }
                             if ( opName == "error_msg" ) {
-                              const emG = this.internStringGlobal("unspecified error", false);
+                              this.irModule.usesErrorMsg = true;
+                              const emRaw = lctx.builder.emitGlobalGet("__rg_error_msg");
+                              const emPtr = lctx.builder.emitIntToI8Ptr(emRaw, lctx.ptrType);
+                              const emG = this.internStringGlobal("", false);
                               const emLen = this.stringGlobalByteLen(emG);
-                              return lctx.builder.emitStrPtr(emG, emLen);
+                              const emEmpty = lctx.builder.emitStrPtr(emG, emLen);
+                              return this.emitStrOrDefault(emPtr, emEmpty, lctx);
                             }
                             if ( opName == "M_PI" ) {
                               return lctx.builder.emitConst("f64", "3.141592653589793");
@@ -54026,6 +54088,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( LowIRUtil.moduleUsesHeap(module) ) {
                               wr.out(("@heap_ptr = global " + module.ptrType) + " 0", true);
                             }
+                          }
+                          if ( module.usesErrorMsg ) {
+                            wr.out(("@__rg_error_msg = internal global " + module.ptrType) + " 0", true);
                           }
                           for ( let i = 0; i < module.singletonClasses.length; i++) {
                             var sc = module.singletonClasses[i];
