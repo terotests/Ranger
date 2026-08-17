@@ -361,15 +361,128 @@ goes through the rasterizer — text and paths. Rectangular backgrounds come fro
 `RasterPrimitives` and stay upright. Routing those through `VectorShapes` is the
 same follow-up Stage 3 already records.
 
-### Stage 4 — `SvgParser` and the `<Svg>` element — next
+### Stage 4 — `SvgParser` and the `<Svg>` element — **DONE**
 
-XML subset → vector display list, with the restricted profile below. `<Svg
-src="…">` as one `EVGElement`.
+`gallery/evg/SvgParser.rgr` reads an SVG document into the vector layer, and
+`<Svg src="logo.svg">` draws one in a TSX document. It is the only file in the
+tree that knows any XML.
 
-### Stage 5 — Paint (flat colour only)
+**What comes out is a flat list, not a node tree.** `SvgVectorItem` is resolved
+geometry plus resolved paint, and the whole document is a `[SvgVectorItem]`.
+Two decisions make that possible and both are worth stating, because they are
+the reason the renderers needed almost no new code:
 
-Flat `fill` / `stroke` with opacity. Gradient paint is deliberately **out of
-scope for this plan** — see §6.
+* **Transforms are baked.** Every enclosing `transform` is applied to the
+  commands as they are produced, so an item's geometry is absolute in the
+  document's own user space. An affine map takes a cubic to a cubic, so this
+  approximates nothing — and it means a renderer needs no transform stack, no
+  group traversal and no state machine. It draws a list.
+* **Paint is resolved.** Inheritance down groups, `fill="none"`, the three
+  opacity properties, `style` outranking presentation attributes: all settled
+  once, in the importer, so the three renderers cannot come to different
+  conclusions about what colour a shape is.
+
+**The element reuses the path type rather than adding one.** An imported
+drawing is laid out, sized and positioned exactly like a `<Path>`, so a new
+`elementType` would have meant a second copy of that in the layout engine and in
+all three renderers with no behavioural difference. `EVGElement.svgSource`
+carries the markup; `<Svg src>` is resolved relative to the document that names
+it, in `JSXToEVG.parseFile`, which is the one place that touches the filesystem
+— `SvgParser` itself never opens anything, which is what keeps §8's "no network
+or filesystem access from inside the parser" true by construction rather than by
+review.
+
+**HTML goes through the IR too, and this is the load-bearing decision.** It
+would have been *less* code to hand the original markup to the browser inside an
+inline `<svg>` — and it would have reintroduced exactly the class of defect this
+plan exists to remove, because the browser would happily draw the filters,
+gradients, clip paths and live text that PDF and PNG cannot. The HTML target
+therefore emits one `<path>` per resolved item, and a construct outside the
+profile is missing from the preview in the same way it is missing from the
+print. Out of profile has to mean out of profile everywhere, or the profile is
+not real.
+
+**In the profile:** `svg`, `g`, `a`, `defs`, `use` (same-document fragments,
+including forward references and `xlink:href`), `path`, `rect`, `circle`,
+`ellipse`, `line`, `polyline`, `polygon`; `transform` with `matrix`,
+`translate`, `scale`, `rotate` (both forms), `skewX`, `skewY`; `fill`, `stroke`,
+`stroke-width`, `fill-rule`, `stroke-dasharray`, `stroke-dashoffset`,
+`opacity`, `fill-opacity`, `stroke-opacity`, and the `style` attribute carrying
+any of them; the root's `viewBox` and `width`/`height`; comments, CDATA,
+processing instructions and namespace prefixes.
+
+**Refused, and reported (§7.4):** `text` — with its own sentence, because a logo
+that quietly loses its wordmark is the most likely "SVG support is broken"
+report — plus `script`, `style`, `image`, `filter`, `mask`, `clipPath`,
+`pattern`, `marker`, `symbol`, the animation elements, gradient elements (§6),
+`switch`, nested `<svg>` viewports, external `href`, unknown elements, unknown
+transform functions, unreadable colours and unreadable lengths. Warnings are
+deduplicated by kind, so a file with four hundred gradient fills says it once.
+
+**Refused by construction, not by mitigation:** there is no entity machinery at
+all, and a DOCTYPE carrying an internal subset — the only place an entity
+declaration can appear — is a parse error rather than something parsed with the
+entities left as text. That removes billion-laughs and XXE by there being
+nothing to expand. Node count, nesting depth, path-command count and `<use>`
+expansion depth are all capped and reported as errors rather than as an
+out-of-memory.
+
+**Found on the way, and worth knowing.** `str2double` reads `"100%"` as `100`.
+A root `width="100%"` is the SVG default and means "fill the viewport" — which
+for an imported drawing is a decision the hosting element makes — so reading it
+as user units would have sized every default-width document by a number that
+means something else entirely. Lengths are now checked to be numbers before they
+are read as numbers.
+
+**Fixed on the way past.** Two divergences the imported case walked straight
+into:
+
+* The PDF renderer had no even-odd fill: it always emitted `f`/`B`, never
+  `f*`/`B*`, so `fill-rule="evenodd"` — which HTML hands to the browser and the
+  raster target has honoured since Stage 2 — filled the middle of a ring in PDF
+  and left it hollow in the other two.
+* The HTML renderer did not rotate a `<Path>`. PDF emitted a rotation matrix and
+  the raster target turned the shape on the shared rasterizer, but this renderer
+  builds the inline `<svg>`'s style itself rather than going through the builder
+  that carries `transform`, so `rotate` never reached it and the shape stayed
+  upright.
+
+**The element's fill is the document's initial paint.** SVG's initial `fill` is
+black, and that is still the default — but when the hosting element has a fill,
+that becomes the value any shape inherits when neither it nor anything above it
+names one. A file that sets its own colours is untouched, because its own value
+wins. This is what lets an icon set follow a theme without editing the files,
+and it is the only sensible answer for `currentColor`, which otherwise refers to
+a CSS property an imported document cannot see. It is also what keeps the
+showcase's rule — geometry in the tree, appearance in the stylesheet — true for
+files the gallery does not own.
+
+**Four consumers, not three.** `EVGDisplayList` carries imported documents too,
+so the GL/WebGL backend gets them. Leaving it out would have made a `<Svg>`
+present in three targets and absent from the fourth, which is the exact failure
+that file was written to prevent.
+
+**Not in this stage.** Stroke joins and caps are not represented (the raster
+stroke is butt caps and round joins, Stage 2), `preserveAspectRatio` inside an
+imported document is ignored because the hosting element decides the fit, and
+group `opacity` is multiplied into each child's alpha rather than composited as
+a unit — overlapping children inside a faded group show through each other here
+and would not in a browser. Each is reported when a document uses it.
+
+**Showcase.** A `svg` page joins the gallery with two files that make the
+distinction visible: `rosette.svg` names no colours and is painted by the theme
+(and is one petal referenced eight times, so `<use>` and the baked rotations are
+what is on the page), while `emblem.svg` brings its own palette, its own group
+transform and an even-odd counter, and keeps all three.
+
+### Stage 5 — Paint (flat colour only) — **DONE**
+
+Landed with Stage 4, because paint resolution is not separable from the walk
+that produces the items: `fill`, `stroke`, `stroke-width`, `fill-rule`, the dash
+properties and the three opacity properties, inherited down groups and resolved
+into each item. Gradient paint remains deliberately **out of scope for this
+plan** — see §6 — and a `url(#…)` reference is dropped with a diagnostic rather
+than rendered differently in each target.
 
 ## 6. Gradients are deferred, on purpose
 

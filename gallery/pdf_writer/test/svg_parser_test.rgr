@@ -1,0 +1,584 @@
+; ==============================================================================
+; svg_parser_test.rgr — an SVG file, read into the vector layer
+; ==============================================================================
+; PLAN_VECTOR_IR.md Stage 4, and §7.4 in particular: a restricted profile is
+; only coherent if "not implemented" is a defined, detectable state rather than
+; silently wrong output. So roughly half of what is asserted here is not
+; geometry at all — it is that the parser SAYS what it refused.
+;
+; The geometry half is checked against values worked out from the spec, not read
+; off the implementation:
+;
+;   - shapes go through VectorShapes, so a <circle> and the equivalent <path>
+;     produce the same points
+;   - transforms are baked into the commands, so a translated group's shape
+;     comes out at translated coordinates and needs no transform stack later
+;   - transform composition follows SVG's order, checked on a case where the
+;     wrong order gives a visibly different answer
+;   - paint inherits down groups, `style` outranks presentation attributes, and
+;     the opacity properties multiply into the alpha
+;
+;   bash gallery/pdf_writer/test/run_vector.sh
+; ==============================================================================
+
+Import "../../evg/SvgParser.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class SvgParserTest {
+
+    sfn m@(main):void () {
+        def test (new SvgParserTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/svg_parser"))
+        test.testRootAndViewBox(t)
+        test.testShapes(t)
+        test.testShapeEqualsPath(t)
+        test.testPaintInheritance(t)
+        test.testStyleAttribute(t)
+        test.testInitialPaint(t)
+        test.testOpacity(t)
+        test.testTransforms(t)
+        test.testTransformOrder(t)
+        test.testStrokeScaling(t)
+        test.testUse(t)
+        test.testProfileRefusals(t)
+        test.testXmlSyntax(t)
+        test.testEntities(t)
+        test.testLimits(t)
+        test.testEffectiveViewBox(t)
+        t.summary()
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Helpers
+    ; --------------------------------------------------------------------------
+
+    fn parse:SvgDocument (src:string) {
+        def p (new SvgParser())
+        return (p.parse(src))
+    }
+
+    fn item:SvgVectorItem (doc:SvgDocument idx:int) {
+        return (itemAt doc.items idx)
+    }
+
+    fn cmd:PathCommand (doc:SvgDocument idx:int cmdIdx:int) {
+        def it:SvgVectorItem (itemAt doc.items idx)
+        return (itemAt it.commands cmdIdx)
+    }
+
+    ; Field access on a parenthesised expression is not available, so the
+    ; accessors below keep each assertion to one readable line rather than
+    ; three lines of temporaries.
+    fn cmdCount:int (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return (array_length it.commands)
+    }
+
+    fn cType:string (doc:SvgDocument idx:int k:int) {
+        def c:PathCommand (this.cmd(doc idx k))
+        return c.type
+    }
+
+    fn lastType:string (doc:SvgDocument idx:int) {
+        return (this.cType(doc idx ((this.cmdCount(doc idx)) - 1)))
+    }
+
+    fn cX:double (doc:SvgDocument idx:int k:int) {
+        def c:PathCommand (this.cmd(doc idx k))
+        return c.x
+    }
+
+    fn cY:double (doc:SvgDocument idx:int k:int) {
+        def c:PathCommand (this.cmd(doc idx k))
+        return c.y
+    }
+
+    fn cX1:double (doc:SvgDocument idx:int k:int) {
+        def c:PathCommand (this.cmd(doc idx k))
+        return c.x1
+    }
+
+    fn cX2:double (doc:SvgDocument idx:int k:int) {
+        def c:PathCommand (this.cmd(doc idx k))
+        return c.x2
+    }
+
+    fn hasFill:boolean (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return (it.hasFill())
+    }
+
+    fn hasStroke:boolean (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return (it.hasStroke())
+    }
+
+    fn fillR:double (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return it.fillColor.r
+    }
+
+    fn fillG:double (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return it.fillColor.g
+    }
+
+    fn fillB:double (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return it.fillColor.b
+    }
+
+    fn fillA:double (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return it.fillColor.a
+    }
+
+    fn strokeB:double (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return it.strokeColor.b
+    }
+
+    fn strokeA:double (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return it.strokeColor.a
+    }
+
+    fn strokeW:double (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return it.strokeWidth
+    }
+
+    fn fillRuleOf:string (doc:SvgDocument idx:int) {
+        def it:SvgVectorItem (this.item(doc idx))
+        return it.fillRule
+    }
+
+    ; True when any warning mentions `needle`. The exact wording is meant to be
+    ; readable by a person and is expected to change; that it is SAID is the
+    ; contract.
+    fn warns:boolean (doc:SvgDocument needle:string) {
+        return ((indexOf (doc.warningSummary()) needle) >= 0)
+    }
+
+    fn errs:boolean (doc:SvgDocument needle:string) {
+        return ((indexOf (doc.errorSummary()) needle) >= 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The root element
+    ; --------------------------------------------------------------------------
+
+    fn testRootAndViewBox:void (t:RgTest) {
+        def doc:SvgDocument (this.parse("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"24\" viewBox=\"0 0 24 12\"><path d=\"M0 0 L10 10\" stroke=\"black\"/></svg>"))
+        t.eqBool("a viewBox on the root is read" doc.viewBox.isSet true)
+        t.near("viewBox width" doc.viewBox.width 24.0)
+        t.near("viewBox height" doc.viewBox.height 12.0)
+        t.near("the root width attribute is read" doc.width 48.0)
+        t.near("the root height attribute is read" doc.height 24.0)
+        t.eqInt("the path became one item" (doc.itemCount()) 1)
+        t.eqBool("a clean document reports no errors" (doc.hasErrors()) false)
+
+        ; A percentage width is the SVG default and means "fill the viewport",
+        ; which is a decision the hosting element makes — so it must not come
+        ; back as the number 100.
+        def pct:SvgDocument (this.parse("<svg width=\"100%\" height=\"100%\"><rect width=\"4\" height=\"4\"/></svg>"))
+        t.near("a percentage width is not read as a number" pct.width 0.0)
+
+        ; px is the user unit, so it is the one suffix that resolves.
+        def px:SvgDocument (this.parse("<svg width=\"32px\" height=\"16px\"><rect width=\"4\" height=\"4\"/></svg>"))
+        t.near("a px width resolves to user units" px.width 32.0)
+
+        def bad:SvgDocument (this.parse("<svg viewBox=\"0 0 -5 10\"><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqBool("a viewBox with a negative width is refused" bad.viewBox.isSet false)
+        t.eqBool("...and says so" (this.warns(bad "viewBox")) true)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Shapes
+    ; --------------------------------------------------------------------------
+
+    fn testShapes:void (t:RgTest) {
+        def doc:SvgDocument (this.parse("<svg><rect x=\"1\" y=\"2\" width=\"10\" height=\"20\"/><circle cx=\"5\" cy=\"5\" r=\"3\"/><ellipse cx=\"1\" cy=\"1\" rx=\"4\" ry=\"2\"/><line x1=\"0\" y1=\"0\" x2=\"9\" y2=\"9\" stroke=\"red\"/><polyline points=\"0,0 5,5 10,0\" stroke=\"red\"/><polygon points=\"0,0 5,5 10,0\"/></svg>"))
+        t.eqInt("every basic shape became an item" (doc.itemCount()) 6)
+
+        t.eqStr("a square-cornered rect starts with a moveto" (this.cType(doc 0 0)) "M")
+        t.near("rect x" (this.cX(doc 0 0)) 1.0)
+        t.near("rect y" (this.cY(doc 0 0)) 2.0)
+        t.eqInt("a square-cornered rect is M L L L Z" (this.cmdCount(doc 0)) 5)
+
+        t.eqInt("a circle is a moveto, four cubics and a close" (this.cmdCount(doc 1)) 6)
+
+        ; A shape with neither fill nor stroke draws nothing, and SVG's initial
+        ; fill is black — so the ones above with no paint at all are filled.
+        t.eqBool("a shape with no paint attributes is filled black" (this.hasFill(doc 0)) true)
+        t.near("...fully opaque" (this.fillA(doc 0)) 1.0)
+        t.eqBool("...and not stroked" (this.hasStroke(doc 0)) false)
+
+        ; A line has no interior, and the spec's equivalent path is not closed.
+        t.eqInt("a line is two commands" (this.cmdCount(doc 3)) 2)
+        t.eqBool("a line is stroked" (this.hasStroke(doc 3)) true)
+
+        t.eqStr("a polygon closes" (this.lastType(doc 5)) "Z")
+
+        ; A degenerate shape produces no geometry rather than a stray dot, and
+        ; therefore no item.
+        def zero:SvgDocument (this.parse("<svg><circle cx=\"5\" cy=\"5\" r=\"0\"/><rect width=\"0\" height=\"10\"/></svg>"))
+        t.eqInt("a zero-radius circle and a zero-width rect draw nothing" (zero.itemCount()) 0)
+    }
+
+    ; The point of Stage 3 was that a shape and its path equivalent are the same
+    ; geometry. This is that claim, through the importer.
+    fn testShapeEqualsPath:void (t:RgTest) {
+        def viaShape:SvgDocument (this.parse("<svg><circle cx=\"12\" cy=\"12\" r=\"6\"/></svg>"))
+        def d:string (VectorShapes.asPathData((VectorShapes.circle(12.0 12.0 6.0))))
+        def viaPath:SvgDocument (this.parse("<svg><path d=\"" + d + "\"/></svg>"))
+
+        def a:SvgVectorItem (this.item(viaShape 0))
+        def b:SvgVectorItem (this.item(viaPath 0))
+        t.eqInt("a circle and the equivalent path have the same command count" (array_length a.commands) (array_length b.commands))
+
+        def k:int 0
+        def same:boolean true
+        while (k < (array_length a.commands)) {
+            def ca:PathCommand (itemAt a.commands k)
+            def cb:PathCommand (itemAt b.commands k)
+            if ((ca.type == cb.type) == false) { same = false }
+            def dx:double (ca.x - cb.x)
+            if (dx < 0.0) { dx = (0.0 - dx) }
+            def dy:double (ca.y - cb.y)
+            if (dy < 0.0) { dy = (0.0 - dy) }
+            if (dx > 0.001) { same = false }
+            if (dy > 0.001) { same = false }
+            k = (k + 1)
+        }
+        t.eqBool("a <circle> and its equivalent <path> land on the same points" same true)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Paint
+    ; --------------------------------------------------------------------------
+
+    fn testPaintInheritance:void (t:RgTest) {
+        def doc:SvgDocument (this.parse("<svg><g fill=\"#ff0000\" stroke=\"#0000ff\" stroke-width=\"3\"><path d=\"M0 0 L1 1\"/><path d=\"M0 0 L2 2\" fill=\"#00ff00\"/></g><path d=\"M0 0 L3 3\"/></svg>"))
+        t.eqInt("three paths, three items" (doc.itemCount()) 3)
+
+        def inherited:SvgVectorItem (this.item(doc 0))
+        t.near("a group fill is inherited (red)" inherited.fillColor.r 255.0)
+        t.near("...green channel" inherited.fillColor.g 0.0)
+        t.near("a group stroke is inherited (blue)" inherited.strokeColor.b 255.0)
+        t.near("a group stroke-width is inherited" inherited.strokeWidth 3.0)
+
+        def overridden:SvgVectorItem (this.item(doc 1))
+        t.near("a child's own fill wins over the group's" overridden.fillColor.g 255.0)
+        t.near("...and it does not keep the group's red" overridden.fillColor.r 0.0)
+        t.near("...while still inheriting the stroke" overridden.strokeColor.b 255.0)
+
+        def outside:SvgVectorItem (this.item(doc 2))
+        t.near("a sibling outside the group is back to the initial black fill" outside.fillColor.r 0.0)
+        t.eqBool("...and is not stroked" (outside.hasStroke()) false)
+
+        ; fill="none" is not a colour, it is the absence of the operation.
+        def none:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\" fill=\"none\" stroke=\"black\"/></svg>"))
+        t.eqBool("fill=none means the shape is not filled" (this.hasFill(none 0)) false)
+        t.eqBool("...but it is still stroked" (this.hasStroke(none 0)) true)
+
+        ; Neither filled nor stroked is nothing to draw at all.
+        def invisible:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\" fill=\"none\"/></svg>"))
+        t.eqInt("a shape with no fill and no stroke is not an item" (invisible.itemCount()) 0)
+
+        ; A gradient reference is dropped rather than rendered differently in
+        ; each target (PLAN_VECTOR_IR.md §6), and it says so.
+        def grad:SvgDocument (this.parse("<svg><defs><linearGradient id=\"g\"/></defs><path d=\"M0 0 L1 1\" fill=\"url(#g)\" stroke=\"black\"/></svg>"))
+        t.eqBool("a gradient fill is not filled" (this.hasFill(grad 0)) false)
+        t.eqBool("...and the document says gradients are deferred" (this.warns(grad "gradient")) true)
+
+        ; A colour that cannot be read keeps the inherited paint: the shape is
+        ; visibly wrong rather than invisibly missing, and the warning says why.
+        def bad:SvgDocument (this.parse("<svg><g fill=\"#ff0000\"><path d=\"M0 0 L1 1\" fill=\"chartrouse\"/></g></svg>"))
+        t.near("an unreadable colour falls back to the inherited one" (this.fillR(bad 0)) 255.0)
+        t.eqBool("...and is reported" (this.warns(bad "chartrouse")) true)
+
+        def rule:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1 Z\" fill-rule=\"evenodd\"/></svg>"))
+        t.eqStr("fill-rule is carried through" (this.fillRuleOf(rule 0)) "evenodd")
+    }
+
+    ; CSS says the style attribute outranks presentation attributes. Exporters
+    ; write both, so the losing one being applied is a real defect and not a
+    ; theoretical one.
+    fn testStyleAttribute:void (t:RgTest) {
+        def doc:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\" fill=\"#ff0000\" style=\"fill:#00ff00;stroke:#0000ff;stroke-width:5\"/></svg>"))
+        def it:SvgVectorItem (this.item(doc 0))
+        t.near("style beats the fill attribute (green wins)" it.fillColor.g 255.0)
+        t.near("...and red is gone" it.fillColor.r 0.0)
+        t.near("style can set the stroke" it.strokeColor.b 255.0)
+        t.near("style can set the stroke width" it.strokeWidth 5.0)
+
+        def spaced:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\" style=\" fill : #0000ff ; \"/></svg>"))
+        t.near("whitespace around a declaration does not stop it applying" (this.fillB(spaced 0)) 255.0)
+    }
+
+    ; The hosting element's fill becomes the document's initial paint, which is
+    ; what lets an icon set be themed: the file is geometry, the element decides
+    ; the colour, exactly as a hand-written <Path> already works. A file that
+    ; names its own colours is untouched by it.
+    fn testInitialPaint:void (t:RgTest) {
+        def p (new SvgParser())
+        p.setInitialFill((EVGColor.rgb(0 0 255)))
+        def doc:SvgDocument (p.parse("<svg><rect width=\"4\" height=\"4\"/><rect width=\"4\" height=\"4\" fill=\"#ff0000\"/></svg>"))
+        t.near("a shape with no fill takes the element's paint" (this.fillB(doc 0)) 255.0)
+        t.near("...and not the SVG initial black" (this.fillR(doc 0)) 0.0)
+        t.near("a shape with its own fill keeps it" (this.fillR(doc 1)) 255.0)
+
+        ; currentColor names the CSS `color` property, which an imported file
+        ; cannot see; the element's paint is what it is reaching for.
+        def cc (new SvgParser())
+        cc.setInitialFill((EVGColor.rgb(0 255 0)))
+        def ccDoc:SvgDocument (cc.parse("<svg><rect width=\"4\" height=\"4\" fill=\"currentColor\"/></svg>"))
+        t.near("currentColor resolves to the element's paint" (this.fillG(ccDoc 0)) 255.0)
+
+        ; Left alone, SVG's own initial value stands.
+        def plain:SvgDocument (this.parse("<svg><rect width=\"4\" height=\"4\"/></svg>"))
+        t.near("with no element paint, the SVG initial value is black" (this.fillR(plain 0)) 0.0)
+        t.eqBool("...and it is a fill rather than nothing" (this.hasFill(plain 0)) true)
+    }
+
+    fn testOpacity:void (t:RgTest) {
+        def doc:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\" fill=\"#ff0000\" fill-opacity=\"0.5\"/></svg>"))
+        t.near("fill-opacity reaches the fill alpha" (this.fillA(doc 0)) 0.5)
+
+        ; Group opacity accumulates down the tree and multiplies with the
+        ; per-property one.
+        def nested:SvgDocument (this.parse("<svg><g opacity=\"0.5\"><g opacity=\"0.5\"><path d=\"M0 0 L1 1\" fill=\"#ff0000\" fill-opacity=\"0.5\"/></g></g></svg>"))
+        t.near("nested group opacity multiplies" (this.fillA(nested 0)) 0.125)
+
+        def stroke:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\" stroke=\"#ff0000\" stroke-opacity=\"0.25\" fill=\"none\"/></svg>"))
+        t.near("stroke-opacity reaches the stroke alpha" (this.strokeA(stroke 0)) 0.25)
+        t.near("...and does not touch the fill" (this.fillA(stroke 0)) 1.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Transforms
+    ; --------------------------------------------------------------------------
+
+    fn testTransforms:void (t:RgTest) {
+        def tr:SvgDocument (this.parse("<svg><g transform=\"translate(10,20)\"><path d=\"M0 0 L5 5\"/></g></svg>"))
+        t.near("translate moves the start point x" (this.cX(tr 0 0)) 10.0)
+        t.near("translate moves the start point y" (this.cY(tr 0 0)) 20.0)
+        t.near("translate moves the end point x" (this.cX(tr 0 1)) 15.0)
+
+        def sc:SvgDocument (this.parse("<svg><g transform=\"scale(2)\"><path d=\"M1 2 L3 4\"/></g></svg>"))
+        t.near("a one-argument scale is uniform, x" (this.cX(sc 0 0)) 2.0)
+        t.near("a one-argument scale is uniform, y" (this.cY(sc 0 0)) 4.0)
+
+        def sc2:SvgDocument (this.parse("<svg><g transform=\"scale(2,3)\"><path d=\"M1 1 L2 2\"/></g></svg>"))
+        t.near("a two-argument scale is per-axis, x" (this.cX(sc2 0 0)) 2.0)
+        t.near("a two-argument scale is per-axis, y" (this.cY(sc2 0 0)) 3.0)
+
+        ; rotate(90) takes (1,0) to (0,1): x becomes -y, y becomes x, in SVG's
+        ; y-down space.
+        def rot:SvgDocument (this.parse("<svg><path d=\"M1 0 L0 0\" transform=\"rotate(90)\"/></svg>"))
+        t.near("rotate(90) sends (1,0) to (0,1), x" (this.cX(rot 0 0)) 0.0)
+        t.near("rotate(90) sends (1,0) to (0,1), y" (this.cY(rot 0 0)) 1.0)
+
+        ; rotate about a centre leaves that centre where it was — the property
+        ; the three-argument form exists for.
+        def rotc:SvgDocument (this.parse("<svg><path d=\"M5 5 L6 5\" transform=\"rotate(37 5 5)\"/></svg>"))
+        t.near("rotate(a cx cy) fixes the centre, x" (this.cX(rotc 0 0)) 5.0)
+        t.near("rotate(a cx cy) fixes the centre, y" (this.cY(rotc 0 0)) 5.0)
+
+        def mtx:SvgDocument (this.parse("<svg><path d=\"M1 1\" transform=\"matrix(2 0 0 2 5 5)\"/></svg>"))
+        t.near("matrix() is taken in a b c d e f order, x" (this.cX(mtx 0 0)) 7.0)
+        t.near("matrix() is taken in a b c d e f order, y" (this.cY(mtx 0 0)) 7.0)
+
+        ; A curve's control points are transformed too — an affine map takes a
+        ; cubic to a cubic, so this is exact rather than a resampling.
+        def curve:SvgDocument (this.parse("<svg><path d=\"M0 0 C1 1 2 2 3 3\" transform=\"translate(10,0)\"/></svg>"))
+        t.near("a cubic's first control point moves with it" (this.cX1(curve 0 1)) 11.0)
+        t.near("a cubic's second control point moves with it" (this.cX2(curve 0 1)) 12.0)
+        t.near("...and its endpoint" (this.cX(curve 0 1)) 13.0)
+
+        def unknown:SvgDocument (this.parse("<svg><path d=\"M1 1\" transform=\"warp(3)\"/></svg>"))
+        t.eqBool("an unknown transform function is reported" (this.warns(unknown "warp")) true)
+        t.near("...and is not applied" (this.cX(unknown 0 0)) 1.0)
+    }
+
+    ; Composition order is the classic place to be silently wrong: the two
+    ; orders give different answers, and only one is SVG's.
+    fn testTransformOrder:void (t:RgTest) {
+        ; translate(10,0) then scale(2) applied to (1,0):
+        ;   right (SVG):  scale first in local space -> (2,0), then +10 -> (12,0)
+        ;   wrong:        translate first -> (11,0), then scale -> (22,0)
+        def doc:SvgDocument (this.parse("<svg><path d=\"M1 0\" transform=\"translate(10,0) scale(2)\"/></svg>"))
+        t.near("a transform list applies left to right" (this.cX(doc 0 0)) 12.0)
+
+        ; The same rule across nesting: the parent's transform is the outer one.
+        def nested:SvgDocument (this.parse("<svg><g transform=\"translate(10,0)\"><g transform=\"scale(2)\"><path d=\"M1 0\"/></g></g></svg>"))
+        t.near("a nested transform composes inside its parent's" (this.cX(nested 0 0)) 12.0)
+    }
+
+    ; A stroke drawn inside a scaled group is scaled with it. Getting this wrong
+    ; is invisible on an icon at 1:1 and obvious the moment a drawing is placed
+    ; at any other size.
+    fn testStrokeScaling:void (t:RgTest) {
+        def doc:SvgDocument (this.parse("<svg><g transform=\"scale(3)\"><path d=\"M0 0 L1 1\" stroke=\"black\" stroke-width=\"2\"/></g></svg>"))
+        t.near("a stroke scales with the group around it" (this.strokeW(doc 0)) 6.0)
+
+        ; Under a non-uniform scale there is no single right answer; the
+        ; geometric mean is the documented approximation.
+        def nonUniform:SvgDocument (this.parse("<svg><g transform=\"scale(4,1)\"><path d=\"M0 0 L1 1\" stroke=\"black\" stroke-width=\"1\"/></g></svg>"))
+        t.near("a non-uniform scale uses the geometric mean" (this.strokeW(nonUniform 0)) 2.0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; <use>
+    ; --------------------------------------------------------------------------
+
+    fn testUse:void (t:RgTest) {
+        def doc:SvgDocument (this.parse("<svg><defs><path id=\"tick\" d=\"M0 0 L4 4\"/></defs><use href=\"#tick\" x=\"10\" y=\"0\"/><use href=\"#tick\" x=\"20\" y=\"0\"/></svg>"))
+        t.eqInt("a definition is drawn once per use, and not where it is defined" (doc.itemCount()) 2)
+        t.near("the first use is offset by its x" (this.cX(doc 0 0)) 10.0)
+        t.near("the second use is offset by its x" (this.cX(doc 1 0)) 20.0)
+
+        ; The reference may come before the definition — Illustrator puts <defs>
+        ; at either end, so a single forward pass would break on half of them.
+        def forward:SvgDocument (this.parse("<svg><use href=\"#later\"/><defs><rect id=\"later\" width=\"4\" height=\"4\"/></defs></svg>"))
+        t.eqInt("a use may reference a definition that appears after it" (forward.itemCount()) 1)
+
+        ; xlink:href is still what most exporters write.
+        def xlink:SvgDocument (this.parse("<svg><defs><rect id=\"r\" width=\"4\" height=\"4\"/></defs><use xlink:href=\"#r\"/></svg>"))
+        t.eqInt("xlink:href is accepted" (xlink.itemCount()) 1)
+
+        ; Paint inherits INTO the referenced content, which is most of why icon
+        ; sprites are written this way.
+        def paint:SvgDocument (this.parse("<svg><defs><rect id=\"r\" width=\"4\" height=\"4\"/></defs><g fill=\"#ff0000\"><use href=\"#r\"/></g></svg>"))
+        t.near("paint inherits through a use" (this.fillR(paint 0)) 255.0)
+
+        ; The profile's hard rule: nothing leaves the document (§8).
+        def external:SvgDocument (this.parse("<svg><use href=\"other.svg#icon\"/></svg>"))
+        t.eqInt("an external use draws nothing" (external.itemCount()) 0)
+        t.eqBool("...and says the reference was dropped" (this.warns(external "same document")) true)
+
+        def missing:SvgDocument (this.parse("<svg><use href=\"#nope\"/></svg>"))
+        t.eqBool("a use pointing at a missing id is reported" (this.warns(missing "nope")) true)
+
+        ; A cycle terminates instead of running until the stack gives out.
+        def cyclic:SvgDocument (this.parse("<svg><g id=\"a\"><use href=\"#a\"/></g></svg>"))
+        t.eqBool("a self-referencing use stops and says so" (this.warns(cyclic "cycle")) true)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The profile, enforced (§7.4, §8)
+    ; --------------------------------------------------------------------------
+
+    fn testProfileRefusals:void (t:RgTest) {
+        ; The one the plan singles out: a logo that quietly loses its wordmark
+        ; is the most likely "SVG support is broken" report.
+        def text:SvgDocument (this.parse("<svg><text x=\"0\" y=\"10\">Ranger</text><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqInt("text contributes no geometry" (text.itemCount()) 1)
+        t.eqBool("...and the document says the text was dropped" (this.warns(text "text")) true)
+
+        def script:SvgDocument (this.parse("<svg><script>alert(1)</script><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqInt("a script element draws nothing and does not disturb its siblings" (script.itemCount()) 1)
+        t.eqBool("...and is reported" (this.warns(script "script")) true)
+
+        ; The contents of a refused element must not leak back in as geometry —
+        ; the shapes inside a <mask> are not part of the drawing.
+        def mask:SvgDocument (this.parse("<svg><mask id=\"m\"><rect width=\"9\" height=\"9\"/></mask><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqInt("shapes inside a refused element are not drawn" (mask.itemCount()) 1)
+
+        def style:SvgDocument (this.parse("<svg><style>.a{fill:red}</style><rect class=\"a\" width=\"4\" height=\"4\"/></svg>"))
+        t.eqBool("an internal stylesheet is reported rather than half-applied" (this.warns(style "style")) true)
+        t.near("...and the class does not colour the shape" (this.fillR(style 0)) 0.0)
+
+        def nested:SvgDocument (this.parse("<svg><svg viewBox=\"0 0 4 4\"><rect width=\"4\" height=\"4\"/></svg><rect width=\"2\" height=\"2\"/></svg>"))
+        t.eqInt("a nested viewport is not drawn in the outer coordinate system" (nested.itemCount()) 1)
+        t.eqBool("...and says why" (this.warns(nested "viewport")) true)
+
+        def image:SvgDocument (this.parse("<svg><image href=\"photo.png\" width=\"10\" height=\"10\"/></svg>"))
+        t.eqBool("an external image reference is reported" (this.warns(image "external")) true)
+
+        ; An element nobody has heard of is skipped WITH a diagnostic, which is
+        ; what makes it safe to ship a small profile and grow it.
+        def unknown:SvgDocument (this.parse("<svg><flibble/><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqInt("an unknown element does not disturb its siblings" (unknown.itemCount()) 1)
+        t.eqBool("...and is named in the warnings" (this.warns(unknown "flibble")) true)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; XML syntax the parser has to step over
+    ; --------------------------------------------------------------------------
+
+    fn testXmlSyntax:void (t:RgTest) {
+        def doc:SvgDocument (this.parse("<?xml version=\"1.0\"?>\n<!-- a comment with <rect/> inside it -->\n<svg><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqInt("a processing instruction and a comment are stepped over" (doc.itemCount()) 1)
+        t.eqBool("...without an error" (doc.hasErrors()) false)
+
+        def cdata:SvgDocument (this.parse("<svg><![CDATA[ <rect width=\"9\" height=\"9\"/> ]]><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqInt("markup inside CDATA is text, not elements" (cdata.itemCount()) 1)
+
+        ; Exported files are full of namespace prefixes.
+        def ns:SvgDocument (this.parse("<svg:svg xmlns:svg=\"http://www.w3.org/2000/svg\"><svg:rect width=\"4\" height=\"4\"/></svg:svg>"))
+        t.eqInt("a namespace prefix on an element name is ignored" (ns.itemCount()) 1)
+
+        def messy:SvgDocument (this.parse("<svg>\n  <rect\n     width = \"4\"\n     height=\"4\"\n  />\n</svg>"))
+        t.eqInt("newlines and spaces around attributes are fine" (messy.itemCount()) 1)
+
+        def closed:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\"><title>a title</title></path><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqInt("a shape written with a closing tag, carrying a title, still draws once" (closed.itemCount()) 2)
+
+        ; A DOCTYPE without an internal subset is harmless and is stepped over.
+        def doctype:SvgDocument (this.parse("<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\"><svg><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqInt("a plain DOCTYPE is stepped over" (doctype.itemCount()) 1)
+        t.eqBool("...and is not an error" (doctype.hasErrors()) false)
+    }
+
+    fn testEntities:void (t:RgTest) {
+        ; The five predefined entities cannot recurse, so expanding them costs
+        ; nothing in safety.
+        def doc:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\" fill=\"none\" stroke=\"black\" id=\"a&amp;b\"/></svg>"))
+        t.eqInt("a predefined entity in an attribute does not break the tag" (doc.itemCount()) 1)
+
+        ; The internal subset is where entity declarations live, and this parser
+        ; implements no entities at all — which is what rules out billion-laughs
+        ; and XXE by construction rather than by mitigation (§8).
+        def bomb:SvgDocument (this.parse("<!DOCTYPE svg [<!ENTITY lol \"haha\">]><svg><rect width=\"4\" height=\"4\"/></svg>"))
+        t.eqBool("a document with an internal subset is refused" (bomb.hasErrors()) true)
+        t.eqBool("...and names entities as the reason" (this.errs(bomb "entities")) true)
+        t.eqInt("...and nothing is drawn from it" (bomb.itemCount()) 0)
+    }
+
+    fn testLimits:void (t:RgTest) {
+        ; Depth is capped so a pathological file fails with a sentence rather
+        ; than with a stack overflow.
+        def deep:string "<svg>"
+        def k:int 0
+        while (k < 200) {
+            deep = (deep + "<g>")
+            k = (k + 1)
+        }
+        deep = (deep + "<rect width=\"4\" height=\"4\"/>")
+        def doc:SvgDocument (this.parse(deep))
+        t.eqBool("a document nested past the cap is refused" (doc.hasErrors()) true)
+        t.eqBool("...and says it was the nesting" (this.errs(doc "nesting")) true)
+    }
+
+    ; The same fallback chain a <Path> goes through, so an imported drawing and
+    ; a hand-written path are fitted to their element box by one rule.
+    fn testEffectiveViewBox:void (t:RgTest) {
+        def declared:SvgDocument (this.parse("<svg viewBox=\"1 2 3 4\"><rect width=\"4\" height=\"4\"/></svg>"))
+        def vb1:ViewBoxRect (declared.effectiveViewBox())
+        t.near("a declared viewBox is used as-is" vb1.minX 1.0)
+        t.near("...height" vb1.height 4.0)
+
+        def sized:SvgDocument (this.parse("<svg width=\"40\" height=\"20\"><rect x=\"5\" y=\"5\" width=\"4\" height=\"4\"/></svg>"))
+        def vb2:ViewBoxRect (sized.effectiveViewBox())
+        t.near("with no viewBox, width/height define the coordinate system" vb2.width 40.0)
+        t.near("...starting at the origin, not at the ink" vb2.minX 0.0)
+
+        def bare:SvgDocument (this.parse("<svg><rect x=\"10\" y=\"10\" width=\"20\" height=\"20\"/></svg>"))
+        def vb3:ViewBoxRect (bare.effectiveViewBox())
+        t.eqBool("with neither, one is synthesised from the ink" vb3.isSet true)
+        t.near("...at the ink's origin" vb3.minX 10.0)
+        t.near("...and the ink's size" vb3.width 20.0)
+    }
+}

@@ -63,6 +63,13 @@ const PAGES = [
     shows: ["viewBox scaling", "fill-rule holes", "cubic + quadratic", "smooth S/T", "elliptical arcs"],
   },
   {
+    id: "svg",
+    title: "Imported SVG",
+    blurb:
+      "Two SVG files read into the same vector layer the rest of the gallery draws with: groups resolved, transforms baked into the geometry, <use> expanded where it is referenced. The browser is handed the resolved shapes rather than the original markup, so the preview cannot draw anything the printer will not.",
+    shows: ["<use> and <defs>", "baked transforms", "inherited paint", "themed from CSS"],
+  },
+  {
     id: "charts",
     title: "Charts",
     blurb:

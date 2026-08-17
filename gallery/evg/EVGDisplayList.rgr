@@ -29,6 +29,7 @@ Import "EVGColor.rgr"
 Import "EVGTextEngine.rgr"
 Import "SVGPathParser.rgr"
 Import "VectorViewBox.rgr"
+Import "SvgParser.rgr"
 
 ; Command kinds. Kept as ints so a backend can switch on them cheaply.
 ;   0 RECT   filled box, possibly rounded
@@ -126,21 +127,80 @@ class EVGDisplayList {
     ; stroke. The transform is the one the raster and PDF targets build: the
     ; viewBox mapping, then the element's position — so the points come out in
     ; page coordinates and a backend can draw them as they are.
-    fn walkPath:void (el:EVGElement x:double y:double w:double h:double) {
-        def pathData:string el.svgPath
-        if ((strlen pathData) == 0) {
+    ; An imported SVG document (PLAN_VECTOR_IR.md Stage 4). Without this a
+    ; <Svg> would simply be absent from a GL backend while appearing in the
+    ; other three, which is the class of divergence this file exists to stop —
+    ; the same reason border-radius once worked in PDF and silently not in PNG.
+    ;
+    ; The importer has already resolved paint and baked group transforms, so
+    ; this is the single-path walk with the per-shape paint coming from the item
+    ; rather than from the element.
+    fn walkSvgDocument:void (el:EVGElement x:double y:double w:double h:double) {
+        def sp (new SvgParser())
+        if el.fillColor.isSet {
+            sp.setInitialFill((unwrap el.fillColor))
+        }
+        def doc:SvgDocument (sp.parse(el.svgSource))
+        if ((doc.itemCount()) == 0) {
             return
         }
-        def parser (new SVGPathParser())
-        parser.parse(pathData)
 
-        def b:PathBounds (parser.getBounds())
-        def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
+        def vb:ViewBoxRect (doc.effectiveViewBox())
         def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
+        def steps:int (this.flattenSteps(w h))
+        def scale:double m.a
+        if (scale < 0.0) {
+            scale = (0.0 - scale)
+        }
+        if (scale <= 0.0) {
+            scale = 1.0
+        }
 
-        ; Subdivision chosen from the size it is drawn at, as the other targets
-        ; do: a large shape must not show facets, a small one must not pay for
-        ; detail no pixel can show.
+        def k:int 0
+        while (k < (doc.itemCount())) {
+            def item:SvgVectorItem (itemAt doc.items k)
+            def parser:SVGPathParser (SVGPathParser.fromCommands(item.commands))
+            def rings:[PathRing] (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
+            if ((array_length rings) > 0) {
+                if (item.hasFill()) {
+                    def cf (new EVGDrawCmd())
+                    cf.kind = 6
+                    cf.x = x
+                    cf.y = y
+                    cf.w = w
+                    cf.h = h
+                    cf.evenOdd = (item.fillRule == "evenodd")
+                    cf.r = (item.fillColor.red())
+                    cf.g = (item.fillColor.green())
+                    cf.b = (item.fillColor.blue())
+                    cf.a = (item.fillColor.alpha())
+                    this.copyRings(cf rings)
+                    push cmds cf
+                }
+                if (item.hasStroke()) {
+                    def cs (new EVGDrawCmd())
+                    cs.kind = 7
+                    cs.x = x
+                    cs.y = y
+                    cs.w = w
+                    cs.h = h
+                    cs.thickness = (item.strokeWidth * scale)
+                    cs.r = (item.strokeColor.red())
+                    cs.g = (item.strokeColor.green())
+                    cs.b = (item.strokeColor.blue())
+                    cs.a = (item.strokeColor.alpha())
+                    this.copyRings(cs rings)
+                    push cmds cs
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; Subdivision chosen from the size it is drawn at, as every other target
+    ; does: a large shape must not show facets, a small one must not pay for
+    ; detail no pixel can show.
+    fn flattenSteps:int (w:double h:double) {
         def span:double w
         if (h > span) {
             span = h
@@ -152,6 +212,27 @@ class EVGDisplayList {
         if (steps > 48) {
             steps = 48
         }
+        return steps
+    }
+
+    fn walkPath:void (el:EVGElement x:double y:double w:double h:double) {
+        if ((strlen el.svgSource) > 0) {
+            this.walkSvgDocument(el x y w h)
+            return
+        }
+
+        def pathData:string el.svgPath
+        if ((strlen pathData) == 0) {
+            return
+        }
+        def parser (new SVGPathParser())
+        parser.parse(pathData)
+
+        def b:PathBounds (parser.getBounds())
+        def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
+        def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
+
+        def steps:int (this.flattenSteps(w h))
 
         def rings:[PathRing] (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
         if ((array_length rings) == 0) {

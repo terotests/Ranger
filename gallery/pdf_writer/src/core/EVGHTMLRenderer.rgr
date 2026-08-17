@@ -16,6 +16,7 @@ Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
 Import "../../../evg/SVGPathParser.rgr"
 Import "../../../evg/VectorViewBox.rgr"
+Import "../../../evg/SvgParser.rgr"
 Import "EVGResourceLoader.rgr"
 
 ; Geometry a child needs from its laid-out parent while rendering.
@@ -1517,7 +1518,117 @@ class EVGHTMLRenderer {
         return (this.renderPathWithParent(el elementId depth (EVGParentFrame.none())))
     }
     
+    ; Rotation for an inline <svg>, matching what the div style builder already
+    ; emits and what the other two targets already did.
+    ;
+    ; A `<Path rotate="…">` was turned in PDF (a matrix) and in the raster
+    ; target (a transform on the shared rasterizer) and left upright here,
+    ; because this renderer builds the <svg> style itself rather than going
+    ; through the builder that carries `transform`. CSS rotates about the
+    ; centre of the box by default, which is the point the other two use.
+    fn svgRotationStyle:string (el:EVGElement) {
+        if (el.rotate == 0.0) {
+            return ""
+        }
+        return ("transform: rotate(" + (to_string el.rotate) + "deg); ")
+    }
+
+    ; ------------------------------------------------------------------------
+    ; An imported SVG document
+    ; ------------------------------------------------------------------------
+    ; The markup is NOT passed through to the browser. It goes through the
+    ; importer like every other target and comes back out as path data, which
+    ; costs a little fidelity in exchange for the guarantee the whole plan is
+    ; about: a construct outside the profile — a filter, a gradient, live text —
+    ; must be missing from the HTML too, or the HTML stops being a preview of
+    ; what will print (PLAN_VECTOR_IR.md §7.4).
+    ;
+    ; The importer has already resolved paint and baked transforms, so each item
+    ; is one <path> with explicit attributes and no inheritance to reproduce.
+    fn renderSvgDocumentWithParent:string (el:EVGElement elementId:string depth:int pf:EVGParentFrame) {
+        def html:string ""
+
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+        if (w <= 0.0) {
+            w = 24.0
+        }
+        if (h <= 0.0) {
+            h = 24.0
+        }
+
+        def relX:double (pf.relX(el))
+        def relY:double (pf.relY(el))
+
+        def sp (new SvgParser())
+        if el.fillColor.isSet {
+            sp.setInitialFill((unwrap el.fillColor))
+        }
+        def doc:SvgDocument (sp.parse(el.svgSource))
+        if (doc.hasErrors()) {
+            print ("  SVG import error: " + (doc.errorSummary()))
+        }
+        if (doc.hasWarnings()) {
+            print ("  SVG import: " + (doc.warningSummary()))
+        }
+
+        def vb:ViewBoxRect (doc.effectiveViewBox())
+
+        html = html + (this.indent(depth)) + "<svg"
+        if ((strlen el.id) > 0) {
+            html = html + " id=\"" + el.id + "\""
+        }
+        html = html + " class=\"evg-svg\""
+        html = html + " width=\"" + (to_string w) + "\""
+        html = html + " height=\"" + (to_string h) + "\""
+        if vb.isSet {
+            html = html + " viewBox=\"" + (vb.asAttribute()) + "\""
+        }
+        html = html + " style=\""
+        html = html + "position: absolute; "
+        html = html + "left: " + (this.formatPx(relX)) + "; "
+        html = html + "top: " + (this.formatPx(relY)) + "; "
+        html = html + (this.svgRotationStyle(el))
+        html = html + "\""
+        html = html + ">\n"
+
+        def k:int 0
+        while (k < (doc.itemCount())) {
+            def item:SvgVectorItem (itemAt doc.items k)
+            html = html + (this.indent(depth + 1)) + "<path d=\"" + (item.pathData()) + "\""
+            if item.fillColor.isSet {
+                html = html + " fill=\"" + (item.fillColor.toCSSString()) + "\""
+            } {
+                html = html + " fill=\"none\""
+            }
+            if item.strokeColor.isSet {
+                html = html + " stroke=\"" + (item.strokeColor.toCSSString()) + "\""
+                if (item.strokeWidth > 0.0) {
+                    html = html + " stroke-width=\"" + (to_string item.strokeWidth) + "\""
+                }
+                if ((strlen item.dashArray) > 0) {
+                    html = html + " stroke-dasharray=\"" + item.dashArray + "\""
+                    if ((item.dashOffset == 0.0) == false) {
+                        html = html + " stroke-dashoffset=\"" + (to_string item.dashOffset) + "\""
+                    }
+                }
+            }
+            if (item.fillRule == "evenodd") {
+                html = html + " fill-rule=\"evenodd\""
+            }
+            html = html + "/>\n"
+            k = (k + 1)
+        }
+
+        html = html + (this.indent(depth)) + "</svg>\n"
+        return html
+    }
+
     fn renderPathWithParent:string (el:EVGElement elementId:string depth:int pf:EVGParentFrame) {
+        if ((strlen el.svgSource) > 0) {
+            return (this.renderSvgDocumentWithParent(el elementId depth pf))
+        }
+
         def html:string ""
         
         def w:double el.calculatedWidth
@@ -1567,6 +1678,7 @@ class EVGHTMLRenderer {
         html = html + "position: absolute; "
         html = html + "left: " + (this.formatPx(relX)) + "; "
         html = html + "top: " + (this.formatPx(relY)) + "; "
+        html = html + (this.svgRotationStyle(el))
         html = html + "\""
         
         html = html + ">\n"

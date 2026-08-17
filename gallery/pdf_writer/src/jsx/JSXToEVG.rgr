@@ -16,6 +16,11 @@ class JSXToEVG {
     def source:string ""
     def pageWidth:double 595.0
     def pageHeight:double 842.0
+    ; The directory the document was read from, so that an <Svg src="..."> is
+    ; resolved relative to the file that names it rather than to whatever the
+    ; working directory happened to be. Empty when the source came from a
+    ; string, in which case an src cannot be resolved and says so.
+    def baseDir:string ""
     
     ; Every attribute it reads is announced, which is what a command line
     ; wants and what a browser console does not: one chart is a few hundred
@@ -55,6 +60,7 @@ class JSXToEVG {
     
     ; Parse a TSX file and return the root EVG element
     fn parseFile:EVGElement (dirPath:string fileName:string) {
+        baseDir = dirPath
         def fileContent:buffer (buffer_read_file dirPath fileName)
         ; Source files are UTF-8; buffer_to_string hands back Latin-1 bytes.
         ; Decoding here is what lets one "ä" measure as one glyph.
@@ -304,6 +310,10 @@ class JSXToEVG {
             def leftNode:TSNode (unwrap jsxNode.left)
             this.parseAttributes(element leftNode)
         }
+
+        if ((tagName == "Svg") || (tagName == "svg")) {
+            this.loadSvgSource(element)
+        }
         
         ; For text elements (span, Label), collect text content from children
         if ((tagName == "span") || (tagName == "Label") || (tagName == "text")) {
@@ -316,6 +326,40 @@ class JSXToEVG {
         return element
     }
     
+    ; Read the file an <Svg src="..."> names, relative to the document that
+    ; names it.
+    ;
+    ; This happens at conversion time rather than at render time so that all
+    ; three targets see the same bytes resolved by the same rule — the PDF, HTML
+    ; and PNG tools all come through parseFile, and none of them needs to know
+    ; that an element has a file behind it. It is also the only place the
+    ; importer touches the filesystem: SvgParser itself never opens anything,
+    ; which is what keeps `href` inside the document (PLAN_VECTOR_IR.md §8).
+    fn loadSvgSource:void (element:EVGElement) {
+        if ((strlen element.svgSource) > 0) {
+            return
+        }
+        if ((strlen element.src) == 0) {
+            return
+        }
+        def dir:string baseDir
+        def name:string element.src
+        ; A src with its own directory part is resolved against the document's
+        ; directory, which is what a relative path in a document means.
+        def lastSlash:int (lastIndexOf name "/")
+        if (lastSlash >= 0) {
+            dir = (dir + (substring name 0 (lastSlash + 1)))
+            name = (substring name (lastSlash + 1) (strlen name))
+        }
+        def content:buffer (buffer_read_file dir name)
+        def markup:string (Utf8.decode((buffer_to_string content)))
+        if ((strlen markup) == 0) {
+            print ("Warning: the SVG named by src is empty or could not be read: " + element.src)
+            return
+        }
+        element.svgSource = markup
+    }
+
     ; Collect all text content from JSX children.
     ;
     ; The parser hands back one JSXText node per run of word characters, so
@@ -461,6 +505,18 @@ class JSXToEVG {
             return "path"
         }
         if (jsxTag == "Path") {
+            return "path"
+        }
+
+        ; An imported SVG document. It becomes a path element because that is
+        ; what it is once SvgParser has resolved it — a piece of vector art
+        ; sized and placed by its element box — and reusing the type means the
+        ; layout engine and all three renderers need no new case
+        ; (PLAN_VECTOR_IR.md Stage 4).
+        if (jsxTag == "Svg") {
+            return "path"
+        }
+        if (jsxTag == "svg") {
             return "path"
         }
         
