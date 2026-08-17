@@ -1618,45 +1618,6 @@ class VlRuntime {
         ; line has to be behind the bar it crosses.
         this.encodeAxes(rootItem (spec.get("axes")))
 
-        ; The chart's own title, above the plot. A faceted cell already had
-        ; one; the WHOLE chart did not, so fifteen of the gallery's examples
-        ; drew everything except the sentence at the top of them.
-        def chartTitle:VlJson (spec.get("title"))
-        if (chartTitle.isObject()) {
-            def titleBox (new VlGroupBox())
-            titleBox.item = rootItem
-            titleBox.role = "frame"
-            titleBox.width = chartWidth
-            titleBox.height = chartHeight
-            ; What the chart covers on each side, so that a title asked to
-            ; centre on its BOUNDS has something to centre on.
-            titleBox.left = extentLeft
-            titleBox.right = extentRight
-            titleBox.bottom = extentBottom
-            ; A chart's title stands clear of EVERYTHING above the plot, not of
-            ; the plot itself. The topmost label of a continuous y axis is
-            ; centred on the plot's upper edge, so half of it hangs above —
-            ; and a title measured from the plot sat five pixels lower than the
-            ; reference's, which is five pixels of page.
-            titleBox.top = extentTop
-            ; A CHART's title is set in the group-title style — thirteen point
-            ; and bold — where a facet header's is a guide title at eleven.
-            def styled:VlJson (VlJson.objectValue())
-            for chartTitle.keys tk:string tki {
-                styled.setMember(tk (chartTitle.get(tk)))
-            }
-            if (! (styled.has("style"))) {
-                styled.setMember("style" (VlJson.stringValue("group-title")))
-            }
-            ; Four pixels clear of the plot, which is the reference's own
-            ; default for a chart title and not for a facet header's.
-            if (! (styled.has("offset"))) {
-                styled.setMember("offset" (VlJson.numberValue(4.0)))
-            }
-            def emptyRow:VlJson (VlJson.objectValue())
-            this.encodeGroupTitle(rootItem styled emptyRow titleBox)
-        }
-
         def marks:VlJson (spec.get("marks"))
         def encoded:[VlSceneMark]
         if (marks.isArray()) {
@@ -1712,6 +1673,46 @@ class VlRuntime {
         ; edge of everything the axes claimed, so they have to be built after
         ; the axes have said how far that reaches.
         this.encodeLegends(rootItem)
+
+        ; The chart's own title, above the plot. A faceted cell already had
+        ; one; the WHOLE chart did not, so fifteen of the gallery's examples
+        ; drew everything except the sentence at the top of them.
+        def chartTitle:VlJson (spec.get("title"))
+        if (chartTitle.isObject()) {
+            def titleBox (new VlGroupBox())
+            titleBox.item = rootItem
+            titleBox.role = "frame"
+            titleBox.width = chartWidth
+            titleBox.height = chartHeight
+            ; What the chart covers on each side, so that a title asked to
+            ; centre on its BOUNDS has something to centre on.
+            titleBox.left = extentLeft
+            titleBox.right = extentRight
+            titleBox.bottom = extentBottom
+            ; A chart's title stands clear of EVERYTHING above the plot, not of
+            ; the plot itself. The topmost label of a continuous y axis is
+            ; centred on the plot's upper edge, so half of it hangs above —
+            ; and a title measured from the plot sat five pixels lower than the
+            ; reference's, which is five pixels of page.
+            titleBox.top = extentTop
+            ; A CHART's title is set in the group-title style — thirteen point
+            ; and bold — where a facet header's is a guide title at eleven.
+            def styled:VlJson (VlJson.objectValue())
+            for chartTitle.keys tk:string tki {
+                styled.setMember(tk (chartTitle.get(tk)))
+            }
+            if (! (styled.has("style"))) {
+                styled.setMember("style" (VlJson.stringValue("group-title")))
+            }
+            ; Four pixels clear of the plot, which is the reference's own
+            ; default for a chart title and not for a facet header's.
+            if (! (styled.has("offset"))) {
+                styled.setMember("offset" (VlJson.numberValue(4.0)))
+            }
+            def emptyRow:VlJson (VlJson.objectValue())
+            this.encodeGroupTitle(rootItem styled emptyRow titleBox)
+        }
+
 
         ; The drawing surface, now that everything that will be drawn exists. A
         ; renderer reads these four and needs no idea what an axis is: make a
@@ -2544,7 +2545,29 @@ class VlRuntime {
         ; nothing to centre in and stays at zero.
         def sideways:boolean ((orient == "left") || (orient == "right"))
         def along:double 0.0
-        if (frame == "group") {
+        ; `anchor` is which END of what it names the title is aligned to, and
+        ; it beats the frame: a title over a composed view is anchored to the
+        ; START, which is the left edge of everything drawn — not the middle of
+        ; the first panel, where a trellis title was printed across its own
+        ; column headers.
+        def anchor:string (titleDef.stringOr("anchor" "middle"))
+        if (anchor == "start") {
+            if sideways {
+                along = ((item.number("height")) + box.bottom)
+            } {
+                along = (0.0 - box.left)
+            }
+            text.setString("align" "left")
+        }
+        if (anchor == "end") {
+            if sideways {
+                along = (0.0 - box.top)
+            } {
+                along = ((item.number("width")) + box.right)
+            }
+            text.setString("align" "right")
+        }
+        if ((frame == "group") && (anchor == "middle")) {
             if sideways {
                 along = ((item.number("height")) / 2.0)
             } {
@@ -2556,7 +2579,7 @@ class VlRuntime {
         ; wide axis down its left sits left of centre, where the drawing's own
         ; middle is. Centred on the plot instead, it hung out over the right
         ; edge and took sixteen pixels of page with it.
-        if (frame == "bounds") {
+        if ((frame == "bounds") && (anchor == "middle")) {
             if sideways {
                 along = ((((item.number("height")) + box.bottom) - box.top) / 2.0)
             } {

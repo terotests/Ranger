@@ -164,6 +164,25 @@ class VlJson {
         set members key value
     }
 
+    ; Take a key back out. The order of what remains is kept, because the
+    ; order the keys were written in is the order they are written back out
+    ; and a diff against the reference reads them one for one.
+    fn removeMember:void (key:string) {
+        if (! (has members key)) {
+            return
+        }
+        def kept:[string]
+        def fresh:[string:VlJson]
+        for keys k:string ki {
+            if (k != key) {
+                push kept k
+                set fresh k (unwrap (get members k))
+            }
+        }
+        keys = kept
+        members = fresh
+    }
+
     ; --- construction ---------------------------------------------------------
     sfn nullValue:VlJson () {
         def v:VlJson (new VlJson)

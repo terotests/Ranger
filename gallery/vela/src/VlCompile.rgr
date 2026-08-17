@@ -1401,7 +1401,24 @@ class VlCompile {
             layout.setMember("align" (VlJson.stringValue("all")))
         }
         out.setMember("layout" layout)
+        VlCompile.anchorComposedTitle(out)
         return out
+    }
+
+    ; A title over a composed view stands at the LEFT of the page, above
+    ; everything the page holds. A title over a single plot is centred on the
+    ; plot itself — `frame: "group"` — which is where a trellis title also
+    ; ended up: over the first panel, printed across the headers.
+    sfn anchorComposedTitle:void (out:VlJson) {
+        def block:VlJson (out.get("title"))
+        if (! (block.isObject())) {
+            return
+        }
+        if (block.has("anchor")) {
+            return
+        }
+        block.removeMember("frame")
+        block.setMember("anchor" (VlJson.stringValue("start")))
     }
 
     sfn domainData:VlJson (name:string field:string) {
@@ -1730,6 +1747,7 @@ class VlCompile {
         if ((legends.count()) > 0) {
             out.setMember("legends" legends)
         }
+        VlCompile.anchorComposedTitle(out)
         return out
     }
 
