@@ -253,7 +253,7 @@ class CoreVectors {
     ; is a number the TARGET'S OWN strlen/charAt would answer differently:
     ; "😀" is 2 units, and the target says 1 (python/go/rust) or 4 (cpp).
     ;
-    ; RgStr.kind() is deliberately NOT printed. It is 0 on es6, 2 on
+    ; RgText.kind() is deliberately NOT printed. It is 0 on es6, 2 on
     ; python/go/rust and 1 on cpp — the one value in this file that is SUPPOSED
     ; to differ, and printing it would make the byte-for-byte comparison fail by
     ; design. That the rest of the set matches is the evidence the abstraction
@@ -264,56 +264,56 @@ class CoreVectors {
         def mixed:string "a😀b"
         def acc:string "héllo"
         ; length in code units
-        push out (CoreVectors.sayI("len_empty" (RgStr.len(""))))
-        push out (CoreVectors.sayI("len_ascii" (RgStr.len("abc"))))
-        push out (CoreVectors.sayI("len_acute" (RgStr.len(acc))))
-        push out (CoreVectors.sayI("len_emoji" (RgStr.len(emoji))))
-        push out (CoreVectors.sayI("len_mixed" (RgStr.len(mixed))))
+        push out (CoreVectors.sayI("len_empty" (RgText.len(""))))
+        push out (CoreVectors.sayI("len_ascii" (RgText.len("abc"))))
+        push out (CoreVectors.sayI("len_acute" (RgText.len(acc))))
+        push out (CoreVectors.sayI("len_emoji" (RgText.len(emoji))))
+        push out (CoreVectors.sayI("len_mixed" (RgText.len(mixed))))
         ; the surrogate pair, unit by unit
-        push out (CoreVectors.sayI("unit0_emoji" (RgStr.unitAt(emoji 0))))
-        push out (CoreVectors.sayI("unit1_emoji" (RgStr.unitAt(emoji 1))))
-        push out (CoreVectors.sayI("unit2_emoji" (RgStr.unitAt(emoji 2))))
-        push out (CoreVectors.sayI("unitm1_emoji" (RgStr.unitAt(emoji (0 - 1)))))
-        push out (CoreVectors.sayI("unit1_acute" (RgStr.unitAt(acc 1))))
-        push out (CoreVectors.sayI("unit0_mixed" (RgStr.unitAt(mixed 0))))
-        push out (CoreVectors.sayI("unit3_mixed" (RgStr.unitAt(mixed 3))))
+        push out (CoreVectors.sayI("unit0_emoji" (RgText.unitAt(emoji 0))))
+        push out (CoreVectors.sayI("unit1_emoji" (RgText.unitAt(emoji 1))))
+        push out (CoreVectors.sayI("unit2_emoji" (RgText.unitAt(emoji 2))))
+        push out (CoreVectors.sayI("unitm1_emoji" (RgText.unitAt(emoji (0 - 1)))))
+        push out (CoreVectors.sayI("unit1_acute" (RgText.unitAt(acc 1))))
+        push out (CoreVectors.sayI("unit0_mixed" (RgText.unitAt(mixed 0))))
+        push out (CoreVectors.sayI("unit3_mixed" (RgText.unitAt(mixed 3))))
         ; code points combine the pair back
-        push out (CoreVectors.sayI("cp0_emoji" (RgStr.codePointAt(emoji 0))))
-        push out (CoreVectors.sayI("cp1_mixed" (RgStr.codePointAt(mixed 1))))
-        push out (CoreVectors.sayI("cpcount_mixed" (RgStr.codePointCount(mixed))))
-        push out (CoreVectors.sayI("cpcount_acute" (RgStr.codePointCount(acc))))
+        push out (CoreVectors.sayI("cp0_emoji" (RgText.codePointAt(emoji 0))))
+        push out (CoreVectors.sayI("cp1_mixed" (RgText.codePointAt(mixed 1))))
+        push out (CoreVectors.sayI("cpcount_mixed" (RgText.codePointCount(mixed))))
+        push out (CoreVectors.sayI("cpcount_acute" (RgText.codePointCount(acc))))
         ; slicing on unit boundaries, which every model must agree on
-        push out (CoreVectors.say("substr_mixed_1_3" (RgStr.substr(mixed 1 3))))
-        push out (CoreVectors.say("substr_mixed_0_1" (RgStr.substr(mixed 0 1))))
-        push out (CoreVectors.say("substr_mixed_3_4" (RgStr.substr(mixed 3 4))))
-        push out (CoreVectors.say("substr_acute_1_3" (RgStr.substr(acc 1 3))))
-        push out (CoreVectors.sayI("len_substr_mixed_1_3" (RgStr.len((RgStr.substr(mixed 1 3))))))
+        push out (CoreVectors.say("substr_mixed_1_3" (RgText.substr(mixed 1 3))))
+        push out (CoreVectors.say("substr_mixed_0_1" (RgText.substr(mixed 0 1))))
+        push out (CoreVectors.say("substr_mixed_3_4" (RgText.substr(mixed 3 4))))
+        push out (CoreVectors.say("substr_acute_1_3" (RgText.substr(acc 1 3))))
+        push out (CoreVectors.sayI("len_substr_mixed_1_3" (RgText.len((RgText.substr(mixed 1 3))))))
         ; byte bridges — a native search reports bytes even where indexing is
         ; characters, which is what made 'a日b'.indexOf('b') answer 4
-        push out (CoreVectors.sayI("utf8ByteOf_mixed_1" (RgStr.utf8ByteOfUnit(mixed 1))))
-        push out (CoreVectors.sayI("utf8ByteOf_mixed_3" (RgStr.utf8ByteOfUnit(mixed 3))))
-        push out (CoreVectors.sayI("utf8ByteOf_acute_2" (RgStr.utf8ByteOfUnit(acc 2))))
-        push out (CoreVectors.sayI("unitOfUtf8Byte_mixed_5" (RgStr.unitOfUtf8Byte(mixed 5))))
-        push out (CoreVectors.sayI("unitOfUtf8Byte_acute_3" (RgStr.unitOfUtf8Byte(acc 3))))
+        push out (CoreVectors.sayI("utf8ByteOf_mixed_1" (RgText.utf8ByteOfUnit(mixed 1))))
+        push out (CoreVectors.sayI("utf8ByteOf_mixed_3" (RgText.utf8ByteOfUnit(mixed 3))))
+        push out (CoreVectors.sayI("utf8ByteOf_acute_2" (RgText.utf8ByteOfUnit(acc 2))))
+        push out (CoreVectors.sayI("unitOfUtf8Byte_mixed_5" (RgText.unitOfUtf8Byte(mixed 5))))
+        push out (CoreVectors.sayI("unitOfUtf8Byte_acute_3" (RgText.unitOfUtf8Byte(acc 3))))
         ; round trips through each representation
-        def cps:[int] (RgStr.toCodePoints(mixed))
+        def cps:[int] (RgText.toCodePoints(mixed))
         push out (CoreVectors.sayI("cps_len" (array_length cps)))
         push out (CoreVectors.sayI("cps_1" (itemAt cps 1)))
-        push out (CoreVectors.say("cps_roundtrip" (RgStr.fromCodePoints(cps))))
-        def units:[int] (RgStr.toCodeUnits(mixed))
+        push out (CoreVectors.say("cps_roundtrip" (RgText.fromCodePoints(cps))))
+        def units:[int] (RgText.toCodeUnits(mixed))
         push out (CoreVectors.sayI("units_len" (array_length units)))
-        push out (CoreVectors.say("units_roundtrip" (RgStr.fromCodeUnits(units))))
-        push out (CoreVectors.say("fromCodePoint_astral" (RgStr.fromCodePoint(128512))))
-        push out (CoreVectors.sayI("fromCodePoint_astral_len" (RgStr.len((RgStr.fromCodePoint(128512))))))
+        push out (CoreVectors.say("units_roundtrip" (RgText.fromCodeUnits(units))))
+        push out (CoreVectors.say("fromCodePoint_astral" (RgText.fromCodePoint(128512))))
+        push out (CoreVectors.sayI("fromCodePoint_astral_len" (RgText.len((RgText.fromCodePoint(128512))))))
         ; UTF-8, the bridge RgBase and RgCrypto stand on
-        def b:[int] (RgStr.toUtf8Bytes(mixed))
+        def b:[int] (RgText.toUtf8Bytes(mixed))
         push out (CoreVectors.sayI("utf8_len_mixed" (array_length b)))
         push out (CoreVectors.say("utf8_hex_mixed" (RgBase.hexEncode(b))))
-        push out (CoreVectors.say("utf8_hex_acute" (RgBase.hexEncode((RgStr.toUtf8Bytes(acc))))))
-        push out (CoreVectors.say("utf8_roundtrip" (RgStr.fromUtf8Bytes(b))))
-        push out (CoreVectors.sayI("utf8_width_ascii" (RgStr.utf8WidthOf(65))))
-        push out (CoreVectors.sayI("utf8_width_acute" (RgStr.utf8WidthOf(233))))
-        push out (CoreVectors.sayI("utf8_width_astral" (RgStr.utf8WidthOf(128512))))
+        push out (CoreVectors.say("utf8_hex_acute" (RgBase.hexEncode((RgText.toUtf8Bytes(acc))))))
+        push out (CoreVectors.say("utf8_roundtrip" (RgText.fromUtf8Bytes(b))))
+        push out (CoreVectors.sayI("utf8_width_ascii" (RgText.utf8WidthOf(65))))
+        push out (CoreVectors.sayI("utf8_width_acute" (RgText.utf8WidthOf(233))))
+        push out (CoreVectors.sayI("utf8_width_astral" (RgText.utf8WidthOf(128512))))
         return out
     }
 
@@ -377,12 +377,12 @@ class CoreVectors {
     }
 
     ; ---- set: strmodel -----------------------------------------------------
-    ; The diagnostic view — what the TARGET does, not what RgStr normalises it
+    ; The diagnostic view — what the TARGET does, not what RgText normalises it
     ; to. These lines are EXPECTED to differ between targets, so the harness
     ; prints them for the record and does not compare them.
     sfn setStrModel:[string] () {
         def out:[string]
-        push out (CoreVectors.sayI("model_kind" (RgStr.kind())))
+        push out (CoreVectors.sayI("model_kind" (RgText.kind())))
         push out (CoreVectors.sayI("native_strlen_acute" (strlen "é")))
         push out (CoreVectors.sayI("native_strlen_emoji" (strlen "😀")))
         return out

@@ -1,7 +1,7 @@
 # PLAN_JS_STDLIB — Math and Number
 
 Sub-plan of [PLAN_JS_STDLIB.md](PLAN_JS_STDLIB.md). Covers phase **2**.
-Depends on phase 1 (`RgStr`, see [PLAN_JS_STDLIB_TEXT.md](PLAN_JS_STDLIB_TEXT.md))
+Depends on phase 1 (`RgText`, see [PLAN_JS_STDLIB_TEXT.md](PLAN_JS_STDLIB_TEXT.md))
 because number *formatting* builds strings.
 
 This is the phase that proves the architecture on something small enough to
@@ -244,10 +244,10 @@ than in the engine.
 class RgNum {
     ; --- formatting, lifted from ComponentEngine ---
     ; toFixed / toPrecision throw RangeError in JS, so they return a carrier.
-    sfn toFixed:RgStrResult (v:double digits:int)      ; digits 0..100
-    sfn toPrecision:RgStrResult (v:double digits:int)  ; digits 1..100
-    sfn toRadix:RgStrResult (v:double radix:int)       ; radix 2..36
-    sfn toExponential:RgStrResult (v:double digits:int)
+    sfn toFixed:RgTextResult (v:double digits:int)      ; digits 0..100
+    sfn toPrecision:RgTextResult (v:double digits:int)  ; digits 1..100
+    sfn toRadix:RgTextResult (v:double radix:int)       ; radix 2..36
+    sfn toExponential:RgTextResult (v:double digits:int)
     ; The default Number->String algorithm: shortest round-tripping form.
     sfn asString:string (v:double)
 

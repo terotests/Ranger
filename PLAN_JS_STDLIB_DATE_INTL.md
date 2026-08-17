@@ -2,7 +2,7 @@
 
 Sub-plan of [PLAN_JS_STDLIB.md](PLAN_JS_STDLIB.md). Covers phases **3 (Date)**
 and **5 (Intl)**. Intl depends on Date (`DateTimeFormat` formats a time value)
-and on phases 1 and 4 of [TEXT](PLAN_JS_STDLIB_TEXT.md) (`RgStr`, `RgUnicode`,
+and on phases 1 and 4 of [TEXT](PLAN_JS_STDLIB_TEXT.md) (`RgText`, `RgUnicode`,
 `RgCollate`, and the CLDR tables).
 
 These two together are the largest concrete payoff in the whole plan. Ranger has

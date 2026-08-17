@@ -7,7 +7,7 @@ cpp and rust, 101 of them exact against Node. See
 proposal.
 
 **Naming, settled:** the library is `lib/core/`, the "Ranger Core API", and its
-classes carry the `Rg` prefix (`RgNum`, `RgU32`, `RgStr`, …). Not `stdlib`:
+classes carry the `Rg` prefix (`RgNum`, `RgU32`, `RgText`, …). Not `stdlib`:
 `lib/stdlib.rgr` and `lib/stdops.rgr` already exist and contain *only* operator
 templates, so that name means the opposite of this in this repository. The `Rg`
 prefix is collision avoidance, not decoration — `Math`, `Date`, `DateTime` and
@@ -199,7 +199,7 @@ conventions, in order of preference:
    manifest names the error so the binding generates the `throw`:
 
    ```ranger
-   class RgStrResult {
+   class RgTextResult {
        def ok:boolean false
        def value:string ""
        ; "" when ok. Otherwise one of: RangeError, URIError, SyntaxError, TypeError
@@ -261,7 +261,7 @@ A CI step regenerates and fails on any diff, the same discipline
 ```
 lib/core/
   core/
-    RgStr.rgr           string model + code units      (PLAN_JS_STDLIB_TEXT)
+    RgText.rgr           string model + code units      (PLAN_JS_STDLIB_TEXT)
     RgUnicode.rgr       case, normalization, properties (TEXT)
     RgCollate.rgr       collation weights + tailoring   (TEXT)
     RgU32.rgr           portable 32-bit integer algebra (MATH, CRYPTO)
@@ -442,7 +442,7 @@ does not.
 | # | Phase | Gate |
 | --- | --- | --- |
 | 0 | Manifest, generator, all three parity legs, wired for exactly five `Math` methods (`abs`, `floor`, `ceil`, `trunc`, `sign`) | the three legs green on those five, on every target with a toolchain; regeneration produces no diff |
-| 1 | **TEXT-A**: `RgStr` — lift `strModelKind` … `cuIndexOfByte` (`:39365`–`:39744`); `ComponentEngine` keeps one-line delegating shims | `npm test` and `npm run test:tsengine` unchanged; new per-target string-model probe green |
+| 1 | **TEXT-A**: `RgText` — lift `strModelKind` … `cuIndexOfByte` (`:39365`–`:39744`); `ComponentEngine` keeps one-line delegating shims | `npm test` and `npm run test:tsengine` unchanged; new per-target string-model probe green |
 | 2 | **MATH**: `RgU32`, `RgMath`, `RgNum`; `Math` and `Number` namespaces fully generated | `Math`/`Number` rows green on all three legs; the `if`-chains at `:22575`, `:24751`, `:24940` deleted |
 | 3 | **DATE**: `DateTime.rgr` → `lib/core/RgDate.rgr`; `RgClock`; `monotonic_ms` and `local_tz_offset_min` operators | `Date` rows green; `performance.now` monotonic under the live clock |
 | 4 | **TEXT-B**: `RgUnicode`, `RgCollate`, the seven data files moved with their generators | case/normalize/collate rows green; generators still reproduce the tables |
@@ -472,7 +472,7 @@ Phases 2–6 are independent once 0 and 1 are in. Phase 5 needs 3 and 4.
 
 | Risk | Why it is real | Mitigation |
 | --- | --- | --- |
-| A lifted function behaves differently once outside the engine | it read engine state that was not in its signature | phase 1 lands `RgStr` behind delegating shims, so the *old* suites run against the *new* code before any caller changes |
+| A lifted function behaves differently once outside the engine | it read engine state that was not in its signature | phase 1 lands `RgText` behind delegating shims, so the *old* suites run against the *new* code before any caller changes |
 | Per-target integer divergence | `bit_ushr` is three different operations (§2, F3) | `RgU32` is built only on `bit_and`/`bit_or`/`bit_xor`/`bit_shl` with explicit masking; phase 2 gate includes a per-target algebra probe |
 | Per-target `double` divergence, especially `-0` | `Math.ceil(-0.5)`, `Math.trunc(-0.5)` and `Math.abs(-0)` all depend on it; `negativeZero()` exists at `:7808` because plain arithmetic collapsed the sign | dedicated `-0` vector set run through leg 7.3 on every target, as a phase 2 gate |
 | Generator becomes a second thing to maintain | it always is | it is ~300 lines of `.cjs` producing text, in the same shape as the seven `interp/migrate/tools/gen-*.cjs` files; the no-diff CI check is what keeps it honest |

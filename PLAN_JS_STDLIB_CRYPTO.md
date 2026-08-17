@@ -1,7 +1,7 @@
 # PLAN_JS_STDLIB — Crypto
 
 Sub-plan of [PLAN_JS_STDLIB.md](PLAN_JS_STDLIB.md). Covers phase **6**.
-Depends on `RgU32` (phase 2, [MATH](PLAN_JS_STDLIB_MATH.md)) and `RgStr`
+Depends on `RgU32` (phase 2, [MATH](PLAN_JS_STDLIB_MATH.md)) and `RgText`
 (phase 1, [TEXT](PLAN_JS_STDLIB_TEXT.md)).
 
 This is the one sub-plan that is **not** a migration. The engine has no `crypto`
@@ -71,7 +71,7 @@ bytes on some targets and code points on others (see
 digest over different input per target — which is precisely the class of bug this
 whole plan exists to prevent. Not a fixed-width array type either: `u8` exists
 (`tests/compiler-fixed-width-types.test.ts`) but is not exercised broadly enough
-across ten targets to build a foundation on, and `[int]` is what `RgStr`,
+across ten targets to build a foundation on, and `[int]` is what `RgText`,
 `RgU32` and the existing engine code already speak.
 
 The cost is memory — an `[int]` of 32-bit or 64-bit ints per byte. For digests
@@ -79,7 +79,7 @@ over document-sized inputs that is acceptable; the streaming API (§5) is what
 keeps it from mattering for large inputs, since the block buffer is 64 or 128
 entries regardless of input size.
 
-`RgStr.toUtf8Bytes` / `fromUtf8Bytes` (landed in phase 1) are the only bridge
+`RgText.toUtf8Bytes` / `fromUtf8Bytes` (landed in phase 1) are the only bridge
 between strings and bytes, so there is exactly one place where the string model
 is dealt with.
 
@@ -167,7 +167,7 @@ class RgDigest {
     ; kind: "SHA-256" "SHA-384" "SHA-512" "SHA-1" "MD5"
     sfn create:RgDigest (kind:string)
     fn update:RgDigest (bytes:[int])               ; returns this, so it chains
-    fn updateString:RgDigest (s:string)            ; UTF-8, via RgStr
+    fn updateString:RgDigest (s:string)            ; UTF-8, via RgText
     fn digest:[int] ()                             ; finalises; call once
     fn digestHex:string ()
     fn blockSize:int ()                            ; 64 or 128; HMAC needs it
@@ -193,7 +193,7 @@ class RgCrypto {
 
     ; --- random ---
     sfn randomBytes:RgBytesResult (n:int)
-    sfn randomUUID:RgStrResult ()                  ; RFC 9562 v4
+    sfn randomUUID:RgTextResult ()                  ; RFC 9562 v4
     sfn randomIntBelow:int (bound:int)             ; rejection sampling, unbiased
 
     ; --- comparison ---

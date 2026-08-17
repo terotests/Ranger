@@ -61,9 +61,9 @@ const TARGETS: Target[] = [
 
 const SETS = ["num", "negzero", "u32", "str", "base"];
 
-// Printed for the record but NOT compared: RgStr.kind() is 0 on es6, 2 on
+// Printed for the record but NOT compared: RgText.kind() is 0 on es6, 2 on
 // python/go/rust and 1 on cpp. It is the one value that is supposed to differ,
-// and the point of RgStr is that nothing else does.
+// and the point of RgText is that nothing else does.
 const DIAGNOSTIC_SETS = ["strmodel"];
 
 function hasTool(name: string): boolean {
@@ -435,7 +435,7 @@ describe("lib/core — identical on every target", () => {
       // The diagnostic set is the one place a target is EXPECTED to differ, so
       // it is reported rather than compared. Seeing it in the output is what
       // makes the run above meaningful: es6 counted UTF-16 units, cpp counted
-      // UTF-8 bytes, and they still agreed on every RgStr answer.
+      // UTF-8 bytes, and they still agreed on every RgText answer.
       it("reports its native string model", () => {
         for (const s of DIAGNOSTIC_SETS) {
           const seen = parse(runSet(t, file, s));

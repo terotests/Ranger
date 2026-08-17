@@ -1,5 +1,5 @@
 ; =============================================================================
-; RgStr — one string model, whichever one the target actually has
+; RgText — one string model, whichever one the target actually has
 ; =============================================================================
 ; A Ranger `string` is not one thing. Measured, by compiling the same source:
 ;
@@ -17,7 +17,7 @@
 ;
 ; The addressing this file exposes is UTF-16 CODE UNITS, because that is what
 ; JavaScript's String is defined over and therefore what the engine's semantics
-; are specified against. `RgStr.len("😀")` is 2 on every target, including the
+; are specified against. `RgText.len("😀")` is 2 on every target, including the
 ; ones whose own strlen says 1 or 4. A slice that cuts a surrogate pair yields
 ; the lone surrogate on a unit-model target and drops the half on a point-model
 ; one, where half a character has no representation — that difference is
@@ -42,7 +42,7 @@
 ; which a static method may not enter — see lib/core/README.md.
 ; =============================================================================
 
-class RgStr {
+class RgText {
 
     ; ---- which model is this ------------------------------------------------
 
@@ -63,13 +63,13 @@ class RgStr {
     }
 
     static sfn unitsAreBytes:boolean () {
-        return ((RgStr.kind()) == 1)
+        return ((RgText.kind()) == 1)
     }
 
     ; True where strlen/charAt/substring index whole CHARACTERS, so the only gap
     ; to UTF-16 is that a supplementary character is one unit here and two there.
     static sfn unitsArePoints:boolean () {
-        return ((RgStr.kind()) == 2)
+        return ((RgText.kind()) == 2)
     }
 
     ; ---- UTF-8 geometry ----------------------------------------------------
@@ -172,10 +172,10 @@ class RgStr {
     ; on a unit target an astral point becomes a SURROGATE PAIR, because
     ; `strfromcode` there is String.fromCharCode and truncates to 16 bits.
     static sfn fromCodePoint:string (cp:int) {
-        if (RgStr.unitsAreBytes()) {
-            return (RgStr.encodeUtf8(cp))
+        if (RgText.unitsAreBytes()) {
+            return (RgText.encodeUtf8(cp))
         }
-        if (RgStr.unitsArePoints()) {
+        if (RgText.unitsArePoints()) {
             def p:string (strfromcode cp)
             return p
         }
@@ -211,7 +211,7 @@ class RgStr {
     ; Code units in `s`. This is JavaScript's `.length`.
     static sfn len:int (s:string) {
         def n:int (strlen s)
-        if (RgStr.unitsArePoints()) {
+        if (RgText.unitsArePoints()) {
             def p:int 0
             def cnt:int 0
             while (p < n) {
@@ -224,7 +224,7 @@ class RgStr {
             }
             return cnt
         }
-        if (false == (RgStr.unitsAreBytes())) {
+        if (false == (RgText.unitsAreBytes())) {
             return n
         }
         def i:int 0
@@ -261,7 +261,7 @@ class RgStr {
         if (u < 0) {
             return (0 - 1)
         }
-        if (RgStr.unitsArePoints()) {
+        if (RgText.unitsArePoints()) {
             def p:int 0
             def units:int 0
             while (p < n) {
@@ -285,7 +285,7 @@ class RgStr {
             }
             return (0 - 1)
         }
-        if (false == (RgStr.unitsAreBytes())) {
+        if (false == (RgText.unitsAreBytes())) {
             if (u >= n) {
                 return (0 - 1)
             }
@@ -294,7 +294,7 @@ class RgStr {
         def i:int 0
         def units:int 0
         while (i < n) {
-            def dec:[int] (RgStr.decodeAt(s i))
+            def dec:[int] (RgText.decodeAt(s i))
             def cp:int (itemAt dec 0)
             def w:int (itemAt dec 1)
             if (w == 0) {
@@ -339,7 +339,7 @@ class RgStr {
             hi = lo
         }
         def n:int (strlen s)
-        if (RgStr.unitsArePoints()) {
+        if (RgText.unitsArePoints()) {
             def out:string ""
             def p:int 0
             def units:int 0
@@ -357,7 +357,7 @@ class RgStr {
             }
             return out
         }
-        if (false == (RgStr.unitsAreBytes())) {
+        if (false == (RgText.unitsAreBytes())) {
             if (lo >= n) {
                 return ""
             }
@@ -371,7 +371,7 @@ class RgStr {
         def i:int 0
         def units2:int 0
         while (i < n) {
-            def dec:[int] (RgStr.decodeAt(s i))
+            def dec:[int] (RgText.decodeAt(s i))
             def cp:int (itemAt dec 0)
             def w:int (itemAt dec 1)
             if (w == 0) {
@@ -379,7 +379,7 @@ class RgStr {
             } {
                 if (cp < 65536) {
                     if ((units2 >= lo) && (units2 < hi)) {
-                        out2 = (out2 + (RgStr.byteSlice(s i (i + w))))
+                        out2 = (out2 + (RgText.byteSlice(s i (i + w))))
                     }
                     units2 = (units2 + 1)
                 } {
@@ -387,16 +387,16 @@ class RgStr {
                     def takeHi:boolean ((units2 >= lo) && (units2 < hi))
                     def takeLo:boolean (((units2 + 1) >= lo) && ((units2 + 1) < hi))
                     if (takeHi && takeLo) {
-                        out2 = (out2 + (RgStr.byteSlice(s i (i + w))))
+                        out2 = (out2 + (RgText.byteSlice(s i (i + w))))
                     } {
                         ; One half of a pair, encoded as the surrogate it is.
                         ; CESU-8 rather than UTF-8, which is the only way a byte
                         ; string can carry half a character at all.
                         if takeHi {
-                            out2 = (out2 + (RgStr.encodeUtf8((55296 + (bit_shr adj 10)))))
+                            out2 = (out2 + (RgText.encodeUtf8((55296 + (bit_shr adj 10)))))
                         }
                         if takeLo {
-                            out2 = (out2 + (RgStr.encodeUtf8((56320 + (bit_and adj 1023)))))
+                            out2 = (out2 + (RgText.encodeUtf8((56320 + (bit_and adj 1023)))))
                         }
                     }
                     units2 = (units2 + 2)
@@ -429,14 +429,14 @@ class RgStr {
         if (u <= 0) {
             return 0
         }
-        def n:int (RgStr.len(s))
+        def n:int (RgText.len(s))
         def bytes:int 0
         def i:int 0
         while (i < n) {
             if (i >= u) {
                 return bytes
             }
-            def cp:int (RgStr.codePointAt(s i))
+            def cp:int (RgText.codePointAt(s i))
             if (cp < 0) {
                 return bytes
             }
@@ -444,7 +444,7 @@ class RgStr {
             if (cp > 65535) {
                 w = 2
             }
-            bytes = (bytes + (RgStr.utf8WidthOf(cp)))
+            bytes = (bytes + (RgText.utf8WidthOf(cp)))
             i = (i + w)
         }
         return bytes
@@ -456,7 +456,7 @@ class RgStr {
         if (byteIdx <= 0) {
             return 0
         }
-        def n:int (RgStr.len(s))
+        def n:int (RgText.len(s))
         def bytes:int 0
         def units:int 0
         def i:int 0
@@ -464,7 +464,7 @@ class RgStr {
             if (bytes >= byteIdx) {
                 return units
             }
-            def cp:int (RgStr.codePointAt(s i))
+            def cp:int (RgText.codePointAt(s i))
             if (cp < 0) {
                 return units
             }
@@ -472,7 +472,7 @@ class RgStr {
             if (cp > 65535) {
                 w = 2
             }
-            bytes = (bytes + (RgStr.utf8WidthOf(cp)))
+            bytes = (bytes + (RgText.utf8WidthOf(cp)))
             units = (units + w)
             i = (i + w)
         }
@@ -484,7 +484,7 @@ class RgStr {
     ; The full code point beginning at code-unit index `u`, combining a surrogate
     ; pair when one starts there. This is JavaScript's codePointAt.
     static sfn codePointAt:int (s:string u:int) {
-        def first:int (RgStr.unitAt(s u))
+        def first:int (RgText.unitAt(s u))
         if (first < 0) {
             return (0 - 1)
         }
@@ -494,7 +494,7 @@ class RgStr {
         if (first > 56319) {
             return first
         }
-        def second:int (RgStr.unitAt(s (u + 1)))
+        def second:int (RgText.unitAt(s (u + 1)))
         if (second < 56320) {
             return first
         }
@@ -506,10 +506,10 @@ class RgStr {
 
     static sfn toCodePoints:[int] (s:string) {
         def out:[int]
-        def n:int (RgStr.len(s))
+        def n:int (RgText.len(s))
         def u:int 0
         while (u < n) {
-            def cp:int (RgStr.codePointAt(s u))
+            def cp:int (RgText.codePointAt(s u))
             if (cp < 0) {
                 u = n
             } {
@@ -525,7 +525,7 @@ class RgStr {
     }
 
     static sfn codePointCount:int (s:string) {
-        def cps:[int] (RgStr.toCodePoints(s))
+        def cps:[int] (RgText.toCodePoints(s))
         return (array_length cps)
     }
 
@@ -533,7 +533,7 @@ class RgStr {
         def out:string ""
         def i:int 0
         while (i < (array_length cps)) {
-            out = (out + (RgStr.fromCodePoint((itemAt cps i))))
+            out = (out + (RgText.fromCodePoint((itemAt cps i))))
             i = (i + 1)
         }
         return out
@@ -543,10 +543,10 @@ class RgStr {
 
     static sfn toCodeUnits:[int] (s:string) {
         def out:[int]
-        def n:int (RgStr.len(s))
+        def n:int (RgText.len(s))
         def u:int 0
         while (u < n) {
-            push out (RgStr.unitAt(s u))
+            push out (RgText.unitAt(s u))
             u = (u + 1)
         }
         return out
@@ -566,14 +566,14 @@ class RgStr {
                     def lo:int (itemAt units (i + 1))
                     if ((lo >= 56320) && (lo <= 57343)) {
                         def cp:int ((((hi - 55296) * 1024) + (lo - 56320)) + 65536)
-                        out = (out + (RgStr.fromCodePoint(cp)))
+                        out = (out + (RgText.fromCodePoint(cp)))
                         i = (i + 2)
                         paired = true
                     }
                 }
             }
             if (false == paired) {
-                out = (out + (RgStr.fromCodePoint(hi)))
+                out = (out + (RgText.fromCodePoint(hi)))
                 i = (i + 1)
             }
         }
@@ -588,7 +588,7 @@ class RgStr {
     static sfn toUtf8Bytes:[int] (s:string) {
         def out:[int]
         ; A byte-model string already IS the encoding.
-        if (RgStr.unitsAreBytes()) {
+        if (RgText.unitsAreBytes()) {
             def n:int (strlen s)
             def i:int 0
             while (i < n) {
@@ -597,7 +597,7 @@ class RgStr {
             }
             return out
         }
-        def cps:[int] (RgStr.toCodePoints(s))
+        def cps:[int] (RgText.toCodePoints(s))
         def k:int 0
         while (k < (array_length cps)) {
             def cp:int (itemAt cps k)
@@ -673,6 +673,6 @@ class RgStr {
                 }
             }
         }
-        return (RgStr.fromCodePoints(cps))
+        return (RgText.fromCodePoints(cps))
     }
 }

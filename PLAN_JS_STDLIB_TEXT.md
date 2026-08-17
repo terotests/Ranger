@@ -68,25 +68,25 @@ These 370-odd lines are the reason the engine gives the same answer for
 from hundreds of sites across the 45,221-line file, which is why the migration
 has to be shim-first (§3).
 
-## 2. TEXT-A: `lib/core/RgStr.rgr`
+## 2. TEXT-A: `lib/core/RgText.rgr`
 
 ### 2.1 Shape
 
 ```ranger
-; lib/core/RgStr.rgr
+; lib/core/RgText.rgr
 ;
 ; UTF-16 code-unit addressing over a Ranger string, whichever of the three
 ; string models the target actually has. Lifted verbatim from
 ; ComponentEngine.rgr:39365-39744 — see PLAN_JS_STDLIB_TEXT.md.
 
-class RgStr {
+class RgText {
 
     ; The probe is cached in a singleton because it costs three strlen calls
     ; and the answer cannot change during a run. This is the one piece of
     ; mutable state the core-layer rules allow, and it is idempotent.
     def modelKind:int (0 - 1)
 
-    sfn __singleton:RgStr () { ... }
+    sfn __singleton:RgText () { ... }
 
     sfn kind:int ()                                  ; 0 units, 1 bytes, 2 points
     sfn unitsAreBytes:boolean ()
@@ -121,8 +121,8 @@ TEXT-A is what keeps CRYPTO from adding a fourth.
 
 ### 2.2 Naming
 
-`cuLen` → `RgStr.len`. The `cu` prefix meant "code unit" when the file it lived
-in also had byte and point variants in scope; on a class called `RgStr` whose
+`cuLen` → `RgText.len`. The `cu` prefix meant "code unit" when the file it lived
+in also had byte and point variants in scope; on a class called `RgText` whose
 documented contract is code units, the prefix is noise. The delegating shims
 (§3) keep the old names alive inside `ComponentEngine`, so nothing has to be
 renamed at the call sites.
@@ -135,10 +135,10 @@ and the rewrite in one basket. Instead, phase 1 replaces each body with a
 one-line delegation:
 
 ```ranger
-    ; Moved to lib/core/RgStr.rgr. Kept as a delegate so the call sites can
+    ; Moved to lib/core/RgText.rgr. Kept as a delegate so the call sites can
     ; migrate separately; see PLAN_JS_STDLIB_TEXT.md §3.
     fn cuLen:int (s:string) {
-        return (RgStr.len(s))
+        return (RgText.len(s))
     }
 ```
 
@@ -152,7 +152,7 @@ Call sites migrate opportunistically afterwards. The shims are deleted when the
 last one is gone, not before.
 
 Note the one thing that does change: the probe cache moves from two
-`ComponentEngine` fields (`utf8ModelKnown`, `utf8ModelKind`) to an `RgStr`
+`ComponentEngine` fields (`utf8ModelKnown`, `utf8ModelKind`) to an `RgText`
 singleton. Two engines in one process previously each probed once; now they
 share. The probe is a pure function of the target, so this is a saving rather
 than a semantic change — but it is the only behavioural difference in phase 1
@@ -296,7 +296,7 @@ in `lib/core/README.md` so nobody has to guess which to reach for.
 `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`
 (`:36664`+, ≈300 lines) plus Annex B `escape`/`unescape`. Pure string
 functions over the reserved sets, already written; they move to
-`lib/core/RgUri.rgr` and gain `RgStrResult` returns because the decoders
+`lib/core/RgUri.rgr` and gain `RgTextResult` returns because the decoders
 throw `URIError` on a malformed sequence.
 
 These are wanted natively far more often than the JS framing suggests — any
@@ -307,7 +307,7 @@ portable one.
 
 | Phase | Lands | Gate |
 | --- | --- | --- |
-| 1 (TEXT-A) | `RgStr` + delegating shims | `npm test` and `npm run test:tsengine` pass **unchanged**; the `strmodel` vector set matches byte for byte on every target with a toolchain |
+| 1 (TEXT-A) | `RgText` + delegating shims | `npm test` and `npm run test:tsengine` pass **unchanged**; the `strmodel` vector set matches byte for byte on every target with a toolchain |
 | 4 (TEXT-B) | data files + generators moved; `RgUnicode`, `RgCollate`; `String` case/normalize/localeCompare rows | every generator reproduces its moved table byte for byte; the four `String` rows green on all three parity legs |
 | 7 (TEXT-C) | `RgRegex`, `RgBigInt`, `RgJson`, `RgUri` | `RegExp`, `BigInt`, `JSON`, URI rows green; `gallery/pdf_writer/src/jsx/` imports `lib/core/` instead of carrying its own copy |
 
