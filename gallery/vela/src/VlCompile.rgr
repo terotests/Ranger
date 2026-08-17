@@ -4597,8 +4597,21 @@ class VlCompile {
             }
             if (this.sizeGiven(sized)) {
                 ; The chart's size was declared, so the scale spans it rather
-                ; than deciding it.
-                sc.setMember("range" (this.positionRange(axis)))
+                ; than deciding it. A DISCRETE y runs down the page rather than
+                ; up it — the first category is at the top, which is the order
+                ; a list is read in — where a continuous one is inverted so
+                ; that bigger is higher. Inverted too, the categories came out
+                ; bottom to top.
+                if (axis == "y") {
+                    def down (VlJson.arrayValue())
+                    push down.arr (VlJson.numberValue(0.0))
+                    def tall (VlJson.objectValue())
+                    tall.setMember("signal" (VlJson.stringValue((this.sizeSignal("height")))))
+                    push down.arr tall
+                    sc.setMember("range" down)
+                } {
+                    sc.setMember("range" (this.positionRange(axis)))
+                }
             } {
                 def range (VlJson.objectValue())
                 def step (VlJson.objectValue())
