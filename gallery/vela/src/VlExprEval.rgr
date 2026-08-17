@@ -298,6 +298,17 @@ class VlExprEval {
         return (VlExprEval.eval((itemAt node.children 1) scope))
     }
 
+    ; A value glued onto a string, the way the language this expression is
+    ; written in glues it: a MISSING value reads as "null" and not as nothing.
+    ; A text mark that names a column with gaps in it prints "null" over the
+    ; bar with no category, which is what the reference draws there.
+    sfn asText:string (v:VlJson) {
+        if (v.kind == 0) {
+            return "null"
+        }
+        return (v.asString())
+    }
+
     sfn evalBinary:VlJson (node:VlExprNode scope:VlExprScope) {
         def a:VlJson (VlExprEval.eval((itemAt node.children 0) scope))
         def b:VlJson (VlExprEval.eval((itemAt node.children 1) scope))
@@ -307,7 +318,7 @@ class VlExprEval {
             ; `+` concatenates when either side is a string, which is how every
             ; generated `description` signal builds its text.
             if ((a.kind == 3) || (b.kind == 3)) {
-                return (VlJson.stringValue(((a.asString()) + (b.asString()))))
+                return (VlJson.stringValue(((VlExprEval.asText(a)) + (VlExprEval.asText(b)))))
             }
             return (VlJson.numberValue(((a.asDouble()) + (b.asDouble()))))
         }
