@@ -2834,10 +2834,17 @@ class VlRuntime {
         if (! covered.isSet) {
             return
         }
-        box.left = (VlRuntime.higher(box.left (0.0 - covered.x1)))
-        box.top = (VlRuntime.higher(box.top (0.0 - covered.y1)))
-        box.right = (VlRuntime.higher(box.right (covered.x2 - box.width)))
-        box.bottom = (VlRuntime.higher(box.bottom (covered.y2 - box.height)))
+        ; The frame is drawn ROUND what the panel holds, so its half pixel is
+        ; added to whatever the contents reached rather than compared with it.
+        ; A dot at the very edge of a cell hangs two and three quarter pixels
+        ; out and the frame half a pixel further; taking the larger of the two
+        ; loses the frame, and a trellis whose columns each want three hundred
+        ; and five pixels was laid out on a pitch of three hundred and four.
+        def edge:double box.frameHalf
+        box.left = (VlRuntime.higher(box.left ((0.0 - covered.x1) + edge)))
+        box.top = (VlRuntime.higher(box.top ((0.0 - covered.y1) + edge)))
+        box.right = (VlRuntime.higher(box.right ((covered.x2 - box.width) + edge)))
+        box.bottom = (VlRuntime.higher(box.bottom ((covered.y2 - box.height) + edge)))
     }
 
     ; Whether a grid's panels are all one size. `"align": "all"` is what a
