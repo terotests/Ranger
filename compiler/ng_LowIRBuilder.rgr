@@ -57,6 +57,8 @@ class LowIRLowerContext {
   ; boxed local's slot holds a heap-cell pointer; reads/writes go through it.
   def boxedCandidates:[string:int]
   def boxedLocals:[string:int]
+  ; the IR type inside each boxed cell -- "i32" unless said otherwise
+  def boxedTypes:[string:string]
   def escapedLocals:[string:string]
   def currentRetType:string "i32"
   def llvmRetType:string "i32"
@@ -91,6 +93,10 @@ class LambdaCaptureInfo {
   def irTypes:[string]
   def kinds:[int]
   def objClasses:[string]
+  ; For a kind-3 (boxed) capture: the IR type the shared cell HOLDS. The cell is
+  ; always reached by pointer, but what is inside it is the local's own type,
+  ; and the body has to read and write it at that width.
+  def boxTypes:[string]
   ; A captured COLLECTION is a descriptor like any other pointer, but the body
   ; also needs to know it IS one -- otherwise `push res x` inside a `map`
   ; lambda found no collection slot and pushed into a zero.
@@ -6390,6 +6396,8 @@ class LowIRBuilderPass {
     lctx.boxedCandidates = emptyBoxCand
     def emptyBoxed:[string:int]
     lctx.boxedLocals = emptyBoxed
+    def emptyBoxTypes:[string:string]
+    lctx.boxedTypes = emptyBoxTypes
     def emptyEscaped:[string:string]
     lctx.escapedLocals = emptyEscaped
     if isInstance {
@@ -6610,6 +6618,8 @@ class LowIRBuilderPass {
     lctx.boxedCandidates = emptyBoxCand
     def emptyBoxed:[string:int]
     lctx.boxedLocals = emptyBoxed
+    def emptyBoxTypes:[string:string]
+    lctx.boxedTypes = emptyBoxTypes
     def emptyEscaped:[string:string]
     lctx.escapedLocals = emptyEscaped
     lctx.currentRetType = cl.name
@@ -6844,6 +6854,8 @@ class LowIRBuilderPass {
     lctx.boxedCandidates = emptyBoxCand
     def emptyBoxed:[string:int]
     lctx.boxedLocals = emptyBoxed
+    def emptyBoxTypes:[string:string]
+    lctx.boxedTypes = emptyBoxTypes
     def emptyEscaped:[string:string]
     lctx.escapedLocals = emptyEscaped
 
@@ -6915,6 +6927,9 @@ class LowIRBuilderPass {
           ; writes of capName go through the cell (see lowerVarDef/Assign/Expr).
           ; NOT registered as an owned local — the env owns and frees the cell.
           set lctx.boxedLocals capName 4
+          if (ci < (array_length cinfo.boxTypes)) {
+            set lctx.boxedTypes capName (itemAt cinfo.boxTypes ci)
+          }
         }
         ci = (+ ci 1)
       }
@@ -7002,10 +7017,59 @@ class LowIRBuilderPass {
   ; local. The two backends spell ranger_obj_new differently: natively the
   ; second parameter is a POINTER (a literal `ptr null` here), on WASM it is a
   ; data-segment offset, which is an i32 there.
+  ; What a boxed local's cell holds. Anything recorded before this existed, and
+  ; anything captured from a context that did not say, is the original i32.
+  fn boxedCellType:string (varName:string lctx:LowIRLowerContext) {
+    if (has lctx.boxedTypes varName) {
+      def t:string (unwrap (get lctx.boxedTypes varName))
+      if ((strlen t) > 0) {
+        return t
+      }
+    }
+    return "i32"
+  }
+
   fn emitBoxCell:string (lctx:LowIRLowerContext) {
+    return (this.emitBoxCellSized(lctx 4))
+  }
+
+  ; Which locals can live in a shared cell. A reference (i8* / pointer) belongs
+  ; here as much as a scalar does: `s = (s + x)` inside a lambda REBINDS the
+  ; captured name, and without a cell the new pointer went to a copy and the
+  ; enclosing `s` never changed -- it came out empty where every other target
+  ; had "123".
+  fn isBoxableIrType:boolean (irType:string) {
+    if (irType == "i32") { return true }
+    if (irType == "i1") { return true }
+    if (irType == "f64") { return true }
+    if (irType == "i8*") { return true }
+    if (irType == "i64") { return true }
+    return false
+  }
+
+  ; A boolean is stored as a word; everything else is stored as itself.
+  fn boxedStorageType:string (logicalType:string) {
+    if (logicalType == "i1") {
+      return "i32"
+    }
+    return logicalType
+  }
+
+  fn widenForBoxCell:string (value:string logicalType:string lctx:LowIRLowerContext) {
+    if (logicalType == "i1") {
+      return (lctx.builder.emitZextI1ToI32(value))
+    }
+    return value
+  }
+
+  ; A cell wide enough for what it holds. It was fixed at four bytes, which is
+  ; the reason only i32 and i1 could ever be boxed -- a captured `double` that a
+  ; lambda assigned to had nowhere to live, so the mutation went to a copy and
+  ; was lost. lambda_callback's `sum` came out 0 instead of 21.
+  fn emitBoxCellSized:string (lctx:LowIRLowerContext byteSize:int) {
     def builder (lctx.builder)
     def cellTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
-    def bytes (builder.emitConst("i32" "4"))
+    def bytes (builder.emitConst("i32" ("" + byteSize)))
     if cellTarget.usesLibc {
       this.usedMemRuntime = true
       this.ensureMemExtern(cellTarget)
@@ -7257,6 +7321,7 @@ class LowIRBuilderPass {
           push info.irTypes cirt
           push info.kinds kind
           push info.objClasses objCls
+          push info.boxTypes (this.boxedCellType(cn lctx))
           push info.collKinds capColl
           push info.elemTypes capElem
           push info.smapValTypes capSmapVal
@@ -8587,17 +8652,17 @@ class LowIRBuilderPass {
     ; scope-end release against the closure's retain-on-capture).
     if (this.objRcEnabled(lctx)) {
       if (has lctx.boxedCandidates varName) {
-        if ((irType == "i32") || (irType == "i1")) {
-          def cell (this.emitBoxCell(lctx))
-          ; an i1 does not fit an i32 store; widen it the way every other
-          ; boolean-to-word path here does
-          def cellVal:string tmp
-          if (irType == "i1") {
-            cellVal = (lctx.builder.emitZextI1ToI32(tmp))
-          }
-          lctx.builder.emitStoreI32At(cell 0 cellVal)
+        if (this.isBoxableIrType(irType)) {
+          def storeT:string (this.boxedStorageType(irType))
+          def cellBytes:int (this.irTypeBytes(storeT lctx))
+          def cell (this.emitBoxCellSized(lctx cellBytes))
+          def cellVal:string (this.widenForBoxCell(tmp irType lctx))
+          lctx.builder.emitStoreTypedAt(cell 0 cellVal storeT)
           this.bindSlot(varName lctx.ptrType cell lctx)
-          set lctx.boxedLocals varName 4
+          set lctx.boxedLocals varName cellBytes
+          ; the LOGICAL type, not the storage width: a boolean lives in the cell
+          ; as an i32 and has to come back out as an i1
+          set lctx.boxedTypes varName irType
           if (this.isOwnedObjectLocal(varName lctx) == false) {
             push lctx.ownedObjectLocals varName
           }
@@ -8712,7 +8777,23 @@ class LowIRBuilderPass {
     ; that captured it observes the mutation (and vice versa).
     if (has lctx.boxedLocals varName) {
       def cellPtr (this.loadSlot(varName lctx.ptrType lctx))
-      builder.emitStoreI32At(cellPtr 0 tmp)
+      def logT:string (this.boxedCellType(varName lctx))
+      def wrote:string (this.widenForBoxCell(tmp logT lctx))
+      ; A REFERENCE written into the cell is now held by the cell, so it has to
+      ; be claimed out of the statement arena -- otherwise the arena frees it at
+      ; the end of this very statement and the cell is left pointing at memory
+      ; that has been handed back. `s = (s + x)` inside a lambda read as garbage
+      ; because of exactly this. The value it replaces is not released: this
+      ; backend leaks a replaced capture rather than risk freeing one that the
+      ; enclosing scope still names.
+      if (logT == "i8*") {
+        this.claimStringTemp(wrote lctx)
+      } {
+        if (logT == lctx.ptrType) {
+          this.claimObjectTemp(wrote lctx)
+        }
+      }
+      builder.emitStoreTypedAt(cellPtr 0 wrote (this.boxedStorageType(logT)))
       return
     }
     def irType:string "i32"
@@ -9050,6 +9131,17 @@ class LowIRBuilderPass {
     def exprNode (this.unwrapCondExpr(node))
     if (exprNode.value_type == RangerNodeType.Boolean) {
       return true
+    }
+    ; A BOXED boolean local -- one a lambda assigns to -- reads back through its
+    ; cell, and the read narrows the stored word to i1. Without this the slot
+    ; looked like a plain pointer and `to_string flag` took the "%d" path,
+    ; printing 1 where every other target prints true.
+    if (exprNode.value_type == RangerNodeType.VRef) {
+      if (has lctx.boxedLocals exprNode.vref) {
+        if ((this.boxedCellType(exprNode.vref lctx)) == "i1") {
+          return true
+        }
+      }
     }
     ; A boolean FIELD read off an expression receiver: emitFieldLoadOn narrows
     ; a bool slot to i1, so the comparison has to agree.
@@ -10350,9 +10442,14 @@ class LowIRBuilderPass {
       ; L3: a boxed value local — read the current value through the shared cell.
       if (has lctx.boxedLocals node.vref) {
         def cellPtr (this.loadSlot(node.vref lctx.ptrType lctx))
-        ; the cell holds an i32; emitLoadI32At reads a POINTER-sized word, which
-        ; is the same thing only on wasm
-        return (builder.emitLoadTypedAt(cellPtr 0 "i32"))
+        ; emitLoadI32At would read a POINTER-sized word, which is the same thing
+        ; only on wasm -- and the cell holds whatever the local's type is
+        def logT:string (this.boxedCellType(node.vref lctx))
+        def raw (builder.emitLoadTypedAt(cellPtr 0 (this.boxedStorageType(logT))))
+        if (logT == "i1") {
+          return (this.toI1(raw lctx))
+        }
+        return raw
       }
       if ((indexOf node.vref ".") >= 0) {
         def parts:[string] (strsplit node.vref ".")

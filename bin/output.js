@@ -43515,6 +43515,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.pendingObjectTemps = [];
                           this.boxedCandidates = {};
                           this.boxedLocals = {};
+                          this.boxedTypes = {};
                           this.escapedLocals = {};
                           this.currentRetType = "i32";
                           this.llvmRetType = "i32";
@@ -43534,6 +43535,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           this.irTypes = [];
                           this.kinds = [];
                           this.objClasses = [];
+                          this.boxTypes = [];
                           this.collKinds = [];
                           this.elemTypes = [];
                           this.smapValTypes = [];
@@ -49073,6 +49075,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           lctx.boxedCandidates = emptyBoxCand;
                           let emptyBoxed = {};
                           lctx.boxedLocals = emptyBoxed;
+                          let emptyBoxTypes = {};
+                          lctx.boxedTypes = emptyBoxTypes;
                           let emptyEscaped = {};
                           lctx.escapedLocals = emptyEscaped;
                           if ( isInstance ) {
@@ -49260,6 +49264,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           lctx.boxedCandidates = emptyBoxCand;
                           let emptyBoxed = {};
                           lctx.boxedLocals = emptyBoxed;
+                          let emptyBoxTypes = {};
+                          lctx.boxedTypes = emptyBoxTypes;
                           let emptyEscaped = {};
                           lctx.escapedLocals = emptyEscaped;
                           lctx.currentRetType = cl.name;
@@ -49453,6 +49459,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           lctx.boxedCandidates = emptyBoxCand;
                           let emptyBoxed = {};
                           lctx.boxedLocals = emptyBoxed;
+                          let emptyBoxTypes = {};
+                          lctx.boxedTypes = emptyBoxTypes;
                           let emptyEscaped = {};
                           lctx.escapedLocals = emptyEscaped;
                           let retTypeName = "void";
@@ -49511,6 +49519,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               if ( capKnd == 3 ) {
                                 lctx.boxedLocals[capName] = 4;
+                                if ( ci < (cinfo.boxTypes.length) ) {
+                                  lctx.boxedTypes[capName] = cinfo.boxTypes[ci];
+                                }
                               }
                               ci = ci + 1;
                             };
@@ -49573,10 +49584,52 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           };
                           return false;
                         };
+                        boxedCellType (varName, lctx) {
+                          if ( ( typeof(lctx.boxedTypes[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedTypes, varName) ) ) {
+                            const t = (( Object.prototype.hasOwnProperty.call(lctx.boxedTypes, varName) ? lctx.boxedTypes[varName] : undefined ));
+                            if ( (t.length) > 0 ) {
+                              return t;
+                            }
+                          }
+                          return "i32";
+                        };
                         emitBoxCell (lctx) {
+                          return this.emitBoxCellSized(lctx, 4);
+                        };
+                        isBoxableIrType (irType) {
+                          if ( irType == "i32" ) {
+                            return true;
+                          }
+                          if ( irType == "i1" ) {
+                            return true;
+                          }
+                          if ( irType == "f64" ) {
+                            return true;
+                          }
+                          if ( irType == "i8*" ) {
+                            return true;
+                          }
+                          if ( irType == "i64" ) {
+                            return true;
+                          }
+                          return false;
+                        };
+                        boxedStorageType (logicalType) {
+                          if ( logicalType == "i1" ) {
+                            return "i32";
+                          }
+                          return logicalType;
+                        };
+                        widenForBoxCell (value, logicalType, lctx) {
+                          if ( logicalType == "i1" ) {
+                            return lctx.builder.emitZextI1ToI32(value);
+                          }
+                          return value;
+                        };
+                        emitBoxCellSized (lctx, byteSize) {
                           const builder = lctx.builder;
                           const cellTarget = LowIRTarget.resolve((lctx.ctx));
-                          const bytes = builder.emitConst("i32", "4");
+                          const bytes = builder.emitConst("i32", ("" + byteSize));
                           if ( cellTarget.usesLibc ) {
                             this.usedMemRuntime = true;
                             this.ensureMemExtern(cellTarget);
@@ -49785,6 +49838,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 info.irTypes.push(cirt);
                                 info.kinds.push(kind);
                                 info.objClasses.push(objCls);
+                                info.boxTypes.push(this.boxedCellType(cn, lctx));
                                 info.collKinds.push(capColl);
                                 info.elemTypes.push(capElem);
                                 info.smapValTypes.push(capSmapVal);
@@ -50889,15 +50943,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           if ( this.objRcEnabled(lctx) ) {
                             if ( ( typeof(lctx.boxedCandidates[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedCandidates, varName) ) ) {
-                              if ( (irType == "i32") || (irType == "i1") ) {
-                                const cell = this.emitBoxCell(lctx);
-                                let cellVal = tmp;
-                                if ( irType == "i1" ) {
-                                  cellVal = lctx.builder.emitZextI1ToI32(tmp);
-                                }
-                                lctx.builder.emitStoreI32At(cell, 0, cellVal);
+                              if ( this.isBoxableIrType(irType) ) {
+                                const storeT = this.boxedStorageType(irType);
+                                const cellBytes = this.irTypeBytes(storeT, lctx);
+                                const cell = this.emitBoxCellSized(lctx, cellBytes);
+                                const cellVal = this.widenForBoxCell(tmp, irType, lctx);
+                                lctx.builder.emitStoreTypedAt(cell, 0, cellVal, storeT);
                                 this.bindSlot(varName, lctx.ptrType, cell, lctx);
-                                lctx.boxedLocals[varName] = 4;
+                                lctx.boxedLocals[varName] = cellBytes;
+                                lctx.boxedTypes[varName] = irType;
                                 if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
                                   lctx.ownedObjectLocals.push(varName);
                                 }
@@ -50990,7 +51044,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           if ( ( typeof(lctx.boxedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, varName) ) ) {
                             const cellPtr = this.loadSlot(varName, lctx.ptrType, lctx);
-                            builder.emitStoreI32At(cellPtr, 0, tmp);
+                            const logT = this.boxedCellType(varName, lctx);
+                            const wrote = this.widenForBoxCell(tmp, logT, lctx);
+                            if ( logT == "i8*" ) {
+                              this.claimStringTemp(wrote, lctx);
+                            } else {
+                              if ( logT == lctx.ptrType ) {
+                                this.claimObjectTemp(wrote, lctx);
+                              }
+                            }
+                            builder.emitStoreTypedAt(cellPtr, 0, wrote, this.boxedStorageType(logT));
                             return;
                           }
                           const irType = "i32";
@@ -51232,6 +51295,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           const exprNode = this.unwrapCondExpr(node);
                           if ( exprNode.value_type == 5 ) {
                             return true;
+                          }
+                          if ( exprNode.value_type == 11 ) {
+                            if ( ( typeof(lctx.boxedLocals[exprNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, exprNode.vref) ) ) {
+                              if ( this.boxedCellType(exprNode.vref, lctx) == "i1" ) {
+                                return true;
+                              }
+                            }
                           }
                           const pi1cls = this.propertyReadClass(exprNode, lctx);
                           if ( (pi1cls.length) > 0 ) {
@@ -52344,7 +52414,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             if ( ( typeof(lctx.boxedLocals[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, node.vref) ) ) {
                               const cellPtr = this.loadSlot(node.vref, lctx.ptrType, lctx);
-                              return builder.emitLoadTypedAt(cellPtr, 0, "i32");
+                              const logT = this.boxedCellType(node.vref, lctx);
+                              const raw = builder.emitLoadTypedAt(cellPtr, 0, this.boxedStorageType(logT));
+                              if ( logT == "i1" ) {
+                                return this.toI1(raw, lctx);
+                              }
+                              return raw;
                             }
                             if ( (node.vref.indexOf(".")) >= 0 ) {
                               const parts = node.vref.split(".");
