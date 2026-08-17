@@ -2602,6 +2602,12 @@ class VlCompile {
                         }
                     }
                 }
+                ; A pane that paints its marks by the same scale brings the
+                ; scale with it, and a scale beats a constant: a key told to be
+                ; transparent inside by a pane of hollow dots is filled by the
+                ; scale the pane of bars brought.
+                VlCompile.dropScaledOverride(already "fill")
+                VlCompile.dropScaledOverride(already "stroke")
             } {
                 set seen key (legends.count())
                 push legends.arr l
@@ -6356,6 +6362,12 @@ class VlCompile {
                     }
                 }
                 VlCompile.applyStatedLegend(l colour)
+                ; A key whose fill comes from the scale does not also state a
+                ; fill: the scale is the fill. Told to be transparent as well,
+                ; the outlined key of a scatter plot was drawn hollow where the
+                ; reference fills it.
+                VlCompile.dropScaledOverride(l "fill")
+                VlCompile.dropScaledOverride(l "stroke")
                 push out.arr l
             }
         }
@@ -6432,7 +6444,7 @@ class VlCompile {
                     def encode:VlJson (this.pointSymbolEncode((! (markDef.boolOr("filled" false)))))
                     def symbols:VlJson (encode.get("symbols"))
                     def update:VlJson (symbols.get("update"))
-                    update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+                    update.setMember("stroke" (VlCompile.literal((VlJson.stringValue((this.markColour()))))))
                     l2.setMember("encode" encode)
                 }
                 if ((markName == "circle") || (markName == "square")) {
@@ -6469,6 +6481,12 @@ class VlCompile {
                             }
                         }
                     }
+                    ; A channel that arrived from another key brings its
+                    ; scale with it, and a scale beats a constant: a key told
+                    ; to be transparent inside and then given a fill scale is
+                    ; filled by the scale.
+                    VlCompile.dropScaledOverride(into "fill")
+                    VlCompile.dropScaledOverride(into "stroke")
                     folded = true
                 } {
                     set byTitle title l
@@ -6500,6 +6518,16 @@ class VlCompile {
                 def stated:string (colour.value.asString())
                 if ((strlen stated) > 0) {
                     return stated
+                }
+            }
+            ; A conditional colour's other branch is a plain colour, and it is
+            ; the colour the marks are drawn in whenever nothing is selected —
+            ; which is what a key drawn beside them stands for.
+            def fallback:VlJson (colour.def0.get("value"))
+            if (fallback.isString()) {
+                def named:string (fallback.asString())
+                if ((strlen named) > 0) {
+                    return named
                 }
             }
         }
@@ -6538,14 +6566,44 @@ class VlCompile {
     ; `"legend": {"title": null}` is a chart saying the colours speak for
     ; themselves, and a title printed anyway is as wide as the words in it —
     ; ninety-eight pixels of page on a heat map of temperatures.
+    ; If a legend maps a channel to a SCALE, an encode block that also states
+    ; a constant for it is a constant overruling the scale, and the reference
+    ; writes no such thing.
+    sfn dropScaledOverride:void (l:VlJson key:string) {
+        if (! ((l.get(key)).isString())) {
+            return
+        }
+        def encode:VlJson (l.get("encode"))
+        if (! (encode.isObject())) {
+            return
+        }
+        def symbols:VlJson (encode.get("symbols"))
+        if (! (symbols.isObject())) {
+            return
+        }
+        def update:VlJson (symbols.get("update"))
+        if (! (update.isObject())) {
+            return
+        }
+        update.removeMember(key)
+    }
+
     sfn nameLegend:void (l:VlJson ch:VlChannel) {
-        def given:VlJson (ch.def0.get("legend"))
+        def given:VlJson (VlCompile.statedOn(ch "legend"))
         if (given.isObject()) {
             if (given.has("title")) {
                 if ((given.get("title")).isNull()) {
                     return
                 }
             }
+        }
+        ; A conditional channel names itself in the condition, beside the
+        ; field it names — read from the channel alone, a key titled "Weather"
+        ; was headed with the column's own name instead.
+        def named:VlJson (VlCompile.statedOn(ch "title"))
+        if (named.isString()) {
+            l.setMember("title" named)
+            return
         }
         l.setMember("title" (VlJson.stringValue((ch.title()))))
     }
@@ -6554,7 +6612,7 @@ class VlCompile {
     ; its gradient is, what its symbols look like. Copied over whatever the
     ; defaults decided, the same way an axis definition is.
     sfn applyStatedLegend:void (l:VlJson ch:VlChannel) {
-        def given:VlJson (ch.def0.get("legend"))
+        def given:VlJson (VlCompile.statedOn(ch "legend"))
         if (! (given.isObject())) {
             return
         }
