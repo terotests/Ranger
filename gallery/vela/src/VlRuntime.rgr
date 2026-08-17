@@ -1003,6 +1003,15 @@ class VlRuntime {
                     op = "min"
                 }
             }
+            ; A COUNT that has already been counted is a column, not a tally
+            ; of rows: the rows here are one per category, so counting them
+            ; answers one for every category and orders nothing.
+            if (op == "count") {
+                if (sample.has("__count")) {
+                    by = "__count"
+                    op = "min"
+                }
+            }
         }
         def keyed:[string:double]
         for values v:string vi {
