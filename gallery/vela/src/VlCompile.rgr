@@ -493,7 +493,11 @@ class VlCompile {
                 ; nothing: the reference emits one axis per scale, the first
                 ; layer's, and a chart of `previous_sum` and `sum` is titled
                 ; "Amount" and not "Amount, sum, center".
-                VlCompile.collectAxisTitles(titles askedTitles (piece.get("axes")) (VlCompile.statedTitles((layers.at(index)))))
+                ; What the LAYER states includes what it inherited: a chart
+                ; that names its y axis once, in the shared encoding, has named
+                ; it for every layer. Read from the layer alone, nothing was
+                ; stated anywhere and the axis was titled after both columns.
+                VlCompile.collectAxisTitles(titles askedTitles (piece.get("axes")) (VlCompile.statedTitles((VlCompile.mergeSpec(src (layers.at(index)))))))
             }
             index = (index + 1)
         }
@@ -1127,7 +1131,9 @@ class VlCompile {
             push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "facet_domain_column" "" "child_width" xAxes true))
         } {
             if ((strlen rowField) > 0) {
-                push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left"))
+                if ((strlen (titleText.asString())) > 0) {
+                    push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left"))
+                }
                 push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false))
                 push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true))
             } {
@@ -1628,9 +1634,18 @@ class VlCompile {
         if (encoding.isObject()) {
             def cdef:VlJson (encoding.get(key))
             if (cdef.isObject()) {
-                def stated:string (cdef.stringOr("title" ""))
-                if ((strlen stated) > 0) {
-                    return stated
+                ; A facet channel names its strip either directly or through
+                ; the `header` block, and either place may say it has no name:
+                ; `{"header": {"title": ""}}` is a grid of panels whose rows
+                ; are labelled and whose strip is not.
+                if (cdef.has("title")) {
+                    return (cdef.stringOr("title" ""))
+                }
+                def header:VlJson (cdef.get("header"))
+                if (header.isObject()) {
+                    if (header.has("title")) {
+                        return (header.stringOr("title" ""))
+                    }
                 }
             }
         }
