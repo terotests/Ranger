@@ -58,6 +58,11 @@ class VlAxis {
     def titleFontSize:double 11.0
     def titleColor:string "#000"
     def titleFontWeight:string "bold"
+    ; How heavy the LABELS are. A questionnaire naming its questions down the
+    ; side sets them bold to tell them from the ratings beside them, and drawn
+    ; at the ordinary weight they read as data rather than as headings — and
+    ; they measure narrower, so the axis reserves too little room for them.
+    def labelFontWeight:string ""
     def bandPosition:double 0.5
     ; Where a tick sits on a BAND. "center" puts it under the middle of the
     ; band, which is where the label goes; "extent" puts it on the band's edge
@@ -172,6 +177,7 @@ class VlAxis {
         tickColor = (adef.stringOr("tickColor" tickColor))
         labelColor = (adef.stringOr("labelColor" labelColor))
         labelFont = (adef.stringOr("labelFont" labelFont))
+        labelFontWeight = (adef.stringOr("labelFontWeight" labelFontWeight))
         domainColor = (adef.stringOr("domainColor" domainColor))
         gridColor = (adef.stringOr("gridColor" gridColor))
         titleColor = (adef.stringOr("titleColor" titleColor))
@@ -732,6 +738,9 @@ class VlAxis {
             }
             item.setString("fill" labelPaint)
             item.setString("font" labelFont)
+            if ((strlen labelFontWeight) > 0) {
+                item.setString("fontWeight" labelFontWeight)
+            }
             item.setNumber("fontSize" labelFontSize)
             item.setNumber("opacity" 1.0)
             item.setNumber("angle" labelAngle)

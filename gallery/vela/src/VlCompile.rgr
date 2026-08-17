@@ -6810,6 +6810,14 @@ class VlCompile {
             if (stated.has("bandPosition")) {
                 a.setMember("bandPosition" (stated.get("bandPosition")))
             }
+            ; …and so is how far the whole axis stands off the plot. The grid
+            ; itself does not move — it crosses the plot and never left it —
+            ; but the axis it belongs to is measured from the same place as
+            ; the labelled one, and the two disagreeing put the gridlines of a
+            ; questionnaire fifty pixels from its rows.
+            if (stated.has("offset")) {
+                a.setMember("offset" (stated.get("offset")))
+            }
         }
         if (! (a.has("values"))) {
             if (! (a.has("tickCount"))) {
