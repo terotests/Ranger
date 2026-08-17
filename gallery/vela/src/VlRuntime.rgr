@@ -2853,20 +2853,38 @@ class VlRuntime {
         ; round that half pixel out lands the whole next row one pixel high.
         def rowBottom:double 0.0
         def first:boolean true
+        ; Every panel of a grid is the same size, whatever each one happens to
+        ; cover. That is what `"align": "all"` means and it is the default for
+        ; a trellis: the columns line up down the page, so the third panel does
+        ; not start two pixels early because its rightmost dot sits further in
+        ; than its neighbour's. The pitch is the widest panel, rounded outward,
+        ; plus the spacing — measured once, over all of them.
+        def widest:double 0.0
+        def deepest:double 0.0
         for cells box:VlGroupBox idx {
             ; `bounds: "full"` means a panel is worth what it COVERS, not what
             ; it declared: a row of pictograms whose last symbol hangs a
             ; fraction below the plot pushes the row under it down by a whole
             ; pixel, because the reference rounds outward.
             VlRuntime.growByContents(box)
+            ; Each side is rounded outward on its own before the panel is
+            ; measured: three and a bit pixels of circle hanging past the plot
+            ; on the left and half a pixel of axis stroke on the right is four
+            ; and one, not four altogether.
+            widest = (VlRuntime.higher(widest (((VlBounds.ceilTo(box.left)) + box.width) + (VlBounds.ceilTo(box.right)))))
+            deepest = (VlRuntime.higher(deepest (((VlBounds.ceilTo(box.top)) + box.height) + (VlBounds.ceilTo(box.bottom)))))
+        }
+        def pitchX:double ((VlBounds.ceilTo(widest)) + gap)
+        def pitchY:double ((VlBounds.ceilTo(deepest)) + rowGap)
+        for cells box:VlGroupBox idx {
             def column:int (idx % columns)
             if (column == 0) {
                 x = 0.0
                 if (idx > 0) {
-                    y = ((VlBounds.ceilTo(rowBottom)) + rowGap + (VlBounds.ceilTo(box.top)))
+                    y = (y + pitchY)
                 }
             } {
-                x = (x + gap + (VlBounds.ceilTo(box.left)))
+                x = (x + pitchX)
             }
             box.item.setNumber("x" x)
             box.item.setNumber("y" y)
@@ -2882,12 +2900,6 @@ class VlRuntime {
                 gridX2 = (VlRuntime.higher(gridX2 (x + box.width + box.right)))
                 gridY2 = (VlRuntime.higher(gridY2 (y + box.height + box.bottom)))
             }
-            if (column == 0) {
-                rowBottom = ((y + box.height) + box.bottom)
-            } {
-                rowBottom = (VlRuntime.higher(rowBottom ((y + box.height) + box.bottom)))
-            }
-            x = (VlBounds.ceilTo((x + box.width + box.right)))
         }
         def reach (new VlBounds())
         reach.set(gridX1 gridY1 gridX2 gridY2)
