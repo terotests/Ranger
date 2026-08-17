@@ -3714,11 +3714,20 @@ class VlCompile {
                 push sortFields.arr (VlJson.stringValue(sortBy))
                 ; A bar's y axis points down the page, so the first colour has
                 ; to be stacked last to end up on top. A pie has no inverted
-                ; axis and reads the other way.
-                if (markName == "arc") {
-                    push sortOrders.arr (VlJson.stringValue("ascending"))
-                } {
+                ; axis and reads the other way — and neither does a bar lying
+                ; on its side, whose stack runs left to right along an x axis
+                ; that increases in the direction it is read. Sorted as if it
+                ; were upright, a horizontal stacked bar came out with its
+                ; segments in reverse.
+                def upward:boolean (markName != "arc")
+                def measured:VlChannel (this.stackMeasure())
+                if (measured.name == "x") {
+                    upward = false
+                }
+                if upward {
                     push sortOrders.arr (VlJson.stringValue("descending"))
+                } {
+                    push sortOrders.arr (VlJson.stringValue("ascending"))
                 }
             }
         }
