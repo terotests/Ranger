@@ -3143,6 +3143,20 @@ class VlCompile {
         if (ch.isBinned()) { return "quantitative" }
         if ((strlen ch.aggregate) > 0) { return "quantitative" }
         if ((strlen ch.timeUnit) > 0) { return "temporal" }
+        ; A channel that names a CONTINUOUS scale has said what its column
+        ; holds: `"scale": {"type": "log"}` on a column of frames per second
+        ; is a quantity, whatever the raw rows do or do not contain — and the
+        ; column may not be in them at all, being one a `calculate` made.
+        def stated:VlJson (VlCompile.statedOn(ch "scale"))
+        if (stated.isObject()) {
+            def kind:string (stated.stringOr("type" ""))
+            if ((((kind == "log") || (kind == "linear")) || ((kind == "pow") || (kind == "sqrt"))) || (kind == "symlog")) {
+                return "quantitative"
+            }
+            if ((kind == "time") || (kind == "utc")) {
+                return "temporal"
+            }
+        }
         ; And otherwise NOMINAL, whatever the column holds. This is the
         ; reference's rule and it is worth stating plainly, because the obvious
         ; guess is wrong: a column of the numbers 0, 5, 10 … 90 is read as
@@ -3841,8 +3855,28 @@ class VlCompile {
     fn buildData:VlJson () {
         def out (VlJson.arrayValue())
         def src (VlJson.objectValue())
-        src.setMember("name" (VlJson.stringValue("source_0")))
+        def sourceName:string "source_0"
+        src.setMember("name" (VlJson.stringValue(sourceName)))
         def data:VlJson (source.get("data"))
+        ; A chart may declare its rows once, under a name, and then point each
+        ; layer at the one it draws: `"datasets": {"falcon": […], "square":
+        ; […]}` with `"data": {"name": "falcon"}` on the layer. Read as no data
+        ; at all, both layers drew whatever the other one had and the chart was
+        ; one series drawn twice.
+        ; The rows are taken, not the name: what the layer is pointing at is a
+        ; list of values, and the naming of source data sets belongs to the
+        ; layer merge, which numbers them and rewrites everything that reads
+        ; them. Naming it here instead left the second layer's data set
+        ; referred to before it was defined.
+        def named:string (data.stringOr("name" ""))
+        if ((strlen named) > 0) {
+            def sets:VlJson (rootSource.get("datasets"))
+            if (sets.isObject()) {
+                if (sets.has(named)) {
+                    src.setMember("values" (sets.get(named)))
+                }
+            }
+        }
         if (data.has("values")) {
             src.setMember("values" (data.get("values")))
         }
@@ -3860,7 +3894,7 @@ class VlCompile {
 
         def derived (VlJson.objectValue())
         derived.setMember("name" (VlJson.stringValue(dataLabel)))
-        derived.setMember("source" (VlJson.stringValue("source_0")))
+        derived.setMember("source" (VlJson.stringValue(sourceName)))
         def transforms (VlJson.arrayValue())
 
         this.pushTimeParse(transforms)
@@ -4033,9 +4067,24 @@ class VlCompile {
                         def one:VlJson (spec.at(wi))
                         def wOp:string (one.stringOr("op" ""))
                         push wOps.arr (VlJson.stringValue(wOp))
-                        push wFields.arr (VlJson.stringValue((one.stringOr("field" ""))))
+                        ; An operation that reads no column and takes no
+                        ; parameter — a row number, a rank, a running total of
+                        ; rows — still needs a place in each list, because the
+                        ; four lists are read in step. The reference writes a
+                        ; null there. Written as an empty name and a one, the
+                        ; window read a column nobody has and framed itself
+                        ; one row wide.
+                        if (one.has("field")) {
+                            push wFields.arr (VlJson.stringValue((one.stringOr("field" ""))))
+                        } {
+                            push wFields.arr (VlJson.nullValue())
+                        }
                         push wAs.arr (VlJson.stringValue((one.stringOr("as" (wOp + "_field")))))
-                        push wParams.arr (VlJson.numberValue((one.doubleOr("param" 1.0))))
+                        if (one.has("param")) {
+                            push wParams.arr (VlJson.numberValue((one.doubleOr("param" 1.0))))
+                        } {
+                            push wParams.arr (VlJson.nullValue())
+                        }
                         wi = (wi + 1)
                     }
                     wn.setMember("ops" wOps)
@@ -4795,12 +4844,39 @@ class VlCompile {
     ; Every continuous field a mark positions by has to be a finite number, and
     ; the reference drops the rows where it is not rather than drawing them at
     ; the origin.
+    ; `"config": {"mark": {"invalid": null}}` is a chart asking to KEEP the
+    ; rows whose numbers are missing rather than drop them — they are drawn at
+    ; the zero of their scale, in whatever colour the chart gives them, which
+    ; is how a scatter plot shows what it could not measure. Stated as null
+    ; rather than left out: leaving it out is the default, and the default is
+    ; to filter.
+    fn keepsInvalid:boolean () {
+        def block:VlJson (rootSource.get("config"))
+        if (! (block.isObject())) {
+            block = (source.get("config"))
+        }
+        if (! (block.isObject())) {
+            return false
+        }
+        def cfg:VlJson (block.get("mark"))
+        if (! (cfg.isObject())) {
+            return false
+        }
+        if (! (cfg.has("invalid"))) {
+            return false
+        }
+        return ((cfg.get("invalid")).isNull())
+    }
+
     fn pushValidFilter:void (transforms:VlJson) {
         ; Except along a path, where dropping a row would join across the gap
         ; instead of leaving one. Those rows stay in the data and the mark
         ; steps over them — and the rows are still in the data, so the SCALES
         ; still see them.
         if (VlCompile.isPathMark(markName)) {
+            return
+        }
+        if (this.keepsInvalid()) {
             return
         }
         def expr:string (this.validityExpr())
@@ -4842,6 +4918,13 @@ class VlCompile {
     sfn validExpr:string (field:string) {
         def ref:string (VlCompile.datumRef(field))
         return (((("isValid(" + ref) + ") && isFinite(+") + ref) + ")")
+    }
+
+    ; The same question asked the other way about, which is how the reference
+    ; writes it where a row is TESTED rather than filtered.
+    sfn invalidExpr:string (field:string) {
+        def ref:string (VlCompile.datumRef(field))
+        return (((("!isValid(" + ref) + ") || !isFinite(+") + ref) + ")")
     }
 
     ; How an expression names a field. A plain column is `datum["name"]`; a
@@ -5957,6 +6040,14 @@ class VlCompile {
         ; a mark nobody had thought of — an image, a rule — got a scale that
         ; started at its own smallest value and a plot dragged sideways.
         ; Only a mark with a LENGTH is an exception, and it is handled above.
+        ;
+        ; A view that draws NOTHING is not one of them. The container of a
+        ; layered chart compiles its own scales alongside its layers', and it
+        ; has no mark to ask: answering for it as though it drew a point put a
+        ; zero back into a scale that its two lines had both said not to.
+        if ((strlen markName) == 0) {
+            return false
+        }
         return true
     }
 
@@ -8593,6 +8684,20 @@ class VlCompile {
                 update.setMember((axis + "2") (this.scaled(axis (second.outField()))))
                 return
             }
+        }
+        ; A row whose number is missing is still drawn when the chart asked to
+        ; keep it: at the zero of its own scale, tested per row, which is what
+        ; the reference writes in place of dropping it upstream.
+        if (this.keepsInvalid()) {
+            def choice (VlJson.arrayValue())
+            def missing (VlJson.objectValue())
+            missing.setMember("test" (VlJson.stringValue((VlCompile.invalidExpr((ch.outField()))))))
+            missing.setMember("scale" (VlJson.stringValue((this.sname(axis)))))
+            missing.setMember("value" (VlJson.numberValue(0.0)))
+            push choice.arr missing
+            push choice.arr (this.scaled(axis (ch.outField())))
+            update.setMember(axis choice)
+            return
         }
         ; An image given a size is placed by its MIDDLE, not by its corner:
         ; `{"type": "image", "width": 50}` means a fifty-pixel picture centred
