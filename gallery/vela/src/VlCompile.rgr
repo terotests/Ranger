@@ -44,6 +44,11 @@ class VlChannel {
     ; "quantitative" | "nominal" | "ordinal" | "temporal"
     def kind:string "quantitative"
     def aggregate:string ""
+    ; `"aggregate": {"argmax": "US Gross"}` picks the ROW with the largest
+    ; value of one column and reads another off it. The op is the key and the
+    ; column it ranks by is the value, which is a different column from the
+    ; one the channel measures.
+    def argField:string ""
     def timeUnit:string ""
     ; The unit spelled out: "yearmonth" is ["year", "month"].
     def timeUnits:[string]
@@ -97,6 +102,9 @@ class VlChannel {
         if ((strlen aggregate) > 0) {
             if (aggregate == "count") {
                 return "__count"
+            }
+            if ((strlen argField) > 0) {
+                return ((((aggregate + "_") + argField) + "[\"") + field) + "\"]"
             }
             return ((aggregate + "_") + field)
         }
@@ -491,6 +499,7 @@ class VlCompile {
         }
         VlCompile.applyMergedDomains(scales scaleNames domains)
         VlCompile.mergeAxisTitles(axes titles askedTitles)
+        this.resizeAcrossLayers(out src layers bandX bandY)
 
         out.setMember("data" data)
         if ((signals.count()) > 0) {
@@ -835,7 +844,7 @@ class VlCompile {
     ; A tooltip is an object literal in an expression, and the fields are listed
     ; in the order the reference lists them: the top of the scale first.
     sfn tipNumber:string (label:string field:string) {
-        return (((("\"" + label) + "\": format(datum[\"") + field) + "\"], \"\")")
+        return (((("\"" + label) + "\": format(") + (VlCompile.datumRef(field))) + ", \"\")")
     }
     sfn tipCategory:string (field:string) {
         def out:string (("\"" + field) + "\": isValid(datum[\"")
@@ -1525,6 +1534,81 @@ class VlCompile {
         return out
     }
 
+    ; How big a layered chart is, decided across ALL of its layers.
+    ;
+    ; Everything the chart is as a whole is taken from the first layer, and its
+    ; SIZE cannot be: a chart is as tall as the tallest thing in it, and the
+    ; first layer of a hover chart is often a rule with only one position
+    ; encoded. Sized from that layer alone, a three-hundred-pixel plot came out
+    ; twenty pixels tall — a chart with nothing on an axis is one step tall on
+    ; that axis, which is right for a strip plot and wrong for a layer.
+    ;
+    ; Only a plain measurement is overridden. A chart laid out from its BANDS
+    ; carries signals rather than numbers, and every layer agrees about
+    ; band-ness already, so there is nothing to settle there.
+    fn resizeAcrossLayers:void (out:VlJson src:VlJson layers:VlJson bandX:boolean bandY:boolean) {
+        def sizer (new VlCompile())
+        sizer.source = (VlCompile.mergeSpec(src (VlCompile.unionOfLayers(layers))))
+        if bandX {
+            set sizer.forcedTypes "x" "band"
+        }
+        if bandY {
+            set sizer.forcedTypes "y" "band"
+        }
+        sizer.readMark()
+        sizer.readEncoding()
+        def sized (VlJson.objectValue())
+        def spare (VlJson.arrayValue())
+        sizer.sizeAndSignals(sized spare)
+        VlCompile.takeSize(out sized "width")
+        VlCompile.takeSize(out sized "height")
+    }
+
+    sfn takeSize:void (out:VlJson sized:VlJson dimension:string) {
+        def measured:VlJson (sized.get(dimension))
+        if (! (measured.isNumber())) {
+            return
+        }
+        def already:VlJson (out.get(dimension))
+        if (! (already.isNumber())) {
+            return
+        }
+        if (already.num < measured.num) {
+            out.setMember(dimension measured)
+        }
+    }
+
+    ; One layer standing for all of them: the first layer's own definition with
+    ; every channel any other layer encodes added to it. It is compiled for its
+    ; SIZE and nothing else, so what it would draw does not matter.
+    sfn unionOfLayers:VlJson (layers:VlJson) {
+        def out (VlJson.objectValue())
+        def encoding (VlJson.objectValue())
+        def total:int (layers.count())
+        def k:int 0
+        while (k < total) {
+            def layer:VlJson (layers.at(k))
+            if (k == 0) {
+                for layer.keys key:string ki {
+                    if (key != "encoding") {
+                        out.setMember(key (layer.get(key)))
+                    }
+                }
+            }
+            def enc:VlJson (layer.get("encoding"))
+            if (enc.isObject()) {
+                for enc.keys ek:string ei {
+                    if (! (encoding.has(ek))) {
+                        encoding.setMember(ek (enc.get(ek)))
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        out.setMember("encoding" encoding)
+        return out
+    }
+
     ; A layer is a specification with the outer one's data, size and shared
     ; encoding behind it. The layer's own keys win.
     sfn mergeSpec:VlJson (outer:VlJson layer:VlJson) {
@@ -1834,6 +1918,13 @@ class VlCompile {
             ch.defined = true
             ch.field = (cdef.stringOr("field" ""))
             ch.aggregate = (cdef.stringOr("aggregate" ""))
+            def aggDef:VlJson (cdef.get("aggregate"))
+            if (aggDef.isObject()) {
+                for aggDef.keys ak:string ai {
+                    ch.aggregate = ak
+                    ch.argField = (aggDef.get(ak).asString())
+                }
+            }
             ch.timeUnit = (cdef.stringOr("timeUnit" ""))
             if (cdef.has("bin")) {
                 ch.hasBin = true
@@ -2955,9 +3046,20 @@ class VlCompile {
                     if (ch2.aggregate == "count") {
                         push fields.arr (VlJson.nullValue())
                     } {
-                        push fields.arr (VlJson.stringValue(ch2.field))
+                        ; An arg-op ranks by ONE column and is read for
+                        ; another, so the field it aggregates is not the field
+                        ; the channel measures.
+                        if ((strlen ch2.argField) > 0) {
+                            push fields.arr (VlJson.stringValue(ch2.argField))
+                        } {
+                            push fields.arr (VlJson.stringValue(ch2.field))
+                        }
                     }
-                    push asNames.arr (VlJson.stringValue((ch2.outField())))
+                    if ((strlen ch2.argField) > 0) {
+                        push asNames.arr (VlJson.stringValue(((ch2.aggregate + "_") + ch2.argField)))
+                    } {
+                        push asNames.arr (VlJson.stringValue((ch2.outField())))
+                    }
                 } {
                     if (ch2.hasBin) {
                         push groupby.arr (VlJson.stringValue((ch2.outField())))
@@ -3149,7 +3251,22 @@ class VlCompile {
     }
 
     sfn validExpr:string (field:string) {
-        return (((("isValid(datum[\"" + field) + "\"]) && isFinite(+datum[\"") + field) + "\"])")
+        def ref:string (VlCompile.datumRef(field))
+        return (((("isValid(" + ref) + ") && isFinite(+") + ref) + ")")
+    }
+
+    ; How an expression names a field. A plain column is `datum["name"]`; a
+    ; field that reaches THROUGH a value — the row an arg-op picked out — is
+    ; already written with brackets, and wrapping the whole thing in one more
+    ; pair produced a string the expression parser could not read.
+    sfn datumRef:string (field:string) {
+        def open:int (indexOf field "[\"")
+        if (open < 0) {
+            return (("datum[\"" + field) + "\"]")
+        }
+        def head:string (substring field 0 open)
+        def tail:string (substring field open (strlen field))
+        return ((("datum[\"" + head) + "\"]") + tail)
     }
 
     ; ----------------------------------------------------------- predicates ---
@@ -5148,18 +5265,19 @@ class VlCompile {
     }
 
     sfn describeUnit:string (field:string spec:string) {
-        return ((((("(timeFormat(datum[\"" + field) + "\"], \"") + spec) + "\"))"))
+        return ((((("(timeFormat(" + (VlCompile.datumRef(field))) + ", \"") + spec) + "\"))"))
     }
 
     sfn describeDate:string (field:string) {
-        return (("(timeFormat(datum[\"" + field) + "\"], \"%b %d, %Y\"))")
+        return (("(timeFormat(" + (VlCompile.datumRef(field))) + ", \"%b %d, %Y\"))")
     }
 
     sfn describeOne:string (field:string discrete:boolean) {
         if discrete {
-            return ((((((("(isValid(datum[\"" + field) + "\"]) ? isArray(datum[\"") + field) + "\"]) ? join(datum[\"") + field) + "\"], ' ') : datum[\"") + field) + "\"] : \"\"+datum[\"" + field + "\"])")
+            def dref:string (VlCompile.datumRef(field))
+            return ((((((("(isValid(" + dref) + ") ? isArray(") + dref) + ") ? join(") + dref) + ", ' ') : ") + dref) + " : \"\"+" + dref + ")")
         }
-        return ((("(format(datum[\"" + field) + "\"], \"\"))"))
+        return ((("(format(" + (VlCompile.datumRef(field))) + ", \"\"))"))
     }
 
     sfn literal:VlJson (value:VlJson) {

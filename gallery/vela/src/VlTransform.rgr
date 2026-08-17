@@ -38,6 +38,13 @@ class VlAggregateGroup {
     def keyRow:VlJson (new VlJson)
     def count:double 0.0
     def slots:[VlNumberList]
+    ; `argmax` does not answer a number: it answers the whole ROW that held the
+    ; largest value, so that a chart can ask what else was true of it — the
+    ; budget of the highest-grossing film in each genre. One winner per slot,
+    ; kept as it goes past.
+    def winners:[VlJson]
+    def winning:[double]
+    def hasWinner:[boolean]
 }
 
 class VlTransform {
@@ -50,6 +57,34 @@ class VlTransform {
             out.setMember(key (row.get(key)))
         }
         return out
+    }
+
+    ; A field name that reaches THROUGH a value: `argmax_US Gross["Production
+    ; Budget"]` names a column whose contents is a whole row, and then a column
+    ; of that. The reference writes accessors this way and reads them the same
+    ; way, so a name with brackets in it is a path rather than a column called
+    ; something odd.
+    sfn memberOf:VlJson (row:VlJson path:string) {
+        def open:int (indexOf path "[\"")
+        if (open < 0) {
+            return (row.get(path))
+        }
+        def head:string (substring path 0 open)
+        def rest:string (substring path (open + 2) (strlen path))
+        def close:int (indexOf rest "\"]")
+        if (close < 0) {
+            return (row.get(path))
+        }
+        def inner:VlJson (row.get(head))
+        if (! (inner.isObject())) {
+            return (VlJson.nullValue())
+        }
+        def tail:string (substring rest (close + 2) (strlen rest))
+        def name:string (substring rest 0 close)
+        if ((strlen tail) == 0) {
+            return (inner.get(name))
+        }
+        return (VlTransform.memberOf(inner (name + tail)))
     }
 
     ; --- filter ---------------------------------------------------------------
@@ -538,7 +573,7 @@ class VlTransform {
             def opCount:int (array_length ops)
             def k:int 0
             while (k < opCount) {
-                base.setMember((VlTransform.aggregateName(ops fields asNames k)) (VlJson.numberValue((VlTransform.applyOp(group k (itemAt ops k))))))
+                base.setMember((VlTransform.aggregateName(ops fields asNames k)) (VlTransform.aggregateValue(group k (itemAt ops k))))
                 k = (k + 1)
             }
             push out base
@@ -565,7 +600,7 @@ class VlTransform {
                 def group:VlAggregateGroup (unwrap (get byKey key))
                 def k:int 0
                 while (k < opCount) {
-                    joined.setMember((VlTransform.aggregateName(ops fields asNames k)) (VlJson.numberValue((VlTransform.applyOp(group k (itemAt ops k))))))
+                    joined.setMember((VlTransform.aggregateName(ops fields asNames k)) (VlTransform.aggregateValue(group k (itemAt ops k))))
                     k = (k + 1)
                 }
             }
@@ -1278,6 +1313,9 @@ class VlTransform {
                 while (slot < opCount) {
                     def emptyList:VlNumberList (new VlNumberList())
                     push fresh.slots emptyList
+                    push fresh.winners (VlJson.objectValue())
+                    push fresh.winning 0.0
+                    push fresh.hasWinner false
                     slot = (slot + 1)
                 }
                 set byKey key fresh
@@ -1295,11 +1333,42 @@ class VlTransform {
                 if (v.isNumber()) {
                     def list:VlNumberList (itemAt group.slots k)
                     push list.values v.num
+                    def op:string ""
+                    if (k < (array_length ops)) {
+                        op = (itemAt ops k)
+                    }
+                    if ((op == "argmax") || (op == "argmin")) {
+                        def better:boolean (! (itemAt group.hasWinner k))
+                        if (! better) {
+                            if (op == "argmax") {
+                                better = (v.num > (itemAt group.winning k))
+                            } {
+                                better = (v.num < (itemAt group.winning k))
+                            }
+                        }
+                        if better {
+                            set_at group.hasWinner k true
+                            set_at group.winning k v.num
+                            set_at group.winners k row
+                        }
+                    }
                 }
                 k = (k + 1)
             }
         }
         return out
+    }
+
+    ; What an operation answers: a number for all of them but the two that
+    ; answer a row.
+    sfn aggregateValue:VlJson (group:VlAggregateGroup k:int op:string) {
+        if ((op == "argmax") || (op == "argmin")) {
+            if (itemAt group.hasWinner k) {
+                return (itemAt group.winners k)
+            }
+            return (VlJson.nullValue())
+        }
+        return (VlJson.numberValue((VlTransform.applyOp(group k op))))
     }
 
     sfn applyOp:double (group:VlAggregateGroup k:int op:string) {

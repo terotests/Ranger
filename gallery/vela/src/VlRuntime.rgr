@@ -3118,7 +3118,7 @@ class VlRuntime {
                 if (fieldRef.isObject()) {
                     return (this.applyMultOffset((this.groupProperty((fieldRef.stringOr("group" "")))) cdef row))
                 }
-                return (this.applyMultOffset((row.get((cdef.stringOr("field" "")))) cdef row))
+                return (this.applyMultOffset((VlTransform.memberOf(row (cdef.stringOr("field" "")))) cdef row))
             }
             return (VlJson.nullValue())
         }
@@ -3138,7 +3138,7 @@ class VlRuntime {
         def listed:boolean ((array_length sc.rangeValues) > 0)
         if (cdef.has("field")) {
             def field:string (cdef.stringOr("field" ""))
-            def raw:VlJson (row.get(field))
+            def raw:VlJson (VlTransform.memberOf(row field))
             if listed {
                 if (sc.scaleType == "ordinal") {
                     return (VlJson.stringValue((sc.mapOrdinal(raw))))
