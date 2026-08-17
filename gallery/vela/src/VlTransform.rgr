@@ -1110,6 +1110,14 @@ class VlTransform {
     ; Do two rows agree on every field the window sorted by? Rows that do are
     ; peers, and peers share a rank.
     sfn sameKey:boolean (a:VlJson b:VlJson fields:[string]) {
+        ; With NOTHING to sort by, no two rows are tied: a window that names no
+        ; order has nothing to call them equal ON, and the reference ranks them
+        ; one, two, three. Called peers instead, every row of every group came
+        ; out ranked first — and a dot plot stacked its whole column on one
+        ; dot.
+        if ((array_length fields) == 0) {
+            return false
+        }
         for fields field:string fi {
             if (((a.get(field)).asString()) != ((b.get(field)).asString())) {
                 return false
