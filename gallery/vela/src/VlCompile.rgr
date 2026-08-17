@@ -2770,6 +2770,24 @@ class VlCompile {
         return (inner.doubleOr(key fallback))
     }
 
+    ; The same, for a name rather than a number. It reads the WHOLE chart's
+    ; configuration rather than the pane's, because a configuration block is
+    ; stated once at the top and applies everywhere below it.
+    fn configText:string (block:string key:string fallback:string) {
+        def config:VlJson (rootSource.get("config"))
+        if (! (config.isObject())) {
+            config = (source.get("config"))
+        }
+        if (! (config.isObject())) {
+            return fallback
+        }
+        def inner:VlJson (config.get(block))
+        if (! (inner.isObject())) {
+            return fallback
+        }
+        return (inner.stringOr(key fallback))
+    }
+
     ; The signal a dimension reads. A shared dimension is the chart's own.
     fn sizeSignal:string (dimension:string) {
         if (dimension == "width") {
@@ -6088,8 +6106,12 @@ class VlCompile {
             }
         }
         if (markName == "text") {
-            update.setMember("align" (VlCompile.literal((VlJson.stringValue("center")))))
-            update.setMember("baseline" (VlCompile.literal((VlJson.stringValue("middle")))))
+            ; A label is centred on its anchor unless the chart says otherwise.
+            ; `"config": {"text": {"align": "left"}}` is a chart labelling the
+            ; ends of its lines, and written over with the default every label
+            ; sat on the line rather than beside it.
+            update.setMember("align" (VlCompile.literal((VlJson.stringValue((this.configText("text" "align" "center")))))))
+            update.setMember("baseline" (VlCompile.literal((VlJson.stringValue((this.configText("text" "baseline" "middle")))))))
             def colour0:VlChannel (this.channel("color"))
             if (! colour0.defined) {
                 update.setMember("fill" (VlCompile.literal((VlJson.stringValue("black")))))
