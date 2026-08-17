@@ -2548,6 +2548,15 @@ class VlRuntime {
         if (! (item.has("stroke"))) {
             return
         }
+        ; `"view": {"stroke": ""}` is a chart asking for no frame at all, and a
+        ; frame nobody draws takes up no room.
+        def paint:string (item.text("stroke"))
+        if ((strlen paint) == 0) {
+            return
+        }
+        if (paint == "transparent") {
+            return
+        }
         def half:double 0.5
         if (item.has("strokeWidth")) {
             half = ((item.number("strokeWidth")) / 2.0)
