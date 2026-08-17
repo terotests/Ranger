@@ -2818,6 +2818,22 @@ class VlRuntime {
         return (layoutDef.doubleOr("padding" 0.0))
     }
 
+    ; How far a panel's own marks reach past the rectangle it declared, folded
+    ; into the room the layout already knew about.
+    sfn growByContents:void (box:VlGroupBox) {
+        def covered (new VlBounds())
+        for box.item.marks child:VlSceneMark ci {
+            covered.union((VlViewBox.cut(child box.width box.height)))
+        }
+        if (! covered.isSet) {
+            return
+        }
+        box.left = (VlRuntime.higher(box.left (0.0 - covered.x1)))
+        box.top = (VlRuntime.higher(box.top (0.0 - covered.y1)))
+        box.right = (VlRuntime.higher(box.right (covered.x2 - box.width)))
+        box.bottom = (VlRuntime.higher(box.bottom (covered.y2 - box.height)))
+    }
+
     sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double rowGap:double) {
         def gridX1:double 0.0
         def gridY1:double 0.0
@@ -2832,6 +2848,11 @@ class VlRuntime {
         def rowBottom:double 0.0
         def first:boolean true
         for cells box:VlGroupBox idx {
+            ; `bounds: "full"` means a panel is worth what it COVERS, not what
+            ; it declared: a row of pictograms whose last symbol hangs a
+            ; fraction below the plot pushes the row under it down by a whole
+            ; pixel, because the reference rounds outward.
+            VlRuntime.growByContents(box)
             def column:int (idx % columns)
             if (column == 0) {
                 x = 0.0
