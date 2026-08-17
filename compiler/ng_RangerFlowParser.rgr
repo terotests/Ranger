@@ -581,6 +581,18 @@ class RangerFlowParser {
               if(index > 0) {
                   try {
                     def p (classDesc.findVariable(method_name))
+                    ; the class may not have the property at all -- findVariable
+                    ; answers nothing, and only JavaScript survives reading
+                    ; `nameNode` off that nothing. The `try` around this catches
+                    ; a raised unwrap, and a plain field read is not one.
+                    if (null? p) {
+                      ctx.addError(sec ('invalid property ' + method_name))
+                      return
+                    }
+                    if (null? p.nameNode) {
+                      ctx.addError(sec ('invalid property ' + method_name))
+                      return
+                    }
                     classDesc = (ctx.findClass(p.nameNode.type_name))
                     calledItem = (r.expression 
                                     (r.vref 'property')

@@ -1505,6 +1505,21 @@ class LowIRBuilderPass {
     if (has lctx.slotTypes varName) {
       slotType = (unwrap (get lctx.slotTypes varName))
     }
+    ; A BOXED local's slot holds the shared cell, not the value: nulling the
+    ; slot would drop the cell on the floor and leave the closure writing into
+    ; memory this scope no longer names. `nullify` means "the VALUE is gone",
+    ; so it goes through the cell like every other write.
+    if (has lctx.boxedLocals varName) {
+      def cellPtr (this.loadSlotRaw(varName lctx.ptrType lctx))
+      def logT:string (this.boxedCellType(varName lctx))
+      def storeT:string (this.boxedStorageType(logT))
+      def zero (lctx.builder.emitConst(storeT "0"))
+      if (storeT == "i8*") {
+        zero = "null"
+      }
+      lctx.builder.emitStoreTypedAt(cellPtr 0 zero storeT)
+      return
+    }
     def nullVal (lctx.builder.emitConst(slotType "0"))
     if (slotType == "i8*") {
       nullVal = "null"
@@ -7077,6 +7092,22 @@ class LowIRBuilderPass {
   ; declaration with a plain initializer and the one initialized by a CALL need
   ; this -- the call path used to return before the promotion could happen, so
   ; `def acc:Box (mk(0))` followed by `xs.forEach({ acc = … })` wrote to a copy.
+  ; What actually goes INTO a fresh cell. A string cell has to own its bytes,
+  ; the same way an unboxed owned string local does -- the promotion used to
+  ; happen BEFORE emitOwnedStringInit ran, so the cell held a pointer somebody
+  ; else owned and the scope-end release freed the cell while the bytes stayed
+  ; (or worse, the other owner freed the bytes while the cell still named them).
+  ; The copy is claimed out of the statement arena because the cell holds it
+  ; past the end of the statement.
+  fn boxInitValue:string (irType:string value:string lctx:LowIRLowerContext) {
+    if (irType == "i8*") {
+      def copy (this.emitStrdupExpr(value lctx))
+      this.claimStringTemp(copy lctx)
+      return copy
+    }
+    return value
+  }
+
   fn bindBoxedLocal:void (varName:string irType:string value:string lctx:LowIRLowerContext) {
     def storeT:string (this.boxedStorageType(irType))
     def cellBytes:int (this.irTypeBytes(storeT lctx))
@@ -7112,6 +7143,12 @@ class LowIRBuilderPass {
     if (irType == "i32") { return true }
     if (irType == "i1") { return true }
     if (irType == "f64") { return true }
+    if (irType == "i8*") { return true }
+    ; and references. Boxing SOME mutated captures and not others is worse than
+    ; boxing none: in transformDotMethodCallExpr the loop advances both
+    ; `method_name` (a string) and `classDesc` (an object), and promoting only
+    ; the first made the second look up a new name in the old class.
+    if (irType == "i64") { return true }
     return false
   }
 
@@ -8625,7 +8662,7 @@ class LowIRBuilderPass {
       if (this.objRcEnabled(lctx)) {
         if (has lctx.boxedCandidates varName) {
           if (this.isBoxableIrType(irTypeFromCall)) {
-            this.bindBoxedLocal(varName irTypeFromCall callTmp lctx)
+            this.bindBoxedLocal(varName irTypeFromCall (this.boxInitValue(irTypeFromCall callTmp lctx)) lctx)
             return
           }
         }
@@ -8754,7 +8791,15 @@ class LowIRBuilderPass {
     if (this.objRcEnabled(lctx)) {
       if (has lctx.boxedCandidates varName) {
         if (this.isBoxableIrType(irType)) {
-          this.bindBoxedLocal(varName irType tmp lctx)
+          ; The class has to be recorded BEFORE the promotion. A method call or
+          ; a field read on the name resolves through objectSlots, and the
+          ; object branch that would set it is below here and never reached --
+          ; so `calledItem.copy()` on a boxed receiver resolved to nothing and
+          ; lowered to a null, which CodeNode.fromList then pushed into a list.
+          if (this.isObjectTypeName(typeName)) {
+            set lctx.objectSlots varName typeName
+          }
+          this.bindBoxedLocal(varName irType (this.boxInitValue(irType tmp lctx)) lctx)
           return
         }
       }
