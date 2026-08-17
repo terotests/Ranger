@@ -632,7 +632,19 @@ class VlRuntime {
             def vcount:int (values.count())
             def vi:int 0
             while (vi < vcount) {
-                push ds.rows (values.at(vi))
+                def entry:VlJson (values.at(vi))
+                ; A row that is not an object is a bare VALUE, and the
+                ; reference wraps it in one under the name `data`. That is what
+                ; lets `{"values": [12, 23, 47]}` be charted at all — the
+                ; channels read `data`, and read as numbers the rows had no
+                ; field of that name and every one of them was filtered away.
+                if (entry.isObject()) {
+                    push ds.rows entry
+                } {
+                    def wrapped (VlJson.objectValue())
+                    wrapped.setMember("data" entry)
+                    push ds.rows wrapped
+                }
                 vi = (vi + 1)
             }
         }

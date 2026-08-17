@@ -332,7 +332,19 @@ class VlViewBox {
     ; are rotated rather than the box, because a rotated box's bounds are the
     ; bounds of its four corners and nothing simpler is correct.
     sfn ofText:VlBounds (item:VlSceneItem) {
-        return (VlViewBox.ofTextAt(item (item.number("x")) (item.number("y"))))
+        ; A label round a pie is placed in POLAR coordinates: x and y are the
+        ; centre of the chart and the label stands `radius` away at `theta`.
+        ; Measured at the centre, the labels round a radial chart took no room
+        ; at all and the page came out the size of the plot.
+        def x:double (item.number("x"))
+        def y:double (item.number("y"))
+        if (item.has("radius")) {
+            def r:double (item.number("radius"))
+            def a:double (item.number("theta"))
+            x = (x + (r * (sin a)))
+            y = (y - (r * (cos a)))
+        }
+        return (VlViewBox.ofTextAt(item x y))
     }
 
     ; The same, with the anchor stated rather than read — which is what lets an

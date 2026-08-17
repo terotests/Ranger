@@ -2875,9 +2875,16 @@ class VlCompile {
         ; A histogram is already one total per bin: there is nothing to pile up
         ; unless something separates the bars within a bin.
         ; A radial chart is read by comparing wedges, not by walking round the
-        ; circle, so its angles start from nothing rather than from each other.
+        ; circle, so its angles start from nothing rather than from each other
+        ; — unless the chart says otherwise, and a radial chart that asks for
+        ; `"stack": true` is asking for the wedges to go all the way round.
         if (this.hasChannel("radius")) {
-            return
+            if (! (measure.def0.has("stack"))) {
+                return
+            }
+            if ((measure.def0.get("stack")).isNull()) {
+                return
+            }
         }
         ; A bar that already says where both its ends are is not stacked: it is
         ; drawn between two values, which is what a Gantt chart is.
@@ -4899,7 +4906,12 @@ class VlCompile {
         ; into a pair of running totals, and once as a colour, which it did
         ; not — so a colour scale given the running totals ran to the total of
         ; every bar rather than to the longest one.
-        def stacked:boolean (((ch.name == "x") || (ch.name == "y")) || ((ch.name == "theta") || (ch.name == "radius")))
+        ; …and not every position either: only the one the stack was computed
+        ; ALONG. A radial chart stacks its angles and measures its radii, over
+        ; the same column; given the running totals the radius scale ran to the
+        ; total of every wedge rather than to the largest one.
+        def measured:VlChannel (this.stackMeasure())
+        def stacked:boolean (measured.name == ch.name)
         if (stacked && ((strlen stackField) > 0)) {
             if ((ch.outField()) == stackField) {
                 def fields (VlJson.arrayValue())
