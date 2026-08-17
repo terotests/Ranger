@@ -2651,6 +2651,22 @@ class VlCompile {
                 push names name
                 push scales.arr sc
                 set domains name (VlJson.arrayValue())
+            } {
+                ; A later layer may know something about the scale the first
+                ; one did not. The room a BAR needs at the ends of its scale is
+                ; the case: a candlestick draws a rule in one layer and a bar
+                ; in the next, and only the bar asks for the five pixels — kept
+                ; from the first layer alone, the widest candle was drawn half
+                ; outside the plot.
+                for scales.arr already:VlJson ai {
+                    if ((already.stringOr("name" "")) == name) {
+                        if (! (already.has("padding"))) {
+                            if (sc.has("padding")) {
+                                already.setMember("padding" (sc.get("padding")))
+                            }
+                        }
+                    }
+                }
             }
             def collected:VlJson (unwrap (get domains name))
             ; A stated `domain: [0, 100]` on a position scale is an INTERVAL,
