@@ -664,6 +664,7 @@ class VlCompile {
         def signals (VlJson.arrayValue())
         def signalNames:[string:int]
         def axes (VlJson.arrayValue())
+        def axisKeys:[string:int]
         def legends (VlJson.arrayValue())
         def legendNames:[string:int]
         def titles:[string:string]
@@ -714,16 +715,15 @@ class VlCompile {
                     }
                     def pieceData:VlJson (piece.get("data"))
                     push data.arr (pieceData.at(0))
-                    def pieceAxes:VlJson (piece.get("axes"))
-                    if (pieceAxes.isArray()) {
-                        def ai:int 0
-                        while (ai < (pieceAxes.count())) {
-                            push axes.arr (pieceAxes.at(ai))
-                            ai = (ai + 1)
-                        }
-                    }
                     first = false
                 }
+                ; An axis belongs to a SCALE, and the scales are shared down
+                ; the stack, so a layer that reads a column the one below it
+                ; did not still needs an axis for it. Keeping the first layer's
+                ; axes alone, a chart whose first layer is a band of shaded
+                ; years and whose second is the line through them was drawn
+                ; with no vertical axis at all.
+                VlCompile.mergeAxes(axes axisKeys (piece.get("axes")))
                 def pieceData2:VlJson (piece.get("data"))
                 def di:int 1
                 while (di < (pieceData2.count())) {
@@ -2192,6 +2192,80 @@ class VlCompile {
             }
         }
         return out
+    }
+
+    ; The axes of one layer, added to the stack's. An axis is named by the
+    ; scale it measures, the side it stands on and whether it is the grid or
+    ; the labels — two layers reading the same column want one axis between
+    ; them, not one each.
+    ;
+    ; Grids are kept ahead of labels however late the layer that wanted one
+    ; arrives, because a grid is drawn under the marks and a labelled axis
+    ; over them.
+    sfn mergeAxes:void (into:VlJson seen:[string:int] axes:VlJson) {
+        if (! (axes.isArray())) {
+            return
+        }
+        ; A scale belongs to the first layer that measured it, grid and all.
+        ; Merged one axis at a time instead, a chart whose first layer bins its
+        ; x and whose second reads it whole was ruled off by the second — a
+        ; grid down a histogram, which the reference does not draw.
+        def total:int (axes.count())
+        def fresh:[string:int]
+        def freshNames:[string]
+        def k:int 0
+        while (k < total) {
+            def key:string (VlCompile.axisKey((axes.at(k))))
+            if (! (has seen key)) {
+                if (! (has fresh key)) {
+                    set fresh key 1
+                    push freshNames key
+                }
+            }
+            k = (k + 1)
+        }
+        k = 0
+        while (k < total) {
+            def a:VlJson (axes.at(k))
+            k = (k + 1)
+            def key2:string (VlCompile.axisKey(a))
+            if (has fresh key2) {
+                if (a.boolOr("grid" false)) {
+                    VlCompile.insertBeforeLabels(into a)
+                } {
+                    push into.arr a
+                }
+            }
+        }
+        for freshNames done:string di {
+            set seen done 1
+        }
+    }
+
+    sfn axisKey:string (a:VlJson) {
+        def out:string (a.stringOr("scale" ""))
+        return ((out + "/") + (a.stringOr("orient" "")))
+    }
+
+    sfn insertBeforeLabels:void (into:VlJson a:VlJson) {
+        def kept:[VlJson]
+        for into.arr one:VlJson oi {
+            push kept one
+        }
+        clear into.arr
+        def placed:boolean false
+        for kept one2:VlJson oi2 {
+            if (! placed) {
+                if (! (one2.boolOr("grid" false))) {
+                    push into.arr a
+                    placed = true
+                }
+            }
+            push into.arr one2
+        }
+        if (! placed) {
+            push into.arr a
+        }
     }
 
     sfn mergeSignals:void (signals:VlJson seen:[string:int] from:VlJson) {
