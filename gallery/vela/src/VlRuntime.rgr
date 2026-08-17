@@ -1074,6 +1074,16 @@ class VlRuntime {
             if (aEmpty && bEmpty) { return false }
             return bEmpty
         }
+        ; A category that is MISSING is not a name and does not sort among the
+        ; names: the reference puts it first, whichever way the rest is read.
+        ; Sorted as the word it is keyed by, "null" landed after "Western" and
+        ; the whole axis was off by a band.
+        def aNull:boolean (a == "null")
+        def bNull:boolean (b == "null")
+        if (aNull || bNull) {
+            if (aNull && bNull) { return false }
+            return aNull
+        }
         def less:boolean false
         def more:boolean false
         if numeric {

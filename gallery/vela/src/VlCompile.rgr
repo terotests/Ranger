@@ -2934,6 +2934,13 @@ class VlCompile {
         return 0.7
     }
 
+    ; Does this mark fill the bin it belongs to, or stand at a point in it?
+    ; The same distinction `fillsBand` makes for a band scale, and for the same
+    ; marks.
+    fn spansBin:boolean () {
+        return (((markName == "bar") || (markName == "rect")) || (markName == "tick"))
+    }
+
     fn fillsBand:boolean () {
         return (((markName == "bar") || (markName == "rect")) || (markName == "tick"))
     }
@@ -6484,6 +6491,19 @@ class VlCompile {
             }
         }
         if ((strlen endField) > 0) {
+            ; A bin has two edges, and whether a mark SPANS them or stands at
+            ; one point between them is a property of the mark: a bar fills its
+            ; bin, and a line through the bins joins their MIDDLES. Drawn to
+            ; the far edge instead, every vertex of a binned line sat half a
+            ; bin to the right of where the reference puts it.
+            if (! (this.spansBin())) {
+                def mid (VlJson.objectValue())
+                def half:string ((("scale(\"" + (this.sname(axis))) + "\", 0.5 * ") + (VlCompile.datumRef((ch.outField()))))
+                half = (((half + " + 0.5 * ") + (VlCompile.datumRef(endField))) + ")")
+                mid.setMember("signal" (VlJson.stringValue(half)))
+                update.setMember(axis mid)
+                return
+            }
             def from:VlJson (this.scaled(axis endField))
             from.setMember("offset" (VlCompile.binNudge((ch.outField()) endField axis true (this.binSpacing()))))
             update.setMember(axis from)
