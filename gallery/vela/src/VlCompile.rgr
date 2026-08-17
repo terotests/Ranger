@@ -302,6 +302,11 @@ class VlCompile {
         if (src.has("vconcat")) {
             return (this.compileConcat(src "vconcat" false))
         }
+        ; `concat` is neither across nor down: it wraps at `columns`, and with
+        ; no column count it is a single row.
+        if (src.has("concat")) {
+            return (this.compileConcat(src "concat" true))
+        }
         ; A REPEATED specification is one chart drawn once per name in a list,
         ; with `{"repeat": …}` standing where the column name goes. It is not a
         ; composition of its own: expanded, it IS a layered, concatenated or
@@ -433,13 +438,13 @@ class VlCompile {
                 out.setMember(key (src.get(key)))
             }
         }
+        ; A plain list of names is a WRAPPED concatenation: one flat row of
+        ; panes that folds at `columns`, which the concatenation itself knows
+        ; how to do. Built as rows of rows instead, the outer list inherited
+        ; the column count meant for the inner one and the grid came out on
+        ; its side.
         if (repeat.isArray()) {
-            def wide:int 1000000
-            def columns:VlJson (src.get("columns"))
-            if (columns.isNumber()) {
-                wide = (to_int columns.num)
-            }
-            out.setMember("vconcat" (VlCompile.repeatGrid(spec repeat "repeat" wide)))
+            out.setMember("concat" (VlCompile.repeatRow(spec repeat "repeat")))
             return out
         }
         if (! (repeat.isObject())) {
@@ -1191,6 +1196,14 @@ class VlCompile {
         def rowField:string ((this.channel("row")).field)
         def columnField:string ((this.channel("column")).field)
         def wrapField:string ((this.channel("facet")).field)
+        ; How many panels across. A repeated specification says it at the top
+        ; level, but a wrapped FACET channel says it on the channel — and read
+        ; only from the top level the grid never wrapped, so every panel of a
+        ; six-site trellis stood in one very wide row.
+        def columnsDef:VlJson ((this.channel("facet")).def0.get("columns"))
+        if (! (columnsDef.isNumber())) {
+            columnsDef = (src.get("columns"))
+        }
         clear channels
 
         def child (new VlCompile())
@@ -1245,7 +1258,7 @@ class VlCompile {
             facetField = wrapField
         }
         push data.arr (VlCompile.domainData(domainName facetField))
-        def columns:VlJson (src.get("columns"))
+        def columns:VlJson columnsDef
         if wrapped {
             ; A wrapped grid's shape is computed rather than declared, and both
             ; of its extents are sequences over the facet count.
@@ -1333,7 +1346,7 @@ class VlCompile {
         if wrapped {
             layout.setMember("bounds" (VlJson.stringValue("full")))
             layout.setMember("align" (VlJson.stringValue("all")))
-            layout.setMember("columns" (src.get("columns")))
+            layout.setMember("columns" columnsDef)
         } {
             if ((strlen rowField) > 0) {
                 layout.setMember("columns" (VlJson.numberValue(1.0)))
@@ -1534,7 +1547,11 @@ class VlCompile {
 
         def index:int 0
         while (index < total) {
-            def label:string (("concat_" + (VlJson.intToText(index))) + "_")
+            ; A concatenation inside a concatenation gives its panes names
+            ; built from BOTH — `concat_1_concat_0_x` — because otherwise the
+            ; first pane of the inner one and the first pane of the outer one
+            ; are both called `concat_0_` and quietly share a scale.
+            def label:string ((prefix + ("concat_" + (VlJson.intToText(index)))) + "_")
             def child (new VlCompile())
             child.prefix = label
             child.dataLabel = ("data_" + (VlJson.intToText((index + 1))))
@@ -1576,17 +1593,26 @@ class VlCompile {
                 def group (VlJson.objectValue())
                 group.setMember("type" (VlJson.stringValue("group")))
                 group.setMember("name" (VlJson.stringValue((label + "group"))))
-                group.setMember("style" (VlJson.stringValue("cell")))
-                def update (VlJson.objectValue())
-                update.setMember("width" (VlCompile.signalRef((child.sizeSignal("width")))))
-                update.setMember("height" (VlCompile.signalRef((child.sizeSignal("height")))))
-                def encode (VlJson.objectValue())
-                encode.setMember("update" update)
-                group.setMember("encode" encode)
-                group.setMember("marks" (piece.get("marks")))
-                def pieceAxes:VlJson (piece.get("axes"))
-                if (pieceAxes.isArray()) {
-                    group.setMember("axes" pieceAxes)
+                ; A pane that is ITSELF a concatenation is not a plot: it is a
+                ; second grid, and it carries its own layout rather than a
+                ; frame and a size. Given the plot's treatment its panes lost
+                ; their arrangement and stacked into one very tall column.
+                if ((piece.get("layout")).isObject()) {
+                    group.setMember("layout" (piece.get("layout")))
+                    group.setMember("marks" (piece.get("marks")))
+                } {
+                    group.setMember("style" (VlJson.stringValue("cell")))
+                    def update (VlJson.objectValue())
+                    update.setMember("width" (VlCompile.signalRef((child.sizeSignal("width")))))
+                    update.setMember("height" (VlCompile.signalRef((child.sizeSignal("height")))))
+                    def encode (VlJson.objectValue())
+                    encode.setMember("update" update)
+                    group.setMember("encode" encode)
+                    group.setMember("marks" (piece.get("marks")))
+                    def pieceAxes:VlJson (piece.get("axes"))
+                    if (pieceAxes.isArray()) {
+                        group.setMember("axes" pieceAxes)
+                    }
                 }
                 push marks.arr group
 
@@ -1611,9 +1637,23 @@ class VlCompile {
         ; The panes are laid out on a grid whose cells are their full bounds,
         ; each pane keeping its own alignment — `each`, not `all`, because two
         ; panes of a concatenation need not have axes of the same depth.
+        ;
+        ; How many panes across is the whole difference between the two
+        ; concatenations, and it has to be SAID: a layout without `columns`
+        ; puts everything in one row, so a vertical concatenation that never
+        ; stated a column count came out side by side.
         def layout (VlJson.objectValue())
-        layout.setMember("padding" (VlJson.numberValue(20.0)))
-        layout.setMember("bounds" (VlJson.stringValue("full")))
+        layout.setMember("padding" (VlJson.numberValue((src.doubleOr("spacing" 20.0)))))
+        if horizontal {
+            layout.setMember("columns" (VlJson.numberValue((to_double total))))
+        } {
+            layout.setMember("columns" (VlJson.numberValue(1.0)))
+        }
+        ; A WRAPPED concatenation says how many across itself.
+        if ((src.get("columns")).isNumber()) {
+            layout.setMember("columns" (src.get("columns")))
+        }
+        layout.setMember("bounds" (VlJson.stringValue((src.stringOr("bounds" "full")))))
         layout.setMember("align" (VlJson.stringValue("each")))
         out.setMember("layout" layout)
         out.setMember("marks" marks)
@@ -1831,7 +1871,15 @@ class VlCompile {
         for outer.keys key:string ki {
             ; The composition itself is not inherited — a pane of a
             ; concatenation is not another concatenation.
-            if ((((key == "layer") || (key == "hconcat")) || (key == "vconcat")) || (key == "facet")) {
+            def composition:boolean (((key == "layer") || (key == "hconcat")) || ((key == "vconcat") || (key == "facet")))
+            ; `concat` and the column count that folds it belong to the
+            ; concatenation, not to its panes — inherited, every pane became a
+            ; copy of the whole thing and the compiler recursed until the stack
+            ; ran out.
+            if ((key == "concat") || (key == "columns")) {
+                composition = true
+            }
+            if composition {
                 ; not inherited
             } {
                 out.setMember(key (outer.get(key)))

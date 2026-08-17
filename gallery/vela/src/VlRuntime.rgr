@@ -2314,8 +2314,15 @@ class VlRuntime {
             this.applyDefaults(item "group" "scope" styles noEncoded)
             this.encodeChannels(item enter empty)
             this.encodeChannels(item update empty)
+            def before:int (array_length groupBoxes)
             def plainBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role))
             this.encodeGroupTitle(item (mdef.get("title")) empty plainBox)
+            ; A group that carries a layout is a grid rather than a plot, and
+            ; its panes are arranged inside it before the page ever sees them.
+            def ownLayout:VlJson (mdef.get("layout"))
+            if (ownLayout.isObject()) {
+                this.layoutNested(plainBox before ownLayout)
+            }
             return
         }
 
@@ -2572,25 +2579,11 @@ class VlRuntime {
     ; the shared axis, a header to the left of each row, and a title above the
     ; lot. Those are placed against the cells once the cells are placed, which
     ; is why they wait for a second pass.
-    fn layoutGroups:void (rootItem:VlSceneItem) {
-        if ((array_length groupBoxes) == 0) {
-            return
-        }
-        ; Only a view that ASKS to be laid out is laid out. The groups a series
-        ; is faceted into are `scope` groups too, and they are already where
-        ; they belong — on top of one another, in the one plot they share.
-        def layoutDef:VlJson (spec.get("layout"))
-        if (! (layoutDef.isObject())) {
-            return
-        }
-        def gap:double (layoutDef.doubleOr("padding" 0.0))
-
-        def cells:[VlGroupBox] (this.boxesWithRole("scope"))
-        if ((array_length cells) == 0) {
-            return
-        }
-        def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-
+    ; A row of cells, then the next row below the deepest of them: where the
+    ; boxes go, and what the lot of them reaches. Answered rather than applied
+    ; to the chart, because the same arrangement is wanted twice — once for the
+    ; page, and once for every group that is a grid of its own.
+    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double) {
         def gridX1:double 0.0
         def gridY1:double 0.0
         def gridX2:double 0.0
@@ -2634,9 +2627,81 @@ class VlRuntime {
             }
             x = (VlBounds.ceilTo((x + box.width + box.right)))
         }
-
-        def reach:VlBounds (new VlBounds())
+        def reach (new VlBounds())
         reach.set(gridX1 gridY1 gridX2 gridY2)
+        return reach
+    }
+
+    ; A group that is a grid of its own — a concatenation inside a
+    ; concatenation, which is what a repeated grid and a scatterplot matrix
+    ; both are. Its panes were pushed onto the same flat list as everybody
+    ; else's, so the page laid them out as if they were its own and a two by
+    ; two grid came out as a column of four.
+    ;
+    ; They are placed here instead, WITHIN the group, and then taken off the
+    ; list: what the page sees afterwards is one box the size of the grid.
+    fn layoutNested:void (parent:VlGroupBox before:int layoutDef:VlJson) {
+        def cells:[VlGroupBox]
+        def outer:[VlGroupBox]
+        def last:int ((array_length groupBoxes) - 1)
+        for groupBoxes b:VlGroupBox bi {
+            def mine:boolean false
+            if (bi >= before) {
+                if (bi < last) {
+                    if (b.role == "scope") {
+                        mine = true
+                    }
+                }
+            }
+            if mine {
+                push cells b
+            } {
+                push outer b
+            }
+        }
+        if ((array_length cells) == 0) {
+            return
+        }
+        def gap:double (layoutDef.doubleOr("padding" 0.0))
+        def columns:int (this.layoutColumns(layoutDef (array_length cells)))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap))
+        ; The group is exactly what its panes cover. Its own origin stays at
+        ; zero, so whatever hangs off the top-left of the first pane — an axis,
+        ; a label — is room the page has to leave in front of the group.
+        parent.width = (reach.x2 - reach.x1)
+        parent.height = (reach.y2 - reach.y1)
+        parent.left = (0.0 - reach.x1)
+        parent.top = (0.0 - reach.y1)
+        parent.right = 0.0
+        parent.bottom = 0.0
+        parent.frameHalf = 0.0
+        parent.item.setNumber("width" parent.width)
+        parent.item.setNumber("height" parent.height)
+        clear groupBoxes
+        for outer keep:VlGroupBox ki {
+            push groupBoxes keep
+        }
+    }
+
+    fn layoutGroups:void (rootItem:VlSceneItem) {
+        if ((array_length groupBoxes) == 0) {
+            return
+        }
+        ; Only a view that ASKS to be laid out is laid out. The groups a series
+        ; is faceted into are `scope` groups too, and they are already where
+        ; they belong — on top of one another, in the one plot they share.
+        def layoutDef:VlJson (spec.get("layout"))
+        if (! (layoutDef.isObject())) {
+            return
+        }
+        def gap:double (layoutDef.doubleOr("padding" 0.0))
+
+        def cells:[VlGroupBox] (this.boxesWithRole("scope"))
+        if ((array_length cells) == 0) {
+            return
+        }
+        def columns:int (this.layoutColumns(layoutDef (array_length cells)))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap))
         this.layoutTrellis(cells columns layoutDef reach)
 
         ; The view is what the placed plots and their furniture cover, and the
