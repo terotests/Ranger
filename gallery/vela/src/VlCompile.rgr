@@ -3581,6 +3581,26 @@ class VlCompile {
                 inner = 1.0
                 outer = 0.5
             }
+            ; …and the chart may say how much room to leave at the ends. A
+            ; histogram of frame times sets its point scale's padding to
+            ; nothing, so the first reading sits ON the axis; given the usual
+            ; half step either side it was forty pixels wider than it should
+            ; be and every tick was in the wrong place.
+            def stated:VlJson (VlCompile.statedOn(ch "scale"))
+            if (stated.isObject()) {
+                def said:VlJson (stated.get("padding"))
+                if (said.isNumber()) {
+                    outer = said.num
+                }
+                def saidOuter:VlJson (stated.get("paddingOuter"))
+                if (saidOuter.isNumber()) {
+                    outer = saidOuter.num
+                }
+                def saidInner:VlJson (stated.get("paddingInner"))
+                if (saidInner.isNumber()) {
+                    inner = saidInner.num
+                }
+            }
             if ((this.hasChannel("xOffset")) && (axis == "x")) {
                 ; A band that holds a group of bars is as wide as the group
                 ; needs, so its step is computed from the sub-scale rather than
