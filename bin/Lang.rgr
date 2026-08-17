@@ -5144,6 +5144,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Fill buffer with a byte value
         buffer_fill     cmdBufferFill:void       ( buf@(mutates):buffer value:int start:int end:int ) {
             templates {
+                llvm ( "(buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 ranger ( "(buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( "(function(b,v,s,e){ var arr = new Uint8Array(b); for(var i=s;i<e;i++) arr[i]=v; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) ")" )
                 dart ( (e 1) ".fillRange(" (e 3) ", " (e 4) ", " (e 2) ");" )

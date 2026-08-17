@@ -43939,6 +43939,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           intFillParams.push("i32");
                           this.ensureExternDecl("ranger_int_buffer_fill", "void", intFillParams, false);
                           this.ensureExternDecl("ranger_int_buffer_release", "void", relParams, false);
+                          let byteFillParams = [];
+                          byteFillParams.push(ptrType);
+                          byteFillParams.push("i32");
+                          byteFillParams.push("i32");
+                          byteFillParams.push("i32");
+                          this.ensureExternDecl("ranger_buffer_fill", "void", byteFillParams, false);
                         };
                         ensureMemExtern (target) {
                           if ( this.hasExternDecl("ranger_obj_new") ) {
@@ -44779,6 +44785,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           args.push(val);
                           argTypes.push("i32");
                           lctx.builder.emitCall("ranger_buffer_set", "void", args, argTypes);
+                          return "";
+                        };
+                        lowerBufferFill (node, lctx) {
+                          const bufNode = node.getSecond();
+                          const valNode = node.getThird();
+                          const startNode = node.children[3];
+                          const endNode = node.children[4];
+                          const buf = this.lowerExpr(bufNode, lctx);
+                          const val = this.lowerExpr(valNode, lctx);
+                          const start = this.lowerExpr(startNode, lctx);
+                          const end = this.lowerExpr(endNode, lctx);
+                          let args = [];
+                          let argTypes = [];
+                          args.push(buf);
+                          argTypes.push(lctx.ptrType);
+                          args.push(val);
+                          argTypes.push("i32");
+                          args.push(start);
+                          argTypes.push("i32");
+                          args.push(end);
+                          argTypes.push("i32");
+                          lctx.builder.emitCall("ranger_buffer_fill", "void", args, argTypes);
                           return "";
                         };
                         lowerBufferReadFile (node, lctx) {
@@ -51928,6 +51956,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             if ( opName == "buffer_get" ) {
                               return this.lowerBufferGet(node, lctx);
+                            }
+                            if ( opName == "buffer_fill" ) {
+                              return this.lowerBufferFill(node, lctx);
                             }
                             if ( opName == "buffer_set" ) {
                               return this.lowerBufferSet(node, lctx);

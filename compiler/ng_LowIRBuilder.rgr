@@ -566,6 +566,12 @@ class LowIRBuilderPass {
     push intFillParams "i32"
     this.ensureExternDecl("ranger_int_buffer_fill" "void" intFillParams false)
     this.ensureExternDecl("ranger_int_buffer_release" "void" relParams false)
+    def byteFillParams:[string]
+    push byteFillParams ptrType
+    push byteFillParams "i32"
+    push byteFillParams "i32"
+    push byteFillParams "i32"
+    this.ensureExternDecl("ranger_buffer_fill" "void" byteFillParams false)
   }
 
   fn ensureMemExtern:void (target:LowIRTarget) {
@@ -1527,6 +1533,32 @@ class LowIRBuilderPass {
     push args val
     push argTypes "i32"
     lctx.builder.emitCall("ranger_buffer_set" "void" args argTypes)
+    return ""
+  }
+
+  ; `buffer_fill buf value start end` -- the byte-buffer twin of
+  ; int_buffer_fill, which had a lowering while this one did not. jpeg_scaler
+  ; is the program that wanted it.
+  fn lowerBufferFill:string (node:CodeNode lctx:LowIRLowerContext) {
+    def bufNode (node.getSecond())
+    def valNode (node.getThird())
+    def startNode (itemAt node.children 3)
+    def endNode (itemAt node.children 4)
+    def buf (this.lowerExpr(bufNode lctx))
+    def val (this.lowerExpr(valNode lctx))
+    def start (this.lowerExpr(startNode lctx))
+    def end (this.lowerExpr(endNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes lctx.ptrType
+    push args val
+    push argTypes "i32"
+    push args start
+    push argTypes "i32"
+    push args end
+    push argTypes "i32"
+    lctx.builder.emitCall("ranger_buffer_fill" "void" args argTypes)
     return ""
   }
 
@@ -9840,6 +9872,9 @@ class LowIRBuilderPass {
       }
       if (opName == "buffer_get") {
         return (this.lowerBufferGet(node lctx))
+      }
+      if (opName == "buffer_fill") {
+        return (this.lowerBufferFill(node lctx))
       }
       if (opName == "buffer_set") {
         return (this.lowerBufferSet(node lctx))
