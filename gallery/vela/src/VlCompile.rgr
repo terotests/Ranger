@@ -7206,6 +7206,13 @@ class VlCompile {
             sort.setMember("field" (VlJson.stringValue("x")))
             m.setMember("sort" sort)
         }
+        ; A mark may be CLIPPED to the plot it is drawn in. A horizon chart is
+        ; the reason: the same series is drawn twice, once shifted a band down,
+        ; and the part that hangs below the plot is meant to be cut off rather
+        ; than to make the page taller.
+        if (markDef.boolOr("clip" false)) {
+            m.setMember("clip" (VlJson.boolValue(true)))
+        }
         def from (VlJson.objectValue())
         from.setMember("data" (VlJson.stringValue(dataName)))
         m.setMember("from" from)

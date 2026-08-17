@@ -110,6 +110,11 @@ class VlSceneMark {
     def markType:string "group"
     def name:string ""
     def role:string ""
+    ; Whether what this mark draws is cut off at the edge of the plot it is
+    ; drawn in. A horizon chart draws the same series twice, once shifted a
+    ; band down, and means the part that hangs below to be cut rather than to
+    ; make the page taller.
+    def clipped:boolean false
     def items:[VlSceneItem]
 
     fn addItem:VlSceneItem () {

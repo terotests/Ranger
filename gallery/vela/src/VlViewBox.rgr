@@ -45,7 +45,7 @@ class VlViewBox {
         def bounds (new VlBounds())
         bounds.set(0.0 0.0 plotWidth plotHeight)
         for rootItem.marks child:VlSceneMark ci {
-            bounds.union((VlViewBox.ofMark(child)))
+            bounds.union((VlViewBox.cut(child plotWidth plotHeight)))
         }
 
         def left:double (VlViewBox.overhang((0.0 - bounds.x1)))
@@ -71,6 +71,36 @@ class VlViewBox {
     }
 
     ; --------------------------------------------------------------- per mark ---
+    ; What a mark covers, cut to the plot it is drawn in when it says it is
+    ; clipped. A horizon chart draws the same series twice, once shifted a band
+    ; down, and means the part that hangs below to be cut off — measured whole
+    ; it made the page half as tall again.
+    sfn cut:VlBounds (mark:VlSceneMark width:double height:double) {
+        def box:VlBounds (VlViewBox.ofMark(mark))
+        if (! mark.clipped) {
+            return box
+        }
+        if (! box.isSet) {
+            return box
+        }
+        def out (new VlBounds())
+        def x1:double box.x1
+        def y1:double box.y1
+        def x2:double box.x2
+        def y2:double box.y2
+        if (x1 < 0.0) { x1 = 0.0 }
+        if (y1 < 0.0) { y1 = 0.0 }
+        if (x2 > width) { x2 = width }
+        if (y2 > height) { y2 = height }
+        if ((x2 < x1) || (y2 < y1)) {
+            return out
+        }
+        out.add(x1 y1)
+        out.add(x2 y2)
+        return out
+    }
+
+
     sfn ofMark:VlBounds (mark:VlSceneMark) {
         def out (new VlBounds())
         ; A line or an area is ONE shape over every item, so its bounds are the
@@ -339,7 +369,7 @@ class VlViewBox {
     sfn ofGroup:VlBounds (item:VlSceneItem) {
         def out (new VlBounds())
         for item.marks child:VlSceneMark ci {
-            out.union((VlViewBox.ofMark(child)))
+            out.union((VlViewBox.cut(child (item.number("width")) (item.number("height")))))
         }
         ; A group with a size reserves it whether or not it paints one: an
         ; unpainted scope group still stands for the plot inside it.

@@ -2367,6 +2367,7 @@ class VlRuntime {
         mark.markType = (mdef.stringOr("type" "rect"))
         mark.name = (mdef.stringOr("name" ""))
         mark.role = (mdef.stringOr("role" "mark"))
+        mark.clipped = (mdef.boolOr("clip" false))
 
         ; A group mark holds other marks. The one Vega-Lite emits for a series
         ; — a line coloured by a field, a stacked area — is a FACET: the data is
