@@ -561,6 +561,16 @@ class VlAxis {
             }
             push group.marks (this.buildDomain(orient vertical domainFrom domainTo))
         }
+        ; A floor and a ceiling on how much room the labels get. `minExtent`
+        ; is how a chart keeps two plots' axes lined up when one of them has
+        ; shorter numbers on it, and it is a floor under the LABELS — the
+        ; title still stands outside whatever they end up taking.
+        if (labelExtent > maxExtent) {
+            labelExtent = maxExtent
+        }
+        if (labelExtent < minExtent) {
+            labelExtent = minExtent
+        }
         totalExtent = labelExtent
         if ((strlen title) > 0) {
             push group.marks (this.buildTitle(title orient vertical range))
