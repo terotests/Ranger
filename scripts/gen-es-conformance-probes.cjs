@@ -13,11 +13,13 @@
 // across ten target writers, so each body is emitted as the HEX OF ITS UTF-8
 // and rebuilt at runtime with RgBase.hexDecode + RgText.fromUtf8Bytes.
 //
-// Hex was the second attempt. The first emitted each body as a list of code
-// points — `push out ([] _:int ( 102 117 110 ... ))` — and the compiler died
-// with "RangeError: Maximum call stack size exceeded" on roughly 150,000
-// nested literals. A hex string is one flat ASCII literal per probe, which the
-// writers handle without nesting and which no target can escape differently.
+// Hex replaced a first attempt that emitted each body as a list of code points,
+// `push out ([] _:int ( 102 117 110 ... ))`. That was abandoned after a
+// "Maximum call stack size exceeded" from the compiler, which was MISDIAGNOSED
+// at the time: the overflow comes from ComponentEngine.rgr, not from this file
+// (ISSUES.md #70 — measured parse depth is 2117 for the engine and 70 for this
+// corpus, whichever encoding it uses). Hex is kept anyway because it is half
+// the bytes and one flat literal per probe instead of thousands of nested ones.
 
 const fs = require("fs");
 const path = require("path");

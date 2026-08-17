@@ -2508,3 +2508,83 @@ Open. `if!` is used in only two places in the repository
 `ng_LiveCompiler.rgr`), both with blocks small enough to survive the re-parse,
 which is why it has not surfaced before. Found while writing `gallery/vela`,
 which uses the workaround throughout.
+
+## Issue #70: The S-expression parser recurses per group and never unwinds, so a large file exhausts the stack
+
+`RangerLispParser.parseBuf` calls itself whenever it opens a node — `(`, `{`, or
+the start of an expression — and when that node CLOSES it pops `this.parents`
+and rebinds `this.curr_node` **without returning**. The frame stays live and its
+`while` loop keeps parsing the rest of the buffer. Only two node kinds
+(`value_type` 22 and 24) take the early `return` at the top of the loop.
+
+So parse depth is not the source's nesting depth. It accumulates across the
+file, and a big enough file runs V8 out of stack:
+
+```
+RangeError: Maximum call stack size exceeded
+    at RangerLispParser.parseBuf (bin/output.js:6482)
+    at RangerLispParser.parseBuf (bin/output.js:6577)
+    at RangerLispParser.parseBuf (bin/output.js:6787)
+    ... 2000+ frames
+```
+
+### Measured depth
+
+Instrumenting `parseBuf` with a depth counter, compiling to es6:
+
+| Source | Lines | Max parse depth |
+| --- | --- | --- |
+| anything small (baseline: Lang.rgr + stdops.rgr) | — | 70 |
+| 3000 sequential `(t + 1)` groups | 3000 | 70 |
+| 40 levels of literal nesting | 1 | 70 |
+| a 2000-element `([] _:int ( … ))` literal | 1 | 70 |
+| `BigIntNum.rgr` / `DateTime.rgr` | 805 / 604 | 70 |
+| `Regex.rgr` | 2,260 | 173 |
+| `EvHandle.rgr` | 2,985 | 245 |
+| **`ComponentEngine.rgr`** | **45,221** | **2,117** |
+
+Note what does NOT drive it: statement count, literal nesting, array literals
+and file size on their own all stay at the 70 baseline. The depth appears where
+groups nest inside function bodies, and it is roughly proportional to how much
+of that a file contains.
+
+### Consequence: compiling the JS engine is FLAKY today
+
+At depth 2,117 `ComponentEngine.rgr` sits right at the edge of V8's default
+stack. Compiling `bench_main.rgr` (engine only, no test corpus) five times in a
+row on the same machine:
+
+```
+FAIL OK OK FAIL OK        →  2 failures in 5
+```
+
+The failure surfaces as `[FAIL] Unexpected compiler error / RangeError: Maximum
+call stack size exceeded`, which reads like a compiler bug in the program being
+compiled and is not obviously a stack issue. Any target, any run. That makes
+`npm run test:tsengine` and every `selfhost:*` script intermittently red for a
+reason that has nothing to do with the code being compiled.
+
+### Workaround
+
+Pass a bigger stack to node:
+
+```bash
+node --stack-size=60000 bin/output.js …
+```
+
+`tests/es-conformance-targets.test.ts` does this. The `selfhost:*` and
+`test:tsengine` paths do not yet.
+
+### Fix
+
+Make `parseBuf` release its frame when the node it opened closes — return
+instead of continuing the loop — so depth tracks nesting rather than file
+content. That is a change to the parser's control flow and wants its own careful
+pass; the recursion is load-bearing for how `curr_node` / `parents` are
+maintained.
+
+### Status
+
+Open. Found while adding `tests/es-conformance-targets.test.ts`, and initially
+misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
+70. The corpus only made an existing marginal condition reproducible.

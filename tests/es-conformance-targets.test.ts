@@ -36,9 +36,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *     `math-max-empty`), which the module-level suite silently collapsed into
  *     one because it keys results by name. Renamed.
  *
- * COMPILING THIS NEEDS A BIGGER STACK. The probe corpus is 2138 flat statements
- * and the compiler recurses over them: without --stack-size it dies with
- * "RangeError: Maximum call stack size exceeded".
+ * COMPILING THIS NEEDS A BIGGER STACK — but not because of the corpus. The
+ * Ranger S-expression parser recurses and does not release a frame when a group
+ * closes, so parse depth grows with the file: 70 for this corpus, 2117 for
+ * ComponentEngine.rgr, which is already at the edge of V8's default stack. The
+ * engine alone fails to compile roughly 2 runs in 5 without --stack-size.
+ * ISSUES.md #70 has the measurements. Anything that compiles the engine wants
+ * the flag, this suite included.
  */
 
 const MAIN = "tests/native/es_conformance_main.rgr";
