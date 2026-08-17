@@ -68,6 +68,11 @@ class VlChannel {
     ; It needs the scale and the key a field-encoded channel has, and it keeps
     ; the constant as what the unselected rows show.
     def conditional:boolean false
+    ; `{"datum": "US Gross"}` is a constant that goes THROUGH the scale rather
+    ; than round it: every mark in the layer is painted the colour that name
+    ; maps to, and the name is one of the scale's categories. It is how a
+    ; repeated chart tells its copies apart.
+    def hasDatum:boolean false
     def value:VlJson (new VlJson)
     def defined:boolean false
     def stack:string ""
@@ -86,6 +91,9 @@ class VlChannel {
     fn encodes:boolean () {
         if (! defined) {
             return false
+        }
+        if hasDatum {
+            return true
         }
         if hasValue {
             return conditional
@@ -1890,14 +1898,45 @@ class VlCompile {
                 set domains name (VlJson.arrayValue())
             }
             def collected:VlJson (unwrap (get domains name))
-            VlCompile.collectDomain(collected (sc.get("domain")))
+            ; A stated `domain: [0, 100]` on a position scale is an INTERVAL,
+            ; not a list of categories to union: collected from every layer it
+            ; became [0, 100, 0, 100]. Only an ordinal scale's literal domain
+            ; is a set of names.
+            def ordinal:boolean ((sc.stringOr("type" "")) == "ordinal")
+            VlCompile.collectDomain(collected (sc.get("domain")) ordinal)
             i = (i + 1)
         }
     }
 
     ; A domain entry is a data set and a field. A stacked channel contributes
     ; two of them, one per end.
-    sfn collectDomain:void (into:VlJson domain:VlJson) {
+    sfn collectDomain:void (into:VlJson domain:VlJson ordinal:boolean) {
+        ; A LITERAL domain — the one value a datum stands for — contributes its
+        ; entries as themselves. Several layers each naming one is how a
+        ; repeated chart's colour scale comes to have categories at all.
+        if (domain.isArray()) {
+            if (! ordinal) {
+                return
+            }
+            def n:int (domain.count())
+            def j:int 0
+            while (j < n) {
+                def one:VlJson (domain.at(j))
+                def already:boolean false
+                def seen:int 0
+                while (seen < (into.count())) {
+                    if (((into.at(seen)).asString()) == (one.asString())) {
+                        already = true
+                    }
+                    seen = (seen + 1)
+                }
+                if (! already) {
+                    push into.arr one
+                }
+                j = (j + 1)
+            }
+            return
+        }
         if (! (domain.isObject())) {
             return
         }
@@ -1945,6 +1984,21 @@ class VlCompile {
             if (has domains name) {
                 def collected:VlJson (unwrap (get domains name))
                 if ((collected.count()) > 1) {
+                    ; Entries that are values rather than field references make
+                    ; a literal domain, not a list of fields to read.
+                    def literal:boolean true
+                    def c:int 0
+                    while (c < (collected.count())) {
+                        if ((collected.at(c)).isObject()) {
+                            literal = false
+                        }
+                        c = (c + 1)
+                    }
+                    if literal {
+                        sc.setMember("domain" collected)
+                        i = (i + 1)
+                        continue
+                    }
                     def domain (VlJson.objectValue())
                     domain.setMember("fields" collected)
                     def old:VlJson (sc.get("domain"))
@@ -2255,6 +2309,10 @@ class VlCompile {
             ch.kind = (cdef.stringOr("type" ""))
             if ((strlen ch.kind) == 0) {
                 ch.kind = (this.inferKind(ch))
+            }
+            if (cdef.has("datum")) {
+                ch.hasDatum = true
+                ch.value = (cdef.get("datum"))
             }
             if (cdef.has("value")) {
                 ch.hasValue = true
@@ -3651,7 +3709,7 @@ class VlCompile {
             if (! (ch.encodes())) {
                 return base
             }
-            branch.setMember("scale" (VlJson.stringValue("color")))
+            branch.setMember("scale" (VlJson.stringValue((this.sname("color")))))
             branch.setMember("field" (cond.get("field")))
         }
         def out (VlJson.arrayValue())
@@ -4379,6 +4437,14 @@ class VlCompile {
     ; A stacked channel takes its domain from the two fields the stack wrote,
     ; not from the one it read.
     fn domainFor:VlJson (ch:VlChannel) {
+        ; A datum names its own domain: the one value it stands for. Several
+        ; layers each naming one is how a repeated chart's key gets its
+        ; categories, and the merge unions them.
+        if ch.hasDatum {
+            def only (VlJson.arrayValue())
+            push only.arr ch.value
+            return only
+        }
         def out (VlJson.objectValue())
         ; A binned axis runs from the first bin's start to the last one's end,
         ; which the bin transform published as a signal — reading the data
@@ -4888,7 +4954,7 @@ class VlCompile {
             colour = (new VlChannel())
         }
         if (colour.encodes()) {
-            if ((! colour.hasValue) || colour.conditional) {
+            if (((! colour.hasValue) || colour.conditional) || colour.hasDatum) {
                 def l (VlJson.objectValue())
                 ; A key stands for the mark it names. A line is drawn with a
                 ; STROKE, so its key is too; a dot depends on whether it is
@@ -5390,12 +5456,20 @@ class VlCompile {
         }
         def colour:VlChannel (this.channel("color"))
         if colour.defined {
+            if colour.hasDatum {
+                def through (VlJson.objectValue())
+                through.setMember("scale" (VlJson.stringValue((this.sname("color")))))
+                through.setMember("value" colour.value)
+                update.setMember(key (this.withCondition(colour through)))
+                this.applyMarkPaint(update key)
+                return
+            }
             def base:VlJson (VlCompile.literal(colour.value))
             if (! colour.hasValue) {
                 if (colour.encodes()) {
                     base = (VlJson.objectValue())
                     if (! (VlCompile.suppressed(colour "scale"))) {
-                        base.setMember("scale" (VlJson.stringValue("color")))
+                        base.setMember("scale" (VlJson.stringValue((this.sname("color")))))
                     }
                     base.setMember("field" (VlJson.stringValue((colour.outField()))))
                 } {
@@ -5418,6 +5492,13 @@ class VlCompile {
         def ch:VlChannel (this.channel(name))
         if (! ch.defined) {
             return false
+        }
+        if ch.hasDatum {
+            def scaled (VlJson.objectValue())
+            scaled.setMember("scale" (VlJson.stringValue((this.sname(name)))))
+            scaled.setMember("value" ch.value)
+            update.setMember(name (this.withCondition(ch scaled)))
+            return true
         }
         def base:VlJson (VlCompile.literal(ch.value))
         if (! ch.hasValue) {
