@@ -785,6 +785,15 @@ class VlCompile {
 
         def fence:string (VlCompile.fenceExpr(f lower upper))
         def inside:string (VlCompile.insideExpr(f lower upper))
+        ; `"extent": "min-max"` asks for whiskers that reach the smallest and
+        ; largest values there are, which is the same pipeline with the fence
+        ; moved out to infinity: nothing is an outlier, and every row counts
+        ; towards a whisker. Ignored, the chart drew Tukey's fences instead and
+        ; scattered the extremes as dots.
+        if ((markDef.stringOr("extent" "")) == "min-max") {
+            fence = "false"
+            inside = "true"
+        }
 
         ; The rows outside the fence: drawn as points.
         def d2 (VlJson.objectValue())
@@ -2883,6 +2892,26 @@ class VlCompile {
     ; apart, a heat map's cells touch, and a tick is a line in the middle of a
     ; wide gap. The outer padding is always half the inner one.
     ; Which marks occupy their whole band rather than sitting on it.
+    ; How thick a band-filling mark was told to be, or -1 if nothing said. It
+    ; is a constant or it is nothing: a size read from a field is a scale, and
+    ; a scale is not a number this can centre a mark on.
+    fn statedSize:double () {
+        def ch:VlChannel (this.channel("size"))
+        if ch.defined {
+            if ch.hasValue {
+                if (ch.value.isNumber()) {
+                    return ch.value.num
+                }
+            }
+            return -1.0
+        }
+        def given:VlJson (markDef.get("size"))
+        if (given.isNumber()) {
+            return given.num
+        }
+        return -1.0
+    }
+
     fn fillsBand:boolean () {
         return (((markName == "bar") || (markName == "rect")) || (markName == "tick"))
     }
@@ -5289,7 +5318,52 @@ class VlCompile {
                 push out.arr l2
             }
         }
+        return (VlCompile.foldSameTitleLegends(out))
+    }
+
+    ; Two channels reading the SAME column are one key, not two. A scatter
+    ; plot that tells its species apart by colour and by shape draws one
+    ; column of entries, each a differently shaped mark in a different
+    ; colour; drawn as two keys it says the same thing twice, and takes
+    ; twice the width of page to say it.
+    ;
+    ; They are recognised by their title, which is the column they name.
+    sfn foldSameTitleLegends:VlJson (legends:VlJson) {
+        def out (VlJson.arrayValue())
+        def byTitle:[string:VlJson]
+        def i:int 0
+        while (i < (legends.count())) {
+            def l:VlJson (legends.at(i))
+            def title:string (l.stringOr("title" ""))
+            def folded:boolean false
+            if ((strlen title) > 0) {
+                if (has byTitle title) {
+                    def into:VlJson (unwrap (get byTitle title))
+                    for l.keys k:string ki {
+                        if (VlCompile.legendChannelKey(k)) {
+                            if (! (into.has(k))) {
+                                into.setMember(k (l.get(k)))
+                            }
+                        }
+                    }
+                    folded = true
+                } {
+                    set byTitle title l
+                }
+            }
+            if (! folded) {
+                push out.arr l
+            }
+            i = (i + 1)
+        }
         return out
+    }
+
+    sfn legendChannelKey:boolean (key:string) {
+        if (((key == "fill") || (key == "stroke")) || ((key == "size") || (key == "shape"))) {
+            return true
+        }
+        return ((key == "strokeDash") || (key == "opacity"))
     }
 
     ; The key of an outlined mark is an outline too: transparent inside, and
@@ -5770,7 +5844,15 @@ class VlCompile {
         }
         def hasSize:VlChannel (this.channel("size"))
         if (! hasSize.defined) {
-            VlCompile.markLiteral(update markDef "size" "size")
+            ; A rule and a line have no area, so their size is a THICKNESS —
+            ; the same rule the size CHANNEL follows. Written as `size` on a
+            ; mark definition it reached nothing, and a line asked to be three
+            ; pixels wide came out at the default two.
+            if ((markName == "rule") || (markName == "line")) {
+                VlCompile.markLiteral(update markDef "size" "strokeWidth")
+            } {
+                VlCompile.markLiteral(update markDef "size" "size")
+            }
         }
         def hasShape:VlChannel (this.channel("shape"))
         if (! hasShape.defined) {
@@ -6135,6 +6217,17 @@ class VlCompile {
             if (! (this.fillsBand())) {
                 at.setMember("band" (VlJson.numberValue(0.5)))
                 update.setMember(axis at)
+                return
+            }
+            ; A mark told how THICK it is does not fill its band: it is
+            ; centred in it at exactly that thickness, which is how a box plot
+            ; drawn by hand keeps its boxes fourteen pixels deep whatever the
+            ; band underneath them is.
+            def stated:double (this.statedSize())
+            if (stated > 0.0) {
+                at.setMember("band" (VlJson.numberValue(0.5)))
+                update.setMember((axis + "c") at)
+                update.setMember(dimension (VlCompile.literal((VlJson.numberValue(stated)))))
                 return
             }
             def band:string axis
