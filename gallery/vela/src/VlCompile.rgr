@@ -3274,7 +3274,7 @@ class VlCompile {
         if (has forcedTypes ch.name) {
             return (unwrap (get forcedTypes ch.name))
         }
-        def declared:VlJson (ch.def0.get("scale"))
+        def declared:VlJson (VlCompile.statedOn(ch "scale"))
         if (declared.isObject()) {
             def named:string (declared.stringOr("type" ""))
             if ((strlen named) > 0) {
@@ -5258,8 +5258,32 @@ class VlCompile {
     ;
     ; `type` is left out of this deliberately — it is read earlier, by
     ; scaleTypeFor, because it decides which branch built the scale at all.
+    ; What a channel says about one of its own properties. A conditional
+    ; channel says it in the CONDITION — the field, its type, and the scale
+    ; that maps it are all written where the condition is written, because the
+    ; other branch is a bare colour with nothing to scale. Read from the
+    ; channel alone, a chart that named its own five weather colours was drawn
+    ; in the default palette.
+    sfn statedOn:VlJson (ch:VlChannel key:string) {
+        if (ch.def0.has(key)) {
+            return (ch.def0.get(key))
+        }
+        def cond:VlJson (ch.def0.get("condition"))
+        if (cond.isArray()) {
+            if ((cond.count()) > 0) {
+                cond = (cond.at(0))
+            }
+        }
+        if (cond.isObject()) {
+            if (cond.has(key)) {
+                return (cond.get(key))
+            }
+        }
+        return (VlJson.nullValue())
+    }
+
     fn applyDeclaredScale:void (sc:VlJson ch:VlChannel) {
-        def declared:VlJson (ch.def0.get("scale"))
+        def declared:VlJson (VlCompile.statedOn(ch "scale"))
         if (! (declared.isObject())) {
             return
         }
@@ -5286,7 +5310,7 @@ class VlCompile {
     ; Did the channel say where its scale runs? A stated domain settles both
     ; the ends and whether they are nice.
     fn domainStated:boolean (ch:VlChannel) {
-        def declared:VlJson (ch.def0.get("scale"))
+        def declared:VlJson (VlCompile.statedOn(ch "scale"))
         if (! (declared.isObject())) {
             return false
         }
