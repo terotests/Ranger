@@ -420,9 +420,39 @@ class VlExprEval {
     ; read straight out of a JSON file holds.
     sfn instantOf:double (v:VlJson) {
         if (v.isString()) {
+            ; A string of digits is a NUMBER of milliseconds rather than a
+            ; written date — which is what a band scale's domain holds, since a
+            ; band keeps its categories as names. Parsed as a date it answered
+            ; the epoch, so every label on an axis of days looked like the
+            ; first of January.
+            if (VlExprEval.looksNumeric((v.asString()))) {
+                return (v.asDouble())
+            }
             return (VlTime.parseDate((v.asString())))
         }
         return (v.asDouble())
+    }
+
+    sfn looksNumeric:boolean (text:string) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return false
+        }
+        def k:int 0
+        if ((substring text 0 1) == "-") {
+            k = 1
+        }
+        if (k >= n) {
+            return false
+        }
+        while (k < n) {
+            def c:int (charAt text k)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            k = (k + 1)
+        }
+        return true
     }
 
     sfn evalCall:VlJson (node:VlExprNode scope:VlExprScope) {

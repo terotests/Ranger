@@ -5684,7 +5684,14 @@ class VlCompile {
                     ; twelve level month names do not fit where twelve turned
                     ; ones would — so the reference thins them, and an axis
                     ; that does not thin them prints Jan over Feb.
-                    a.setMember("labelOverlap" (VlJson.boolValue(true)))
+                    ; …unless the specification said. `labelOverlap: false` is
+                    ; a chart asking for every label to be drawn, however many
+                    ; there are — a lasagna plot draws one per day and paints
+                    ; all but the Januaries out — and thinned anyway it kept
+                    ; eight of a hundred and thirty-one.
+                    if (! (a.has("labelOverlap"))) {
+                        a.setMember("labelOverlap" (VlJson.boolValue(true)))
+                    }
                 }
             }
         }
@@ -5730,9 +5737,13 @@ class VlCompile {
             ; so there is no count to ask for — and they are unevenly spaced,
             ; so crowded labels are thinned from the front rather than halved.
             if ((this.scaleTypeFor(ch)) == "log") {
-                a.setMember("labelOverlap" (VlJson.stringValue("greedy")))
+                if (! (a.has("labelOverlap"))) {
+                    a.setMember("labelOverlap" (VlJson.stringValue("greedy")))
+                }
             } {
-                a.setMember("labelOverlap" (VlJson.boolValue(true)))
+                if (! (a.has("labelOverlap"))) {
+                    a.setMember("labelOverlap" (VlJson.boolValue(true)))
+                }
                 ; A binned axis wants a tick per bin edge, which is far more
                 ; than one per forty pixels — the scale's own `bins` then
                 ; decides where they land.
