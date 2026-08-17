@@ -415,6 +415,16 @@ class VlExprEval {
     }
 
     ; --------------------------------------------------------------- calls ----
+    ; What a time function was handed, as an instant. A number is one already;
+    ; a string is a date that nothing has parsed yet, which is what a column
+    ; read straight out of a JSON file holds.
+    sfn instantOf:double (v:VlJson) {
+        if (v.isString()) {
+            return (VlTime.parseDate((v.asString())))
+        }
+        return (v.asDouble())
+    }
+
     sfn evalCall:VlJson (node:VlExprNode scope:VlExprScope) {
         def name:string node.name
         def argc:int (array_length node.children)
@@ -432,6 +442,12 @@ class VlExprEval {
         }
 
         ; --- dates ---
+        ; The first argument as an INSTANT, for the functions that take one.
+        ; A chart hands them whatever the column holds, which is very often the
+        ; date as written because nothing has parsed it yet; read as a number a
+        ; written date is zero, and `year(datum.Year)` answered 1970 for every
+        ; row of a file that spans a decade.
+        def when:double (VlExprEval.instantOf(a0))
         ; An instant is a number of milliseconds. `toDate` is what a
         ; specification calls on a temporal field before anything scales it, and
         ; a chart's dates arrive as ISO strings.
@@ -455,31 +471,31 @@ class VlExprEval {
             return (VlJson.numberValue((VlTime.msOf(dp scope.zone))))
         }
         if (name == "timeFormat") {
-            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString()) scope.zone))))
+            return (VlJson.stringValue((VlTime.format(when (a1.asString()) scope.zone))))
         }
         if (name == "utcFormat") {
-            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString()) (VlTimeZone.utc())))))
+            return (VlJson.stringValue((VlTime.format(when (a1.asString()) (VlTimeZone.utc())))))
         }
         if (name == "year") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).year)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).year)))
         }
         if (name == "month") {
-            return (VlJson.intValue((((VlTime.partsOf((a0.asDouble()) scope.zone)).month) - 1)))
+            return (VlJson.intValue((((VlTime.partsOf(when scope.zone)).month) - 1)))
         }
         if (name == "date") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).day)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).day)))
         }
         if (name == "hours") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).hours)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).hours)))
         }
         if (name == "minutes") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).minutes)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).minutes)))
         }
         if (name == "seconds") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).seconds)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).seconds)))
         }
         if (name == "day") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).weekday)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).weekday)))
         }
 
         ; --- type tests ---

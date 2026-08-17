@@ -2062,6 +2062,31 @@ class VlCompile {
             }
         }
         for layer.keys key2:string kj {
+            ; A pane's own transforms run AFTER the ones it inherited, not
+            ; instead of them. Replaced, a layer that filters by a selection
+            ; lost the calculation the chart shares — and then binned a column
+            ; that was never computed.
+            if (key2 == "transform") {
+                def chain (VlJson.arrayValue())
+                def inherited:VlJson (outer.get("transform"))
+                if (inherited.isArray()) {
+                    def ti:int 0
+                    while (ti < (inherited.count())) {
+                        push chain.arr (inherited.at(ti))
+                        ti = (ti + 1)
+                    }
+                }
+                def own:VlJson (layer.get("transform"))
+                if (own.isArray()) {
+                    def oi:int 0
+                    while (oi < (own.count())) {
+                        push chain.arr (own.at(oi))
+                        oi = (oi + 1)
+                    }
+                }
+                out.setMember("transform" chain)
+                continue
+            }
             if (key2 == "encoding") {
                 def merged (VlJson.objectValue())
                 def outerEncoding:VlJson (outer.get("encoding"))
@@ -5437,6 +5462,14 @@ class VlCompile {
                     if markOpacity.defined {
                         if markOpacity.hasValue {
                             l.setMember("encode" (VlCompile.symbolOpacityEncode((this.resolvedConstant(markOpacity)))))
+                        }
+                    } {
+                        ; A dot that nothing said an opacity for is still drawn
+                        ; slightly transparent, and its key is drawn the same
+                        ; way. Left solid, the key to a scatter plot was a
+                        ; shade darker than every dot it named.
+                        if (((markName == "circle") || (markName == "square")) || (markName == "tick")) {
+                            l.setMember("encode" (VlCompile.symbolOpacityEncode((VlJson.numberValue((this.dotOpacity()))))))
                         }
                     }
                 }
