@@ -3183,6 +3183,18 @@ class VlCompile {
                     return
                 }
             }
+            ; A stack piles bars up WITHIN something. A category, a bin, a
+            ; date — some dimension that says which bars belong together. A
+            ; chart whose other position channel is a plain number has no such
+            ; thing: each bar stands at its own value, and nothing is piled
+            ; anywhere unless a colour says so.
+            if (this.continuousScale(binned)) {
+                if (! (binned.hasBin)) {
+                    if (! (this.hasChannel("color"))) {
+                        return
+                    }
+                }
+            }
         }
         ; `stack: null` and `stack: false` both mean "do not", and a string
         ; names the offset — "zero", "center", "normalize".
@@ -5218,18 +5230,20 @@ class VlCompile {
                     }
                     ; A bar's baseline is zero because its LENGTH is the value;
                     ; a line's is not, because only its height is read.
+                    ; A log scale cannot reach zero, so it is never asked to.
+                    def reachesZero:boolean false
                     if (type != "log") {
-                        def reachesZero:boolean (this.zeroFor(ch))
+                        reachesZero = (this.zeroFor(ch))
                         sc.setMember("zero" (VlJson.boolValue(reachesZero)))
-                        ; Five pixels of room at the ends, so a BAR sitting on
-                        ; the lowest value is not drawn half outside the plot.
-                        ; Only a bar: a line or a point at the edge of its own
-                        ; scale is where the data put it, and the reference
-                        ; leaves it there.
-                        if (! reachesZero) {
-                            if (markName == "bar") {
-                                sc.setMember("padding" (VlJson.numberValue(5.0)))
-                            }
+                    }
+                    ; Five pixels of room at the ends, so a BAR sitting on
+                    ; the lowest value is not drawn half outside the plot.
+                    ; Only a bar: a line or a point at the edge of its own
+                    ; scale is where the data put it, and the reference
+                    ; leaves it there.
+                    if (! reachesZero) {
+                        if (markName == "bar") {
+                            sc.setMember("padding" (VlJson.numberValue(5.0)))
                         }
                     }
                 }
