@@ -54,6 +54,13 @@ class VlLegend {
     def direction:string "vertical"
     def padding:double 0.0
     def rowPadding:double 2.0
+    ; How tall a row of a symbol key is ALLOWED to be. A key of circle areas
+    ; running to five thousand square pixels has a symbol seventy pixels
+    ; across, and a key seventy pixels a row is taller than the chart beside
+    ; it. `"legend": {"clipHeight": 30}` says to hold the rows to thirty and
+    ; let the big symbols overlap their neighbours, which is what the
+    ; reference draws.
+    def clipHeight:double 0.0
     def columnPadding:double 10.0
     def titlePadding:double 5.0
     def labelAlign:string "left"
@@ -146,6 +153,7 @@ class VlLegend {
         labelBaseline = (ldef.stringOr("labelBaseline" labelBaseline))
         labelLimit = (ldef.doubleOr("labelLimit" labelLimit))
         labelOffset = (ldef.doubleOr("labelOffset" labelOffset))
+        clipHeight = (ldef.doubleOr("clipHeight" clipHeight))
         labelFont = (ldef.stringOr("labelFont" labelFont))
         labelFontSize = (ldef.doubleOr("labelFontSize" labelFontSize))
         labelColor = (ldef.stringOr("labelColor" labelColor))
@@ -645,8 +653,14 @@ class VlLegend {
             def step:double 0.0
             if (idx > 0) {
                 step = rowPadding
-                if (box.y1 < 0.0) {
-                    step = (step + (VlBounds.ceilTo((0.0 - box.y1))))
+                ; A symbol that reaches above its own origin pushes the row
+                ; under it down — unless the rows are CLIPPED, which is the
+                ; whole point of clipping them: the big symbols are allowed to
+                ; overlap rather than to space the key out.
+                if (clipHeight <= 0.0) {
+                    if (box.y1 < 0.0) {
+                        step = (step + (VlBounds.ceilTo((0.0 - box.y1))))
+                    }
                 }
                 step = (step + previousExtent)
             }
@@ -654,8 +668,14 @@ class VlLegend {
             row.setNumber("x" 0.0)
             row.setNumber("y" y)
             box.translate(0.0 y)
-            previousExtent = (VlBounds.ceilTo((box.y2 - y)))
-            row.setNumber("height" (box.y2 - y))
+            def extent:double (box.y2 - y)
+            if (clipHeight > 0.0) {
+                if (extent > clipHeight) {
+                    extent = clipHeight
+                }
+            }
+            previousExtent = (VlBounds.ceilTo(extent))
+            row.setNumber("height" extent)
         }
         ; Every row in a column is as wide as the WIDEST row in it, so a short
         ; label does not make its row narrower than the one below and a renderer

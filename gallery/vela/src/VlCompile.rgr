@@ -5983,6 +5983,24 @@ class VlCompile {
         }
         for declared.keys key:string ki {
             if (key != "type") {
+                ; `rangeMax` is not a key beside the range: it is the far end
+                ; OF it. A scale of circle areas told `"rangeMax": 5000` runs
+                ; from nothing to five thousand, and written alongside a range
+                ; the scale had already computed, the biggest circle came out
+                ; at three hundred and sixty-one — the default — with the five
+                ; thousand ignored.
+                if ((key == "rangeMax") || (key == "rangeMin")) {
+                    def span:VlJson (sc.get("range"))
+                    if (span.isArray()) {
+                        if ((span.count()) > 1) {
+                            def at:int 1
+                            if (key == "rangeMin") {
+                                at = 0
+                            }
+                            set_at span.arr at (declared.get(key))
+                        }
+                    }
+                } {
                 if ((key == "domain") && (VlCompile.domainNamesParam(declared))) {
                     ; The selection the domain follows, written where a
                     ; renderer that has one will look, and nowhere a renderer
@@ -6002,6 +6020,7 @@ class VlCompile {
                     sc.setMember("range" named)
                 } {
                     sc.setMember(key (declared.get(key)))
+                }
                 }
                 }
             }
@@ -7343,6 +7362,17 @@ class VlCompile {
         def marked:VlJson (markDef.get("color"))
         if (marked.isString()) {
             return (marked.asString())
+        }
+        ; A mark may say its colour as a fill or as an outline rather than as
+        ; `color`, and a key stands for the mark: a circle outlined in black
+        ; is named by a black dot, not by the default blue.
+        def filled:VlJson (markDef.get("fill"))
+        if (filled.isString()) {
+            return (filled.asString())
+        }
+        def outline:VlJson (markDef.get("stroke"))
+        if (outline.isString()) {
+            return (outline.asString())
         }
         return "#4c78a8"
     }
