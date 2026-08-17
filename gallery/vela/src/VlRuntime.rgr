@@ -2161,7 +2161,7 @@ class VlRuntime {
 
         def from:VlJson (mdef.get("from"))
         def dataName:string (from.stringOr("data" ""))
-        def rows:[VlJson] (this.dataRows(dataName))
+        def rows:[VlJson] (this.dataRowsSorted(dataName (mdef.get("sort"))))
 
         def encode:VlJson (mdef.get("encode"))
         def enter:VlJson (encode.get("enter"))
@@ -2194,6 +2194,14 @@ class VlRuntime {
     ; the group declares. The partitions come out in the order their key was
     ; first seen, which is the order the reference produces and therefore the
     ; order the series are coloured in.
+    fn sortedFacetRows:[VlJson] (sourceName:string sortDef:VlJson) {
+        def rows:[VlJson] (this.dataRows(sourceName))
+        if (! (VlRuntime.sortsRows(sortDef))) {
+            return rows
+        }
+        return (this.sortedByComparator(rows sortDef))
+    }
+
     fn encodeGroupMark:void (mark:VlSceneMark mdef:VlJson) {
         def markRole:string mark.role
         def from:VlJson (mdef.get("from"))
@@ -2208,7 +2216,7 @@ class VlRuntime {
             ; faceted view are one of these, one per column value.
             def dataName:string (from.stringOr("data" ""))
             if ((strlen dataName) > 0) {
-                def rows:[VlJson] (this.dataRows(dataName))
+                def rows:[VlJson] (this.dataRowsSorted(dataName (mdef.get("sort"))))
                 for rows row:VlJson ri {
                     def rowItem:VlSceneItem (mark.addItem())
                     rowItem.datum = row
@@ -2238,7 +2246,11 @@ class VlRuntime {
         def facetName:string (facet.stringOr("name" ""))
         def sourceName:string (facet.stringOr("data" ""))
         def groupby:[string] (VlRuntime.stringList((facet.get("groupby"))))
-        def rows:[VlJson] (this.dataRows(sourceName))
+        ; The partitions come out in the order their key is first seen, so
+        ; sorting the ROWS is what puts the panels in order. A trellis says so
+        ; on the group mark, and its row headers say the same thing separately —
+        ; if only one of the two is honoured the labels name the wrong panels.
+        def rows:[VlJson] (this.sortedFacetRows(sourceName (mdef.get("sort"))))
 
         def keys:[string]
         def partitions:[string:VlDataSet]
@@ -2850,6 +2862,143 @@ class VlRuntime {
             }
         }
         return out
+    }
+
+    ; A mark's `sort` is a comparator, and what it compares decides what gets
+    ; sorted. `{"field": "x"}` names an ENCODED CHANNEL — that is what makes a
+    ; line join its points left to right — while `{"field": "datum[\"gender\"]"}`
+    ; is an expression over the ROW, and a row comparator has to be applied to
+    ; the data before any items exist. A faceted chart's row headers are the
+    ; second kind, and read as the first they sorted nothing: the rows of a
+    ; trellis came out in whatever order the data happened to be in.
+    fn dataRowsSorted:[VlJson] (dataName:string sortDef:VlJson) {
+        def rows:[VlJson] (this.dataRows(dataName))
+        if (! (VlRuntime.sortsRows(sortDef))) {
+            return rows
+        }
+        return (this.sortedByComparator(rows sortDef))
+    }
+
+    sfn sortsRows:boolean (sortDef:VlJson) {
+        if (! (sortDef.isObject())) {
+            return false
+        }
+        def field:VlJson (sortDef.get("field"))
+        if (field.isArray()) {
+            return true
+        }
+        if (field.isString()) {
+            return ((indexOf field.str "datum") >= 0)
+        }
+        return false
+    }
+
+    ; The fields of a comparator, which may be written as one or as a list.
+    sfn comparatorFields:[string] (sortDef:VlJson) {
+        def out:[string]
+        def field:VlJson (sortDef.get("field"))
+        if (field.isString()) {
+            push out field.str
+            return out
+        }
+        if (field.isArray()) {
+            def n:int (field.count())
+            def k:int 0
+            while (k < n) {
+                push out (field.at(k).asString())
+                k = (k + 1)
+            }
+        }
+        return out
+    }
+
+    sfn comparatorDescending:[boolean] (sortDef:VlJson count:int) {
+        def out:[boolean]
+        def order:VlJson (sortDef.get("order"))
+        def k:int 0
+        while (k < count) {
+            def word:string "ascending"
+            if (order.isString()) {
+                word = order.str
+            }
+            if (order.isArray()) {
+                if (k < (order.count())) {
+                    word = (order.at(k).asString())
+                }
+            }
+            push out (word == "descending")
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Insertion sort, stable, over row counts that are small by construction —
+    ; a facet's partitions and a header's entries, not a data set.
+    fn sortedByComparator:[VlJson] (rows:[VlJson] sortDef:VlJson) {
+        def fields:[string] (VlRuntime.comparatorFields(sortDef))
+        if ((array_length fields) == 0) {
+            return rows
+        }
+        def descending:[boolean] (VlRuntime.comparatorDescending(sortDef (array_length fields)))
+        def out:[VlJson]
+        for rows row:VlJson idx {
+            def pos:int (array_length out)
+            def scan:int 0
+            def scanning:boolean true
+            while (scanning && (scan < (array_length out))) {
+                if (this.rowBeforeRow(row (itemAt out scan) fields descending)) {
+                    pos = scan
+                    scanning = false
+                } {
+                    scan = (scan + 1)
+                }
+            }
+            push out row
+            def move:int ((array_length out) - 1)
+            while (move > pos) {
+                set_at out move (itemAt out (move - 1))
+                move = (move - 1)
+            }
+            set_at out pos row
+        }
+        return out
+    }
+
+    fn rowBeforeRow:boolean (a:VlJson b:VlJson fields:[string] descending:[boolean]) {
+        def k:int 0
+        while (k < (array_length fields)) {
+            def expr:string (itemAt fields k)
+            scope.setDatum(a)
+            def va:VlJson (this.evalExpr(expr))
+            scope.setDatum(b)
+            def vb:VlJson (this.evalExpr(expr))
+            def order:int (VlRuntime.compareValues(va vb))
+            if (itemAt descending k) {
+                order = (0 - order)
+            }
+            if (order != 0) {
+                return (order < 0)
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    sfn compareValues:int (a:VlJson b:VlJson) {
+        if ((a.isNumber()) && (b.isNumber())) {
+            if (a.num < b.num) { return -1 }
+            if (a.num > b.num) { return 1 }
+            return 0
+        }
+        def sa:string (a.asString())
+        def sb:string (b.asString())
+        if (sa == sb) {
+            return 0
+        }
+        if (VlTransform.textBefore(sa sb)) {
+            return -1
+        }
+        return 1
     }
 
     ; `"sort": {"field": "x"}` on a mark orders its ITEMS by an encoded channel
