@@ -7464,7 +7464,15 @@ class VlCompile {
         if outlined {
             update.setMember("fill" (VlCompile.literal((VlJson.stringValue((markDef.stringOr("fill" "transparent")))))))
         }
-        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue((this.markOpacity(0.7)))))))
+        ; As transparent as the dot it stands for, and no more solid than it.
+        ; A flat 0.7 here was a dot's default written twice: where the dots
+        ; stand for SUMMARIES they are drawn solid — one dot per group cannot
+        ; land on another — and the reference then writes no opacity on the key
+        ; either, because there is nothing to see through.
+        def shade:double (this.markOpacity((this.dotOpacity())))
+        if (shade != 1.0) {
+            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(shade)))))
+        }
         def symbols (VlJson.objectValue())
         symbols.setMember("update" update)
         def out (VlJson.objectValue())

@@ -578,6 +578,34 @@ class VlExprEval {
         if (name == "isDefined") {
             return (VlJson.boolValue((a0.kind != 0)))
         }
+        ; An instant is a NUMBER here — milliseconds since the epoch, which is
+        ; what the date parse leaves behind — so nothing is ever a date object
+        ; and the answer is always no. The reference asks this beside a
+        ; finiteness test (`isDate(d) || (isValid(d) && isFinite(+d))`), and
+        ; the other half of that answers correctly for a number.
+        if (name == "isDate") {
+            return (VlJson.boolValue(false))
+        }
+        ; Whether a value falls within a pair of bounds, either way round —
+        ; the ends are included, which is how a brush covers what it touches.
+        if (name == "inrange") {
+            def span:VlJson a1
+            if (span.kind != 4) {
+                return (VlJson.boolValue(false))
+            }
+            if ((span.count()) < 2) {
+                return (VlJson.boolValue(false))
+            }
+            def lo:double (span.at(0).asDouble())
+            def hi:double (span.at(1).asDouble())
+            if (hi < lo) {
+                def swap:double lo
+                lo = hi
+                hi = swap
+            }
+            def v:double (a0.asDouble())
+            return (VlJson.boolValue(((v >= lo) && (v <= hi))))
+        }
 
         ; --- math ---
         if (name == "abs") {
