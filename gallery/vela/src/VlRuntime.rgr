@@ -1628,6 +1628,11 @@ class VlRuntime {
             titleBox.role = "frame"
             titleBox.width = chartWidth
             titleBox.height = chartHeight
+            ; What the chart covers on each side, so that a title asked to
+            ; centre on its BOUNDS has something to centre on.
+            titleBox.left = extentLeft
+            titleBox.right = extentRight
+            titleBox.bottom = extentBottom
             ; A chart's title stands clear of EVERYTHING above the plot, not of
             ; the plot itself. The topmost label of a continuous y axis is
             ; centred on the plot's upper edge, so half of it hangs above —
@@ -2498,6 +2503,18 @@ class VlRuntime {
                 along = ((item.number("height")) / 2.0)
             } {
                 along = ((item.number("width")) / 2.0)
+            }
+        }
+        ; `"frame": "bounds"` centres the title on everything the chart covers
+        ; rather than on the plotting rectangle — so a title over a plot with a
+        ; wide axis down its left sits left of centre, where the drawing's own
+        ; middle is. Centred on the plot instead, it hung out over the right
+        ; edge and took sixteen pixels of page with it.
+        if (frame == "bounds") {
+            if sideways {
+                along = ((((item.number("height")) + box.bottom) - box.top) / 2.0)
+            } {
+                along = ((((item.number("width")) + box.right) - box.left) / 2.0)
             }
         }
         def fontSize:double (text.number("fontSize"))
