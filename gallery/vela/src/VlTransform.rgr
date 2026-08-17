@@ -178,10 +178,17 @@ class VlTransform {
         def out:[string]
         def seen:[string:int]
         for rows row:VlJson idx {
-            def key:string (VlJson.domainKey((VlTransform.memberOf(row field))))
-            if (! (has seen key)) {
-                set seen key 1
-                push out key
+            ; A row that does not HAVE the column is not a value of it. A row
+            ; that has it and says nothing is: a film with no genre is a
+            ; category of its own on the axis, and the reference draws a band
+            ; for it. The two look alike once the value is read — both answer
+            ; null — so the question is asked of the row instead.
+            if (row.has(field)) {
+                def key:string (VlJson.domainKey((VlTransform.memberOf(row field))))
+                if (! (has seen key)) {
+                    set seen key 1
+                    push out key
+                }
             }
         }
         return out

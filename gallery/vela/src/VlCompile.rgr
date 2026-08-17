@@ -3701,7 +3701,15 @@ class VlCompile {
             return
         }
         for channels ch2:VlChannel ci2 {
-            if (ch2.hasValue) {
+            ; …unless it is a literal AND a field at once: a colour written as
+            ; a condition and a fallback names the column the selected rows are
+            ; painted by, and an aggregate that did not group by it summarised
+            ; every series into one.
+            def literalOnly:boolean ch2.hasValue
+            if ch2.conditional {
+                literalOnly = false
+            }
+            if literalOnly {
                 ; a literal channel is not a field
             } {
                 if ((strlen ch2.aggregate) > 0) {
