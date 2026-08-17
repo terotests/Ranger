@@ -2575,16 +2575,50 @@ node --stack-size=60000 bin/output.js …
 `tests/es-conformance-targets.test.ts` does this. The `selfhost:*` and
 `test:tsengine` paths do not yet.
 
+### Cause
+
+Not the recursion itself — the frames not being released. Dumping `this.parents`
+at maximum depth on `EvHandle.rgr`: **call depth 245 with 12 nodes actually
+open**. So 233 frames were live for nodes that had already closed.
+
+Three sites recurse, each pushing a node onto `parents` first. A literal `)` or
+`}` ends its frame with `break`, but the third site — an implicit statement
+expression inside a block, `ng_parser_v2.rgr:1054` — is closed by
+`end_expression`, which pops `parents` and **does not break**. That frame then
+parses the rest of the enclosing block, and the next statement recurses again on
+top of it.
+
 ### Fix
 
-Make `parseBuf` release its frame when the node it opened closes — return
-instead of continuing the loop — so depth tracks nesting rather than file
-content. That is a change to the parser's control flow and wants its own careful
-pass; the recursion is load-bearing for how `curr_node` / `parents` are
-maintained.
+`parseBuf` records `array_length parents` on entry and returns as soon as the
+list is shorter than that — the node this frame was parsing is gone, so the
+frame is done. Four lines in `compiler/ng_parser_v2.rgr`.
+
+Depth after the fix:
+
+| Source | Before | After |
+| --- | --- | --- |
+| `EvHandle.rgr` | 245 | **36** |
+| `ComponentEngine.rgr` | 2,117 | **36** |
+| `ComponentEngine.rgr` + the 2,138-probe corpus | 2,117 | **36** |
+
+Depth is now bounded by real nesting and no longer grows with the file.
+
+### Verification
+
+- **Self-host fixpoint**: the rebuilt compiler compiles itself, and the second
+  generation is byte-identical to the first.
+- **Codegen unchanged**: the 2.1 MB of JavaScript the compiler emits for
+  `bench_main.rgr` (the whole JS engine) is byte-identical before and after.
+- **Semantics unchanged**: the 2,138-probe ES conformance corpus gives the same
+  answers — 2,136 agreeing with Node, the same 2 known gaps.
+- **The flake is gone**: `bench_main.rgr` compiled 8 times in a row at the
+  DEFAULT stack, 8 successes (was 3 of 5).
+- `tests/native/core_vectors.rgr` still byte-identical on es6, python, go, cpp
+  and rust.
 
 ### Status
 
-Open. Found while adding `tests/es-conformance-targets.test.ts`, and initially
+Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.

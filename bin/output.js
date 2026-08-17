@@ -6489,7 +6489,11 @@ class RangerLispParser  {
     let last_i = 0;
     let had_lf = false;
     let disable_ops_set = disable_ops;
+    const entry_depth = this.parents.length;
     while (this.i < this.__len) {
+      if ( (this.parents.length) < entry_depth ) {
+        return;
+      }
       if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
         if ( this.curr_node.value_type == 24 ) {
           return;
