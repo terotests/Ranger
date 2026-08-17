@@ -1573,25 +1573,25 @@ class VlCompile {
         def titleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src facetKey titleField))))
         if wrapped {
             push marks.arr (VlCompile.titleGroup("facet-title" "column-title" titleText ""))
-            push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false))
-            push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "facet_domain_column" "" "child_width" xAxes true))
+            push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false ""))
+            push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "facet_domain_column" "" "child_width" xAxes true ""))
         } {
             if ((strlen rowField) > 0) {
                 if ((strlen (titleText.asString())) > 0) {
                     push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left"))
                 }
-                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false))
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false rowField))
                 ; A row of panels only needs a strip under it if there is an
                 ; axis to put there. A trellis whose panels have no x axis had
                 ; an empty strip reserving a pixel of page.
                 if ((xAxes.count()) > 0) {
-                    push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true))
+                    push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true ""))
                 }
             } {
                 push marks.arr (VlCompile.titleGroup("column-title" "column-title" titleText ""))
-                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "" "" "child_height" yAxes false))
-                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true))
-                push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true))
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "" "" "child_height" yAxes false ""))
+                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true columnField))
+                push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true columnField))
             }
         }
         push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel))
@@ -1716,7 +1716,7 @@ class VlCompile {
     ; A header, a footer or a row header: a group drawn once per column or row,
     ; carrying the axis that column or row shares and, when it names its own
     ; value, a title read from the row it was drawn for.
-    sfn headerGroup:VlJson (name:string role:string from:string labelField:string dimension:string axes:VlJson across:boolean) {
+    sfn headerGroup:VlJson (name:string role:string from:string labelField:string dimension:string axes:VlJson across:boolean orderBy:string) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue(name)))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -1739,9 +1739,13 @@ class VlCompile {
             title.setMember("offset" (VlJson.numberValue(10.0)))
             out.setMember("title" title)
         }
+        ; A strip of panels is drawn in the same order as the panels it names,
+        ; and that is true of the strip UNDER them as well as the one above:
+        ; the footer carries the shared axis and has to line up with the
+        ; columns it labels.
         if ((strlen from) > 0) {
-            if ((strlen labelField) > 0) {
-                out.setMember("sort" (VlCompile.sortByField(labelField false)))
+            if ((strlen orderBy) > 0) {
+                out.setMember("sort" (VlCompile.sortByField(orderBy false)))
             }
         }
         def update (VlJson.objectValue())
