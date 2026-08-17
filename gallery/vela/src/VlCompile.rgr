@@ -5991,6 +5991,14 @@ class VlCompile {
                 push pair.arr (VlJson.stringValue((ch.outField())))
                 push pair.arr (VlJson.stringValue((second.outField())))
                 out.setMember("fields" pair)
+                ; …and a DISCRETE domain drawn from two columns is ordered like
+                ; any other. A heat lane's rectangles run from −c/2 to +c/2 on
+                ; a band scale of both ends: in their own order the two bands
+                ; land wherever the rows happened to arrive, and half the lanes
+                ; came out twice as deep as they are.
+                if (ch.isDiscrete()) {
+                    out.setMember("sort" (this.domainSortFor(ch)))
+                }
                 return out
             }
         }
@@ -8273,6 +8281,21 @@ class VlCompile {
             if (! (this.hasChannel("y"))) {
                 update.setMember("y" (VlCompile.groupField("height")))
                 update.setMember("y2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+            }
+        }
+        ; A rectangle given only one pair of positions spans the plot in the
+        ; other direction. A chart of historical periods is exactly that: two
+        ; rects with a start and an end year and nothing said about the
+        ; vertical, meant to be bands behind the line. Left without a y they
+        ; came out as two rectangles of no height at all.
+        if (markName == "rect") {
+            if (! (this.hasChannel("y"))) {
+                update.setMember("y" (VlCompile.literal((VlJson.numberValue(0.0)))))
+                update.setMember("y2" (VlCompile.groupField("height")))
+            }
+            if (! (this.hasChannel("x"))) {
+                update.setMember("x" (VlCompile.literal((VlJson.numberValue(0.0)))))
+                update.setMember("x2" (VlCompile.groupField("width")))
             }
         }
         def text:VlChannel (this.channel("text"))
