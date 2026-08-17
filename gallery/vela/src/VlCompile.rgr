@@ -294,8 +294,16 @@ class VlCompile {
         if (src.has("vconcat")) {
             return (this.compileConcat(src "vconcat" false))
         }
+        ; A REPEATED specification is one chart drawn once per name in a list,
+        ; with `{"repeat": …}` standing where the column name goes. It is not a
+        ; composition of its own: expanded, it IS a layered, concatenated or
+        ; gridded chart, and every one of those is already compiled here.
         if (src.has("repeat")) {
-            this.fail("a repeated specification is not compiled here")
+            def spread:VlJson (VlCompile.expandRepeat(src))
+            if (spread.isObject()) {
+                return (this.compile(spread))
+            }
+            this.fail("a repeated specification needs a `spec` and a list of fields")
         }
         this.readMark()
         this.readEncoding()
@@ -391,6 +399,138 @@ class VlCompile {
         def legends:VlJson (this.buildLegends())
         if ((legends.count()) > 0) {
             out.setMember("legends" legends)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------- repeat ---
+    ; `repeat` names a list and `spec` is drawn once per entry, with every
+    ; `{"repeat": "<key>"}` in it replaced by that entry. Which composition the
+    ; copies become is what the list is keyed by:
+    ;
+    ;   {"layer": […]}            one plot, the copies drawn over each other
+    ;   {"column": […]}           side by side
+    ;   {"row": […]}              stacked
+    ;   {"row": …, "column": …}   a grid, rows of columns
+    ;   […] with "columns": n     a wrapped grid of the same shape
+    sfn expandRepeat:VlJson (src:VlJson) {
+        def spec:VlJson (src.get("spec"))
+        if (! (spec.isObject())) {
+            return (VlJson.nullValue())
+        }
+        def repeat:VlJson (src.get("repeat"))
+        def out (VlJson.objectValue())
+        for src.keys key:string ki {
+            if ((key != "repeat") && (key != "spec")) {
+                out.setMember(key (src.get(key)))
+            }
+        }
+        if (repeat.isArray()) {
+            def wide:int 1000000
+            def columns:VlJson (src.get("columns"))
+            if (columns.isNumber()) {
+                wide = (to_int columns.num)
+            }
+            out.setMember("vconcat" (VlCompile.repeatGrid(spec repeat "repeat" wide)))
+            return out
+        }
+        if (! (repeat.isObject())) {
+            return (VlJson.nullValue())
+        }
+        if (repeat.has("layer")) {
+            out.setMember("layer" (VlCompile.repeatRow(spec (repeat.get("layer")) "layer")))
+            return out
+        }
+        def rows:VlJson (repeat.get("row"))
+        def cols:VlJson (repeat.get("column"))
+        if ((rows.isArray()) && (cols.isArray())) {
+            def stacked (VlJson.arrayValue())
+            def r:int 0
+            while (r < (rows.count())) {
+                def band (VlJson.objectValue())
+                def acrossOne (VlJson.arrayValue())
+                def c:int 0
+                while (c < (cols.count())) {
+                    def cell:VlJson (VlCompile.substituteRepeat(spec "row" (rows.at(r).asString())))
+                    cell = (VlCompile.substituteRepeat(cell "column" (cols.at(c).asString())))
+                    push acrossOne.arr cell
+                    c = (c + 1)
+                }
+                band.setMember("hconcat" acrossOne)
+                push stacked.arr band
+                r = (r + 1)
+            }
+            out.setMember("vconcat" stacked)
+            return out
+        }
+        if (rows.isArray()) {
+            out.setMember("vconcat" (VlCompile.repeatRow(spec rows "row")))
+            return out
+        }
+        if (cols.isArray()) {
+            out.setMember("hconcat" (VlCompile.repeatRow(spec cols "column")))
+            return out
+        }
+        return (VlJson.nullValue())
+    }
+
+    sfn repeatRow:VlJson (spec:VlJson values:VlJson key:string) {
+        def out (VlJson.arrayValue())
+        def k:int 0
+        while (k < (values.count())) {
+            push out.arr (VlCompile.substituteRepeat(spec key (values.at(k).asString())))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; A wrapped grid: as many panes across as `columns` allows, then a new row.
+    sfn repeatGrid:VlJson (spec:VlJson values:VlJson key:string wide:int) {
+        def out (VlJson.arrayValue())
+        def total:int (values.count())
+        def k:int 0
+        while (k < total) {
+            def band (VlJson.objectValue())
+            def across (VlJson.arrayValue())
+            def c:int 0
+            while ((c < wide) && (k < total)) {
+                push across.arr (VlCompile.substituteRepeat(spec key (values.at(k).asString())))
+                k = (k + 1)
+                c = (c + 1)
+            }
+            band.setMember("hconcat" across)
+            push out.arr band
+        }
+        return out
+    }
+
+    ; Every `{"repeat": key}` in the tree, replaced by the name it stands for.
+    ; An object with nothing else in it IS the placeholder; one that has other
+    ; members is a channel definition that happens to contain one.
+    sfn substituteRepeat:VlJson (node:VlJson key:string value:string) {
+        if (node.isArray()) {
+            def list (VlJson.arrayValue())
+            def k:int 0
+            while (k < (node.count())) {
+                push list.arr (VlCompile.substituteRepeat((node.at(k)) key value))
+                k = (k + 1)
+            }
+            return list
+        }
+        if (! (node.isObject())) {
+            return node
+        }
+        if (node.has("repeat")) {
+            if ((array_length node.keys) == 1) {
+                if ((node.stringOr("repeat" "")) == key) {
+                    return (VlJson.stringValue(value))
+                }
+                return node
+            }
+        }
+        def out (VlJson.objectValue())
+        for node.keys k2:string ki2 {
+            out.setMember(k2 (VlCompile.substituteRepeat((node.get(k2)) key value)))
         }
         return out
     }
