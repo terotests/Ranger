@@ -2658,15 +2658,44 @@ The patch is applied in exactly two places in `package.json`:
 
 Every other build gets the stub. In particular **none of the `selfhost:*`
 scripts patch anything**, so the C++, Dart, Python, C#, Go and Kotlin
-self-hosted compilers all have `tryDesugarNewMethodChain` returning `false` and
-silently do not perform the `new X().a().b()` desugar at all. The self-hosting
-claim in `TARGET_NOTES.md` holds for the compiler's output being identical; it
-does not hold for this feature's behaviour.
+self-hosted compilers all have `tryDesugarNewMethodChain` returning `false`.
+
+It is not a silent degradation — it is a **hard compile error**. Building an
+unpatched compiler (exactly what `selfhost:*` produces) and giving it the
+repository's own chaining fixture:
+
+```
+$ node tmp/unpatched.js -es6 tests/fixtures/chain_new_method.rgr
+  [FAIL] WriteVREF -> Undefined variable .hello in class ChainNewMethod
+    13 │         new Greeter().hello().world()
+```
+
+The patched compiler compiles the same file and prints `hello` / `world`.
+
+Five of the six chaining fixtures fail on an unpatched compiler:
+
+| Fixture | Unpatched |
+| --- | --- |
+| `chain_new_method` | FAILS |
+| `chain_fluent_builder` | FAILS |
+| `chain_local_var` | FAILS |
+| `chain_polymorphic_add` | FAILS |
+| `chain_return_int` | FAILS |
+| `chain_operator_substring` | compiles (operator chaining is a different path) |
+
+So **a self-hosted Ranger compiler cannot compile a Ranger program that uses
+method chaining at all**. The self-hosting claim in `TARGET_NOTES.md` holds for
+the compiler reproducing its own output byte for byte; it does not hold for the
+language the resulting compiler accepts.
+
+The feature is not dead code either — `PLAN_METHOD_CHAINING.md` records phase 1
+(codegen) as delivered, and `tests/compiler-chain.test.ts` plus
+`tests/compiler-chain-kotlin-swift.test.ts` gate it with ten fixtures.
 
 It is also a trap for anyone rebuilding the compiler. Compiling
 `ng_Compiler.rgr` and copying the result over `bin/output.js` — the obvious
-thing to do — silently removes a language feature. Nothing errors; chained
-method calls just stop desugaring.
+thing to do — removes a language feature, and the resulting compiler then
+rejects code the previous one accepted.
 
 ### Fix
 
