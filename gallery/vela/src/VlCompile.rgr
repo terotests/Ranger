@@ -3143,6 +3143,134 @@ class VlCompile {
         return out
     }
 
+    ; What a selection predicate says about a row when nothing is selected —
+    ; which is what a drawing that cannot be clicked on always shows.
+    ;
+    ; Three cases, and none of them is a guess:
+    ;
+    ;   * the parameter was given an initial VALUE, so the selection is not
+    ;     empty and every row is tested against it, field by field;
+    ;   * the store is empty and `empty` was left alone, which means an empty
+    ;     selection matches EVERYTHING — the reference's own default, and why
+    ;     an unbrushed scatter plot shows all its points rather than none;
+    ;   * the store is empty and `"empty": false`, which reverses that: nothing
+    ;     matches, which is why a hover highlight is invisible until hovered.
+    fn selectionExpr:string (pred:VlJson) {
+        def name:string (pred.stringOr("param" ""))
+        def param:VlJson (this.paramNamed(name))
+        def initial:VlJson (param.get("value"))
+        if (initial.isDefined()) {
+            def tested:string (this.selectionValueExpr(param initial))
+            if ((strlen tested) > 0) {
+                return tested
+            }
+        }
+        if (pred.boolOr("empty" true)) {
+            return "true"
+        }
+        return "false"
+    }
+
+    ; The parameter of that name, wherever in the specification it was
+    ; declared. A layered chart brushes in one layer and filters in another, so
+    ; the search is over the whole spec rather than over the layer that asked.
+    fn paramNamed:VlJson (name:string) {
+        def found (VlJson.objectValue())
+        VlCompile.findParam(source name found)
+        return found
+    }
+
+    sfn findParam:void (node:VlJson name:string into:VlJson) {
+        if (into.has("name")) {
+            return
+        }
+        if (node.isArray()) {
+            def total:int (node.count())
+            def k:int 0
+            while (k < total) {
+                VlCompile.findParam((node.at(k)) name into)
+                k = (k + 1)
+            }
+            return
+        }
+        if (! (node.isObject())) {
+            return
+        }
+        def params:VlJson (node.get("params"))
+        if (params.isArray()) {
+            def n:int (params.count())
+            def i:int 0
+            while (i < n) {
+                def p:VlJson (params.at(i))
+                if ((p.stringOr("name" "")) == name) {
+                    for p.keys pk:string pi {
+                        into.setMember(pk (p.get(pk)))
+                    }
+                    return
+                }
+                i = (i + 1)
+            }
+        }
+        for node.keys key:string ki {
+            VlCompile.findParam((node.get(key)) name into)
+        }
+    }
+
+    ; A POINT selection's initial value is a list of rows, each naming the
+    ; fields that must match — `[{"Cylinders": 4, "Year": 1977}]` selects the
+    ; four-cylinder cars of 1977. An INTERVAL's is a map of channel to range.
+    fn selectionValueExpr:string (param:VlJson initial:VlJson) {
+        if (initial.isArray()) {
+            def out:string ""
+            def total:int (initial.count())
+            def k:int 0
+            while (k < total) {
+                def row:VlJson (initial.at(k))
+                def one:string ""
+                for row.keys field:string fi {
+                    def piece:string ((("datum[\"" + field) + "\"] === ") + (VlCompile.literalOf((row.get(field)))))
+                    if ((strlen one) > 0) {
+                        one = ((one + " && ") + piece)
+                    } {
+                        one = piece
+                    }
+                }
+                if ((strlen one) > 0) {
+                    if ((strlen out) > 0) {
+                        out = (((out + " || (") + one) + ")")
+                    } {
+                        out = (("(" + one) + ")")
+                    }
+                }
+                k = (k + 1)
+            }
+            return out
+        }
+        if (initial.isObject()) {
+            def out:string ""
+            for initial.keys channel:string ci {
+                def span:VlJson (initial.get(channel))
+                if (span.isArray()) {
+                    if ((span.count()) == 2) {
+                        def ch:VlChannel (this.channel(channel))
+                        def field:string ch.field
+                        if ((strlen field) > 0) {
+                            def piece:string (((((("(datum[\"" + field) + "\"] >= ") + (VlCompile.literalOf((span.at(0))))) + " && datum[\"") + field) + "\"] <= ")
+                            piece = ((piece + (VlCompile.literalOf((span.at(1))))) + ")")
+                            if ((strlen out) > 0) {
+                                out = ((out + " && ") + piece)
+                            } {
+                                out = piece
+                            }
+                        }
+                    }
+                }
+            }
+            return out
+        }
+        return ""
+    }
+
     fn predicateExpr:string (pred:VlJson) {
         if (pred.isString()) {
             return (("(" + pred.str) + ")")
@@ -3160,11 +3288,12 @@ class VlCompile {
             }
             return (("!(" + inner) + ")")
         }
-        ; A selection is a predicate about what someone clicked on, and there
-        ; is nothing here to click on.
+        ; A selection is a predicate about what someone clicked on. There is
+        ; nothing here to click on — but that is an ANSWER rather than a
+        ; refusal, and it is the same answer the reference gives on its own
+        ; first frame, before anybody has touched the chart.
         if (pred.has("param")) {
-            this.fail("a filter on a parameter needs interaction, which is not compiled here")
-            return ""
+            return (this.selectionExpr(pred))
         }
         if (pred.has("selection")) {
             this.fail("a filter on a selection needs interaction, which is not compiled here")
