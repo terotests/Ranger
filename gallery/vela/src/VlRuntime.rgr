@@ -1204,6 +1204,7 @@ class VlRuntime {
             if (sdef.boolOr("nice" false)) {
                 sc.niceDomain(10)
             }
+            sc.padDomain((sdef.doubleOr("padding" 0.0)))
         }
 
         if (! (has scope.scales name)) {

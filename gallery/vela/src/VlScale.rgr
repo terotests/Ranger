@@ -92,6 +92,33 @@ class VlScale {
         rangeMax = hi
     }
 
+    ; A CONTINUOUS scale's `padding` is not a share of a band: it is pixels of
+    ; room at each end, which is how a bar chart with negative values keeps its
+    ; longest bar off the frame. The reference leaves the RANGE alone and
+    ; widens the domain instead — by however much data those pixels would have
+    ; held — so that the plot is still the plot and the axis still runs from
+    ; edge to edge. Read as a band's padding it reached nothing at all.
+    fn padDomain:void (by:double) {
+        if (by <= 0.0) {
+            return
+        }
+        def span:double (rangeMax - rangeMin)
+        if (span < 0.0) {
+            span = (0.0 - span)
+        }
+        if (span <= (2.0 * by)) {
+            return
+        }
+        def reach:double (domainMax - domainMin)
+        def grow:double ((reach * by) / (span - (2.0 * by)))
+        domainMin = (domainMin - grow)
+        domainMax = (domainMax + grow)
+    }
+
+    fn isDiscrete:boolean () {
+        return (((scaleType == "band") || (scaleType == "point")) || (scaleType == "ordinal"))
+    }
+
     fn addDomainValue:void (value:string) {
         if (! (has domainIndex value)) {
             set domainIndex value (array_length domainValues)

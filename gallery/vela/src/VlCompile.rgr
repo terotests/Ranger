@@ -4790,7 +4790,16 @@ class VlCompile {
         ; Nor does a BINNED field, however it came to be binned. A bin already
         ; says where its own range starts, and extending that to zero draws a
         ; chart of empty space with the bars crowded at one end.
-        if (this.fieldIsSpecBinned(ch.field)) {
+        ; …and nor does a field the CHANNEL binned: a bin already says where
+        ; its own range starts, and extending that to zero draws a chart of
+        ; empty space with the bars crowded at one end. A column a TRANSFORM
+        ; binned is a different matter — the chart reads it as a plain number
+        ; and so does the reference, which knows nothing about where it came
+        ; from.
+        if ch.hasBin {
+            return false
+        }
+        if ch.binnedAlready {
             return false
         }
         ; A line or an area is read along one axis and measured up the other.
