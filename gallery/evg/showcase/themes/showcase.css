@@ -110,6 +110,14 @@
 .shape   { }
 .evenodd { fill-rule: evenodd; }
 
+/* ---- imported svg: geometry in the file, size and colour here ---------- */
+/* rosette.svg names no colours, so the fill below is what its shapes inherit
+ * — the same relationship a hand-written <Path> has with its fill, extended to
+ * a file the gallery does not own. emblem.svg brings its own palette and keeps
+ * it, so only its size is a theme decision. */
+.art     { }
+.emblem  { }
+
 /* ---- charts: geometry from the data, colour from the theme ------------- */
 /* The one generated page in this gallery, and it follows the same rule as the
    hand-written ones: the tree says what is drawn, the theme says how it looks.
@@ -174,6 +182,14 @@
 .theme-editorial .iconMd { width: 52px;  height: 52px; }
 .theme-editorial .iconLg { width: 84px;  height: 84px; }
 .theme-editorial .shape  { width: 76px; height: 76px; fill: #3b2f2a; }
+.theme-editorial .art      { fill: #3b2f2a; }
+.theme-editorial .artAccent { fill: #b08d57; }
+.theme-editorial .artMuted  { fill: #c8bda9; }
+.theme-editorial .artSm    { width: 34px; height: 34px; }
+.theme-editorial .artMd    { width: 62px; height: 62px; }
+.theme-editorial .artLg    { width: 96px; height: 96px; }
+.theme-editorial .emblemSm { width: 54px;  height: 65px; }
+.theme-editorial .emblemLg { width: 100px; height: 120px; }
 /* charts */
 .theme-editorial .chart      { margin-top: 8px; margin-bottom: 4px; }
 .theme-editorial .chartGrid  { stroke: #d8cfbd; }
@@ -292,6 +308,14 @@
 .theme-studio .iconMd { width: 56px;  height: 56px; }
 .theme-studio .iconLg { width: 92px;  height: 92px; }
 .theme-studio .shape  { width: 80px; height: 80px; fill: #e8e8ea; }
+.theme-studio .art      { fill: #e8e8ea; }
+.theme-studio .artAccent { fill: #14e0a0; }
+.theme-studio .artMuted  { fill: #6b6b74; }
+.theme-studio .artSm    { width: 36px; height: 36px; }
+.theme-studio .artMd    { width: 66px; height: 66px; }
+.theme-studio .artLg    { width: 104px; height: 104px; }
+.theme-studio .emblemSm { width: 56px;  height: 67px; }
+.theme-studio .emblemLg { width: 104px; height: 125px; }
 /* charts */
 .theme-studio .chart      { margin-top: 8px; margin-bottom: 4px; }
 .theme-studio .chartGrid  { stroke: #3a4048; }
@@ -422,6 +446,14 @@
 .theme-autumn .iconMd { width: 52px;  height: 52px; }
 .theme-autumn .iconLg { width: 84px;  height: 84px; }
 .theme-autumn .shape  { width: 78px; height: 78px; fill: #4a3b2c; }
+.theme-autumn .art      { fill: #4a3b2c; }
+.theme-autumn .artAccent { fill: #a6603c; }
+.theme-autumn .artMuted  { fill: #cbb79c; }
+.theme-autumn .artSm    { width: 34px; height: 34px; }
+.theme-autumn .artMd    { width: 62px; height: 62px; }
+.theme-autumn .artLg    { width: 98px; height: 98px; }
+.theme-autumn .emblemSm { width: 54px;  height: 65px; }
+.theme-autumn .emblemLg { width: 100px; height: 120px; }
 /* charts */
 .theme-autumn .chart      { margin-top: 8px; margin-bottom: 4px; }
 .theme-autumn .chartGrid  { stroke: #cbbca7; }

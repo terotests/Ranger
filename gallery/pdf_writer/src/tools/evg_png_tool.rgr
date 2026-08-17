@@ -13,6 +13,7 @@ Import "../raster/VectorRasterizer.rgr"
 Import "../../../evg/SVGPathParser.rgr"
 Import "../../../evg/VectorViewBox.rgr"
 Import "../../../evg/VectorStroke.rgr"
+Import "../../../evg/SvgParser.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../fonts/TrueTypeFont.rgr"
@@ -501,8 +502,14 @@ class EVGPNGTool {
         ; Photographs. The raster target used to skip images entirely — a
         ; photo book rendered to PNG came out with the text and none of the
         ; pictures, silently.
+        ; `src` on a path element names an SVG document rather than a
+        ; photograph — it has already been read into svgSource by then — so
+        ; handing it to the image decoder would only produce a "not a JPEG"
+        ; complaint about a file nothing was wrong with.
         if ((strlen el.src) > 0) {
-            this.renderImage(el x y w h)
+            if ((el.tagName == "path") == false) {
+                this.renderImage(el x y w h)
+            }
         }
 
         ; Vector paths. PLAN_VECTOR_IR.md Stage 2 / TODO_EVG "PNG 0.9": the
@@ -616,7 +623,118 @@ class EVGPNGTool {
         return (Matrix2D.create(cs sn (0.0 - sn) cs ex fy))
     }
 
+    ; ------------------------------------------------------------------------
+    ; An imported SVG document
+    ; ------------------------------------------------------------------------
+    ; Each drawable goes through the same rasterizer a `<Path>` does, and
+    ; therefore the same one that paints the page's glyphs. The importer has
+    ; already baked group transforms into the geometry, so the only transform
+    ; left is the one every path needs: viewBox to element box, plus the
+    ; element's position and rotation.
+    fn renderSvgDocument:void (el:EVGElement x:double y:double w:double h:double) {
+        def sp (new SvgParser())
+        if el.fillColor.isSet {
+            sp.setInitialFill((unwrap el.fillColor))
+        }
+        def doc:SvgDocument (sp.parse(el.svgSource))
+        if (doc.hasErrors()) {
+            print ("  SVG import error: " + (doc.errorSummary()))
+        }
+        if (doc.hasWarnings()) {
+            print ("  SVG import: " + (doc.warningSummary()))
+        }
+        if ((doc.itemCount()) == 0) {
+            return
+        }
+
+        def vb:ViewBoxRect (doc.effectiveViewBox())
+        def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
+
+        def span:double w
+        if (h > span) {
+            span = h
+        }
+        def steps:int (to_int (span / 6.0))
+        if (steps < 4) {
+            steps = 4
+        }
+        if (steps > 48) {
+            steps = 48
+        }
+
+        def placed:Matrix2D (Matrix2D.create(m.a m.b m.c m.d (m.e + x) (m.f + y)))
+        def rot:Matrix2D (this.rotationMatrix(el x y w h))
+        def full:Matrix2D (rot.multiply(placed))
+
+        ; The scale the viewBox transform applies, which is what a stroke width
+        ; in user units has to be multiplied by — the same rule the single-path
+        ; case uses.
+        def scale:double m.a
+        if (scale < 0.0) {
+            scale = (0.0 - scale)
+        }
+
+        def buf:RasterBuffer (renderer.getBuffer())
+
+        def k:int 0
+        while (k < (doc.itemCount())) {
+            def item:SvgVectorItem (itemAt doc.items k)
+            def parser:SVGPathParser (SVGPathParser.fromCommands(item.commands))
+            def rings:[PathRing] (parser.flattenRings(steps full.a full.b full.c full.d full.e full.f))
+
+            if (item.hasFill()) {
+                ; Every ring of one shape in ONE fill, so a counter is a hole
+                ; rather than a second solid blob.
+                def raster (new VectorRasterizer())
+                this.applyClip(raster)
+                def r:int 0
+                while (r < (array_length rings)) {
+                    def ring:PathRing (itemAt rings r)
+                    raster.addRing(ring.pts)
+                    r = (r + 1)
+                }
+                def rule:int (VectorRasterizer.nonZero())
+                if (item.fillRule == "evenodd") {
+                    rule = (VectorRasterizer.evenOdd())
+                }
+                def alpha:int (this.alphaOf(el item.fillColor.a))
+                raster.fillAA(buf (item.fillColor.red()) (item.fillColor.green()) (item.fillColor.blue()) alpha rule)
+            }
+
+            if (item.hasStroke()) {
+                def stroker (new VectorRasterizer())
+                this.applyClip(stroker)
+                def closed:boolean (this.pathIsClosed(parser))
+                def rawDashes:[double] (VectorStroke.parseDashes(item.dashArray))
+                def dashes:[double] (VectorStroke.scaleDashes(rawDashes scale))
+                def dashOffset:double (item.dashOffset * scale)
+                def deviceWidth:double (item.strokeWidth * scale)
+                def sk:int 0
+                while (sk < (array_length rings)) {
+                    def sring:PathRing (itemAt rings sk)
+                    if ((array_length dashes) > 0) {
+                        stroker.addDashedStroke(sring.pts deviceWidth closed dashes dashOffset)
+                    } {
+                        stroker.addStroke(sring.pts deviceWidth closed)
+                    }
+                    sk = (sk + 1)
+                }
+                def sAlpha:int (this.alphaOf(el item.strokeColor.a))
+                ; Always non-zero: the quads and joint discs overlap, and
+                ; even-odd would punch holes where they do.
+                stroker.fillAA(buf (item.strokeColor.red()) (item.strokeColor.green()) (item.strokeColor.blue()) sAlpha (VectorRasterizer.nonZero()))
+            }
+
+            k = (k + 1)
+        }
+    }
+
     fn renderPath:void (el:EVGElement x:double y:double w:double h:double) {
+        if ((strlen el.svgSource) > 0) {
+            this.renderSvgDocument(el x y w h)
+            return
+        }
+
         def pathData:string el.svgPath
         if ((strlen pathData) == 0) {
             return

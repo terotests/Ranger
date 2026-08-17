@@ -71,6 +71,7 @@ Based on current progress, here are the most impactful next items:
 - [x] **0.3** Flexbox layout mapping - *DONE (absolute positioning)*
 - [x] **0.4** Image rendering with base64 embedding - *DONE*
 - [x] **0.5** SVG Path embedding - *DONE*
+- [x] **0.10** SVG file import (`<Svg src="…">`) - *DONE (SvgParser; resolved to path data rather than passed through, so the preview shows what will print)*
 - [x] **0.6** Font embedding (TTF to base64) - *DONE*
 - [x] **0.7** Gradients and shadows - *DONE (CSS native)*
 - [ ] **0.8** Unit test framework (Vitest) - *TODO*
@@ -88,6 +89,7 @@ Based on current progress, here are the most impactful next items:
 - [x] **PNG 0.7** EVGGradient shared parsing - *DONE*
 - [ ] **PNG 0.8** Image rendering - *TODO*
 - [x] **PNG 0.9** SVG path rasterization - *DONE (shared VectorRasterizer; fill + approximated stroke)*
+- [x] **PNG 0.10** SVG file import - *DONE (same VectorRasterizer, one item at a time)*
 
 **New Files Created:**
 ```

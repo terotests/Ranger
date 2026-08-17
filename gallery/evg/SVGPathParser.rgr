@@ -934,6 +934,19 @@ class SVGPathParser {
     ; transform HERE rather than afterwards matters: the subdivision then
     ; happens at the size the shape is actually drawn, so a path scaled up does
     ; not show the facets of a curve flattened at its original scale.
+    ; A parser wrapped around commands that were produced somewhere else — by
+    ; VectorShapes, by PathBuilder, or by the SVG importer, which resolves a
+    ; whole document into per-shape command lists. Everything below the parse
+    ; step (bounds, flattening, ring extraction) then works on them unchanged,
+    ; so a renderer has one way to turn commands into geometry rather than one
+    ; per producer.
+    sfn fromCommands:SVGPathParser (cmds:[PathCommand]) {
+        def p (new SVGPathParser())
+        p.commands = cmds
+        p.calculateBounds()
+        return p
+    }
+
     fn flattenRings:[PathRing] (steps:int ma:double mb:double mc:double md:double me:double mf:double) {
         def rings:[PathRing]
         def current (new PathRing())
