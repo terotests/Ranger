@@ -345,6 +345,26 @@ class VlCompile {
             if (k == "style") {
                 ; already taken
             } {
+            if (k == "title") {
+                ; A chart's title configuration is the `group-title` style,
+                ; which is what a title mark is drawn in. Left under its own
+                ; name a chart that asked for a twelve-point heading got the
+                ; default thirteen.
+                def heading (VlJson.objectValue())
+                def before:VlJson (styles.get("group-title"))
+                if (before.isObject()) {
+                    for before.keys bk:string bki {
+                        heading.setMember(bk (before.get(bk)))
+                    }
+                }
+                def stated:VlJson (cfg.get("title"))
+                if (stated.isObject()) {
+                    for stated.keys tk:string tki {
+                        heading.setMember(tk (stated.get(tk)))
+                    }
+                }
+                styles.setMember("group-title" heading)
+            } {
             if (VlCompile.markConfigName(k)) {
                 def named (VlJson.objectValue())
                 def had:VlJson (styles.get(k))
@@ -362,6 +382,7 @@ class VlCompile {
                 styles.setMember(k named)
             } {
                 out.setMember(k (cfg.get(k)))
+            }
             }
             }
             }
