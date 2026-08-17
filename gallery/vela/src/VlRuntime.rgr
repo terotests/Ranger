@@ -2143,13 +2143,15 @@ class VlRuntime {
         for rootItem.marks child:VlSceneMark ci {
             if (child.markType == "group") {
                 if (child.role == "scope") {
-                    for child.items groupItem:VlSceneItem gi {
-                        def base:double (groupItem.number("x"))
-                        for groupItem.marks inner:VlSceneMark ii {
-                            def reach:double (base + (VlRuntime.markRightEdge(inner)))
-                            if (reach > out) {
-                                out = reach
-                            }
+                    ; How far the pane actually reaches, measured the same way
+                    ; the page is measured. Worked out from the items' own x
+                    ; and width instead, a group inside a group counted its
+                    ; offset twice and a concatenation's key stood six hundred
+                    ; pixels clear of the plot it belonged to.
+                    def box:VlBounds (VlViewBox.ofMark(child))
+                    if box.isSet {
+                        if (box.x2 > out) {
+                            out = box.x2
                         }
                     }
                 }
@@ -2931,8 +2933,16 @@ class VlRuntime {
             rootItem.setNumber("height" 0.0)
         }
         chartHeight = (rootItem.number("height"))
+        ; What the panes cover BEYOND the chart's own rectangle, on each side.
+        ; A concatenation carries a top-level width because its panes are all
+        ; that wide, and counting the panes' reach as if it were extra took the
+        ; whole width twice: a key placed beyond the right edge stood six
+        ; hundred pixels clear of the plot it belonged to.
         extentLeft = (0.0 - reach.x1)
-        extentRight = reach.x2
+        extentRight = (reach.x2 - chartWidth)
+        if (extentRight < 0.0) {
+            extentRight = 0.0
+        }
         extentTop = (0.0 - reach.y1)
         extentBottom = (reach.y2 - chartHeight)
         if (extentBottom < 0.0) {

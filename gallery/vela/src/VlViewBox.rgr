@@ -78,6 +78,26 @@ class VlViewBox {
         if ((mark.markType == "line") || (mark.markType == "area")) {
             return (VlViewBox.ofCurve(mark))
         }
+        ; A trail is a ribbon and its items are the MIDDLE of it: half the
+        ; width at each vertex hangs past it on either side. Measured by the
+        ; vertices alone, a key stood two pixels too close to a chart whose
+        ; widest trail reached the right edge.
+        if (mark.markType == "trail") {
+            def ribbon (new VlBounds())
+            for mark.items item:VlSceneItem idx {
+                if (VlViewBox.drawn(item)) {
+                    def half:double 0.5
+                    if (item.has("size")) {
+                        half = ((item.number("size")) / 2.0)
+                    }
+                    def cx:double (item.number("x"))
+                    def cy:double (item.number("y"))
+                    ribbon.add((cx - half) (cy - half))
+                    ribbon.add((cx + half) (cy + half))
+                }
+            }
+            return ribbon
+        }
         for mark.items item:VlSceneItem idx {
             if (VlViewBox.drawn(item)) {
                 if (mark.role == "axis") {
