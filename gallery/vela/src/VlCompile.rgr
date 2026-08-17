@@ -5580,6 +5580,13 @@ class VlCompile {
         ; furniture. A layered chart writes its own row labels as a text mark
         ; and turns the axis off; drawing it anyway puts the labels on twice,
         ; in two different places.
+        ; A channel whose axis is off still has a SCALE, and a grid drawn for
+        ; the other channel is drawn across that scale's range. So which
+        ; channels have scales is remembered before the furniture is turned
+        ; off: a stream graph names no y axis and its x grid still runs the
+        ; height of the plot.
+        def scaleX:boolean hasX
+        def scaleY:boolean hasY
         if (VlCompile.suppressed(x "axis")) { hasX = false }
         if (VlCompile.suppressed(y "axis")) { hasY = false }
 
@@ -5592,24 +5599,18 @@ class VlCompile {
         ; between the marks — unless the specification asks for one everywhere,
         ; which a heat map does: `"config": {"axis": {"grid": true}}` rules the
         ; cells off from each other.
-        def gridEverywhere:boolean (this.configSaysGrid())
+        ; A channel that turned its axis off turned its grid off with it —
+        ; `"axis": null` is the whole of the furniture, not just the labels.
+        ; What the OTHER channel's grid runs across is still its scale, which
+        ; is why the two questions are asked of different things.
         if hasX {
-            def xGrid:boolean ((x.isContinuous()) && (! (x.isBinned())))
-            if (gridEverywhere || xGrid) {
-                ; …unless the channel said no. `"axis": {"grid": false}` is a
-                ; chart asking to be read by its marks alone, and drawn anyway
-                ; the grid is lines the reference never puts on the page.
-                if (! (VlCompile.refusesGrid(x))) {
-                    push out.arr (this.gridAxis("x" "bottom" hasY "y"))
-                }
+            if (this.wantsGrid(x)) {
+                push out.arr (this.gridAxis("x" "bottom" scaleY "y"))
             }
         }
         if hasY {
-            def yGrid:boolean ((y.isContinuous()) && (! (y.isBinned())))
-            if (gridEverywhere || yGrid) {
-                if (! (VlCompile.refusesGrid(y))) {
-                    push out.arr (this.gridAxis("y" "left" hasX "x"))
-                }
+            if (this.wantsGrid(y)) {
+                push out.arr (this.gridAxis("y" "left" scaleX "x"))
             }
         }
         if hasX {
@@ -5692,6 +5693,57 @@ class VlCompile {
                 }
             }
         }
+    }
+
+    ; What the whole chart's configuration says about one guide property, or
+    ; nothing at all if it does not say.
+    fn configFlag:VlJson (block:string key:string) {
+        def config:VlJson (rootSource.get("config"))
+        if (! (config.isObject())) {
+            config = (source.get("config"))
+        }
+        if (! (config.isObject())) {
+            return (VlJson.nullValue())
+        }
+        def inner:VlJson (config.get(block))
+        if (! (inner.isObject())) {
+            return (VlJson.nullValue())
+        }
+        return (inner.get(key))
+    }
+
+    ; Whether a channel is ruled off. What decides is the SCALE, not the
+    ; column: a grid line stands for a number between the marks, and a scale
+    ; with a discrete domain has no numbers between its marks. A binned axis
+    ; has none either — its own ticks are the bin edges, and a grid drawn on
+    ; them is a line down every bar.
+    ;
+    ; A chart may say either way and its word is final, which is how a bar
+    ; chart rules its categories off from each other and how a chart asking to
+    ; be read by its marks alone gets no lines at all.
+    fn wantsGrid:boolean (ch:VlChannel) {
+        def stated:VlJson (ch.def0.get("axis"))
+        if (stated.isObject()) {
+            def said:VlJson (stated.get("grid"))
+            if (said.isBool()) {
+                return (said.asBool())
+            }
+        }
+        ; …then what the chart says about every axis it has. A heat map rules
+        ; its cells off from each other; a population pyramid says no lines at
+        ; all. Both are stated once at the top and both are final.
+        def everywhere:VlJson (this.configFlag("axis" "grid"))
+        if (everywhere.isBool()) {
+            return (everywhere.asBool())
+        }
+        if (ch.isBinned()) {
+            return false
+        }
+        def kind:string (this.scaleTypeFor(ch))
+        if (kind == "band") { return false }
+        if (kind == "point") { return false }
+        if (kind == "ordinal") { return false }
+        return true
     }
 
     ; Does the specification's own configuration ask for a grid on every axis?
@@ -5923,7 +5975,12 @@ class VlCompile {
         def given:VlJson (ch.def0.get("axis"))
         if (given.isObject()) {
             for given.keys key:string ki {
-                a.setMember(key (given.get(key)))
+                ; A stated `grid` belongs to the grid axis and not to this one.
+                ; Copied here as well, the labelled axis drew the grid a second
+                ; time, over the marks instead of under them.
+                if (key != "grid") {
+                    a.setMember(key (given.get(key)))
+                }
             }
         }
         if (orient == "bottom") {
