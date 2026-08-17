@@ -6486,8 +6486,16 @@ class VlCompile {
         a.setMember("grid" (VlJson.boolValue(false)))
         ; An axis measuring a channel with two ends names both of them.
         def axisTitle:string (ch.title())
+        ; A stated title is the whole title, and a stated EMPTY title is a
+        ; chart asking for no name at all — which is not the same as saying
+        ; nothing. Read as silence it was given the column's name back, and
+        ; the axis reserved a line of page for it.
+        def ownTitle:VlJson (ch.def0.get("title"))
+        if (ownTitle.isString()) {
+            axisTitle = ownTitle.str
+        }
         def secondary:VlChannel (this.channel((ch.name + "2")))
-        if secondary.defined {
+        if (secondary.defined && (! (ownTitle.isString()))) {
             if ((strlen secondary.field) > 0) {
                 ; …unless the second channel is the far edge of a BIN. A binned
                 ; axis has two fields because a bin has two ends, and naming
