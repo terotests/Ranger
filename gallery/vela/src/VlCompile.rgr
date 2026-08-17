@@ -7879,6 +7879,13 @@ class VlCompile {
             if ((markName == "rule") || (markName == "line")) {
                 sizeKey = "strokeWidth"
             }
+            ; A TEXT mark's size is how big the letters are: a pictogram chart
+            ; drawn out of emoji sizes them by the count they stand for. Given
+            ; a symbol's area instead it reaches nothing and every glyph came
+            ; out at the default eleven points.
+            if (markName == "text") {
+                sizeKey = "fontSize"
+            }
             if size.hasValue {
                 update.setMember(sizeKey (this.withCondition(size (VlCompile.literal(size.value)))))
             } {
