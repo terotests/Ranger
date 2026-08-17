@@ -7,15 +7,15 @@ string/Unicode handling, dates, formatting, hashing.
 One implementation, compiled to every target. No `systemclass`, no operator
 templates, no per-target branches.
 
-**Status: first slice.** `RgNum` and `RgU32` are landed and gated. The rest is
-planned in [PLAN_JS_STDLIB.md](../../PLAN_JS_STDLIB.md).
+**Status: first slice.** `RgNum`, `RgU32`, `RgStr` and `RgBase` are landed and
+gated. The rest is planned in [PLAN_JS_STDLIB.md](../../PLAN_JS_STDLIB.md).
 
 | File | What | State |
 | --- | --- | --- |
 | `RgNum.rgr` | IEEE-754 doubles: rounding, `exp`, `log`, `pow`, signed zero, ToInt32/ToUint32, float32 | landed |
 | `RgU32.rgr` | 32-bit unsigned algebra: and/or/xor/not, shifts, rotations, add/sub, clz, popcount, big-endian bytes | landed |
-| `RgStr.rgr` | UTF-16 code-unit addressing over all three string models; UTF-8 bytes | planned |
-| `RgBase.rgr` | hex, base64, base64url | planned |
+| `RgStr.rgr` | UTF-16 code-unit addressing over all three string models; code points; UTF-8 bytes | landed |
+| `RgBase.rgr` | hex, base64, base64url, and `RgBytesResult` | landed |
 | `RgDate.rgr` | ES5 time algebra, ISO parsing and formatting | planned |
 | `RgIntl.rgr` | collation, number and date formatting over CLDR | planned |
 | `RgCrypto.rgr` | SHA-2, HMAC, PBKDF2, secure random, UUID | planned |
@@ -121,14 +121,54 @@ therefore `-1 / Infinity`, and the cross-target suite is what found this.
 
 ### Strings have three models, and all three are live
 
-| `strlen` | es6 | python | go | cpp |
-| --- | --- | --- | --- | --- |
-| `"é"` | 1 | 1 | 1 | **2** |
-| `"😀"` | **2** | 1 | 1 | **4** |
+| `strlen` | es6 | python | go | rust | cpp |
+| --- | --- | --- | --- | --- | --- |
+| `"é"` | 1 | 1 | 1 | 1 | **2** |
+| `"😀"` | **2** | 1 | 1 | 1 | **4** |
 
-es6 counts UTF-16 code units, python and go count code points, C++ counts UTF-8
-bytes. Any function that indexes a string has to know which, which is what
-`RgStr` will encapsulate (`PLAN_JS_STDLIB_TEXT.md`).
+es6 counts UTF-16 code units, python/go/rust count code points, C++ counts UTF-8
+bytes. `charAt` follows suit: on `"é"` it answers 233 on the first four and 195
+on C++. `RgStr` encapsulates all three and exposes UTF-16 code units, so
+`RgStr.len("😀")` is 2 everywhere.
+
+### `strfromcode` encodes a code point; it cannot emit a byte
+
+On C++, `strfromcode 195` answers the **two-byte** UTF-8 encoding of U+00C3, not
+the single byte 0xC3. So a UTF-8 encoder assembled from per-byte `strfromcode`
+calls — which is the obvious way to write one, and the way the JS engine writes
+it — double-encodes: `"héllo"` came back as `"Ã©llo"`. Two consequences, both in
+`RgStr`:
+
+- `encodeUtf8(cp)` is just `strfromcode cp`, because that already IS the UTF-8
+  encoding on a byte-model target.
+- `byteSlice` uses `substring`, which is byte-indexed on a byte-model target,
+  rather than rebuilding the run byte by byte.
+
+Separately, `strfromcode` used **directly as an argument** does not compile on
+Rust (the writer emits a `char` and then calls a `String` method on it), so every
+call here is bound to a `string` first. And on es6 it is `String.fromCharCode`,
+which truncates to 16 bits — `fromCodePoint` builds a surrogate pair there.
+
+### Mutating an array parameter does not reach the caller on Go
+
+```ranger
+sfn appendAll:void (into:[string] more:[string]) {
+    push into (itemAt more 0)      ; the caller never sees this on Go
+}
+```
+
+A Go slice is passed by value and `append` rebinds the local. The symptom is
+silent: every individual vector set was correct while the combined `all` set came
+out **empty**, on Go only. Functions here return new arrays instead.
+
+### "Byte offset" has to mean UTF-8, not "whatever the target indexes by"
+
+The engine's `cuByteOf` means "the offset the target's own string search
+reports" — code units on es6, bytes elsewhere. Lifted unchanged, it answered 3 on
+es6 and 5 everywhere else for the same call, because that contract is
+target-relative by construction. `RgStr.utf8ByteOfUnit` and `unitOfUtf8Byte`
+are defined over UTF-8 on every target instead. A bridge to native search offsets
+is a real need, but it belongs to whoever is calling the native search.
 
 ### There is no `exp`, `log`, `pow`, `round`, `min` or `atan` operator
 
@@ -167,5 +207,8 @@ disagrees about trailing `.0`, exponent spelling and digit count. `showD`
 decomposes a double into sign, a 52-bit mantissa in two halves, and a binary
 exponent, and the test does the same decomposition in JavaScript.
 
-Current reading: **104 vectors, identical on es6 / python / go / cpp / rust;
-101 of them exact against Node**, the other three being the `exp`/`log` series.
+Current reading: **173 vectors, identical on es6 / python / go / cpp / rust;
+170 of them exact against Node**, the other three being the `exp`/`log` series.
+
+`strmodel` is the one set that is reported rather than compared — `RgStr.kind()`
+is 0 on es6, 2 on python/go/rust and 1 on cpp, and that is the point.

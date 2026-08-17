@@ -59,7 +59,12 @@ const TARGETS: Target[] = [
   },
 ];
 
-const SETS = ["num", "negzero", "u32"];
+const SETS = ["num", "negzero", "u32", "str", "base"];
+
+// Printed for the record but NOT compared: RgStr.kind() is 0 on es6, 2 on
+// python/go/rust and 1 on cpp. It is the one value that is supposed to differ,
+// and the point of RgStr is that nothing else does.
+const DIAGNOSTIC_SETS = ["strmodel"];
 
 function hasTool(name: string): boolean {
   try {
@@ -249,6 +254,99 @@ function oracle(): Map<string, string> {
   i("fromBytes_deadbeef", i32(0xdeadbeef));
   i("byte0_deadbeef", 0xde);
   i("wrap_of_2p32_plus5", 5);
+
+  // ---- str: UTF-16 code-unit addressing over all three string models ----
+  const emoji = "😀";
+  const mixed = "a😀b";
+  const acc = "héllo";
+  const u8 = (t: string) => Buffer.from(t, "utf8");
+  const S = (k: string, v: string | number) => e.set(k, String(v));
+  S("len_empty", "".length);
+  S("len_ascii", "abc".length);
+  S("len_acute", acc.length);
+  S("len_emoji", emoji.length);
+  S("len_mixed", mixed.length);
+  S("unit0_emoji", emoji.charCodeAt(0));
+  S("unit1_emoji", emoji.charCodeAt(1));
+  S("unit2_emoji", -1);
+  S("unitm1_emoji", -1);
+  S("unit1_acute", acc.charCodeAt(1));
+  S("unit0_mixed", mixed.charCodeAt(0));
+  S("unit3_mixed", mixed.charCodeAt(3));
+  S("cp0_emoji", emoji.codePointAt(0)!);
+  S("cp1_mixed", mixed.codePointAt(1)!);
+  S("cpcount_mixed", [...mixed].length);
+  S("cpcount_acute", [...acc].length);
+  S("substr_mixed_1_3", mixed.slice(1, 3));
+  S("substr_mixed_0_1", mixed.slice(0, 1));
+  S("substr_mixed_3_4", mixed.slice(3, 4));
+  S("substr_acute_1_3", acc.slice(1, 3));
+  S("len_substr_mixed_1_3", mixed.slice(1, 3).length);
+  S("utf8ByteOf_mixed_1", u8(mixed.slice(0, 1)).length);
+  S("utf8ByteOf_mixed_3", u8(mixed.slice(0, 3)).length);
+  S("utf8ByteOf_acute_2", u8(acc.slice(0, 2)).length);
+  const unitOfByte = (t: string, bi: number) => {
+    let b = 0;
+    let u = 0;
+    for (const ch of t) {
+      if (b >= bi) return u;
+      b += u8(ch).length;
+      u += ch.length;
+    }
+    return u;
+  };
+  S("unitOfUtf8Byte_mixed_5", unitOfByte(mixed, 5));
+  S("unitOfUtf8Byte_acute_3", unitOfByte(acc, 3));
+  S("cps_len", [...mixed].length);
+  S("cps_1", [...mixed][1].codePointAt(0)!);
+  S("cps_roundtrip", mixed);
+  S("units_len", mixed.length);
+  S("units_roundtrip", mixed);
+  S("fromCodePoint_astral", String.fromCodePoint(128512));
+  S("fromCodePoint_astral_len", String.fromCodePoint(128512).length);
+  S("utf8_len_mixed", u8(mixed).length);
+  S("utf8_hex_mixed", u8(mixed).toString("hex"));
+  S("utf8_hex_acute", u8(acc).toString("hex"));
+  S("utf8_roundtrip", mixed);
+  S("utf8_width_ascii", 1);
+  S("utf8_width_acute", 2);
+  S("utf8_width_astral", 4);
+
+  // ---- base: RFC 4648 §10 in full, plus the validation cases ----
+  const b64 = (t: string) => u8(t).toString("base64");
+  const hx = (t: string) => u8(t).toString("hex");
+  S("b64_empty", b64(""));
+  S("b64_f", b64("f"));
+  S("b64_fo", b64("fo"));
+  S("b64_foo", b64("foo"));
+  S("b64_foob", b64("foob"));
+  S("b64_fooba", b64("fooba"));
+  S("b64_foobar", b64("foobar"));
+  S("hex_empty", hx(""));
+  S("hex_f", hx("f"));
+  S("hex_foobar", hx("foobar"));
+  S("b64_utf8", b64("héllo 😀"));
+  S("hex_utf8", hx("héllo 😀"));
+  S("b64_text_roundtrip", "héllo 😀");
+  const highBytes = Buffer.from([251, 255, 190]);
+  S("b64_highbytes", highBytes.toString("base64"));
+  S("b64url_highbytes", highBytes.toString("base64url"));
+  S("hex_highbytes", highBytes.toString("hex"));
+  const twoBytes = Buffer.from([1, 2]);
+  S("b64_two", twoBytes.toString("base64"));
+  S("b64url_two", twoBytes.toString("base64url"));
+  S("dec_foobar", "ok:" + Buffer.from("Zm9vYmFy", "base64").toString("hex"));
+  S("dec_f", "ok:" + Buffer.from("Zg==", "base64").toString("hex"));
+  S("dec_hex", "ok:deadbeef");
+  // Node's decoder is lenient about all of these; RgBase is not, deliberately.
+  S("dec_hex_odd", "err:InvalidCharacterError");
+  S("dec_hex_bad", "err:InvalidCharacterError");
+  S("dec_b64_badchar", "err:InvalidCharacterError");
+  S("dec_b64_unpadded", "err:InvalidCharacterError");
+  S("dec_b64url_unpadded", "ok:66");
+  S("dec_b64_lone", "err:InvalidCharacterError");
+  S("dec_b64_dirty_tail", "err:InvalidCharacterError");
+  S("dec_b64_after_pad", "err:InvalidCharacterError");
   return e;
 }
 
@@ -331,6 +429,21 @@ describe("lib/core — identical on every target", () => {
         }
         for (const s of SETS) {
           expect(runSet(t, file, s), `set "${s}" on ${t.name}`).toBe(baseline[s]);
+        }
+      });
+
+      // The diagnostic set is the one place a target is EXPECTED to differ, so
+      // it is reported rather than compared. Seeing it in the output is what
+      // makes the run above meaningful: es6 counted UTF-16 units, cpp counted
+      // UTF-8 bytes, and they still agreed on every RgStr answer.
+      it("reports its native string model", () => {
+        for (const s of DIAGNOSTIC_SETS) {
+          const seen = parse(runSet(t, file, s));
+          const kind = Number(seen.get("model_kind"));
+          expect([0, 1, 2], `${t.name} reported an unknown string model`).toContain(kind);
+          console.log(
+            `    ${t.name}: model_kind=${kind} (native strlen "é"=${seen.get("native_strlen_acute")}, "😀"=${seen.get("native_strlen_emoji")})`
+          );
         }
       });
     });
