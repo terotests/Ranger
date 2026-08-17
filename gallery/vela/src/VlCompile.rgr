@@ -6747,6 +6747,12 @@ class VlCompile {
                 }
             }
         }
+        ; `"title": null` on the channel is a chart asking for no heading at
+        ; all — the categories say what they are — and it is not the same as
+        ; saying nothing, which means "call it whatever the column is called".
+        if (VlCompile.suppressed(ch "title")) {
+            return
+        }
         ; A conditional channel names itself in the condition, beside the
         ; field it names — read from the channel alone, a key titled "Weather"
         ; was headed with the column's own name instead.

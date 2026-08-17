@@ -902,13 +902,18 @@ class VlRuntime {
             def step:double (this.numberOrSignal((tdef.get("step")) 1.0))
             def field:string (tdef.stringOr("as" "data"))
             def out:[VlJson]
+            ; How many, and then each one from the start rather than from the
+            ; one before it. A tenth cannot be written exactly in binary, so a
+            ; run of a hundred and twenty-seven of them added up one at a time
+            ; drifts far enough to gain or lose a step by the end.
             if (step > 0.0) {
-                def at:double start
-                while (at < stop) {
+                def count:int (to_int (to_double (ceil ((stop - start) / step))))
+                def k:int 0
+                while (k < count) {
                     def row:VlJson (VlJson.objectValue())
-                    row.setMember(field (VlJson.numberValue(at)))
+                    row.setMember(field (VlJson.numberValue((start + ((to_double k) * step)))))
                     push out row
-                    at = (at + step)
+                    k = (k + 1)
                 }
             }
             return out
