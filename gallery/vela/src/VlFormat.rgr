@@ -159,6 +159,24 @@ class VlFormat {
         return (VlFormat.applySpec(value (VlFormat.parse(spec))))
     }
 
+    ; The zeroes at the end of a fraction, and the point they hang off if they
+    ; were all of it. Only after the decimal point: 100 keeps its zeroes.
+    sfn trimZeroes:string (text:string) {
+        def dot:int (lastIndexOf text ".")
+        if (dot < 0) {
+            return text
+        }
+        def end:int (strlen text)
+        while (end > (dot + 1)) {
+            if ((substring text (end - 1) end) == "0") {
+                end = (end - 1)
+            } {
+                return (substring text 0 end)
+            }
+        }
+        return (substring text 0 dot)
+    }
+
     sfn applySpec:string (value:double s:VlFormatSpec) {
         def v:double value
         def suffix:string ""
@@ -200,6 +218,12 @@ class VlFormat {
             text = (VlJson.formatSignificant(v 12))
         } {
             text = (VlFormat.fixed(v digits))
+        }
+        ; `~` asks for the trailing zeroes to go — `.1~%` prints 5% where `.1%`
+        ; prints 5.0% — and the flag was read and then never acted on, so every
+        ; label carried a decimal the specification had asked it to drop.
+        if s.trim {
+            text = (VlFormat.trimZeroes(text))
         }
         if s.comma {
             text = (VlFormat.group(text))

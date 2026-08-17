@@ -1162,9 +1162,14 @@ class VlRuntime {
         sc.logBase = (sdef.doubleOr("base" 10.0))
         sc.powExponent = (sdef.doubleOr("exponent" 1.0))
 
-        this.readBins(sc (sdef.get("bins")))
         this.readDomain(sc (sdef.get("domain")) sdef)
         this.readRange(sc (sdef.get("range")))
+        ; After the domain, not before it: a bin plan may be nothing but a
+        ; STEP — data that arrived already binned says how wide a bin is and
+        ; nothing else — and where those bins start and stop is then the
+        ; domain's own business. Read first, the plan had no ends to run
+        ; between and the axis carried a single tick at zero.
+        this.readBins(sc (sdef.get("bins")))
 
         if ((sc.scaleType == "band") || (sc.scaleType == "point")) {
             sc.layout()
@@ -1213,8 +1218,8 @@ class VlRuntime {
         if (! (plan.has("step"))) {
             return
         }
-        def start:double (plan.doubleOr("start" 0.0))
-        def stop:double (plan.doubleOr("stop" 0.0))
+        def start:double (plan.doubleOr("start" sc.domainMin))
+        def stop:double (plan.doubleOr("stop" sc.domainMax))
         def step:double (plan.doubleOr("step" 0.0))
         if (step <= 0.0) {
             return

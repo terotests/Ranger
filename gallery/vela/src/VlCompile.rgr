@@ -107,6 +107,13 @@ class VlChannel {
         return field
     }
 
+    ; Binned, however it came to be: computed here or already binned upstream.
+    ; A grid is drawn between numbers and a bin's edges ARE its ticks, so an
+    ; axis of bins has no grid either way.
+    fn isBinned:boolean () {
+        return (hasBin || binnedAlready)
+    }
+
     ; A binned field is TWO fields: where the bin starts and where it ends.
     fn binEndField:string () {
         def prefix:string (this.binPrefix())
@@ -1831,6 +1838,19 @@ class VlCompile {
             if (cdef.has("bin")) {
                 ch.hasBin = true
                 def binDef:VlJson (cdef.get("bin"))
+                ; `"bin": "binned"` says the column ALREADY holds bin starts —
+                ; a transform upstream did the binning — so there is nothing to
+                ; compute here and no bin signal to take a domain from. Read as
+                ; a request to bin, the axis asked a signal that was never
+                ; published where its range was, and came out one tick short of
+                ; the data. It is the same statement as `{"binned": true}`,
+                ; written the short way.
+                if (binDef.isString()) {
+                    if (binDef.str == "binned") {
+                        ch.hasBin = false
+                        ch.binnedAlready = true
+                    }
+                }
                 if (binDef.isObject()) {
                     if (binDef.boolOr("binned" false)) {
                         ; Already binned upstream. The field keeps its own name
@@ -1915,7 +1935,11 @@ class VlCompile {
     ; a plain field does the DATA get asked, and then the answer is whatever
     ; the column actually holds.
     fn inferKind:string (ch:VlChannel) {
-        if (ch.hasBin) { return "quantitative" }
+        ; Binned either way: a column of bin starts is a QUANTITY, whoever did
+        ; the binning. Read as a category it became a band scale, and a chart
+        ; of nine bins was as wide as nine bands rather than as wide as the
+        ; range they cover.
+        if (ch.isBinned()) { return "quantitative" }
         if ((strlen ch.aggregate) > 0) { return "quantitative" }
         if ((strlen ch.timeUnit) > 0) { return "temporal" }
         ; And otherwise NOMINAL, whatever the column holds. This is the
@@ -4054,13 +4078,13 @@ class VlCompile {
         ; cells off from each other.
         def gridEverywhere:boolean (this.configSaysGrid())
         if hasX {
-            def xGrid:boolean ((x.isContinuous()) && (! x.hasBin))
+            def xGrid:boolean ((x.isContinuous()) && (! (x.isBinned())))
             if (gridEverywhere || xGrid) {
                 push out.arr (this.gridAxis("x" "bottom" hasY "y"))
             }
         }
         if hasY {
-            def yGrid:boolean ((y.isContinuous()) && (! y.hasBin))
+            def yGrid:boolean ((y.isContinuous()) && (! (y.isBinned())))
             if (gridEverywhere || yGrid) {
                 push out.arr (this.gridAxis("y" "left" hasX "x"))
             }
@@ -4202,7 +4226,11 @@ class VlCompile {
                 ; …unless the second channel is the far edge of a BIN. A binned
                 ; axis has two fields because a bin has two ends, and naming
                 ; both of them titles the axis "IMDB Rating, bin_IMDB_Rating_end".
-                def binPair:boolean (ch.hasBin || ch.binnedAlready)
+                ; A COMPUTED bin's far edge is an internal name — appending
+                ; it titles the axis "IMDB Rating, bin_IMDB_Rating_end" — but a
+                ; pre-binned pair is two columns the specification named
+                ; itself, and the reference names both of them.
+                def binPair:boolean ch.hasBin
                 ; …nor when the channel NAMED itself. A stated title is the
                 ; whole title; appending the other end's field name to it
                 ; produces "Percentage, nx2".
@@ -5166,12 +5194,28 @@ class VlCompile {
         }
         ; A binned bar spans its bin, and the pair of half-pixel nudges keeps a
         ; bin narrower than a quarter pixel from disappearing entirely.
+        ;
+        ; A bar over bins that were computed UPSTREAM spans its bin the same
+        ; way — the only difference is where the far edge's name comes from:
+        ; a computed bin derives it, and a pre-binned one is handed it by the
+        ; partner channel. Drawing that case without the nudges left every bar
+        ; a pixel wider than the reference's and touching its neighbour.
+        def endField:string ""
         if ch.hasBin {
-            def from:VlJson (this.scaled(axis (ch.binEndField())))
-            from.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis true (this.binSpacing()))))
+            endField = (ch.binEndField())
+        }
+        if ch.binnedAlready {
+            def partner:VlChannel (this.channel((ch.name + "2")))
+            if partner.defined {
+                endField = (partner.outField())
+            }
+        }
+        if ((strlen endField) > 0) {
+            def from:VlJson (this.scaled(axis endField))
+            from.setMember("offset" (VlCompile.binNudge((ch.outField()) endField axis true (this.binSpacing()))))
             update.setMember(axis from)
             def to:VlJson (this.scaled(axis (ch.outField())))
-            to.setMember("offset" (VlCompile.binNudge((ch.outField()) (ch.binEndField()) axis false (this.binSpacing()))))
+            to.setMember("offset" (VlCompile.binNudge((ch.outField()) endField axis false (this.binSpacing()))))
             update.setMember((axis + "2") to)
             return
         }
