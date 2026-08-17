@@ -5201,10 +5201,15 @@ class VlCompile {
             if (stated.has("values")) {
                 a.setMember("values" (stated.get("values")))
             }
+            if (stated.has("tickCount")) {
+                a.setMember("tickCount" (stated.get("tickCount")))
+            }
         }
         if (! (a.has("values"))) {
-            if (! (this.logGrid(scale))) {
-                a.setMember("tickCount" (this.tickCountSignal(orient)))
+            if (! (a.has("tickCount"))) {
+                if (! (this.logGrid(scale))) {
+                    a.setMember("tickCount" (this.tickCountSignal(orient)))
+                }
             }
         }
         a.setMember("domain" (VlJson.boolValue(false)))
@@ -5391,12 +5396,20 @@ class VlCompile {
                 ; A binned axis wants a tick per bin edge, which is far more
                 ; than one per forty pixels — the scale's own `bins` then
                 ; decides where they land.
-                if ch.hasBin {
-                    def dense (VlJson.objectValue())
-                    dense.setMember("signal" (VlJson.stringValue((("ceil(" + (this.sizeSignal("width"))) + "/10)"))))
-                    a.setMember("tickCount" dense)
+                ; …unless the specification asked for a count. `tickCount: 11`
+                ; on an axis of ten years is a chart asking for a tick a year,
+                ; and overwritten by one-per-forty-pixels it got whatever the
+                ; plot happened to be wide.
+                if (a.has("tickCount")) {
+                    ; the axis said so
                 } {
-                    a.setMember("tickCount" (this.tickCountSignal(orient)))
+                    if ch.hasBin {
+                        def dense (VlJson.objectValue())
+                        dense.setMember("signal" (VlJson.stringValue((("ceil(" + (this.sizeSignal("width"))) + "/10)"))))
+                        a.setMember("tickCount" dense)
+                    } {
+                        a.setMember("tickCount" (this.tickCountSignal(orient)))
+                    }
                 }
             }
         }
