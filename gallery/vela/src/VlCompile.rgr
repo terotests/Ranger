@@ -1486,7 +1486,12 @@ class VlCompile {
                     push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left"))
                 }
                 push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false))
-                push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true))
+                ; A row of panels only needs a strip under it if there is an
+                ; axis to put there. A trellis whose panels have no x axis had
+                ; an empty strip reserving a pixel of page.
+                if ((xAxes.count()) > 0) {
+                    push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true))
+                }
             } {
                 push marks.arr (VlCompile.titleGroup("column-title" "column-title" titleText ""))
                 push marks.arr (VlCompile.headerGroup("row_header" "row-header" "" "" "child_height" yAxes false))
@@ -1501,13 +1506,18 @@ class VlCompile {
         def layout (VlJson.objectValue())
         layout.setMember("padding" (VlJson.numberValue(20.0)))
         if (! wrapped) {
+            ; …and the title only stands clear of them if there is a title.
             def offset (VlJson.objectValue())
-            if ((strlen rowField) > 0) {
-                offset.setMember("rowTitle" (VlJson.numberValue(10.0)))
-            } {
-                offset.setMember("columnTitle" (VlJson.numberValue(10.0)))
+            if ((strlen (titleText.asString())) > 0) {
+                if ((strlen rowField) > 0) {
+                    offset.setMember("rowTitle" (VlJson.numberValue(10.0)))
+                } {
+                    offset.setMember("columnTitle" (VlJson.numberValue(10.0)))
+                }
             }
-            layout.setMember("offset" offset)
+            if ((array_length offset.keys) > 0) {
+                layout.setMember("offset" offset)
+            }
         }
         if wrapped {
             layout.setMember("bounds" (VlJson.stringValue("full")))
