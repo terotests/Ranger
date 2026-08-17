@@ -1585,6 +1585,12 @@ class VlRuntime {
             titleBox.role = "frame"
             titleBox.width = chartWidth
             titleBox.height = chartHeight
+            ; A chart's title stands clear of EVERYTHING above the plot, not of
+            ; the plot itself. The topmost label of a continuous y axis is
+            ; centred on the plot's upper edge, so half of it hangs above —
+            ; and a title measured from the plot sat five pixels lower than the
+            ; reference's, which is five pixels of page.
+            titleBox.top = extentTop
             ; A CHART's title is set in the group-title style — thirteen point
             ; and bold — where a facet header's is a guide title at eleven.
             def styled:VlJson (VlJson.objectValue())
