@@ -109,6 +109,22 @@ class VlScale {
         if (span <= (2.0 * by)) {
             return
         }
+        ; Room at the ends is room ON THE PAGE, so how much of the domain it
+        ; is worth depends on how the domain reaches the page. A log scale
+        ; spaces its values by their logarithms, so five pixels at each end of
+        ; one is five pixels' worth of LOGARITHM — padded as if the spacing
+        ; were even, an axis of four decades grew to eight.
+        if (scaleType == "log") {
+            if ((domainMin > 0.0) && (domainMax > 0.0)) {
+                def lo:double (VlMath.ln(domainMin))
+                def hi:double (VlMath.ln(domainMax))
+                def spread:double (hi - lo)
+                def step:double ((spread * by) / (span - (2.0 * by)))
+                domainMin = (VlMath.exp((lo - step)))
+                domainMax = (VlMath.exp((hi + step)))
+                return
+            }
+        }
         def reach:double (domainMax - domainMin)
         def grow:double ((reach * by) / (span - (2.0 * by)))
         domainMin = (domainMin - grow)

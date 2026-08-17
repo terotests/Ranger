@@ -1213,10 +1213,14 @@ class VlRuntime {
                     sc.domainMax = 0.0
                 }
             }
+            ; Room at the ends first, then round the ends off. The other way
+            ; round the rounding is undone by the padding, and a log axis that
+            ; should run from a thousandth to ten thousand ran from a hundredth
+            ; to a thousand with a ragged edge either side.
+            sc.padDomain((sdef.doubleOr("padding" 0.0)))
             if (sdef.boolOr("nice" false)) {
                 sc.niceDomain(10)
             }
-            sc.padDomain((sdef.doubleOr("padding" 0.0)))
         }
 
         if (! (has scope.scales name)) {
