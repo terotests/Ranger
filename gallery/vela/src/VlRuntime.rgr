@@ -2070,6 +2070,11 @@ class VlRuntime {
 
     sfn markRightEdge:double (mark:VlSceneMark) {
         def out:double 0.0
+        ; A trail is a ribbon, so its vertices are the MIDDLE of it: half the
+        ; width at that point hangs past them on either side. Measured by the
+        ; vertices alone, a legend stood two pixels too close to a chart whose
+        ; widest trail reached the right edge.
+        def half:boolean (mark.markType == "trail")
         for mark.items item:VlSceneItem idx {
             ; A rectangle states its far edge one way or the other — a second
             ; coordinate, or a width from the first. Adding the width to the
@@ -2091,6 +2096,11 @@ class VlRuntime {
                     sw = (item.number("strokeWidth"))
                 }
                 at = (at + (2.0 * sw))
+            }
+            if half {
+                if (item.has("size")) {
+                    at = (at + ((item.number("size")) / 2.0))
+                }
             }
             if (at > out) {
                 out = at

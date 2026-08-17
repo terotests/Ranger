@@ -4953,8 +4953,17 @@ class VlCompile {
         ; The reference's own bubble sizes: an area of four up to one of 361,
         ; which is a symbol of two pixels across up to one of nineteen.
         def range (VlJson.arrayValue())
-        push range.arr (VlJson.numberValue(4.0))
-        push range.arr (VlJson.numberValue(361.0))
+        if (markName == "trail") {
+            ; A TRAIL's size is a WIDTH in pixels, not an area in square ones:
+            ; it is the thickness of the ribbon at that point, and the
+            ; reference runs it from one pixel to four. Given a bubble's range
+            ; instead, a chart of share prices came out ninety times too thick.
+            push range.arr (VlJson.numberValue(1.0))
+            push range.arr (VlJson.numberValue(4.0))
+        } {
+            push range.arr (VlJson.numberValue(4.0))
+            push range.arr (VlJson.numberValue(361.0))
+        }
         sc.setMember("range" range)
         sc.setMember("zero" (VlJson.boolValue(true)))
         ; …unless the specification stated one. A trail asks for widths in
@@ -5297,7 +5306,7 @@ class VlCompile {
                 ; STROKE, so its key is too; a dot depends on whether it is
                 ; FILLED — a scatter plot's outlined dots make an outlined key,
                 ; and the solid dots on a line make a solid one.
-                def outlined:boolean (markName == "line")
+                def outlined:boolean ((markName == "line") || (markName == "trail"))
                 if (markName == "point") {
                     outlined = (! (markDef.boolOr("filled" false)))
                 }
@@ -5389,7 +5398,14 @@ class VlCompile {
         if size.defined {
             if (! size.hasValue) {
                 def l2 (VlJson.objectValue())
-                l2.setMember("size" (VlJson.stringValue((this.sname("size")))))
+                ; A trail's size is the WIDTH of the ribbon, so its key is a
+                ; set of lines of different thicknesses rather than dots of
+                ; different areas.
+                def sizeKey:string "size"
+                if (((markName == "trail") || (markName == "line")) || (markName == "rule")) {
+                    sizeKey = "strokeWidth"
+                }
+                l2.setMember(sizeKey (VlJson.stringValue((this.sname("size")))))
                 l2.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
                 VlCompile.nameLegend(l2 size)
                 VlCompile.applyStatedLegend(l2 size)
@@ -5584,7 +5600,8 @@ class VlCompile {
     ; What the key is drawn as: a filled square for the marks that are solid
     ; blocks of colour, a short dash for a line, and a dot for everything else.
     fn legendSymbol:string () {
-        if (markName == "line") {
+        ; A trail is a line, and its key is a short line too.
+        if ((markName == "line") || (markName == "trail")) {
             return "stroke"
         }
         if ((markName == "bar") || (markName == "rect")) {
@@ -5610,7 +5627,11 @@ class VlCompile {
     ; the same construction a trellis uses, with the panels drawn on top of one
     ; another instead of side by side.
     fn seriesField:string () {
-        if ((markName != "line") && (markName != "area")) {
+        ; A TRAIL is a line whose width varies along it, and it is one shape
+        ; per series for exactly the same reason. Left out, five companies'
+        ; share prices came out as one ribbon running back and forth across
+        ; the plot.
+        if (((markName != "line") && (markName != "area")) && (markName != "trail")) {
             return ""
         }
         def colour:VlChannel (this.channel("color"))

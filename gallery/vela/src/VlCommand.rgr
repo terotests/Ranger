@@ -91,6 +91,12 @@ class VlDrawCommand {
     ; rather than as a path string: a line mark is a list of points, and turning
     ; it into path syntax is the backend's decision, not this layer's.
     def points:[double]
+    ; A TRAIL's width at each of those vertices. The ribbon's outline is worked
+    ; out from the two together, and it is worked out by the BACKEND rather
+    ; than here, so that the shape can be placed at the plot's origin like
+    ; every other one. Built into path syntax up here it had nowhere to put
+    ; that origin, and every trail was drawn against the left edge of the page.
+    def widths:[double]
     def interpolate:string "linear"
     ; What a cardinal or catmull-rom curve is asked to do with its tangents.
     ; The reference's defaults differ per interpolation, so the command carries
@@ -248,29 +254,21 @@ class VlSceneCommands {
         if (count == 0) {
             return
         }
-        def points:[double]
-        def sizes:[double]
-        for mark.items item:VlSceneItem idx {
-            push points (offsetX + (item.number("x")))
-            push points (offsetY + (item.number("y")))
-            def wide:double 1.0
-            if (item.has("size")) {
-                wide = (item.number("size"))
-            }
-            push sizes wide
-        }
-        def builder (new PathBuilder())
-        VlShape.appendTrail(builder points sizes)
-        if (builder.isEmpty()) {
-            return
-        }
         def cmd (new VlDrawCommand())
-        cmd.op = "path"
+        cmd.op = "trail"
         cmd.markType = mark.markType
         cmd.role = mark.role
         cmd.x = 0.0
         cmd.y = 0.0
-        cmd.pathData = (builder.asPathData())
+        for mark.items item:VlSceneItem idx {
+            push cmd.points (offsetX + (item.number("x")))
+            push cmd.points (offsetY + (item.number("y")))
+            def wide:double 1.0
+            if (item.has("size")) {
+                wide = (item.number("size"))
+            }
+            push cmd.widths wide
+        }
         def first:VlSceneItem (itemAt mark.items 0)
         VlSceneCommands.applyStyle(cmd first)
         push list.commands cmd
