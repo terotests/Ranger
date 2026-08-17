@@ -238,6 +238,10 @@ class VlCompile {
     ; itself; every cell of a trellis is `child_width` by `child_height`.
     def widthSignal:string "width"
     def heightSignal:string "height"
+    ; Where this compiler sits in a nest of layers — "" at the top, "0" for the
+    ; first layer, "01" for the second layer of the first. It only has to be
+    ; unique, and it is what makes it so.
+    def layerPath:string ""
     ; Set on the compiler that draws one PANEL of a trellis, so that it does not
     ; try to build the trellis again.
     def insidePanel:boolean false
@@ -447,8 +451,13 @@ class VlCompile {
         def index:int 0
         while (index < total) {
             def child (new VlCompile())
-            child.dataLabel = ("data_" + (VlJson.intToText(index)))
-            child.markLabel = (("layer_" + (VlJson.intToText(index))) + "_marks")
+            ; A layer inside a layer names its data and its marks after the
+            ; whole path down to it. Named after its own index alone, the
+            ; second layer of the first layer and the second layer of the chart
+            ; were both "data_1", and one silently replaced the other.
+            child.layerPath = (layerPath + (VlJson.intToText(index)))
+            child.dataLabel = ("data_" + child.layerPath)
+            child.markLabel = (("layer_" + child.layerPath) + "_marks")
             if bandX {
                 set child.forcedTypes "x" "band"
             }
@@ -1755,10 +1764,20 @@ class VlCompile {
         if (fields.isArray()) {
             def i:int 0
             while (i < (fields.count())) {
-                def one (VlJson.objectValue())
-                one.setMember("data" data)
-                one.setMember("field" (fields.at(i)))
-                push into.arr one
+                def entry:VlJson (fields.at(i))
+                ; A nested layer has already merged its own layers, so its
+                ; `fields` hold whole entries rather than field NAMES. Wrapping
+                ; one of those in another entry produced a domain that named no
+                ; data set and whose field was an object, and the scale it
+                ; described ran from zero to zero.
+                if (entry.isObject()) {
+                    push into.arr entry
+                } {
+                    def one (VlJson.objectValue())
+                    one.setMember("data" data)
+                    one.setMember("field" entry)
+                    push into.arr one
+                }
                 i = (i + 1)
             }
             return
