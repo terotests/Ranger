@@ -3415,8 +3415,27 @@ class VlRuntime {
             def value:VlJson (this.encodeChannel(key cdef row))
             if (value.isDefined()) {
                 item.setValue(key value)
+            } {
+                ; `{"value": null}` is not the same as saying nothing. It is a
+                ; chart overruling the style it inherited — a trellis whose
+                ; panels are asked for no frame — and read as silence the style
+                ; won and every panel kept the box it was told not to draw.
+                if (VlRuntime.saysNothing(cdef)) {
+                    item.setString(key "")
+                }
             }
         }
+    }
+
+    ; Whether a channel definition states a value and states it as null.
+    sfn saysNothing:boolean (cdef:VlJson) {
+        if (! (cdef.isObject())) {
+            return false
+        }
+        if (! (cdef.has("value"))) {
+            return false
+        }
+        return ((cdef.get("value")).isNull())
     }
 
     ; One channel definition to one value. The forms are the reference's:

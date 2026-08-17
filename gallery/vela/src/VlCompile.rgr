@@ -1370,7 +1370,7 @@ class VlCompile {
                 push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true))
             }
         }
-        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped))
+        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused())))
         out.setMember("marks" marks)
 
         ; Where the panels go, and how far the title stands clear of them.
@@ -1536,7 +1536,7 @@ class VlCompile {
     }
 
     ; One panel: the chart itself, drawn over the partition it belongs to.
-    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean) {
+    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue("cell")))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -1565,6 +1565,15 @@ class VlCompile {
         def update (VlJson.objectValue())
         update.setMember("width" (VlCompile.signalRef("child_width")))
         update.setMember("height" (VlCompile.signalRef("child_height")))
+        ; `"view": {"stroke": null}` is a chart asking for no box round its
+        ; panels. The style says to draw one, so the panel has to say outright
+        ; that it does not — and six panels each a stroke wider than they
+        ; should be is six strokes of page.
+        if bare {
+            def none (VlJson.objectValue())
+            none.setMember("value" (VlJson.nullValue()))
+            update.setMember("stroke" none)
+        }
         def encode (VlJson.objectValue())
         encode.setMember("update" update)
         out.setMember("encode" encode)
@@ -2824,6 +2833,34 @@ class VlCompile {
             return (direction == "horizontal")
         }
         return ((orient == "top") || (orient == "bottom"))
+    }
+
+    ; Whether the chart asked for no frame round its plotting rectangle. It
+    ; may say so in its own `view` block or in the configuration; either way
+    ; what it says is a stroke of null, which is not a colour.
+    fn viewStrokeRefused:boolean () {
+        def view:VlJson (rootSource.get("view"))
+        if (! (view.isObject())) {
+            view = (source.get("view"))
+        }
+        if (view.isObject()) {
+            if (view.has("stroke")) {
+                return ((view.get("stroke")).isNull())
+            }
+        }
+        def config:VlJson (rootSource.get("config"))
+        if (! (config.isObject())) {
+            config = (source.get("config"))
+        }
+        if (config.isObject()) {
+            def inner:VlJson (config.get("view"))
+            if (inner.isObject()) {
+                if (inner.has("stroke")) {
+                    return ((inner.get("stroke")).isNull())
+                }
+            }
+        }
+        return false
     }
 
     ; The same, for a name rather than a number. It reads the WHOLE chart's

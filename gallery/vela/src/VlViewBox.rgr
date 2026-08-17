@@ -440,6 +440,12 @@ class VlViewBox {
         if (! (item.has("stroke"))) {
             return
         }
+        ; A stroke stated as nothing — `{"value": null}`, which is a mark
+        ; overruling the outline its style would have given it — is not a
+        ; colour, and an outline nobody draws takes up no room.
+        if ((strlen (item.text("stroke"))) == 0) {
+            return
+        }
         if ((item.text("stroke")) == "transparent") {
             return
         }
