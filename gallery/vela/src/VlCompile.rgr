@@ -4115,6 +4115,56 @@ class VlCompile {
         push transforms.arr t
     }
 
+    ; Every value a mark is POSITIONED, PAINTED or SIZED by has to be a finite
+    ; number, and the reference checks them all rather than the two that place
+    ; the mark: a point whose colour is missing is as undrawable as one whose x
+    ; is. The channels are asked in the reference's own order, because the
+    ; answer is an expression and two expressions that test the same things in
+    ; a different order are not the same string.
+    ;
+    ; A COUNT is left out: counting produces a number for every group there is,
+    ; so there is nothing to check.
+    fn validityExpr:string () {
+        def out:string ""
+        for (VlCompile.validityOrder()) name:string ni {
+            def ch:VlChannel (this.channel(name))
+            if ch.defined {
+                if (! ch.hasValue) {
+                    if (ch.aggregate != "count") {
+                        if (this.continuousScale(ch)) {
+                            def field:string (ch.outField())
+                            if ((strlen field) > 0) {
+                                if ((strlen out) > 0) {
+                                    out = (out + " && ")
+                                }
+                                out = (out + (VlCompile.validExpr(field)))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn validityOrder:[string] () {
+        def out:[string]
+        push out "x"
+        push out "y"
+        push out "theta"
+        push out "radius"
+        push out "color"
+        push out "fill"
+        push out "stroke"
+        push out "opacity"
+        push out "fillOpacity"
+        push out "strokeOpacity"
+        push out "strokeWidth"
+        push out "size"
+        push out "angle"
+        return out
+    }
+
     ; One shape drawn through many rows — a line, an area, a trail — is not a
     ; row at a time, and the rows it must skip are marked rather than dropped.
     ; The mark's own `defined` does that; see encodeMark.
@@ -4136,22 +4186,7 @@ class VlCompile {
         if (VlCompile.isPathMark(markName)) {
             return
         }
-        def expr:string ""
-        for channels ch:VlChannel ci {
-            if (((ch.name == "x") || (ch.name == "y")) || (ch.name == "theta")) {
-                if (ch.isContinuous()) {
-                    if (! ch.hasValue) {
-                        def name:string (ch.outField())
-                        if ((strlen name) > 0) {
-                            if ((strlen expr) > 0) {
-                                expr = (expr + " && ")
-                            }
-                            expr = (expr + (VlCompile.validExpr(name)))
-                        }
-                    }
-                }
-            }
-        }
+        def expr:string (this.validityExpr())
         if ((strlen expr) == 0) {
             return
         }
@@ -7230,19 +7265,7 @@ class VlCompile {
         ; skip are marked rather than dropped: dropping them would join across
         ; the gap.
         if (VlCompile.isPathMark(markName)) {
-            def expr:string ""
-            for channels ch:VlChannel ci {
-                if ((ch.name == "x") || (ch.name == "y")) {
-                    if (ch.isContinuous()) {
-                        if (! ch.hasValue) {
-                            if ((strlen expr) > 0) {
-                                expr = (expr + " && ")
-                            }
-                            expr = (expr + (VlCompile.validExpr((ch.outField()))))
-                        }
-                    }
-                }
-            }
+            def expr:string (this.validityExpr())
             if ((strlen expr) > 0) {
                 def d (VlJson.objectValue())
                 d.setMember("signal" (VlJson.stringValue(expr)))
