@@ -5984,6 +5984,11 @@ class VlCompile {
         ; An ORDINAL column has an order — four cylinders is more than three —
         ; so its colours are a ramp through a single hue rather than a set of
         ; unrelated ones. A nominal column has no order and gets the palette.
+        if ((VlCompile.statedOn(ch "type")).isString()) {
+            if (((VlCompile.statedOn(ch "type")).str) == "ordinal") {
+                return "ordinal"
+            }
+        }
         if (ch.kind == "ordinal") {
             return "ordinal"
         }
@@ -6013,7 +6018,7 @@ class VlCompile {
         sc.setMember("type" (VlJson.stringValue(type)))
         sc.setMember("domain" (this.domainFor(ch)))
         if (ch.isDiscrete()) {
-            sc.setMember("range" (VlJson.stringValue("category")))
+            sc.setMember("range" (VlJson.stringValue((VlCompile.colourRangeFor(ch)))))
         } {
             ; A continuous colour is a ramp, interpolated the way the reference
             ; interpolates it — in a perceptual space, not in RGB.
