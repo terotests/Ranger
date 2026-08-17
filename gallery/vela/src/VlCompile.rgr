@@ -5702,6 +5702,14 @@ class VlCompile {
         if (! (domain.isArray())) {
             return ""
         }
+        ; Only a DISCRETE domain is an order. `"domain": [0, 100]` on a
+        ; quantitative scale states the ends of a measurement, and read as a
+        ; list of categories it wrote a column holding each row's place in
+        ; [0, 100] — a column of −1s that no scale reads and that the
+        ; reference does not write.
+        if (! (ch.isDiscrete())) {
+            return ""
+        }
         if ((strlen ch.field) == 0) {
             return ""
         }

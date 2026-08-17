@@ -315,11 +315,20 @@ class VlLegend {
             }
             row.setNumber("column" column)
 
-            def sx:double ((offset * 0.5) + symbolOffset)
+            ; Down a column the labels line up, so every row is given the
+            ; widest symbol's cell. Across a row they do not: each entry is
+            ; its own little block, and the reference sizes it from its OWN
+            ; symbol — which is why a key of two trail widths puts its "20"
+            ; eighteen pixels in and its "60" twenty-five.
+            def cell:double offset
+            if (this.isHorizontal()) {
+                cell = e.cell
+            }
+            def sx:double ((cell * 0.5) + symbolOffset)
             def sy:double (e.cell * 0.5)
             e.item.setNumber("x" sx)
             e.item.setNumber("y" sy)
-            e.labelItem.setNumber("x" ((offset + symbolOffset) + labelOffset))
+            e.labelItem.setNumber("x" ((cell + symbolOffset) + labelOffset))
             e.labelItem.setNumber("y" sy)
 
             def symbolMark (new VlSceneMark())
@@ -354,7 +363,11 @@ class VlLegend {
         def entryY:double padding
         def titleBox (new VlBounds())
         if ((strlen title) > 0) {
-            titleBox = (VlBounds.ofText(title titleFontSize "left" "top" padding padding))
+            ; Measured from the title as it is DRAWN, which is cut to the
+            ; title limit. Measured from the whole of it, a key headed "Barley
+            ; Yield (bushels/acre)" claimed the width of a string it shows
+            ; twenty characters of, and the page grew by the difference.
+            titleBox = (VlBounds.ofText((VlText.truncate(title titleFontSize titleLimit)) titleFontSize "left" "top" padding padding))
             entryY = (entryY + ((titleBox.height()) + titlePadding))
         }
         entryItem.setNumber("x" entryX)
@@ -528,7 +541,11 @@ class VlLegend {
         def entryY:double padding
         def titleBox (new VlBounds())
         if ((strlen title) > 0) {
-            titleBox = (VlBounds.ofText(title titleFontSize "left" "top" padding padding))
+            ; Measured from the title as it is DRAWN, which is cut to the
+            ; title limit. Measured from the whole of it, a key headed "Barley
+            ; Yield (bushels/acre)" claimed the width of a string it shows
+            ; twenty characters of, and the page grew by the difference.
+            titleBox = (VlBounds.ofText((VlText.truncate(title titleFontSize titleLimit)) titleFontSize "left" "top" padding padding))
             entryY = (entryY + ((titleBox.height()) + titlePadding))
         }
         entryItem.setNumber("x" entryX)
@@ -692,8 +709,22 @@ class VlLegend {
                 tallest = edge
             }
         }
+        ; Entries in a row sit on a common middle rather than a common top: a
+        ; key of two trail widths is read as two dashes at the same height,
+        ; not as two dashes hanging from a ceiling. The row is as tall as its
+        ; tallest entry rounded up to a whole pixel, and each entry drops by
+        ; half of what it is short by — which is the reference's own
+        ; arithmetic down to the last decimal.
+        def rowHeight:double (VlBounds.ceilTo(tallest))
         for scopeMark.items col:VlSceneItem idx {
-            col.setNumber("height" tallest)
+            def box:VlBounds (itemAt boxes idx)
+            def down:double ((rowHeight - (box.y2 - (col.number("y")))) / 2.0)
+            col.setNumber("y" ((col.number("y")) + down))
+            box.translate(0.0 down)
+            ; …and each entry is still only as tall as itself. Given the whole
+            ; row's height it would reach that far BELOW where it now starts,
+            ; and the drawing grew by what the shortest entry was shifted.
+            col.setNumber("height" (box.y2 - (col.number("y"))))
         }
     }
 
