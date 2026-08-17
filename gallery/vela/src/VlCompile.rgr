@@ -3511,6 +3511,19 @@ class VlCompile {
     ; the transforms the encoding implies. The order is the reference's:
     ; aggregate, then stack, then the validity filter — a filter before the
     ; aggregate would count different rows.
+    ; A run of numbers, from a start to a stop by a step. The column it lands
+    ; in is called "data" unless the chart says otherwise, which is what the
+    ; reference calls it too.
+    sfn sequenceTransform:VlJson (given:VlJson) {
+        def t (VlJson.objectValue())
+        t.setMember("type" (VlJson.stringValue("sequence")))
+        t.setMember("start" (VlJson.numberValue((given.doubleOr("start" 0.0)))))
+        t.setMember("stop" (VlJson.numberValue((given.doubleOr("stop" 0.0)))))
+        t.setMember("step" (VlJson.numberValue((given.doubleOr("step" 1.0)))))
+        t.setMember("as" (VlJson.stringValue((given.stringOr("as" "data")))))
+        return t
+    }
+
     fn buildData:VlJson () {
         def out (VlJson.arrayValue())
         def src (VlJson.objectValue())
@@ -3522,7 +3535,14 @@ class VlCompile {
         if (data.has("url")) {
             src.setMember("url" (data.get("url")))
         }
-        push out.arr src
+        ; A chart may GENERATE its data rather than be given it — a sequence of
+        ; numbers to draw a sine wave over. There is nothing to derive it from,
+        ; so the generator and everything after it live in one data set, which
+        ; is what the reference writes and where the marks then look.
+        def generated:boolean (data.has("sequence"))
+        if (! generated) {
+            push out.arr src
+        }
 
         def derived (VlJson.objectValue())
         derived.setMember("name" (VlJson.stringValue(dataLabel)))
@@ -3546,6 +3566,20 @@ class VlCompile {
         ; reference points the marks straight at the source, and an extra node
         ; renames every node after it — which is most of what a chart with
         ; nothing to transform differed by.
+        if generated {
+            def whole (VlJson.arrayValue())
+            push whole.arr (VlCompile.sequenceTransform((data.get("sequence"))))
+            def si:int 0
+            while (si < (transforms.count())) {
+                push whole.arr (transforms.at(si))
+                si = (si + 1)
+            }
+            src.setMember("transform" whole)
+            push out.arr src
+            dataLabel = "source_0"
+            dataName = dataLabel
+            return out
+        }
         if ((transforms.count()) == 0) {
             dataLabel = "source_0"
             dataName = dataLabel
@@ -3772,9 +3806,13 @@ class VlCompile {
                     def fo (VlJson.objectValue())
                     fo.setMember("type" (VlJson.stringValue("fold")))
                     fo.setMember("fields" (t.get("fold")))
-                    if (t.has("as")) {
-                        fo.setMember("as" (t.get("as")))
+                    def foldAs:VlJson (t.get("as"))
+                    if (! (foldAs.isArray())) {
+                        foldAs = (VlJson.arrayValue())
+                        push foldAs.arr (VlJson.stringValue("key"))
+                        push foldAs.arr (VlJson.stringValue("value"))
                     }
+                    fo.setMember("as" foldAs)
                     push transforms.arr fo
                 } {
                 if (t.has("pivot")) {

@@ -599,6 +599,20 @@ class VlExprEval {
         if (name == "sqrt") {
             return (VlJson.numberValue((sqrt (a0.asDouble()))))
         }
+        ; The circle functions, which a chart uses to draw a wave or to place
+        ; something round a centre by hand.
+        if (name == "sin") {
+            return (VlJson.numberValue((sin (a0.asDouble()))))
+        }
+        if (name == "cos") {
+            return (VlJson.numberValue((cos (a0.asDouble()))))
+        }
+        if (name == "tan") {
+            return (VlJson.numberValue(((sin (a0.asDouble())) / (cos (a0.asDouble())))))
+        }
+        if (name == "atan2") {
+            return (VlJson.numberValue((atan2 (a0.asDouble()) (a1.asDouble()))))
+        }
         if (name == "exp") {
             return (VlJson.numberValue((VlMath.exp((a0.asDouble())))))
         }
