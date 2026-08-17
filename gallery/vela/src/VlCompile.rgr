@@ -1871,6 +1871,23 @@ class VlCompile {
     }
 
     sfn addTitle:void (into:[string:string] scale:string title:string) {
+        ; The title arriving may itself be a list: a layer inside a layer has
+        ; already merged its own, and appending "Min of date, date" whole to
+        ; "date" named the column twice.
+        def rest:string title
+        def cut:int (indexOf rest ", ")
+        while (cut >= 0) {
+            VlCompile.addOneTitle(into scale (substring rest 0 cut))
+            rest = (substring rest (cut + 2) (strlen rest))
+            cut = (indexOf rest ", ")
+        }
+        VlCompile.addOneTitle(into scale rest)
+    }
+
+    sfn addOneTitle:void (into:[string:string] scale:string title:string) {
+        if ((strlen title) == 0) {
+            return
+        }
         if (has into scale) {
             def already:string (unwrap (get into scale))
             if (! (VlCompile.namesInclude(already title))) {
@@ -1881,14 +1898,25 @@ class VlCompile {
         set into scale title
     }
 
+    ; Is this name already one of the comma-separated names in the list? Asked
+    ; with `indexOf`, "date" is inside "date (year)" and "Mean of date" is
+    ; inside nothing, so the answer depended on where in the list a name
+    ; happened to sit. Split and compare whole names instead.
     sfn namesInclude:boolean (list:string name:string) {
         if (list == name) {
             return true
         }
-        if ((indexOf list (name + ", ")) == 0) {
-            return true
+        def rest:string list
+        def sep:string ", "
+        def cut:int (indexOf rest sep)
+        while (cut >= 0) {
+            if ((substring rest 0 cut) == name) {
+                return true
+            }
+            rest = (substring rest (cut + 2) (strlen rest))
+            cut = (indexOf rest sep)
         }
-        return ((indexOf list (", " + name)) >= 0)
+        return (rest == name)
     }
 
     sfn mergeAxisTitles:void (axes:VlJson titles:[string:string] asked:[string:string]) {
