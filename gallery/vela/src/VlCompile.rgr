@@ -4972,6 +4972,13 @@ class VlCompile {
     fn domainSortFor:VlJson (ch:VlChannel) {
         def given:VlJson (ch.def0.get("sort"))
         if (given.isNull()) {
+            ; `"sort": null` is a chart saying its categories are ALREADY in
+            ; the order it wants — a waterfall runs Begin, Jan, Feb — and it is
+            ; a different statement from saying nothing, which asks for them in
+            ; their own order. Read the same, the months came out alphabetical.
+            if (ch.def0.has("sort")) {
+                return (VlJson.boolValue(false))
+            }
             return (VlJson.boolValue(true))
         }
         if (given.isBool()) {
