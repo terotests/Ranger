@@ -194,6 +194,46 @@ Objects are released, but late, so memory grows nearly monotonically and is
 reclaimed at process exit. That is survivable for a batch compiler and would not
 be for a language server.
 
+### Build time: the two native routes
+
+That table is how fast the compiler RUNS. How fast it BUILDS is a different
+question with a different answer, and the LLVM route wins it decisively. Both
+routes below start from the same `compiler/ng_Compiler.rgr` with the same
+driver, so the only variable is the backend and its toolchain:
+
+| stage | C++ route | LLVM route |
+|---|---|---|
+| codegen (`node bin/output.js`) | 11,536 ms -> 2.86 MB `.cpp` | 9,923 ms -> 21.0 MB `.ll` |
+| toolchain, debug | `g++ -O0` 45,743 ms | `clang -O0` **3,408 ms** |
+| toolchain, release | `g++ -O2` 137,143 ms | `clang -O2` **23,691 ms** |
+| **end to end, debug** | **57.3 s** | **13.3 s** (4.3x faster) |
+| **end to end, release** | **148.7 s** | **33.6 s** (4.4x faster) |
+
+The codegen step is a wash — LLVM is marginally cheaper (9.9 s vs 11.5 s)
+despite emitting 7x more text, because IR is mechanical to print while C++
+output is not. The whole difference is the toolchain: `g++` has to parse
+headers and instantiate `std::string`/`std::vector`/`std::shared_ptr` across a
+2.86 MB single translation unit, while `clang` is handed code that is already
+lowered. At `-O0` that is a **13x** gap. Of clang's 23.7 s at `-O2`, the four C
+runtime files are 0.9 s; the 21 MB of IR is the rest.
+
+Binaries out of each route, which is also where the LLVM target keeps its edge:
+
+| | `-O0` | `-O1` | `-O2` |
+|---|---|---|---|
+| C++ | 17,551,376 B | 5,924,984 B | 6,307,336 B |
+| LLVM | 2,984,736 B | — | **1,791,048 B** |
+
+One caveat that matters for a fully self-hosted rebuild: the figures above are
+NODE-driven. Driving codegen with the native binary instead, `.cpp` output takes
+33,669 ms (2.9x node) and `.ll` output takes TENS OF MINUTES — measured off file
+timestamps rather than a clean timer, so treat the magnitude and not the digits.
+Emitting 21 MB through the native string builder is the pathological case; the
+shape of it (7x the output, orders of magnitude the time) is what quadratic
+concatenation looks like, and it is the same class of defect that
+`ranger_str_concat2` already fixed once on the ES6 path. Until that is chased
+down, the fast build is the node-driven one.
+
 `npm run selfhost:round:llvm` runs the whole chain and checks the two things
 that make it self-hosting rather than merely finishing:
 
@@ -595,6 +635,35 @@ assumed.
   BUILT; with no construction site there is nothing to compute it from, and the
   calls such a lambda makes through an unresolved receiver are dropped rather
   than emitted -- which keeps the module valid and loses the call.
+- **`strlen` and `charAt` count CODEPOINTS on JS and BYTES natively**, and the
+  LLVM writer straddles the difference. Measured, not inferred — the same
+  `def em:string "—"` answers `strlen 1, charAt 8212` under Node and
+  `strlen 3, charAt 226` native. `llvmEscapeCString` (`ng_LLVMIRWriter.rgr`) and
+  `utf8ByteLen` (`ng_LowIRBuilder.rgr`) both walk a string and UTF-8-*encode*
+  every code >= 128, which is right when the code is a codepoint and doubles the
+  encoding when it is already a UTF-8 byte. So the native binary emitting LLVM IR
+  turns `—` (`E2 80 94`) into `C3 A2 C2 80 C2 94`: 53 literals in the compiler's
+  own IR, every one a diagnostic string. The two functions share the assumption,
+  so they stay consistent with EACH OTHER — the `[N x i8]` sizes match the
+  escapes, the IR is valid, it links and runs, and only the message text is
+  mojibake. That mutual consistency is why nothing caught it.
+
+  Nothing in the suite covers it either: `selfhost:round:llvm` checks the native
+  binary emitting **ES6**, never emitting **LLVM IR**, and the ES6 writer copies
+  string literals through verbatim without ever looking at a character. The bug
+  needs a compiler that reads a non-ASCII literal and re-encodes it — which only
+  happens compiling the compiler *to LLVM* *with* the LLVM build.
+
+  A fix needs no new runtime primitive, because the divergence is detectable
+  from inside the language: `(strlen "—")` is 1 under codepoint semantics and 3
+  under byte semantics, so both functions can probe once and branch. What is NOT
+  safe is the tempting narrow version — "emit 128..255 raw, encode only above
+  255" — which fixes native and silently breaks Node for every codepoint in
+  U+0080..U+00FF.
+
+  The wider point outranks the writer bug: this is a language-level semantic
+  divergence. Any Ranger program that INDEXES a non-ASCII string means something
+  different on the two targets.
 
 **Closed since this section was written:**
 
