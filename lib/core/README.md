@@ -7,8 +7,10 @@ string/Unicode handling, dates, formatting, hashing.
 One implementation, compiled to every target. No `systemclass`, no operator
 templates, no per-target branches.
 
-**Status: first slice.** `RgNum`, `RgU32`, `RgText` and `RgBase` are landed and
-gated. The rest is planned in [PLAN_JS_STDLIB.md](../../PLAN_JS_STDLIB.md).
+**Status: first slice, wired into the JS engine.** `RgNum`, `RgU32`, `RgText`
+and `RgBase` are landed and gated, and `ComponentEngine.rgr` now delegates 16 of
+its own functions here instead of carrying copies (268 lines deleted). The rest
+is planned in [PLAN_JS_STDLIB.md](../../PLAN_JS_STDLIB.md).
 
 | File | What | State |
 | --- | --- | --- |
@@ -237,6 +239,13 @@ exponent, and the test does the same decomposition in JavaScript.
 
 Current reading: **173 vectors, identical on es6 / python / go / cpp / rust;
 170 of them exact against Node**, the other three being the `exp`/`log` series.
+
+The second gate is the JS engine itself. `ComponentEngine.rgr` delegates to this
+directory, so `npm run test:tsengine` — 45,221 lines of interpreter compiled to
+six targets and checked against Node's answers for seven workloads — is also a
+test of `lib/core`. Verified by hand here (vitest is not installed on this
+machine): all seven answers correct on es6 and on Go, and the engine still writes
+for kotlin, csharp, dart and swift6.
 
 `strmodel` is the one set that is reported rather than compared — `RgText.kind()`
 is 0 on es6, 2 on python/go/rust and 1 on cpp, and that is the point.
