@@ -576,47 +576,42 @@ assumed.
   analysis on this backend is young. `array_extract` hands the element to the
   caller, which is what its `@(strong)` says. A block-scoped redeclaration
   leaks for the same reason.
-- **A lambda that REASSIGNS a captured string or object writes to a copy.**
-  Mutating THROUGH one (`acc.n = …`, `push xs v`) is fine and always was —
-  the reference itself does not change. Rebinding the name is what does not
-  propagate:
-
-  ```
-  def acc:Box (mk(0))
-  xs.forEach({ acc = (mk((acc.n + item))) })   ; ES6 3, here 0
-  ```
-
-  This was attempted and reverted, twice, and the reason is worth recording.
-  A mutated capture is promoted to a shared heap cell; making that work for a
-  VALUE needs only the reads to go through the cell, which `loadSlot` now does
-  for every consumer. A REFERENCE is different: it is also copied into a
-  closure environment, handed to a callee that keeps it, compared for identity,
-  and released at scope end — and a cell in the middle of any of those paths is
-  silently the wrong pointer. Boxing strings crashed `compiler/test_call.rgr`
-  in `CodeNode.fromList` with a null element; boxing objects crashed
-  `gallery/game_engine/v2/web/web_live3d_host.rgr` in `ranger_obj_retain`.
-  Neither was caught by the self-host round, `test:llvm`, or the 30 fixtures —
-  only by the 1485-file sweep. Closing this properly means auditing every path
-  that consumes a reference, not just the ones that read it as a value.
 - **A lambda that is only ever CALLED, never constructed in the same module,
   loses its captures.** The capture layout is computed where the closure is
-  built; with no construction site there is nothing to compute it from, and the
+  BUILT; with no construction site there is nothing to compute it from, and the
   calls such a lambda makes through an unresolved receiver are dropped rather
-  than emitted — which keeps the module valid and loses the call.
-- **`try` has no unwinding.** A `throw` is a branch to the enclosing catch
-  block, and the front end refuses a throw that is not inside one, so a failure
-  cannot cross a call boundary. Every other target rejects that program too, so
-  there is nothing to diverge on — but a real exception mechanism would be a
-  different design, not an extension of this one.
+  than emitted -- which keeps the module valid and loses the call.
 
 **Closed since this section was written:**
 
-- *"boxing covers `i32`/`i1` locals only"* — it now covers every VALUE a
-  capturing lambda assigns to: `i32`, `i1` and `f64`. The cell is as wide as
-  what it holds and remembers its logical type, and `loadSlot` reads through it
-  so every consumer agrees. `tests/fixtures/lambda_callback.rgr` accumulates
-  into a captured `double` and printed 0 here against 21 everywhere else.
-  References remain a copy — see above.
+- *"boxing covers `i32`/`i1` locals only"* — it now covers **every** local a
+  capturing lambda assigns to: `i32`, `i1`, `f64`, strings and object or
+  collection references. All five capture kinds match the ES6 build; three of
+  the five were silently wrong.
+
+  This took three attempts, and the two that were reverted were reverted on a
+  wrong diagnosis worth recording. The failures looked like "a reference is
+  consumed by paths a cell cannot serve", and they were not. An audit of all 28
+  direct slot accesses — classifying each as a read, a write, or a consumer
+  that wants the cell itself — found the actual causes, three of them in the
+  PROMOTION rather than in any consumer:
+
+  - the class was not recorded before promoting, and a method call resolves its
+    receiver through `objectSlots`, so `x.copy()` on a boxed receiver lowered
+    to a null;
+  - a string cell held a borrowed pointer, because promotion returned before
+    `emitOwnedStringInit` would have copied it;
+  - `nullify` stored into the SLOT, dropping the cell;
+  - and reads had to go through `loadSlot` rather than one branch of
+    `lowerExpr`, so that every consumer agrees.
+
+  One crash was not about boxing at all: `ng_RangerFlowParser` line 583 reads
+  `p.nameNode.type_name` with no null check, inside a `try` that catches a
+  raised unwrap and not a plain field read. Boxing exposed it, because that
+  loop advances both a captured string and a captured object — promoting only
+  the string made the object look up a new name in the old class. **Partial
+  boxing is worse than none:** captures have to move together, or their
+  mutation semantics diverge from each other.
 - *"`error_msg` answers the same placeholder the C++ template does"* — it now
   answers the message that was thrown. `throw` itself used to be dropped
   entirely, so control ran on past it into the rest of the `try` body.
