@@ -1420,7 +1420,7 @@ class VlRuntime {
                 sc.setNumericRange(chartHeight 0.0)
                 return
             }
-            def scheme:[string] (VlConfig.schemeColors((r.str)))
+            def scheme:[string] (config.schemeFor((r.str)))
             if ((array_length scheme) > 0) {
                 for scheme color:string ci {
                     push sc.rangeValues color
@@ -1475,7 +1475,7 @@ class VlRuntime {
         }
         if (r.isObject()) {
             if (r.has("scheme")) {
-                def scheme:[string] (VlConfig.schemeColors((r.stringOr("scheme" ""))))
+                def scheme:[string] (config.schemeFor((r.stringOr("scheme" ""))))
                 if ((array_length scheme) > 0) {
                     for scheme color:string ci {
                         push sc.rangeValues color

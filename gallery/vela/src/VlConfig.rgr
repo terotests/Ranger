@@ -15,6 +15,9 @@
 Import "VlJson.rgr"
 
 class VlConfig {
+    ; What a built-in range name means in THIS chart, when its
+    ; configuration renamed it.
+    def rangeSchemes:[string:string]
     def styles:[string:VlJson]
     ; Per-mark-type defaults: `config.rect`, `config.line`, `config.symbol`, …
     ; These are applied before the styles and are what give a line its width and
@@ -150,6 +153,23 @@ class VlConfig {
         if (! (config.isObject())) {
             return
         }
+        ; `config.range` renames the palettes the built-in range NAMES stand
+        ; for: `{"range": {"ramp": {"scheme": "yellowgreenblue"}}}` says every
+        ; continuous colour scale in this chart reads that scheme rather than
+        ; the default blues. The scale still says `"range": "ramp"`; what ramp
+        ; means is what changes.
+        def rangeBlock:VlJson (config.get("range"))
+        if (rangeBlock.isObject()) {
+            for rangeBlock.keys rk:string ri {
+                def entry:VlJson (rangeBlock.get(rk))
+                if (entry.isObject()) {
+                    def named:string (entry.stringOr("scheme" ""))
+                    if ((strlen named) > 0) {
+                        set rangeSchemes rk named
+                    }
+                }
+            }
+        }
         if (config.get("mark").isObject()) {
             markAll = (config.get("mark"))
         }
@@ -254,6 +274,15 @@ class VlConfig {
         return out
     }
 
+    ; The palette a range name stands for in this chart, after any renaming
+    ; the configuration did.
+    fn schemeFor:[string] (name:string) {
+        if (has rangeSchemes name) {
+            return (VlConfig.schemeColors((unwrap (get rangeSchemes name))))
+        }
+        return (VlConfig.schemeColors(name))
+    }
+
     sfn schemeColors:[string] (name:string) {
         def out:[string]
         if ((name == "category") || ((name == "tableau10") || (name == "ordinal"))) {
@@ -326,6 +355,9 @@ class VlConfig {
         }
         if (name == "rainbow") {
             return (VlConfig.ramp("6e40aa883eb1a43db3bf3cafd83fa4ee4395fe4b83ff576eff6659ff7847ff8c38f3a130e2b72fcfcc36bee044aff05b8ff4576ff65b52f6673af27828ea8d1ddfa319d0b81cbecb23abd82f96e03d82e14c6edb5a5dd0664dbf6e40aa"))
+        }
+        if ((name == "yellowgreenblue") || (name == "yellowGreenBlue")) {
+            return (VlConfig.ramp("eff9bdd4eeb4a9ddb774c9bd45b4c22997be2173b1234ea01c3185"))
         }
         if ((name == "lighttealblue") || (name == "lightTealBlue")) {
             return (VlConfig.ramp("e3e9e0c0dccf9aceca7abfc859afc0389fb9328dad2f7ca0276b95255988"))

@@ -2028,11 +2028,21 @@ class VlCompile {
     ; and a step object are both sizes, and neither is one this can use.
     fn sizeGiven:boolean (dimension:string) {
         def given:VlJson (source.get(dimension))
-        return (given.isNumber())
+        if (given.isNumber()) {
+            return true
+        }
+        ; `"width": "container"` asks the PAGE how wide the chart should be,
+        ; and a drawing that is not on a page has to answer something: the
+        ; reference answers with its own default width, and a chart of three
+        ; categories laid out from its bands instead came out a sixth of that.
+        return (given.isString())
     }
 
+
     ; How tall or wide one band was asked to be, in pixels. Twenty is the
-    ; reference's own default.
+    ; reference's own default, and `config.view.step` moves it for the whole
+    ; chart — which is how a confusion matrix asks for forty-pixel cells
+    ; without saying so on either axis.
     fn stepGiven:double (dimension:string) {
         def given:VlJson (source.get(dimension))
         if (given.isObject()) {
@@ -2041,7 +2051,24 @@ class VlCompile {
             }
             this.fail((("a '" + dimension) + "' written as an object needs a `step`"))
         }
-        return 20.0
+        return (this.configView("step" 20.0))
+    }
+
+    ; A number from the specification's own configuration, or the default.
+    fn configView:double (key:string fallback:double) {
+        return (this.configNumber("view" key fallback))
+    }
+
+    fn configNumber:double (block:string key:string fallback:double) {
+        def config:VlJson (source.get("config"))
+        if (! (config.isObject())) {
+            return fallback
+        }
+        def inner:VlJson (config.get(block))
+        if (! (inner.isObject())) {
+            return fallback
+        }
+        return (inner.doubleOr(key fallback))
     }
 
     ; The signal a dimension reads. A shared dimension is the chart's own.
@@ -2198,6 +2225,12 @@ class VlCompile {
     }
 
     fn bandPaddingInner:double () {
+        ; A specification may set the padding for every band scale it draws,
+        ; and a heat map that wants its cells to touch says so exactly once.
+        def stated:double (this.configNumber("scale" "bandPaddingInner" -1.0))
+        if (stated >= 0.0) {
+            return stated
+        }
         if (markName == "rect") {
             return 0.0
         }
@@ -2215,6 +2248,10 @@ class VlCompile {
     ; The outer padding matches the inner one for a grouped chart and is half
     ; of it otherwise — the reference's own asymmetry.
     fn bandPaddingOuter:double () {
+        def stated:double (this.configNumber("scale" "bandPaddingOuter" -1.0))
+        if (stated >= 0.0) {
+            return stated
+        }
         def inner:double (this.bandPaddingInner())
         if (this.hasChannel("xOffset")) {
             return inner
@@ -3458,6 +3495,8 @@ class VlCompile {
         this.pushShapeScale(out)
         this.pushStrokeDashScale(out)
         this.pushColourScale(out)
+        this.pushPaintScale(out "fill")
+        this.pushPaintScale(out "stroke")
         this.pushSizeScale(out)
         return out
     }
@@ -3976,6 +4015,40 @@ class VlCompile {
         return (VlJson.boolValue(true))
     }
 
+    ; A `fill` or `stroke` channel builds the same scale a `color` channel
+    ; would, under its own name. Everything downstream — the domain, the
+    ; palette, the continuous ramp — is the colour scale's own machinery.
+    fn pushPaintScale:void (out:VlJson name:string) {
+        def ch:VlChannel (this.channel(name))
+        if (! (ch.encodes())) {
+            return
+        }
+        if (ch.hasValue) {
+            return
+        }
+        if (VlCompile.suppressed(ch "scale")) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname(name)))))
+        sc.setMember("type" (VlJson.stringValue((this.scaleTypeFor(ch)))))
+        sc.setMember("domain" (this.domainFor(ch)))
+        sc.setMember("range" (VlJson.stringValue((VlCompile.colourRangeFor(ch)))))
+        if (ch.isContinuous()) {
+            sc.setMember("interpolate" (VlJson.stringValue("hcl")))
+            sc.setMember("zero" (VlJson.boolValue(false)))
+        }
+        this.applyDeclaredScale(sc ch)
+        push out.arr sc
+    }
+
+    sfn colourRangeFor:string (ch:VlChannel) {
+        if (ch.isContinuous()) {
+            return "ramp"
+        }
+        return "category"
+    }
+
     fn pushColourScale:void (out:VlJson) {
         def ch:VlChannel (this.channel("color"))
         if (! (ch.encodes())) {
@@ -4422,6 +4495,10 @@ class VlCompile {
                 push out.arr ld
             }
         }
+        ; A chart may paint with `fill` or `stroke` rather than with `color`,
+        ; and its key is the same key under a different scale name.
+        VlCompile.pushPaintLegend(out (this.paintLegend("fill")))
+        VlCompile.pushPaintLegend(out (this.paintLegend("stroke")))
         def shapeCh:VlChannel (this.channel("shape"))
         if (VlCompile.suppressed(shapeCh "legend")) {
             shapeCh = (new VlChannel())
@@ -4491,6 +4568,42 @@ class VlCompile {
         def out (VlJson.objectValue())
         out.setMember("symbols" symbols)
         return out
+    }
+
+    sfn pushPaintLegend:void (out:VlJson entry:VlJson) {
+        if (entry.isObject()) {
+            if (entry.has("title")) {
+                push out.arr entry
+            }
+        }
+    }
+
+    fn paintLegend:VlJson (name:string) {
+        def empty (VlJson.objectValue())
+        def ch:VlChannel (this.channel(name))
+        if (VlCompile.suppressed(ch "legend")) {
+            return empty
+        }
+        if (VlCompile.suppressed(ch "scale")) {
+            return empty
+        }
+        if (! (ch.encodes())) {
+            return empty
+        }
+        if (ch.hasValue) {
+            return empty
+        }
+        def l (VlJson.objectValue())
+        l.setMember(name (VlJson.stringValue((this.sname(name)))))
+        if (ch.isContinuous()) {
+            def length (VlJson.objectValue())
+            length.setMember("signal" (VlJson.stringValue("clamp(height, 64, 200)")))
+            l.setMember("gradientLength" length)
+        } {
+            l.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
+        }
+        l.setMember("title" (VlJson.stringValue((ch.title()))))
+        return l
     }
 
     ; A dot's key is painted the way the dot is: an outlined one shows the fill
@@ -4708,6 +4821,20 @@ class VlCompile {
     ; The colour a mark carries. A point is drawn as an outline, everything else
     ; as a fill, and a colour channel replaces the constant with a scale.
     fn encodePaint:void (update:VlJson) {
+        ; `fill` and `stroke` are channels in their own right — a heat map
+        ; written with `"fill"` rather than `"color"` is the same chart said a
+        ; different way, and each gets a scale of its own name. Read as
+        ; nothing, the cells came out the palette's first blue and the chart
+        ; had no key at all.
+        if (this.paintChannel(update "fill")) {
+            this.paintChannel(update "stroke")
+            this.applyMarkPaint(update "fill")
+            return
+        }
+        if (this.paintChannel(update "stroke")) {
+            this.applyMarkPaint(update "stroke")
+            return
+        }
         def outlined:boolean ((markName == "point") && (! (markDef.boolOr("filled" false))))
         ; A dot is drawn slightly transparent so that two that land on the same
         ; spot can be told apart — unless it says otherwise, which the dots on
@@ -4773,6 +4900,28 @@ class VlCompile {
         }
         update.setMember(key (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
         this.applyMarkPaint(update key)
+    }
+
+    ; One of the two paint channels, written on the mark if it was encoded.
+    ; Answers whether it was.
+    fn paintChannel:boolean (update:VlJson name:string) {
+        def ch:VlChannel (this.channel(name))
+        if (! ch.defined) {
+            return false
+        }
+        def base:VlJson (VlCompile.literal(ch.value))
+        if (! ch.hasValue) {
+            if (! (ch.encodes())) {
+                return false
+            }
+            base = (VlJson.objectValue())
+            if (! (VlCompile.suppressed(ch "scale"))) {
+                base.setMember("scale" (VlJson.stringValue((this.sname(name)))))
+            }
+            base.setMember("field" (VlJson.stringValue((ch.outField()))))
+        }
+        update.setMember(name (this.withCondition(ch base)))
+        return true
     }
 
     ; What the MARK DEFINITION says about paint, as opposed to what a channel
