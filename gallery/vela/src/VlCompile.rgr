@@ -272,7 +272,7 @@ class VlCompile {
         }
         ; `point: true` on a line is not a property of the line: it is a second
         ; mark drawn over it, which is a layer under another name.
-        if ((markDef.boolOr("point" false)) || (markDef.boolOr("line" false))) {
+        if ((VlCompile.overlayAsked(markDef "point")) || (VlCompile.overlayAsked(markDef "line"))) {
             return (this.compileLayers((VlCompile.withOverlayLayers(src markDef))))
         }
         this.decideStack()
@@ -1419,8 +1419,10 @@ class VlCompile {
         }
         def base (VlJson.objectValue())
         def baseMark (VlJson.objectValue())
-        def wantsPoints:boolean (markDef.boolOr("point" false))
-        def wantsLine:boolean (markDef.boolOr("line" false))
+        ; `"point": true` and `"point": {"filled": false, "fill": "white"}`
+        ; are the same request with and without a say in how the dots look.
+        def wantsPoints:boolean (VlCompile.overlayAsked(markDef "point"))
+        def wantsLine:boolean (VlCompile.overlayAsked(markDef "line"))
         for markDef.keys mk:string mi {
             if ((mk == "point") || (mk == "line")) {
                 ; the flags are what is being expanded
@@ -1446,8 +1448,7 @@ class VlCompile {
         ; line with no fill.
         if wantsLine {
             def edge (VlJson.objectValue())
-            def edgeMark (VlJson.objectValue())
-            edgeMark.setMember("type" (VlJson.stringValue("line")))
+            def edgeMark:VlJson (VlCompile.overlayMark(markDef "line" "line"))
             edge.setMember("mark" edgeMark)
             push layer.arr edge
         }
@@ -1456,13 +1457,44 @@ class VlCompile {
         ; of their own.
         if wantsPoints {
             def dots (VlJson.objectValue())
-            def dotMark (VlJson.objectValue())
-            dotMark.setMember("type" (VlJson.stringValue("point")))
-            dotMark.setMember("filled" (VlJson.boolValue(true)))
+            def dotMark:VlJson (VlCompile.overlayMark(markDef "point" "point"))
+            if (! (dotMark.has("filled"))) {
+                dotMark.setMember("filled" (VlJson.boolValue(true)))
+            }
             dots.setMember("mark" dotMark)
             push layer.arr dots
         }
         out.setMember("layer" layer)
+        return out
+    }
+
+    sfn overlayAsked:boolean (markDef:VlJson key:string) {
+        def given:VlJson (markDef.get(key))
+        if (given.isObject()) {
+            return true
+        }
+        return (markDef.boolOr(key false))
+    }
+
+    ; The overlay's own mark definition: what the flag said, if it said
+    ; anything, plus the two things that are true of every overlay. It is drawn
+    ; SOLID — opacity 1 rather than the 0.7 a scatter plot's dots carry —
+    ; because a dot on a line marks a vertex of that line rather than standing
+    ; for a row that might be sitting on top of another.
+    sfn overlayMark:VlJson (markDef:VlJson key:string type:string) {
+        def out (VlJson.objectValue())
+        out.setMember("type" (VlJson.stringValue(type)))
+        def given:VlJson (markDef.get(key))
+        if (given.isObject()) {
+            for given.keys gk:string gi {
+                if (gk != "type") {
+                    out.setMember(gk (given.get(gk)))
+                }
+            }
+        }
+        if (! (out.has("opacity"))) {
+            out.setMember("opacity" (VlJson.numberValue(1.0)))
+        }
         return out
     }
 
@@ -4078,9 +4110,14 @@ class VlCompile {
         if colour.defined {
             if (! colour.hasValue) {
                 def l (VlJson.objectValue())
-                ; A key stands for the mark it names. An outlined dot and a
-                ; line are both drawn with a STROKE, so their keys are too.
-                def outlined:boolean ((markName == "point") || (markName == "line"))
+                ; A key stands for the mark it names. A line is drawn with a
+                ; STROKE, so its key is too; a dot depends on whether it is
+                ; FILLED — a scatter plot's outlined dots make an outlined key,
+                ; and the solid dots on a line make a solid one.
+                def outlined:boolean (markName == "line")
+                if (markName == "point") {
+                    outlined = (! (markDef.boolOr("filled" false)))
+                }
                 if outlined {
                     l.setMember("stroke" (VlJson.stringValue((this.sname("color")))))
                 } {
@@ -4097,7 +4134,7 @@ class VlCompile {
                 }
                 l.setMember("title" (VlJson.stringValue((colour.title()))))
                 if (markName == "point") {
-                    l.setMember("encode" (VlCompile.pointSymbolEncode()))
+                    l.setMember("encode" (this.pointSymbolEncode(outlined)))
                 } {
                     ; A key stands for the mark, so it is as transparent as the
                     ; mark is: two half-visible bars are named by two
@@ -4122,7 +4159,7 @@ class VlCompile {
                 l3.setMember("shape" (VlJson.stringValue((this.sname("shape")))))
                 l3.setMember("title" (VlJson.stringValue((shapeCh.title()))))
                 if (markName == "point") {
-                    def shapeEncode:VlJson (VlCompile.pointSymbolEncode())
+                    def shapeEncode:VlJson (this.pointSymbolEncode((! (markDef.boolOr("filled" false)))))
                     def shapeSymbols:VlJson (shapeEncode.get("symbols"))
                     def shapeUpdate:VlJson (shapeSymbols.get("update"))
                     shapeUpdate.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
@@ -4144,7 +4181,7 @@ class VlCompile {
                 ; A size key stands for the same dot the chart draws, and its
                 ; colour is the mark's constant since nothing encodes one.
                 if (markName == "point") {
-                    def encode:VlJson (VlCompile.pointSymbolEncode())
+                    def encode:VlJson (this.pointSymbolEncode((! (markDef.boolOr("filled" false)))))
                     def symbols:VlJson (encode.get("symbols"))
                     def update:VlJson (symbols.get("update"))
                     update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
@@ -4183,10 +4220,16 @@ class VlCompile {
         return out
     }
 
-    sfn pointSymbolEncode:VlJson () {
+    ; A dot's key is painted the way the dot is: an outlined one shows the fill
+    ; the mark asked for — nothing, or the white the stroked overlay wants —
+    ; and a filled one takes its colour from the scale and needs no fill here.
+    ; Either way the key is as transparent as the mark.
+    fn pointSymbolEncode:VlJson (outlined:boolean) {
         def update (VlJson.objectValue())
-        update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
-        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
+        if outlined {
+            update.setMember("fill" (VlCompile.literal((VlJson.stringValue((markDef.stringOr("fill" "transparent")))))))
+        }
+        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue((markDef.doubleOr("opacity" 0.7)))))))
         def symbols (VlJson.objectValue())
         symbols.setMember("update" update)
         def out (VlJson.objectValue())
@@ -4384,16 +4427,14 @@ class VlCompile {
     ; as a fill, and a colour channel replaces the constant with a scale.
     fn encodePaint:void (update:VlJson) {
         def outlined:boolean ((markName == "point") && (! (markDef.boolOr("filled" false))))
-        if outlined {
-            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
-            update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
-        }
-        ; A filled dot is drawn solid: it is part of the line, not a
-        ; measurement of its own that might be sitting on top of another.
+        ; A dot is drawn slightly transparent so that two that land on the same
+        ; spot can be told apart — unless it says otherwise, which the dots on
+        ; a line do: they mark that line's own vertices.
         if (markName == "point") {
-            if (! outlined) {
-                update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(1.0)))))
-            }
+            update.setMember("opacity" (VlCompile.literal((VlJson.numberValue((markDef.doubleOr("opacity" 0.7)))))))
+        }
+        if outlined {
+            update.setMember("fill" (VlCompile.literal((VlJson.stringValue("transparent")))))
         }
         ; A tick and a filled dot are both drawn slightly transparent, so that
         ; the ones that land on the same spot can be told apart.
