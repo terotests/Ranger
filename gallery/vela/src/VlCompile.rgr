@@ -7696,6 +7696,11 @@ class VlCompile {
                 update.setMember("cornerRadiusBottomRight" (VlCompile.literal(radius)))
             }
         }
+        ; A mark may carry its own words. `{"type": "text", "text": "hazardous"}`
+        ; is a label that names itself rather than reading a column, which is
+        ; how an annotation over a chart of something else is written; left
+        ; unread it came out blank.
+        VlCompile.markLiteral(update markDef "text" "text")
         VlCompile.markLiteral(update markDef "align" "align")
         VlCompile.markLiteral(update markDef "baseline" "baseline")
         VlCompile.markLiteral(update markDef "font" "font")
