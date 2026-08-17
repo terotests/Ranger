@@ -139,7 +139,7 @@ class VlViewBox {
 
         for item.marks child2:VlSceneMark ci2 {
             if (child2.role == "axis-title") {
-                box.union((VlViewBox.ofMark(child2)))
+                box.union((VlViewBox.ofAxisTitle(child2 ((orient == "left") || (orient == "right")))))
             }
         }
         VlViewBox.strokeExpand(box item false)
@@ -152,6 +152,37 @@ class VlViewBox {
         }
         box.translate(((item.number("x")) - delta) ((item.number("y")) - delta))
         return box
+    }
+
+    ; An axis title is bounded where it STARTED and then moved, which is not
+    ; the same number as bounding it where it ended up. The reference lays one
+    ; out by measuring the title at the axis' own line — nothing decided yet in
+    ; the cross direction — and then translating the box out to the extent the
+    ; labels asked for. A quarter turn has no exact cosine in binary, so the
+    ; two routes differ by an atom, and the page is sized by the CEILING of
+    ; that: a title 30 pixels wide comes out 30 measured the reference's way
+    ; and 30.000000000000004 measured where it is, which is 31 pixels of page.
+    ;
+    ; Six charts in the gallery were a pixel wide for exactly this reason. It
+    ; is not arithmetic, it is layout order, and this is that order.
+    sfn ofAxisTitle:VlBounds (mark:VlSceneMark vertical:boolean) {
+        def out (new VlBounds())
+        for mark.items t:VlSceneItem ti {
+            if (VlViewBox.drawn(t)) {
+                def tx:double (t.number("x"))
+                def ty:double (t.number("y"))
+                def b (new VlBounds())
+                if vertical {
+                    b = (VlViewBox.ofTextAt(t 0.0 ty))
+                    b.translate(tx 0.0)
+                } {
+                    b = (VlViewBox.ofTextAt(t tx 0.0))
+                    b.translate(0.0 ty)
+                }
+                out.union(b)
+            }
+        }
+        return out
     }
 
     sfn clampExtent:double (reach:double item:VlSceneItem) {
@@ -301,15 +332,18 @@ class VlViewBox {
     ; are rotated rather than the box, because a rotated box's bounds are the
     ; bounds of its four corners and nothing simpler is correct.
     sfn ofText:VlBounds (item:VlSceneItem) {
+        return (VlViewBox.ofTextAt(item (item.number("x")) (item.number("y"))))
+    }
+
+    ; The same, with the anchor stated rather than read — which is what lets an
+    ; axis title be measured at the position it was laid out from.
+    sfn ofTextAt:VlBounds (item:VlSceneItem x:double y:double) {
         def fontSize:double 11.0
         if (item.has("fontSize")) { fontSize = (item.number("fontSize")) }
         def align:string "left"
         if (item.has("align")) { align = (item.text("align")) }
         def baseline:string "alphabetic"
         if (item.has("baseline")) { baseline = (item.text("baseline")) }
-        def x:double (item.number("x"))
-        def y:double (item.number("y"))
-
         ; The reference's own construction, in its own order. The nudge is
         ; folded into the box; the ROTATION is about the un-nudged anchor,
         ; which is a difference of a whole label for anything both nudged and
