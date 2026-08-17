@@ -242,6 +242,18 @@ class VlExprEval {
                 def idx:int (to_int (keyVal.asDouble()))
                 return (target.at(idx))
             }
+            ; A STRING indexes too: `datum.label[0]` is how a chart keeps a
+            ; month's initial, and read as a member lookup on a string it
+            ; answered nothing and the whole name stayed.
+            if (target.kind == 3) {
+                if (keyVal.isNumber()) {
+                    def at:int (to_int keyVal.num)
+                    if ((at >= 0) && (at < (strlen target.str))) {
+                        return (VlJson.stringValue((substring target.str at (at + 1))))
+                    }
+                    return (VlJson.nullValue())
+                }
+            }
             key = (keyVal.asString())
         } {
             key = node.name
