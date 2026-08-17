@@ -63,6 +63,11 @@ class VlChannel {
     def binnedAlready:boolean false
     def binStep:double 0.0
     def hasValue:boolean false
+    ; The channel states a constant AND names a field inside a condition: the
+    ; selected rows are painted by the field, everything else by the constant.
+    ; It needs the scale and the key a field-encoded channel has, and it keeps
+    ; the constant as what the unselected rows show.
+    def conditional:boolean false
     def value:VlJson (new VlJson)
     def defined:boolean false
     def stack:string ""
@@ -83,7 +88,7 @@ class VlChannel {
             return false
         }
         if hasValue {
-            return true
+            return conditional
         }
         return ((strlen (this.outField())) > 0)
     }
@@ -2130,6 +2135,24 @@ class VlCompile {
                                 ch.value = (cond.get("value"))
                             }
                         }
+                        ; A condition may name a FIELD rather than a value —
+                        ; `{"condition": {"param": "brush", "field":
+                        ; "Cylinders"}, "value": "grey"}` is how a chart greys
+                        ; out everything outside the brush. The field is what
+                        ; the selected rows are painted by, so the channel
+                        ; encodes it: it needs a scale to read and a key to
+                        ; name it, and without both the branch referred to a
+                        ; scale the chart never built.
+                        if (cond.has("field")) {
+                            ch.field = (cond.stringOr("field" ""))
+                            ch.aggregate = (cond.stringOr("aggregate" ""))
+                            ch.timeUnit = (cond.stringOr("timeUnit" ""))
+                            def condType:string (cond.stringOr("type" ""))
+                            if ((strlen condType) > 0) {
+                                ch.kind = condType
+                            }
+                            ch.conditional = true
+                        }
                     }
                 }
             }
@@ -3453,10 +3476,26 @@ class VlCompile {
         if (! (cond.isObject())) {
             return base
         }
-        if (! (cond.has("test"))) {
-            return base
+        def expr:string ""
+        if (cond.has("test")) {
+            expr = (this.predicateExpr((cond.get("test"))))
+        } {
+            ; A condition on a PARAMETER is a test too, once it is asked what
+            ; the parameter says with nobody touching the chart. A selection
+            ; given an initial value picks rows out of the data — the
+            ; four-cylinder cars of 1977 — and those rows are painted while the
+            ; rest are grey, which is what the reference draws before anyone
+            ; moves a slider.
+            if (cond.has("param")) {
+                expr = (this.selectionExpr(cond))
+                if (expr == "true") {
+                    return base
+                }
+                if (expr == "false") {
+                    return base
+                }
+            }
         }
-        def expr:string (this.predicateExpr((cond.get("test"))))
         if ((strlen expr) == 0) {
             return base
         }
@@ -3466,7 +3505,12 @@ class VlCompile {
             branch.setMember("value" (cond.get("value")))
         } {
             ; A condition that names a FIELD reads it through the same scale
-            ; the channel already uses.
+            ; the channel already uses — and only if there IS one. A channel
+            ; whose base is a constant has no colour scale to read, and a
+            ; branch that named one referred to a scale the chart never built.
+            if (! (ch.encodes())) {
+                return base
+            }
             branch.setMember("scale" (VlJson.stringValue("color")))
             branch.setMember("field" (cond.get("field")))
         }
@@ -3561,7 +3605,7 @@ class VlCompile {
                 def row:VlJson (initial.at(k))
                 def one:string ""
                 for row.keys field:string fi {
-                    def piece:string ((("datum[\"" + field) + "\"] === ") + (VlCompile.literalOf((row.get(field)))))
+                    def piece:string ((("datum[\"" + field) + "\"] === ") + (this.literalOf((row.get(field)))))
                     if ((strlen one) > 0) {
                         one = ((one + " && ") + piece)
                     } {
@@ -3588,8 +3632,8 @@ class VlCompile {
                         def ch:VlChannel (this.channel(channel))
                         def field:string ch.field
                         if ((strlen field) > 0) {
-                            def piece:string (((((("(datum[\"" + field) + "\"] >= ") + (VlCompile.literalOf((span.at(0))))) + " && datum[\"") + field) + "\"] <= ")
-                            piece = ((piece + (VlCompile.literalOf((span.at(1))))) + ")")
+                            def piece:string (((((("(datum[\"" + field) + "\"] >= ") + (this.literalOf((span.at(0))))) + " && datum[\"") + field) + "\"] <= ")
+                            piece = ((piece + (this.literalOf((span.at(1))))) + ")")
                             if ((strlen out) > 0) {
                                 out = ((out + " && ") + piece)
                             } {
@@ -4327,7 +4371,9 @@ class VlCompile {
             return
         }
         if (ch.hasValue) {
-            return
+            if (! ch.conditional) {
+                return
+            }
         }
         ; `"scale": null` says the column already holds colours. There is
         ; nothing to map and nothing to be a key to: the values go straight
@@ -4702,7 +4748,7 @@ class VlCompile {
             colour = (new VlChannel())
         }
         if (colour.encodes()) {
-            if (! colour.hasValue) {
+            if ((! colour.hasValue) || colour.conditional) {
                 def l (VlJson.objectValue())
                 ; A key stands for the mark it names. A line is drawn with a
                 ; STROKE, so its key is too; a dot depends on whether it is
