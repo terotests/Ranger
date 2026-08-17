@@ -6406,6 +6406,11 @@ class VlCompile {
         ; position of its own, so it survives whatever the scale did.
         VlCompile.markNudge(update markDef "xOffset" "x")
         VlCompile.markNudge(update markDef "yOffset" "y")
+        ; A mark drawn between two values nudges BOTH ends, and each has its
+        ; own name. With only the near one read, a waterfall's connector came
+        ; out twenty-two pixels short at the far end.
+        VlCompile.markNudge(update markDef "x2Offset" "x2")
+        VlCompile.markNudge(update markDef "y2Offset" "y2")
     }
 
     sfn markNudge:void (update:VlJson markDef:VlJson key:string channel:string) {
@@ -6581,6 +6586,19 @@ class VlCompile {
     }
 
     sfn literal:VlJson (value:VlJson) {
+        ; A mark property may be an EXPRESSION rather than a constant —
+        ; `{"dy": {"expr": "datum.amount >= 0 ? -4 : 4"}}` is a label that
+        ; hops to the other side of the line it names — and the reference
+        ; writes that straight through as a signal. Wrapped as a value, the
+        ; whole object reached the renderer, which read a number out of it and
+        ; got nothing.
+        if (value.isObject()) {
+            if (value.has("expr")) {
+                def signal (VlJson.objectValue())
+                signal.setMember("signal" (value.get("expr")))
+                return signal
+            }
+        }
         def out (VlJson.objectValue())
         out.setMember("value" value)
         return out
@@ -6746,6 +6764,19 @@ class VlCompile {
             if (! (this.fillsBand())) {
                 at.setMember("band" (VlJson.numberValue(0.5)))
                 update.setMember(axis at)
+                ; …and a mark drawn BETWEEN two categories reaches the middle
+                ; of the second one as well: a waterfall's connector runs from
+                ; the centre of one month's bar to the centre of the next.
+                ; Written with one end only, it had no length and nothing was
+                ; drawn between the bars at all.
+                def other:VlChannel (this.channel((axis + "2")))
+                if other.defined {
+                    if ((strlen (other.outField())) > 0) {
+                        def far:VlJson (this.scaled(axis (other.outField())))
+                        far.setMember("band" (VlJson.numberValue(0.5)))
+                        update.setMember((axis + "2") far)
+                    }
+                }
                 return
             }
             ; A mark told how THICK it is does not fill its band: it is
