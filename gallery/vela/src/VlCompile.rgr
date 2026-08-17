@@ -8112,6 +8112,17 @@ class VlCompile {
             update.setMember(axis (VlCompile.literal(ch.value)))
             return
         }
+        ; A DATUM is a constant read THROUGH the scale rather than in pixels:
+        ; `{"datum": 300}` on y is the line at three hundred on the axis, not
+        ; three hundred pixels down the page. Left out, an annotation drawn
+        ; across a chart had no vertical position at all.
+        if ch.hasDatum {
+            def at (VlJson.objectValue())
+            at.setMember("scale" (VlJson.stringValue((this.sname(axis)))))
+            at.setMember("value" ch.value)
+            update.setMember(axis at)
+            return
+        }
         if ((strlen (ch.outField())) == 0) {
             return
         }
