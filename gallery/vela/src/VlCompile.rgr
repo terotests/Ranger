@@ -3717,6 +3717,31 @@ class VlCompile {
     ; Roughly how long a time unit is, in milliseconds — enough to choose a
     ; tick interval with, which is all it is used for. A month is the average
     ; one; the calendar decides where the ticks actually land.
+    ; One time unit, as the distance between two dates a unit apart. The base
+    ; is the reference's own — the first of January 2001, which is a Monday in
+    ; no year in particular — and the far end is that plus one of whatever is
+    ; being measured.
+    sfn unitStepSignal:string (unit:string) {
+        def base:string "datetime(2001, 0, 1, 0, 0, 0, 0)"
+        def far:string ""
+        if (unit == "year") { far = "datetime(2002, 0, 1, 0, 0, 0, 0)" }
+        if (unit == "quarter") { far = "datetime(2001, 3, 1, 0, 0, 0, 0)" }
+        if (unit == "month") { far = "datetime(2001, 1, 1, 0, 0, 0, 0)" }
+        if (unit == "week") { far = "datetime(2001, 0, 8, 0, 0, 0, 0)" }
+        if (unit == "isoweek") { far = "datetime(2001, 0, 8, 0, 0, 0, 0)" }
+        if (unit == "date") { far = "datetime(2001, 0, 2, 0, 0, 0, 0)" }
+        if (unit == "day") { far = "datetime(2001, 0, 2, 0, 0, 0, 0)" }
+        if (unit == "dayofyear") { far = "datetime(2001, 0, 2, 0, 0, 0, 0)" }
+        if (unit == "hours") { far = "datetime(2001, 0, 1, 1, 0, 0, 0)" }
+        if (unit == "minutes") { far = "datetime(2001, 0, 1, 0, 1, 0, 0)" }
+        if (unit == "seconds") { far = "datetime(2001, 0, 1, 0, 0, 1, 0)" }
+        if (unit == "milliseconds") { far = "datetime(2001, 0, 1, 0, 0, 0, 1)" }
+        if ((strlen far) == 0) {
+            return ""
+        }
+        return ((far + " - ") + base)
+    }
+
     sfn msOfUnit:double (unit:string) {
         if (unit == "year") { return 31536000000.0 }
         if (unit == "quarter") { return 7776000000.0 }
@@ -5864,7 +5889,8 @@ class VlCompile {
         ; tick values names the grid's too. Left to count ticks by the plot's
         ; width, the grid crossed a chart of three stated values in four
         ; places.
-        def stated:VlJson ((this.channel(scale)).def0.get("axis"))
+        def gridded:VlChannel (this.channel(scale))
+        def stated:VlJson (gridded.def0.get("axis"))
         if (stated.isObject()) {
             if (stated.has("values")) {
                 a.setMember("values" (stated.get("values")))
@@ -5872,12 +5898,30 @@ class VlCompile {
             if (stated.has("tickCount")) {
                 a.setMember("tickCount" (stated.get("tickCount")))
             }
+            ; Where in its band a tick stands is a property of the tick, so a
+            ; grid drawn at the same ticks stands in the same place.
+            if (stated.has("bandPosition")) {
+                a.setMember("bandPosition" (stated.get("bandPosition")))
+            }
         }
         if (! (a.has("values"))) {
             if (! (a.has("tickCount"))) {
-                if (! (this.logGrid(scale))) {
-                    a.setMember("tickCount" (this.tickCountSignal(orient)))
+                ; A grid over a band or a point scale has one line per value
+                ; and nothing to count; a log scale's ticks are the whole
+                ; multiples inside each decade, which is also not a count.
+                if (this.continuousScale(gridded)) {
+                    if (! (this.logGrid(scale))) {
+                        a.setMember("tickCount" (this.tickCountSignal(orient)))
+                    }
                 }
+            }
+        }
+        ; A grid on a time axis is ruled at the unit's own boundaries, so it
+        ; needs the same floor under its step that the labelled axis has.
+        if ((strlen gridded.timeUnit) > 0) {
+            def step:string (VlCompile.unitStepSignal((VlTime.finestUnit(gridded.timeUnits))))
+            if ((strlen step) > 0) {
+                a.setMember("tickMinStep" (VlCompile.signalRef(step)))
             }
         }
         a.setMember("domain" (VlJson.boolValue(false)))
@@ -6081,9 +6125,17 @@ class VlCompile {
             a.setMember("formatType" (VlJson.stringValue("time")))
             ; And a floor under the tick step: an axis of months has nothing to
             ; say between one month and the next, however many pixels it has.
-            def unitMs:double (VlCompile.msOfUnit((VlTime.finestUnit(ch.timeUnits))))
-            if (unitMs > 0.0) {
-                a.setMember("tickMinStep" (VlJson.numberValue(unitMs)))
+            ;
+            ; How long a month is is not a number, though — it is a question
+            ; about a calendar, and the answer differs by thirty-two hours
+            ; between February and March and by an hour again where the clocks
+            ; go forward. The reference asks it as one: the distance between
+            ; two dates a unit apart, worked out where the chart is read. Told
+            ; a month is thirty days instead, an axis of months ticked twelve
+            ; times in a year that has eleven months' room.
+            def step:string (VlCompile.unitStepSignal((VlTime.finestUnit(ch.timeUnits))))
+            if ((strlen step) > 0) {
+                a.setMember("tickMinStep" (VlCompile.signalRef(step)))
             }
         }
         if (this.continuousScale(ch)) {
