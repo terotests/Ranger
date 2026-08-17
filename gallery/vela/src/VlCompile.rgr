@@ -1962,7 +1962,13 @@ class VlCompile {
                 def already:VlJson (legends.at(at))
                 for l.keys k2:string ki2 {
                     if (! (already.has(k2))) {
-                        already.setMember(k2 (l.get(k2)))
+                        def hides:boolean false
+                        if (k2 == "encode") {
+                            hides = (VlCompile.hidesSymbol((l.get("encode"))))
+                        }
+                        if (! hides) {
+                            already.setMember(k2 (l.get(k2)))
+                        }
                     } {
                         ; A symbol that is a SHAPE beats one that is a dash:
                         ; the key stands for the marks the chart draws, and a
@@ -1973,7 +1979,17 @@ class VlCompile {
                             }
                         }
                         if (k2 == "encode") {
-                            already.setMember("encode" (l.get("encode")))
+                            ; A key stands for the marks a scale paints, and
+                            ; one of those marks may be INVISIBLE — a hover
+                            ; highlight is drawn at opacity zero until it is
+                            ; hovered. Copying its paint onto the shared key
+                            ; made the key invisible too, which is not what the
+                            ; key is for: the reference drops the properties
+                            ; the layers disagree about and lets the defaults
+                            ; stand.
+                            if (! (VlCompile.hidesSymbol((l.get("encode"))))) {
+                                already.setMember("encode" (l.get("encode")))
+                            }
                         }
                     }
                 }
@@ -1983,6 +1999,29 @@ class VlCompile {
             }
             i = (i + 1)
         }
+    }
+
+    sfn hidesSymbol:boolean (encode:VlJson) {
+        if (! (encode.isObject())) {
+            return false
+        }
+        def symbols:VlJson (encode.get("symbols"))
+        if (! (symbols.isObject())) {
+            return false
+        }
+        def update:VlJson (symbols.get("update"))
+        if (! (update.isObject())) {
+            return false
+        }
+        def opacity:VlJson (update.get("opacity"))
+        if (! (opacity.isObject())) {
+            return false
+        }
+        def value:VlJson (opacity.get("value"))
+        if (! (value.isNumber())) {
+            return false
+        }
+        return (value.num == 0.0)
     }
 
     ; -------------------------------------------------------------- reading ---
@@ -4880,12 +4919,27 @@ class VlCompile {
     ; the mark asked for — nothing, or the white the stroked overlay wants —
     ; and a filled one takes its colour from the scale and needs no fill here.
     ; Either way the key is as transparent as the mark.
+    ; How transparent the mark is: the channel says first, because a channel is
+    ; how a chart makes one layer's marks appear only on hover, and the mark
+    ; definition second.
+    fn markOpacity:double (fallback:double) {
+        def ch:VlChannel (this.channel("opacity"))
+        if ch.defined {
+            if ch.hasValue {
+                if (ch.value.isNumber()) {
+                    return ch.value.num
+                }
+            }
+        }
+        return (markDef.doubleOr("opacity" fallback))
+    }
+
     fn pointSymbolEncode:VlJson (outlined:boolean) {
         def update (VlJson.objectValue())
         if outlined {
             update.setMember("fill" (VlCompile.literal((VlJson.stringValue((markDef.stringOr("fill" "transparent")))))))
         }
-        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue((markDef.doubleOr("opacity" 0.7)))))))
+        update.setMember("opacity" (VlCompile.literal((VlJson.numberValue((this.markOpacity(0.7)))))))
         def symbols (VlJson.objectValue())
         symbols.setMember("update" update)
         def out (VlJson.objectValue())
