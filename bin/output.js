@@ -2550,47 +2550,78 @@ class CodeNode  {
     this.tag = "chainroot";
     this.has_call = true;
   };
+  chainDotName (item) {
+    if ( (item.children.length) > 0 ) {
+      const f = item.getFirst();
+      return f.vref;
+    }
+    return item.vref;
+  };
   tryDesugarNewMethodChain () {
     const chlen = this.children.length;
-    if (chlen < 4) return false;
-    if (this.getFirst().vref !== "new") return false;
-    let first_dot = -1;
-    for (let di = 0; di < chlen; di++) {
-      const item = this.children[di];
-      const dotName = item.children.length > 0 ? item.getFirst().vref : item.vref;
-      if (dotName.length > 0 && dotName.charCodeAt(0) === ".".charCodeAt(0)) {
-        first_dot = di;
-        break;
+    if ( chlen < 4 ) {
+      return false;
+    }
+    const firstCh = this.getFirst();
+    if ( firstCh.vref != "new" ) {
+      return false;
+    }
+    let first_dot = 0 - 1;
+    let di = 0;
+    while (di < chlen) {
+      if ( first_dot < 0 ) {
+        const item = this.children[di];
+        const dotName = this.chainDotName(item);
+        if ( (dotName.length) > 0 ) {
+          if ( (dotName.charCodeAt(0 )) == 46 ) {
+            first_dot = di;
+          }
+        }
       }
+      di = di + 1;
+    };
+    if ( first_dot < 2 ) {
+      return false;
     }
-    if (first_dot < 2) return false;
     const recv = this.copy();
-    while (recv.children.length > first_dot) {
+    while ((recv.children.length) > first_dot) {
       recv.children.pop();
-    }
+    };
     let innerNode = recv;
-    for (let i = first_dot; i < chlen - 1; i += 2) {
-      const item = this.children[i];
-      const dotName2 = item.children.length > 0 ? item.getFirst().vref : item.vref;
-      if (dotName2.length === 0 || dotName2.charCodeAt(0) !== ".".charCodeAt(0)) return false;
-      const method_name = dotName2.substring(1);
+    let i = first_dot;
+    while (i < (chlen - 1)) {
+      const item2 = this.children[i];
+      const dotName2 = this.chainDotName(item2);
+      if ( (dotName2.length) == 0 ) {
+        return false;
+      }
+      if ( (dotName2.charCodeAt(0 )) != 46 ) {
+        return false;
+      }
+      const method_name = dotName2.substring(1, (dotName2.length) );
       let mArgs = this.newExpressionNode();
-      if (item.children.length > 1) {
-        mArgs = item.getSecond();
+      if ( (item2.children.length) > 1 ) {
+        mArgs = item2.getSecond();
       } else {
-        mArgs = this.children[i + 1];
+        mArgs = this.children[(i + 1)];
       }
       const newNode = this.newExpressionNode();
-      newNode.add(this.newVRefNode("call"));
-      newNode.add(innerNode.copy());
-      newNode.add(this.newVRefNode(method_name));
-      newNode.add(mArgs.copy());
+      const callRef = this.newVRefNode("call");
+      newNode.add(callRef);
+      const innerCopy = innerNode.copy();
+      newNode.add(innerCopy);
+      const nameRef = this.newVRefNode(method_name);
+      newNode.add(nameRef);
+      const argsCopy = mArgs.copy();
+      newNode.add(argsCopy);
       innerNode = newNode;
-      item.is_part_of_chain = true;
-      if (item.children.length <= 1) {
-        this.children[i + 1].is_part_of_chain = true;
+      item2.is_part_of_chain = true;
+      if ( (item2.children.length) <= 1 ) {
+        const nextItem = this.children[(i + 1)];
+        nextItem.is_part_of_chain = true;
       }
-    }
+      i = i + 2;
+    };
     this.getChildrenFrom(innerNode);
     this.finalizeAsCallChainRoot();
     return true;

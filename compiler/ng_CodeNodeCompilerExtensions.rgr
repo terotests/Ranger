@@ -399,8 +399,99 @@ extension CodeNode {
     this.has_call = true
   }
 
+  ; The `.name` of one chain item. A node that has children carries the name on
+  ; its first child; a bare one carries it itself.
+  fn chainDotName:string (item:CodeNode) {
+    if (((array_length item.children)) > 0) {
+      def f:CodeNode (item.getFirst())
+      return f.vref
+    }
+    return item.vref
+  }
+
+  ; `new X(a).one(b).two(c)` -> nested `call` nodes, innermost first.
+  ;
+  ; ISSUES.md #71: this used to be `return false` here, with the real body kept
+  ; as hand-written JavaScript in scripts/patch-chain-desugar.js and stamped
+  ; into bin/output.js after every build. That patch ran in exactly two npm
+  ; scripts, so every selfhost:* compiler returned false from this and then
+  ; REFUSED to compile method chaining at all — five of the six chain_*.rgr
+  ; fixtures failed with "Undefined variable .hello" on a self-hosted build.
+  ; Written in Ranger, it compiles with the rest of the compiler and every
+  ; target gets it.
   fn tryDesugarNewMethodChain:boolean () {
-    return false
+    def chlen:int (array_length this.children)
+    if (chlen < 4) {
+      return false
+    }
+    def firstCh:CodeNode (this.getFirst())
+    if (firstCh.vref != "new") {
+      return false
+    }
+    ; Where the chain starts: the first child whose name begins with a dot.
+    def first_dot:int (0 - 1)
+    def di:int 0
+    while (di < chlen) {
+      if (first_dot < 0) {
+        def item:CodeNode (itemAt this.children di)
+        def dotName:string (this.chainDotName(item))
+        if ((strlen dotName) > 0) {
+          if (((charAt dotName 0)) == 46) {
+            first_dot = di
+          }
+        }
+      }
+      di = (di + 1)
+    }
+    ; Below 2 there is no receiver to chain from -- `new` plus a class name.
+    if (first_dot < 2) {
+      return false
+    }
+    ; The receiver is everything before the first dot: a copy of this node with
+    ; the chain part cut off.
+    def recv:CodeNode (this.copy())
+    while (((array_length recv.children)) > first_dot) {
+      removeLast recv.children
+    }
+    def innerNode:CodeNode recv
+    def i:int first_dot
+    while (i < (chlen - 1)) {
+      def item2:CodeNode (itemAt this.children i)
+      def dotName2:string (this.chainDotName(item2))
+      if ((strlen dotName2) == 0) {
+        return false
+      }
+      if (((charAt dotName2 0)) != 46) {
+        return false
+      }
+      def method_name:string (substring dotName2 1 (strlen dotName2))
+      ; The arguments sit either inside the item itself or in the node after it.
+      def mArgs:CodeNode (this.newExpressionNode())
+      if (((array_length item2.children)) > 1) {
+        mArgs = (item2.getSecond())
+      } {
+        mArgs = (itemAt this.children (i + 1))
+      }
+      def newNode:CodeNode (this.newExpressionNode())
+      def callRef:CodeNode (this.newVRefNode("call"))
+      newNode.add(callRef)
+      def innerCopy:CodeNode (innerNode.copy())
+      newNode.add(innerCopy)
+      def nameRef:CodeNode (this.newVRefNode(method_name))
+      newNode.add(nameRef)
+      def argsCopy:CodeNode (mArgs.copy())
+      newNode.add(argsCopy)
+      innerNode = newNode
+      item2.is_part_of_chain = true
+      if (((array_length item2.children)) <= 1) {
+        def nextItem:CodeNode (itemAt this.children (i + 1))
+        nextItem.is_part_of_chain = true
+      }
+      i = (i + 2)
+    }
+    this.getChildrenFrom(innerNode)
+    this.finalizeAsCallChainRoot()
+    return true
   }
 
   fn cloneWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {

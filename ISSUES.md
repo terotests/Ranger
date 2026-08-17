@@ -2699,17 +2699,31 @@ rejects code the previous one accepted.
 
 ### Fix
 
-Write the desugar in Ranger, in the stub's place, and delete the patch script.
-The body is ordinary `CodeNode` manipulation — `copy`, `children`, `add`,
-`newVRefNode`, `getChildrenFrom` — and nothing in it obviously needs a construct
-the language lacks, so the "cannot emit it yet" explanation deserves rechecking
-before it is taken at face value.
+Written in Ranger, in the stub's place. It is ordinary `CodeNode` manipulation —
+`copy`, `children`, `add`, `newVRefNode`, `getChildrenFrom` — and needed no
+construct the language lacks; the "cannot emit it yet" note was never the
+reason. `scripts/patch-chain-desugar.js` is deleted and the patch step is gone
+from `compile` and `build:dist:module`.
 
-Until then, `scripts/patch-chain-desugar.js` should at minimum be run by the
-`selfhost:*` targets too, or those builds should be documented as feature-reduced.
+### Verification
+
+- The Ranger version produces **byte-identical generated code** to the
+  JavaScript patch on all six `chain_*.rgr` fixtures, and identical program
+  output (`hello`/`world`, `6`, `30`, `3`/`Hello`, `6`, `ello`).
+- All six fixtures compile on a compiler built with **no patch step at all**.
+  Five of them could not be compiled before.
+- Chaining now works on every target, not just es6: `chain_new_method` compiles
+  for go, cpp, rust, python, kotlin, csharp, dart and swift6, and prints
+  `hello world` on go, cpp and python.
+- Self-host fixpoint over **three** generations with no patch anywhere:
+  gen2 == gen1 and gen3 == gen2, byte for byte.
+- Unchanged elsewhere: the engine's seven benchmark answers on es6 and on Go,
+  the 2138-probe ES conformance corpus (2136 agreeing with Node, same 2 known
+  gaps), `core_vectors` byte-identical on five targets, and the engine still
+  writes for go/kotlin/csharp/dart/swift6/python.
 
 ### Status
 
-Open. Surfaced while rebuilding the compiler for Issue #70: the rebuild had to
+Fixed. Surfaced while rebuilding the compiler for Issue #70: the rebuild had to
 re-apply the patch by hand to avoid regressing, which is what drew attention to
-what the patch actually contains.
+what the patch actually contained.
