@@ -5568,6 +5568,79 @@ class VlCompile {
         return out
     }
 
+    ; Where a turned axis label hangs from. Both answers follow from the angle
+    ; and the side, and the one that equals the guide's own default — centre
+    ; across, middle down — is left unsaid, which is what the reference leaves
+    ; unsaid too.
+    sfn turnLabels:void (a:VlJson orient:string) {
+        if (! (a.has("labelAngle"))) {
+            return
+        }
+        ; An angle is a direction, not a number of turns: the reference writes
+        ; a quarter turn back as 315 and not as -45, and two labels that face
+        ; the same way have to be written the same way.
+        def turn:double (a.doubleOr("labelAngle" 0.0))
+        while (turn < 0.0) { turn = (turn + 360.0) }
+        while (turn >= 360.0) { turn = (turn - 360.0) }
+        a.setMember("labelAngle" (VlJson.numberValue(turn)))
+        def sideways:boolean ((orient == "left") || (orient == "right"))
+        def flipped:boolean ((orient == "top") || (orient == "right"))
+
+        ; Across the label's own line: which end of the string meets the axis.
+        def align:string "center"
+        if ((turn > 0.0) && (turn < 180.0)) { align = "left" }
+        if ((turn > 180.0) && (turn < 360.0)) { align = "right" }
+        if sideways {
+            align = "right"
+            if ((turn > 90.0) && (turn < 270.0)) { align = "left" }
+            if ((turn == 90.0) || (turn == 270.0)) { align = "center" }
+        }
+        if flipped {
+            if (align == "left") { align = "right" } {
+                if (align == "right") { align = "left" }
+            }
+        }
+
+        ; Down the label's own line: which edge of the glyphs meets the axis.
+        def baseline:string "middle"
+        if (! sideways) {
+            baseline = "bottom"
+            if ((turn < 90.0) || (turn > 270.0)) { baseline = "top" }
+            if ((turn == 90.0) || (turn == 270.0)) { baseline = "middle" }
+        } {
+            if (turn == 90.0) { baseline = "top" }
+            if (turn == 270.0) { baseline = "bottom" }
+        }
+        if flipped {
+            if (baseline == "top") { baseline = "bottom" } {
+                if (baseline == "bottom") { baseline = "top" }
+            }
+        }
+
+        if (align != "center") {
+            if (! (a.has("labelAlign"))) {
+                a.setMember("labelAlign" (VlJson.stringValue(align)))
+            }
+        } {
+            if sideways {
+                if (! (a.has("labelAlign"))) {
+                    a.setMember("labelAlign" (VlJson.stringValue(align)))
+                }
+            }
+        }
+        if (baseline != "middle") {
+            if (! (a.has("labelBaseline"))) {
+                a.setMember("labelBaseline" (VlJson.stringValue(baseline)))
+            }
+        } {
+            if (! sideways) {
+                if (! (a.has("labelBaseline"))) {
+                    a.setMember("labelBaseline" (VlJson.stringValue(baseline)))
+                }
+            }
+        }
+    }
+
     ; Does the specification's own configuration ask for a grid on every axis?
     fn configSaysGrid:boolean () {
         def config:VlJson (source.get("config"))
@@ -5801,11 +5874,6 @@ class VlCompile {
             }
         }
         if (orient == "bottom") {
-            if (given.isObject()) {
-                if (given.has("labelAngle")) {
-                    a.setMember("labelBaseline" (VlJson.stringValue("top")))
-                }
-            }
             ; Category names along the foot of a chart do not fit side by side,
             ; so the reference turns them upright unless the spec says
             ; otherwise. A vertical axis has room and keeps them level.
@@ -5833,6 +5901,13 @@ class VlCompile {
                 }
             }
         }
+        ; Turned labels have to be told which corner to hang from. A label at
+        ; 270 degrees down the foot of a chart reads bottom-to-top and ends at
+        ; the axis, so it is aligned RIGHT and centred on its own line; at 90
+        ; it starts there and is aligned left. Left to the defaults, every
+        ; turned label was drawn from the wrong end and the chart was as much
+        ; too wide as its longest category name.
+        VlCompile.turnLabels(a (a.stringOr("orient" orient)))
         if (stackOffset == "normalize") {
             if ((ch.outField()) == stackField) {
                 a.setMember("format" (VlJson.stringValue(".0%")))
