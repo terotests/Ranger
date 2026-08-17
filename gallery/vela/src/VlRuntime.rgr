@@ -2398,8 +2398,10 @@ class VlRuntime {
             this.applyDefaults(item "group" "scope" cellStyles cellEncoded)
             this.encodeChannels(item enter datum)
             this.encodeChannels(item update datum)
+            def panelStart:int (array_length groupBoxes)
             def cellBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role))
             this.encodeGroupTitle(item (mdef.get("title")) datum cellBox)
+            this.absorbInnerBoxes(panelStart)
         }
     }
 
@@ -2538,14 +2540,49 @@ class VlRuntime {
     ; The chart-level size and extents are swapped out for the duration. The
     ; axis builder reads them from here, and giving it a second set of fields to
     ; read would be the same state under another name.
+    ; A plot with a frame is half a stroke wider than its plotting area on
+    ; every side, and the layout is measured from the ink. Half a pixel sounds
+    ; like nothing until it is the difference between a plot and its
+    ; neighbour's axis labels.
+    sfn expandByFrame:void (box:VlGroupBox item:VlSceneItem) {
+        if (! (item.has("stroke"))) {
+            return
+        }
+        def half:double 0.5
+        if (item.has("strokeWidth")) {
+            half = ((item.number("strokeWidth")) / 2.0)
+        }
+        box.frameHalf = half
+        box.left = (box.left + half)
+        box.right = (box.right + half)
+        box.top = (box.top + half)
+        box.bottom = (box.bottom + half)
+    }
+
     fn encodePlotGroup:VlGroupBox (item:VlSceneItem axes:VlJson children:VlJson role:string) {
         if (! (axes.isArray())) {
+            ; A group with no axes is still a PLOT, and what is drawn in it is
+            ; measured against its size rather than the chart's. Encoded with
+            ; the chart's, a trellis panel's series group came out the default
+            ; two hundred square inside a cell forty pixels tall, and the page
+            ; grew to hold it.
+            def keptWidth:double chartWidth
+            def keptHeight:double chartHeight
+            chartWidth = (item.number("width"))
+            chartHeight = (item.number("height"))
             this.encodeChildMarks(item children)
+            chartWidth = keptWidth
+            chartHeight = keptHeight
             def bare (new VlGroupBox())
             bare.role = role
             bare.item = item
             bare.width = (item.number("width"))
             bare.height = (item.number("height"))
+            ; A plot with a frame is half a stroke bigger than its plotting
+            ; area on every side, whether or not it has axes. Left out of a
+            ; panel with none, a trellis's rows sat two pixels closer together
+            ; than the reference draws them — every row.
+            VlRuntime.expandByFrame(bare item)
             push groupBoxes bare
             return bare
         }
@@ -2558,6 +2595,15 @@ class VlRuntime {
 
         chartWidth = (item.number("width"))
         chartHeight = (item.number("height"))
+        ; A group's own room, measured from nothing. The extents only ever GROW
+        ; — that is what makes them the widest label on an axis — so a panel
+        ; that started from the chart's running totals inherited every panel
+        ; before it, and a trellis of four areas came out sixty thousand pixels
+        ; tall.
+        extentLeft = 0.0
+        extentRight = 0.0
+        extentTop = 0.0
+        extentBottom = 0.0
         this.encodeAxes(item axes)
         this.encodeChildMarks(item children)
 
@@ -2574,17 +2620,7 @@ class VlRuntime {
         ; every side, and the layout is measured from the ink. Half a pixel
         ; sounds like nothing until it is the difference between a plot and its
         ; neighbour's axis labels.
-        if (item.has("stroke")) {
-            def half:double 0.5
-            if (item.has("strokeWidth")) {
-                half = ((item.number("strokeWidth")) / 2.0)
-            }
-            box.frameHalf = half
-            box.left = (box.left + half)
-            box.right = (box.right + half)
-            box.top = (box.top + half)
-            box.bottom = (box.bottom + half)
-        }
+        VlRuntime.expandByFrame(box item)
         push groupBoxes box
 
         chartWidth = savedWidth
@@ -2669,6 +2705,34 @@ class VlRuntime {
     ;
     ; They are placed here instead, WITHIN the group, and then taken off the
     ; list: what the page sees afterwards is one box the size of the grid.
+    ; A panel's own contents are not the page's panels. A coloured line or
+    ; area inside a trellis cell is a partition group of its own, and it is
+    ; already where it belongs — on top of the plot it was drawn in. Left on
+    ; the same flat list as the cells, the page laid it out as another cell and
+    ; a trellis of four areas came out with four empty panels between them.
+    fn absorbInnerBoxes:void (before:int) {
+        def last:int ((array_length groupBoxes) - 1)
+        if (last <= before) {
+            return
+        }
+        def keep:[VlGroupBox]
+        for groupBoxes b:VlGroupBox bi {
+            def inner:boolean false
+            if (bi >= before) {
+                if (bi < last) {
+                    inner = true
+                }
+            }
+            if (! inner) {
+                push keep b
+            }
+        }
+        clear groupBoxes
+        for keep k:VlGroupBox ki {
+            push groupBoxes k
+        }
+    }
+
     fn layoutNested:void (parent:VlGroupBox before:int layoutDef:VlJson) {
         def cells:[VlGroupBox]
         def outer:[VlGroupBox]

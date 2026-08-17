@@ -1251,9 +1251,20 @@ class VlCompile {
         def pm:int 0
         while (pm < (panelMarks.count())) {
             def one:VlJson (panelMarks.at(pm))
-            def innerFrom (VlJson.objectValue())
-            innerFrom.setMember("data" (VlJson.stringValue("facet")))
-            one.setMember("from" innerFrom)
+            ; A mark that is ITSELF a partition — a coloured line or area, which
+            ; is one shape per series — keeps its partition and only changes
+            ; where the rows come from. Given the plain treatment it lost the
+            ; facet and became one group per ROW: a trellis of four areas came
+            ; out with four hundred empty panels between them, and sixty
+            ; thousand pixels of page.
+            def existing:VlJson ((one.get("from")).get("facet"))
+            if (existing.isObject()) {
+                existing.setMember("data" (VlJson.stringValue("facet")))
+            } {
+                def innerFrom (VlJson.objectValue())
+                innerFrom.setMember("data" (VlJson.stringValue("facet")))
+                one.setMember("from" innerFrom)
+            }
             pm = (pm + 1)
         }
 
@@ -5012,13 +5023,20 @@ class VlCompile {
         if hasX {
             def xGrid:boolean ((x.isContinuous()) && (! (x.isBinned())))
             if (gridEverywhere || xGrid) {
-                push out.arr (this.gridAxis("x" "bottom" hasY "y"))
+                ; …unless the channel said no. `"axis": {"grid": false}` is a
+                ; chart asking to be read by its marks alone, and drawn anyway
+                ; the grid is lines the reference never puts on the page.
+                if (! (VlCompile.refusesGrid(x))) {
+                    push out.arr (this.gridAxis("x" "bottom" hasY "y"))
+                }
             }
         }
         if hasY {
             def yGrid:boolean ((y.isContinuous()) && (! (y.isBinned())))
             if (gridEverywhere || yGrid) {
-                push out.arr (this.gridAxis("y" "left" hasX "x"))
+                if (! (VlCompile.refusesGrid(y))) {
+                    push out.arr (this.gridAxis("y" "left" hasX "x"))
+                }
             }
         }
         if hasX {
@@ -5054,6 +5072,18 @@ class VlCompile {
         }
         def given:VlJson (ch.def0.get(key))
         return (given.isNull())
+    }
+
+    sfn refusesGrid:boolean (ch:VlChannel) {
+        def given:VlJson (ch.def0.get("axis"))
+        if (! (given.isObject())) {
+            return false
+        }
+        def grid:VlJson (given.get("grid"))
+        if (grid.isBool()) {
+            return (! (grid.asBool()))
+        }
+        return false
     }
 
     fn logGrid:boolean (scale:string) {
