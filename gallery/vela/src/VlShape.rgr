@@ -412,10 +412,57 @@ class VlShape {
     ; middle stays ONE path with a hole in it rather than becoming two paths —
     ; which is what the reference draws, and what a renderer that fills has to
     ; be handed if the pieces are to share one fill.
+    ; The runs of a closed shape, joined corner to corner. Each run is curved
+    ; on its own and the join between them is a straight line, which is how the
+    ; reference draws an area: along the tops, down to the baseline, back along
+    ; the baseline, and closed.
+    sfn appendCornered:void (builder:PathBuilder pts:[double] breaks:[int] interpolate:string tension:double) {
+        def strokes:int (array_length breaks)
+        def total:int (array_length pts)
+        def b:int 0
+        while (b < strokes) {
+            def from:int ((itemAt breaks b) * 2)
+            def upto:int total
+            if ((b + 1) < strokes) {
+                upto = ((itemAt breaks (b + 1)) * 2)
+            }
+            def run:[double] (VlShape.subrange(pts from upto))
+            def piece (new PathBuilder())
+            VlShape.appendCurve(piece run interpolate tension false)
+            def cmds:[PathCommand] (piece.getCommands())
+            def first:boolean (b == 0)
+            b = (b + 1)
+            for cmds c:PathCommand ci {
+                if ((ci == 0) && (! first)) {
+                    builder.lineTo(c.x c.y)
+                } {
+                    VlShape.replay(builder c)
+                }
+            }
+        }
+        builder.close()
+    }
+
+    sfn replay:void (builder:PathBuilder c:PathCommand) {
+        if (c.type == "M") { builder.moveTo(c.x c.y) }
+        if (c.type == "L") { builder.lineTo(c.x c.y) }
+        if (c.type == "C") { builder.cubicTo(c.x1 c.y1 c.x2 c.y2 c.x c.y) }
+        if (c.type == "Q") { builder.quadTo(c.x1 c.y1 c.x c.y) }
+        if (c.type == "Z") { builder.close() }
+    }
+
     sfn appendBrokenCurve:void (builder:PathBuilder pts:[double] breaks:[int] interpolate:string tension:double closed:boolean) {
         def strokes:int (array_length breaks)
         if (strokes < 2) {
             VlShape.appendCurve(builder pts interpolate tension closed)
+            return
+        }
+        ; A CLOSED shape's breaks are corners, not gaps. An area is the curve
+        ; along its tops and the curve back along its baseline, joined by a
+        ; straight line at each end — curved through the corner instead, the
+        ; shape bulged past where the reference turns.
+        if closed {
+            VlShape.appendCornered(builder pts breaks interpolate tension)
             return
         }
         def total:int (array_length pts)

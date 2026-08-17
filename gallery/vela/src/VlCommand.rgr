@@ -390,6 +390,9 @@ class VlSceneCommands {
                 vertices = (vertices + 1)
                 k = (k + 1)
             }
+            ; The turn from the tops to the baseline is a CORNER, and the
+            ; two halves are curved separately either side of it.
+            push cmd.breaks vertices
             k = (stop - 1)
             while (k >= start) {
                 def item:VlSceneItem (itemAt mark.items k)
