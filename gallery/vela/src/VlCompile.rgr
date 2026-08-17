@@ -5951,22 +5951,13 @@ class VlCompile {
                 return true
             }
         }
-        if (markName == "tick") {
-            return true
-        }
-        if ((markName == "point") || (markName == "circle")) {
-            return true
-        }
-        if (markName == "square") {
-            return true
-        }
-        if (markName == "text") {
-            return true
-        }
-        if (markName == "rect") {
-            return true
-        }
-        return false
+        ; Everything else measures from nothing. That is the reference's own
+        ; default and it is the way round this used to be written: the marks
+        ; that reach zero were listed and the rest fell through to `false`, so
+        ; a mark nobody had thought of — an image, a rule — got a scale that
+        ; started at its own smallest value and a plot dragged sideways.
+        ; Only a mark with a LENGTH is an exception, and it is handled above.
+        return true
     }
 
     fn positionRange:VlJson (axis:string) {
@@ -7786,6 +7777,12 @@ class VlCompile {
     ; The colour a mark carries. A point is drawn as an outline, everything else
     ; as a fill, and a colour channel replaces the constant with a scale.
     fn encodePaint:void (update:VlJson) {
+        ; An image has nothing to paint. Its picture is the file it names, and
+        ; a fill under it is either invisible or a blue square where the
+        ; picture has transparency — the reference writes none.
+        if (markName == "image") {
+            return
+        }
         ; `fill` and `stroke` are channels in their own right — a heat map
         ; written with `"fill"` rather than `"color"` is the same chart said a
         ; different way, and each gets a scale of its own name. Read as
@@ -8361,6 +8358,21 @@ class VlCompile {
                 update.setMember("text" signal)
             }
         }
+        ; An image's `url` is the picture it draws. Read as nothing, the mark
+        ; came out as an empty box the right size in the right place with no
+        ; picture in it.
+        def url:VlChannel (this.channel("url"))
+        if url.defined {
+            if url.hasValue {
+                update.setMember("url" (VlCompile.literal(url.value)))
+            } {
+                def named:string (url.outField())
+                def pick (VlJson.objectValue())
+                def expr:string (((((("isValid(" + (VlCompile.datumRef(named))) + ") ? ") + (VlCompile.datumRef(named))) + " : \"\"+") + (VlCompile.datumRef(named))))
+                pick.setMember("signal" (VlJson.stringValue(expr)))
+                update.setMember("url" pick)
+            }
+        }
         ; A line or an area is one shape through many rows, so the rows it must
         ; skip are marked rather than dropped: dropping them would join across
         ; the gap.
@@ -8579,6 +8591,17 @@ class VlCompile {
             if ((strlen second.field) > 0) {
                 update.setMember(axis (this.scaled(axis (ch.outField()))))
                 update.setMember((axis + "2") (this.scaled(axis (second.outField()))))
+                return
+            }
+        }
+        ; An image given a size is placed by its MIDDLE, not by its corner:
+        ; `{"type": "image", "width": 50}` means a fifty-pixel picture centred
+        ; on the point it stands for, which is why the reference writes `xc`
+        ; and `yc`. Written as a corner, every picture sat down and to the
+        ; right of where it belongs by half its own size.
+        if (markName == "image") {
+            if (markDef.has(dimension)) {
+                update.setMember((axis + "c") (this.scaled(axis (ch.outField()))))
                 return
             }
         }
