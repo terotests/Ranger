@@ -112,6 +112,11 @@ class VlAxis {
     def labelBaseline:string ""
     def minExtent:double 0.0
     def maxExtent:double 200.0
+    ; How far the whole axis stands off the plot it measures. A diverging
+    ; stacked bar sets `"offset": 5` to keep its question labels clear of the
+    ; bars that start at zero; the grid stays where it is, because a grid line
+    ; belongs to the plot rather than to the axis.
+    def axisOffset:double 0.0
     ; A specification may name the number format its labels use — `".0%"` on a
     ; normalized bar chart. Without one a tick SET shares a precision chosen
     ; from its own step, which is the reference's behaviour for an unformatted
@@ -163,6 +168,7 @@ class VlAxis {
         bandPosition = (adef.doubleOr("bandPosition" bandPosition))
         minExtent = (adef.doubleOr("minExtent" minExtent))
         maxExtent = (adef.doubleOr("maxExtent" maxExtent))
+        axisOffset = (adef.doubleOr("offset" axisOffset))
         tickColor = (adef.stringOr("tickColor" tickColor))
         labelColor = (adef.stringOr("labelColor" labelColor))
         labelFont = (adef.stringOr("labelFont" labelFont))
@@ -455,7 +461,7 @@ class VlAxis {
         mark.role = "axis"
         def group:VlSceneItem (mark.addItem())
         group.setString("orient" orient)
-        group.setNumber("offset" 0.0)
+        group.setNumber("offset" axisOffset)
         group.setNumber("position" 0.0)
         group.setNumber("titlePadding" titlePadding)
         group.setNumber("minExtent" minExtent)
@@ -576,7 +582,42 @@ class VlAxis {
             push group.marks (this.buildTitle(title orient vertical range))
             totalExtent = ((labelExtent + titlePadding) + titleFontSize)
         }
+        ; The offset moves the axis away from the plot — every part of it
+        ; except the grid, which crosses the plot and never left it — and the
+        ; room the axis asks for grows by as much.
+        if (axisOffset != 0.0) {
+            this.shiftParts(group orient vertical)
+            totalExtent = (totalExtent + axisOffset)
+        }
         return mark
+    }
+
+    ; Move the drawn parts of an axis outward. `x2`/`y2` travel with `x`/`y`
+    ; because a tick is a rule written as two ends, and a tick that moved only
+    ; at one end would change length rather than position.
+    fn shiftParts:void (group:VlSceneItem orient:string vertical:boolean) {
+        def away:double axisOffset
+        if ((orient == "left") || (orient == "top")) {
+            away = (0.0 - axisOffset)
+        }
+        def first:string "y"
+        def second:string "y2"
+        if vertical {
+            first = "x"
+            second = "x2"
+        }
+        for group.marks child:VlSceneMark ci {
+            if (child.role != "axis-grid") {
+                for child.items item:VlSceneItem ii {
+                    if (item.has(first)) {
+                        item.setNumber(first ((item.number(first)) + away))
+                    }
+                    if (item.has(second)) {
+                        item.setNumber(second ((item.number(second)) + away))
+                    }
+                }
+            }
+        }
     }
 
     ; A grid line crosses the plot from one end of the OTHER scale's range to

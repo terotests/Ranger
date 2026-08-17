@@ -5767,6 +5767,24 @@ class VlCompile {
         return (VlJson.nullValue())
     }
 
+    ; A domain that names a selection rather than values. `{"domain": {"param":
+    ; "brush"}}` means "run this scale over whatever the brush covers", and
+    ; while nothing is brushed that is the whole data domain — which is why the
+    ; reference emits the ordinary data domain and puts the selection in
+    ; `domainRaw` beside it, to be read only once a selection exists. Copied
+    ; into `domain` instead it is not a domain at all: the scale had no numbers
+    ; to map and the page came out six hundred trillion pixels wide.
+    sfn domainNamesParam:boolean (declared:VlJson) {
+        if (! (declared.isObject())) {
+            return false
+        }
+        def domain:VlJson (declared.get("domain"))
+        if (! (domain.isObject())) {
+            return false
+        }
+        return (domain.has("param"))
+    }
+
     fn applyDeclaredScale:void (sc:VlJson ch:VlChannel) {
         def declared:VlJson (VlCompile.statedOn(ch "scale"))
         if (! (declared.isObject())) {
@@ -5774,6 +5792,15 @@ class VlCompile {
         }
         for declared.keys key:string ki {
             if (key != "type") {
+                if ((key == "domain") && (VlCompile.domainNamesParam(declared))) {
+                    ; The selection the domain follows, written where a
+                    ; renderer that has one will look, and nowhere a renderer
+                    ; that has none will.
+                    def raw (VlJson.objectValue())
+                    def sel:string (((declared.get("domain")).get("param")).asString())
+                    raw.setMember("signal" (VlJson.stringValue(((sel + "[\"") + (ch.field + "\"]")))))
+                    sc.setMember("domainRaw" raw)
+                } {
                 if (key == "scheme") {
                     ; A named palette is part of the RANGE, not a key beside
                     ; it: `"scale": {"scheme": "category20b"}` asks the scale to
@@ -5784,6 +5811,7 @@ class VlCompile {
                     sc.setMember("range" named)
                 } {
                     sc.setMember(key (declared.get(key)))
+                }
                 }
             }
         }
@@ -5797,6 +5825,12 @@ class VlCompile {
     fn domainStated:boolean (ch:VlChannel) {
         def declared:VlJson (VlCompile.statedOn(ch "scale"))
         if (! (declared.isObject())) {
+            return false
+        }
+        ; A domain that names a selection states nothing about the numbers:
+        ; the scale still measures its data, and the selection only narrows it
+        ; once there is one.
+        if (VlCompile.domainNamesParam(declared)) {
             return false
         }
         return (declared.has("domain"))
@@ -6540,7 +6574,9 @@ class VlCompile {
                 ; multiples inside each decade, which is also not a count.
                 if (this.continuousScale(gridded)) {
                     if (! (this.logGrid(scale))) {
-                        a.setMember("tickCount" (this.tickCountSignal(orient)))
+                        if (! (VlCompile.cycleUnit(gridded.timeUnit))) {
+                            a.setMember("tickCount" (this.tickCountSignal(orient)))
+                        }
                     }
                 }
             }
@@ -6831,7 +6867,9 @@ class VlCompile {
                         dense.setMember("signal" (VlJson.stringValue((("ceil(" + (this.sizeSignal("width"))) + "/10)"))))
                         a.setMember("tickCount" dense)
                     } {
-                        a.setMember("tickCount" (this.tickCountSignal(orient)))
+                        if (! (VlCompile.cycleUnit(ch.timeUnit))) {
+                            a.setMember("tickCount" (this.tickCountSignal(orient)))
+                        }
                     }
                 }
             }
@@ -6839,6 +6877,19 @@ class VlCompile {
         this.labelCondition(a ch)
         a.setMember("zindex" (VlJson.numberValue(0.0)))
         return a
+    }
+
+    ; Four time units get no tick count at all: a month, an hour, a weekday and
+    ; a quarter each have a fixed number of values in their cycle, so the axis
+    ; is ticked at every one of them and a density in pixels would thin them.
+    ; An axis of the twelve months came out labelled Jan, Mar, May …, which is
+    ; a chart of six months as far as anyone reading it is concerned.
+    sfn cycleUnit:boolean (unit:string) {
+        if (unit == "month") { return true }
+        if (unit == "hours") { return true }
+        if (unit == "day") { return true }
+        if (unit == "quarter") { return true }
+        return false
     }
 
     ; One tick per forty pixels down, one per fifty across — the reference's own

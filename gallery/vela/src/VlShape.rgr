@@ -247,6 +247,23 @@ class VlShape {
         def rbl:double (VlShape.clamp(bl 0.0 limit))
 
         if ((((rtl <= 0.0) && (rtr <= 0.0)) && (rbr <= 0.0)) && (rbl <= 0.0)) {
+            ; A bar of zero height is still a bar. SVG says a rectangle with no
+            ; width or no height is not rendered, and the shape library the
+            ; PDF side shares answers that question that way — but the
+            ; reference renderer writes the outline regardless, and a
+            ; histogram whose first two bars are zero is a chart of eight bars
+            ; rather than of six. Written here, where a mark is turned into a
+            ; path, it does not change what an imported SVG document means.
+            if ((w <= 0.0) || (h <= 0.0)) {
+                if ((w >= 0.0) && (h >= 0.0)) {
+                    builder.moveTo(x y)
+                    builder.lineTo((x + w) y)
+                    builder.lineTo((x + w) (y + h))
+                    builder.lineTo(x (y + h))
+                    builder.close()
+                }
+                return
+            }
             builder.addRect(x y w h)
             return
         }
