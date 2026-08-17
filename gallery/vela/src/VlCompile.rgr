@@ -5240,6 +5240,14 @@ class VlCompile {
     ; …and the formula that computes it. `indexof` over the declared domain,
     ; which is exactly what the reference emits.
     fn pushDomainOrder:void (transforms:VlJson) {
+        ; …and only where something reads it. The column exists to order a
+        ; STACK by its colours; a chart with no stack has nothing to order, and
+        ; a chart whose shape and colour name the same field wrote the same
+        ; column twice. Either way the reference writes nothing, and a data set
+        ; that exists changes the name of every one after it.
+        if ((strlen stackField) == 0) {
+            return
+        }
         for channels ch:VlChannel ci {
             def name:string (this.domainOrderField(ch))
             if ((strlen name) > 0) {
