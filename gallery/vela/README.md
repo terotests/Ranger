@@ -300,14 +300,14 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **35** |
-| drawn, but not the same picture | 106 | 102 |
-| refused, with a reason | 58 | 38 |
+| drawn exactly as the reference draws them | 11 | **50** |
+| drawn, but not the same picture | 106 | 88 |
+| refused, with a reason | 58 | 37 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **20.0% exact, 78.3% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **28.6% exact, 78.9% drawn** |
 
-Every one of those twenty-four came from the report rather than from a guess,
+Every one of those thirty-nine came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
 reaches a thousand, so nobody noticed that thousands were not grouped; none of
 its legend labels is long enough to be truncated, so nobody noticed that a
@@ -315,6 +315,17 @@ label overhanging its limit made the plot narrower; none of its data files
 writes a date as "Jan 1 2000", so the parser only ever read ISO; and every one
 of its channels states its type, so nobody noticed that an untyped one was
 read as a quantity instead of a category.
+
+Four of them were charts that DREW and were wrong, which is the failure this
+whole apparatus exists to catch. A colour written as a test and a fallback kept
+only the fallback, so a heat map's labels were all white where half of them
+should have been black. A scale range of two colours was read as a numeric
+interval, so every bar in two charts was drawn the right size in the right
+place and painted with nothing. An `opacity` channel was read and never
+written, so two overlapping series came out opaque and one of them was
+invisible. And `"point": {"filled": false}` was read as a boolean, which an
+object is not, so a line asked for dots came out bare. None of the four said
+anything; they each just drew the wrong picture.
 
 The remaining hundred are a long tail rather than a wall. Most come out within
 a few pixels of the reference and differ for their own reason — a rounding
