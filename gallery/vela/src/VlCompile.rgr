@@ -1494,7 +1494,7 @@ class VlCompile {
                 push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true))
             }
         }
-        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused())))
+        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel))
         out.setMember("marks" marks)
 
         ; Where the panels go, and how far the title stands clear of them.
@@ -1660,7 +1660,7 @@ class VlCompile {
     }
 
     ; One panel: the chart itself, drawn over the partition it belongs to.
-    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean) {
+    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue("cell")))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -1678,7 +1678,7 @@ class VlCompile {
         }
         def facet (VlJson.objectValue())
         facet.setMember("name" (VlJson.stringValue("facet")))
-        facet.setMember("data" (VlJson.stringValue("data_0")))
+        facet.setMember("data" (VlJson.stringValue(from)))
         def groupby (VlJson.arrayValue())
         push groupby.arr (VlJson.stringValue(field))
         facet.setMember("groupby" groupby)
