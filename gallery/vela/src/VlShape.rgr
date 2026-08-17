@@ -41,7 +41,44 @@ class VlShape {
         if (shape == "triangle-right") { return true }
         if (shape == "triangle-left") { return true }
         if (shape == "stroke") { return true }
-        return false
+        return (VlShape.isPathShape(shape))
+    }
+
+    ; A shape may be a PATH rather than a name: a specification hands the
+    ; symbol scale a list of SVG path strings and gets a pictogram per
+    ; category. It is recognised the way the reference recognises it — by the
+    ; move-to it has to start with.
+    sfn isPathShape:boolean (shape:string) {
+        if ((strlen shape) < 2) {
+            return false
+        }
+        def first:string (substring shape 0 1)
+        return ((first == "M") || (first == "m"))
+    }
+
+    ; A path, scaled about its own origin and moved. The parser has already
+    ; turned every relative command into an absolute one, so each command is a
+    ; handful of points and nothing else needs to know which is which.
+    sfn appendScaledPath:void (builder:PathBuilder data:string scale:double dx:double dy:double) {
+        def parser (new SVGPathParser())
+        parser.parse(data)
+        for (parser.getCommands()) c:PathCommand ci {
+            if (c.type == "M") {
+                builder.moveTo(((c.x * scale) + dx) ((c.y * scale) + dy))
+            }
+            if (c.type == "L") {
+                builder.lineTo(((c.x * scale) + dx) ((c.y * scale) + dy))
+            }
+            if (c.type == "C") {
+                builder.cubicTo(((c.x1 * scale) + dx) ((c.y1 * scale) + dy) ((c.x2 * scale) + dx) ((c.y2 * scale) + dy) ((c.x * scale) + dx) ((c.y * scale) + dy))
+            }
+            if (c.type == "Q") {
+                builder.quadTo(((c.x1 * scale) + dx) ((c.y1 * scale) + dy) ((c.x * scale) + dx) ((c.y * scale) + dy))
+            }
+            if (c.type == "Z") {
+                builder.close()
+            }
+        }
     }
 
     ; A symbol centred on (cx, cy). Everything below is the reference's own
@@ -52,6 +89,15 @@ class VlShape {
             area = 0.0
         }
         def r:double ((sqrt area) / 2.0)
+
+        ; A custom path is drawn AS ITSELF, scaled to the symbol's radius and
+        ; moved to where the symbol goes. The path is written round the origin
+        ; in the same units every built-in shape is, so the radius is the whole
+        ; transformation: `size` is an area and a drawing is a length.
+        if (VlShape.isPathShape(shape)) {
+            VlShape.appendScaledPath(builder shape r cx cy)
+            return
+        }
 
         if (shape == "square") {
             def w:double (sqrt area)

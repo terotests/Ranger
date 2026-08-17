@@ -636,6 +636,13 @@ class VlSceneCommands {
         }
         if (item.has("stroke")) {
             def stroke:string (item.text("stroke"))
+            ; `"stroke": ""` is a chart asking for no outline at all — a view
+            ; with no frame round it — and it is not a colour. Painted anyway,
+            ; the frame was half a pixel off the plot on every side and the
+            ; page grew by one.
+            if ((strlen stroke) == 0) {
+                stroke = "transparent"
+            }
             if (stroke != "transparent") {
                 cmd.stroke = stroke
                 cmd.hasStroke = true
