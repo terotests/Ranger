@@ -174,7 +174,7 @@ class VlTransform {
         def out:[string]
         def seen:[string:int]
         for rows row:VlJson idx {
-            def key:string (row.get(field).asString())
+            def key:string (VlJson.domainKey((row.get(field))))
             if (! (has seen key)) {
                 set seen key 1
                 push out key

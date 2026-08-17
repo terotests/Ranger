@@ -256,6 +256,17 @@ class VlJson {
     ; target's own formatting rather than printing a wrapped number. Chart
     ; geometry never reaches it; a data value could, and a visibly
     ; target-specific string is better than a silently wrong one.
+    ; What a discrete domain calls a cell. A MISSING value is a category like
+    ; any other and the reference names it "null" — an axis with a blank label
+    ; where the reference writes one is an axis that reserved the wrong width.
+    ; An empty string stays empty, which is a different thing entirely.
+    sfn domainKey:string (cell:VlJson) {
+        if (cell.isNull()) {
+            return "null"
+        }
+        return (cell.asString())
+    }
+
     sfn formatNumber:string (value:double maxDecimals:int) {
         def v:double value
         ; A number that is not one. Nothing here can print an infinity — the

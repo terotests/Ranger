@@ -179,6 +179,16 @@ class VlChannel {
         if (aggregate == "count") {
             return "Count of Records"
         }
+        ; An arg-op is named for what it PICKS, not for the operation: the
+        ; budget of the film with the largest gross is "Production Budget for
+        ; max US Gross", which reads as the sentence it is.
+        if ((strlen argField) > 0) {
+            def direction:string "max"
+            if (aggregate == "argmin") {
+                direction = "min"
+            }
+            return ((((field + " for ") + direction) + " ") + argField)
+        }
         if ((strlen aggregate) > 0) {
             return (((VlChannel.capitalise(aggregate)) + " of ") + field)
         }

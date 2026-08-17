@@ -278,7 +278,7 @@ class VlScale {
     ; holds and answers a number.
     fn mapValue:double (v:VlJson) {
         if ((scaleType == "band") || (scaleType == "point")) {
-            return (this.mapDiscrete((v.asString())))
+            return (this.mapDiscrete((VlJson.domainKey(v))))
         }
         return (this.mapNumber((v.asDouble())))
     }
@@ -351,7 +351,7 @@ class VlScale {
         if (total == 0) {
             return ""
         }
-        def idx:int (this.indexOfValue((v.asString())))
+        def idx:int (this.indexOfValue((VlJson.domainKey(v))))
         if (idx < 0) {
             idx = 0
         }
