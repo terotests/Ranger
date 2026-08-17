@@ -614,8 +614,17 @@ class VlCompile {
             ; second layer of the first layer and the second layer of the chart
             ; were both "data_1", and one silently replaced the other.
             child.layerPath = (layerPath + (VlJson.intToText(index)))
-            child.dataLabel = ("data_" + child.layerPath)
-            child.markLabel = (("layer_" + child.layerPath) + "_marks")
+            ; Where the layered chart itself sits: a pane of a concatenation
+            ; names its scales, its data and its size after the pane. A layer
+            ; that did not inherit that named its scales `x` and `y` like every
+            ; other pane's, and asked for a width signal nothing defined —
+            ; three plots on top of each other, all one default wide.
+            child.prefix = prefix
+            child.widthSignal = widthSignal
+            child.heightSignal = heightSignal
+            child.insidePanel = insidePanel
+            child.dataLabel = ((prefix + "data_") + child.layerPath)
+            child.markLabel = (((prefix + "layer_") + child.layerPath) + "_marks")
             if bandX {
                 set child.forcedTypes "x" "band"
             }
