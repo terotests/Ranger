@@ -3870,7 +3870,14 @@ class VlCompile {
             return out
         }
         out.setMember("data" (VlJson.stringValue(dataLabel)))
-        if ((strlen stackField) > 0) {
+        ; A stack rewrites the POSITION it stacks, not every channel that
+        ; happens to read the same column. A bar coloured by its own length
+        ; reads that column twice — once as a position, which the stack turned
+        ; into a pair of running totals, and once as a colour, which it did
+        ; not — so a colour scale given the running totals ran to the total of
+        ; every bar rather than to the longest one.
+        def stacked:boolean (((ch.name == "x") || (ch.name == "y")) || ((ch.name == "theta") || (ch.name == "radius")))
+        if (stacked && ((strlen stackField) > 0)) {
             if ((ch.outField()) == stackField) {
                 def fields (VlJson.arrayValue())
                 push fields.arr (VlJson.stringValue((stackField + "_start")))
@@ -4205,7 +4212,13 @@ class VlCompile {
                 }
             }
         }
-        a.setMember("title" (VlJson.stringValue(axisTitle)))
+        ; `"title": null` is a channel asking for no name on its axis, which is
+        ; what a chart writes when the column's name would say less than the
+        ; drawing already does. It is not the same as an absent title, which
+        ; means "call it whatever the column is called".
+        if (! (VlCompile.suppressed(ch "title"))) {
+            a.setMember("title" (VlJson.stringValue(axisTitle)))
+        }
         def given:VlJson (ch.def0.get("axis"))
         if (given.isObject()) {
             for given.keys key:string ki {
@@ -4793,6 +4806,23 @@ class VlCompile {
         this.markPlace(update "y2" "y2")
         this.markPlace(update "width" "width")
         this.markPlace(update "height" "height")
+        ; `"xOffset": -4` nudges a mark off the position its channel gave it —
+        ; four pixels back from the end of the bar it labels — and the
+        ; reference writes it as an `offset` on that channel rather than as a
+        ; position of its own, so it survives whatever the scale did.
+        VlCompile.markNudge(update markDef "xOffset" "x")
+        VlCompile.markNudge(update markDef "yOffset" "y")
+    }
+
+    sfn markNudge:void (update:VlJson markDef:VlJson key:string channel:string) {
+        if (! (markDef.has(key))) {
+            return
+        }
+        def placed:VlJson (update.get(channel))
+        if (! (placed.isObject())) {
+            return
+        }
+        placed.setMember("offset" (markDef.get(key)))
     }
 
     fn markPlace:void (update:VlJson channelName:string key:string) {
