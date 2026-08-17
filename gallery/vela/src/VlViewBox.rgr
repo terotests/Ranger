@@ -346,29 +346,28 @@ class VlViewBox {
         ; page is sized by the CEILING of that. Writing the same expression a
         ; different way rounds somewhere else and can cost a whole pixel.
         ;
-        ; It still does not always agree, and the reason is not arithmetic: the
-        ; reference lays an axis title out by MOVING it — it bounds the title
-        ; where it first put it and then translates the box — so its residue is
-        ; the residue of a position the title no longer has. That is a property
-        ; of its layout order rather than of the geometry, and reproducing it
-        ; would mean reproducing the order. See the README.
+        ; So the expression below is the reference's, written its way rather
+        ; than the algebraically equivalent "offset from the anchor, turned,
+        ; put back". The two agree to within a few atoms and disagree about
+        ; whole pixels: a y axis title 46 pixels wide comes out 46 exactly one
+        ; way and 46.00000000000001 the other, and the page is sized by the
+        ; CEILING of it.
+        def cx:double ((x - (x * cosA)) + (y * sinA))
+        def cy:double ((y - (x * sinA)) - (y * cosA))
         def out (new VlBounds())
-        VlViewBox.addRotated(out box.x1 box.y1 x y cosA sinA)
-        VlViewBox.addRotated(out box.x1 box.y2 x y cosA sinA)
-        VlViewBox.addRotated(out box.x2 box.y1 x y cosA sinA)
-        VlViewBox.addRotated(out box.x2 box.y2 x y cosA sinA)
+        VlViewBox.addRotated(out box.x1 box.y1 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x1 box.y2 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x2 box.y1 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x2 box.y2 cx cy cosA sinA)
         return out
     }
 
-    ; Rotated about the anchor, as an offset from it. Algebraically the same as
-    ; the reference's own expression and numerically not — which of the two
-    ; lands on the reference's pixel depends on the chart, because the number
-    ; it is being compared against carries a residue of its own. This form
-    ; agrees on every chart in the suite but one.
+    ; One corner of a turned box, in the reference's own terms: the rotation
+    ; and the move back to the anchor are folded into `cx`/`cy` beforehand, so
+    ; a corner costs one multiply-add per axis and rounds where the reference
+    ; rounds.
     sfn addRotated:void (out:VlBounds px:double py:double cx:double cy:double cosA:double sinA:double) {
-        def dx:double (px - cx)
-        def dy:double (py - cy)
-        out.add((cx + ((dx * cosA) - (dy * sinA))) (cy + ((dx * sinA) + (dy * cosA))))
+        out.add((((cosA * px) - (sinA * py)) + cx) (((sinA * px) + (cosA * py)) + cy))
     }
 
     sfn ofBuilder:VlBounds (builder:PathBuilder) {

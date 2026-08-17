@@ -396,6 +396,7 @@ class VlCompile {
         def legends (VlJson.arrayValue())
         def legendNames:[string:int]
         def titles:[string:string]
+        def askedTitles:[string:string]
         def first:boolean true
 
         def index:int 0
@@ -457,12 +458,12 @@ class VlCompile {
                 ; nothing: the reference emits one axis per scale, the first
                 ; layer's, and a chart of `previous_sum` and `sum` is titled
                 ; "Amount" and not "Amount, sum, center".
-                VlCompile.collectAxisTitles(titles (piece.get("axes")) (VlCompile.statedTitles((layers.at(index)))))
+                VlCompile.collectAxisTitles(titles askedTitles (piece.get("axes")) (VlCompile.statedTitles((layers.at(index)))))
             }
             index = (index + 1)
         }
         VlCompile.applyMergedDomains(scales scaleNames domains)
-        VlCompile.mergeAxisTitles(axes titles)
+        VlCompile.mergeAxisTitles(axes titles askedTitles)
 
         out.setMember("data" data)
         if ((signals.count()) > 0) {
@@ -1627,7 +1628,15 @@ class VlCompile {
         return out
     }
 
-    sfn collectAxisTitles:void (titles:[string:string] from:VlJson stated:[string:boolean]) {
+    ; An axis shared by several layers is titled by all of them at once, and
+    ; the reference keeps two lists rather than one: the titles a layer ASKED
+    ; for, and the titles that are merely the name of the column a layer
+    ; happens to read. A stated title wins outright — a waterfall chart of
+    ; `previous_sum`, `sum` and `center` whose first layer says "Amount" is
+    ; titled "Amount", not "Amount, sum, center". With none stated they are all
+    ; kept, joined by commas, which is how two lines of `temp_max` and
+    ; `temp_min` come to share an axis called "temp_max, temp_min".
+    sfn collectAxisTitles:void (titles:[string:string] asked:[string:string] from:VlJson stated:[string:boolean]) {
         if (! (from.isArray())) {
             return
         }
@@ -1636,25 +1645,25 @@ class VlCompile {
             def axis:VlJson (from.at(i))
             def scale:string (axis.stringOr("scale" ""))
             def title:string (axis.stringOr("title" ""))
-            def first:boolean (! (has titles scale))
-            def welcome:boolean (first || (has stated scale))
             if ((strlen title) > 0) {
-                if (! welcome) {
-                    title = ""
-                }
-            }
-            if ((strlen title) > 0) {
-                if (has titles scale) {
-                    def already:string (unwrap (get titles scale))
-                    if (! (VlCompile.namesInclude(already title))) {
-                        set titles scale ((already + ", ") + title)
-                    }
-                } {
-                    set titles scale title
+                VlCompile.addTitle(titles scale title)
+                if (has stated scale) {
+                    VlCompile.addTitle(asked scale title)
                 }
             }
             i = (i + 1)
         }
+    }
+
+    sfn addTitle:void (into:[string:string] scale:string title:string) {
+        if (has into scale) {
+            def already:string (unwrap (get into scale))
+            if (! (VlCompile.namesInclude(already title))) {
+                set into scale ((already + ", ") + title)
+            }
+            return
+        }
+        set into scale title
     }
 
     sfn namesInclude:boolean (list:string name:string) {
@@ -1667,14 +1676,18 @@ class VlCompile {
         return ((indexOf list (", " + name)) >= 0)
     }
 
-    sfn mergeAxisTitles:void (axes:VlJson titles:[string:string]) {
+    sfn mergeAxisTitles:void (axes:VlJson titles:[string:string] asked:[string:string]) {
         def i:int 0
         while (i < (axes.count())) {
             def axis:VlJson (axes.at(i))
             def scale:string (axis.stringOr("scale" ""))
             if (axis.has("title")) {
-                if (has titles scale) {
-                    axis.setMember("title" (VlJson.stringValue((unwrap (get titles scale)))))
+                if (has asked scale) {
+                    axis.setMember("title" (VlJson.stringValue((unwrap (get asked scale)))))
+                } {
+                    if (has titles scale) {
+                        axis.setMember("title" (VlJson.stringValue((unwrap (get titles scale)))))
+                    }
                 }
             }
             i = (i + 1)

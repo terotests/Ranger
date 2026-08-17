@@ -889,15 +889,15 @@ intermediate value is ever larger than a digit.
   and `dayofyear` are refused by name. Each has a real rule and none of the
   three is a variation on the others, so a chart that asked for a week and
   silently got a month would be wrong in a way nobody would notice.
-* **A rotated title can size the page a pixel differently.** The reference
-  lays an axis title out by MOVING it — it bounds the title where it first put
-  it and then translates the box — so the bounds it ends up with carry the
-  floating-point residue of a position the title no longer has. A quarter turn
-  has no exact cosine in binary, the page is sized by the CEILING of those
-  bounds, and a title whose rotated extent lands exactly on a whole pixel can
-  therefore tip either way. Vela computes the bounds where the title actually
-  is, which agrees with the reference on every chart in the suite; it is not
-  guaranteed to on a chart that sits exactly on the tie.
+* **A rotated box is turned by the reference's own expression, term for
+  term.** A quarter turn has no exact cosine in binary — `cos(-pi/2)` is
+  6.1e-17, not 0 — so the corners of a turned box land a few atoms from where
+  the arithmetic says, and the page is sized by the CEILING of them. "Offset
+  from the anchor, turn, put back" and "fold the anchor into a constant and
+  turn" are the same identity and not the same number: a y axis title 46
+  pixels wide comes out 46 exactly one way and 46.00000000000001 the other,
+  which is a whole pixel of page. Vela writes it the reference's way, which is
+  not a style choice.
 * **No loader.** `data.url` is refused by the runtime; the browser page fetches
   it and passes values instead. Seven of the eight targets have no idea what a
   URL is, so this belongs to the host rather than to the runtime.
