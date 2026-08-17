@@ -6968,24 +6968,29 @@ class VlCompile {
         def type:string (this.scaleTypeFor(ch))
         if (type == "band") {
             def at:VlJson (this.scaled(axis (ch.outField())))
+            ; A mark drawn BETWEEN two categories runs from the middle of one
+            ; to the middle of the other — a waterfall's connector from the
+            ; centre of one month's bar to the centre of the next, a heat
+            ; lane's block from one computed edge to another. Which mark it is
+            ; does not come into it: what decides is that the chart named both
+            ; ends. Filled to the band instead, every block came out the same
+            ; height whatever it was measuring.
+            def other:VlChannel (this.channel((axis + "2")))
+            if other.defined {
+                if ((strlen (other.outField())) > 0) {
+                    at.setMember("band" (VlJson.numberValue(0.5)))
+                    update.setMember(axis at)
+                    def far:VlJson (this.scaled(axis (other.outField())))
+                    far.setMember("band" (VlJson.numberValue(0.5)))
+                    update.setMember((axis + "2") far)
+                    return
+                }
+            }
             ; A label over a bar chart sits on the same band scale the bars do,
             ; and it does not fill the band — it stands in the middle of it.
             if (! (this.fillsBand())) {
                 at.setMember("band" (VlJson.numberValue(0.5)))
                 update.setMember(axis at)
-                ; …and a mark drawn BETWEEN two categories reaches the middle
-                ; of the second one as well: a waterfall's connector runs from
-                ; the centre of one month's bar to the centre of the next.
-                ; Written with one end only, it had no length and nothing was
-                ; drawn between the bars at all.
-                def other:VlChannel (this.channel((axis + "2")))
-                if other.defined {
-                    if ((strlen (other.outField())) > 0) {
-                        def far:VlJson (this.scaled(axis (other.outField())))
-                        far.setMember("band" (VlJson.numberValue(0.5)))
-                        update.setMember((axis + "2") far)
-                    }
-                }
                 return
             }
             ; A mark told how THICK it is does not fill its band: it is
