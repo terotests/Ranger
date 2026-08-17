@@ -1914,11 +1914,15 @@ class VlCompile {
             child.prefix = label
             child.dataLabel = ("data_" + (VlJson.intToText((index + 1))))
             child.markLabel = (label + "marks")
-            if horizontal {
-                child.widthSignal = (label + "width")
-            } {
-                child.heightSignal = (label + "height")
-            }
+            ; Both dimensions, whichever way the panes are stacked. The
+            ; obvious rule — panes side by side each get their own width, panes
+            ; above one another each get their own height — is only half
+            ; right: a column of panes shares an EDGE, not a width. A
+            ; histogram of twelve months is as wide as twelve bands and the
+            ; scatter plot under it is as wide as a plot, and given the band
+            ; chart's width the scatter came out sixty pixels narrow.
+            child.widthSignal = (label + "width")
+            child.heightSignal = (label + "height")
             def piece:VlJson (child.compile((VlCompile.mergeSpec(src (panes.at(index))))))
             for child.errors e:string ei {
                 this.fail(e)

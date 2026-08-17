@@ -77,8 +77,12 @@ for (const name of process.argv.slice(3)) {
   if (!answer.ok || !answer.vega) continue;
   const out = [];
   walk(JSON.parse(answer.vega), theirs, '', out);
-  const hits = out.filter(([p]) => generalise(p).includes(pattern));
-  for (const [p, a, b] of hits.slice(0, 4)) {
-    console.log(name.padEnd(38), p, '\n    ours', JSON.stringify(a), '\n    ref ', JSON.stringify(b));
+  // Match either the raw path (so a named set can be asked for) or the
+  // generalised one (so a shape of path can be).
+  const hits = out.filter(([p]) => p.includes(pattern) || generalise(p).includes(pattern));
+  const cap = Number(process.env.SPECDIFF_MAX || 12);
+  for (const [p, a, b] of hits.slice(0, cap)) {
+    console.log(name.padEnd(38), p, '\n    ours', String(JSON.stringify(a)).slice(0, 160), '\n    ref ', String(JSON.stringify(b)).slice(0, 160));
   }
+  if (hits.length > cap) console.log(name.padEnd(38), `… and ${hits.length - cap} more (raise SPECDIFF_MAX)`);
 }
