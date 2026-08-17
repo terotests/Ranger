@@ -555,24 +555,74 @@ build on arithmetic, loops, `[3,1,2].sort().join("-")`,
 
 ### What is left
 
-- **Closures are still incomplete.** A lambda that MUTATES a captured value
-  writes to a copy unless the value is boxed, and boxing covers `i32`/`i1`
-  locals only. A lambda whose capture layout was never built -- one only ever
-  *called*, never constructed in the same module -- loses its captures; the
-  calls it makes through an unresolved receiver are dropped rather than emitted,
-  which keeps the module valid and loses the call.
-- **`remove` and `clear` leak** an owned element instead of releasing it. That
-  is deliberate for now: leaking is safer than a double free while the
-  ownership analysis on this backend is young. `array_extract` hands the
-  element to the caller, which is what its `@(strong)` says. A block-scoped
-  redeclaration, and an assignment to a captured string, leak for the same
-  reason.
+Three of the four entries this section used to hold are closed. What follows is
+what is actually true today, each checked against the ES6 build rather than
+assumed.
+
 - **Plugins cannot work.** `load_compiler_plugin` loads an npm module; a native
-  binary has no Node to load it into. This one is a boundary, not a gap.
-- **No exceptions.** `try` has no unwinding. The handler is an ordinary block
-  and a null `unwrap` inside a `try` branches to it, which covers the one thing
-  the compiler's own sources use `try` for; `error_msg` answers the same
-  placeholder the C++ template does.
+  binary has no Node to load it into. A boundary, not a gap — nothing here will
+  close it.
+- **Memory is held, not leaked, and it is held too long.** Valgrind on the
+  compiler compiling `lib/CmdParams.rgr` puts 69.7 MB in *still reachable*
+  against 2.2 MB genuinely lost, so this is retention rather than leakage — but
+  the retention is real: 109 MB peak against the C++ build's 32 MB on the same
+  input, and 1.6 GB against 797 MB compiling the compiler. Objects are released
+  at scope end and almost nothing else, so memory grows monotonically and comes
+  back at process exit. Fine for a batch compiler; disqualifying for a language
+  server or a watch mode. This is the largest piece of work left on this target,
+  and it is a resource problem, not a correctness one.
+- **`remove` and `clear` leak** an owned element instead of releasing it. That
+  is deliberate: leaking is safer than a double free while the ownership
+  analysis on this backend is young. `array_extract` hands the element to the
+  caller, which is what its `@(strong)` says. A block-scoped redeclaration
+  leaks for the same reason.
+- **A lambda that REASSIGNS a captured string or object writes to a copy.**
+  Mutating THROUGH one (`acc.n = …`, `push xs v`) is fine and always was —
+  the reference itself does not change. Rebinding the name is what does not
+  propagate:
+
+  ```
+  def acc:Box (mk(0))
+  xs.forEach({ acc = (mk((acc.n + item))) })   ; ES6 3, here 0
+  ```
+
+  This was attempted and reverted, twice, and the reason is worth recording.
+  A mutated capture is promoted to a shared heap cell; making that work for a
+  VALUE needs only the reads to go through the cell, which `loadSlot` now does
+  for every consumer. A REFERENCE is different: it is also copied into a
+  closure environment, handed to a callee that keeps it, compared for identity,
+  and released at scope end — and a cell in the middle of any of those paths is
+  silently the wrong pointer. Boxing strings crashed `compiler/test_call.rgr`
+  in `CodeNode.fromList` with a null element; boxing objects crashed
+  `gallery/game_engine/v2/web/web_live3d_host.rgr` in `ranger_obj_retain`.
+  Neither was caught by the self-host round, `test:llvm`, or the 30 fixtures —
+  only by the 1485-file sweep. Closing this properly means auditing every path
+  that consumes a reference, not just the ones that read it as a value.
+- **A lambda that is only ever CALLED, never constructed in the same module,
+  loses its captures.** The capture layout is computed where the closure is
+  built; with no construction site there is nothing to compute it from, and the
+  calls such a lambda makes through an unresolved receiver are dropped rather
+  than emitted — which keeps the module valid and loses the call.
+- **`try` has no unwinding.** A `throw` is a branch to the enclosing catch
+  block, and the front end refuses a throw that is not inside one, so a failure
+  cannot cross a call boundary. Every other target rejects that program too, so
+  there is nothing to diverge on — but a real exception mechanism would be a
+  different design, not an extension of this one.
+
+**Closed since this section was written:**
+
+- *"boxing covers `i32`/`i1` locals only"* — it now covers every VALUE a
+  capturing lambda assigns to: `i32`, `i1` and `f64`. The cell is as wide as
+  what it holds and remembers its logical type, and `loadSlot` reads through it
+  so every consumer agrees. `tests/fixtures/lambda_callback.rgr` accumulates
+  into a captured `double` and printed 0 here against 21 everywhere else.
+  References remain a copy — see above.
+- *"`error_msg` answers the same placeholder the C++ template does"* — it now
+  answers the message that was thrown. `throw` itself used to be dropped
+  entirely, so control ran on past it into the rest of the `try` body.
+- *"shapes are not carried on this target"* — see *Shapes, and the game
+  engine's interpreter* above. All 28 shape fixtures match ES6 and
+  ComponentEngine runs.
 
 ### What C++ took
 

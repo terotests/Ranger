@@ -47829,6 +47829,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           lctx.slotTypes[varName] = irType;
                         };
                         loadSlot (varName, irType, lctx) {
+                          if ( ( typeof(lctx.boxedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, varName) ) ) {
+                            const cellPtr = this.loadSlotRaw(varName, lctx.ptrType, lctx);
+                            const logT = this.boxedCellType(varName, lctx);
+                            const raw = lctx.builder.emitLoadTypedAt(cellPtr, 0, this.boxedStorageType(logT));
+                            if ( logT == "i1" ) {
+                              return this.toI1(raw, lctx);
+                            }
+                            return raw;
+                          }
+                          return this.loadSlotRaw(varName, irType, lctx);
+                        };
+                        loadSlotRaw (varName, irType, lctx) {
                           if ( ( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) ) ) {
                             const slot = (( Object.prototype.hasOwnProperty.call(lctx.slots, varName) ? lctx.slots[varName] : undefined ));
                             const builder = lctx.builder;
@@ -49526,6 +49538,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               if ( capKnd == 3 ) {
                                 lctx.boxedLocals[capName] = 4;
+                                const bCls = cinfo.objClasses[ci];
+                                if ( (bCls.length) > 0 ) {
+                                  lctx.objectSlots[capName] = bCls;
+                                }
                                 if ( ci < (cinfo.boxTypes.length) ) {
                                   lctx.boxedTypes[capName] = cinfo.boxTypes[ci];
                                 }
@@ -49603,6 +49619,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         emitBoxCell (lctx) {
                           return this.emitBoxCellSized(lctx, 4);
                         };
+                        bindBoxedLocal (varName, irType, value, lctx) {
+                          const storeT = this.boxedStorageType(irType);
+                          const cellBytes = this.irTypeBytes(storeT, lctx);
+                          const cell = this.emitBoxCellSized(lctx, cellBytes);
+                          const cellVal = this.widenForBoxCell(value, irType, lctx);
+                          lctx.builder.emitStoreTypedAt(cell, 0, cellVal, storeT);
+                          this.bindSlot(varName, lctx.ptrType, cell, lctx);
+                          lctx.boxedLocals[varName] = cellBytes;
+                          lctx.boxedTypes[varName] = irType;
+                          if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
+                            lctx.ownedObjectLocals.push(varName);
+                          }
+                        };
                         isBoxableIrType (irType) {
                           if ( irType == "i32" ) {
                             return true;
@@ -49611,9 +49640,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return true;
                           }
                           if ( irType == "f64" ) {
-                            return true;
-                          }
-                          if ( irType == "i8*" ) {
                             return true;
                           }
                           return false;
@@ -49793,6 +49819,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 let cirt = lctx.ptrType;
                                 if ( ( typeof(lctx.boxedLocals[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, cn) ) ) {
                                   kind = 3;
+                                  if ( ( typeof(lctx.objectSlots[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, cn) ) ) {
+                                    objCls = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, cn) ? lctx.objectSlots[cn] : undefined ));
+                                  }
                                 } else {
                                   if ( ( typeof(lctx.objectSlots[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, cn) ) ) {
                                     kind = 2;
@@ -49963,7 +49992,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               k = k + 1;
                               continue;
                             }
-                            let cval = this.loadSlot(cn, cirt, lctx);
+                            let cval = this.loadSlotRaw(cn, cirt, lctx);
                             if ( knd == 1 ) {
                               cval = this.emitStrdupExpr(cval, lctx);
                             }
@@ -50073,7 +50102,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           const builder = lctx.builder;
                           const voidType = "void";
-                          const val = this.loadSlot(varName, lctx.ptrType, lctx);
+                          const val = this.loadSlotRaw(varName, lctx.ptrType, lctx);
                           let args = [];
                           let argTypes = [];
                           args.push(val);
@@ -50188,7 +50217,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           const builder = lctx.builder;
                           const voidType = "void";
-                          const val = this.loadSlot(varName, "i8*", lctx);
+                          const val = this.loadSlotRaw(varName, "i8*", lctx);
                           let args = [];
                           let argTypes = [];
                           args.push(val);
@@ -50206,7 +50235,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) )) ) {
                             return;
                           }
-                          const desc = this.loadSlot(varName, lctx.ptrType, lctx);
+                          const desc = this.loadSlotRaw(varName, lctx.ptrType, lctx);
                           let args = [];
                           let argTypes = [];
                           args.push(desc);
@@ -50852,11 +50881,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               irTypeFromCall = this.llvmTypeForRanger(typeName, lctx.ptrType);
                               if ( this.isObjectTypeName(typeName) ) {
                                 lctx.objectSlots[varName] = typeName;
-                                if ( this.objRcEnabled(lctx) && this.isRefCountedObjectType(typeName) ) {
+                                if ( this.objRcEnabled(lctx) ) {
                                   this.claimObjectTemp(callTmp, lctx);
-                                  if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
-                                    lctx.ownedObjectLocals.push(varName);
+                                  if ( this.isRefCountedObjectType(typeName) ) {
+                                    if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
+                                      lctx.ownedObjectLocals.push(varName);
+                                    }
                                   }
+                                }
+                              }
+                            }
+                            if ( this.objRcEnabled(lctx) ) {
+                              if ( ( typeof(lctx.boxedCandidates[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedCandidates, varName) ) ) {
+                                if ( this.isBoxableIrType(irTypeFromCall) ) {
+                                  this.bindBoxedLocal(varName, irTypeFromCall, callTmp, lctx);
+                                  return;
                                 }
                               }
                             }
@@ -50952,17 +50991,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( this.objRcEnabled(lctx) ) {
                             if ( ( typeof(lctx.boxedCandidates[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedCandidates, varName) ) ) {
                               if ( this.isBoxableIrType(irType) ) {
-                                const storeT = this.boxedStorageType(irType);
-                                const cellBytes = this.irTypeBytes(storeT, lctx);
-                                const cell = this.emitBoxCellSized(lctx, cellBytes);
-                                const cellVal = this.widenForBoxCell(tmp, irType, lctx);
-                                lctx.builder.emitStoreTypedAt(cell, 0, cellVal, storeT);
-                                this.bindSlot(varName, lctx.ptrType, cell, lctx);
-                                lctx.boxedLocals[varName] = cellBytes;
-                                lctx.boxedTypes[varName] = irType;
-                                if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
-                                  lctx.ownedObjectLocals.push(varName);
-                                }
+                                this.bindBoxedLocal(varName, irType, tmp, lctx);
                                 return;
                               }
                             }
@@ -51051,7 +51080,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             tmp = this.lowerExpr(rhs, lctx);
                           }
                           if ( ( typeof(lctx.boxedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, varName) ) ) {
-                            const cellPtr = this.loadSlot(varName, lctx.ptrType, lctx);
+                            const cellPtr = this.loadSlotRaw(varName, lctx.ptrType, lctx);
                             const logT = this.boxedCellType(varName, lctx);
                             const wrote = this.widenForBoxCell(tmp, logT, lctx);
                             if ( logT == "i8*" ) {
@@ -52470,15 +52499,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( (lctx.selfPtr.length) > 0 ) {
                                 return builder.emitPtrToInt(lctx.selfPtr);
                               }
-                            }
-                            if ( ( typeof(lctx.boxedLocals[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, node.vref) ) ) {
-                              const cellPtr = this.loadSlot(node.vref, lctx.ptrType, lctx);
-                              const logT = this.boxedCellType(node.vref, lctx);
-                              const raw = builder.emitLoadTypedAt(cellPtr, 0, this.boxedStorageType(logT));
-                              if ( logT == "i1" ) {
-                                return this.toI1(raw, lctx);
-                              }
-                              return raw;
                             }
                             if ( (node.vref.indexOf(".")) >= 0 ) {
                               const parts = node.vref.split(".");

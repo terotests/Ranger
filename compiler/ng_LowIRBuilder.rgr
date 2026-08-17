@@ -4992,7 +4992,28 @@ class LowIRBuilderPass {
     set lctx.slotTypes varName irType
   }
 
+  ; Read a local. A BOXED local -- one a capturing lambda assigns to -- keeps
+  ; its value in a shared heap cell, and the slot holds the cell. Reading it is
+  ; therefore two loads, and doing that HERE is what makes every consumer agree:
+  ; a field receiver, a method receiver and a call argument all read through
+  ; this, and each of them used to get the cell where it wanted the value.
   fn loadSlot:string (varName:string irType:string lctx:LowIRLowerContext) {
+    if (has lctx.boxedLocals varName) {
+      def cellPtr (this.loadSlotRaw(varName lctx.ptrType lctx))
+      def logT:string (this.boxedCellType(varName lctx))
+      def raw (lctx.builder.emitLoadTypedAt(cellPtr 0 (this.boxedStorageType(logT))))
+      if (logT == "i1") {
+        return (this.toI1(raw lctx))
+      }
+      return raw
+    }
+    return (this.loadSlotRaw(varName irType lctx))
+  }
+
+  ; The slot itself, cell and all -- for the code that OWNS the cell: the
+  ; assignment that writes through it, the closure layout that captures it, and
+  ; the scope-end release that frees it.
+  fn loadSlotRaw:string (varName:string irType:string lctx:LowIRLowerContext) {
     if (has lctx.slots varName) {
       def slot (unwrap (get lctx.slots varName))
       def builder (lctx.builder)
@@ -6940,6 +6961,12 @@ class LowIRBuilderPass {
           ; writes of capName go through the cell (see lowerVarDef/Assign/Expr).
           ; NOT registered as an owned local — the env owns and frees the cell.
           set lctx.boxedLocals capName 4
+          ; a boxed OBJECT keeps its class, so field reads inside the body
+          ; resolve against the right layout
+          def bCls:string (itemAt cinfo.objClasses ci)
+          if ((strlen bCls) > 0) {
+            set lctx.objectSlots capName bCls
+          }
           if (ci < (array_length cinfo.boxTypes)) {
             set lctx.boxedTypes capName (itemAt cinfo.boxTypes ci)
           }
@@ -7046,21 +7073,45 @@ class LowIRBuilderPass {
     return (this.emitBoxCellSized(lctx 4))
   }
 
+  ; Promote a local to a shared heap cell and bind the slot to it. Both the
+  ; declaration with a plain initializer and the one initialized by a CALL need
+  ; this -- the call path used to return before the promotion could happen, so
+  ; `def acc:Box (mk(0))` followed by `xs.forEach({ acc = … })` wrote to a copy.
+  fn bindBoxedLocal:void (varName:string irType:string value:string lctx:LowIRLowerContext) {
+    def storeT:string (this.boxedStorageType(irType))
+    def cellBytes:int (this.irTypeBytes(storeT lctx))
+    def cell (this.emitBoxCellSized(lctx cellBytes))
+    def cellVal:string (this.widenForBoxCell(value irType lctx))
+    lctx.builder.emitStoreTypedAt(cell 0 cellVal storeT)
+    this.bindSlot(varName lctx.ptrType cell lctx)
+    set lctx.boxedLocals varName cellBytes
+    ; the LOGICAL type, not the storage width: a boolean lives in the cell as an
+    ; i32 and has to come back out as an i1
+    set lctx.boxedTypes varName irType
+    if (this.isOwnedObjectLocal(varName lctx) == false) {
+      push lctx.ownedObjectLocals varName
+    }
+  }
+
   ; Which locals can live in a shared cell. A reference (i8* / pointer) belongs
   ; here as much as a scalar does: `s = (s + x)` inside a lambda REBINDS the
   ; captured name, and without a cell the new pointer went to a copy and the
   ; enclosing `s` never changed -- it came out empty where every other target
   ; had "123".
+  ; Which locals may live in a shared cell. VALUES only, and that boundary is
+  ; empirical rather than principled: a reference is also reached by paths that
+  ; do not read it as a value at all -- it is copied into a closure env, handed
+  ; to a callee that keeps it, compared for identity, released at scope end --
+  ; and a cell in the middle of any of those is silently the wrong pointer.
+  ; Boxing strings crashed `compiler/test_call.rgr` in CodeNode.fromList with a
+  ; null element, and boxing objects crashed
+  ; `gallery/game_engine/v2/web/web_live3d_host.rgr` in ranger_obj_retain.
+  ; Reading through the cell in loadSlot is necessary for those to work, and it
+  ; is not sufficient; see "What is left" in TARGET_NOTES.md.
   fn isBoxableIrType:boolean (irType:string) {
     if (irType == "i32") { return true }
     if (irType == "i1") { return true }
     if (irType == "f64") { return true }
-    if (irType == "i8*") { return true }
-    ; NOT an object or collection pointer. A string is read back through
-    ; lowerExpr, which knows about the cell; an object is also reached as a
-    ; field receiver, a method receiver and a call argument, and those paths
-    ; read the slot directly -- they would see the CELL where they expect the
-    ; object. Boxing one silently corrupted every such read.
     return false
   }
 
@@ -7284,6 +7335,12 @@ class LowIRBuilderPass {
             ; L3: a boxed mutated value — the env retains the shared heap cell
             ; (owned like an object; the body reads/writes through the cell)
             kind = 3
+            ; A boxed OBJECT still has a class, and the body needs it or a field
+            ; read through the cell (`acc.n` inside the lambda) resolves to
+            ; nothing and answers a constant 0.
+            if (has lctx.objectSlots cn) {
+              objCls = (unwrap (get lctx.objectSlots cn))
+            }
           } {
           if (has lctx.objectSlots cn) {
             kind = 2
@@ -7483,7 +7540,7 @@ class LowIRBuilderPass {
         k = (+ k 1)
         continue
       }
-      def cval (this.loadSlot(cn cirt lctx))
+      def cval (this.loadSlotRaw(cn cirt lctx))
       if (knd == 1) {
         ; string capture: the closure owns a private dup
         cval = (this.emitStrdupExpr(cval lctx))
@@ -7614,7 +7671,7 @@ class LowIRBuilderPass {
     }
     def builder (lctx.builder)
     def voidType:string "void"
-    def val (this.loadSlot(varName lctx.ptrType lctx))
+    def val (this.loadSlotRaw(varName lctx.ptrType lctx))
     def args:[string]
     def argTypes:[string]
     push args val
@@ -7758,7 +7815,7 @@ class LowIRBuilderPass {
     }
     def builder (lctx.builder)
     def voidType:string "void"
-    def val (this.loadSlot(varName "i8*" lctx))
+    def val (this.loadSlotRaw(varName "i8*" lctx))
     def args:[string]
     def argTypes:[string]
     push args val
@@ -7785,7 +7842,7 @@ class LowIRBuilderPass {
     if (false == (has lctx.slots varName)) {
       return
     }
-    def desc (this.loadSlot(varName lctx.ptrType lctx))
+    def desc (this.loadSlotRaw(varName lctx.ptrType lctx))
     def args:[string]
     def argTypes:[string]
     push args desc
@@ -8547,11 +8604,29 @@ class LowIRBuilderPass {
           ; The callee handed over a reference; this local owns it and releases
           ; it at scope end. Without this `def v:T (this.f())` -- the shape every
           ; line of an evaluator has -- kept its object alive forever.
-          if ((this.objRcEnabled(lctx)) && (this.isRefCountedObjectType(typeName))) {
+          if (this.objRcEnabled(lctx)) {
+            ; Claim it either way. The claim is not about ownership -- it takes
+            ; the value OUT of the statement arena, which would otherwise free
+            ; it at the end of this statement while the local still names it.
+            ; Only the scope-end RELEASE is about ownership, and a JSON value
+            ; has no object header for that to be handed.
             this.claimObjectTemp(callTmp lctx)
-            if (this.isOwnedObjectLocal(varName lctx) == false) {
-              push lctx.ownedObjectLocals varName
+            if (this.isRefCountedObjectType(typeName)) {
+              if (this.isOwnedObjectLocal(varName lctx) == false) {
+                push lctx.ownedObjectLocals varName
+              }
             }
+          }
+        }
+      }
+      ; L3 applies to a call result too: a local that a capturing lambda
+      ; assigns to is promoted here as well, after objectSlots has recorded its
+      ; class so field reads through the cell still know what they are reading.
+      if (this.objRcEnabled(lctx)) {
+        if (has lctx.boxedCandidates varName) {
+          if (this.isBoxableIrType(irTypeFromCall)) {
+            this.bindBoxedLocal(varName irTypeFromCall callTmp lctx)
+            return
           }
         }
       }
@@ -8679,19 +8754,7 @@ class LowIRBuilderPass {
     if (this.objRcEnabled(lctx)) {
       if (has lctx.boxedCandidates varName) {
         if (this.isBoxableIrType(irType)) {
-          def storeT:string (this.boxedStorageType(irType))
-          def cellBytes:int (this.irTypeBytes(storeT lctx))
-          def cell (this.emitBoxCellSized(lctx cellBytes))
-          def cellVal:string (this.widenForBoxCell(tmp irType lctx))
-          lctx.builder.emitStoreTypedAt(cell 0 cellVal storeT)
-          this.bindSlot(varName lctx.ptrType cell lctx)
-          set lctx.boxedLocals varName cellBytes
-          ; the LOGICAL type, not the storage width: a boolean lives in the cell
-          ; as an i32 and has to come back out as an i1
-          set lctx.boxedTypes varName irType
-          if (this.isOwnedObjectLocal(varName lctx) == false) {
-            push lctx.ownedObjectLocals varName
-          }
+          this.bindBoxedLocal(varName irType tmp lctx)
           return
         }
       }
@@ -8802,7 +8865,7 @@ class LowIRBuilderPass {
     ; L3: a boxed value local — write through the shared heap cell so the closure
     ; that captured it observes the mutation (and vice versa).
     if (has lctx.boxedLocals varName) {
-      def cellPtr (this.loadSlot(varName lctx.ptrType lctx))
+      def cellPtr (this.loadSlotRaw(varName lctx.ptrType lctx))
       def logT:string (this.boxedCellType(varName lctx))
       def wrote:string (this.widenForBoxCell(tmp logT lctx))
       ; A REFERENCE written into the cell is now held by the cell, so it has to
@@ -10526,17 +10589,7 @@ class LowIRBuilderPass {
         }
       }
       ; L3: a boxed value local — read the current value through the shared cell.
-      if (has lctx.boxedLocals node.vref) {
-        def cellPtr (this.loadSlot(node.vref lctx.ptrType lctx))
-        ; emitLoadI32At would read a POINTER-sized word, which is the same thing
-        ; only on wasm -- and the cell holds whatever the local's type is
-        def logT:string (this.boxedCellType(node.vref lctx))
-        def raw (builder.emitLoadTypedAt(cellPtr 0 (this.boxedStorageType(logT))))
-        if (logT == "i1") {
-          return (this.toI1(raw lctx))
-        }
-        return raw
-      }
+      ; a boxed local reads through loadSlot like any other name
       if ((indexOf node.vref ".") >= 0) {
         def parts:[string] (strsplit node.vref ".")
         if ((array_length parts) >= 2) {
