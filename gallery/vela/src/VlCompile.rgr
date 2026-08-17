@@ -6031,7 +6031,18 @@ class VlCompile {
             push range.arr (VlJson.numberValue(4.0))
         } {
             push range.arr (VlJson.numberValue(4.0))
-            push range.arr (VlJson.numberValue(361.0))
+            ; A chart binned along BOTH axes is a grid of cells, and the
+            ; biggest bubble is the one that nearly fills a cell — how big
+            ; that is depends on the plot's size and on how many bins there
+            ; are, so it is a signal rather than a number. Given the ordinary
+            ; nineteen-pixel bubble instead, every dot came out two thirds of
+            ; the size the reference draws it.
+            def cell:string (this.binCellSignal())
+            if ((strlen cell) > 0) {
+                push range.arr (VlCompile.signalRef(cell))
+            } {
+                push range.arr (VlJson.numberValue(361.0))
+            }
         }
         sc.setMember("range" range)
         sc.setMember("zero" (VlJson.boolValue(true)))
@@ -6040,6 +6051,25 @@ class VlCompile {
         ; difference is a chart drawn a hundred times too thick.
         this.applyDeclaredScale(sc ch)
         push out.arr sc
+    }
+
+    ; How big one cell of a doubly-binned grid is, squared — an area, because
+    ; a symbol's size is one. "" when the chart is not a grid of cells.
+    fn binCellSignal:string () {
+        def x:VlChannel (this.channel("x"))
+        def y:VlChannel (this.channel("y"))
+        if (! (x.hasBin && y.hasBin)) {
+            return ""
+        }
+        def across:string ((widthSignal + " / ") + (VlCompile.binCount(x)))
+        def down:string ((heightSignal + " / ") + (VlCompile.binCount(y)))
+        return (((("pow(0.95 * min(" + across) + ", ") + down) + "), 2)")
+    }
+
+    ; How many bins a channel's own signal says there are.
+    sfn binCount:string (ch:VlChannel) {
+        def sig:string (ch.binSignal())
+        return ((((((("((" + sig) + "_bins.stop - ") + sig) + "_bins.start) / ") + sig) + "_bins.step)"))
     }
 
     ; ---------------------------------------------------------------- axes ---
