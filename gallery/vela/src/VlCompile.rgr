@@ -301,27 +301,77 @@ class VlCompile {
         return false
     }
 
+    ; The mark types a chart may configure by name. Each is a Vega style with
+    ; the same name, which is where the marks that use it look.
+    sfn markConfigName:boolean (key:string) {
+        if (key == "area") { return true }
+        if (key == "bar") { return true }
+        if (key == "circle") { return true }
+        if (key == "line") { return true }
+        if (key == "point") { return true }
+        if (key == "rect") { return true }
+        if (key == "rule") { return true }
+        if (key == "square") { return true }
+        if (key == "text") { return true }
+        if (key == "tick") { return true }
+        if (key == "trail") { return true }
+        if (key == "arc") { return true }
+        if (key == "image") { return true }
+        if (key == "geoshape") { return true }
+        return false
+    }
+
     ; A configuration block, in the words Vega uses. Most of it passes straight
     ; through, but `view` is Vega-Lite's name for the plotting rectangle and
     ; Vega's name for it is the `cell` style — so what a chart says about its
     ; view is said again as a style, which is where the runtime looks for it.
     sfn vegaConfig:VlJson (cfg:VlJson) {
-        def view:VlJson (cfg.get("view"))
-        if (! (view.isObject())) {
-            return cfg
-        }
         def out (VlJson.objectValue())
-        for cfg.keys k:string ki {
-            if (k != "view") {
-                out.setMember(k (cfg.get(k)))
-            }
-        }
         def style:VlJson (cfg.get("style"))
         def styles (VlJson.objectValue())
         if (style.isObject()) {
             for style.keys sk:string ski {
                 styles.setMember(sk (style.get(sk)))
             }
+        }
+        ; Everything a chart says about ONE KIND OF MARK is a style under that
+        ; mark's name. `config: {"area": {"interpolate": "monotone"}}` is every
+        ; area in the chart drawn as a smooth curve, and written under its own
+        ; name nothing looked for it there.
+        for cfg.keys k:string ki {
+            if (k == "view") {
+                ; folded in below
+            } {
+            if (k == "style") {
+                ; already taken
+            } {
+            if (VlCompile.markConfigName(k)) {
+                def named (VlJson.objectValue())
+                def had:VlJson (styles.get(k))
+                if (had.isObject()) {
+                    for had.keys hk:string hki {
+                        named.setMember(hk (had.get(hk)))
+                    }
+                }
+                def given:VlJson (cfg.get(k))
+                if (given.isObject()) {
+                    for given.keys gk:string gki {
+                        named.setMember(gk (given.get(gk)))
+                    }
+                }
+                styles.setMember(k named)
+            } {
+                out.setMember(k (cfg.get(k)))
+            }
+            }
+            }
+        }
+        def view:VlJson (cfg.get("view"))
+        if (! (view.isObject())) {
+            if ((array_length styles.keys) > 0) {
+                out.setMember("style" styles)
+            }
+            return out
         }
         def cell (VlJson.objectValue())
         def existing:VlJson (styles.get("cell"))
