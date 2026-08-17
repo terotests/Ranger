@@ -1226,6 +1226,12 @@ class VlRuntime {
             if (sdef.boolOr("nice" false)) {
                 sc.niceDomain(10)
             }
+            ; Last, because it is a point INSIDE the domain and the domain has
+            ; to have stopped moving before it can be placed in it.
+            if (sdef.has("domainMid")) {
+                sc.domainMid = (sdef.doubleOr("domainMid" 0.0))
+                sc.hasDomainMid = true
+            }
         }
 
         if (! (has scope.scales name)) {

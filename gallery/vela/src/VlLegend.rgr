@@ -485,7 +485,7 @@ class VlLegend {
             item.setString("font" labelFont)
             item.setNumber("fontSize" labelFontSize)
             item.setNumber("opacity" 1.0)
-            def perc:double (sc.fraction(v))
+            def perc:double (sc.endFraction(v))
             ; The label at an END of the scale is pulled inside the bar rather
             ; than centred on it, so the scale reads to its own extremes and
             ; nothing hangs off the drawing. Which property does the pulling

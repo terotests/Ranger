@@ -60,6 +60,9 @@ class VlScale {
     ; Whether those values are a RAMP rather than a list: a continuous scheme
     ; handed to an ordinal scale is sampled along, not taken in turn.
     def rampRange:boolean false
+    ; Where the middle of the range sits in the domain, when the chart said.
+    def domainMid:double 0.0
+    def hasDomainMid:boolean false
 
     ; Bin boundaries, when the scale was built for binned data. An axis over a
     ; binned scale labels the bins, not an arbitrary tick count.
@@ -280,7 +283,32 @@ class VlScale {
     ; reads. A heat map of a count where every cell counts one is exactly this —
     ; mapping it to zero paints the whole table the palest colour the scheme has
     ; and says "all lowest" about numbers that are all the same.
+    ; Where a value sits between the domain's ENDS, taking no notice of any
+    ; point named in the middle. That is how the reference places a colour
+    ; ramp's labels: it builds a fresh scale from the two ends alone, so the
+    ; labels are spread evenly along the bar even where the colours are not.
+    fn endFraction:double (value:double) {
+        def saved:boolean hasDomainMid
+        hasDomainMid = false
+        def out:double (this.fraction(value))
+        hasDomainMid = saved
+        return out
+    }
+
     fn fraction:double (value:double) {
+        ; A scale may name a value that has to land in the MIDDLE of its range
+        ; however far from the middle of its domain it is. That is what a
+        ; diverging colour ramp is for — nothing above zero should be drawn in
+        ; the colour that means nothing at all — and it makes the mapping two
+        ; straight lines rather than one.
+        if hasDomainMid {
+            if ((value <= domainMid) && (domainMid > domainMin)) {
+                return (0.5 * ((value - domainMin) / (domainMid - domainMin)))
+            }
+            if ((value >= domainMid) && (domainMax > domainMid)) {
+                return (0.5 + (0.5 * ((value - domainMid) / (domainMax - domainMid))))
+            }
+        }
         if (this.isLog()) {
             if (value <= 0.0) {
                 return 0.0
