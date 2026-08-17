@@ -1977,6 +1977,37 @@ class VlCompile {
 
     ; A layer is a specification with the outer one's data, size and shared
     ; encoding behind it. The layer's own keys win.
+    ; What a channel says when a shared encoding and a layer's own both say
+    ; something about it. The layer wins property by property — but a layer
+    ; that names its own source of values replaces the shared one entirely
+    ; rather than carrying both, because a channel reads a field, a datum or a
+    ; constant and never two of them at once.
+    sfn mergeChannelDef:VlJson (shared:VlJson own:VlJson) {
+        if (! (shared.isObject())) {
+            return own
+        }
+        if (! (own.isObject())) {
+            return own
+        }
+        def sourced:boolean (((own.has("field")) || (own.has("datum"))) || (own.has("value")))
+        def out (VlJson.objectValue())
+        for shared.keys sk:string si {
+            def drop:boolean false
+            if sourced {
+                if (((sk == "field") || (sk == "datum")) || (sk == "value")) {
+                    drop = true
+                }
+            }
+            if (! drop) {
+                out.setMember(sk (shared.get(sk)))
+            }
+        }
+        for own.keys ok:string oi {
+            out.setMember(ok (own.get(ok)))
+        }
+        return out
+    }
+
     sfn mergeSpec:VlJson (outer:VlJson layer:VlJson) {
         def out (VlJson.objectValue())
         for outer.keys key:string ki {
@@ -2007,7 +2038,13 @@ class VlCompile {
                 }
                 def layerEncoding:VlJson (layer.get("encoding"))
                 for layerEncoding.keys lk:string li {
-                    merged.setMember(lk (layerEncoding.get(lk)))
+                    ; A shared channel and a layer's channel are merged
+                    ; PROPERTY by property. A candlestick states the y channel's
+                    ; type, scale and axis once at the top and gives each layer
+                    ; only the column to read; replaced wholesale, the type went
+                    ; missing and a price axis came out as a band, one step per
+                    ; distinct price.
+                    merged.setMember(lk (VlCompile.mergeChannelDef((merged.get(lk)) (layerEncoding.get(lk)))))
                 }
                 out.setMember("encoding" merged)
             } {
