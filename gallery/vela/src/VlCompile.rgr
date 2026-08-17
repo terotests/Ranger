@@ -3435,9 +3435,49 @@ class VlCompile {
         ; no middle without the two ends. Left unstacked, every label sat at
         ; the far edge of its wedge instead of in the centre of it.
         if (markName == "text") {
-            return (this.hasChannel("theta"))
+            if (this.hasChannel("theta")) {
+                return true
+            }
+            ; …and a label on a stacked BAR stacks for the same reason, when
+            ; the chart says so. `"stack": "normalize"` on the label's own x is
+            ; a layer asking to be placed the way the bars under it are placed;
+            ; read as nothing, every label stood at the far edge of the plot
+            ; rather than in the segment it names.
+            return ((VlCompile.asksToStack((this.channel("x")))) || (VlCompile.asksToStack((this.channel("y")))))
         }
         return (((markName == "bar") || (markName == "area")) || (markName == "arc"))
+    }
+
+    ; A mark on a stack either FILLS its segment or stands at a point in it. A
+    ; bar and an area fill it; a label and a dot stand in it, in the middle by
+    ; default. `spansBin` is the wrong question to ask here — it is about bins
+    ; and leaves an area out, and asking it stacked every area chart to the
+    ; middle of its own band.
+    fn standsInStack:boolean () {
+        if (markName == "text") { return true }
+        if (markName == "point") { return true }
+        if (markName == "circle") { return true }
+        if (markName == "square") { return true }
+        return false
+    }
+
+    ; Whether a channel STATED that it stacks. `null` and `false` both say the
+    ; opposite, and saying nothing is not saying yes.
+    sfn asksToStack:boolean (ch:VlChannel) {
+        if (! ch.defined) {
+            return false
+        }
+        if (! (ch.def0.has("stack"))) {
+            return false
+        }
+        def given:VlJson (ch.def0.get("stack"))
+        if (given.isNull()) {
+            return false
+        }
+        if (given.isBool()) {
+            return given.b
+        }
+        return true
     }
 
     sfn summative:boolean (op:string) {
@@ -4737,7 +4777,20 @@ class VlCompile {
                 return
             }
         }
+        ; What separates the segments. Usually the colour — but a layer that
+        ; only LABELS a stack has no colour of its own and says which rows
+        ; belong together with `detail` instead. Without it the label layer
+        ; stacked in the order the rows arrived while the bars under it stacked
+        ; by colour, and every label named the segment beside the one it sat
+        ; in.
         def colour:VlChannel (this.channel("color"))
+        if (! colour.defined) {
+            colour = (this.channel("detail"))
+        } {
+            if ((strlen colour.field) == 0) {
+                colour = (this.channel("detail"))
+            }
+        }
         if colour.defined {
             if ((strlen colour.field) > 0) {
                 ; A stack is ordered by the SCALE's domain when one was given,
@@ -8658,6 +8711,22 @@ class VlCompile {
         }
         if ((strlen stackField) > 0) {
             if ((ch.outField()) == stackField) {
+                ; A mark that FILLS its segment is drawn between the two ends;
+                ; one that stands IN it stands at a point between them, which
+                ; for a label is the middle. Drawn to the far end instead,
+                ; every label on a stacked bar sat on the line between its own
+                ; segment and the next.
+                if (this.standsInStack()) {
+                    def where:double (ch.def0.doubleOr("bandPosition" 0.5))
+                    def other:double (1.0 - where)
+                    def mid (VlJson.objectValue())
+                    def at:string ((("scale(\"" + (this.sname(axis))) + "\", ") + (VlJson.formatNumber(other 6)))
+                    at = ((((at + " * ") + (VlCompile.datumRef((stackField + "_start")))) + " + ") + (VlJson.formatNumber(where 6)))
+                    at = (((at + " * ") + (VlCompile.datumRef((stackField + "_end")))) + ")")
+                    mid.setMember("signal" (VlJson.stringValue(at)))
+                    update.setMember(axis mid)
+                    return
+                }
                 update.setMember(axis (this.scaled(axis (stackField + "_end"))))
                 update.setMember((axis + "2") (this.scaled(axis (stackField + "_start"))))
                 return
