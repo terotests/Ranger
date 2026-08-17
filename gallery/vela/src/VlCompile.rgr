@@ -885,6 +885,11 @@ class VlCompile {
             index = (index + 1)
         }
         VlCompile.applyMergedDomains(scales scaleNames domains)
+        ; A grid runs across the OTHER scale, and which other scale there is
+        ; may only become clear once every layer has been compiled: a chart
+        ; whose lower layer is a band of shaded years learns about its vertical
+        ; scale from the line drawn over it.
+        VlCompile.crossGrids(axes)
         VlCompile.mergeAxisTitles(axes titles askedTitles)
         this.resizeAcrossLayers(out src layers bandX bandY)
 
@@ -2480,6 +2485,37 @@ class VlCompile {
                 }
             }
             VlCompile.renameSourceRefs((m.get("marks")) name)
+        }
+    }
+
+    ; Point every grid axis at the scale it is drawn across, once all of them
+    ; are known.
+    sfn crossGrids:void (axes:VlJson) {
+        def total:int (axes.count())
+        def k:int 0
+        while (k < total) {
+            def a:VlJson (axes.at(k))
+            k = (k + 1)
+            if (a.boolOr("grid" false)) {
+                if (! (a.has("gridScale"))) {
+                    def mine:string (a.stringOr("scale" ""))
+                    def other:string ""
+                    def j:int 0
+                    while (j < total) {
+                        def b:VlJson (axes.at(j))
+                        j = (j + 1)
+                        def named:string (b.stringOr("scale" ""))
+                        if (named != mine) {
+                            if ((strlen other) == 0) {
+                                other = named
+                            }
+                        }
+                    }
+                    if ((strlen other) > 0) {
+                        a.setMember("gridScale" (VlJson.stringValue(other)))
+                    }
+                }
+            }
         }
     }
 
