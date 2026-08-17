@@ -1427,11 +1427,31 @@ class VlRuntime {
         }
         if (r.isArray()) {
             def total:int (r.count())
-            if (total == 2) {
+            ; Two entries is not what makes a range NUMERIC — what it holds is.
+            ; `[0, {"signal": "width"}]` is an interval and `["#675193",
+            ; "#ca8861"]` is a two-colour palette, and reading the second as an
+            ; interval asked what number "#675193" is, got zero, and left every
+            ; bar in the chart with no fill at all.
+            def numeric:boolean (total == 2)
+            def n:int 0
+            while (n < total) {
+                def entry:VlJson (r.at(n))
+                if (! (entry.isNumber())) {
+                    if (entry.isObject()) {
+                        if (! (entry.has("signal"))) {
+                            numeric = false
+                        }
+                    } {
+                        numeric = false
+                    }
+                }
+                n = (n + 1)
+            }
+            if numeric {
                 sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at(1)))))
                 return
             }
-            ; A longer range is a list of output values — an ordinal range.
+            ; Anything else is a list of output values — an ordinal range.
             def k:int 0
             while (k < total) {
                 push sc.rangeValues (r.at(k).asString())
