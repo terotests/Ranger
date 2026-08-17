@@ -7780,6 +7780,16 @@ class VlCompile {
             } {
                 update.setMember("shape" (this.scaled("shape" (shape.outField()))))
             }
+        } {
+            ; A `circle` and a `square` are points whose shape is in their
+            ; name, and the reference says so on the mark rather than leaving
+            ; the symbol to its default.
+            if (markName == "circle") {
+                update.setMember("shape" (VlCompile.literal((VlJson.stringValue("circle")))))
+            }
+            if (markName == "square") {
+                update.setMember("shape" (VlCompile.literal((VlJson.stringValue("square")))))
+            }
         }
         def dash:VlChannel (this.channel("strokeDash"))
         if dash.defined {
