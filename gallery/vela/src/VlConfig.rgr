@@ -158,6 +158,28 @@ class VlConfig {
         ; continuous colour scale in this chart reads that scheme rather than
         ; the default blues. The scale still says `"range": "ramp"`; what ramp
         ; means is what changes.
+        ; `config.view` is the plotting frame's own style: `{"strokeWidth": 0}`
+        ; or `{"stroke": ""}` is a chart asking for no border round its plot,
+        ; and drawn anyway that border is a rectangle the reference does not
+        ; have. `step` belongs to the layout rather than to the paint and is
+        ; read where the sizes are decided.
+        def viewBlock:VlJson (config.get("view"))
+        if (viewBlock.isObject()) {
+            def cellStyle:VlJson (VlJson.objectValue())
+            if (has styles "cell") {
+                def base:VlJson (unwrap (get styles "cell"))
+                for base.keys bk:string bi {
+                    cellStyle.setMember(bk (base.get(bk)))
+                }
+            }
+            for viewBlock.keys vk:string vi {
+                if (vk != "step") {
+                    cellStyle.setMember(vk (viewBlock.get(vk)))
+                }
+            }
+            set styles "cell" cellStyle
+        }
+
         def rangeBlock:VlJson (config.get("range"))
         if (rangeBlock.isObject()) {
             for rangeBlock.keys rk:string ri {

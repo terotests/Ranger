@@ -1358,10 +1358,11 @@ class VlTime {
         if (d == "d") {
             return (VlTime.pad2(p.day))
         }
+        ; `%e` is d3's space-padded day of the month, and the reference does not
+        ; pad it: an axis of days reads 1, 2, 3 and not " 1", " 2", " 3". The
+        ; leading space is a whole character of label width, which is what
+        ; decides whether the labels fit or get thinned.
         if (d == "e") {
-            if (p.day < 10) {
-                return (" " + (VlJson.intToText(p.day)))
-            }
             return (VlJson.intToText(p.day))
         }
         if (d == "A") {
