@@ -12,9 +12,18 @@ something different on every target*.
 
 ## 1. The problem TEXT-A solves
 
-A Ranger `string` has three different models depending on the target, and the
-engine already discovers which one it is running on at runtime
-(`ComponentEngine.rgr:39365`):
+A Ranger `string` has three different models depending on the target. All three
+are live in the four targets `npm run test:core` builds today — measured, not
+assumed:
+
+| `strlen` | es6 | python | go | cpp |
+| --- | --- | --- | --- | --- |
+| `"é"` | 1 | 1 | 1 | **2** |
+| `"😀"` | **2** | 1 | 1 | **4** |
+
+es6 counts UTF-16 code units (kind 0), python and go count code points (kind 2),
+C++ counts UTF-8 bytes (kind 1). The engine already discovers which one it is
+running on at runtime (`ComponentEngine.rgr:39365`):
 
 ```ranger
 fn strModelKind:int () {
@@ -59,12 +68,12 @@ These 370-odd lines are the reason the engine gives the same answer for
 from hundreds of sites across the 45,221-line file, which is why the migration
 has to be shim-first (§3).
 
-## 2. TEXT-A: `lib/js/core/RgStr.rgr`
+## 2. TEXT-A: `lib/core/RgStr.rgr`
 
 ### 2.1 Shape
 
 ```ranger
-; lib/js/core/RgStr.rgr
+; lib/core/RgStr.rgr
 ;
 ; UTF-16 code-unit addressing over a Ranger string, whichever of the three
 ; string models the target actually has. Lifted verbatim from
@@ -126,7 +135,7 @@ and the rewrite in one basket. Instead, phase 1 replaces each body with a
 one-line delegation:
 
 ```ranger
-    ; Moved to lib/js/core/RgStr.rgr. Kept as a delegate so the call sites can
+    ; Moved to lib/core/RgStr.rgr. Kept as a delegate so the call sites can
     ; migrate separately; see PLAN_JS_STDLIB_TEXT.md §3.
     fn cuLen:int (s:string) {
         return (RgStr.len(s))
@@ -136,7 +145,7 @@ one-line delegation:
 The gate for phase 1 is therefore strong and cheap: **the existing suites must
 pass unchanged.** `npm test` and `npm run test:tsengine` are running the real
 engine, on six targets, against Node's answers — over code that now lives in
-`lib/js/`. If a lifted function depended on engine state that was not in its
+`lib/core/`. If a lifted function depended on engine state that was not in its
 signature, that is where it shows up, before any new caller exists.
 
 Call sites migrate opportunistically afterwards. The shims are deleted when the
@@ -183,7 +192,7 @@ methods — pure table classes:
 | `UnicodeCollate.rgr` | 260 | `gen-unicode-collation-tables.cjs` |
 | `UnicodeCase.rgr` | 231 | `gen-unicode-case-tables.cjs` |
 
-They move to `lib/js/data/` together with their generators
+They move to `lib/core/data/` together with their generators
 (`interp/migrate/tools/gen-*.cjs` → `scripts/gen-js-data/`), and each file's
 `GENERATED. Do not edit by hand; regenerate with …` header is updated to the new
 path. The gate is that re-running every generator reproduces the moved file
@@ -219,8 +228,8 @@ Manifest rows land at the same time, so `String.prototype.toUpperCase`,
 `Regex.rgr` (2,260 lines, 50 public functions) and `BigIntNum.rgr` (805 lines,
 31 public functions) already have **zero** `EvHandle` references and zero
 imports. They are portable, self-contained Ranger libraries sitting in a gallery
-subdirectory. Phase 7 moves them to `lib/js/core/RgRegex.rgr` and
-`lib/js/core/RgBigInt.rgr`, adds manifest rows for the `RegExp` and `BigInt`
+subdirectory. Phase 7 moves them to `lib/core/RgRegex.rgr` and
+`lib/core/RgBigInt.rgr`, adds manifest rows for the `RegExp` and `BigInt`
 namespaces, and leaves the implementations alone.
 
 The only real work is the `RegExp` *object* semantics — `lastIndex`, the sticky
@@ -280,14 +289,14 @@ on the engine side where the callbacks live. That split is the honest one:
 Ranger already has `@serialize` and `lib/JSON.rgr` (5,562 lines). `RgJson` is not
 a replacement for either — it is JSON as JavaScript defines it, for programs that
 need to agree with a JS peer byte for byte. The relationship gets one paragraph
-in `lib/js/README.md` so nobody has to guess which to reach for.
+in `lib/core/README.md` so nobody has to guess which to reach for.
 
 ### 6.3 `RgUri` and escape/unescape
 
 `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`
 (`:36664`+, ≈300 lines) plus Annex B `escape`/`unescape`. Pure string
 functions over the reserved sets, already written; they move to
-`lib/js/core/RgUri.rgr` and gain `RgStrResult` returns because the decoders
+`lib/core/RgUri.rgr` and gain `RgStrResult` returns because the decoders
 throw `URIError` on a malformed sequence.
 
 These are wanted natively far more often than the JS framing suggests — any
@@ -300,7 +309,7 @@ portable one.
 | --- | --- | --- |
 | 1 (TEXT-A) | `RgStr` + delegating shims | `npm test` and `npm run test:tsengine` pass **unchanged**; the `strmodel` vector set matches byte for byte on every target with a toolchain |
 | 4 (TEXT-B) | data files + generators moved; `RgUnicode`, `RgCollate`; `String` case/normalize/localeCompare rows | every generator reproduces its moved table byte for byte; the four `String` rows green on all three parity legs |
-| 7 (TEXT-C) | `RgRegex`, `RgBigInt`, `RgJson`, `RgUri` | `RegExp`, `BigInt`, `JSON`, URI rows green; `gallery/pdf_writer/src/jsx/` imports `lib/js/` instead of carrying its own copy |
+| 7 (TEXT-C) | `RgRegex`, `RgBigInt`, `RgJson`, `RgUri` | `RegExp`, `BigInt`, `JSON`, URI rows green; `gallery/pdf_writer/src/jsx/` imports `lib/core/` instead of carrying its own copy |
 
 TEXT-A blocks everything. TEXT-B blocks INTL. TEXT-C blocks nothing and can slip
 without holding another phase.

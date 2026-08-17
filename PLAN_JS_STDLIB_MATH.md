@@ -80,10 +80,28 @@ csharp   ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )    ; 32-bit
 that reaches for it as "the unsigned shift" is target-dependent. `bit_shr`
 (`:3470`) has the same class of problem for negative inputs.
 
-**Decision: `RgU32` never calls `bit_ushr` or `bit_shr`.** It is built on
-`bit_and`, `bit_or`, `bit_xor` and `bit_shl` only, with an explicit mask after
-every operation that can carry out of 32 bits. `bit_shl` needs masking too: on a
-64-bit-`int` target it does not wrap at 32.
+**Decision: `RgU32` never calls `bit_ushr`.** — and, as the landed
+implementation found, it cannot rely on `bit_shl` either. Measured:
+
+|  | es6 | python | go | cpp |
+| --- | --- | --- | --- | --- |
+| `2147483647 + 1` | 2147483648 | 2147483648 | 2147483648 | **-2147483648** |
+| `bit_shl 1 31` | **-2147483648** | 2147483648 | 2147483648 | -2147483648 |
+| `bit_shl 1 40` | **256** | 1099511627776 | 1099511627776 | **0** |
+
+Three corrections to the paragraph above:
+
+- **`bit_shl` is JavaScript's `<<` on es6**: the result wraps to 32 bits *and the
+  count is taken mod 32*, so `1 << 40` is 256, not 0 and not 2^40. On C++ it is
+  undefined past the width. Masking afterwards cannot recover either.
+- **`int` is 32-bit signed on C++, so plain `+` overflows.** A u32 cannot be held
+  as an `int` in `[0, 2^32)`; that range does not exist on that target. Values in
+  it must be carried as `double`.
+- Therefore the u32 is a **signed 32-bit bit pattern**, every intermediate stays
+  under 2^31 by splitting into 16-bit halves, and no literal above 2147483647 is
+  ever written.
+
+`lib/core/RgU32.rgr` is landed on that basis and its header carries the table.
 
 ### 2.2 Negative zero may not survive the trip
 
@@ -99,47 +117,60 @@ Whether a `-0.0` literal, a `-0.0` passed through a function boundary, and a
 answer. So does `RgNum.toFixed(-0.0, 2)` → `"-0.00"`.
 
 **Decision:** a dedicated `negzero` vector set, run through the cross-target leg
-as an explicit phase-2 gate, before any `Math` row is declared green. If a target
-cannot carry `-0` through a function return, that is a finding worth having
-written down in `TARGET_NOTES.md` — and `RgMath` then carries the sign
-out-of-band on that target rather than pretending.
+as an explicit phase-2 gate, before any `Math` row is declared green.
 
-## 3. `lib/js/core/RgU32.rgr`
+**Landed, and it found one immediately.** The `negzero` set is 19 vectors in
+`tests/native/core_vectors.rgr`. On its first cross-target run, Python answered
+`negZero_is_neg=false` where es6, Go and C++ all said `true`. Cause: the Python
+writer emits `def z:double 0.0` as `z = 0` — an **int literal** — so the engine's
+bind-the-value-first trick (which exists because the C++ writer folds bare double
+literals) fixes C++ and not Python. `RgNum.negZero()` is now `-1 / Infinity`,
+because no target folds a *division* into an int: each one routes double division
+through a generated helper. All 19 vectors are identical on all five targets.
+
+## 3. `lib/core/RgU32.rgr` — LANDED
 
 Portable 32-bit integer algebra. Small, boring, and the thing SHA-256, `clz32`,
-`imul`, `fround` and every `ToInt32` coercion stand on.
+`imul`, `fround` and every `ToInt32` coercion stand on. As shipped:
 
 ```ranger
 class RgU32 {
-    sfn mask:int (v:int)              ; v & 0xFFFFFFFF, as a non-negative int
-    sfn add:int (a:int b:int)         ; (a + b) mod 2^32
-    sfn xor:int (a:int b:int)
-    sfn and:int (a:int b:int)
-    sfn or:int (a:int b:int)
-    sfn not:int (a:int)
-    sfn shl:int (v:int n:int)         ; masked
-    sfn shr:int (v:int n:int)         ; LOGICAL, on a masked value; never bit_ushr
-    sfn rotl:int (v:int n:int)
-    sfn rotr:int (v:int n:int)
-    sfn mul:int (a:int b:int)         ; 32-bit wrap, via 16-bit halves so the
-                                      ; intermediate never needs 64 bits
-    sfn toSigned:int (v:int)          ; 0..2^32-1  ->  -2^31..2^31-1
-    sfn toUnsigned:int (v:int)
-    sfn clz:int (v:int)
-    sfn popcount:int (v:int)
+    ; a u32 is a SIGNED 32-bit BIT PATTERN — see §2.1
+    sfn signBit:int ()                ; 0x80000000, built by subtraction
+    sfn loHalf:int (v:int)            sfn hiHalf:int (v:int)
+    sfn fromHalves:int (hi:int lo:int)
+    sfn wrap32:int (v:int)            ; low 32 bits, sign-extended
+    sfn band:int (a:int b:int)        sfn bor:int (a:int b:int)
+    sfn bxor:int (a:int b:int)        sfn bnot:int (a:int)
+    sfn shl:int (v:int n:int)         ; count mod 32, halves shifted separately
+    sfn shr:int (v:int n:int)         ; LOGICAL; never bit_ushr
+    sfn sar:int (v:int n:int)         ; ARITHMETIC
+    sfn rotl:int (v:int n:int)        sfn rotr:int (v:int n:int)
+    sfn addU:int (a:int b:int)        ; (a + b) mod 2^32, through the halves
+    sfn sub:int (a:int b:int)
+    sfn toUnsignedD:double (v:int)    ; [0, 2^32) needs a DOUBLE, not an int
+    sfn fromUnsignedD:int (d:double)
+    sfn clz:int (v:int)               sfn popcount:int (v:int)
+    sfn byteAt:int (v:int i:int)      ; big-endian
+    sfn fromBytesBE:int (b0:int b1:int b2:int b3:int)
 }
 ```
 
-`mul` deserves a note: a naive `a * b` for two 32-bit operands needs 64 bits of
-intermediate, which is fine on Go and C++ and lossy on a target where `int` is a
-double. Splitting into 16-bit halves keeps every intermediate under 2^48, which
-a double holds exactly. The engine's `int32Wrap`/`imul` pair (`:22821`) already
-takes this shape; `RgU32.mul` generalises it.
+Three things differ from the sketch this section used to carry, all forced by
+§2.1: `mask` became `wrap32` (a mask cannot express it — the sign has to be
+re-extended), `toUnsigned` returns a **`double`** because `[0, 2^32)` is not an
+int range on C++, and `and`/`or`/`not`/`add` are spelled `band`/`bor`/`bnot`/
+`addU` because `add` and `wrap` are global operator names.
+
+**`mul` is deliberately absent.** A 32×32 product mod 2^32 needs a 16×16 partial
+product, and 65535 × 65535 = 4294836225 is past what a C++ int holds — so it needs
+8-bit limbs and four more partial products. SHA-256, SHA-1, HMAC and CRC use only
+add/xor/and/not/rot/shr, so nothing downstream is blocked. `Math.imul` waits.
 
 `RgU32` is native-only — no manifest rows — but it is the reason `Math.imul`
-and all of CRYPTO can be written once.
+and all of CRYPTO can be written once. 40 of its vectors are in the `u32` set.
 
-## 4. `lib/js/core/RgMath.rgr`
+## 4. `lib/core/RgMath.rgr`
 
 Every `Math` method as a plain function. Signatures are `double → double`
 throughout, so the binding is a coercion and a tag and nothing else.
@@ -198,12 +229,12 @@ class RgMath {
 }
 ```
 
-`RgMath.random` carries the warning in its doc comment and `lib/js/README.md`
+`RgMath.random` carries the warning in its doc comment and `lib/core/README.md`
 repeats it: `Math.random` is not a CSPRNG on any target, and
 [CRYPTO](PLAN_JS_STDLIB_CRYPTO.md) explains what to use instead and why there is
 no fallback between them.
 
-## 5. `lib/js/core/RgNum.rgr`
+## 5. `lib/core/RgNum.rgr`
 
 Number formatting and the ECMAScript coercions. The coercions are the part every
 *other* namespace's binding needs, which is why they belong in the core rather
@@ -248,8 +279,8 @@ engine's binding layer where the interpreter is; the core sees only primitives.
 
 ## 6. Manifest coverage
 
-`lib/js/manifest/Math.json` — 35 methods, 8 constants.
-`lib/js/manifest/Number.json` — `isFinite`, `isInteger`, `isNaN`,
+`lib/core/manifest/Math.json` — 35 methods, 8 constants.
+`lib/core/manifest/Number.json` — `isFinite`, `isInteger`, `isNaN`,
 `isSafeInteger`, `parseFloat`, `parseInt`, the `MAX_*`/`MIN_*`/`EPSILON`
 constants, and the four prototype methods (`toFixed`, `toPrecision`,
 `toString`, `toExponential`) which the manifest marks `"receiver": "number"` so

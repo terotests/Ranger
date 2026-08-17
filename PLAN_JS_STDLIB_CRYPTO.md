@@ -57,7 +57,7 @@ not disturb any signature here.
 Digests and HMAC are a different case: they operate on data whose secrecy the
 digest is not protecting, and the one place timing matters — comparing an HMAC
 tag — is handled explicitly by `RgCrypto.timingSafeEqual` (§6). This distinction
-belongs in `lib/js/README.md`, not only here, because it is exactly what someone
+belongs in `lib/core/README.md`, not only here, because it is exactly what someone
 reaching for `RgCrypto` needs to know.
 
 ## 3. Bytes: the representation decision
@@ -127,7 +127,7 @@ stubbed, the vector run must **fail**, and the test asserts that it failed. A
 `RgCrypto.randomBytes` never touches `RgMath.random`, and `RgMath.random`'s doc
 comment points here. There is no bridge between them in either direction.
 
-## 5. `lib/js/core/RgBase.rgr` — encodings
+## 5. `lib/core/RgBase.rgr` — encodings
 
 Needed by `RgCrypto`, and independently useful — `btoa`/`atob` are in the engine's
 global list and there is no portable base64 in Ranger at all.
@@ -154,7 +154,7 @@ class RgBytesResult {
 Annex-B latin1 quirk handled in the binding, since that quirk is about JS string
 semantics and not about base64.
 
-## 6. `lib/js/core/RgCrypto.rgr`
+## 6. `lib/core/RgCrypto.rgr`
 
 ### 6.1 Streaming digests
 
@@ -298,5 +298,5 @@ independent implementation that already ships.
    rather than of the answer.
 6. `lib/Crypto.rgr` marked superseded, with a pointer here; the `md5` and
    `sha256` operator comments in `compiler/Lang.rgr` likewise.
-7. `lib/js/README.md` carries §2's scope statement — what this provides, what it
+7. `lib/core/README.md` carries §2's scope statement — what this provides, what it
    does not, and why — where someone reaching for `RgCrypto` will read it.

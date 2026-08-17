@@ -37,7 +37,7 @@ The surface is the whole of ECMA-262 §15.9.1 written out:
 
 So phase 3 is a move plus a clock, not an implementation.
 
-## 2. `lib/js/core/RgDate.rgr`
+## 2. `lib/core/RgDate.rgr`
 
 `DateTime.rgr` moves as `RgDate`, with three changes.
 
@@ -82,7 +82,7 @@ at `0.0` by default, with a `liveClock` flag (`:1612`) that switches it to the
 reproducible, and it should stay the default in the library too.
 
 ```ranger
-; lib/js/capability/RgClock.rgr
+; lib/core/capability/RgClock.rgr
 class RgClock {
     def frozenMs:double 0.0
     def live:boolean false
@@ -212,7 +212,7 @@ def nf:RgIntlNumberFormat (RgIntlNumberFormat.create("de-DE" opts))
 def text:string (nf.format(1234.5))        ; "1.234,50 €"
 ```
 
-## 7. `lib/js/core/RgIntl.rgr`
+## 7. `lib/core/RgIntl.rgr`
 
 Instances, because each of these is an object that resolves its options once and
 is then used many times — which is the entire reason `Intl.Collator` exists as an
@@ -303,7 +303,7 @@ else is a `RangeError`, which is what the spec requires for an unsupported zone 
 a documented refusal rather than a silent wrong answer.
 
 If it is ever wanted: `scripts/gen-js-data/gen-tzdata.cjs` producing
-`lib/js/data/TzData.rgr`, plus `RgDate` gaining a zone-aware offset lookup. One
+`lib/core/data/TzData.rgr`, plus `RgDate` gaining a zone-aware offset lookup. One
 new data file, one new generator, no change to any signature in this plan.
 
 ## 10. Gates

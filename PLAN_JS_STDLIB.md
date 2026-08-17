@@ -1,8 +1,59 @@
 # Portable JS API as a Ranger standard library — master plan
 
-**Status:** proposal. Nothing here is implemented yet.
+**Status:** first slice landed. `lib/core/RgNum.rgr` and `lib/core/RgU32.rgr` are
+in, gated by `npm run test:core` — 104 vectors, byte-identical on es6, python, go,
+cpp and rust, 101 of them exact against Node. See
+[`lib/core/README.md`](lib/core/README.md). Everything else below is still a
+proposal.
+
+**Naming, settled:** the library is `lib/core/`, the "Ranger Core API", and its
+classes carry the `Rg` prefix (`RgNum`, `RgU32`, `RgStr`, …). Not `stdlib`:
+`lib/stdlib.rgr` and `lib/stdops.rgr` already exist and contain *only* operator
+templates, so that name means the opposite of this in this repository. The `Rg`
+prefix is collision avoidance, not decoration — `Math`, `Date`, `DateTime` and
+`Regex` are real types on the JS, Java, Kotlin, C#, Dart and Swift targets.
+
 **Sub-plans:** [TEXT](PLAN_JS_STDLIB_TEXT.md) · [MATH](PLAN_JS_STDLIB_MATH.md) ·
 [DATE + INTL](PLAN_JS_STDLIB_DATE_INTL.md) · [CRYPTO](PLAN_JS_STDLIB_CRYPTO.md)
+
+---
+
+## 0. What building the first slice changed
+
+Phase 0 and part of phase 2 are done, and four measurements out of them amend
+what follows. Each is recorded with its evidence in
+[`lib/core/README.md`](lib/core/README.md#what-was-measured).
+
+1. **A static method may not take a global operator's name.** The resolver
+   rewrites `RgNum.floor(x)` into the operator call. Nine names are affected
+   (`floor`, `ceil`, `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan2`), plus
+   `wrap` and `add`. So **the core's Ranger names cannot equal the JS names**, and
+   §3.4's manifest carries the mapping explicitly (`Math.floor` → `RgNum.floorD`)
+   rather than deriving it. Nothing is lost: the mapping was always going to be
+   data. Instance methods are unaffected.
+
+2. **`bit_shl` is not portable either**, which §2 F3 got half right. On es6 it is
+   JavaScript's `<<` — the result wraps to 32 bits and the *count* is taken mod
+   32, so `1 << 40` is 256; on C++ it is undefined past the width and gives 0.
+   Worse: **`int` is 32-bit signed on C++, so plain `+` overflows there.** A u32
+   cannot be held as an `int` in `[0, 2^32)` at all. `RgU32` carries a signed
+   32-bit bit pattern and keeps every intermediate under 2^31 via 16-bit halves.
+   The CRYPTO plan's "built on bit_and/bit_or/bit_xor/bit_shl with masking" is
+   corrected accordingly.
+
+3. **A `double` literal can be emitted as an `int` literal.** `def z:double 0.0`
+   becomes `z = 0` on the Python target, so the engine's binding-first trick for
+   negative zero fixes C++ and not Python. `RgNum.negZero()` is `-1 / Infinity`,
+   because no target folds a division into an int. **The cross-target leg found
+   this**, on its first run, exactly as §7.3 predicted it would.
+
+4. **Pure-Ranger transcendentals are 1 ULP from libm, and identical across
+   targets.** There is no `exp`, `log` or `pow` operator on *any* target, so these
+   are series in Ranger. They do not match `Math.exp` in Node bit-for-bit — but
+   they agree with each other on all five targets, which delegating to each
+   platform's libm would not have. §7.2's requirement of exact three-way equality
+   is therefore relaxed for the transcendental family only, to an asserted ULP
+   bound. Everything else stays exact.
 
 ---
 
@@ -75,7 +126,7 @@ currently would say so.
                  |  RgMath.hypot(3.0 4.0)                   |  Math.hypot(3, 4)
                  v                                          v
     +--------------------------+              +-------------------------------+
-    |   lib/js/core/*.rgr      |              |  interp/builtins/*.rgr        |
+    |   lib/core/*.rgr      |              |  interp/builtins/*.rgr        |
     |                          |<-------------|  GENERATED from the manifest  |
     |  pure Ranger. typed.     |   calls      |  ToNumber / arity / tagging / |
     |  no EvHandle. no engine  |              |  throw TypeError, RangeError  |
@@ -84,7 +135,7 @@ currently would say so.
     +--------------------------+                             |
                  ^                                           |
                  |                     +------------------------------------+
-                 +---------------------|  lib/js/manifest/<Ns>.json         |
+                 +---------------------|  lib/core/manifest/<Ns>.json         |
                                        |  one row per JS method:            |
                                        |  name, arity, coercions, core fn,  |
                                        |  return kind, throws, test vectors |
@@ -93,14 +144,14 @@ currently would say so.
 
 ### 3.1 Core layer — and why there is no third layer
 
-`lib/js/core/RgMath.rgr` is **both** the shared implementation and the native
+`lib/core/RgMath.rgr` is **both** the shared implementation and the native
 Ranger API. There is no separate "native facade" wrapping it, because a wrapper
 is a thing that can lag. If the native API *is* the core, it cannot.
 
 Rules for core files, enforced by a lint step (§7.4):
 
 - Only primitive Ranger types in signatures: `int`, `double`, `boolean`,
-  `string`, `char`, `[T]`, and core classes declared in `lib/js/core/`.
+  `string`, `char`, `[T]`, and core classes declared in `lib/core/`.
 - No `EvHandle`, no `EvalValue`, no `TSNode`, no engine field access.
 - Statics (`sfn`) wherever the operation is a function; instances only where JS
   itself has an object with state (a `Collator`, a `RegExp`, a digest context).
@@ -163,7 +214,7 @@ conventions, in order of preference:
 
 ### 3.4 The manifest
 
-`lib/js/manifest/Math.json`, one row per JS-visible method:
+`lib/core/manifest/Math.json`, one row per JS-visible method:
 
 ```json
 {
@@ -194,7 +245,7 @@ conventions, in order of preference:
 `scripts/gen-js-bindings.cjs` reads every manifest and emits four things:
 
 1. `interp/builtins/Js<Ns>Binding.rgr` — the binding above.
-2. `lib/js/generated/RgJsIndex.rgr` — a name→core reflection table, so a
+2. `lib/core/generated/RgJsIndex.rgr` — a name→core reflection table, so a
    Ranger program can look an API up by its JS name. This is what lets
    `gallery/ts_to_ranger` translate `Math.floor(x)` into `RgMath.floor(x)`
    mechanically instead of by hand-written special case.
@@ -208,7 +259,7 @@ A CI step regenerates and fails on any diff, the same discipline
 ## 4. Directory layout
 
 ```
-lib/js/
+lib/core/
   core/
     RgStr.rgr           string model + code units      (PLAN_JS_STDLIB_TEXT)
     RgUnicode.rgr       case, normalization, properties (TEXT)
@@ -229,7 +280,7 @@ lib/js/
   capability/           RgClock.rgr, RgEntropy.rgr      (§5)
   manifest/             <Ns>.json
   generated/            RgJsIndex.rgr
-lib/js/README.md        what is here, and the core-layer rules
+lib/core/README.md        what is here, and the core-layer rules
 
 gallery/game_engine/v2/interp/builtins/
                         Js<Ns>Binding.rgr, all generated
@@ -243,7 +294,7 @@ tests/native/js_stdlib_main.rgr
 
 `lib/` is already copied wholesale into the published package
 (`build:dist:copy` does `cp -r ./lib ./dist/lib`) and already reachable through
-`RANGER_LIB`, so `lib/js/` ships with no packaging change.
+`RANGER_LIB`, so `lib/core/` ships with no packaging change.
 
 ## 5. Capability seams
 
@@ -275,7 +326,7 @@ No such operator exists. It must be added, and it must **fail loudly** rather
 than fall back:
 
 ```ranger
-; lib/js/capability/RgEntropy.rgr
+; lib/core/capability/RgEntropy.rgr
 class RgEntropy {
     sfn available:boolean () {
         return (secure_random_available)
@@ -301,7 +352,7 @@ as the workflow it becomes.
 
 ### Adding a JS API — e.g. `Math.f16round`
 
-1. Write `sfn f16round:double (x:double)` in `lib/js/core/RgMath.rgr`.
+1. Write `sfn f16round:double (x:double)` in `lib/core/RgMath.rgr`.
 2. Add a manifest row: name, arity, `ToNumber`, `RgMath.f16round`, `number`,
    plus four or five vectors.
 3. `npm run js-stdlib:gen`.
@@ -377,7 +428,7 @@ several times.
 
 ### 7.4 The core lint
 
-`scripts/lint-js-core.cjs` rejects, in `lib/js/core/`: any mention of
+`scripts/lint-js-core.cjs` rejects, in `lib/core/`: any mention of
 `EvHandle`, `EvalValue`, `TSNode`; any `throw`; any file-level mutable state
 outside the declared probe caches; and any signature naming a type outside the
 allowed set. Cheap, and it is what keeps the core layer from quietly becoming
@@ -393,11 +444,11 @@ does not.
 | 0 | Manifest, generator, all three parity legs, wired for exactly five `Math` methods (`abs`, `floor`, `ceil`, `trunc`, `sign`) | the three legs green on those five, on every target with a toolchain; regeneration produces no diff |
 | 1 | **TEXT-A**: `RgStr` — lift `strModelKind` … `cuIndexOfByte` (`:39365`–`:39744`); `ComponentEngine` keeps one-line delegating shims | `npm test` and `npm run test:tsengine` unchanged; new per-target string-model probe green |
 | 2 | **MATH**: `RgU32`, `RgMath`, `RgNum`; `Math` and `Number` namespaces fully generated | `Math`/`Number` rows green on all three legs; the `if`-chains at `:22575`, `:24751`, `:24940` deleted |
-| 3 | **DATE**: `DateTime.rgr` → `lib/js/core/RgDate.rgr`; `RgClock`; `monotonic_ms` and `local_tz_offset_min` operators | `Date` rows green; `performance.now` monotonic under the live clock |
+| 3 | **DATE**: `DateTime.rgr` → `lib/core/RgDate.rgr`; `RgClock`; `monotonic_ms` and `local_tz_offset_min` operators | `Date` rows green; `performance.now` monotonic under the live clock |
 | 4 | **TEXT-B**: `RgUnicode`, `RgCollate`, the seven data files moved with their generators | case/normalize/collate rows green; generators still reproduce the tables |
 | 5 | **INTL**: `RgIntl`, all five constructors | `Intl` rows green; `toLocaleString` family delegating |
 | 6 | **CRYPTO**: `secure_random_*` operators, `RgBase`, `RgCrypto`; new `crypto` namespace in the engine | NIST/RFC vectors green on all targets; entropy absent ⇒ loud failure, verified |
-| 7 | **TEXT-C**: `RgJson`, `RgUri`, `RgRegex`, `RgBigInt` promoted | rows green; `gallery/pdf_writer/src/jsx/` pointed at `lib/js/`; `lib/Crypto.rgr` and `lib/Time.rgr` marked superseded |
+| 7 | **TEXT-C**: `RgJson`, `RgUri`, `RgRegex`, `RgBigInt` promoted | rows green; `gallery/pdf_writer/src/jsx/` pointed at `lib/core/`; `lib/Crypto.rgr` and `lib/Time.rgr` marked superseded |
 
 Phases 2–6 are independent once 0 and 1 are in. Phase 5 needs 3 and 4.
 
@@ -425,7 +476,7 @@ Phases 2–6 are independent once 0 and 1 are in. Phase 5 needs 3 and 4.
 | Per-target integer divergence | `bit_ushr` is three different operations (§2, F3) | `RgU32` is built only on `bit_and`/`bit_or`/`bit_xor`/`bit_shl` with explicit masking; phase 2 gate includes a per-target algebra probe |
 | Per-target `double` divergence, especially `-0` | `Math.ceil(-0.5)`, `Math.trunc(-0.5)` and `Math.abs(-0)` all depend on it; `negativeZero()` exists at `:7808` because plain arithmetic collapsed the sign | dedicated `-0` vector set run through leg 7.3 on every target, as a phase 2 gate |
 | Generator becomes a second thing to maintain | it always is | it is ~300 lines of `.cjs` producing text, in the same shape as the seven `interp/migrate/tools/gen-*.cjs` files; the no-diff CI check is what keeps it honest |
-| The two `ComponentEngine.rgr` copies diverge further while this lands | 45,221 vs 7,293 lines already | phase 7 converges them on `lib/js/`; until then only the large copy is migrated, so the small one is never a *second* implementation of a *migrated* API |
+| The two `ComponentEngine.rgr` copies diverge further while this lands | 45,221 vs 7,293 lines already | phase 7 converges them on `lib/core/`; until then only the large copy is migrated, so the small one is never a *second* implementation of a *migrated* API |
 | Cross-target leg is slow and gets skipped | `test:tsengine` is already about a minute | it lives in its own vitest config, runs in CI and before publish, and is not in the default `npm test` |
 
 ## 11. Payoffs beyond the ask

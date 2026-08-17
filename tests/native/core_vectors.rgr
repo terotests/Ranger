@@ -1,0 +1,294 @@
+; =============================================================================
+; core_vectors — lib/core/ answers, as one line per case, for every target
+; =============================================================================
+; The cross-target gate for lib/core/. Same shape as
+; gallery/game_engine/v2/interp/bench/native/bench_main.rgr: it takes a vector-set
+; name, prints one `name=value` line per case, and does nothing else. The harness
+; (tests/core-targets.test.ts) compiles it to every target, runs it where the
+; toolchain exists, and compares the output BYTE FOR BYTE against the es6 run.
+;
+;   core_vectors <set>        set = num | negzero | u32 | str | all
+;
+; Anything printed here is a claim that the value is identical on every target.
+; A target that disagrees fails the suite rather than being discovered later by
+; a program that gets a different digest on Go than it got on Node.
+; =============================================================================
+
+Import "core/RgNum.rgr"
+Import "core/RgU32.rgr"
+
+class CoreVectors {
+
+    ; A double, printed so that the SAME double prints the same on every target.
+    ; `to_string` on a double is the target's own formatter and they disagree
+    ; (trailing ".0", exponent spelling, digit count), so nothing here prints a
+    ; double directly: it is decomposed into sign, an integer mantissa scaled by
+    ; 2^k, and a classification. That is lossless for comparison purposes and
+    ; target-independent, which printing is not.
+    ;
+    ; RgNum.asString is what will eventually make this unnecessary — it is the
+    ; shortest-round-tripping algorithm and is not written yet (PLAN_JS_STDLIB_MATH
+    ; §5). Until then the harness compares structure, not spelling.
+    sfn showD:string (v:double) {
+        if (v != v) {
+            return "NaN"
+        }
+        def inf:double (RgNum.inf())
+        if (v == inf) {
+            return "+Inf"
+        }
+        if (v == (0.0 - inf)) {
+            return "-Inf"
+        }
+        if (v == 0.0) {
+            if (RgNum.isNegZero(v)) {
+                return "-0"
+            }
+            return "+0"
+        }
+        def neg:boolean (v < 0.0)
+        def m:double (RgNum.abs(v))
+        ; Normalise into [1, 2) and count the exponent, then take 52 mantissa
+        ; bits as two 26-bit integers — each under 2^31, so the C++ target can
+        ; hold them.
+        def e:int 0
+        while (m >= 2.0) {
+            m = (m / 2.0)
+            e = (e + 1)
+        }
+        while (m < 1.0) {
+            m = (m * 2.0)
+            e = (e - 1)
+        }
+        def scaled:double ((m - 1.0) * 67108864.0)
+        def hiD:double (RgNum.floorD(scaled))
+        def frac:double (scaled - hiD)
+        def loD:double (RgNum.floorD((frac * 67108864.0)))
+        def sign:string "+"
+        if neg {
+            sign = "-"
+        }
+        return ((((((sign + "1.") + (to_string (to_int hiD))) + ":") + (to_string (to_int loD))) + "p") + (to_string e))
+    }
+
+    sfn say:string (name:string value:string) {
+        return ((name + "=") + value)
+    }
+
+    sfn sayD:string (name:string v:double) {
+        return (CoreVectors.say(name (CoreVectors.showD(v))))
+    }
+
+    sfn sayI:string (name:string v:int) {
+        return (CoreVectors.say(name (to_string v)))
+    }
+
+    sfn sayB:string (name:string v:boolean) {
+        if v {
+            return (CoreVectors.say(name "true"))
+        }
+        return (CoreVectors.say(name "false"))
+    }
+
+    ; ---- set: negzero ------------------------------------------------------
+    ; The signed-zero rules. Every line here is a value whose SIGN is the whole
+    ; point, and every one of them was a real bug in the JS engine before the
+    ; helpers in RgNum existed.
+    sfn setNegZero:[string] () {
+        def out:[string]
+        def nz:double (RgNum.negZero())
+        push out (CoreVectors.sayB("negZero_is_neg" (RgNum.isNegZero(nz))))
+        push out (CoreVectors.sayB("posZero_is_neg" (RgNum.isNegZero(0.0))))
+        push out (CoreVectors.sayD("abs_negzero" (RgNum.abs(nz))))
+        push out (CoreVectors.sayD("floor_negzero" (RgNum.floorD(nz))))
+        push out (CoreVectors.sayD("ceil_negzero" (RgNum.ceilD(nz))))
+        push out (CoreVectors.sayD("trunc_negzero" (RgNum.trunc(nz))))
+        push out (CoreVectors.sayD("round_negzero" (RgNum.round(nz))))
+        push out (CoreVectors.sayD("sign_negzero" (RgNum.sign(nz))))
+        ; ceil of anything in (-1, 0) is NEGATIVE zero
+        push out (CoreVectors.sayD("ceil_m0p5" (RgNum.ceilD((0.0 - 0.5)))))
+        push out (CoreVectors.sayD("ceil_m0p9" (RgNum.ceilD((0.0 - 0.9)))))
+        ; trunc likewise
+        push out (CoreVectors.sayD("trunc_m0p5" (RgNum.trunc((0.0 - 0.5)))))
+        push out (CoreVectors.sayD("trunc_m0p9" (RgNum.trunc((0.0 - 0.9)))))
+        ; round(-0.5) is -0, round(0.5) is 1 — NOT mirror images
+        push out (CoreVectors.sayD("round_m0p5" (RgNum.round((0.0 - 0.5)))))
+        push out (CoreVectors.sayD("round_p0p5" (RgNum.round(0.5))))
+        push out (CoreVectors.sayD("round_m0p6" (RgNum.round((0.0 - 0.6)))))
+        push out (CoreVectors.sayD("round_m0p4" (RgNum.round((0.0 - 0.4)))))
+        ; max(-0, +0) is +0; min(-0, +0) is -0
+        push out (CoreVectors.sayD("max_negzero_zero" (RgNum.max2(nz 0.0))))
+        push out (CoreVectors.sayD("min_negzero_zero" (RgNum.min2(nz 0.0))))
+        ; pow keeps the sign of a zero base through an ODD integer exponent
+        push out (CoreVectors.sayD("pow_negzero_3" (RgNum.pow(nz 3.0))))
+        push out (CoreVectors.sayD("pow_negzero_2" (RgNum.pow(nz 2.0))))
+        return out
+    }
+
+    ; ---- set: num ----------------------------------------------------------
+    sfn setNum:[string] () {
+        def out:[string]
+        def inf:double (RgNum.inf())
+        def nan:double (RgNum.nan())
+        ; rounding across the sign
+        push out (CoreVectors.sayD("floor_m1p5" (RgNum.floorD((0.0 - 1.5)))))
+        push out (CoreVectors.sayD("floor_1p5" (RgNum.floorD(1.5))))
+        push out (CoreVectors.sayD("ceil_m1p5" (RgNum.ceilD((0.0 - 1.5)))))
+        push out (CoreVectors.sayD("ceil_1p5" (RgNum.ceilD(1.5))))
+        push out (CoreVectors.sayD("trunc_m1p9" (RgNum.trunc((0.0 - 1.9)))))
+        push out (CoreVectors.sayD("round_m1p5" (RgNum.round((0.0 - 1.5)))))
+        push out (CoreVectors.sayD("round_2p5" (RgNum.round(2.5))))
+        ; the 2^52 boundary: floor must not go through to_int, which is 32-bit
+        ; on the C++ target and would saturate every one of these
+        push out (CoreVectors.sayD("floor_2p31" (RgNum.floorD(2147483648.5))))
+        push out (CoreVectors.sayD("floor_m2p31" (RgNum.floorD((0.0 - 2147483648.5)))))
+        push out (CoreVectors.sayD("floor_1e15" (RgNum.floorD(1000000000000000.5))))
+        push out (CoreVectors.sayD("trunc_1e15" (RgNum.trunc(1000000000000000.5))))
+        ; NaN and the infinities pass through every one of them
+        push out (CoreVectors.sayD("floor_nan" (RgNum.floorD(nan))))
+        push out (CoreVectors.sayD("floor_inf" (RgNum.floorD(inf))))
+        push out (CoreVectors.sayD("round_inf" (RgNum.round(inf))))
+        push out (CoreVectors.sayD("abs_neginf" (RgNum.abs((0.0 - inf)))))
+        ; exact integer powers, which must not go near the series
+        push out (CoreVectors.sayD("pow_2_10" (RgNum.pow(2.0 10.0))))
+        push out (CoreVectors.sayD("pow_2_m2" (RgNum.pow(2.0 (0.0 - 2.0)))))
+        push out (CoreVectors.sayD("pow_10_15" (RgNum.pow(10.0 15.0))))
+        push out (CoreVectors.sayD("pow10_15" (RgNum.pow10(15))))
+        push out (CoreVectors.sayD("powInt_3_5" (RgNum.powInt(3.0 5))))
+        ; the specified special cases of pow
+        push out (CoreVectors.sayD("pow_nan_0" (RgNum.pow(nan 0.0))))
+        push out (CoreVectors.sayD("pow_1_inf" (RgNum.pow(1.0 inf))))
+        push out (CoreVectors.sayD("pow_2_inf" (RgNum.pow(2.0 inf))))
+        push out (CoreVectors.sayD("pow_0p5_inf" (RgNum.pow(0.5 inf))))
+        push out (CoreVectors.sayD("pow_m1_0p5" (RgNum.pow((0.0 - 1.0) 0.5))))
+        push out (CoreVectors.sayD("pow_m2_3" (RgNum.pow((0.0 - 2.0) 3.0))))
+        push out (CoreVectors.sayD("pow_neginf_3" (RgNum.pow((0.0 - inf) 3.0))))
+        ; sqrt keeps -0 and refuses a negative
+        push out (CoreVectors.sayD("sqrt_4" (RgNum.sqrtD(4.0))))
+        push out (CoreVectors.sayD("sqrt_negzero" (RgNum.sqrtD((RgNum.negZero())))))
+        push out (CoreVectors.sayD("sqrt_m1" (RgNum.sqrtD((0.0 - 1.0)))))
+        ; exp / log — pure Ranger series, so IDENTICAL on every target even
+        ; though each target's own libm would differ (see lib/core/README.md)
+        push out (CoreVectors.sayD("exp_0" (RgNum.exp(0.0))))
+        push out (CoreVectors.sayD("exp_1" (RgNum.exp(1.0))))
+        push out (CoreVectors.sayD("exp_m1" (RgNum.exp((0.0 - 1.0)))))
+        push out (CoreVectors.sayD("exp_neginf" (RgNum.exp((0.0 - inf)))))
+        push out (CoreVectors.sayD("log_1" (RgNum.log(1.0))))
+        push out (CoreVectors.sayD("log_10" (RgNum.log(10.0))))
+        push out (CoreVectors.sayD("log_0" (RgNum.log(0.0))))
+        push out (CoreVectors.sayD("log_m1" (RgNum.log((0.0 - 1.0)))))
+        ; ToInt32 / ToUint32 over the whole 32-bit range and past it
+        push out (CoreVectors.sayD("toInt32_max_u32" (RgNum.toInt32(4294967295.0))))
+        push out (CoreVectors.sayD("toUint32_m1" (RgNum.toUint32((0.0 - 1.0)))))
+        push out (CoreVectors.sayD("toInt32_2p31" (RgNum.toInt32(2147483648.0))))
+        push out (CoreVectors.sayD("toInt32_1e10" (RgNum.toInt32(10000000000.0))))
+        push out (CoreVectors.sayD("toInt32_nan" (RgNum.toInt32(nan))))
+        ; float32 round trip
+        push out (CoreVectors.sayD("fround_1p1" (RgNum.toFloat32(1.1))))
+        push out (CoreVectors.sayD("fround_1" (RgNum.toFloat32(1.0))))
+        push out (CoreVectors.sayD("fround_negzero" (RgNum.toFloat32((RgNum.negZero())))))
+        return out
+    }
+
+    ; ---- set: u32 ----------------------------------------------------------
+    ; The whole point of RgU32. Every line is an expression the raw operators
+    ; get WRONG on at least one of es6 / python / go / cpp.
+    sfn setU32:[string] () {
+        def out:[string]
+        def minus1:int (0 - 1)
+        ; the sign bit, which bit_shl cannot safely build
+        push out (CoreVectors.sayI("signBit" (RgU32.signBit())))
+        push out (CoreVectors.sayI("shl_1_31" (RgU32.shl(1 31))))
+        push out (CoreVectors.sayI("shl_1_30" (RgU32.shl(1 30))))
+        ; a count past the width: mod 32, so this is shl(1, 8)
+        push out (CoreVectors.sayI("shl_1_40" (RgU32.shl(1 40))))
+        push out (CoreVectors.sayI("shl_1_32" (RgU32.shl(1 32))))
+        push out (CoreVectors.sayI("shl_ffff_16" (RgU32.shl(65535 16))))
+        ; logical vs arithmetic right shift of an all-ones pattern
+        push out (CoreVectors.sayI("shr_m1_4" (RgU32.shr(minus1 4))))
+        push out (CoreVectors.sayI("shr_m1_28" (RgU32.shr(minus1 28))))
+        push out (CoreVectors.sayI("shr_m1_31" (RgU32.shr(minus1 31))))
+        push out (CoreVectors.sayI("sar_m1_4" (RgU32.sar(minus1 4))))
+        push out (CoreVectors.sayI("shr_signbit_1" (RgU32.shr((RgU32.signBit()) 1))))
+        ; rotations, which SHA-256 is made of
+        push out (CoreVectors.sayI("rotr_1_1" (RgU32.rotr(1 1))))
+        push out (CoreVectors.sayI("rotl_signbit_1" (RgU32.rotl((RgU32.signBit()) 1))))
+        push out (CoreVectors.sayI("rotr_m1_7" (RgU32.rotr(minus1 7))))
+        push out (CoreVectors.sayI("rotr_2a_17" (RgU32.rotr(707406378 17))))
+        push out (CoreVectors.sayI("rotl_2a_17" (RgU32.rotl(707406378 17))))
+        ; addition that carries out of bit 31 — plain `+` overflows on C++
+        push out (CoreVectors.sayI("add_max_1" (RgU32.addU(2147483647 1))))
+        push out (CoreVectors.sayI("add_m1_1" (RgU32.addU(minus1 1))))
+        push out (CoreVectors.sayI("add_m1_m1" (RgU32.addU(minus1 minus1))))
+        push out (CoreVectors.sayI("sub_0_1" (RgU32.sub(0 1))))
+        ; logical ops over the sign bit
+        push out (CoreVectors.sayI("bnot_0" (RgU32.bnot(0))))
+        push out (CoreVectors.sayI("bxor_m1_ffff" (RgU32.bxor(minus1 65535))))
+        push out (CoreVectors.sayI("band_m1_ffff" (RgU32.band(minus1 65535))))
+        ; the unsigned view, which needs a double because [0,2^32) is not an
+        ; int range on the C++ target
+        push out (CoreVectors.sayD("unsigned_m1" (RgU32.toUnsignedD(minus1))))
+        push out (CoreVectors.sayD("unsigned_signbit" (RgU32.toUnsignedD((RgU32.signBit())))))
+        push out (CoreVectors.sayI("fromUnsigned_4294967295" (RgU32.fromUnsignedD(4294967295.0))))
+        push out (CoreVectors.sayI("fromUnsigned_2147483648" (RgU32.fromUnsignedD(2147483648.0))))
+        ; counting
+        push out (CoreVectors.sayI("clz_0" (RgU32.clz(0))))
+        push out (CoreVectors.sayI("clz_1" (RgU32.clz(1))))
+        push out (CoreVectors.sayI("clz_signbit" (RgU32.clz((RgU32.signBit())))))
+        push out (CoreVectors.sayI("clz_m1" (RgU32.clz(minus1))))
+        push out (CoreVectors.sayI("popcount_m1" (RgU32.popcount(minus1))))
+        push out (CoreVectors.sayI("popcount_0" (RgU32.popcount(0))))
+        ; big-endian bytes, which every digest and length field needs
+        push out (CoreVectors.sayI("byte0_of_m1" (RgU32.byteAt(minus1 0))))
+        push out (CoreVectors.sayI("byte3_of_m1" (RgU32.byteAt(minus1 3))))
+        push out (CoreVectors.sayI("fromBytes_deadbeef" (RgU32.fromBytesBE(222 173 190 239))))
+        push out (CoreVectors.sayI("byte0_deadbeef" (RgU32.byteAt((RgU32.fromBytesBE(222 173 190 239)) 0))))
+        push out (CoreVectors.sayI("wrap_of_2p32_plus5" (RgU32.fromUnsignedD(5.0))))
+        return out
+    }
+
+    sfn runSet:[string] (name:string) {
+        if (name == "negzero") {
+            return (CoreVectors.setNegZero())
+        }
+        if (name == "num") {
+            return (CoreVectors.setNum())
+        }
+        if (name == "u32") {
+            return (CoreVectors.setU32())
+        }
+        def all:[string]
+        def a:[string] (CoreVectors.setNum())
+        def b:[string] (CoreVectors.setNegZero())
+        def c:[string] (CoreVectors.setU32())
+        def i:int 0
+        while (i < (array_length a)) {
+            push all (itemAt a i)
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length b)) {
+            push all (itemAt b j)
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length c)) {
+            push all (itemAt c k)
+            k = (k + 1)
+        }
+        return all
+    }
+
+    sfn main@(main):void () {
+        def set:string "all"
+        if ((shell_arg_cnt) > 0) {
+            set = (shell_arg 0)
+        }
+        def lines:[string] (CoreVectors.runSet(set))
+        def i:int 0
+        while (i < (array_length lines)) {
+            print (itemAt lines i)
+            i = (i + 1)
+        }
+    }
+}

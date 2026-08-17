@@ -393,9 +393,10 @@
     "test:evg:all": "npm run test:evg && npm run test:evg:fonts && npm run test:evg:layout && npm run test:evg:frontend && npm run test:evg:vector",
     "showcase": "node gallery/evg/showcase/build.mjs",
     "showcase:gl": "node gallery/evg/showcase/tests/gl_smoke.mjs",
-  "evg:displaylist": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_displaylist_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_displaylist_tool.js -nodecli && node ./gallery/pdf_writer/bin/evg_displaylist_tool.js",
-  "check:stack": "node gallery/game_engine/build-support/check-stack-headroom.mjs",
-  "test:evg:layout": "bash gallery/pdf_writer/test/run_layout.sh"
+    "evg:displaylist": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_displaylist_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_displaylist_tool.js -nodecli && node ./gallery/pdf_writer/bin/evg_displaylist_tool.js",
+    "check:stack": "node gallery/game_engine/build-support/check-stack-headroom.mjs",
+    "test:evg:layout": "bash gallery/pdf_writer/test/run_layout.sh",
+    "test:core": "vitest run --config tests/vitest.core.config.ts"
   },
   "repository": {
     "type": "git",
