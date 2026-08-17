@@ -3917,52 +3917,94 @@ class VlCompile {
     ; A condition on a PARAMETER is a different thing — it answers to a
     ; selection rather than to the row — and is left alone here.
     fn withCondition:VlJson (ch:VlChannel base:VlJson) {
-        def cond:VlJson (ch.def0.get("condition"))
-        if (! (cond.isObject())) {
-            return base
-        }
-        def expr:string ""
-        if (cond.has("test")) {
-            expr = (this.predicateExpr((cond.get("test"))))
+        def given:VlJson (ch.def0.get("condition"))
+        ; A channel may carry SEVERAL conditions, tried in order — a bar that
+        ; is outlined thickly when clicked, thinly when hovered, and not at all
+        ; otherwise. Read as one object, a list of them was not a condition at
+        ; all and the channel silently lost every branch it had.
+        def list (VlJson.arrayValue())
+        if (given.isArray()) {
+            def gi:int 0
+            while (gi < (given.count())) {
+                push list.arr (given.at(gi))
+                gi = (gi + 1)
+            }
         } {
-            ; A condition on a PARAMETER is a test too, once it is asked what
-            ; the parameter says with nobody touching the chart. A selection
-            ; given an initial value picks rows out of the data — the
-            ; four-cylinder cars of 1977 — and those rows are painted while the
-            ; rest are grey, which is what the reference draws before anyone
-            ; moves a slider.
-            if (cond.has("param")) {
-                expr = (this.selectionExpr(cond))
-                if (expr == "true") {
-                    return base
-                }
-                if (expr == "false") {
-                    return base
-                }
+            if (given.isObject()) {
+                push list.arr given
             }
         }
-        if ((strlen expr) == 0) {
+        if ((list.count()) == 0) {
             return base
-        }
-        def branch (VlJson.objectValue())
-        branch.setMember("test" (VlJson.stringValue(expr)))
-        if (cond.has("value")) {
-            branch.setMember("value" (cond.get("value")))
-        } {
-            ; A condition that names a FIELD reads it through the same scale
-            ; the channel already uses — and only if there IS one. A channel
-            ; whose base is a constant has no colour scale to read, and a
-            ; branch that named one referred to a scale the chart never built.
-            if (! (ch.encodes())) {
-                return base
-            }
-            branch.setMember("scale" (VlJson.stringValue((this.sname("color")))))
-            branch.setMember("field" (cond.get("field")))
         }
         def out (VlJson.arrayValue())
-        push out.arr branch
+        def i:int 0
+        while (i < (list.count())) {
+            def cond:VlJson (list.at(i))
+            def expr:string ""
+            if (cond.has("test")) {
+                expr = (this.predicateExpr((cond.get("test"))))
+            } {
+                ; A condition on a PARAMETER is a test too, once it is asked
+                ; what the parameter says with nobody touching the chart. A
+                ; selection given an initial value picks rows out of the data —
+                ; the four-cylinder cars of 1977 — and those rows are painted
+                ; while the rest are grey, which is what the reference draws
+                ; before anyone moves a slider.
+                if (cond.has("param")) {
+                    expr = (this.selectionExpr(cond))
+                }
+            }
+            if ((strlen expr) == 0) {
+                return base
+            }
+            if (expr != "false") {
+                def branch:VlJson (this.conditionBranch(ch cond))
+                if (! (branch.isObject())) {
+                    return base
+                }
+                ; A branch that is known to hold IS the answer: nothing after
+                ; it can be reached, and nothing before it applied. Answered
+                ; with the fallback instead, a selection that starts out
+                ; matching everything drew the unselected picture.
+                if (expr == "true") {
+                    if ((out.count()) == 0) {
+                        return branch
+                    }
+                    push out.arr branch
+                    return out
+                }
+                branch.setMember("test" (VlJson.stringValue(expr)))
+                push out.arr branch
+            }
+            i = (i + 1)
+        }
+        if ((out.count()) == 0) {
+            return base
+        }
         push out.arr base
         return out
+    }
+
+    ; What one branch of a conditional channel paints with: a constant, or the
+    ; same scale the channel itself reads. Answers a non-object when the branch
+    ; cannot be written — a field read through a scale the chart never built.
+    fn conditionBranch:VlJson (ch:VlChannel cond:VlJson) {
+        def branch (VlJson.objectValue())
+        if (cond.has("value")) {
+            branch.setMember("value" (cond.get("value")))
+            return branch
+        }
+        ; A condition that names a FIELD reads it through the same scale the
+        ; channel already uses — and only if there IS one. A channel whose base
+        ; is a constant has no colour scale to read, and a branch that named
+        ; one referred to a scale the chart never built.
+        if (! (ch.encodes())) {
+            return (VlJson.nullValue())
+        }
+        branch.setMember("scale" (VlJson.stringValue((this.sname("color")))))
+        branch.setMember("field" (cond.get("field")))
+        return branch
     }
 
     ; What a selection predicate says about a row when nothing is selected —
