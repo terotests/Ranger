@@ -7372,6 +7372,16 @@ class VlCompile {
                 return (colour.outField())
             }
         }
+        ; `detail` is a channel that groups and nothing else — it paints no
+        ; colour and draws no key, it only says which rows belong to the same
+        ; shape. A ranged dot plot uses it to give five countries five lines;
+        ; ignored, they came out as one line zig-zagging between them.
+        def detail:VlChannel (this.channel("detail"))
+        if (detail.encodes()) {
+            if ((strlen detail.field) > 0) {
+                return (detail.outField())
+            }
+        }
         ; A line is one shape per series however the series are told apart, and
         ; a dash pattern tells them apart as well as a colour does. Without this
         ; a chart of five dashed lines is ONE line that runs back and forth

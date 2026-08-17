@@ -1311,7 +1311,13 @@ class VlRuntime {
                 }
                 k = (k + 1)
             }
-            if (allNumbers && (total == 2)) {
+            ; Two numbers are the ENDS of a continuous scale and the whole
+            ; membership of a discrete one. `"type": "ordinal", "domain":
+            ; [1955, 2000]` names two years to colour, and read as a range the
+            ; scale had no categories at all — so the key was drawn with its
+            ; title and nothing under it.
+            def discrete:boolean ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal")))
+            if (((allNumbers && (total == 2)) && (! discrete))) {
                 sc.setNumericDomain((d.at(0).asDouble()) (d.at(1).asDouble()))
                 return
             }
