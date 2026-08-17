@@ -1562,7 +1562,16 @@ class VlRuntime {
         def out:VlJson (VlExprEval.eval(node scope))
         def after:int (array_length scope.missing)
         if (after > before) {
-            this.fail(("expression uses a function this runtime does not have: " + src))
+            ; What was recorded is usually a function's NAME, and sometimes a
+            ; sentence about why a well-named one could not be answered — a
+            ; regular expression using a construct this engine does not have.
+            ; Said either way it is the thing the reader needs.
+            def noted:string (itemAt scope.missing before)
+            if ((indexOf noted " ") >= 0) {
+                this.fail(noted)
+            } {
+                this.fail(("expression uses a function this runtime does not have: " + src))
+            }
         }
         return out
     }

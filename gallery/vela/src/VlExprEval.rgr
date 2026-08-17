@@ -19,6 +19,7 @@ Import "VlTime.rgr"
 Import "VlExpr.rgr"
 Import "VlScale.rgr"
 Import "VlMath.rgr"
+Import "VlRegex.rgr"
 
 class VlExprScope {
     def datum:VlJson (new VlJson)
@@ -701,6 +702,40 @@ class VlExprEval {
                 to = swap
             }
             return (VlJson.stringValue((substring text from to)))
+        }
+        ; --- regular expressions ---
+        ; `regexp(pattern, flags)` compiles one and `test(re, string)` asks
+        ; whether it occurs. The compiled expression is carried as an object
+        ; rather than as a string, so that a pattern and a string that happens
+        ; to look like one cannot be confused.
+        if (name == "regexp") {
+            def re (VlJson.objectValue())
+            re.setMember("__regexp" (VlJson.stringValue((a0.asString()))))
+            def flags:string ""
+            if (argc > 1) {
+                flags = (a1.asString())
+            }
+            re.setMember("__flags" (VlJson.stringValue(flags)))
+            return re
+        }
+        if (name == "test") {
+            def engine (new VlRegex())
+            def flags2:string ""
+            def source:string (a0.asString())
+            if (a0.isObject()) {
+                source = (a0.stringOr("__regexp" ""))
+                flags2 = (a0.stringOr("__flags" ""))
+            }
+            engine.compile(source flags2)
+            if (! engine.ok) {
+                scope.noteMissing(engine.why)
+                return (VlJson.boolValue(false))
+            }
+            def against:string ""
+            if (argc > 1) {
+                against = (a1.asString())
+            }
+            return (VlJson.boolValue((engine.test(against))))
         }
         if (name == "upper") {
             return (VlJson.stringValue((VlExprEval.shiftCase((a0.asString()) true))))
