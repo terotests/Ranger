@@ -635,7 +635,8 @@ are), median of three, interleaved so machine drift cancels:
 Two separate effects are visible:
 
 - **Generated data tables narrow the gap** (2.5x down to 1.24x). Those files are
-  thousands of `push out <literal>` statements and almost no control flow.
+  one big array literal per table and almost no control flow — `UnicodeProps.rgr`
+  and the other six generated tables contain zero `push` statements.
 - **Size inverts it.** At 45k lines the C++ compiler is 20% *slower* than node
   on the same input, while being 2.4x faster on the 3k-line files. node's cost
   grows roughly with input size across the whole range; C++'s grows faster than
