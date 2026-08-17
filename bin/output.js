@@ -43584,10 +43584,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return this.canLowerMethod(fnDesc);
                         };
+                        isKeywordMarkerParam (p) {
+                          if ( typeof(p.nameNode) === "undefined" ) {
+                            return false;
+                          }
+                          return p.nameNode.hasFlag("keyword");
+                        };
                         canLowerMethod (fnDesc) {
                           if ( fnDesc.name == "Constructor" ) {
                             for ( let i = 0; i < fnDesc.params.length; i++) {
                               var p = fnDesc.params[i];
+                              if ( this.isKeywordMarkerParam(p) ) {
+                                continue;
+                              }
                               if ( typeof(p.nameNode) === "undefined" ) {
                                 return false;
                               }
@@ -45887,6 +45896,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           const valNode = node.getSecond();
                           const isF64 = this.exprIsF64(valNode);
                           let val = this.lowerExpr(valNode, lctx);
+                          if ( isF64 == false ) {
+                            if ( this.exprProducesI1(valNode, lctx) ) {
+                              if ( this.wasmStrEnabled(lctx) == false ) {
+                                const tG = this.internStringGlobal("true", false);
+                                const fG = this.internStringGlobal("false", false);
+                                lctx.shadowCounter = lctx.shadowCounter + 1;
+                                const bslot = "%bstr" + ("" + lctx.shadowCounter);
+                                builder.emitAlloca("i8*", bslot);
+                                const tL = builder.freshLabel("bs_true");
+                                const fL = builder.freshLabel("bs_false");
+                                const eL = builder.freshLabel("bs_end");
+                                builder.terminateBrIf(val, tL, fL);
+                                builder.startBlock(tL);
+                                builder.emitStore("i8*", builder.emitStrPtr(tG, this.stringGlobalByteLen(tG)), bslot);
+                                builder.terminateBr(eL);
+                                builder.startBlock(fL);
+                                builder.emitStore("i8*", builder.emitStrPtr(fG, this.stringGlobalByteLen(fG)), bslot);
+                                builder.terminateBr(eL);
+                                builder.startBlock(eL);
+                                return builder.emitLoad("i8*", bslot);
+                              }
+                            }
+                          }
                           if ( isF64 == false ) {
                             if ( this.exprProducesI1(valNode, lctx) ) {
                               val = builder.emitZextI1ToI32(val);
@@ -48800,7 +48832,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           };
                           return false;
                         };
-                        lowerNewObject (className, argsNode, lctx) {
+                        newArgListOf (argsNode) {
+                          if ( (argsNode.children.length) > 2 ) {
+                            const head = argsNode.getFirst();
+                            if ( head.vref == "new" ) {
+                              return argsNode.getThird();
+                            }
+                          }
+                          return argsNode;
+                        };
+                        lowerNewObject (className, argsNodeIn, lctx) {
+                          const argsNode = this.newArgListOf(argsNodeIn);
                           const builder = lctx.builder;
                           let byteCnt = this.structByteSize(className, this.irModule);
                           if ( byteCnt == 0 ) {
@@ -48875,11 +48917,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             let argTypes = [];
                             args.push(objSlot);
                             argTypes.push(LowIRUtil.structPtrType(className));
+                            const ctorFnDesc = ctorDesc;
+                            const paramCnt = ctorFnDesc.params.length;
                             let argIdx = 0;
                             for ( let i_1 = 0; i_1 < argsNode.children.length; i_1++) {
                               var arg = argsNode.children[i_1];
-                              args.push(this.lowerExpr(arg, lctx));
-                              argTypes.push(this.paramIrTypeFromDesc(argIdx, (ctorDesc), lctx));
+                              let isMarker = arg.hasFlag("keyword");
+                              if ( argIdx < paramCnt ) {
+                                if ( this.isKeywordMarkerParam((ctorFnDesc.params[argIdx])) ) {
+                                  isMarker = true;
+                                }
+                              }
+                              if ( isMarker == false ) {
+                                args.push(this.lowerExpr(arg, lctx));
+                                argTypes.push(this.paramIrTypeFromDesc(argIdx, ctorFnDesc, lctx));
+                              }
                               argIdx = argIdx + 1;
                             };
                             const voidType = "void";
@@ -49014,6 +49066,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           for ( let i = 0; i < fnDesc.params.length; i++) {
                             var p = fnDesc.params[i];
+                            if ( this.isKeywordMarkerParam(p) ) {
+                              continue;
+                            }
                             const lp = new LowIRParam();
                             lp.name = p.compiledName;
                             if ( (lp.name.length) == 0 ) {
@@ -49064,6 +49119,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           for ( let i_1 = 0; i_1 < fnDesc.params.length; i_1++) {
                             var p_1 = fnDesc.params[i_1];
+                            if ( this.isKeywordMarkerParam(p_1) ) {
+                              continue;
+                            }
                             let lpName = p_1.compiledName;
                             if ( (lpName.length) == 0 ) {
                               lpName = p_1.name;
@@ -50323,6 +50381,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               this.lowerIf(node, lctx);
                               return;
                             }
+                            if ( opName_1 == "case" ) {
+                              if ( (node.children.length) > 3 ) {
+                                this.lowerShapeCase(node, lctx);
+                                return;
+                              }
+                            }
                             if ( opName_1 == "while" ) {
                               this.lowerWhile(node, lctx);
                               return;
@@ -51419,6 +51483,86 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           builder.startBlock(endL);
                           lctx.breakLabel = savedBreak;
                         };
+                        shapeCaseClassName (itemNode) {
+                          let tn = itemNode.type_name;
+                          if ( (tn.length) == 0 ) {
+                            tn = itemNode.eval_type_name;
+                          }
+                          const dotAt = tn.indexOf(".");
+                          if ( dotAt > 0 ) {
+                            tn = (tn.substring(0, dotAt )) + ("_" + (tn.substring((dotAt + 1), (tn.length) )));
+                          }
+                          return tn;
+                        };
+                        moduleHasTypeDesc (className) {
+                          for ( let i = 0; i < this.irModule.typeDescs.length; i++) {
+                            var td = this.irModule.typeDescs[i];
+                            if ( td.className == className ) {
+                              return true;
+                            }
+                          };
+                          return false;
+                        };
+                        emitShapeKindTest (val, caseClass, lctx) {
+                          const builder = lctx.builder;
+                          const pt = lctx.ptrType;
+                          let typeParams = [];
+                          typeParams.push(pt);
+                          this.ensureExternDecl("ranger_obj_type", pt, typeParams, false);
+                          let args = [];
+                          let argTypes = [];
+                          args.push(val);
+                          argTypes.push(pt);
+                          const rtType = builder.emitCall("ranger_obj_type", pt, args, argTypes);
+                          const tdp = builder.emitTypeDescPtr(caseClass);
+                          return builder.emitIcmpTyped("eq", pt, rtType, tdp);
+                        };
+                        lowerShapeIs (node, lctx) {
+                          const valNode = node.getSecond();
+                          const itemNode = node.getThird();
+                          const caseClass = this.shapeCaseClassName(itemNode);
+                          if ( this.moduleHasTypeDesc(caseClass) == false ) {
+                            return "";
+                          }
+                          const val = this.lowerExpr(valNode, lctx);
+                          return this.emitShapeKindTest(val, caseClass, lctx);
+                        };
+                        lowerShapeCase (node, lctx) {
+                          const builder = lctx.builder;
+                          const valNode = node.getSecond();
+                          const itemNode = node.getThird();
+                          const bodyNode = node.children[3];
+                          const caseClass = this.shapeCaseClassName(itemNode);
+                          if ( this.moduleHasTypeDesc(caseClass) == false ) {
+                            return;
+                          }
+                          const val = this.lowerExpr(valNode, lctx);
+                          const cond = this.emitShapeKindTest(val, caseClass, lctx);
+                          const armLabel = builder.freshLabel("case_arm");
+                          const endLabel = builder.freshLabel("case_end");
+                          builder.terminateBrIf(cond, armLabel, endLabel);
+                          builder.startBlock(armLabel);
+                          const itemName = itemNode.vref;
+                          if ( (itemName.length) > 0 ) {
+                            if ( itemName != "_" ) {
+                              lctx.shadowStack.push(itemName);
+                              const prevSlot = this.shadowBind(itemName, lctx.ptrType, val, lctx);
+                              lctx.objectSlots[itemName] = caseClass;
+                              this.lowerBlock(bodyNode, lctx);
+                              this.restoreShadow(itemName, prevSlot, lctx);
+                              lctx.shadowStack.pop();
+                            } else {
+                              this.lowerBlock(bodyNode, lctx);
+                            }
+                          } else {
+                            this.lowerBlock(bodyNode, lctx);
+                          }
+                          const armBlock = builder.currentBlock;
+                          if ( armBlock.termKind == "" ) {
+                            builder.terminateBr(endLabel);
+                          }
+                          builder.startBlock(endLabel);
+                        };
                         lowerIf (node, lctx) {
                           const builder = lctx.builder;
                           const condNode = node.getSecond();
@@ -51899,6 +52043,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             if ( opName == "strlen" ) {
                               return this.lowerStrlen(node, lctx);
+                            }
+                            if ( opName == "is" ) {
+                              if ( (node.children.length) > 2 ) {
+                                return this.lowerShapeIs(node, lctx);
+                              }
                             }
                             if ( opName == "length" ) {
                               const lenNode = node.getSecond();

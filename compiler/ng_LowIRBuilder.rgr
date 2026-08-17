@@ -176,9 +176,26 @@ class LowIRBuilderPass {
     return (this.canLowerMethod(fnDesc))
   }
 
+  ; The synthesized constructor of a `record` carries TWO parameters per field:
+  ; a marker that holds the keyword's name and no type at all, beside the
+  ; parameter that holds the value. Only a language with keyword arguments
+  ; writes the marker, and every other writer filters it out (see
+  ; RangerCppClassWriter.writeArgsDef). This backend did not, so the marker's
+  ; empty type made canLowerMethod refuse the constructor and no record class
+  ; -- including every class a `shape` desugars to -- had one emitted at all.
+  fn isKeywordMarkerParam:boolean (p:RangerAppParamDesc) {
+    if (null? p.nameNode) {
+      return false
+    }
+    return (p.nameNode.hasFlag("keyword"))
+  }
+
   fn canLowerMethod:boolean (fnDesc:RangerAppFunctionDesc) {
     if (fnDesc.name == "Constructor") {
       for fnDesc.params p:RangerAppParamDesc i {
+        if (this.isKeywordMarkerParam(p)) {
+          continue
+        }
         if (null? p.nameNode) {
           return false
         }
@@ -2766,6 +2783,31 @@ class LowIRBuilderPass {
     def valNode (node.getSecond())
     def isF64 (this.exprIsF64(valNode))
     def val (this.lowerExpr(valNode lctx))
+    ; A BOOLEAN answers "true"/"false", the way every other target spells it --
+    ; not the 1/0 that "%d" writes. `to_string (a == b)` came out as `1`.
+    if (isF64 == false) {
+      if (this.exprProducesI1(valNode lctx)) {
+        if ((this.wasmStrEnabled(lctx)) == false) {
+          def tG (this.internStringGlobal("true" false))
+          def fG (this.internStringGlobal("false" false))
+          lctx.shadowCounter = (lctx.shadowCounter + 1)
+          def bslot:string ("%bstr" + ("" + lctx.shadowCounter))
+          builder.emitAlloca("i8*" bslot)
+          def tL (builder.freshLabel("bs_true"))
+          def fL (builder.freshLabel("bs_false"))
+          def eL (builder.freshLabel("bs_end"))
+          builder.terminateBrIf(val tL fL)
+          builder.startBlock(tL)
+          builder.emitStore("i8*" (builder.emitStrPtr(tG (this.stringGlobalByteLen(tG)))) bslot)
+          builder.terminateBr(eL)
+          builder.startBlock(fL)
+          builder.emitStore("i8*" (builder.emitStrPtr(fG (this.stringGlobalByteLen(fG)))) bslot)
+          builder.terminateBr(eL)
+          builder.startBlock(eL)
+          return (builder.emitLoad("i8*" bslot))
+        }
+      }
+    }
     ; A boolean operand arrives as i1; sprintf's "%d" takes an i32. Widen it
     ; here so `to_string (v.isFunction())` does not pass an i1 in an i32 slot.
     if (isF64 == false) {
@@ -6068,7 +6110,23 @@ class LowIRBuilderPass {
     return false
   }
 
-  fn lowerNewObject:string (className:string argsNode:CodeNode lctx:LowIRLowerContext) {
+  ; The argument list of a `new`. `hasNewOper` is set on the enclosing node as
+  ; well as on the `new` expression itself, so a caller's `node.getThird()` can
+  ; hand back the WHOLE `(new Class (args))` rather than its argument list --
+  ; which it does for a dotted class name such as a shape's `new Val.Num(42)`.
+  ; Taking the third child of that is the argument list either way.
+  fn newArgListOf:CodeNode (argsNode:CodeNode) {
+    if ((array_length argsNode.children) > 2) {
+      def head:CodeNode (argsNode.getFirst())
+      if (head.vref == "new") {
+        return (argsNode.getThird())
+      }
+    }
+    return argsNode
+  }
+
+  fn lowerNewObject:string (className:string argsNodeIn:CodeNode lctx:LowIRLowerContext) {
+    def argsNode:CodeNode (this.newArgListOf(argsNodeIn))
     def builder (lctx.builder)
     def byteCnt (this.structByteSize(className this.irModule))
     if (byteCnt == 0) {
@@ -6151,10 +6209,28 @@ class LowIRBuilderPass {
       def argTypes:[string]
       push args objSlot
       push argTypes (LowIRUtil.structPtrType(className))
+      ; Walk the PARAMETERS and index the arguments, the way the C++ writer
+      ; does: the front end expands a record constructor call to one argument
+      ; per parameter, keyword markers included, and the signature drops those.
+      ; The front end expands a record constructor call to one argument per
+      ; parameter and flags the arguments that stand where a keyword marker
+      ; does (cmdNew). Those carry no value and the signature drops them, so
+      ; the call must drop them too. A shape's generated case marks the
+      ; ARGUMENT without marking the parameter, so both sides are asked.
+      def ctorFnDesc:RangerAppFunctionDesc (unwrap ctorDesc)
+      def paramCnt:int (array_length ctorFnDesc.params)
       def argIdx:int 0
       for argsNode.children arg:CodeNode i {
-        push args (this.lowerExpr(arg lctx))
-        push argTypes (this.paramIrTypeFromDesc(argIdx (unwrap ctorDesc) lctx))
+        def isMarker:boolean (arg.hasFlag("keyword"))
+        if (argIdx < paramCnt) {
+          if (this.isKeywordMarkerParam((itemAt ctorFnDesc.params argIdx))) {
+            isMarker = true
+          }
+        }
+        if (isMarker == false) {
+          push args (this.lowerExpr(arg lctx))
+          push argTypes (this.paramIrTypeFromDesc(argIdx ctorFnDesc lctx))
+        }
         argIdx = argIdx + 1
       }
       def voidType:string "void"
@@ -6310,6 +6386,10 @@ class LowIRBuilderPass {
       push params argvParam
     }
     for fnDesc.params p:RangerAppParamDesc i {
+      ; a record constructor's keyword marker is not a real parameter
+      if (this.isKeywordMarkerParam(p)) {
+        continue
+      }
       def lp@(lives):LowIRParam (new LowIRParam())
       lp.name = p.compiledName
       if ((strlen lp.name) == 0) {
@@ -6376,6 +6456,9 @@ class LowIRBuilderPass {
     }
 
     for fnDesc.params p:RangerAppParamDesc i {
+      if (this.isKeywordMarkerParam(p)) {
+        continue
+      }
       def lpName:string p.compiledName
       if ((strlen lpName) == 0) {
         lpName = p.name
@@ -7940,6 +8023,12 @@ class LowIRBuilderPass {
         this.lowerIf(node lctx)
         return
       }
+      if (opName == "case") {
+        if ((array_length node.children) > 3) {
+          this.lowerShapeCase(node lctx)
+          return
+        }
+      }
       if (opName == "while") {
         this.lowerWhile(node lctx)
         return
@@ -9217,6 +9306,115 @@ class LowIRBuilderPass {
     lctx.breakLabel = savedBreak
   }
 
+  ; --- shapes (PLAN_SHAPES.md) ------------------------------------------
+  ;
+  ; A shape desugars to one record class per case plus a union over them, so on
+  ; this backend a shape value is simply a pointer to the case object. Every
+  ; object already carries its RangerTypeDesc, and the virtual dispatcher
+  ; already narrows on it -- so `is` and `case` are the same descriptor compare
+  ; that dispatch uses, and no new representation is needed.
+  ;
+  ; The case class an `x:Shape.Case` binding names. The desugaring has already
+  ; rewritten `Shape.Case` to the generated record name by the time this runs.
+  fn shapeCaseClassName:string (itemNode:CodeNode) {
+    def tn:string itemNode.type_name
+    if ((strlen tn) == 0) {
+      tn = itemNode.eval_type_name
+    }
+    ; `Shape.Case` spelled with a dot names the same generated `Shape_Case`
+    def dotAt:int (indexOf tn ".")
+    if (dotAt > 0) {
+      tn = ((substring tn 0 dotAt) + ("_" + (substring tn (dotAt + 1) (strlen tn))))
+    }
+    return tn
+  }
+
+  ; Does the module carry a runtime type descriptor for this class? A `union`
+  ; over SYSTEM classes -- the JSON family is the one in this compiler -- has no
+  ; lowered struct and no descriptor, because that family lives in
+  ; runtime/ranger_json.c rather than in the object system. Narrowing one is not
+  ; a descriptor compare, so `case`/`is` over it is left alone here exactly as
+  ; it was before this backend understood the operators at all.
+  fn moduleHasTypeDesc:boolean (className:string) {
+    for this.irModule.typeDescs td:LowIRTypeDesc i {
+      if (td.className == className) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; `ranger_obj_type(v) == @Case_typeDesc` -- false for a null v, because
+  ; ranger_obj_type answers 0 for one and no descriptor lives at address 0.
+  fn emitShapeKindTest:string (val:string caseClass:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def pt:string lctx.ptrType
+    def typeParams:[string]
+    push typeParams pt
+    this.ensureExternDecl("ranger_obj_type" pt typeParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args val
+    push argTypes pt
+    def rtType (builder.emitCall("ranger_obj_type" pt args argTypes))
+    def tdp (builder.emitTypeDescPtr(caseClass))
+    return (builder.emitIcmpTyped("eq" pt rtType tdp))
+  }
+
+  ; `(is v _:Shape.Case)` -- the kind test alone, as an expression.
+  fn lowerShapeIs:string (node:CodeNode lctx:LowIRLowerContext) {
+    def valNode (node.getSecond())
+    def itemNode (node.getThird())
+    def caseClass:string (this.shapeCaseClassName(itemNode))
+    if ((this.moduleHasTypeDesc(caseClass)) == false) {
+      return ""
+    }
+    def val (this.lowerExpr(valNode lctx))
+    return (this.emitShapeKindTest(val caseClass lctx))
+  }
+
+  ; `case v x:Shape.Case { … }` -- the same test, and the arm runs with `x`
+  ; bound to the very same pointer, narrowed to the case class. Nothing is
+  ; copied: the binding aliases the scrutinee, exactly as the C#/Kotlin/Dart
+  ; `is` narrowing does.
+  fn lowerShapeCase:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def valNode (node.getSecond())
+    def itemNode (node.getThird())
+    def bodyNode (itemAt node.children 3)
+    def caseClass:string (this.shapeCaseClassName(itemNode))
+    if ((this.moduleHasTypeDesc(caseClass)) == false) {
+      return
+    }
+    def val (this.lowerExpr(valNode lctx))
+    def cond (this.emitShapeKindTest(val caseClass lctx))
+    def armLabel (builder.freshLabel("case_arm"))
+    def endLabel (builder.freshLabel("case_end"))
+    builder.terminateBrIf(cond armLabel endLabel)
+    builder.startBlock(armLabel)
+    def itemName:string itemNode.vref
+    ; `_` is the placeholder the `is`-style spelling uses; it binds nothing
+    if ((strlen itemName) > 0) {
+      if (itemName != "_") {
+        push lctx.shadowStack itemName
+        def prevSlot:string (this.shadowBind(itemName lctx.ptrType val lctx))
+        set lctx.objectSlots itemName caseClass
+        this.lowerBlock(bodyNode lctx)
+        this.restoreShadow(itemName prevSlot lctx)
+        removeLast lctx.shadowStack
+      } {
+        this.lowerBlock(bodyNode lctx)
+      }
+    } {
+      this.lowerBlock(bodyNode lctx)
+    }
+    def armBlock (unwrap builder.currentBlock)
+    if (armBlock.termKind == "") {
+      builder.terminateBr(endLabel)
+    }
+    builder.startBlock(endLabel)
+  }
+
   fn lowerIf:void (node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def condNode (node.getSecond())
@@ -9809,6 +10007,11 @@ class LowIRBuilderPass {
       }
       if (opName == "strlen") {
         return (this.lowerStrlen(node lctx))
+      }
+      if (opName == "is") {
+        if ((array_length node.children) > 2) {
+          return (this.lowerShapeIs(node lctx))
+        }
       }
       if (opName == "length") {
         def lenNode (node.getSecond())
