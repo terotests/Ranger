@@ -1812,6 +1812,24 @@ class VlCompile {
             if (cdef.has("value")) {
                 ch.hasValue = true
                 ch.value = (cdef.get("value"))
+                ; A channel written as a SELECTION and a fallback —
+                ; `{"condition": {"param": "industry", "value": 1},
+                ;   "value": 0.2}` — has two answers and this drawing is
+                ; static, so which one it shows is decided by what an EMPTY
+                ; selection means. A point selection's default is that an empty
+                ; one matches everything, so the condition's value is what a
+                ; chart looks like before anyone touches it; `"empty": false`
+                ; reverses that, and the fallback is what shows.
+                def cond:VlJson (cdef.get("condition"))
+                if (cond.isObject()) {
+                    if (cond.has("param")) {
+                        if (cond.has("value")) {
+                            if (cond.boolOr("empty" true)) {
+                                ch.value = (cond.get("value"))
+                            }
+                        }
+                    }
+                }
             }
             if ((strlen ch.aggregate) > 0) {
                 if ((strlen ch.field) == 0) {
@@ -4080,6 +4098,16 @@ class VlCompile {
                 l.setMember("title" (VlJson.stringValue((colour.title()))))
                 if (markName == "point") {
                     l.setMember("encode" (VlCompile.pointSymbolEncode()))
+                } {
+                    ; A key stands for the mark, so it is as transparent as the
+                    ; mark is: two half-visible bars are named by two
+                    ; half-visible squares.
+                    def markOpacity:VlChannel (this.channel("opacity"))
+                    if markOpacity.defined {
+                        if markOpacity.hasValue {
+                            l.setMember("encode" (VlCompile.symbolOpacityEncode(markOpacity.value)))
+                        }
+                    }
                 }
                 push out.arr l
             }
@@ -4138,6 +4166,16 @@ class VlCompile {
         update.setMember("fill" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
         update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(0.7)))))
         update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("transparent")))))
+        def symbols (VlJson.objectValue())
+        symbols.setMember("update" update)
+        def out (VlJson.objectValue())
+        out.setMember("symbols" symbols)
+        return out
+    }
+
+    sfn symbolOpacityEncode:VlJson (value:VlJson) {
+        def update (VlJson.objectValue())
+        update.setMember("opacity" (VlCompile.literal(value)))
         def symbols (VlJson.objectValue())
         symbols.setMember("update" update)
         def out (VlJson.objectValue())
@@ -4667,6 +4705,19 @@ class VlCompile {
                 update.setMember("shape" (VlCompile.literal(shape.value)))
             } {
                 update.setMember("shape" (this.scaled("shape" (shape.outField()))))
+            }
+        }
+        ; `"opacity": {"value": 0.7}` is how two overlapping bars are drawn so
+        ; that both can be seen, and it reached nothing: the channel was read,
+        ; noted, and never written, so the chart came out opaque and the series
+        ; behind was invisible. A condition writes its fallback here, which is
+        ; what a drawing with no interaction in it shows.
+        def opacity:VlChannel (this.channel("opacity"))
+        if opacity.defined {
+            if opacity.hasValue {
+                update.setMember("opacity" (VlCompile.literal(opacity.value)))
+            } {
+                this.fail("an opacity read from a field is not compiled here")
             }
         }
         ; A rule given only one position is a line ACROSS the plot at that
