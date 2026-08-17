@@ -145,7 +145,11 @@ class VlTransform {
         def hi:double 0.0
         def seen:boolean false
         for rows row:VlJson idx {
-            def v:VlJson (row.get(field))
+            ; Through a path as well as a column: a scale whose domain is
+            ; `argmax_US Gross["Production Budget"]` reads the row an arg-op
+            ; picked, and read as a plain column name it found nothing and the
+            ; axis ran from zero to zero.
+            def v:VlJson (VlTransform.memberOf(row field))
             if (v.isNumber()) {
                 def d:double v.num
                 if (VlExprEval.isFiniteNumber(d)) {
@@ -174,7 +178,7 @@ class VlTransform {
         def out:[string]
         def seen:[string:int]
         for rows row:VlJson idx {
-            def key:string (VlJson.domainKey((row.get(field))))
+            def key:string (VlJson.domainKey((VlTransform.memberOf(row field))))
             if (! (has seen key)) {
                 set seen key 1
                 push out key

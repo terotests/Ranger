@@ -2274,6 +2274,13 @@ class VlCompile {
         return (((markName == "bar") || (markName == "area")) || (markName == "arc"))
     }
 
+    sfn summative:boolean (op:string) {
+        if ((op == "count") || (op == "sum")) {
+            return true
+        }
+        return ((op == "distinct") || ((op == "valid") || (op == "missing")))
+    }
+
     fn decideStack:void () {
         stackField = ""
         stackOffset = "zero"
@@ -2295,6 +2302,15 @@ class VlCompile {
         ; drawn between two values, which is what a Gantt chart is.
         if (this.hasChannel((measure.name + "2"))) {
             return
+        }
+        ; Only a SUMMATIVE aggregate stacks. Piling up counts or sums says
+        ; something — the parts make the whole — and piling up medians, means or
+        ; the budget of some particular film says nothing, so the reference
+        ; declines to stack those and draws each bar from zero.
+        if ((strlen measure.aggregate) > 0) {
+            if (! (VlCompile.summative(measure.aggregate))) {
+                return
+            }
         }
         def binned:VlChannel (this.stackDimension())
         if binned.defined {
@@ -5624,7 +5640,10 @@ class VlCompile {
             def measure:VlChannel (this.stackMeasure())
             if (measure.name == ch.name) {
                 def base (VlJson.objectValue())
-                base.setMember("scale" (VlJson.stringValue(axis)))
+                ; The PANE's scale, not a scale called "x": a concatenated view
+                ; names each pane's scales after it, and a baseline that named
+                ; the bare axis referred to a scale no chart defines.
+                base.setMember("scale" (VlJson.stringValue((this.sname(axis)))))
                 base.setMember("value" (VlJson.numberValue(0.0)))
                 update.setMember((axis + "2") base)
             }
