@@ -416,6 +416,18 @@ class VlCompile {
         return out
     }
 
+    ; Whether a specification names a facet channel of its own, which is what
+    ; makes it a trellis however it is composed inside.
+    sfn spansFacet:boolean (src:VlJson) {
+        def encoding:VlJson (src.get("encoding"))
+        if (! (encoding.isObject())) {
+            return false
+        }
+        if (encoding.has("row")) { return true }
+        if (encoding.has("column")) { return true }
+        return (encoding.has("facet"))
+    }
+
     fn compile:VlJson (src:VlJson) {
         source = src
         if (! (rootSource.isObject())) {
@@ -425,6 +437,17 @@ class VlCompile {
         clear channels
 
         if (src.has("layer")) {
+            ; …unless the whole stack is one panel of a trellis. A facet
+            ; channel written above a stack of layers repeats the stack, and
+            ; taken the other way round each layer repeated the trellis: five
+            ; data sets and five domains all called the same thing, one
+            ; silently replacing the next.
+            if (! insidePanel) {
+                if (VlCompile.spansFacet(src)) {
+                    this.readEncoding()
+                    return (this.compileFacet(src))
+                }
+            }
             return (this.compileLayers(src))
         }
         ; A trellis may be written as an OPERATOR — a `facet` block over a
