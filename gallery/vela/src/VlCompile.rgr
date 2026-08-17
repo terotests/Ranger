@@ -1899,6 +1899,7 @@ class VlCompile {
         def scaleNames:[string]
         def sharedDomains:[string:VlJson]
         def sharedSeen:[string:int]
+        def sourceText:[string]
         def first:boolean true
 
         def index:int 0
@@ -1945,7 +1946,30 @@ class VlCompile {
                     }
                     def pieceData:VlJson (piece.get("data"))
                     push data.arr (pieceData.at(0))
+                    push sourceText (VlCompile.sourceKey((pieceData.at(0))))
                     first = false
+                } {
+                    ; A pane may read its own rows, the same way a layer may.
+                    def ownData:VlJson (piece.get("data"))
+                    def own:VlJson (ownData.at(0))
+                    def key:string (VlCompile.sourceKey(own))
+                    def at:int -1
+                    def si:int 0
+                    while (si < (array_length sourceText)) {
+                        if ((itemAt sourceText si) == key) {
+                            at = si
+                        }
+                        si = (si + 1)
+                    }
+                    if (at < 0) {
+                        at = (array_length sourceText)
+                        push sourceText key
+                        own.setMember("name" (VlJson.stringValue(("source_" + (VlJson.intToText(at))))))
+                        push data.arr own
+                    }
+                    def renamed:string ("source_" + (VlJson.intToText(at)))
+                    VlCompile.renameSource(ownData renamed)
+                    VlCompile.renameSourceRefs((piece.get("marks")) renamed)
                 }
                 def pieceData2:VlJson (piece.get("data"))
                 def di:int 1
