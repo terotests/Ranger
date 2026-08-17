@@ -2783,6 +2783,14 @@ class VlCompile {
     fn stacks:boolean () {
         ; A pie is a stack bent into a circle: each wedge starts where the one
         ; before it ended, which is what a stack computes.
+        ;
+        ; A LABEL round a pie stacks too, for the same reason and over the same
+        ; column: it stands at the middle of the wedge it names, and there is
+        ; no middle without the two ends. Left unstacked, every label sat at
+        ; the far edge of its wedge instead of in the centre of it.
+        if (markName == "text") {
+            return (this.hasChannel("theta"))
+        }
         return (((markName == "bar") || (markName == "area")) || (markName == "arc"))
     }
 
@@ -3798,11 +3806,15 @@ class VlCompile {
                 ; that increases in the direction it is read. Sorted as if it
                 ; were upright, a horizontal stacked bar came out with its
                 ; segments in reverse.
-                def upward:boolean (markName != "arc")
+                ; Which end the first colour goes to is decided by the axis the
+                ; stack runs along, not by the mark drawn on it: a y axis
+                ; points down the page, so the first colour is stacked last to
+                ; end up on top, while an x axis and a circle both run in the
+                ; direction they are read. Decided by the mark, a pie and the
+                ; labels round it stacked in opposite orders and every label
+                ; named the wedge across the circle from it.
                 def measured:VlChannel (this.stackMeasure())
-                if (measured.name == "x") {
-                    upward = false
-                }
+                def upward:boolean (measured.name == "y")
                 if upward {
                     push sortOrders.arr (VlJson.stringValue("descending"))
                 } {
@@ -5674,6 +5686,26 @@ class VlCompile {
             push out.arr m
             return out
         }
+        ; A label on a pie is placed in POLAR coordinates: at the centre of the
+        ; chart, an angle round and a radius out. Placed on x and y like every
+        ; other text mark it had neither, and every label of a labelled pie
+        ; landed in a heap in the middle of it.
+        if (markName == "text") {
+            if ((this.channel("theta")).defined) {
+                this.encodePaint(update)
+                this.encodeAria(update)
+                ; Everything a text mark says that is not WHERE it goes — what
+                ; it reads, how it is set — and then where it goes, in polar.
+                this.encodePosition(update)
+                this.applyMarkPosition(update)
+                this.encodePolarText(update)
+                def polar (VlJson.objectValue())
+                polar.setMember("update" update)
+                m.setMember("encode" polar)
+                push out.arr m
+                return out
+            }
+        }
         if (markName == "area") {
             update.setMember("orient" (VlCompile.literal((VlJson.stringValue("vertical")))))
         }
@@ -5692,6 +5724,54 @@ class VlCompile {
     ; two angles the stack wrote. The angles run backwards — the wedge ENDS at
     ; the stack's start — because a stack accumulates downward and a circle is
     ; read clockwise.
+    ; A label round a pie: the centre of the chart, the angle its wedge covers
+    ; and how far out to stand. The angle is the MIDDLE of the wedge, which is
+    ; why it is written from the stack's two ends rather than from either.
+    fn encodePolarText:void (update:VlJson) {
+        def half (VlJson.objectValue())
+        half.setMember("signal" (VlJson.stringValue("width")))
+        half.setMember("mult" (VlJson.numberValue(0.5)))
+        update.setMember("x" half)
+        def halfDown (VlJson.objectValue())
+        halfDown.setMember("signal" (VlJson.stringValue("height")))
+        halfDown.setMember("mult" (VlJson.numberValue(0.5)))
+        update.setMember("y" halfDown)
+        update.setMember("align" (VlCompile.literal((VlJson.stringValue("center")))))
+        update.setMember("baseline" (VlCompile.literal((VlJson.stringValue("middle")))))
+
+        def offset:double (markDef.doubleOr("radiusOffset" 0.0))
+        def stated:VlJson (markDef.get("radius"))
+        def radius:VlChannel (this.channel("radius"))
+        if (stated.isNumber()) {
+            update.setMember("radius" (VlCompile.literal(stated)))
+        } {
+            if radius.defined {
+                def scaled:VlJson (this.scaled("radius" (radius.outField())))
+                if (offset != 0.0) {
+                    scaled.setMember("offset" (VlJson.numberValue(offset)))
+                }
+                update.setMember("radius" scaled)
+            } {
+                def out (VlJson.objectValue())
+                out.setMember("signal" (VlJson.stringValue((("min(width,height)/2 + " + (VlJson.formatNumber(offset 4)))))))
+                update.setMember("radius" out)
+            }
+        }
+
+        def theta:VlChannel (this.channel("theta"))
+        if theta.defined {
+            if ((strlen stackField) > 0) {
+                def mid (VlJson.objectValue())
+                def expr:string ("scale(\"" + (this.sname("theta")))
+                expr = ((((expr + "\", 0.5 * ") + (VlCompile.datumRef((stackField + "_start")))) + " + 0.5 * ") + (VlCompile.datumRef((stackField + "_end"))))
+                mid.setMember("signal" (VlJson.stringValue((expr + ")"))))
+                update.setMember("theta" mid)
+            } {
+                update.setMember("theta" (this.scaled("theta" (theta.outField()))))
+            }
+        }
+    }
+
     fn encodeArc:void (update:VlJson) {
         def half (VlJson.objectValue())
         half.setMember("signal" (VlJson.stringValue("width")))
@@ -5702,12 +5782,20 @@ class VlCompile {
         halfDown.setMember("mult" (VlJson.numberValue(0.5)))
         update.setMember("y" halfDown)
         def radius:VlChannel (this.channel("radius"))
-        if radius.defined {
-            update.setMember("outerRadius" (this.scaled("radius" (radius.outField()))))
+        def statedOuter:VlJson (markDef.get("outerRadius"))
+        if (statedOuter.isNumber()) {
+            ; A pie told how big it is is that big. Ignored, every wedge ran
+            ; out to half the plot and the labels drawn round it landed inside
+            ; the pie rather than outside it.
+            update.setMember("outerRadius" (VlCompile.literal(statedOuter)))
         } {
-            def outer (VlJson.objectValue())
-            outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
-            update.setMember("outerRadius" outer)
+            if radius.defined {
+                update.setMember("outerRadius" (this.scaled("radius" (radius.outField()))))
+            } {
+                def outer (VlJson.objectValue())
+                outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
+                update.setMember("outerRadius" outer)
+            }
         }
         def inner:VlJson (markDef.get("innerRadius"))
         if (inner.isNumber()) {

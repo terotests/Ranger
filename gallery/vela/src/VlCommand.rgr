@@ -496,6 +496,16 @@ class VlSceneCommands {
             cmd.op = "text"
             cmd.x = (offsetX + (item.number("x")))
             cmd.y = (offsetY + (item.number("y")))
+            ; A label on a pie is placed in POLAR coordinates: x and y are the
+            ; centre of the chart, and the label stands `radius` away from it
+            ; at `theta` round. Zero is straight up and the angle runs
+            ; clockwise, which is how a pie is read.
+            if (item.has("radius")) {
+                def r:double (item.number("radius"))
+                def a:double (item.number("theta"))
+                cmd.x = (cmd.x + (r * (sin a)))
+                cmd.y = (cmd.y - (r * (cos a)))
+            }
             cmd.text = (item.text("text"))
             cmd.fontSize = 11.0
             if (item.has("fontSize")) {
