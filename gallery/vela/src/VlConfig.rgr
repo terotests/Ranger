@@ -335,6 +335,9 @@ class VlConfig {
     }
 
     sfn rampScheme:boolean (name:string) {
+        if (name == "ordinal") {
+            return true
+        }
         if (((name == "blues") || (name == "greens")) || ((name == "greys") || (name == "oranges"))) {
             return true
         }
@@ -352,7 +355,7 @@ class VlConfig {
 
     sfn schemeColors:[string] (name:string) {
         def out:[string]
-        if ((name == "category") || ((name == "tableau10") || (name == "ordinal"))) {
+        if ((name == "category") || (name == "tableau10")) {
             push out "#4c78a8"
             push out "#f58518"
             push out "#e45756"
@@ -386,7 +389,10 @@ class VlConfig {
         if ((name == "heatmap") || (name == "yellowgreenblue")) {
             return (VlConfig.ramp("eff9bddbf1b4bde5b594d5b969c5be45b4c22c9ec02182b82163aa23479c1c3185"))
         }
-        if (((name == "ramp") || (name == "blues")) || (name == "sequential")) {
+        ; An ORDINAL column has an order — four cylinders is more than three —
+        ; so the reference's default range for one is the blue ramp rather
+        ; than the palette, with the categories spread along it.
+        if ((((name == "ramp") || (name == "blues")) || (name == "sequential")) || (name == "ordinal")) {
             return (VlConfig.ramp("cfe1f2bed8eca8cee58fc1de74b2d75ba3cf4592c63181bd206fb2125ca40a4a90"))
         }
         ; A scale read in two directions from a middle. The reference's default

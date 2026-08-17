@@ -5981,6 +5981,12 @@ class VlCompile {
         if (ch.isContinuous()) {
             return "ramp"
         }
+        ; An ORDINAL column has an order — four cylinders is more than three —
+        ; so its colours are a ramp through a single hue rather than a set of
+        ; unrelated ones. A nominal column has no order and gets the palette.
+        if (ch.kind == "ordinal") {
+            return "ordinal"
+        }
         return "category"
     }
 
