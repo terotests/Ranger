@@ -163,22 +163,36 @@ also compiles and runs `ComponentEngine.rgr`, the JavaScript interpreter in
 `gallery/game_engine/` — see *Shapes, and the game engine's interpreter* below.
 
 Two measurements worth keeping, both taken compiling the compiler itself
-(3.04 MB of ES6 out, 4-core Xeon 2.10 GHz, best of three, all three builds
-producing byte-identical output):
+(3.06 MB of ES6 out, 4-core Xeon 2.10 GHz, best of five on an otherwise idle
+machine, all three builds verified byte-identical — md5 `70d5ed57e861` — before
+anything was timed):
 
-| | time | binary | peak RSS |
-|---|---|---|---|
-| C++ `g++ -O2` | 3,519 ms | 6.28 MB | 797 MB |
-| Node `bin/output.js` | 7,071 ms | — | 1,093 MB |
-| LLVM `clang -O2` | 7,121 ms | **1.77 MB** | 1,596 MB |
+| | time | vs C++ | binary | peak RSS | vs C++ |
+|---|---|---|---|---|---|
+| C++ `g++ -O2` | 4,196 ms | 1.00x | 6,307,336 B | 803 MB | 1.00x |
+| Node `bin/output.js` | 9,044 ms | 2.16x | — | 1,078 MB | 1.34x |
+| LLVM `clang -O2` | 8,607 ms | 2.05x | **1,791,048 B** | 1,604 MB | 2.00x |
 
-So the native binary is level with the Node build and about 2x behind C++,
-while being **3.5x smaller** than the C++ one — it emits direct code over a
-small C runtime where C++ instantiates `std::string`/`std::vector`/
-`std::shared_ptr` throughout. Memory is the weak spot: the refcounting frees
-very little (96% of objects are still live at exit), so memory grows
-monotonically and is reclaimed at process exit. That is survivable for a batch
-compiler and would not be for a language server.
+**Read the ratios, not the absolute times.** This is a shared cloud host, and a
+re-run of the identical binaries some hours later moved every wall-clock number
+by roughly a fifth (C++ 3,519 -> 4,196 ms, LLVM 7,121 -> 8,607, Node
+7,071 -> 9,044) while the C++ build's source and flags had not changed at all.
+Peak RSS, which does not care about CPU contention, reproduced to within 1.5%
+across the same two rounds (C++ 797 -> 803 MB, LLVM 1,596 -> 1,604, Node
+1,093 -> 1,078). So memory figures can be compared as absolutes; times only as
+ratios against C++ measured in the same run. On that basis LLVM has held
+2.02x -> 2.05x of C++ across rounds, i.e. reference boxing cost nothing this
+setup can resolve.
+
+So the native binary lands around 2x behind C++ and roughly level with the Node
+build, while being **3.5x smaller** than the C++ one — it emits direct code over
+a small C runtime where C++ instantiates `std::string`/`std::vector`/
+`std::shared_ptr` throughout. Memory is the weak spot: at 2.00x the C++ build it
+is the one metric where LLVM is worst of the three, and it is retention rather
+than leakage — valgrind puts 97% of the outstanding bytes in *still reachable*.
+Objects are released, but late, so memory grows nearly monotonically and is
+reclaimed at process exit. That is survivable for a batch compiler and would not
+be for a language server.
 
 `npm run selfhost:round:llvm` runs the whole chain and checks the two things
 that make it self-hosting rather than merely finishing:
