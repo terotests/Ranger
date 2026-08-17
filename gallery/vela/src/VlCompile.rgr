@@ -6286,7 +6286,7 @@ class VlCompile {
                     l2.setMember("encode" encode)
                 }
                 if ((markName == "circle") || (markName == "square")) {
-                    l2.setMember("encode" (VlCompile.filledSymbolEncode((this.dotOpacity()))))
+                    l2.setMember("encode" (VlCompile.filledSymbolEncode((this.dotOpacity()) (this.markColour()))))
                 }
                 push out.arr l2
             }
@@ -6339,11 +6339,32 @@ class VlCompile {
         return ((key == "strokeDash") || (key == "opacity"))
     }
 
+    ; What colour the marks are drawn in when nothing varies the colour: the
+    ; chart's own constant if it stated one, and the reference's blue if not.
+    ; A key drawn beside them has to be that colour too — a size key next to
+    ; black circles was drawing blue ones.
+    fn markColour:string () {
+        def colour:VlChannel (this.channel("color"))
+        if colour.defined {
+            if colour.hasValue {
+                def stated:string (colour.value.asString())
+                if ((strlen stated) > 0) {
+                    return stated
+                }
+            }
+        }
+        def marked:VlJson (markDef.get("color"))
+        if (marked.isString()) {
+            return (marked.asString())
+        }
+        return "#4c78a8"
+    }
+
     ; The key of an outlined mark is an outline too: transparent inside, and
     ; the same partial opacity the points are drawn with.
-    sfn filledSymbolEncode:VlJson (opacity:double) {
+    sfn filledSymbolEncode:VlJson (opacity:double paint:string) {
         def update (VlJson.objectValue())
-        update.setMember("fill" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
+        update.setMember("fill" (VlCompile.literal((VlJson.stringValue(paint)))))
         update.setMember("opacity" (VlCompile.literal((VlJson.numberValue(opacity)))))
         update.setMember("stroke" (VlCompile.literal((VlJson.stringValue("transparent")))))
         def symbols (VlJson.objectValue())
