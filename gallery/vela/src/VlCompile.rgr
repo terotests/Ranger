@@ -427,8 +427,15 @@ class VlCompile {
         if (src.has("layer")) {
             return (this.compileLayers(src))
         }
+        ; A trellis may be written as an OPERATOR — a `facet` block over a
+        ; `spec` — rather than as a channel of the encoding. The two mean the
+        ; same thing, and the channel form is the one everything below here
+        ; understands, so the operator is rewritten into it.
         if (src.has("facet")) {
-            this.fail("a top-level facet operator is not compiled here; use the row, column or facet channel")
+            if (src.has("spec")) {
+                return (this.compile((VlCompile.facetAsChannel(src))))
+            }
+            this.fail("a top-level facet operator needs a spec to repeat")
         }
         if (src.has("hconcat")) {
             return (this.compileConcat(src "hconcat" true))
@@ -1345,6 +1352,57 @@ class VlCompile {
     ; the labelled x axis moves to the column footer and the labelled y axis to
     ; the row header, because those are drawn once for the whole column or row
     ; rather than once per panel.
+    ; A `facet` operator, written as the channel it stands for. The block
+    ; either names `row` and `column` outright or is one field def, which is
+    ; the wrapped form and becomes the `facet` channel.
+    sfn facetAsChannel:VlJson (src:VlJson) {
+        def inner:VlJson (src.get("spec"))
+        def out (VlJson.objectValue())
+        ; Everything the whole chart carries — its data, its transforms, its
+        ; configuration — stays where it is; the panel's own keys are laid over
+        ; it, which is what a facet operator means by `spec`.
+        for src.keys k:string ki {
+            if (k == "facet") {
+                ; becomes an encoding channel
+            } {
+            if (k == "spec") {
+                ; folded in below
+            } {
+                out.setMember(k (src.get(k)))
+            }
+            }
+        }
+        if (inner.isObject()) {
+            for inner.keys ik:string iki {
+                out.setMember(ik (inner.get(ik)))
+            }
+        }
+        def encoding (VlJson.objectValue())
+        def had:VlJson (out.get("encoding"))
+        if (had.isObject()) {
+            for had.keys ek:string eki {
+                encoding.setMember(ek (had.get(ek)))
+            }
+        }
+        def given:VlJson (src.get("facet"))
+        def placed:boolean false
+        if (given.isObject()) {
+            if (given.has("row")) {
+                encoding.setMember("row" (given.get("row")))
+                placed = true
+            }
+            if (given.has("column")) {
+                encoding.setMember("column" (given.get("column")))
+                placed = true
+            }
+            if (! placed) {
+                encoding.setMember("facet" given)
+            }
+        }
+        out.setMember("encoding" encoding)
+        return out
+    }
+
     fn compileFacet:VlJson (src:VlJson) {
         def fields:[string] (this.facetFields())
         def rowField:string ((this.channel("row")).field)
