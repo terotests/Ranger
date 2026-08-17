@@ -4599,7 +4599,7 @@ class VlCompile {
                 } {
                     l.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
                 }
-                l.setMember("title" (VlJson.stringValue((colour.title()))))
+                VlCompile.nameLegend(l colour)
                 if (markName == "point") {
                     l.setMember("encode" (this.pointSymbolEncode(outlined)))
                 } {
@@ -4613,6 +4613,7 @@ class VlCompile {
                         }
                     }
                 }
+                VlCompile.applyStatedLegend(l colour)
                 push out.arr l
             }
         }
@@ -4629,7 +4630,8 @@ class VlCompile {
                 def ld (VlJson.objectValue())
                 ld.setMember("strokeDash" (VlJson.stringValue((this.sname("strokeDash")))))
                 ld.setMember("symbolType" (VlJson.stringValue("stroke")))
-                ld.setMember("title" (VlJson.stringValue((dashCh.title()))))
+                VlCompile.nameLegend(ld dashCh)
+                VlCompile.applyStatedLegend(ld dashCh)
                 def dashUpdate (VlJson.objectValue())
                 dashUpdate.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
                 def dashSymbols (VlJson.objectValue())
@@ -4652,7 +4654,8 @@ class VlCompile {
             if (! shapeCh.hasValue) {
                 def l3 (VlJson.objectValue())
                 l3.setMember("shape" (VlJson.stringValue((this.sname("shape")))))
-                l3.setMember("title" (VlJson.stringValue((shapeCh.title()))))
+                VlCompile.nameLegend(l3 shapeCh)
+                VlCompile.applyStatedLegend(l3 shapeCh)
                 if (markName == "point") {
                     def shapeEncode:VlJson (this.pointSymbolEncode((! (markDef.boolOr("filled" false)))))
                     def shapeSymbols:VlJson (shapeEncode.get("symbols"))
@@ -4672,7 +4675,8 @@ class VlCompile {
                 def l2 (VlJson.objectValue())
                 l2.setMember("size" (VlJson.stringValue((this.sname("size")))))
                 l2.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
-                l2.setMember("title" (VlJson.stringValue((size.title()))))
+                VlCompile.nameLegend(l2 size)
+                VlCompile.applyStatedLegend(l2 size)
                 ; A size key stands for the same dot the chart draws, and its
                 ; colour is the mark's constant since nothing encodes one.
                 if (markName == "point") {
@@ -4715,6 +4719,38 @@ class VlCompile {
         return out
     }
 
+    ; What a key is called, unless the specification said it is called nothing.
+    ; `"legend": {"title": null}` is a chart saying the colours speak for
+    ; themselves, and a title printed anyway is as wide as the words in it —
+    ; ninety-eight pixels of page on a heat map of temperatures.
+    sfn nameLegend:void (l:VlJson ch:VlChannel) {
+        def given:VlJson (ch.def0.get("legend"))
+        if (given.isObject()) {
+            if (given.has("title")) {
+                if ((given.get("title")).isNull()) {
+                    return
+                }
+            }
+        }
+        l.setMember("title" (VlJson.stringValue((ch.title()))))
+    }
+
+    ; What the specification said about the key itself — where it sits, how long
+    ; its gradient is, what its symbols look like. Copied over whatever the
+    ; defaults decided, the same way an axis definition is.
+    sfn applyStatedLegend:void (l:VlJson ch:VlChannel) {
+        def given:VlJson (ch.def0.get("legend"))
+        if (! (given.isObject())) {
+            return
+        }
+        for given.keys key:string ki {
+            def value:VlJson (given.get(key))
+            if (! (value.isNull())) {
+                l.setMember(key value)
+            }
+        }
+    }
+
     sfn pushPaintLegend:void (out:VlJson entry:VlJson) {
         if (entry.isObject()) {
             if (entry.has("title")) {
@@ -4747,7 +4783,8 @@ class VlCompile {
         } {
             l.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
         }
-        l.setMember("title" (VlJson.stringValue((ch.title()))))
+        VlCompile.nameLegend(l ch)
+        VlCompile.applyStatedLegend(l ch)
         return l
     }
 
