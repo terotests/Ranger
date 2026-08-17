@@ -46,6 +46,7 @@ class VectorRasterTest {
         test.testDashedStroke(t)
         test.testTransform(t)
         test.testClipRect(t)
+        test.testWideScatterOfRings(t)
         t.summary()
     }
 
@@ -546,6 +547,58 @@ class VectorRasterTest {
         t.eqInt("the arc band is filled on the right" (this.alphaAt(buf 85 50)) 255)
         t.eqInt("the arc counter is a hole" (this.alphaAt(buf 50 50)) 0)
         t.eqInt("outside the outer arc is empty" (this.alphaAt(buf 2 50)) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Many rings, spread wide
+    ; --------------------------------------------------------------------------
+    ; The shape a scatter plot's symbol layer actually is: hundreds of small
+    ; contours in one fill, scattered over a page-wide box. Every ring is far
+    ; from almost every scanline, which is what the fill has to exploit — it
+    ; buckets edges by the row they start in and carries a working set down the
+    ; image, so a row costs what crosses it rather than what the whole shape
+    ; contains. Before that it asked every edge at every one of sixteen samples
+    ; per pixel, and a chart like this took ten seconds in the browser.
+    ;
+    ; What is checked is the answer, not the speed: each disc is solid at its
+    ; centre and the page between them is untouched. A working set that let an
+    ; edge in late, dropped one early, or carried one past its last row would
+    ; show up here as a hole or a smear.
+    fn testWideScatterOfRings:void (t:RgTest) {
+        def buf:RasterBuffer (this.makeBuffer(400 60))
+        def r (new VectorRasterizer())
+        def count:int 60
+        def k:int 0
+        while (k < count) {
+            ; Staggered in Y as well as X, so rings start and end on many
+            ; different rows rather than all at once.
+            def cx:double (8.0 + ((to_double k) * 6.5))
+            def cy:double (12.0 + ((to_double (k - ((idiv k 7) * 7))) * 5.0))
+            r.addDisc(cx cy 3.0)
+            k = (k + 1)
+        }
+        def rule:int (VectorRasterizer.nonZero())
+        r.fillAA(buf 0 0 0 255 rule)
+
+        def solid:int 0
+        def clear:int 0
+        k = 0
+        while (k < count) {
+            def cx:int (to_int (8.0 + ((to_double k) * 6.5)))
+            def cy:int (to_int (12.0 + ((to_double (k - ((idiv k 7) * 7))) * 5.0)))
+            if ((this.alphaAt(buf cx cy)) == 255) {
+                solid = (solid + 1)
+            }
+            ; Well above the topmost disc, on the same column: nothing reaches
+            ; there, so an edge kept alive too long would show.
+            if ((this.alphaAt(buf cx 1)) == 0) {
+                clear = (clear + 1)
+            }
+            k = (k + 1)
+        }
+        t.eqInt("every disc is solid at its centre" solid count)
+        t.eqInt("no disc paints a row it does not reach" clear count)
+        t.eqInt("the far corner is untouched" (this.alphaAt(buf 399 59)) 0)
     }
 
     fn testDonutPath:void (t:RgTest) {
