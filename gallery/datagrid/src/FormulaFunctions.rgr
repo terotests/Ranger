@@ -1,0 +1,1187 @@
+; ==============================================================================
+; FormulaFunctions - pure, unit-testable spreadsheet function library.
+; ==============================================================================
+;
+; No workbook / sheet / dependency graph here — only FormulaValue in → out.
+; FormulaEngine evaluates AST children into args[], then:
+;
+;   FormulaFunctions.invoke(name args)
+;
+; Add new Excel-ish functions in this file + FormulaFunctionsTest.rgr.
+; ==============================================================================
+
+Import "FormulaValue.rgr"
+
+class FormulaFunctions {
+    Constructor () {
+    }
+
+    sfn upper:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch >= 97) && (ch <= 122)) {
+                out = (out + (strfromcode (ch - 32)))
+            } {
+                out = (out + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn lower:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch >= 65) && (ch <= 90)) {
+                out = (out + (strfromcode (ch + 32)))
+            } {
+                out = (out + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; First error in args, or blank if none.
+    sfn firstError:FormulaValue (args:[FormulaValue]) {
+        def i:int 0
+        def n:int (array_length args)
+        while (i < n) {
+            def v:FormulaValue (itemAt args i)
+            def e:boolean (v.isError())
+            if e {
+                return v
+            }
+            i = (i + 1)
+        }
+        return (FormulaValue.blank())
+    }
+
+    sfn isKnown:boolean (name:string) {
+        def n:string (FormulaFunctions.upper(name))
+        if (n == "SUM") {
+            return true
+        }
+        if (n == "AVERAGE") {
+            return true
+        }
+        if (n == "MIN") {
+            return true
+        }
+        if (n == "MAX") {
+            return true
+        }
+        if (n == "COUNT") {
+            return true
+        }
+        if (n == "COUNTA") {
+            return true
+        }
+        if (n == "PRODUCT") {
+            return true
+        }
+        if (n == "IF") {
+            return true
+        }
+        if (n == "AND") {
+            return true
+        }
+        if (n == "OR") {
+            return true
+        }
+        if (n == "NOT") {
+            return true
+        }
+        if (n == "ABS") {
+            return true
+        }
+        if (n == "ROUND") {
+            return true
+        }
+        if (n == "INT") {
+            return true
+        }
+        if (n == "MOD") {
+            return true
+        }
+        if (n == "POWER") {
+            return true
+        }
+        if (n == "SQRT") {
+            return true
+        }
+        if (n == "SIGN") {
+            return true
+        }
+        if (n == "PI") {
+            return true
+        }
+        if (n == "EXP") {
+            return true
+        }
+        if (n == "LN") {
+            return true
+        }
+        if (n == "LOG10") {
+            return true
+        }
+        if (n == "FLOOR") {
+            return true
+        }
+        if (n == "CEILING") {
+            return true
+        }
+        if (n == "LEN") {
+            return true
+        }
+        if (n == "LEFT") {
+            return true
+        }
+        if (n == "RIGHT") {
+            return true
+        }
+        if (n == "MID") {
+            return true
+        }
+        if (n == "UPPER") {
+            return true
+        }
+        if (n == "LOWER") {
+            return true
+        }
+        if (n == "TRIM") {
+            return true
+        }
+        if (n == "CONCAT") {
+            return true
+        }
+        if (n == "CONCATENATE") {
+            return true
+        }
+        if (n == "VALUE") {
+            return true
+        }
+        if (n == "TRUE") {
+            return true
+        }
+        if (n == "FALSE") {
+            return true
+        }
+        if (n == "IFERROR") {
+            return true
+        }
+        if (n == "IFNA") {
+            return true
+        }
+        if (n == "ISBLANK") {
+            return true
+        }
+        if (n == "ISNUMBER") {
+            return true
+        }
+        if (n == "ISTEXT") {
+            return true
+        }
+        if (n == "ISERROR") {
+            return true
+        }
+        if (n == "ISERR") {
+            return true
+        }
+        if (n == "N") {
+            return true
+        }
+        if (n == "T") {
+            return true
+        }
+        return false
+    }
+
+    ; Dispatch by uppercase function name. (`call` is reserved in Ranger.)
+    sfn invoke:FormulaValue (name:string args:[FormulaValue]) {
+        def n:string (FormulaFunctions.upper(name))
+        if (n == "SUM") {
+            return (FormulaFunctions.fnSum(args))
+        }
+        if (n == "AVERAGE") {
+            return (FormulaFunctions.fnAverage(args))
+        }
+        if (n == "MIN") {
+            return (FormulaFunctions.fnMin(args))
+        }
+        if (n == "MAX") {
+            return (FormulaFunctions.fnMax(args))
+        }
+        if (n == "COUNT") {
+            return (FormulaFunctions.fnCount(args))
+        }
+        if (n == "COUNTA") {
+            return (FormulaFunctions.fnCountA(args))
+        }
+        if (n == "PRODUCT") {
+            return (FormulaFunctions.fnProduct(args))
+        }
+        if (n == "IF") {
+            return (FormulaFunctions.fnIf(args))
+        }
+        if (n == "AND") {
+            return (FormulaFunctions.fnAnd(args))
+        }
+        if (n == "OR") {
+            return (FormulaFunctions.fnOr(args))
+        }
+        if (n == "NOT") {
+            return (FormulaFunctions.fnNot(args))
+        }
+        if (n == "ABS") {
+            return (FormulaFunctions.fnAbs(args))
+        }
+        if (n == "ROUND") {
+            return (FormulaFunctions.fnRound(args))
+        }
+        if (n == "INT") {
+            return (FormulaFunctions.fnInt(args))
+        }
+        if (n == "MOD") {
+            return (FormulaFunctions.fnMod(args))
+        }
+        if (n == "POWER") {
+            return (FormulaFunctions.fnPower(args))
+        }
+        if (n == "SQRT") {
+            return (FormulaFunctions.fnSqrt(args))
+        }
+        if (n == "SIGN") {
+            return (FormulaFunctions.fnSign(args))
+        }
+        if (n == "PI") {
+            return (FormulaValue.fromNumber(3.141592653589793))
+        }
+        if (n == "EXP") {
+            return (FormulaFunctions.fnExp(args))
+        }
+        if (n == "LN") {
+            return (FormulaFunctions.fnLn(args))
+        }
+        if (n == "LOG10") {
+            return (FormulaFunctions.fnLog10(args))
+        }
+        if (n == "FLOOR") {
+            return (FormulaFunctions.fnFloor(args))
+        }
+        if (n == "CEILING") {
+            return (FormulaFunctions.fnCeiling(args))
+        }
+        if (n == "LEN") {
+            return (FormulaFunctions.fnLen(args))
+        }
+        if (n == "LEFT") {
+            return (FormulaFunctions.fnLeft(args))
+        }
+        if (n == "RIGHT") {
+            return (FormulaFunctions.fnRight(args))
+        }
+        if (n == "MID") {
+            return (FormulaFunctions.fnMid(args))
+        }
+        if (n == "UPPER") {
+            return (FormulaFunctions.fnUpper(args))
+        }
+        if (n == "LOWER") {
+            return (FormulaFunctions.fnLower(args))
+        }
+        if (n == "TRIM") {
+            return (FormulaFunctions.fnTrim(args))
+        }
+        if (n == "CONCAT") {
+            return (FormulaFunctions.fnConcat(args))
+        }
+        if (n == "CONCATENATE") {
+            return (FormulaFunctions.fnConcat(args))
+        }
+        if (n == "VALUE") {
+            return (FormulaFunctions.fnValue(args))
+        }
+        if (n == "TRUE") {
+            return (FormulaValue.fromBool(true))
+        }
+        if (n == "FALSE") {
+            return (FormulaValue.fromBool(false))
+        }
+        if (n == "IFERROR") {
+            return (FormulaFunctions.fnIfError(args))
+        }
+        if (n == "IFNA") {
+            return (FormulaFunctions.fnIfNa(args))
+        }
+        if (n == "ISBLANK") {
+            return (FormulaFunctions.fnIsBlank(args))
+        }
+        if (n == "ISNUMBER") {
+            return (FormulaFunctions.fnIsNumber(args))
+        }
+        if (n == "ISTEXT") {
+            return (FormulaFunctions.fnIsText(args))
+        }
+        if (n == "ISERROR") {
+            return (FormulaFunctions.fnIsError(args))
+        }
+        if (n == "ISERR") {
+            return (FormulaFunctions.fnIsErr(args))
+        }
+        if (n == "N") {
+            return (FormulaFunctions.fnN(args))
+        }
+        if (n == "T") {
+            return (FormulaFunctions.fnT(args))
+        }
+        return (FormulaValue.fromError("#NAME?"))
+    }
+
+    ; --- helpers: collect numeric scalars from args (flattens nothing; engine expands ranges) ---
+
+    sfn collectNumbers:void (args:[FormulaValue] vals:[double]) {
+        def i:int 0
+        def n:int (array_length args)
+        while (i < n) {
+            def v:FormulaValue (itemAt args i)
+            def nums:[double]
+            def ok:boolean (v.tryNumber(nums))
+            if ok {
+                push vals (itemAt nums 0)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn needArity:FormulaValue (args:[FormulaValue] minN:int) {
+        if ((array_length args) < minN) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        return (FormulaValue.blank())
+    }
+
+    ; --- aggregates ---
+
+    sfn fnSum:FormulaValue (args:[FormulaValue]) {
+        def err:FormulaValue (FormulaFunctions.firstError(args))
+        def ee:boolean (err.isError())
+        if ee {
+            return err
+        }
+        def vals:[double]
+        FormulaFunctions.collectNumbers(args vals)
+        def sum:double 0.0
+        def i:int 0
+        def n:int (array_length vals)
+        while (i < n) {
+            sum = (sum + (itemAt vals i))
+            i = (i + 1)
+        }
+        return (FormulaValue.fromNumber(sum))
+    }
+
+    sfn fnAverage:FormulaValue (args:[FormulaValue]) {
+        def err:FormulaValue (FormulaFunctions.firstError(args))
+        def ee:boolean (err.isError())
+        if ee {
+            return err
+        }
+        def vals:[double]
+        FormulaFunctions.collectNumbers(args vals)
+        def n:int (array_length vals)
+        if (n == 0) {
+            return (FormulaValue.fromError("#DIV/0!"))
+        }
+        def sum:double 0.0
+        def i:int 0
+        while (i < n) {
+            sum = (sum + (itemAt vals i))
+            i = (i + 1)
+        }
+        return (FormulaValue.fromNumber((sum / (to_double n))))
+    }
+
+    sfn fnMin:FormulaValue (args:[FormulaValue]) {
+        def err:FormulaValue (FormulaFunctions.firstError(args))
+        def ee:boolean (err.isError())
+        if ee {
+            return err
+        }
+        def vals:[double]
+        FormulaFunctions.collectNumbers(args vals)
+        if ((array_length vals) == 0) {
+            return (FormulaValue.fromNumber(0.0))
+        }
+        def mn:double (itemAt vals 0)
+        def i:int 1
+        def n:int (array_length vals)
+        while (i < n) {
+            def x:double (itemAt vals i)
+            if (x < mn) {
+                mn = x
+            }
+            i = (i + 1)
+        }
+        return (FormulaValue.fromNumber(mn))
+    }
+
+    sfn fnMax:FormulaValue (args:[FormulaValue]) {
+        def err:FormulaValue (FormulaFunctions.firstError(args))
+        def ee:boolean (err.isError())
+        if ee {
+            return err
+        }
+        def vals:[double]
+        FormulaFunctions.collectNumbers(args vals)
+        if ((array_length vals) == 0) {
+            return (FormulaValue.fromNumber(0.0))
+        }
+        def mx:double (itemAt vals 0)
+        def i:int 1
+        def n:int (array_length vals)
+        while (i < n) {
+            def x:double (itemAt vals i)
+            if (x > mx) {
+                mx = x
+            }
+            i = (i + 1)
+        }
+        return (FormulaValue.fromNumber(mx))
+    }
+
+    sfn fnCount:FormulaValue (args:[FormulaValue]) {
+        def vals:[double]
+        FormulaFunctions.collectNumbers(args vals)
+        return (FormulaValue.fromNumber((to_double (array_length vals))))
+    }
+
+    sfn fnCountA:FormulaValue (args:[FormulaValue]) {
+        def c:int 0
+        def i:int 0
+        def n:int (array_length args)
+        while (i < n) {
+            def v:FormulaValue (itemAt args i)
+            def b:boolean (v.isBlank())
+            if (b == false) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return (FormulaValue.fromNumber((to_double c)))
+    }
+
+    sfn fnProduct:FormulaValue (args:[FormulaValue]) {
+        def err:FormulaValue (FormulaFunctions.firstError(args))
+        def ee:boolean (err.isError())
+        if ee {
+            return err
+        }
+        def vals:[double]
+        FormulaFunctions.collectNumbers(args vals)
+        if ((array_length vals) == 0) {
+            return (FormulaValue.fromNumber(0.0))
+        }
+        def p:double 1.0
+        def i:int 0
+        def n:int (array_length vals)
+        while (i < n) {
+            p = (p * (itemAt vals i))
+            i = (i + 1)
+        }
+        return (FormulaValue.fromNumber(p))
+    }
+
+    ; --- logical ---
+
+    sfn fnIf:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def cond:FormulaValue (itemAt args 0)
+        def ce:boolean (cond.isError())
+        if ce {
+            return cond
+        }
+        def ct:boolean (cond.isTrue())
+        if ct {
+            return (itemAt args 1)
+        }
+        if ((array_length args) >= 3) {
+            return (itemAt args 2)
+        }
+        return (FormulaValue.fromBool(false))
+    }
+
+    sfn fnAnd:FormulaValue (args:[FormulaValue]) {
+        def err:FormulaValue (FormulaFunctions.firstError(args))
+        def ee:boolean (err.isError())
+        if ee {
+            return err
+        }
+        def i:int 0
+        def n:int (array_length args)
+        if (n == 0) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        while (i < n) {
+            def v:FormulaValue (itemAt args i)
+            def vt:boolean (v.isTrue())
+            if (vt == false) {
+                return (FormulaValue.fromBool(false))
+            }
+            i = (i + 1)
+        }
+        return (FormulaValue.fromBool(true))
+    }
+
+    sfn fnOr:FormulaValue (args:[FormulaValue]) {
+        def err:FormulaValue (FormulaFunctions.firstError(args))
+        def ee:boolean (err.isError())
+        if ee {
+            return err
+        }
+        def i:int 0
+        def n:int (array_length args)
+        if (n == 0) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        while (i < n) {
+            def v:FormulaValue (itemAt args i)
+            def vt:boolean (v.isTrue())
+            if vt {
+                return (FormulaValue.fromBool(true))
+            }
+            i = (i + 1)
+        }
+        return (FormulaValue.fromBool(false))
+    }
+
+    sfn fnNot:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def vt:boolean (v.isTrue())
+        if vt {
+            return (FormulaValue.fromBool(false))
+        }
+        return (FormulaValue.fromBool(true))
+    }
+
+    sfn fnIfError:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return (itemAt args 1)
+        }
+        return v
+    }
+
+    sfn fnIfNa:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        if (v.kind == 4) {
+            if (v.err == "#N/A") {
+                return (itemAt args 1)
+            }
+        }
+        return v
+    }
+
+    ; --- math ---
+
+    sfn fnAbs:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def x:double (v.asNumber())
+        if (x < 0.0) {
+            x = (0.0 - x)
+        }
+        return (FormulaValue.fromNumber(x))
+    }
+
+    sfn fnRound:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def digits:int 0
+        if ((array_length args) >= 2) {
+            def d:FormulaValue (itemAt args 1)
+            digits = (to_int (d.asNumber()))
+        }
+        if (digits < 0) {
+            digits = 0
+        }
+        def scale:double 1.0
+        def i:int 0
+        while (i < digits) {
+            scale = (scale * 10.0)
+            i = (i + 1)
+        }
+        def xx:double (v.asNumber())
+        def rr:double ((to_double (to_int ((xx * scale) + 0.5))) / scale)
+        return (FormulaValue.fromNumber(rr))
+    }
+
+    sfn fnInt:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def x:double (v.asNumber())
+        ; Excel INT = floor toward -inf (Ranger `floor` matches).
+        return (FormulaValue.fromNumber((to_double (floor x))))
+    }
+
+    sfn fnMod:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def a:FormulaValue (itemAt args 0)
+        def b:FormulaValue (itemAt args 1)
+        def ea:boolean (a.isError())
+        if ea {
+            return a
+        }
+        def eb:boolean (b.isError())
+        if eb {
+            return b
+        }
+        def y:double (b.asNumber())
+        if (y == 0.0) {
+            return (FormulaValue.fromError("#DIV/0!"))
+        }
+        def x:double (a.asNumber())
+        def q:int (to_int (x / y))
+        def r:double (x - ((to_double q) * y))
+        return (FormulaValue.fromNumber(r))
+    }
+
+    sfn fnPower:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def a:FormulaValue (itemAt args 0)
+        def b:FormulaValue (itemAt args 1)
+        def ea:boolean (a.isError())
+        if ea {
+            return a
+        }
+        def eb:boolean (b.isError())
+        if eb {
+            return b
+        }
+        def base:double (a.asNumber())
+        def exp:int (to_int (b.asNumber()))
+        if (exp < 0) {
+            return (FormulaValue.fromError("#NUM!"))
+        }
+        def acc:double 1.0
+        def i:int 0
+        while (i < exp) {
+            acc = (acc * base)
+            i = (i + 1)
+        }
+        return (FormulaValue.fromNumber(acc))
+    }
+
+    sfn fnSqrt:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def x:double (v.asNumber())
+        if (x < 0.0) {
+            return (FormulaValue.fromError("#NUM!"))
+        }
+        ; Newton iterations
+        if (x == 0.0) {
+            return (FormulaValue.fromNumber(0.0))
+        }
+        def g:double (x / 2.0)
+        if (g < 1.0) {
+            g = 1.0
+        }
+        def k:int 0
+        while (k < 20) {
+            g = ((g + (x / g)) / 2.0)
+            k = (k + 1)
+        }
+        return (FormulaValue.fromNumber(g))
+    }
+
+    sfn fnSign:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def x:double (v.asNumber())
+        if (x < 0.0) {
+            return (FormulaValue.fromNumber(-1.0))
+        }
+        if (x > 0.0) {
+            return (FormulaValue.fromNumber(1.0))
+        }
+        return (FormulaValue.fromNumber(0.0))
+    }
+
+    sfn fnExp:FormulaValue (args:[FormulaValue]) {
+        ; series e^x for small |x|; otherwise #NUM! for extreme
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def x:double (v.asNumber())
+        if (x > 20.0) {
+            return (FormulaValue.fromError("#NUM!"))
+        }
+        if (x < -20.0) {
+            return (FormulaValue.fromNumber(0.0))
+        }
+        def term:double 1.0
+        def sum:double 1.0
+        def i:int 1
+        while (i < 40) {
+            term = ((term * x) / (to_double i))
+            sum = (sum + term)
+            i = (i + 1)
+        }
+        return (FormulaValue.fromNumber(sum))
+    }
+
+    sfn fnLn:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def x:double (v.asNumber())
+        if (x <= 0.0) {
+            return (FormulaValue.fromError("#NUM!"))
+        }
+        ; artanh series on (x-1)/(x+1) for x near 1; reduce via *2 factors
+        def k:int 0
+        while (x >= 2.718281828) {
+            x = (x / 2.718281828)
+            k = (k + 1)
+        }
+        while (x < 1.0) {
+            x = (x * 2.718281828)
+            k = (k - 1)
+        }
+        def y:double ((x - 1.0) / (x + 1.0))
+        def y2:double (y * y)
+        def term:double y
+        def sum:double y
+        def n:int 1
+        while (n < 40) {
+            term = (term * y2)
+            sum = (sum + (term / (to_double ((2 * n) + 1))))
+            n = (n + 1)
+        }
+        return (FormulaValue.fromNumber(((2.0 * sum) + (to_double k))))
+    }
+
+    sfn fnLog10:FormulaValue (args:[FormulaValue]) {
+        def ln:FormulaValue (FormulaFunctions.fnLn(args))
+        def ee:boolean (ln.isError())
+        if ee {
+            return ln
+        }
+        return (FormulaValue.fromNumber((ln.num / 2.302585092994046)))
+    }
+
+    sfn fnFloor:FormulaValue (args:[FormulaValue]) {
+        return (FormulaFunctions.fnInt(args))
+    }
+
+    sfn fnCeiling:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def x:double (v.asNumber())
+        def t:int (to_int x)
+        if ((to_double t) == x) {
+            return (FormulaValue.fromNumber((to_double t)))
+        }
+        if (x > 0.0) {
+            return (FormulaValue.fromNumber((to_double (t + 1))))
+        }
+        return (FormulaValue.fromNumber((to_double t)))
+    }
+
+    ; --- text ---
+
+    sfn fnLen:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        return (FormulaValue.fromNumber((to_double (strlen (v.asDisplay())))))
+    }
+
+    sfn fnLeft:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def n:int 1
+        if ((array_length args) >= 2) {
+            def nArg:FormulaValue (itemAt args 1)
+            n = (to_int (nArg.asNumber()))
+        }
+        if (n < 0) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def s:string (v.asDisplay())
+        def L:int (strlen s)
+        if (n > L) {
+            n = L
+        }
+        return (FormulaValue.fromString((substring s 0 n)))
+    }
+
+    sfn fnRight:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def n:int 1
+        if ((array_length args) >= 2) {
+            def nArg:FormulaValue (itemAt args 1)
+            n = (to_int (nArg.asNumber()))
+        }
+        if (n < 0) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def s:string (v.asDisplay())
+        def L:int (strlen s)
+        if (n > L) {
+            n = L
+        }
+        return (FormulaValue.fromString((substring s (L - n) L)))
+    }
+
+    sfn fnMid:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 3))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def startArg:FormulaValue (itemAt args 1)
+        def nArg:FormulaValue (itemAt args 2)
+        def start:int (to_int (startArg.asNumber()))
+        def n:int (to_int (nArg.asNumber()))
+        if ((start < 1) || (n < 0)) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def s:string (v.asDisplay())
+        def L:int (strlen s)
+        def i0:int (start - 1)
+        if (i0 >= L) {
+            return (FormulaValue.fromString(""))
+        }
+        def i1:int (i0 + n)
+        if (i1 > L) {
+            i1 = L
+        }
+        return (FormulaValue.fromString((substring s i0 i1)))
+    }
+
+    sfn fnUpper:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        return (FormulaValue.fromString((FormulaFunctions.upper((v.asDisplay())))))
+    }
+
+    sfn fnLower:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        return (FormulaValue.fromString((FormulaFunctions.lower((v.asDisplay())))))
+    }
+
+    sfn fnTrim:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def s:string (v.asDisplay())
+        def n:int (strlen s)
+        def a:int 0
+        while (a < n) {
+            def ch:int (charAt s a)
+            if ((ch == 32) || (ch == 9)) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        def b:int n
+        while (b > a) {
+            def ch2:int (charAt s (b - 1))
+            if ((ch2 == 32) || (ch2 == 9)) {
+                b = (b - 1)
+            } {
+                break
+            }
+        }
+        return (FormulaValue.fromString((substring s a b)))
+    }
+
+    sfn fnConcat:FormulaValue (args:[FormulaValue]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length args)
+        while (i < n) {
+            def v:FormulaValue (itemAt args i)
+            def ee:boolean (v.isError())
+            if ee {
+                return v
+            }
+            out = (out + (v.asDisplay()))
+            i = (i + 1)
+        }
+        return (FormulaValue.fromString(out))
+    }
+
+    sfn fnValue:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        def nums:[double]
+        def ok:boolean (v.tryNumber(nums))
+        if ok {
+            return (FormulaValue.fromNumber((itemAt nums 0)))
+        }
+        return (FormulaValue.fromError("#VALUE!"))
+    }
+
+    ; --- info ---
+
+    sfn fnIsBlank:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def b:boolean (v.isBlank())
+        return (FormulaValue.fromBool(b))
+    }
+
+    sfn fnIsNumber:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        return (FormulaValue.fromBool((v.kind == 1)))
+    }
+
+    sfn fnIsText:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        return (FormulaValue.fromBool((v.kind == 2)))
+    }
+
+    sfn fnIsError:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def e:boolean (v.isError())
+        return (FormulaValue.fromBool(e))
+    }
+
+    sfn fnIsErr:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if (ee == false) {
+            return (FormulaValue.fromBool(false))
+        }
+        if (v.err == "#N/A") {
+            return (FormulaValue.fromBool(false))
+        }
+        return (FormulaValue.fromBool(true))
+    }
+
+    sfn fnN:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        if (v.kind == 1) {
+            return v
+        }
+        if (v.kind == 3) {
+            return (FormulaValue.fromNumber((v.asNumber())))
+        }
+        return (FormulaValue.fromNumber(0.0))
+    }
+
+    sfn fnT:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v:FormulaValue (itemAt args 0)
+        def ee:boolean (v.isError())
+        if ee {
+            return v
+        }
+        if (v.kind == 2) {
+            return v
+        }
+        return (FormulaValue.fromString(""))
+    }
+}

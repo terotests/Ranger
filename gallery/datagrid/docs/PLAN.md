@@ -29,7 +29,8 @@
 ;   cached formula values, merges, col/row sizes, sheet tabs.
 ; Milestone 3: styles, freeze, copy/paste, fill handle.
 ; Milestone 4 (this): workbook viewer —
-;   XlsxNumberFormat engine, FormulaEngine (AST/deps/recalc + cached fallback),
+;   XlsxNumberFormat engine, FormulaValue + FormulaFunctions (unit-tested) +
+;   FormulaEngine (AST/deps/recalc + cached fallback),
 ;   SheetView sort/filter/hidden, merges hit-test, multi-sheet fidelity,
 ;   business-workbook fixture, openpyxl + LibreOffice oracles, 100k perf fixture.
 ; Stretch: conditional formatting resolver.

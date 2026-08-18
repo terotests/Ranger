@@ -1,120 +1,19 @@
 ; ==============================================================================
-; FormulaEngine - small AST + dependency graph + incremental recalc.
+; FormulaEngine - AST + dependency graph + incremental recalc.
 ; ==============================================================================
 ;
-; Proves: parse → deps → topological recalc → display.
-; Not a full Excel function library. Unsupported formulas keep XLSX <v> cache.
+; Function implementations live in FormulaFunctions.rgr (unit-testable).
+; This file: parse → deps → topological recalc → FormulaFunctions.invoke.
 ;
 ; Operators: + - * / ^ &   = <> < > <= >=
 ; Refs: A1, $A$1, Sheet2!A1, A1:B10
-; Fns: SUM AVERAGE MIN MAX COUNT COUNTA IF AND OR NOT  (+ ROUND ABS if easy)
-; Errors: #DIV/0! #VALUE! #REF! #NAME? #CYCLE!
+; Errors: #DIV/0! #VALUE! #REF! #NAME? #CYCLE! #NUM!
 ; ==============================================================================
 
 Import "SpreadsheetModel.rgr"
 Import "WorkbookModel.rgr"
-
-; --- value model --------------------------------------------------------------
-
-class FormulaValue {
-    ; kind: 0 blank 1 number 2 string 3 bool 4 error
-    def kind:int 0
-    def num:double 0.0
-    def text:string ""
-    def flag:boolean false
-    def err:string ""
-
-    Constructor () {
-    }
-
-    sfn blank:FormulaValue () {
-        return (new FormulaValue)
-    }
-
-    sfn fromNumber:FormulaValue (v:double) {
-        def o:FormulaValue (new FormulaValue)
-        o.kind = 1
-        o.num = v
-        return o
-    }
-
-    sfn fromString:FormulaValue (s:string) {
-        def o:FormulaValue (new FormulaValue)
-        o.kind = 2
-        o.text = s
-        return o
-    }
-
-    sfn fromBool:FormulaValue (b:boolean) {
-        def o:FormulaValue (new FormulaValue)
-        o.kind = 3
-        o.flag = b
-        if b {
-            o.num = 1.0
-            o.text = "TRUE"
-        } {
-            o.num = 0.0
-            o.text = "FALSE"
-        }
-        return o
-    }
-
-    sfn fromError:FormulaValue (e:string) {
-        def o:FormulaValue (new FormulaValue)
-        o.kind = 4
-        o.err = e
-        o.text = e
-        return o
-    }
-
-    fn isError:boolean () {
-        return (kind == 4)
-    }
-
-    fn isBlank:boolean () {
-        return (kind == 0)
-    }
-
-    fn asNumber:double () {
-        if (kind == 1) {
-            return num
-        }
-        if (kind == 3) {
-            if flag {
-                return 1.0
-            }
-            return 0.0
-        }
-        if (kind == 2) {
-            def p@(optional):double (to_double text)
-            if p {
-                return (unwrap p)
-            }
-        }
-        return 0.0
-    }
-
-    fn asDisplay:string () {
-        if (kind == 0) {
-            return ""
-        }
-        if (kind == 4) {
-            return err
-        }
-        if (kind == 3) {
-            return text
-        }
-        if (kind == 2) {
-            return text
-        }
-        ; number — trim .0
-        def iv:int (to_int num)
-        if ((to_double iv) == num) {
-            return (to_string iv)
-        }
-        return (to_string num)
-    }
-}
+Import "FormulaValue.rgr"
+Import "FormulaFunctions.rgr"
 
 ; --- AST nodes (flattened: kind + fields) ------------------------------------
 
@@ -1140,220 +1039,32 @@ class FormulaEngine {
 
     fn evalCall:FormulaValue (n:FormulaNode sheetIdx:int) {
         def name:string n.fnName
-        if ((name == "SUM") || (name == "AVERAGE") || (name == "MIN") || (name == "MAX") || (name == "COUNT") || (name == "COUNTA")) {
-            return (this.evalAgg(n sheetIdx))
-        }
-        if (name == "IF") {
-            if ((array_length n.kids) < 2) {
-                return (FormulaValue.fromError("#VALUE!"))
-            }
-            def cond:FormulaValue (this.evalNode((itemAt n.kids 0) sheetIdx))
-            def _eC:boolean (cond.isError())
-            if _eC {
-                return cond
-            }
-            def truth:boolean false
-            if (cond.kind == 3) {
-                truth = cond.flag
-            } {
-                if ((cond.asNumber()) != 0.0) {
-                    truth = true
-                }
-            }
-            if truth {
-                return (this.evalNode((itemAt n.kids 1) sheetIdx))
-            }
-            if ((array_length n.kids) >= 3) {
-                return (this.evalNode((itemAt n.kids 2) sheetIdx))
-            }
-            return (FormulaValue.fromBool(false))
-        }
-        if ((name == "AND") || (name == "OR")) {
-            def i:int 0
-            def kn:int (array_length n.kids)
-            def any:boolean false
-            def all:boolean true
-            while (i < kn) {
-                def v:FormulaValue (this.evalNode((itemAt n.kids i) sheetIdx))
-                def _eV:boolean (v.isError())
-                if _eV {
-                    return v
-                }
-                def t:boolean false
-                if (v.kind == 3) {
-                    t = v.flag
-                } {
-                    if ((v.asNumber()) != 0.0) {
-                        t = true
-                    }
-                }
-                if t {
-                    any = true
-                } {
-                    all = false
-                }
-                i = (i + 1)
-            }
-            if (name == "AND") {
-                return (FormulaValue.fromBool(all))
-            }
-            return (FormulaValue.fromBool(any))
-        }
-        if (name == "NOT") {
-            if ((array_length n.kids) < 1) {
-                return (FormulaValue.fromError("#VALUE!"))
-            }
-            def v2:FormulaValue (this.evalNode((itemAt n.kids 0) sheetIdx))
-            def _eV2:boolean (v2.isError())
-            if _eV2 {
-                return v2
-            }
-            def t2:boolean false
-            if (v2.kind == 3) {
-                t2 = v2.flag
-            } {
-                if ((v2.asNumber()) != 0.0) {
-                    t2 = true
-                }
-            }
-            if t2 {
-                return (FormulaValue.fromBool(false))
-            }
-            return (FormulaValue.fromBool(true))
-        }
-        if (name == "ABS") {
-            def v3:FormulaValue (this.evalNode((itemAt n.kids 0) sheetIdx))
-            def _eV3:boolean (v3.isError())
-            if _eV3 {
-                return v3
-            }
-            def x:double (v3.asNumber())
-            if (x < 0.0) {
-                x = (0.0 - x)
-            }
-            return (FormulaValue.fromNumber(x))
-        }
-        if (name == "ROUND") {
-            def v4:FormulaValue (this.evalNode((itemAt n.kids 0) sheetIdx))
-            def _eV4:boolean (v4.isError())
-            if _eV4 {
-                return v4
-            }
-            def digits:int 0
-            if ((array_length n.kids) >= 2) {
-                def vd:FormulaValue (this.evalNode((itemAt n.kids 1) sheetIdx))
-                digits = (to_int (vd.asNumber()))
-            }
-            def scale:double 1.0
-            def d:int 0
-            while (d < digits) {
-                scale = (scale * 10.0)
-                d = (d + 1)
-            }
-            def xx:double (v4.asNumber())
-            def rr:double ((to_double (to_int ((xx * scale) + 0.5))) / scale)
-            return (FormulaValue.fromNumber(rr))
-        }
-        if ((name == "CONCAT") || (name == "CONCATENATE")) {
-            def out:string ""
-            def i2:int 0
-            def kn2:int (array_length n.kids)
-            while (i2 < kn2) {
-                def vv:FormulaValue (this.evalNode((itemAt n.kids i2) sheetIdx))
-                def _eVV:boolean (vv.isError())
-                if _eVV {
-                    return vv
-                }
-                out = (out + (vv.asDisplay()))
-                i2 = (i2 + 1)
-            }
-            return (FormulaValue.fromString(out))
-        }
-        return (FormulaValue.fromError("#NAME?"))
-    }
-
-    fn evalAgg:FormulaValue (n:FormulaNode sheetIdx:int) {
-        def vals:[double]
-        def countA:int 0
+        def args:[FormulaValue]
         def i:int 0
         def kn:int (array_length n.kids)
         while (i < kn) {
             def arg:FormulaNode (itemAt n.kids i)
             if (arg.kind == 4) {
-                this.collectRangeNumbers(arg sheetIdx vals countA)
+                this.expandRangeArgs(arg sheetIdx args)
             } {
-                def v:FormulaValue (this.evalNode(arg sheetIdx))
-                def _eV:boolean (v.isError())
-                if _eV {
-                    return v
-                }
-                def _blank:boolean (v.isBlank())
-                if (_blank == false) {
-                    countA = (countA + 1)
-                }
-                if ((v.kind == 1) || (v.kind == 3)) {
-                    push vals (v.asNumber())
-                } {
-                    if (v.kind == 2) {
-                        def p@(optional):double (to_double v.text)
-                        if p {
-                            push vals (unwrap p)
-                        }
-                    }
-                }
+                push args (this.evalNode(arg sheetIdx))
             }
             i = (i + 1)
         }
-        def name:string n.fnName
-        if (name == "COUNTA") {
-            return (FormulaValue.fromNumber((to_double countA)))
+        ; Unknown names → #NAME? (caller may keep XLSX cached <v>)
+        if (FormulaFunctions.isKnown(name) == false) {
+            return (FormulaValue.fromError("#NAME?"))
         }
-        if (name == "COUNT") {
-            return (FormulaValue.fromNumber((to_double (array_length vals))))
-        }
-        if ((array_length vals) == 0) {
-            if (name == "AVERAGE") {
-                return (FormulaValue.fromError("#DIV/0!"))
-            }
-            return (FormulaValue.fromNumber(0.0))
-        }
-        def sum:double 0.0
-        def mn:double (itemAt vals 0)
-        def mx:double (itemAt vals 0)
-        def j:int 0
-        def vn:int (array_length vals)
-        while (j < vn) {
-            def x:double (itemAt vals j)
-            sum = (sum + x)
-            if (x < mn) {
-                mn = x
-            }
-            if (x > mx) {
-                mx = x
-            }
-            j = (j + 1)
-        }
-        if (name == "SUM") {
-            return (FormulaValue.fromNumber(sum))
-        }
-        if (name == "AVERAGE") {
-            return (FormulaValue.fromNumber((sum / (to_double vn))))
-        }
-        if (name == "MIN") {
-            return (FormulaValue.fromNumber(mn))
-        }
-        if (name == "MAX") {
-            return (FormulaValue.fromNumber(mx))
-        }
-        return (FormulaValue.fromError("#NAME?"))
+        return (FormulaFunctions.invoke(name args))
     }
 
-    fn collectRangeNumbers:void (n:FormulaNode sheetIdx:int vals:[double] countA:int) {
-        ; countA passed by value — update via return not possible; approximate with vals only for COUNT path
+    ; Expand A1:B2 into individual FormulaValue args for the function library.
+    fn expandRangeArgs:void (n:FormulaNode sheetIdx:int args:[FormulaValue]) {
         def si:int sheetIdx
         if ((strlen n.sheet) > 0) {
             si = (this.sheetByName(n.sheet))
             if (si < 0) {
+                push args (FormulaValue.fromError("#REF!"))
                 return
             }
         }
@@ -1375,14 +1086,7 @@ class FormulaEngine {
         while (r <= r1) {
             def c:int c0
             while (c <= c1) {
-                def v:FormulaValue (this.readCell("" si r c))
-                def _blank:boolean (v.isBlank())
-                if (_blank == false) {
-                    ; COUNTA bump skipped (limitation)
-                }
-                if ((v.kind == 1) || (v.kind == 3)) {
-                    push vals (v.asNumber())
-                }
+                push args (this.readCell("" si r c))
                 c = (c + 1)
             }
             r = (r + 1)

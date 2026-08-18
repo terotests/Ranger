@@ -29,15 +29,18 @@
 ; Number formats                  | XlsxNumberFormat engine (practical set)   | done
 ; Text wrap / rotation            |                                           | todo
 ; Sort / filter                   | SheetView + programmatic apply            | done
-; Formulas (engine)               | AST + deps + subset + cached fallback     | partial
+; Formulas (engine)               | AST + deps + FormulaFunctions library     | partial
 ; Conditional formatting          | fixture present; resolver stretch         | partial
 ; Hidden rows / columns           | geometry height/width 0                   | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
 ;
-; Formula coverage (calculated): + - * / ^ & comparisons, A1/$A$1, ranges,
-; Sheet!A1, SUM AVERAGE MIN MAX COUNT COUNTA IF AND OR NOT ABS ROUND CONCAT.
-; Unsupported XLSX formulas keep cached <v>.
+; Formula stack: FormulaValue + FormulaFunctions (unit-tested) + FormulaEngine
+; (parse/deps/recalc). Ops: + - * / ^ & comparisons, A1/$A$1, ranges, Sheet!A1.
+; Library: SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF AND OR NOT TRUE FALSE
+; IFERROR IFNA ABS ROUND INT MOD POWER SQRT SIGN PI EXP LN LOG10 FLOOR CEILING
+; LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT VALUE ISBLANK ISNUMBER ISTEXT
+; ISERROR ISERR N T. Unsupported XLSX formulas keep cached <v>.
 ;
 ; Number formats: General, 0, 0.00, #,##0(.00), %, currency, scientific,
 ; dates/times, @, pos;neg;zero sections.

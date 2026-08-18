@@ -24,6 +24,7 @@ EVGDisplayList → SoftCanvas / WebGL
 npm run datagrid:test
 npm run datagrid:xlsx:test
 npm run datagrid:workbook:test
+npm run datagrid:formula:test
 npm run datagrid:xlsx:fixtures
 npm run datagrid:bench -- 100000
 npm run datagrid:oracle:dump
@@ -36,7 +37,7 @@ npm run datagrid:window
 - Multi-sheet workbook + tabs (hidden sheet metadata)
 - styles.xml → fill / font / align / **XlsxNumberFormat** engine
 - Freeze panes, merges (hit-test → origin), hidden rows/cols
-- Formula bar; formula AST + dependency/recalc subset; cached `<v>` fallback
+- Formula bar; FormulaEngine (parse/deps/recalc) + FormulaFunctions library; cached `<v>` fallback
 - Sort / filter via SheetView (programmatic + header indicator path)
 - Ctrl+C/V TSV, fill-handle copy-fill
 - Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`, `sparse100k`
