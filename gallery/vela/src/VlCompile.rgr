@@ -609,6 +609,7 @@ class VlCompile {
         ; its side.
         if (repeat.isArray()) {
             out.setMember("concat" (VlCompile.repeatRow(spec repeat "repeat")))
+            VlCompile.alignRepeat(out)
             return out
         }
         if (! (repeat.isObject())) {
@@ -642,13 +643,24 @@ class VlCompile {
         }
         if (rows.isArray()) {
             out.setMember("vconcat" (VlCompile.repeatRow(spec rows "row")))
+            VlCompile.alignRepeat(out)
             return out
         }
         if (cols.isArray()) {
             out.setMember("hconcat" (VlCompile.repeatRow(spec cols "column")))
+            VlCompile.alignRepeat(out)
             return out
         }
         return (VlJson.nullValue())
+    }
+
+    ; A repeated grid lines its copies up on one pitch unless the
+    ; specification asked for something else.
+    sfn alignRepeat:void (out:VlJson) {
+        if (out.has("align")) {
+            return
+        }
+        out.setMember("align" (VlJson.stringValue("all")))
     }
 
     sfn repeatRow:VlJson (spec:VlJson values:VlJson key:string) {
@@ -2076,7 +2088,16 @@ class VlCompile {
             layout.setMember("columns" (src.get("columns")))
         }
         layout.setMember("bounds" (VlJson.stringValue((src.stringOr("bounds" "full")))))
-        layout.setMember("align" (VlJson.stringValue("each")))
+        ; `each` unless the composition says otherwise. A REPEAT says otherwise:
+        ; its panes are copies of one specification and line up on a single
+        ; pitch, the way a trellis does, so the third copy does not start early
+        ; because its own axis labels are shorter than its neighbour's.
+        def stated:VlJson (src.get("align"))
+        if ((stated.isString()) || (stated.isObject())) {
+            layout.setMember("align" stated)
+        } {
+            layout.setMember("align" (VlJson.stringValue("each")))
+        }
         out.setMember("layout" layout)
         out.setMember("marks" marks)
         out.setMember("scales" scales)
