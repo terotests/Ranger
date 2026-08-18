@@ -16,6 +16,7 @@
 
 Import "EditorBuffer.rgr"
 Import "EditorSelection.rgr"
+Import "EditorStyle.rgr"
 Import "EditorLayout.rgr"
 Import "EditorView.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
@@ -71,6 +72,134 @@ class EditorApp {
         }
         preferCol = sel.caret.col
         layout.ensureCaretVisible(buf sel)
+    }
+
+    ; canvas-editor dblclick → word range
+    fn selectWordAt:void (line:int col:int) {
+        def p:EditorPos (EditorPos.create(line col))
+        buf.clampPos(p)
+        def s:string (buf.lineAt(p.line))
+        def a:int (EditorWord.wordStart(s p.col))
+        def b:int (EditorWord.wordEnd(s p.col))
+        if (a == b) {
+            ; Clicked whitespace — select the single gap char if any.
+            if (p.col < (strlen s)) {
+                b = (p.col + 1)
+                a = p.col
+            }
+        }
+        sel.setAnchor(p.line a)
+        sel.setCaret(p.line b)
+        preferCol = b
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    ; canvas-editor threeClick → whole line
+    fn selectLineAt:void (line:int) {
+        def p:EditorPos (EditorPos.create(line 0))
+        buf.clampPos(p)
+        def len:int (strlen (buf.lineAt(p.line)))
+        sel.setAnchor(p.line 0)
+        sel.setCaret(p.line len)
+        preferCol = len
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    fn setRange:void (aLine:int aCol:int cLine:int cCol:int) {
+        def a:EditorPos (EditorPos.create(aLine aCol))
+        def c:EditorPos (EditorPos.create(cLine cCol))
+        buf.clampPos(a)
+        buf.clampPos(c)
+        sel.setAnchor(a.line a.col)
+        sel.setCaret(c.line c.col)
+        preferCol = c.col
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    fn selectionBounds:void (outA:EditorPos outB:EditorPos) {
+        if (sel.isCollapsed()) {
+            outA.copyFrom(sel.caret)
+            outB.copyFrom(sel.caret)
+            return
+        }
+        sel.normalized(outA outB)
+    }
+
+    fn toggleBold:void () {
+        if (sel.isCollapsed()) {
+            buf.typingBold = (buf.typingBold == false)
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        ; If any selected run is not bold, apply bold (canvas-editor mixed → on).
+        def want:boolean true
+        def allBold:boolean true
+        def line:int a.line
+        while (line <= b.line) {
+            def s:string (buf.lineAt(line))
+            def c0:int 0
+            def c1:int (strlen s)
+            if (line == a.line) {
+                c0 = a.col
+            }
+            if (line == b.line) {
+                c1 = b.col
+            }
+            def col:int c0
+            while (col < c1) {
+                def r:StyleRun ((buf.styleAt(line)).runAt(col))
+                if (r.bold == false) {
+                    allBold = false
+                }
+                def step:int r.len
+                if (step < 1) {
+                    step = 1
+                }
+                col = (col + step)
+            }
+            line = (line + 1)
+        }
+        if allBold {
+            want = false
+        }
+        buf.applyInlineStyle(a.line a.col b.line b.col true want false "")
+        buf.typingBold = want
+    }
+
+    fn setFont:void (font:string) {
+        if ((strlen font) == 0) {
+            return
+        }
+        buf.typingFont = font
+        if (sel.isCollapsed()) {
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        buf.applyInlineStyle(a.line a.col b.line b.col false false true font)
+    }
+
+    fn setAlign:void (align:int) {
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        this.selectionBounds(a b)
+        buf.setBlockAlign(a.line b.line align)
+    }
+
+    fn setList:void (listKind:int) {
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        this.selectionBounds(a b)
+        ; Toggle off when same kind already set on first line.
+        def cur:int (buf.styleAt(a.line)).listKind
+        if (cur == listKind) {
+            buf.setBlockList(a.line b.line 0)
+        } {
+            buf.setBlockList(a.line b.line listKind)
+        }
     }
 
     fn deleteSelectionOr:void (forward:boolean) {
@@ -227,6 +356,10 @@ class EditorApp {
                 if ((ch == 97) || (ch == 65)) {
                     sel.selectAll(buf)
                     layout.ensureCaretVisible(buf sel)
+                }
+                ; b / B bold
+                if ((ch == 98) || (ch == 66)) {
+                    this.toggleBold()
                 }
                 ; z / Z undo
                 if ((ch == 122) || (ch == 90)) {

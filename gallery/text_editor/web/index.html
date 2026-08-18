@@ -10,12 +10,40 @@
         font-weight: 400;
         font-style: normal;
       }
+      @font-face {
+        font-family: "Open Sans Bold";
+        src: url("/fonts/Open_Sans/OpenSans-Bold.ttf") format("truetype");
+        font-weight: 700;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "Cinzel";
+        src: url("/fonts/Cinzel/Cinzel-Regular.ttf") format("truetype");
+        font-weight: 400;
+      }
+      @font-face {
+        font-family: "Cinzel Bold";
+        src: url("/fonts/Cinzel/Cinzel-Bold.ttf") format("truetype");
+        font-weight: 700;
+      }
+      @font-face {
+        font-family: "Josefin Sans";
+        src: url("/fonts/Josefin_Sans/JosefinSans-Regular.ttf") format("truetype");
+        font-weight: 400;
+      }
+      @font-face {
+        font-family: "Josefin Sans Bold";
+        src: url("/fonts/Josefin_Sans/JosefinSans-Bold.ttf") format("truetype");
+        font-weight: 700;
+      }
       :root {
         --bg: #0e1018;
         --panel: #161a26;
         --ink: #dce3f2;
         --muted: #8b97b0;
         --accent: #78c8ff;
+        --btn: #1c2436;
+        --btn-border: #3a4560;
       }
       * { box-sizing: border-box; }
       html, body {
@@ -45,19 +73,66 @@
         color: var(--muted);
         font-size: 0.92rem;
       }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        margin-bottom: 8px;
+        padding: 8px;
+        background: var(--panel);
+        border: 1px solid #2a3348;
+      }
+      .toolbar button, .toolbar select {
+        font: inherit;
+        font-size: 0.82rem;
+        color: var(--ink);
+        background: var(--btn);
+        border: 1px solid var(--btn-border);
+        border-radius: 4px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .toolbar button:hover, .toolbar select:hover {
+        border-color: var(--accent);
+      }
+      .toolbar button.active {
+        background: #243552;
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .toolbar .sep {
+        width: 1px;
+        height: 22px;
+        background: #2a3348;
+        margin: 0 4px;
+      }
       .frame {
         background: var(--panel);
         border: 1px solid #2a3348;
         padding: 10px;
         box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
       }
-      canvas {
-        display: block;
+      .stack {
+        position: relative;
         width: 720px;
         height: 480px;
+      }
+      .stack canvas {
+        position: absolute;
+        inset: 0;
+        width: 720px;
+        height: 480px;
+        display: block;
+      }
+      #screen {
         background: #12141c;
         cursor: text;
         outline: none;
+      }
+      #overlay {
+        pointer-events: none;
+        background: transparent;
       }
       .bar {
         display: flex;
@@ -83,17 +158,36 @@
     <div class="stage">
       <h1>Ranger EVG Text Editor</h1>
       <p class="hint">
-        Input layer → <code>UIInput</code> · Render layer → <code>EVGDisplayList</code> → WebGL 2.
-        Click the canvas, then type. <kbd>Ctrl</kbd>+<kbd>A</kbd> · <kbd>Ctrl</kbd>+<kbd>Z</kbd>
+        Double-click a word · drag to select · toolbar for Bold / Font / Align / Lists
+        (canvas-editor-style). <kbd>Ctrl</kbd>+<kbd>B</kbd> · <kbd>Ctrl</kbd>+<kbd>A</kbd> · <kbd>Ctrl</kbd>+<kbd>Z</kbd>
       </p>
+      <div class="toolbar" id="toolbar">
+        <button type="button" data-cmd="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+        <select id="fontSelect" title="Font" aria-label="Font">
+          <option value="Open Sans">Open Sans</option>
+          <option value="Cinzel">Cinzel</option>
+          <option value="Josefin Sans">Josefin Sans</option>
+        </select>
+        <span class="sep"></span>
+        <button type="button" data-cmd="align" data-arg="0" title="Align left">Left</button>
+        <button type="button" data-cmd="align" data-arg="1" title="Align center">Center</button>
+        <button type="button" data-cmd="align" data-arg="2" title="Align right">Right</button>
+        <span class="sep"></span>
+        <button type="button" data-cmd="list" data-arg="1" title="Bullet list">• List</button>
+        <button type="button" data-cmd="list" data-arg="2" title="Numbered list">1. List</button>
+      </div>
       <div class="frame">
-        <canvas id="screen" tabindex="0" width="720" height="480"></canvas>
+        <div class="stack">
+          <canvas id="screen" tabindex="0" width="720" height="480"></canvas>
+          <canvas id="overlay" width="720" height="480"></canvas>
+        </div>
       </div>
       <div class="bar">
         <span>status: <strong id="status">connecting…</strong></span>
         <span>backend: <strong id="backend">—</strong></span>
         <span>cmds: <strong id="cmds">—</strong></span>
         <span>fps: <strong id="fps">—</strong></span>
+        <span>sel: <strong id="sel">—</strong></span>
       </div>
     </div>
     <script type="module" src="./client.mjs"></script>

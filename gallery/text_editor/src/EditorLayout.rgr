@@ -8,6 +8,7 @@
 
 Import "EditorBuffer.rgr"
 Import "EditorSelection.rgr"
+Import "EditorStyle.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "../../evg/EVGCodepoint.rgr"
 
@@ -62,6 +63,46 @@ class EditorLayout {
             return 1
         }
         return cw
+    }
+
+    fn listPad:int (buf:EditorBuffer line:int) {
+        def st:LineStyle (buf.styleAt(line))
+        if (st.listKind == 0) {
+            return 0
+        }
+        return 22
+    }
+
+    ; Left edge of the text (after gutter + list marker indent), before align.
+    fn textBaseX:int (buf:EditorBuffer line:int) {
+        return ((this.contentX()) + (this.listPad(buf line)))
+    }
+
+    ; Horizontal origin after align (left/center/right). SoftCanvas uses one face.
+    fn lineOriginX:int (tr:UITextRenderer buf:EditorBuffer line:int) {
+        def base:int (this.textBaseX(buf line))
+        def st:LineStyle (buf.styleAt(line))
+        if (st.align == 0) {
+            return base
+        }
+        def s:string (buf.lineAt(line))
+        def tw:int (to_int (tr.measureWidth(s fontSize)))
+        def avail:int ((this.contentW()) - (this.listPad(buf line)))
+        if (avail < 1) {
+            avail = 1
+        }
+        if (st.align == 1) {
+            def mid:int (base + (to_int ((avail - tw) / 2)))
+            if (mid < base) {
+                return base
+            }
+            return mid
+        }
+        def right:int (base + (avail - tw))
+        if (right < base) {
+            return base
+        }
+        return right
     }
 
     fn contentH:int () {
@@ -143,7 +184,7 @@ class EditorLayout {
         }
         def pre:string (substring s 0 col)
         def mw:int (to_int (tr.measureWidth(pre fontSize)))
-        return ((this.contentX()) + mw)
+        return ((this.lineOriginX(tr buf line)) + mw)
     }
 
     fn caretPixelY:int (line:int) {
@@ -163,7 +204,8 @@ class EditorLayout {
         }
         def s:string (buf.lineAt(line))
         def len:int (strlen s)
-        def localX:int (px - (this.contentX()))
+        def origin:int (this.lineOriginX(tr buf line))
+        def localX:int (px - origin)
         if (localX <= 0) {
             return (EditorPos.create(line 0))
         }
