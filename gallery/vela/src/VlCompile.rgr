@@ -6304,6 +6304,24 @@ class VlCompile {
             if (z.isBool()) {
                 return z.b
             }
+            ; A chart that STATES its domain has said where the axis runs from,
+            ; and extending it to zero on top of that is not what it asked for.
+            ; Zero survives only where the stated range already spans it. A
+            ; weather chart whose scale runs from ten to seventy was drawn from
+            ; nothing to seventy, and every reading sat in the top two thirds.
+            def said:VlJson (declared.get("domain"))
+            if (said.isArray()) {
+                if ((said.count()) > 1) {
+                    def first:VlJson (said.at(0))
+                    def last:VlJson (said.at((said.count()) - 1))
+                    if ((first.isNumber()) && (last.isNumber())) {
+                        if ((first.num <= 0.0) && (last.num >= 0.0)) {
+                            return true
+                        }
+                    }
+                    return false
+                }
+            }
         }
         ; A log scale cannot reach zero, so it never asks to.
         if ((this.scaleTypeFor(ch)) == "log") {
