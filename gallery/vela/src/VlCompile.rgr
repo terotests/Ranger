@@ -1519,9 +1519,12 @@ class VlCompile {
         def rowField:string ((this.channel("row")).outField())
         def columnField:string ((this.channel("column")).outField())
         def wrapField:string ((this.channel("facet")).outField())
-        def rowTitleField:string ((this.channel("row")).field)
-        def columnTitleField:string ((this.channel("column")).field)
-        def wrapTitleField:string ((this.channel("facet")).field)
+        ; What the STRIP is called, which is the channel's own title rather
+        ; than its bare field: a trellis cut on the hour of a date is headed
+        ; "date (hours)", the same name the axis of that field would carry.
+        def rowTitleField:string ((this.channel("row")).title())
+        def columnTitleField:string ((this.channel("column")).title())
+        def wrapTitleField:string ((this.channel("facet")).title())
         ; How many panels across. A repeated specification says it at the top
         ; level, but a wrapped FACET channel says it on the channel — and read
         ; only from the top level the grid never wrapped, so every panel of a
@@ -1595,7 +1598,24 @@ class VlCompile {
         if wrapped {
             facetField = wrapField
         }
-        push data.arr (VlCompile.domainData(domainName facetField child.dataLabel))
+        ; Which channel the trellis is cut on, and whether it says the panels
+        ; are to be ordered by a field other than the one it is cut on.
+        def facetKey:string "column"
+        if ((strlen rowField) > 0) {
+            facetKey = "row"
+        }
+        if wrapped {
+            facetKey = "facet"
+        }
+        def facetSort:VlJson (VlCompile.facetSortOf(src facetKey))
+        def sortField:string (facetSort.stringOr("field" ""))
+        def sortOp:string (facetSort.stringOr("op" "min"))
+        def sortDir:string (facetSort.stringOr("order" "ascending"))
+        def orderField:string facetField
+        if ((strlen sortField) > 0) {
+            orderField = sortField
+        }
+        push data.arr (VlCompile.domainData(domainName facetField child.dataLabel sortField sortOp))
         def columns:VlJson columnsDef
         if wrapped {
             ; A wrapped grid's shape is computed rather than declared, and both
@@ -1640,13 +1660,6 @@ class VlCompile {
         ; What the strip of panels is CALLED, which is the facet channel's own
         ; title where it stated one. Without it a grid of panels was named
         ; after the column — "a" rather than "Factor A".
-        def facetKey:string "column"
-        if ((strlen rowField) > 0) {
-            facetKey = "row"
-        }
-        if wrapped {
-            facetKey = "facet"
-        }
         def titleField:string columnTitleField
         if ((strlen rowField) > 0) {
             titleField = rowTitleField
@@ -1656,29 +1669,29 @@ class VlCompile {
         }
         def titleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src facetKey titleField))))
         if wrapped {
-            push marks.arr (VlCompile.titleGroup("facet-title" "column-title" titleText ""))
-            push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false ""))
-            push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "facet_domain_column" "" "child_width" xAxes true ""))
+            push marks.arr (VlCompile.titleGroup("facet-title" "column-title" titleText "" (VlCompile.facetHeaderOf(src facetKey))))
+            push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false "" (VlJson.objectValue()) "ascending"))
+            push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "facet_domain_column" "" "child_width" xAxes true "" (VlJson.objectValue()) "ascending"))
         } {
             if ((strlen rowField) > 0) {
                 if ((strlen (titleText.asString())) > 0) {
-                    push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left"))
+                    push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left" (VlCompile.facetHeaderOf(src facetKey))))
                 }
-                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false rowField))
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false orderField (VlCompile.facetHeaderOf(src "row")) sortDir))
                 ; A row of panels only needs a strip under it if there is an
                 ; axis to put there. A trellis whose panels have no x axis had
                 ; an empty strip reserving a pixel of page.
                 if ((xAxes.count()) > 0) {
-                    push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true ""))
+                    push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true "" (VlJson.objectValue()) "ascending"))
                 }
             } {
-                push marks.arr (VlCompile.titleGroup("column-title" "column-title" titleText ""))
-                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "" "" "child_height" yAxes false ""))
-                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true columnField))
-                push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true columnField))
+                push marks.arr (VlCompile.titleGroup("column-title" "column-title" titleText "" (VlCompile.facetHeaderOf(src facetKey))))
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "" "" "child_height" yAxes false "" (VlJson.objectValue()) "ascending"))
+                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true orderField (VlCompile.facetHeaderOf(src "column")) sortDir))
+                push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true orderField (VlJson.objectValue()) sortDir))
             }
         }
-        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel))
+        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel (VlCompile.facetHeaderOf(src facetKey)) sortField sortOp sortDir))
         out.setMember("marks" marks)
 
         ; Where the panels go, and how far the title stands clear of them.
@@ -1772,7 +1785,7 @@ class VlCompile {
         block.setMember("anchor" (VlJson.stringValue("start")))
     }
 
-    sfn domainData:VlJson (name:string field:string from:string) {
+    sfn domainData:VlJson (name:string field:string from:string sortField:string sortOp:string) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue(name)))
         out.setMember("source" (VlJson.stringValue(from)))
@@ -1782,6 +1795,20 @@ class VlCompile {
         def groupby (VlJson.arrayValue())
         push groupby.arr (VlJson.stringValue(field))
         t.setMember("groupby" groupby)
+        ; Where the panels are ordered by a field of their own, the strip that
+        ; names them has to carry that field: one value per panel, taken off
+        ; the rows the panel is cut from.
+        if ((strlen sortField) > 0) {
+            def fields (VlJson.arrayValue())
+            push fields.arr (VlJson.stringValue(sortField))
+            t.setMember("fields" fields)
+            def ops (VlJson.arrayValue())
+            push ops.arr (VlJson.stringValue(sortOp))
+            t.setMember("ops" ops)
+            def asNames (VlJson.arrayValue())
+            push asNames.arr (VlJson.stringValue(sortField))
+            t.setMember("as" asNames)
+        }
         push transform.arr t
         out.setMember("transform" transform)
         return out
@@ -1803,7 +1830,7 @@ class VlCompile {
     }
 
     ; The title over a whole trellis: one piece of text, placed by the layout.
-    sfn titleGroup:VlJson (name:string role:string text:VlJson orient:string) {
+    sfn titleGroup:VlJson (name:string role:string text:VlJson orient:string header:VlJson) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue(name)))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -1815,14 +1842,179 @@ class VlCompile {
         }
         title.setMember("style" (VlJson.stringValue("guide-title")))
         title.setMember("offset" (VlJson.numberValue(10.0)))
+        VlCompile.dressStripTitle(title header)
         out.setMember("title" title)
         return out
+    }
+
+    ; What a header said about the name of the whole strip, as opposed to the
+    ; labels inside it. `titlePadding` is the one that moves the page: a
+    ; negative one pulls the name in against labels that were themselves
+    ; pulled in, and left at the default the trellis was twelve pixels wide of
+    ; where the reference draws it.
+    sfn dressStripTitle:void (title:VlJson header:VlJson) {
+        if (! (header.isObject())) {
+            return
+        }
+        if (header.has("titlePadding")) {
+            title.setMember("offset" (header.get("titlePadding")))
+        }
+        if (header.has("titleFontSize")) {
+            title.setMember("fontSize" (header.get("titleFontSize")))
+        }
+        if (header.has("titleFont")) {
+            title.setMember("font" (header.get("titleFont")))
+        }
+        if (header.has("titleColor")) {
+            title.setMember("fill" (header.get("titleColor")))
+        }
+        if (header.has("titleAnchor")) {
+            title.setMember("anchor" (header.get("titleAnchor")))
+        }
+        if (header.has("titleAlign")) {
+            title.setMember("align" (header.get("titleAlign")))
+        }
+        if (header.has("titleBaseline")) {
+            title.setMember("baseline" (header.get("titleBaseline")))
+        }
+        if (header.has("titleAngle")) {
+            title.setMember("angle" (header.get("titleAngle")))
+        }
     }
 
     ; A header, a footer or a row header: a group drawn once per column or row,
     ; carrying the axis that column or row shares and, when it names its own
     ; value, a title read from the row it was drawn for.
-    sfn headerGroup:VlJson (name:string role:string from:string labelField:string dimension:string axes:VlJson across:boolean orderBy:string) {
+    ; What a facet channel said about the strip that labels it: the block a
+    ; specification writes as `"header": {…}`.
+    sfn facetHeaderOf:VlJson (src:VlJson key:string) {
+        def encoding:VlJson (src.get("encoding"))
+        if (encoding.isObject()) {
+            def cdef:VlJson (encoding.get(key))
+            if (cdef.isObject()) {
+                def header:VlJson (cdef.get("header"))
+                if (header.isObject()) {
+                    return header
+                }
+            }
+        }
+        def facet:VlJson (src.get("facet"))
+        if (facet.isObject()) {
+            def own:VlJson (facet.get(key))
+            if (own.isObject()) {
+                def header2:VlJson (own.get("header"))
+                if (header2.isObject()) {
+                    return header2
+                }
+            }
+            def header3:VlJson (facet.get("header"))
+            if (header3.isObject()) {
+                return header3
+            }
+        }
+        return (VlJson.objectValue())
+    }
+
+    ; What a facet channel said about the ORDER of its panels: the block a
+    ; specification writes as `"sort": {"field": "order"}`. A trellis of the
+    ; twenty-four hours of a day wants midnight in the middle rather than at
+    ; the top, and says so by naming a field to sort the strips by rather than
+    ; the field they are cut on.
+    sfn facetSortOf:VlJson (src:VlJson key:string) {
+        def encoding:VlJson (src.get("encoding"))
+        if (encoding.isObject()) {
+            def cdef:VlJson (encoding.get(key))
+            if (cdef.isObject()) {
+                def sort:VlJson (cdef.get("sort"))
+                if (sort.isObject()) {
+                    return sort
+                }
+            }
+        }
+        def facet:VlJson (src.get("facet"))
+        if (facet.isObject()) {
+            def own:VlJson (facet.get(key))
+            if (own.isObject()) {
+                def sort2:VlJson (own.get("sort"))
+                if (sort2.isObject()) {
+                    return sort2
+                }
+            }
+            def sort3:VlJson (facet.get("sort"))
+            if (sort3.isObject()) {
+                return sort3
+            }
+        }
+        return (VlJson.objectValue())
+    }
+
+    ; What the header said about its own labels, put on the title that draws
+    ; them. `labelAngle` is the one that changes the shape of the thing: a row
+    ; label left flat reads across the page and needs the room a turned one
+    ; does not, which is why it also decides how the label is anchored.
+    sfn dressHeaderTitle:void (title:VlJson header:VlJson field:string) {
+        if (! (header.isObject())) {
+            return
+        }
+        def expr:string (header.stringOr("labelExpr" ""))
+        if ((strlen expr) > 0) {
+            def text (VlJson.objectValue())
+            text.setMember("signal" (VlJson.stringValue((VlCompile.headerLabelExpr(expr field)))))
+            title.setMember("text" text)
+        }
+        if (header.has("labelPadding")) {
+            title.setMember("offset" (header.get("labelPadding")))
+        }
+        if (header.has("labelFontSize")) {
+            title.setMember("fontSize" (header.get("labelFontSize")))
+        }
+        if (header.has("labelFont")) {
+            title.setMember("font" (header.get("labelFont")))
+        }
+        if (header.has("labelAlign")) {
+            title.setMember("align" (header.get("labelAlign")))
+        }
+        if (header.has("labelBaseline")) {
+            title.setMember("baseline" (header.get("labelBaseline")))
+        }
+        if (header.has("labelAngle")) {
+            def turn:VlJson (header.get("labelAngle"))
+            title.setMember("angle" turn)
+            if (turn.isNumber()) {
+                if (turn.num == 0.0) {
+                    if (! (title.has("baseline"))) {
+                        title.setMember("baseline" (VlJson.stringValue("middle")))
+                    }
+                }
+            }
+        }
+    }
+
+    ; `labelExpr` is written against `datum.value`, which on a header is the
+    ; value the STRIP stands for — the group's own datum, which a title drawn
+    ; inside it reaches through `parent`.
+    sfn headerLabelExpr:string (expr:string field:string) {
+        def target:string (("parent[\"" + field) + "\"]")
+        def out:string (VlCompile.replaceAll(expr "datum.value" target))
+        return (VlCompile.replaceAll(out "datum[\"value\"]" target))
+    }
+
+    sfn replaceAll:string (text:string find:string swap:string) {
+        if ((strlen find) == 0) {
+            return text
+        }
+        def out:string ""
+        def rest:string text
+        def at:int (indexOf rest find)
+        while (at >= 0) {
+            out = ((out + (substring rest 0 at)) + swap)
+            rest = (substring rest (at + (strlen find)) (strlen rest))
+            at = (indexOf rest find)
+        }
+        return (out + rest)
+    }
+
+    sfn headerGroup:VlJson (name:string role:string from:string labelField:string dimension:string axes:VlJson across:boolean orderBy:string header:VlJson orderDir:string) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue(name)))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -1843,6 +2035,7 @@ class VlCompile {
             title.setMember("style" (VlJson.stringValue("guide-label")))
             title.setMember("frame" (VlJson.stringValue("group")))
             title.setMember("offset" (VlJson.numberValue(10.0)))
+            VlCompile.dressHeaderTitle(title header labelField)
             out.setMember("title" title)
         }
         ; A strip of panels is drawn in the same order as the panels it names,
@@ -1851,7 +2044,7 @@ class VlCompile {
         ; columns it labels.
         if ((strlen from) > 0) {
             if ((strlen orderBy) > 0) {
-                out.setMember("sort" (VlCompile.sortByField(orderBy false)))
+                out.setMember("sort" (VlCompile.sortByField(orderBy false orderDir)))
             }
         }
         def update (VlJson.objectValue())
@@ -1873,25 +2066,25 @@ class VlCompile {
         return ((((("isValid(parent[\"" + field) + "\"]) ? parent[\"") + field) + "\"] : \"\"+parent[\"") + field + "\"]")
     }
 
-    sfn sortByField:VlJson (field:string asList:boolean) {
+    sfn sortByField:VlJson (field:string asList:boolean order:string) {
         def out (VlJson.objectValue())
         def expr:string (("datum[\"" + field) + "\"]")
         if asList {
             def fields (VlJson.arrayValue())
             push fields.arr (VlJson.stringValue(expr))
             def orders (VlJson.arrayValue())
-            push orders.arr (VlJson.stringValue("ascending"))
+            push orders.arr (VlJson.stringValue(order))
             out.setMember("field" fields)
             out.setMember("order" orders)
             return out
         }
         out.setMember("field" (VlJson.stringValue(expr)))
-        out.setMember("order" (VlJson.stringValue("ascending")))
+        out.setMember("order" (VlJson.stringValue(order)))
         return out
     }
 
     ; One panel: the chart itself, drawn over the partition it belongs to.
-    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string) {
+    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string header:VlJson sortField:string sortOp:string orderDir:string) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue("cell")))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -1905,6 +2098,7 @@ class VlCompile {
             title.setMember("style" (VlJson.stringValue("guide-label")))
             title.setMember("frame" (VlJson.stringValue("group")))
             title.setMember("offset" (VlJson.numberValue(10.0)))
+            VlCompile.dressHeaderTitle(title header field)
             out.setMember("title" title)
         }
         def facet (VlJson.objectValue())
@@ -1913,10 +2107,28 @@ class VlCompile {
         def groupby (VlJson.arrayValue())
         push groupby.arr (VlJson.stringValue(field))
         facet.setMember("groupby" groupby)
+        ; Ordered by a field of its own, a panel has to know its own value of
+        ; that field before it can be placed: the partition carries the
+        ; aggregate that reads it, and the panel is sorted by the result.
+        def sortBy:string field
+        if ((strlen sortField) > 0) {
+            sortBy = ((sortField + "_by_") + field)
+            def agg (VlJson.objectValue())
+            def aggFields (VlJson.arrayValue())
+            push aggFields.arr (VlJson.stringValue(sortField))
+            agg.setMember("fields" aggFields)
+            def aggOps (VlJson.arrayValue())
+            push aggOps.arr (VlJson.stringValue(sortOp))
+            agg.setMember("ops" aggOps)
+            def aggAs (VlJson.arrayValue())
+            push aggAs.arr (VlJson.stringValue(sortBy))
+            agg.setMember("as" aggAs)
+            facet.setMember("aggregate" agg)
+        }
         def from (VlJson.objectValue())
         from.setMember("facet" facet)
         out.setMember("from" from)
-        out.setMember("sort" (VlCompile.sortByField(field true)))
+        out.setMember("sort" (VlCompile.sortByField(sortBy true orderDir)))
         def update (VlJson.objectValue())
         update.setMember("width" (VlCompile.signalRef("child_width")))
         update.setMember("height" (VlCompile.signalRef("child_height")))
@@ -9693,8 +9905,19 @@ class VlCompile {
                 ; The PANE's scale, not a scale called "x": a concatenated view
                 ; names each pane's scales after it, and a baseline that named
                 ; the bare axis referred to a scale no chart defines.
-                base.setMember("scale" (VlJson.stringValue((this.sname(axis)))))
-                base.setMember("value" (VlJson.numberValue(0.0)))
+                def scaleName:string (this.sname(axis))
+                ; A scale that does not reach zero has no zero to stand on, and
+                ; the shape runs from the near END of the domain instead. Drawn
+                ; from a zero outside the domain, the scale extrapolates and the
+                ; shape hangs below its own panel — which in a trellis is three
+                ; pixels of extra pitch on every row of the page.
+                if (this.zeroFor(ch)) {
+                    base.setMember("scale" (VlJson.stringValue(scaleName)))
+                    base.setMember("value" (VlJson.numberValue(0.0)))
+                } {
+                    def expr:string (((((("scale('" + scaleName) + "', inrange(0, domain('") + scaleName) + "')) ? 0 : domain('") + scaleName) + "')[0])")
+                    base.setMember("signal" (VlJson.stringValue(expr)))
+                }
                 update.setMember((axis + "2") base)
             }
         }
