@@ -73,6 +73,22 @@ class VlJson {
         if (kind == 3) {
             return str
         }
+        ; A LIST of strings is one label written on several lines — a heading
+        ; given as `["Weekly Weather", "Observations and Predictions"]`. The
+        ; renderers split it again on the line break; read as no string at all,
+        ; the heading was simply missing.
+        if (kind == 4) {
+            def joined:string ""
+            def k:int 0
+            while (k < (array_length arr)) {
+                if (k > 0) {
+                    joined = (joined + "\n")
+                }
+                joined = (joined + ((itemAt arr k).asString()))
+                k = (k + 1)
+            }
+            return joined
+        }
         if (kind == 2) {
             return (VlJson.numberToText(num isInt))
         }

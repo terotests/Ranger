@@ -418,6 +418,25 @@ class VlViewBox {
         ; turned.
         def h:double fontSize
         def w:double (VlText.estimateWidth((item.text("text")) fontSize))
+        ; A label written on several lines is as wide as its widest line and
+        ; as tall as one line plus a line's step for each one after it. The
+        ; anchor is still measured from the FIRST line, which is why the
+        ; nudge below is left alone.
+        def lines:[string] (VlText.lines((item.text("text"))))
+        if ((array_length lines) > 1) {
+            def step:double (VlText.lineStep(fontSize))
+            if (item.has("lineHeight")) {
+                step = (item.number("lineHeight"))
+            }
+            h = (h + (step * (to_double ((array_length lines) - 1))))
+            w = 0.0
+            for lines one:string oi {
+                def wide:double (VlText.estimateWidth(one fontSize))
+                if (wide > w) {
+                    w = wide
+                }
+            }
+        }
         def dx:double 0.0
         if (item.has("dx")) { dx = (item.number("dx")) }
         def dy:double 0.0

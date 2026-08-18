@@ -243,6 +243,25 @@ class VlSvgWriter {
         if (cmd.opacity != 1.0) {
             out = ((((out + " opacity=\"") + (VlJson.formatNumber(cmd.opacity 4))) + "\""))
         }
+        ; A label written on several lines is ONE text element with a span per
+        ; line, each after the first stepped down by a line and put back at the
+        ; left edge — which is how the reference writes it, and the page is
+        ; measured by the same shape.
+        def lines:[string] (VlText.lines(cmd.text))
+        if ((array_length lines) > 1) {
+            def step:double (VlText.lineStep(cmd.fontSize))
+            out = (out + ">")
+            for lines one:string oi {
+                if (oi > 0) {
+                    out = ((out + "<tspan x=\"0\" dy=\"") + (VlJson.formatNumber(step 4))) + "\">"
+                } {
+                    out = (out + "<tspan>")
+                }
+                out = (((out + (VlSvgWriter.escapeText(one))) + "</tspan>"))
+            }
+            out = (out + "</text>")
+            return out
+        }
         out = ((((out + ">") + (VlSvgWriter.escapeText(cmd.text))) + "</text>"))
         return out
     }

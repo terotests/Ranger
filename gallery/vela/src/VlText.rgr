@@ -20,6 +20,28 @@
 class VlText {
     ; The reference's canvas-free estimate, truncated toward zero exactly as its
     ; `~~` does.
+    ; A label written on several lines. The reference keeps them as a list;
+    ; the value model joins them with a line break, and this takes them apart
+    ; again wherever a renderer or a measurement needs them one at a time.
+    sfn lines:[string] (text:string) {
+        def out:[string]
+        def rest:string text
+        def at:int (indexOf rest "\n")
+        while (at >= 0) {
+            push out (substring rest 0 at)
+            rest = (substring rest (at + 1) (strlen rest))
+            at = (indexOf rest "\n")
+        }
+        push out rest
+        return out
+    }
+
+    ; How far apart the reference sets two lines of one label: two pixels more
+    ; than the type is tall, unless the item says otherwise.
+    sfn lineStep:double (fontSize:double) {
+        return (fontSize + 2.0)
+    }
+
     sfn estimateWidth:double (text:string fontSize:double) {
         def chars:int (VlText.characterCount(text))
         def w:double ((0.8 * (to_double chars)) * fontSize)
