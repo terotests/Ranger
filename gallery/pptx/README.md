@@ -66,9 +66,10 @@ From the repo root:
 
 ```bash
 npm run pptx:fixtures     # regenerate fixtures/
-npm run pptx:test         # ALL PASS
+npm run pptx:test         # unit tests → ALL PASS
+npm run pptx:harness      # feature matrix over all fixtures
 npm run pptx:demo         # PNG snapshots in gallery/pptx/
-npm run pptx:window       # WebGL present (← → navigate)
+npm run pptx:window       # WebGL present + fixture picker
 npm run pptx:window:smoke
 ```
 
@@ -76,9 +77,23 @@ Open a specific deck:
 
 ```bash
 npm run pptx:module
-node gallery/pptx/web/serve.mjs --open --file gallery/pptx/fixtures/04-multi.pptx
+node gallery/pptx/web/serve.mjs --open --file gallery/pptx/fixtures/09-kitchen.pptx
 ```
 
+## Feature harness
+
+`harness/manifest.json` lists fixtures and declarative expectations (slide
+count, text, fills, presets, groups, images, display-list depth, …). The
+runner loads each deck through `PptxApp.inspectJson()`:
+
+```bash
+npm run pptx:harness
+node gallery/pptx/harness/run.mjs --fixture 06-text-runs.pptx
+node gallery/pptx/harness/run.mjs --json
+```
+
+Add a new feature by dropping a `.pptx` into `fixtures/`, extending
+`tools/make_fixtures.py`, and appending an entry to the manifest.
 ## Design notes
 
 `PptxResolver` is the long-term fidelity bottleneck (master → layout →

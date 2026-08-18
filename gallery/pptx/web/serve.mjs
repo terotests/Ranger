@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../..");
+const PPTX = path.resolve(__dirname, "..");
 const require = createRequire(import.meta.url);
 
 function argVal(name, def) {
@@ -32,7 +33,7 @@ function hasFlag(name) {
 const PORT = parseInt(argVal("--port", "8766"), 10);
 const DO_OPEN = hasFlag("--open");
 const HEADLESS_SMOKE = hasFlag("--headless-smoke");
-const FILE = argVal("--file", "gallery/pptx/fixtures/01-text.pptx");
+let FILE = argVal("--file", "gallery/pptx/fixtures/01-text.pptx");
 
 const modPath = path.resolve(__dirname, "../bin/pptx_app_module.cjs");
 if (!fs.existsSync(modPath)) {
@@ -44,12 +45,22 @@ if (!fs.existsSync(modPath)) {
 const { PptxApp, UIInput, UIKey } = require(modPath);
 const fontDir = path.resolve(ROOT, "gallery/pdf_writer/assets/fonts");
 const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
+const fixturesDir = path.join(PPTX, "fixtures");
+const manifestPath = path.join(PPTX, "harness/manifest.json");
+
+function loadManifest() {
+  if (!fs.existsSync(manifestPath)) return { fixtures: [] };
+  return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+}
+
+function resolveFile(relOrAbs) {
+  return path.isAbsolute(relOrAbs) ? relOrAbs : path.resolve(ROOT, relOrAbs);
+}
 
 const app = new PptxApp();
 app.init(fontDir);
-const full = path.isAbsolute(FILE) ? FILE : path.resolve(ROOT, FILE);
-if (!app.load(full)) {
-  console.error("Failed to open " + full);
+if (!app.load(resolveFile(FILE))) {
+  console.error("Failed to open " + FILE);
   process.exit(1);
 }
 app.render();
@@ -92,6 +103,15 @@ function send(res, code, type, body) {
   res.end(body);
 }
 
+function fixtureList() {
+  const man = loadManifest();
+  return (man.fixtures || []).map((f) => ({
+    file: f.file,
+    title: f.title || f.file,
+    features: f.features || [],
+  }));
+}
+
 const server = http.createServer((req, res) => {
   const u = new URL(req.url || "/", "http://127.0.0.1");
   if (req.method === "OPTIONS") {
@@ -107,9 +127,17 @@ const server = http.createServer((req, res) => {
     send(res, 200, "application/json; charset=utf-8", app.sceneJson());
     return;
   }
+  if (u.pathname === "/inspect.json") {
+    send(res, 200, "application/json; charset=utf-8", app.inspectJson());
+    return;
+  }
   if (u.pathname === "/frame.bin") {
     const buf = Buffer.from(app.raw());
     send(res, 200, "application/octet-stream", buf);
+    return;
+  }
+  if (u.pathname === "/fixtures.json") {
+    send(res, 200, "application/json; charset=utf-8", JSON.stringify({ current: path.basename(FILE), fixtures: fixtureList() }));
     return;
   }
   if (u.pathname === "/meta.json") {
@@ -123,8 +151,41 @@ const server = http.createServer((req, res) => {
         slides: app.slideCount(),
         index: app.index,
         file: FILE,
+        basename: path.basename(FILE),
       })
     );
+    return;
+  }
+  if (u.pathname === "/open" && req.method === "POST") {
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+      if (raw.length > 1e6) req.destroy();
+    });
+    req.on("end", () => {
+      try {
+        const body = JSON.parse(raw || "{}");
+        const name = String(body.file || "");
+        if (!/^[A-Za-z0-9._-]+\.pptx$/.test(name)) {
+          send(res, 400, "application/json", JSON.stringify({ ok: false, error: "bad file name" }));
+          return;
+        }
+        const full = path.join(fixturesDir, name);
+        if (!full.startsWith(fixturesDir) || !fs.existsSync(full)) {
+          send(res, 404, "application/json", JSON.stringify({ ok: false, error: "missing fixture" }));
+          return;
+        }
+        if (!app.load(full)) {
+          send(res, 500, "application/json", JSON.stringify({ ok: false, error: "load failed" }));
+          return;
+        }
+        FILE = path.relative(ROOT, full).split(path.sep).join("/");
+        app.render();
+        send(res, 200, "application/json", JSON.stringify({ ok: true, file: FILE, slides: app.slideCount() }));
+      } catch (e) {
+        send(res, 400, "text/plain", String(e));
+      }
+    });
     return;
   }
   if (u.pathname === "/input" && req.method === "POST") {
