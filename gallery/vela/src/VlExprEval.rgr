@@ -583,6 +583,38 @@ class VlExprEval {
         ; and the answer is always no. The reference asks this beside a
         ; finiteness test (`isDate(d) || (isValid(d) && isFinite(+d))`), and
         ; the other half of that answers correctly for a number.
+        ; `timeOffset('month', d, -1)` is the instant a whole unit before or
+        ; after another — a calendar question, not an arithmetic one, since a
+        ; month is not a fixed number of milliseconds. The reference asks it
+        ; when it places a bar over the unit its row belongs to.
+        if (name == "timeOffset") {
+            def unit:string (a0.asString())
+            def when:double (a1.asDouble())
+            def steps:int 1
+            if (a2.isDefined()) {
+                steps = (to_int (a2.asDouble()))
+            }
+            def back:boolean (steps < 0)
+            def count:int steps
+            if back {
+                count = (0 - steps)
+            }
+            def at:double when
+            def k:int 0
+            while (k < count) {
+                if back {
+                    ; A step BACK is the start of the unit before this one,
+                    ; which is where the instant a millisecond earlier falls.
+                    ; The reference only ever asks this of an instant already
+                    ; floored to its unit, so that is the whole of it.
+                    at = (VlTime.floorTo((at - 1.0) unit scope.zone))
+                } {
+                    at = (VlTime.addUnit(at unit scope.zone))
+                }
+                k = (k + 1)
+            }
+            return (VlJson.numberValue(at))
+        }
         if (name == "isDate") {
             return (VlJson.boolValue(false))
         }
