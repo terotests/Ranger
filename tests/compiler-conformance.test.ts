@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -11,6 +11,12 @@ import {
   isGoAvailable,
   isKotlinAvailable,
 } from "./helpers/compiler";
+
+// Let the Vitest worker event loop flush between cases so birpc's onTaskUpdate
+// RPC does not time out after a long stretch of sync compile/run work.
+afterEach(async () => {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
