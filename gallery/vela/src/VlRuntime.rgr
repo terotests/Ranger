@@ -1797,15 +1797,22 @@ class VlRuntime {
             titleBox.height = chartHeight
             ; What the chart covers on each side, so that a title asked to
             ; centre on its BOUNDS has something to centre on.
-            titleBox.left = extentLeft
-            titleBox.right = extentRight
-            titleBox.bottom = extentBottom
             ; A chart's title stands clear of EVERYTHING above the plot, not of
-            ; the plot itself. The topmost label of a continuous y axis is
-            ; centred on the plot's upper edge, so half of it hangs above —
-            ; and a title measured from the plot sat five pixels lower than the
-            ; reference's, which is five pixels of page.
-            titleBox.top = extentTop
+            ; the plot itself: the topmost label of a continuous y axis is
+            ; centred on the plot's upper edge, so half of it hangs above, and
+            ; a row of labels a mark put above the plot hangs further. What the
+            ; axes claimed is only half the answer — the MARKS have to be
+            ; measured too, or a title asked to stand clear of them was drawn
+            ; through the labels it should have been above.
+            def covered (new VlBounds())
+            covered.set(0.0 0.0 chartWidth chartHeight)
+            for rootItem.marks drawnMark:VlSceneMark dmi {
+                covered.union((VlViewBox.cut(drawnMark chartWidth chartHeight)))
+            }
+            titleBox.left = (VlRuntime.higher(extentLeft (0.0 - covered.x1)))
+            titleBox.right = (VlRuntime.higher(extentRight (covered.x2 - chartWidth)))
+            titleBox.bottom = (VlRuntime.higher(extentBottom (covered.y2 - chartHeight)))
+            titleBox.top = (VlRuntime.higher(extentTop (0.0 - covered.y1)))
             ; A CHART's title is set in the group-title style — thirteen point
             ; and bold — where a facet header's is a guide title at eleven.
             def styled:VlJson (VlJson.objectValue())

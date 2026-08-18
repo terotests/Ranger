@@ -4187,6 +4187,7 @@ class VlCompile {
         derived.setMember("source" (VlJson.stringValue(sourceName)))
         def transforms (VlJson.arrayValue())
 
+        this.pushNestedFields(transforms)
         this.pushTimeParse(transforms)
         this.pushSpecTransforms(transforms)
         this.pushDomainOrder(transforms)
@@ -4752,6 +4753,62 @@ class VlCompile {
     ; A date arrives as text and has to become an instant before a scale can
     ; place it, which the reference does with a formula rather than by teaching
     ; the scale to parse.
+    ; A dotted field name is a PATH into a nested row: `record.low` is the
+    ; `low` of the `record` object. The reference flattens each one into a
+    ; column of its own, named after the whole path, and everything downstream
+    ; reads that column — so a chart of floating bars asks for `record.low` and
+    ; finds it. Without the flattening the column was never there, the validity
+    ; filter threw every row away, and the bars were simply not drawn.
+    fn pushNestedFields:void (transforms:VlJson) {
+        def seen:[string:int]
+        for channels ch:VlChannel ci {
+            def f:string ch.field
+            if ((strlen f) > 0) {
+                if ((indexOf f ".") > 0) {
+                    if (! (has seen f)) {
+                        set seen f 1
+                        def t (VlJson.objectValue())
+                        t.setMember("type" (VlJson.stringValue("formula")))
+                        t.setMember("expr" (VlJson.stringValue((VlCompile.nestedExpr(f)))))
+                        t.setMember("as" (VlJson.stringValue(f)))
+                        push transforms.arr t
+                    }
+                }
+            }
+        }
+    }
+
+    ; `datum["record"] && datum["record"]["low"]` — each step of the path
+    ; guarded by the one before it, which is what the reference writes.
+    sfn nestedExpr:string (path:string) {
+        def parts:[string] (VlCompile.splitOnDots(path))
+        def acc:string "datum"
+        def out:string ""
+        def k:int 0
+        while (k < (array_length parts)) {
+            acc = (((acc + "[\"") + (itemAt parts k)) + "\"]")
+            if (k > 0) {
+                out = (out + " && ")
+            }
+            out = (out + acc)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn splitOnDots:[string] (path:string) {
+        def out:[string]
+        def rest:string path
+        def at:int (indexOf rest ".")
+        while (at >= 0) {
+            push out (substring rest 0 at)
+            rest = (substring rest (at + 1) (strlen rest))
+            at = (indexOf rest ".")
+        }
+        push out rest
+        return out
+    }
+
     fn pushTimeParse:void (transforms:VlJson) {
         def done:[string]
         ; A field a time unit TRANSFORM reads needs the same treatment as one a
@@ -6077,14 +6134,22 @@ class VlCompile {
                         reachesZero = (this.zeroFor(ch))
                         sc.setMember("zero" (VlJson.boolValue(reachesZero)))
                     }
-                    ; Five pixels of room at the ends, so a BAR sitting on
-                    ; the lowest value is not drawn half outside the plot.
-                    ; Only a bar: a line or a point at the edge of its own
-                    ; scale is where the data put it, and the reference
-                    ; leaves it there.
+                    ; Five pixels of room at the ends, so a BAR sitting on the
+                    ; lowest value is not drawn half outside the plot. Only a
+                    ; bar: a line or a point at the edge of its own scale is
+                    ; where the data put it, and the reference leaves it there.
+                    ;
+                    ; …and only ACROSS the bar, never along it. The five pixels
+                    ; are half the bar's own width, so they belong to the axis
+                    ; its width runs along — the axis its LENGTH runs along has
+                    ; no width to make room for. A chart of floating bars had
+                    ; its temperature scale inset five pixels at both ends and
+                    ; every gridline in the wrong place.
                     if (! reachesZero) {
                         if (markName == "bar") {
-                            sc.setMember("padding" (VlJson.numberValue(5.0)))
+                            if (this.barPaddingHere(ch axis)) {
+                                sc.setMember("padding" (VlJson.numberValue(5.0)))
+                            }
                         }
                     }
                 }
@@ -6295,6 +6360,98 @@ class VlCompile {
             return false
         }
         return (declared.has("domain"))
+    }
+
+    ; Which way a bar stands. It is the reference's own rule, and it decides
+    ; where the five pixels of room at the ends of a scale go: they are half a
+    ; bar's WIDTH, so they belong to the axis the bar's width runs along and
+    ; never to the one its length runs along.
+    fn barOrient:string () {
+        def x:VlChannel (this.channel("x"))
+        def y:VlChannel (this.channel("y"))
+        def hasX2:boolean ((this.channel("x2")).defined)
+        def hasY2:boolean ((this.channel("y2")).defined)
+        if x.defined {
+            if x.binnedAlready {
+                return "vertical"
+            }
+            if y.defined {
+                if (((strlen y.aggregate) > 0) && ((strlen x.aggregate) == 0)) {
+                    return "vertical"
+                }
+            }
+        }
+        if y.defined {
+            if y.binnedAlready {
+                return "horizontal"
+            }
+            if x.defined {
+                if (((strlen x.aggregate) > 0) && ((strlen y.aggregate) == 0)) {
+                    return "horizontal"
+                }
+            }
+        }
+        ; A bar drawn between two values on ONE axis stands the other way.
+        if (hasY2 && (! hasX2)) {
+            if (x.defined) {
+                if (((x.kind == "quantitative") && (! x.hasBin)) && y.binnedAlready) {
+                    return "horizontal"
+                }
+            }
+            return "vertical"
+        }
+        if (hasX2 && (! hasY2)) {
+            if (y.defined) {
+                if (((y.kind == "quantitative") && (! y.hasBin)) && x.binnedAlready) {
+                    return "vertical"
+                }
+            }
+            return "horizontal"
+        }
+        if (hasX2 && hasY2) {
+            return "vertical"
+        }
+        ; Neither end stated: the bar is measured up whichever axis carries a
+        ; plain number and read along the other.
+        def xMeasure:boolean ((x.defined && (x.kind == "quantitative")) && (! x.hasBin))
+        def yMeasure:boolean ((y.defined && (y.kind == "quantitative")) && (! y.hasBin))
+        if (xMeasure && (! yMeasure)) {
+            return "horizontal"
+        }
+        if ((! xMeasure) && yMeasure) {
+            return "vertical"
+        }
+        if (xMeasure && yMeasure) {
+            return "vertical"
+        }
+        def xTime:boolean (x.defined && (x.kind == "temporal"))
+        def yTime:boolean (y.defined && (y.kind == "temporal"))
+        if (xTime && (! yTime)) {
+            return "vertical"
+        }
+        if ((! xTime) && yTime) {
+            return "horizontal"
+        }
+        return ""
+    }
+
+    ; Does the room at the ends of a scale belong to THIS axis? Only across the
+    ; bar, and never on a column that is a range already.
+    fn barPaddingHere:boolean (ch:VlChannel axis:string) {
+        if ch.hasBin {
+            return false
+        }
+        if ((strlen ch.timeUnit) > 0) {
+            return false
+        }
+        def orient:string (this.barOrient())
+        if ((orient == "vertical") && (axis == "x")) {
+            return true
+        }
+        if ((orient == "horizontal") && (axis == "y")) {
+            return true
+        }
+        return false
     }
 
     fn zeroFor:boolean (ch:VlChannel) {
