@@ -59,6 +59,7 @@ gallery/pptx/
 - [x] Master + layout backgrounds and chrome shapes
 - [x] Placeholder match by `type` / `idx` with geometry + style inheritance
 - [x] PNG + JPEG SoftCanvas blit (`PptxImageDecode` + `blitImageRectScaled`)
+- [x] WebGL host serves OPC media via `/part/ppt/media/…` + `loadImages`
 - [x] Text: align L/C/R (measured), font size, bold/italic/bold-italic faces,
       run color, insets, wrap, vertical anchor (top/middle/bottom estimate)
 - [x] Two-stop linear gradients + outer shadow under SoftCanvas rects

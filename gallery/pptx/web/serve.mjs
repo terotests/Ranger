@@ -127,6 +127,28 @@ const server = http.createServer((req, res) => {
     send(res, 200, "application/json; charset=utf-8", app.sceneJson());
     return;
   }
+  if (u.pathname.startsWith("/part/")) {
+    // WebGL loadImages fetches OPC media paths as /part/ppt/media/…
+    let part = decodeURIComponent(u.pathname.slice("/part/".length));
+    if (part.startsWith("/")) part = part.slice(1);
+    if (!/^ppt\/media\/[A-Za-z0-9._-]+$/.test(part)) {
+      send(res, 400, "text/plain", "bad part");
+      return;
+    }
+    const bytes = Buffer.from(app.readMediaPart(part));
+    if (!bytes.length) {
+      send(res, 404, "text/plain", "missing part");
+      return;
+    }
+    const lower = part.toLowerCase();
+    let type = "application/octet-stream";
+    if (lower.endsWith(".png")) type = "image/png";
+    else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) type = "image/jpeg";
+    else if (lower.endsWith(".gif")) type = "image/gif";
+    else if (lower.endsWith(".webp")) type = "image/webp";
+    send(res, 200, type, bytes);
+    return;
+  }
   if (u.pathname === "/inspect.json") {
     send(res, 200, "application/json; charset=utf-8", app.inspectJson());
     return;
@@ -237,7 +259,19 @@ server.listen(PORT, "127.0.0.1", async () => {
       const scene = JSON.parse(app.sceneJson());
       const cmds = scene?.list?.cmds || [];
       if (!cmds.length) throw new Error("empty display list");
-      console.log("smoke ok cmds=" + cmds.length + " slides=" + app.slideCount());
+      const imgs = cmds.filter((c) => c.k === 2 && c.src);
+      for (const c of imgs) {
+        const bytes = Buffer.from(app.readMediaPart(c.src));
+        if (!bytes.length) throw new Error("missing media part " + c.src);
+      }
+      console.log(
+        "smoke ok cmds=" +
+          cmds.length +
+          " images=" +
+          imgs.length +
+          " slides=" +
+          app.slideCount()
+      );
       server.close();
       process.exit(0);
     } catch (e) {
