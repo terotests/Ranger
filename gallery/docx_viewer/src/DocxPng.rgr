@@ -1,0 +1,203 @@
+; ==============================================================================
+; DocxPng - minimal PNG → pdf_writer ImageBuffer (RGB/RGBA) for SoftCanvas.
+; ==============================================================================
+; Supports color types 2 (RGB) and 6 (RGBA), 8-bit, non-interlaced.
+; Uses gallery/zip Inflate. Kept at SoftCanvas ImageBuffer level (not OOXML).
+; ==============================================================================
+
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../zip/Inflate.rgr"
+
+class DocxPng {
+    sfn decode:ImageBuffer (data:buffer) {
+        def empty:ImageBuffer (new ImageBuffer)
+        if ((buffer_length data) < 24) {
+            return empty
+        }
+        ; signature
+        if ((buffer_get data 0) != 137) {
+            return empty
+        }
+        if ((buffer_get data 1) != 80) {
+            return empty
+        }
+        def pos:int 8
+        def n:int (buffer_length data)
+        def width:int 0
+        def height:int 0
+        def bitDepth:int 0
+        def colorType:int 0
+        def idat:buffer (buffer_alloc 0)
+        def idatLen:int 0
+        while ((pos + 8) <= n) {
+            def len:int (DocxPng.u32(data pos))
+            pos = (pos + 4)
+            def t0:int (buffer_get data pos)
+            def t1:int (buffer_get data (pos + 1))
+            def t2:int (buffer_get data (pos + 2))
+            def t3:int (buffer_get data (pos + 3))
+            pos = (pos + 4)
+            if ((t0 == 73) && (t1 == 72) && (t2 == 68) && (t3 == 82)) {
+                ; IHDR
+                width = (DocxPng.u32(data pos))
+                height = (DocxPng.u32(data (pos + 4)))
+                bitDepth = (buffer_get data (pos + 8))
+                colorType = (buffer_get data (pos + 9))
+            }
+            if ((t0 == 73) && (t1 == 68) && (t2 == 65) && (t3 == 84)) {
+                ; IDAT append
+                def nextLen:int (idatLen + len)
+                def next:buffer (buffer_alloc nextLen)
+                def ci:int 0
+                while (ci < idatLen) {
+                    buffer_set next ci (buffer_get idat ci)
+                    ci = (ci + 1)
+                }
+                def di:int 0
+                while (di < len) {
+                    buffer_set next (idatLen + di) (buffer_get data (pos + di))
+                    di = (di + 1)
+                }
+                idat = next
+                idatLen = nextLen
+            }
+            if ((t0 == 73) && (t1 == 69) && (t2 == 78) && (t3 == 68)) {
+                pos = n
+            } {
+                pos = (pos + len + 4)
+            }
+        }
+        if ((width < 1) || (height < 1)) {
+            return empty
+        }
+        if (bitDepth != 8) {
+            return empty
+        }
+        if ((colorType != 2) && (colorType != 6)) {
+            return empty
+        }
+        def bpp:int 3
+        if (colorType == 6) {
+            bpp = 4
+        }
+        def rowBytes:int (width * bpp)
+        def expected:int ((rowBytes + 1) * height)
+        ; PNG IDAT is zlib-wrapped; strip CMF+FLG then raw deflate.
+        if (idatLen < 6) {
+            return empty
+        }
+        def deflateLen:int (idatLen - 6)
+        def deflateBuf:buffer (buffer_alloc deflateLen)
+        def di2:int 0
+        while (di2 < deflateLen) {
+            buffer_set deflateBuf di2 (buffer_get idat (di2 + 2))
+            di2 = (di2 + 1)
+        }
+        def infl:Inflate (new Inflate)
+        def raw:buffer (infl.decompress(deflateBuf))
+        if ((buffer_length raw) < expected) {
+            return empty
+        }
+        def img:ImageBuffer (new ImageBuffer)
+        img.init(width height)
+        def y:int 0
+        def prev:[int]
+        def pi:int 0
+        while (pi < rowBytes) {
+            push prev 0
+            pi = (pi + 1)
+        }
+        while (y < height) {
+            def rowOff:int (y * (rowBytes + 1))
+            def filter:int (buffer_get raw rowOff)
+            def cur:[int]
+            def x:int 0
+            while (x < rowBytes) {
+                def fv:int (buffer_get raw (rowOff + 1 + x))
+                def left:int 0
+                if (x >= bpp) {
+                    left = (itemAt cur (x - bpp))
+                }
+                def up:int (itemAt prev x)
+                def upLeft:int 0
+                if (x >= bpp) {
+                    upLeft = (itemAt prev (x - bpp))
+                }
+                def recon:int fv
+                if (filter == 1) {
+                    recon = (fv + left)
+                }
+                if (filter == 2) {
+                    recon = (fv + up)
+                }
+                if (filter == 3) {
+                    recon = (fv + (idiv (left + up) 2))
+                }
+                if (filter == 4) {
+                    recon = (fv + (DocxPng.paeth(left up upLeft)))
+                }
+                recon = (DocxPng.mod256(recon))
+                push cur recon
+                x = (x + 1)
+            }
+            def px:int 0
+            while (px < width) {
+                def o:int (((y * width) + px) * 4)
+                def base:int (px * bpp)
+                buffer_set img.pixels o (itemAt cur base)
+                buffer_set img.pixels (o + 1) (itemAt cur (base + 1))
+                buffer_set img.pixels (o + 2) (itemAt cur (base + 2))
+                if (bpp == 4) {
+                    buffer_set img.pixels (o + 3) (itemAt cur (base + 3))
+                } {
+                    buffer_set img.pixels (o + 3) 255
+                }
+                px = (px + 1)
+            }
+            prev = cur
+            y = (y + 1)
+        }
+        return img
+    }
+
+    sfn u32:int (data:buffer at:int) {
+        def b0:int (buffer_get data at)
+        def b1:int (buffer_get data (at + 1))
+        def b2:int (buffer_get data (at + 2))
+        def b3:int (buffer_get data (at + 3))
+        return (((((b0 * 256) + b1) * 256) + b2) * 256) + b3
+    }
+
+    sfn mod256:int (v:int) {
+        while (v < 0) {
+            v = (v + 256)
+        }
+        while (v >= 256) {
+            v = (v - 256)
+        }
+        return v
+    }
+
+    sfn paeth:int (a:int b:int c:int) {
+        def p:int ((a + b) - c)
+        def pa:int (p - a)
+        if (pa < 0) {
+            pa = (0 - pa)
+        }
+        def pb:int (p - b)
+        if (pb < 0) {
+            pb = (0 - pb)
+        }
+        def pc:int (p - c)
+        if (pc < 0) {
+            pc = (0 - pc)
+        }
+        if ((pa <= pb) && (pa <= pc)) {
+            return a
+        }
+        if (pb <= pc) {
+            return b
+        }
+        return c
+    }
+}

@@ -11,9 +11,11 @@ class DocxDemo {
             print ("FAIL open: " + viewer.lastError)
             return
         }
+        def d:RichDocument (viewer.document())
         viewer.renderPage(0)
         viewer.writePng("gallery/docx_viewer" outName)
-        print ("  paragraphs=" + (to_string (viewer.document().paragraphCount())))
+        print ("  paragraphs=" + (to_string (d.paragraphCount())))
+        print ("  tables=" + (to_string (array_length d.tables)))
         print ("  pages=" + (to_string (viewer.pageCount())))
         print ("  text: " + (substring (viewer.plainText()) 0 80))
         print ("  wrote gallery/docx_viewer/" + outName)
@@ -27,6 +29,19 @@ class DocxDemo {
         DocxDemo.renderOne(viewer fix "styles_demo.docx" "docx_styles.png")
         DocxDemo.renderOne(viewer fix "lists_demo.docx" "docx_lists.png")
         DocxDemo.renderOne(viewer fix "images_demo.docx" "docx_images.png")
+        DocxDemo.renderOne(viewer fix "05-table-basic.docx" "docx_table.png")
+        DocxDemo.renderOne(viewer fix "20-business-report.docx" "docx_business_p0.png")
+        ; page with table/image features when available
+        if ((viewer.openFile(fix "20-business-report.docx"))) {
+            def n:int (viewer.pageCount())
+            def pg:int 0
+            if (n > 1) {
+                pg = 1
+            }
+            viewer.renderPage(pg)
+            viewer.writePng("gallery/docx_viewer" "docx_business_features.png")
+            print ("  wrote business features page " + (to_string pg))
+        }
         print "docx_demo done"
     }
 }

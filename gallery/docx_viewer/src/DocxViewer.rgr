@@ -51,8 +51,20 @@ class DocxViewer {
         view.present(doc page numbering)
     }
 
+    fn renderAll:void (maxPages:int) {
+        view.presentAll(doc numbering maxPages)
+    }
+
     fn pageCount:int () {
         return (view.layout.pageCount())
+    }
+
+    fn pageWidth:int () {
+        return (view.width())
+    }
+
+    fn pageHeight:int () {
+        return (view.height())
     }
 
     fn writePng:void (dir:string file:string) {
@@ -61,5 +73,9 @@ class DocxViewer {
 
     fn plainText:string () {
         return (doc.plainText())
+    }
+
+    fn inspectJson:string () {
+        return (doc.inspectJson())
     }
 }

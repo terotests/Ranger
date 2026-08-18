@@ -1,0 +1,93 @@
+; ==============================================================================
+; docx_oracle_dump - write actual.json (inspectJson) + per-page PNGs
+; ==============================================================================
+;
+; Usage:
+;   node gallery/docx_viewer/bin/docx_oracle_dump.js <file.docx> <outDir>
+; ==============================================================================
+
+Import "DocxViewer.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DocxOracleDump {
+    sfn writeText:void (dir:string name:string text:string) {
+        def len:int (strlen text)
+        def data:buffer (buffer_alloc len)
+        def i:int 0
+        while (i < len) {
+            buffer_set data i (charAt text i)
+            i = (i + 1)
+        }
+        buffer_write_file dir name data
+    }
+
+    sfn pad3:string (n:int) {
+        if (n < 10) {
+            return ("00" + (to_string n))
+        }
+        if (n < 100) {
+            return ("0" + (to_string n))
+        }
+        return (to_string n)
+    }
+
+    sfn splitPath:void (fullPath:string dirOut:[string] nameOut:[string]) {
+        def lastSep:int (lastIndexOf fullPath "/")
+        if (lastSep < 0) {
+            push dirOut "."
+            push nameOut fullPath
+            return
+        }
+        if (lastSep == 0) {
+            push dirOut "/"
+            push nameOut (substring fullPath 1 (strlen fullPath))
+            return
+        }
+        push dirOut (substring fullPath 0 lastSep)
+        push nameOut (substring fullPath (lastSep + 1) (strlen fullPath))
+    }
+
+    sfn main:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 2) {
+            print "usage: docx_oracle_dump <file.docx> <outDir>"
+            return
+        }
+        def full:string (shell_arg 0)
+        def outDir:string (shell_arg 1)
+
+        def dirs:[string]
+        def names:[string]
+        DocxOracleDump.splitPath(full dirs names)
+        def dir:string (itemAt dirs 0)
+        def file:string (itemAt names 0)
+
+        def viewer:DocxViewer (new DocxViewer)
+        viewer.init("gallery/pdf_writer/assets/fonts")
+        def ok:boolean (viewer.openFile(dir file))
+        if (ok == false) {
+            print ("FAILED open " + full + " err=" + viewer.lastError)
+            return
+        }
+
+        DocxOracleDump.writeText(outDir "actual.json" (viewer.inspectJson()))
+        print ("wrote " + outDir + "/actual.json")
+
+        ; Force layout for page count, then render each page.
+        viewer.renderPage(0)
+        def n:int (viewer.pageCount())
+        if (n < 1) {
+            n = 1
+        }
+        def i:int 0
+        while (i < n) {
+            viewer.renderPage(i)
+            def name:string (("page-" + (DocxOracleDump.pad3(i))) + ".png")
+            viewer.writePng(outDir name)
+            print ("wrote " + outDir + "/" + name + " " + (to_string (viewer.view.width())) + "x" + (to_string (viewer.view.height())))
+            i = (i + 1)
+        }
+        print ("oracle dump done pages=" + (to_string n))
+    }
+}
