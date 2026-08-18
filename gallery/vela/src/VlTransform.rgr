@@ -564,6 +564,12 @@ class VlTransform {
         if (v.isNumber()) {
             return v.num
         }
+        ; A number written as a STRING is still a number: the reference coerces
+        ; what it stacks, and a grid of bars whose percentages were quoted in
+        ; the data stacked nothing at all and drew nine bars of no width.
+        if (v.isString()) {
+            return (v.asDouble())
+        }
         return 0.0
     }
 

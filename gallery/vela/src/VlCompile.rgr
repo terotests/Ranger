@@ -1615,7 +1615,16 @@ class VlCompile {
         if ((strlen sortField) > 0) {
             orderField = sortField
         }
-        push data.arr (VlCompile.domainData(domainName facetField child.dataLabel sortField sortOp))
+        ; A trellis cut BOTH ways is a grid: one strip of headers across the
+        ; top naming the columns, one down the side naming the rows, and a
+        ; panel at every crossing. It needs a domain for each.
+        def gridded:boolean (((strlen rowField) > 0) && ((strlen columnField) > 0))
+        if gridded {
+            push data.arr (VlCompile.domainData("column_domain" columnField child.dataLabel "" "min"))
+            push data.arr (VlCompile.domainData("row_domain" rowField child.dataLabel "" "min"))
+        } {
+            push data.arr (VlCompile.domainData(domainName facetField child.dataLabel sortField sortOp))
+        }
         def columns:VlJson columnsDef
         if wrapped {
             ; A wrapped grid's shape is computed rather than declared, and both
@@ -1673,6 +1682,21 @@ class VlCompile {
             push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false "" (VlJson.objectValue()) "ascending"))
             push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "facet_domain_column" "" "child_width" xAxes true "" (VlJson.objectValue()) "ascending"))
         } {
+            if gridded {
+                ; A grid names both of its strips: one down the side and one
+                ; across the top, each from its own channel.
+                def rowTitleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src "row" rowTitleField))))
+                def columnTitleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src "column" columnTitleField))))
+                if ((strlen (rowTitleText.asString())) > 0) {
+                    push marks.arr (VlCompile.titleGroup("row-title" "row-title" rowTitleText "left" (VlCompile.facetHeaderOf(src "row"))))
+                }
+                if ((strlen (columnTitleText.asString())) > 0) {
+                    push marks.arr (VlCompile.titleGroup("column-title" "column-title" columnTitleText "" (VlCompile.facetHeaderOf(src "column"))))
+                }
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false rowField (VlCompile.facetHeaderOf(src "row")) "ascending"))
+                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true columnField (VlCompile.facetHeaderOf(src "column")) "ascending"))
+                push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true columnField (VlJson.objectValue()) "ascending"))
+            } {
             if ((strlen rowField) > 0) {
                 if ((strlen (titleText.asString())) > 0) {
                     push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left" (VlCompile.facetHeaderOf(src facetKey))))
@@ -1690,8 +1714,13 @@ class VlCompile {
                 push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true orderField (VlCompile.facetHeaderOf(src "column")) sortDir))
                 push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true orderField (VlJson.objectValue()) sortDir))
             }
+            }
         }
-        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel (VlCompile.facetHeaderOf(src facetKey)) sortField sortOp sortDir))
+        def crossField:string ""
+        if gridded {
+            crossField = columnField
+        }
+        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel (VlCompile.facetHeaderOf(src facetKey)) sortField sortOp sortDir crossField))
         out.setMember("marks" marks)
 
         ; Where the panels go, and how far the title stands clear of them.
@@ -1716,12 +1745,21 @@ class VlCompile {
         if (! wrapped) {
             ; …and the title only stands clear of them if there is a title.
             def offset (VlJson.objectValue())
+            if gridded {
+                if ((strlen (VlCompile.facetTitle(src "row" rowTitleField))) > 0) {
+                    offset.setMember("rowTitle" (VlJson.numberValue(10.0)))
+                }
+                if ((strlen (VlCompile.facetTitle(src "column" columnTitleField))) > 0) {
+                    offset.setMember("columnTitle" (VlJson.numberValue(10.0)))
+                }
+            } {
             if ((strlen (titleText.asString())) > 0) {
                 if ((strlen rowField) > 0) {
                     offset.setMember("rowTitle" (VlJson.numberValue(10.0)))
                 } {
                     offset.setMember("columnTitle" (VlJson.numberValue(10.0)))
                 }
+            }
             }
             if ((array_length offset.keys) > 0) {
                 layout.setMember("offset" offset)
@@ -1732,7 +1770,7 @@ class VlCompile {
             layout.setMember("align" (VlJson.stringValue("all")))
             layout.setMember("columns" columnsDef)
         } {
-            if ((strlen rowField) > 0) {
+            if (((strlen rowField) > 0) && (! gridded)) {
                 layout.setMember("columns" (VlJson.numberValue(1.0)))
             } {
                 def count (VlJson.objectValue())
@@ -1952,7 +1990,7 @@ class VlCompile {
     ; them. `labelAngle` is the one that changes the shape of the thing: a row
     ; label left flat reads across the page and needs the room a turned one
     ; does not, which is why it also decides how the label is anchored.
-    sfn dressHeaderTitle:void (title:VlJson header:VlJson field:string) {
+    sfn dressHeaderTitle:void (title:VlJson header:VlJson field:string across:boolean) {
         if (! (header.isObject())) {
             return
         }
@@ -1984,6 +2022,16 @@ class VlCompile {
                 if (turn.num == 0.0) {
                     if (! (title.has("baseline"))) {
                         title.setMember("baseline" (VlJson.stringValue("middle")))
+                    }
+                    ; A flat label down the SIDE of a grid reads toward the
+                    ; panels it names, so it is anchored at its right edge and
+                    ; the strip is as wide as the longest of them. Centred
+                    ; instead, every row of a grid of bars sat fifteen pixels
+                    ; left of where the reference draws it.
+                    if (! across) {
+                        if (! (title.has("align"))) {
+                            title.setMember("align" (VlJson.stringValue("right")))
+                        }
                     }
                 }
             }
@@ -2035,7 +2083,7 @@ class VlCompile {
             title.setMember("style" (VlJson.stringValue("guide-label")))
             title.setMember("frame" (VlJson.stringValue("group")))
             title.setMember("offset" (VlJson.numberValue(10.0)))
-            VlCompile.dressHeaderTitle(title header labelField)
+            VlCompile.dressHeaderTitle(title header labelField across)
             out.setMember("title" title)
         }
         ; A strip of panels is drawn in the same order as the panels it names,
@@ -2066,6 +2114,21 @@ class VlCompile {
         return ((((("isValid(parent[\"" + field) + "\"]) ? parent[\"") + field) + "\"] : \"\"+parent[\"") + field + "\"]")
     }
 
+    ; Two fields at once, which is what a grid's panels are ordered by: down
+    ; the rows first and across the columns within each row.
+    sfn sortByFields:VlJson (first:string second:string order:string) {
+        def out (VlJson.objectValue())
+        def fields (VlJson.arrayValue())
+        push fields.arr (VlJson.stringValue((("datum[\"" + first) + "\"]")))
+        push fields.arr (VlJson.stringValue((("datum[\"" + second) + "\"]")))
+        def orders (VlJson.arrayValue())
+        push orders.arr (VlJson.stringValue(order))
+        push orders.arr (VlJson.stringValue(order))
+        out.setMember("field" fields)
+        out.setMember("order" orders)
+        return out
+    }
+
     sfn sortByField:VlJson (field:string asList:boolean order:string) {
         def out (VlJson.objectValue())
         def expr:string (("datum[\"" + field) + "\"]")
@@ -2084,7 +2147,7 @@ class VlCompile {
     }
 
     ; One panel: the chart itself, drawn over the partition it belongs to.
-    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string header:VlJson sortField:string sortOp:string orderDir:string) {
+    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string header:VlJson sortField:string sortOp:string orderDir:string crossField:string) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue("cell")))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -2098,7 +2161,7 @@ class VlCompile {
             title.setMember("style" (VlJson.stringValue("guide-label")))
             title.setMember("frame" (VlJson.stringValue("group")))
             title.setMember("offset" (VlJson.numberValue(10.0)))
-            VlCompile.dressHeaderTitle(title header field)
+            VlCompile.dressHeaderTitle(title header field true)
             out.setMember("title" title)
         }
         def facet (VlJson.objectValue())
@@ -2106,7 +2169,18 @@ class VlCompile {
         facet.setMember("data" (VlJson.stringValue(from)))
         def groupby (VlJson.arrayValue())
         push groupby.arr (VlJson.stringValue(field))
+        ; A grid is cut TWICE — once down and once across — so a panel is the
+        ; rows that answer to both, and every crossing gets a panel whether or
+        ; not the data has a row for it. That is what `cross` says.
+        if ((strlen crossField) > 0) {
+            push groupby.arr (VlJson.stringValue(crossField))
+        }
         facet.setMember("groupby" groupby)
+        if ((strlen crossField) > 0) {
+            def crossed (VlJson.objectValue())
+            crossed.setMember("cross" (VlJson.boolValue(true)))
+            facet.setMember("aggregate" crossed)
+        }
         ; Ordered by a field of its own, a panel has to know its own value of
         ; that field before it can be placed: the partition carries the
         ; aggregate that reads it, and the panel is sorted by the result.
@@ -2128,7 +2202,11 @@ class VlCompile {
         def from (VlJson.objectValue())
         from.setMember("facet" facet)
         out.setMember("from" from)
-        out.setMember("sort" (VlCompile.sortByField(sortBy true orderDir)))
+        if ((strlen crossField) > 0) {
+            out.setMember("sort" (VlCompile.sortByFields(sortBy crossField orderDir)))
+        } {
+            out.setMember("sort" (VlCompile.sortByField(sortBy true orderDir)))
+        }
         def update (VlJson.objectValue())
         update.setMember("width" (VlCompile.signalRef("child_width")))
         update.setMember("height" (VlCompile.signalRef("child_height")))

@@ -376,7 +376,16 @@ class VlLegend {
             ; Yield (bushels/acre)" claimed the width of a string it shows
             ; twenty characters of, and the page grew by the difference.
             titleBox = (VlBounds.ofText((VlText.truncate(title titleFontSize titleLimit)) titleFontSize "left" "top" padding padding))
-            entryY = (entryY + ((titleBox.height()) + titlePadding))
+            ; `titleOrient: "left"` puts the name BESIDE the key rather than
+            ; over it, which is how a key under a chart is kept one line deep.
+            ; Read as the default, a grid of bars was sixteen pixels taller
+            ; than the reference draws it and its key started under its own
+            ; heading.
+            if (titleOrient == "left") {
+                entryX = (entryX + ((titleBox.width()) + titlePadding))
+            } {
+                entryY = (entryY + ((titleBox.height()) + titlePadding))
+            }
         }
         entryItem.setNumber("x" entryX)
         entryItem.setNumber("y" entryY)

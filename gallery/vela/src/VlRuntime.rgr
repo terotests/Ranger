@@ -2808,6 +2808,7 @@ class VlRuntime {
         if ((orient == "bottom") || (orient == "right")) {
             away = gap
         }
+
         if sideways {
             group.setNumber("x" away)
             group.setNumber("y" along)
@@ -2818,6 +2819,24 @@ class VlRuntime {
         ; The group is that much bigger for having been given a title, and the
         ; layout places the row of headers by exactly this number.
         def reach:double ((gap + fontSize) + box.frameHalf)
+        ; …and where the title is anchored by an edge of its own, the ink is
+        ; not where the anchor is. The reference places the anchor a title's
+        ; width clear of the group whatever the anchoring, so a label anchored
+        ; at its RIGHT edge reaches a further width beyond it, and the strip
+        ; that holds it is that much wider. Measured as if it were anchored on
+        ; the left, a grid of bars came out fifteen pixels narrow with every
+        ; row of it printed over the panel beside it.
+        if sideways {
+            if (angle == 0.0) {
+                def anchoredAt:string (text.text("align"))
+                if (anchoredAt == "right") {
+                    reach = (reach + fontSize)
+                }
+                if (anchoredAt == "center") {
+                    reach = (reach + (fontSize / 2.0))
+                }
+            }
+        }
         if (orient == "top") {
             box.top = (VlRuntime.higher(box.top reach))
         }
