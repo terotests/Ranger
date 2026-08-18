@@ -96,6 +96,12 @@ function applyEvent(ev) {
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
     const fn = KEY[ev.key];
     if (fn) liveInput.pushKey(fn());
+  } else if (ev.type === "caret") {
+    if (typeof ev.x === "number") lastX = ev.x | 0;
+    if (typeof ev.y === "number") lastY = ev.y | 0;
+    app.view.focused = true;
+    app.moveCaret(ev.line | 0, ev.col | 0, !!ev.extend);
+    return;
   } else if (ev.type === "text") {
     liveInput.setPointerPos(lastX, lastY);
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
@@ -107,7 +113,29 @@ function applyEvent(ev) {
 }
 
 function sceneBody() {
-  return app.sceneJson();
+  const doc = JSON.parse(app.sceneJson());
+  const layout = app.layout;
+  const buf = app.buf;
+  const first = layout.firstVisible();
+  const last = layout.lastVisible(buf);
+  const lines = [];
+  for (let i = first; i <= last; i++) {
+    lines.push(buf.lineAt(i));
+  }
+  // Hit-testing meta for the browser: WebGL text is atlas-rasterized with
+  // Canvas2D metrics, so caret X must use the same measureText — not the
+  // Ranger TTF advances SoftCanvas uses.
+  doc.hit = {
+    contentX: layout.contentX(),
+    contentY: layout.contentY(),
+    lineHeight: layout.lineHeight,
+    scrollLine: layout.scrollLine,
+    fontSize: layout.fontSize,
+    font: app.view.fontFamily,
+    firstVisible: first,
+    lines,
+  };
+  return JSON.stringify(doc);
 }
 
 function frameBytes() {
@@ -298,43 +326,40 @@ async function headlessSmoke(url) {
     const backend = await page.$eval("#backend", (el) => el.textContent);
     const cmds = await page.$eval("#cmds", (el) => el.textContent);
 
-    // Click into line 2 body text (layout page coords → CSS via canvas box).
-    // Line 0 at padY≈6, lineHeight≈20 → line 2 around y≈50; contentX≈56.
-    await page.evaluate(() => {
-      const c = document.getElementById("screen");
-      const r = c.getBoundingClientRect();
-      const pageW = 720;
-      const pageH = 480;
-      const px = 120;
-      const py = 55;
-      const clientX = r.left + (px / pageW) * r.width;
-      const clientY = r.top + (py / pageH) * r.height;
-      c.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          clientX,
-          clientY,
-          pointerId: 1,
-          pointerType: "mouse",
-          buttons: 1,
-        })
-      );
-      c.dispatchEvent(
-        new PointerEvent("pointerup", {
-          bubbles: true,
-          clientX,
-          clientY,
-          pointerId: 1,
-          pointerType: "mouse",
-          buttons: 0,
-        })
-      );
+    // Click mid-line using the same Canvas2D metrics the client hit-tester uses.
+    await page.evaluate(async () => {
+      const doc = window.__editorDoc;
+      const hit = doc.hit;
+      const s = hit.lines[2] || hit.lines[0];
+      const line = hit.firstVisible + Math.min(2, hit.lines.length - 1);
+      const c = document.createElement("canvas").getContext("2d");
+      c.font = `${hit.fontSize}px "${hit.font}", sans-serif`;
+      // Aim for just after the first 8 characters.
+      const colTarget = Math.min(8, s.length);
+      const x = hit.contentX + c.measureText(s.slice(0, colTarget)).width;
+      const y = hit.contentY + (line - hit.firstVisible) * hit.lineHeight + hit.lineHeight * 0.4;
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "caret", line, col: colTarget, extend: false, x, y }),
+      });
+      window.__smokeExpect = { line, col: colTarget };
     });
     await new Promise((r) => setTimeout(r, 150));
     const afterClick = await (await fetch(`http://127.0.0.1:${PORT}/state.json`)).json();
-    console.log("[smoke] caret after click=" + afterClick.caretLine + ":" + afterClick.caretCol);
-    if (afterClick.caretLine < 1) {
-      throw new Error("click did not move caret onto a later line");
+    const expect = await page.evaluate(() => window.__smokeExpect);
+    console.log(
+      "[smoke] caret after click=" +
+        afterClick.caretLine +
+        ":" +
+        afterClick.caretCol +
+        " expect=" +
+        expect.line +
+        ":" +
+        expect.col
+    );
+    if (afterClick.caretLine !== expect.line || afterClick.caretCol !== expect.col) {
+      throw new Error("caret not placed at clicked character");
     }
 
     await page.click("#screen");

@@ -4,8 +4,9 @@
  *   INPUT  — mouse/keyboard → POST /input → Node UIInput → EditorApp
  *   RENDER — GET /scene.json (EVGDisplayList) → evg-webgl.js (WebGL 2)
  *
- * SoftCanvas stays the CPU present path for tests; this page never blits
- * framebuffer bytes.
+ * Caret hit-testing for clicks uses the same Canvas2D measureText path as the
+ * WebGL text atlas (see evg-webgl.js buildTextAtlas). Ranger TTF advances are
+ * kept for SoftCanvas; mixing them here put the caret at the wrong X.
  */
 import { renderDisplayList } from "/evg/gl/evg-webgl.js";
 
@@ -33,12 +34,15 @@ let fontsReady = null;
 /** Logical page size in editor/layout pixels (not device framebuffer). */
 let pageW = 720;
 let pageH = 480;
+let lastDoc = null;
+
+const measureCanvas = document.createElement("canvas");
+const measureCtx = measureCanvas.getContext("2d");
 
 function canvasCoords(ev) {
   const rect = canvas.getBoundingClientRect();
   // Map CSS box → page space. Do NOT use canvas.width/height here: those are
-  // DPR-scaled WebGL backing-store pixels, while EditorLayout hit-tests in
-  // the same 720×480 page coordinates the display list uses.
+  // DPR-scaled WebGL backing-store pixels, while layout is page-sized.
   const x = Math.floor(((ev.clientX - rect.left) / rect.width) * pageW);
   const y = Math.floor(((ev.clientY - rect.top) / rect.height) * pageH);
   return {
@@ -47,11 +51,72 @@ function canvasCoords(ev) {
   };
 }
 
+function codepointStep(s, i) {
+  const cp = s.codePointAt(i);
+  return cp > 0xffff ? 2 : 1;
+}
+
+/** Same font string the WebGL atlas uses (page pixels, not DPR). */
+function hitTestCaret(px, py, doc) {
+  const hit = doc && doc.hit;
+  if (!hit || !hit.lines || !hit.lines.length) return null;
+
+  let vis = Math.floor((py - hit.contentY) / hit.lineHeight);
+  if (vis < 0) vis = 0;
+  if (vis >= hit.lines.length) vis = hit.lines.length - 1;
+  const line = hit.firstVisible + vis;
+  const s = hit.lines[vis] || "";
+  const localX = px - hit.contentX;
+  measureCtx.font = `${hit.fontSize}px "${hit.font}", sans-serif`;
+
+  if (localX <= 0) return { line, col: 0 };
+
+  // Nearest UTF-16 boundary by Canvas2D advance (matches atlas rasterization).
+  let bestCol = 0;
+  let bestDist = Infinity;
+  let i = 0;
+  while (true) {
+    const w = measureCtx.measureText(s.slice(0, i)).width;
+    const d = Math.abs(w - localX);
+    if (d < bestDist || (d === bestDist && i > bestCol)) {
+      bestDist = d;
+      bestCol = i;
+    }
+    if (i >= s.length) break;
+    i += codepointStep(s, i);
+  }
+  return { line, col: bestCol };
+}
+
 async function postInput(payload) {
   await fetch("/input", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+async function postCaretAt(ev, extend) {
+  const { x, y } = canvasCoords(ev);
+  const hit = hitTestCaret(x, y, lastDoc);
+  if (!hit) {
+    await postInput({
+      type: "pointer",
+      x,
+      y,
+      down: !extend ? true : pointerDown,
+      shift: ev.shiftKey || extend,
+      ctrl: ev.ctrlKey || ev.metaKey,
+    });
+    return;
+  }
+  await postInput({
+    type: "caret",
+    line: hit.line,
+    col: hit.col,
+    extend: !!(ev.shiftKey || extend),
+    x,
+    y,
   });
 }
 
@@ -73,42 +138,18 @@ canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   canvas.focus();
   pointerDown = true;
-  const { x, y } = canvasCoords(ev);
-  postInput({
-    type: "pointer",
-    x,
-    y,
-    down: true,
-    shift: ev.shiftKey,
-    ctrl: ev.ctrlKey || ev.metaKey,
-  });
+  postCaretAt(ev, false);
 });
 
 canvas.addEventListener("pointermove", (ev) => {
   if (!pointerDown) return;
-  const { x, y } = canvasCoords(ev);
-  postInput({
-    type: "pointer",
-    x,
-    y,
-    down: true,
-    shift: ev.shiftKey,
-    ctrl: ev.ctrlKey || ev.metaKey,
-  });
+  postCaretAt(ev, true);
 });
 
 function endPointer(ev) {
   if (!pointerDown) return;
   pointerDown = false;
-  const { x, y } = canvasCoords(ev);
-  postInput({
-    type: "pointer",
-    x,
-    y,
-    down: false,
-    shift: ev.shiftKey,
-    ctrl: ev.ctrlKey || ev.metaKey,
-  });
+  postCaretAt(ev, true);
 }
 
 canvas.addEventListener("pointerup", endPointer);
@@ -175,6 +216,7 @@ async function pullScene() {
   const doc = await res.json();
   pageW = doc.width || pageW;
   pageH = doc.height || pageH;
+  lastDoc = doc;
   if (!fontsReady) {
     fontsReady = ensureFonts(doc);
   }
