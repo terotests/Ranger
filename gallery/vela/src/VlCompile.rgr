@@ -4157,11 +4157,20 @@ class VlCompile {
             }
         }
         if empty {
+            ; …unless the specification stated one. A pane twenty pixels wide
+            ; holding nothing but a column of labels says so outright, and a
+            ; PANE carries its size as a signal the layout reads rather than
+            ; as a number on the page — written to the page instead, the
+            ; signal was never defined and the pane came out no width at all.
+            def bare:VlJson (VlJson.numberValue(300.0))
             if (this.hasPosition()) {
-                out.setMember(dimension (VlJson.numberValue(20.0)))
-                return
+                bare = (VlJson.numberValue(20.0))
             }
-            out.setMember(dimension (VlJson.numberValue(300.0)))
+            def stated:VlJson (source.get(dimension))
+            if (stated.isNumber()) {
+                bare = stated
+            }
+            this.emitSize(out signals dimension bare)
             return
         }
         def type:string (this.scaleTypeFor(ch))
@@ -4233,9 +4242,12 @@ class VlCompile {
         if (given.isNumber()) {
             value = given
         }
-        ; A chart states its size; a PANE of a concatenation or a CELL of a
-        ; trellis carries it as a signal instead, because the layout has to
-        ; read it.
+        this.emitSize(out signals dimension value)
+    }
+
+    ; A chart states its size; a PANE of a concatenation or a CELL of a trellis
+    ; carries it as a signal instead, because the layout has to read it.
+    fn emitSize:void (out:VlJson signals:VlJson dimension:string value:VlJson) {
         if ((this.sizeSignal(dimension)) != dimension) {
             def sig (VlJson.objectValue())
             sig.setMember("name" (VlJson.stringValue((this.sizeSignal(dimension)))))
@@ -9219,7 +9231,7 @@ class VlCompile {
     ; Where the mark goes. A band puts the mark at the start of its band and
     ; gives it the band's width; a stacked value is drawn between the two ends
     ; the stack wrote; everything else is a point on a scale.
-    fn markPosition:void (update:VlJson axis:string) {
+    fn markPosition:void (update:VlJson axis:string dimensionOf:string) {
         ; Only where the channel put nothing there. A channel that names a
         ; scale but no column — the shared encoding of a layered chart, which
         ; is where the axis is declared — leaves the position to the mark.
@@ -9229,7 +9241,48 @@ class VlCompile {
         def stated:VlJson (markDef.get(axis))
         if (stated.isNumber()) {
             update.setMember(axis (VlCompile.literal(stated)))
+            return
         }
+        ; A mark the chart placed on ONE axis and left alone on the other sits
+        ; in the middle of what it is drawn in. A column of ages between the
+        ; two halves of a population pyramid says which row it names and
+        ; nothing about where across the pane it goes, and the reference
+        ; centres it; drawn at nothing instead it hung off the left edge.
+        if ((this.channel(axis)).defined) {
+            return
+        }
+        if (! (VlCompile.centresWhenUnplaced(markName))) {
+            return
+        }
+        def middle (VlJson.objectValue())
+        middle.setMember("signal" (VlJson.stringValue((this.sizeSignal(dimensionOf)))))
+        middle.setMember("mult" (VlJson.numberValue(0.5)))
+        update.setMember(axis middle)
+    }
+
+    ; The marks that stand at a point rather than spanning one. A bar or a rect
+    ; fills its band and an area runs to the baseline; these have nowhere else
+    ; to be, so the middle is where the reference puts them.
+    sfn centresWhenUnplaced:boolean (mark:string) {
+        if (mark == "text") {
+            return true
+        }
+        if (mark == "point") {
+            return true
+        }
+        if (mark == "circle") {
+            return true
+        }
+        if (mark == "square") {
+            return true
+        }
+        if (mark == "line") {
+            return true
+        }
+        if (mark == "arc") {
+            return true
+        }
+        return false
     }
 
     fn encodePosition:void (update:VlJson) {
@@ -9239,8 +9292,8 @@ class VlCompile {
         ; channel: `{"type": "text", "x": -5, "align": "right"}` is a label
         ; standing five pixels off the left edge of the plot, whatever the
         ; chart is measuring. Without it the label sat on the edge itself.
-        this.markPosition(update "x")
-        this.markPosition(update "y")
+        this.markPosition(update "x" "width")
+        this.markPosition(update "y" "height")
         def size:VlChannel (this.channel("size"))
         if size.defined {
             ; A rule and a line have no area, so their `size` is a THICKNESS:
