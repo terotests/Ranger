@@ -1937,6 +1937,71 @@ class VlCompile {
     ; stacked panes are the other way round. So the shared dimension stays the
     ; chart's own signal and the other becomes one per pane, which is also why
     ; every scale carries the pane's name — two panes both have an `x`.
+    ; The size the panes agree on across the join, or nothing. Only a plain
+    ; plot has a size this can read: a pane that is itself a composition works
+    ; its own out from its children, and guessing here would be worse than
+    ; leaving every pane with a size of its own.
+    fn paneSizeAgreed:VlJson (src:VlJson panes:VlJson dimension:string) {
+        def none:VlJson (VlJson.nullValue())
+        def total:int (panes.count())
+        if (total == 0) {
+            return none
+        }
+        def agreed:double 0.0
+        def k:int 0
+        while (k < total) {
+            def pane:VlJson (VlCompile.mergeSpec(src (panes.at(k))))
+            if (VlCompile.isComposed(pane)) {
+                return none
+            }
+            def sizer (new VlCompile())
+            sizer.rootSource = rootSource
+            sizer.source = pane
+            sizer.readMark()
+            sizer.readEncoding()
+            def sized (VlJson.objectValue())
+            def spare (VlJson.arrayValue())
+            sizer.sizeAndSignals(sized spare)
+            ; A size that came out as a signal over the pane's own bands is not
+            ; written here at all, which is the test: nothing to share.
+            def one:VlJson (sized.get(dimension))
+            if (! (one.isNumber())) {
+                return none
+            }
+            if (k == 0) {
+                agreed = one.num
+            } {
+                if (one.num != agreed) {
+                    return none
+                }
+            }
+            k = (k + 1)
+        }
+        return (VlJson.numberValue(agreed))
+    }
+
+    sfn isComposed:boolean (spec:VlJson) {
+        if (spec.has("layer")) {
+            return true
+        }
+        if (spec.has("concat")) {
+            return true
+        }
+        if (spec.has("hconcat")) {
+            return true
+        }
+        if (spec.has("vconcat")) {
+            return true
+        }
+        if (spec.has("facet")) {
+            return true
+        }
+        if (spec.has("repeat")) {
+            return true
+        }
+        return false
+    }
+
     fn compileConcat:VlJson (src:VlJson key:string horizontal:boolean) {
         def panes:VlJson (src.get(key))
         if (! (panes.isArray())) {
@@ -1959,6 +2024,18 @@ class VlCompile {
         def sourceText:[string]
         def first:boolean true
 
+        ; The dimension that runs ACROSS the join is the chart's own, so every
+        ; pane reads the same signal for it and the page carries the number.
+        ; Only when the panes AGREE about it: a pane as wide as its own bands
+        ; has no number to offer, and two panes that state different ones have
+        ; nothing to merge — in either case each keeps a size of its own, which
+        ; is what the reference does too.
+        def shared:string "height"
+        if (! horizontal) {
+            shared = "width"
+        }
+        def agreed:VlJson (this.paneSizeAgreed(src panes shared))
+
         def index:int 0
         while (index < total) {
             ; A concatenation inside a concatenation gives its panes names
@@ -1980,6 +2057,13 @@ class VlCompile {
             ; chart's width the scatter came out sixty pixels narrow.
             child.widthSignal = (label + "width")
             child.heightSignal = (label + "height")
+            if (agreed.isNumber()) {
+                if horizontal {
+                    child.heightSignal = "height"
+                } {
+                    child.widthSignal = "width"
+                }
+            }
             def piece:VlJson (child.compile((VlCompile.mergeSpec(src (panes.at(index))))))
             for child.errors e:string ei {
                 this.fail(e)
@@ -2131,6 +2215,11 @@ class VlCompile {
             layout.setMember("align" (VlJson.stringValue("each")))
         }
         out.setMember("layout" layout)
+        ; The number the panes agreed on belongs to the PAGE: every pane reads
+        ; it from here rather than carrying a copy.
+        if (agreed.isNumber()) {
+            out.setMember(shared agreed)
+        }
         out.setMember("marks" marks)
         out.setMember("scales" scales)
         if ((legends.count()) > 0) {
