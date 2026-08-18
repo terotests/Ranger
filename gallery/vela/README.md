@@ -327,17 +327,20 @@ invisible. And `"point": {"filled": false}` was read as a boolean, which an
 object is not, so a line asked for dots came out bare. None of the four said
 anything; they each just drew the wrong picture.
 
-The remaining eight are a long tail rather than a wall. Most come out
-within a few pixels of the reference and differ for their own reason — a
-rounding rule here, a guide default there — which is what a coverage report is
-for: without it, each of those would be found one paste at a time.
+The remaining eight are no longer a long tail: they are four subsystems and
+two coin tosses. Two want a map projection, one wants a scale that cuts a
+number into bands, one wants a trellis whose panels each measure against
+their own axis, and one jitters its dots with a random number nobody can
+reproduce. The last two draw a bootstrapped confidence interval, which is
+random by construction — they land within a few pixels and will never land
+exactly. That list is short enough to name, which is the point of counting.
 
 ### The tail is not uniform, so the difficult ones are marked
 
 Most of what the report converts, it converts in a handful of lines. Some
 charts are not like that: they hold out until something the reference does has
 to be reproduced exactly, and several of them moved only after a wrong
-hypothesis had been measured and reverted first. Fifteen of them are recorded in
+hypothesis had been measured and reverted first. Eighteen of them are recorded in
 [`tools/reference/difficult.mjs`](tools/reference/difficult.mjs), with a note
 against each saying what it actually took:
 
@@ -358,6 +361,9 @@ against each saying what it actually took:
 | `brush_table` | a key belongs to the page unless the chart resolves it **independently**, and then it belongs to the pane whose scale it names — which means a pane has to be able to carry one and to reserve the room beside it |
 | `trellis_barley` | a trellis ordered by a **summary** of a column has to compute the ranking before its own aggregate summarises that column away — one value per panel, written onto every row and carried through by being grouped on. A sort that names a column and no op is the other case entirely: the reference looks for it in the derived rows and orders nothing when it is not there, which is what `trellis_area_seattle` relies on |
 | `parallel_coordinate` | a line is one shape per **series**, and a chart may tell its series apart by more than one thing at once — so the partition is a list and not a column: coloured by species alone, three hundred birds came out as three lines. Its guides are marks rather than axes, which needs three more things read where the chart actually says them — a per-side axis block at **compile** time, a named style resolved for a mark that carries one, and a tick centred on the axis it is thin in rather than placed by an edge it has no depth along |
+| `interactive_splom` | a brush that each **pane** answers for is drawn whether anything is in it or not, and on a pane it brushes in one direction only the other direction is the whole pane — three rectangles three hundred pixels tall and none wide, down the diagonal, where a variable is plotted against itself and is therefore brushed once and not twice |
+| `rect_mosaic_labelled_with_offset` | four things at once, none of them about mosaics: an opacity read from a column, a **position** scale shared across a concatenation because the chart said so, a pane gap stated once in the configuration, and an axis title merge that compared a channel name against a scale name — the same string in a plain chart and not in a pane |
+| `layer_point_line_regression` | a fitted line is a running mean accumulated one row at a time, not a sum divided at the end: the two are different numbers in floating point and an R² printed to two places lands either side of a rounding. The line itself is sampled at twenty-five even steps across the range of x, which is where the reference stops refining a curve that is straight |
 
 Marking them buys two things. A chart that took a rounding order to get right
 can be made wrong again by one line somewhere else, and it would come back as a

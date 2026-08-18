@@ -106,7 +106,28 @@ export const DIFFICULT = {
     + 'more things read where the chart actually says them — a per-side axis '
     + 'block at COMPILE time, a named style resolved for a mark that carries '
     + 'one, and a tick centred on the axis it is thin in rather than placed '
-    + 'by an edge it has no depth along'
+    + 'by an edge it has no depth along',
+
+  interactive_splom:
+    'a brush that each PANE answers for is drawn whether anything is in it '
+    + 'or not, and on a pane it brushes in one direction only the other '
+    + 'direction is the whole pane — three rectangles three hundred pixels '
+    + 'tall and none wide, down the diagonal, where a variable is plotted '
+    + 'against itself and is therefore brushed once and not twice',
+
+  rect_mosaic_labelled_with_offset:
+    'four things at once, none of them about mosaics: an opacity read from a '
+    + 'column, a POSITION scale shared across a concatenation because the '
+    + 'chart said so, a pane gap stated once in the configuration, and an '
+    + 'axis title merge that compared a channel name against a scale name — '
+    + 'the same string in a plain chart and not in a pane',
+
+  layer_point_line_regression:
+    'a fitted line is a running mean accumulated one row at a time, not a sum '
+    + 'divided at the end: the two are different numbers in floating point and '
+    + 'an R-squared printed to two places lands either side of a rounding. The '
+    + 'line itself is sampled at twenty-five even steps across the range of x, '
+    + 'which is where the reference stops refining a curve that is straight'
 };
 
 /** The names, in the order they were won. */
