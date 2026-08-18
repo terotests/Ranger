@@ -250,14 +250,19 @@ class DocxEditController {
         def pid:int sel.anchor.paragraphId
         def a:int (sel.startOffset())
         def b:int (sel.endOffset())
-        adapter.applyBold(pid a b true)
+        def turnOn:boolean true
+        if (adapter.rangeIsBold(pid a b)) {
+            turnOn = false
+        }
+        adapter.applyBold(pid a b turnOn)
+        typingBold = turnOn
         def op:DocEditOp (new DocEditOp)
         op.kind = 3
         op.paragraphId = pid
         op.start = a
         op.end = b
         op.boldSet = true
-        op.boldVal = true
+        op.boldVal = turnOn
         this.pushUndo(op)
     }
 

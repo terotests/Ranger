@@ -350,6 +350,48 @@ class DocxTest {
         }
         viewer.setEditMode(false)
 
+        print "== edit preserves run style on backspace =="
+        c.ok("open styles for edit" (viewer.openFile(fix "styles_demo.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def sdoc:RichDocument (viewer.document())
+        def titleP:Paragraph (sdoc.paragraphAt(0))
+        def titleId:int titleP.id
+        def titleBefore:string titleP.text
+        c.ok("title has text" ((strlen titleBefore) > 3))
+        def titleSpan0:TextSpan (itemAt titleP.spans 0)
+        def titleSize:double titleSpan0.fontSizePt
+        def titleBold:boolean titleSpan0.bold
+        c.ok("title sized or styled" ((titleSize > 11.0) || titleBold || ((strlen titleP.styleId) > 0)))
+        viewer.edit.setCaret(titleId (strlen titleBefore))
+        viewer.keyBackspace()
+        def titleAfter:Paragraph ((viewer.document().paragraphAt(0)))
+        c.eqInt("backspace shortens" (strlen titleAfter.text) ((strlen titleBefore) - 1))
+        c.ok("title still has spans" ((array_length titleAfter.spans) >= 1))
+        def titleSpan1:TextSpan (itemAt titleAfter.spans 0)
+        c.ok("font size preserved" (titleSpan1.fontSizePt == titleSize))
+        c.ok("bold flag preserved" (titleSpan1.bold == titleBold))
+
+        print "== selection + bold =="
+        c.ok("reopen hello for sel" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def hdoc:RichDocument (viewer.document())
+        def hp:Paragraph (hdoc.paragraphAt(1))
+        def bodyText:string hp.text
+        c.ok("body text" ((strlen bodyText) > 5))
+        viewer.edit.setRange(hp.id 0 5)
+        def sel:DocumentRange (viewer.edit.selection())
+        c.ok("selection not collapsed" ((sel.isCollapsed()) == false))
+        c.eqInt("sel start" (sel.startOffset()) 0)
+        c.eqInt("sel end" (sel.endOffset()) 5)
+        viewer.toggleBold()
+        def hp2:Paragraph ((viewer.document().paragraphAt(1)))
+        c.ok("range is bold" (viewer.edit.adapter.rangeIsBold(hp2.id 0 5)))
+        viewer.renderPage(0)
+        c.ok("bold render" ((buffer_length (viewer.view.raw())) > 1000))
+        viewer.setEditMode(false)
+
         print "== render page =="
         c.ok("open hello again" (viewer.openFile(fix "hello.docx")))
         viewer.renderPage(0)
