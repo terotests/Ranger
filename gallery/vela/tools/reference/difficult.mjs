@@ -135,7 +135,17 @@ export const DIFFICULT = {
     + 'is not one projection but three, each with a rectangle, so that Alaska '
     + 'and Hawaii sit in the corner of a map of the mainland. Only the '
     + 'constants can be read off a formula; the convention had to be measured '
-    + 'against d3 point by point, which is what tools/reference/geo.mjs does'
+    + 'against d3 point by point, which is what tools/reference/geo.mjs does',
+
+  point_angle_windvector:
+    'four thousand eight hundred wedges on an equal-area projection, each '
+    + 'turned by the wind it stands for. Three separate things had to be true '
+    + 'at once: a turned symbol is MEASURED turned, or the page reserves the '
+    + 'wrong room round it; a key is spaced by the ink of the shape it draws '
+    + 'and not by a circle of the same area, because a wedge points; and a '
+    + 'sequential colour scale multiplies by one over the span where a '
+    + 'position scale divides by it — one bit apart, and thirteen of three '
+    + 'hundred and sixty-one wind directions round the other way'
 };
 
 /** The names, in the order they were won. */

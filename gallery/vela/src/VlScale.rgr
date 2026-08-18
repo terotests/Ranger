@@ -389,6 +389,40 @@ class VlScale {
     ; piecewise and in plain RGB, one segment per pair of adjacent colours —
     ; and rounds each channel, so `rgb(94, 192, 191)` is arrived at rather than
     ; approached.
+    ; How far along the ramp a value is. This is NOT `fraction`, and the
+    ; difference is one bit: a POSITION scale divides by the span, and a
+    ; sequential COLOUR scale multiplies by one over it. The two disagree in
+    ; the last place, and a channel that lands on a half then rounds the other
+    ; way — thirteen of three hundred and sixty-one wind directions came out a
+    ; count off in one channel, which is invisible and wrong.
+    fn rampFraction:double (value:double) {
+        if hasDomainMid {
+            return (this.fraction(value))
+        }
+        def lo:double domainMin
+        def hi:double domainMax
+        def at:double value
+        if (this.isLog()) {
+            if (value <= 0.0) {
+                return 0.0
+            }
+            lo = (VlMath.ln(domainMin))
+            hi = (VlMath.ln(domainMax))
+            at = (VlMath.ln(value))
+        } {
+            if (this.isPow()) {
+                lo = (this.powTransform(domainMin))
+                hi = (this.powTransform(domainMax))
+                at = (this.powTransform(value))
+            }
+        }
+        if (hi == lo) {
+            return 0.5
+        }
+        def reciprocal:double (1.0 / (hi - lo))
+        return ((at - lo) * reciprocal)
+    }
+
     fn mapRamp:string (value:double) {
         def n:int (array_length rangeValues)
         if (n == 0) {
@@ -397,7 +431,7 @@ class VlScale {
         if (n == 1) {
             return (itemAt rangeValues 0)
         }
-        return (this.colourAt((this.fraction(value))))
+        return (this.colourAt((this.rampFraction(value))))
     }
 
     ; The colour a fraction of the way along the ramp, mixed in plain RGB one

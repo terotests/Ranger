@@ -30,6 +30,7 @@ Import "VlScale.rgr"
 Import "VlScene.rgr"
 Import "VlText.rgr"
 Import "VlBounds.rgr"
+Import "VlViewBox.rgr"
 
 ; One row of the legend: the value it stands for, the text beside it, and the
 ; channels the scales mapped for it.
@@ -350,7 +351,11 @@ class VlLegend {
             push row.marks symbolMark
             push row.marks labelMark
 
-            def box:VlBounds (VlBounds.ofSymbol(sx sy (e.item.number("size")) (e.item.number("strokeWidth")) (e.item.has("stroke")) (e.item.text("shape"))))
+            ; Measured from the SHAPE, not from a circle of the same area. A
+            ; wedge points: two thirds of it stands above its own origin and a
+            ; third below, so a key of wedges spaced as if they were dots came
+            ; out ten pixels long by its last row.
+            def box:VlBounds (VlViewBox.ofItem("symbol" e.item))
             box.union((VlBounds.ofText((e.labelItem.text("text")) (e.labelItem.number("fontSize")) (e.labelItem.text("align")) (e.labelItem.text("baseline")) (e.labelItem.number("x")) sy)))
             push boxes box
         }

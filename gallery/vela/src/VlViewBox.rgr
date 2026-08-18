@@ -301,7 +301,13 @@ class VlViewBox {
             if (item.has("size")) { size = (item.number("size")) }
             def shape:string "circle"
             if (item.has("shape")) { shape = (item.text("shape")) }
-            VlShape.appendSymbol(builder shape size 0.0 0.0)
+            ; …TURNED, where the mark is turned. A wedge points, so how far it
+            ; reaches depends on which way: measured upright, a map of wind
+            ; vectors reserved the wrong room round its plot and the whole
+            ; drawing sat three pixels off.
+            def angle:double 0.0
+            if (item.has("angle")) { angle = (item.number("angle")) }
+            VlShape.appendSymbolTurned(builder shape size 0.0 0.0 angle)
         }
         if (markType == "arc") {
             VlShape.appendArc(builder 0.0 0.0 (item.number("startAngle")) (item.number("endAngle")) (item.number("innerRadius")) (item.number("outerRadius")))
