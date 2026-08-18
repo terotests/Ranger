@@ -27,9 +27,10 @@
 ; Milestone 2: .xlsx viewer —
 ;   ZipReader → workbook/sharedStrings/sheet XML → SpreadsheetModel
 ;   cached formula values, merges, col/row sizes, sheet tabs.
-; Milestone 3 (this): FortuneSheet-aligned ops —
-;   styles.xml / numFmt → CellStyle → EVG paint
-;   freeze panes (4 bands)
-;   Ctrl+C/V TSV clipboard + fill-handle copy fill
-; Next: formula engine, writer, sort/filter, richer formats.
+; Milestone 3: styles, freeze, copy/paste, fill handle.
+; Milestone 4 (this): workbook viewer —
+;   XlsxNumberFormat engine, FormulaEngine (AST/deps/recalc + cached fallback),
+;   SheetView sort/filter/hidden, merges hit-test, multi-sheet fidelity,
+;   business-workbook fixture, openpyxl + LibreOffice oracles, 100k perf fixture.
+; Stretch: conditional formatting resolver.
 ; ==============================================================================

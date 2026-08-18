@@ -12,12 +12,16 @@ Import "WorkbookModel.rgr"
 Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "GridView.rgr"
+Import "SheetView.rgr"
+Import "FormulaEngine.rgr"
 Import "xlsx/XlsxLoader.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 
 class GridApp {
     def book:WorkbookModel (new WorkbookModel)
     def model:SpreadsheetModel (new SpreadsheetModel)
+    def sheetView:SheetView (new SheetView)
+    def engine:FormulaEngine (new FormulaEngine)
     def sel:GridSelection (new GridSelection)
     def grid:DataGrid (new DataGrid)
     def view:GridView (new GridView)
@@ -40,9 +44,14 @@ class GridApp {
     }
 
     fn syncActiveModel:void () {
+        ; persist scroll on previous sheet
+        if ((book.sheetCount()) > 0) {
+            ; model may already point at previous
+        }
         model = (book.activeSheet())
-        grid.scrollX = 0
-        grid.scrollY = 0
+        sheetView.attach(model)
+        grid.scrollX = model.scrollXSaved
+        grid.scrollY = model.scrollYSaved
         sel.anchor.row = 0
         sel.anchor.col = 0
         sel.active.row = 0
@@ -63,6 +72,7 @@ class GridApp {
         book.addSheet(sheet)
         book.sourcePath = ""
         book.setActive(0)
+        engine.attach(book)
         this.syncActiveModel()
         loadError = ""
     }
@@ -72,6 +82,7 @@ class GridApp {
         def ok:boolean (loader.loadPath(fullPath book))
         if ok {
             book.sourcePath = fullPath
+            engine = loader.engine
             this.syncActiveModel()
             loadError = ""
             view.status = ("loaded " + fullPath)
@@ -86,8 +97,53 @@ class GridApp {
         if editing {
             this.commitEdit()
         }
+        ; save scroll for current sheet
+        model.scrollXSaved = grid.scrollX
+        model.scrollYSaved = grid.scrollY
+        ; skip hidden sheets
+        def n:int (book.sheetCount())
+        if (i < 0) {
+            i = 0
+        }
+        if (i >= n) {
+            i = (n - 1)
+        }
+        def guard:int 0
+        while (guard < n) {
+            def cand:SpreadsheetModel (book.sheetAt(i))
+            if (cand.sheetHidden == false) {
+                break
+            }
+            i = (i + 1)
+            if (i >= n) {
+                i = 0
+            }
+            guard = (guard + 1)
+        }
         book.setActive(i)
         this.syncActiveModel()
+    }
+
+    fn applySort:void (col:int ascending:boolean) {
+        model.setSort(col ascending)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    fn applyFilter:void (col:int values:[string]) {
+        model.setFilter(col true values)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    fn clearFilter:void () {
+        def empty:[string]
+        model.setFilter(-1 false empty)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
     }
 
     fn resize:void (nw:int nh:int) {
@@ -102,7 +158,22 @@ class GridApp {
         if (editing == false) {
             return
         }
-        model.setCell(sel.active.row sel.active.col editBuf)
+        engine.attach(book)
+        if ((strlen editBuf) > 0) {
+            if ((charAt editBuf 0) == 61) {
+                def expr:string (substring editBuf 1 (strlen editBuf))
+                model.setFormula(sel.active.row sel.active.col expr)
+                model.setCell(sel.active.row sel.active.col "")
+                engine.registerFormula(book.activeIndex sel.active.row sel.active.col expr)
+                engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+            } {
+                model.setCell(sel.active.row sel.active.col editBuf)
+                engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+            }
+        } {
+            model.setCell(sel.active.row sel.active.col "")
+            engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+        }
         editing = false
         editBuf = ""
     }

@@ -383,17 +383,21 @@ class GridView {
         def tabW:int 88
         while (si < sn) {
             def sheet:SpreadsheetModel (book.sheetAt(si))
-            def tx:int (grid.x + (si * tabW))
-            if (si == book.activeIndex) {
-                this.pushRect(dl (to_double tx) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
+            if sheet.sheetHidden {
+                si = (si + 1)
+            } {
+                def tx:int (grid.x + (si * tabW))
+                if (si == book.activeIndex) {
+                    this.pushRect(dl (to_double tx) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
+                }
+                def nm:string sheet.name
+                if ((strlen nm) == 0) {
+                    nm = ("Sheet" + (to_string (si + 1)))
+                }
+                this.pushText(dl nm (to_double (tx + 8)) (to_double (tabY + 5)) 12.0 theme.headerText)
+                this.pushRect(dl (to_double (tx + tabW - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+                si = (si + 1)
             }
-            def nm:string sheet.name
-            if ((strlen nm) == 0) {
-                nm = ("Sheet" + (to_string (si + 1)))
-            }
-            this.pushText(dl nm (to_double (tx + 8)) (to_double (tabY + 5)) 12.0 theme.headerText)
-            this.pushRect(dl (to_double (tx + tabW - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
-            si = (si + 1)
         }
         this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
 
