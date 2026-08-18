@@ -37,6 +37,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 import { parseSvg, comparePrimitives } from './svgcompare.mjs';
+import { DIFFICULT, isDifficult } from './difficult.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VELA = path.resolve(__dirname, '..', '..');
@@ -314,7 +315,10 @@ function shapeOf(finding) {
 const TAG = { same: '  ok  ', differs: ' DIFF ', refused: ' no   ', crashed: ' CRASH', skipped: ' --   ' };
 for (const row of rows) {
   if (row.verdict === 'same' && !VERBOSE) continue;
-  console.log(`${TAG[row.verdict]} ${row.name.padEnd(44)} ${row.why}`);
+  // A chart on the difficult list is marked wherever it appears, so that one
+  // of them turning up among fifty differences is not read as one of fifty.
+  const mark = isDifficult(row.name) ? '*' : ' ';
+  console.log(`${TAG[row.verdict]}${mark}${row.name.padEnd(44)} ${row.why}`);
   if (VERBOSE && row.findings) for (const f of row.findings.slice(1, 6)) console.log(`         ${f}`);
 }
 
@@ -375,6 +379,28 @@ if (sizedOff) {
 // same kind of difference on twenty charts counts as one thing to fix.
 report('what it draws differently, and how many examples each affects:',
   tally(['differs'], (r) => shapeOf(r.findings[0])), 14);
+
+// The charts whose exactness was hard-won, and whether they are still exact.
+// A coverage report is a measurement rather than a gate, so nothing here stops
+// a build — but a chart that took a rounding order or a float crumb to get
+// right can be made wrong again by one line somewhere else, and it would come
+// back as a single DIFF among fifty. It is said plainly instead.
+const slipped = Object.keys(DIFFICULT).filter(
+  (name) => rows.some((r) => r.name === name && r.verdict !== 'same'));
+const marked = Object.keys(DIFFICULT).filter(
+  (name) => rows.some((r) => r.name === name));
+if (marked.length) {
+  console.log(`\n${marked.length - slipped.length} of the ${marked.length} charts marked difficult are still exact`);
+  for (const name of slipped) {
+    const row = rows.find((r) => r.name === name);
+    console.log(`  SLIPPED  ${name}`);
+    console.log(`           it was won by: ${DIFFICULT[name]}`);
+    console.log(`           now: ${row.verdict} — ${row.why}`);
+  }
+  if (slipped.length) {
+    console.log('  (see tools/reference/difficult.mjs, and the commit that says the same at length)');
+  }
+}
 
 // A coverage report is a measurement, not a gate: it exits 0 whatever it found,
 // because the number going down is the news and a failing exit code would only

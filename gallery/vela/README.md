@@ -300,12 +300,12 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **129** |
-| drawn, but not the same picture | 106 | 35 |
+| drawn exactly as the reference draws them | 11 | **140** |
+| drawn, but not the same picture | 106 | 24 |
 | refused, with a reason | 58 | 11 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **73.7% exact, 93.7% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **80.0% exact, 93.7% drawn** |
 
 Every one of those hundred came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
@@ -327,10 +327,48 @@ invisible. And `"point": {"filled": false}` was read as a boolean, which an
 object is not, so a line asked for dots came out bare. None of the four said
 anything; they each just drew the wrong picture.
 
-The remaining fifty are a long tail rather than a wall. Most come out within
-a few pixels of the reference and differ for their own reason — a rounding
-rule here, a guide default there — which is what a coverage report is for:
-without it, each of those would be found one paste at a time.
+The remaining thirty-five are a long tail rather than a wall. Most come out
+within a few pixels of the reference and differ for their own reason — a
+rounding rule here, a guide default there — which is what a coverage report is
+for: without it, each of those would be found one paste at a time.
+
+### The tail is not uniform, so the difficult ones are marked
+
+Most of what the report converts, it converts in a handful of lines. Some
+charts are not like that: they hold out until something the reference does has
+to be reproduced exactly, and several of them moved only after a wrong
+hypothesis had been measured and reverted first. Nine of them are recorded in
+[`tools/reference/difficult.mjs`](tools/reference/difficult.mjs), with a note
+against each saying what it actually took:
+
+| chart | what it took |
+| --- | --- |
+| `trellis_scatter` | a grid rounds each **end** of a panel outward on its own and takes the widest of each end across the whole trellis — not the widest panel |
+| `circle_natural_disasters` | a guide's items are keyed by their value, and a date used as a key is written only to the second: two ticks inside one second are one tick |
+| `isotype_bar_chart_emoji` | a turned title is worth its measured box, not its font size — a quarter turn has no exact cosine in binary, and the page is sized by the ceiling |
+| `interactive_overview_detail` | how far a vertical axis' end labels hang past the plot is **measured**; assuming half a line spaced two concatenated plots four pixels apart |
+| `interactive_layered_crossfilter` | a repeated grid lines its copies up on one pitch, the way a trellis does, rather than taking a concatenation's per-pane spacing |
+| `bar_grouped_repeated` | a discrete scale unions the categories its layers each name, a sub-scale given as a datum is written as a value, and a band step does not survive the round trip out to the plot width and back |
+| `bar_size_responsive` | `"width": "container"` is autosize **fit**: the drawing fits the width given rather than the plot keeping it, which takes measure, resize, measure |
+| `layer_likert` | a band's padding follows the mark, a scale's domain reads its own layer's rows, a mark may state its position in pixels, and a `view` block may sit on the chart rather than in its configuration |
+| `bar_layered_weather` | a dotted field name is a path into the row, a bar's end room goes **across** the bar, a stated domain suppresses zero, and a label may be written on several lines |
+
+Marking them buys two things. A chart that took a rounding order to get right
+can be made wrong again by one line somewhere else, and it would come back as a
+single `DIFF` among two dozen in a report that exits 0 whatever it finds — so
+the report says so plainly instead, naming what the chart was won by and what
+it now does. And a difficult chart is a good place to start reading: the note
+against each one is the shortest route into that part of the layout.
+
+```
+  ok  *trellis_scatter                              750 primitives
+ DIFF *bar_layered_weather                          0/76 — the page comes out …
+
+9 of the 9 charts marked difficult are still exact
+```
+
+The list does not gate anything and is not a count of anything. A chart belongs
+on it because it was hard, not because it matters more than its neighbours.
 
 The specs are vendored because they are small and change rarely; the data is
 not, because it is eight megabytes of somebody else's numbers. Both
