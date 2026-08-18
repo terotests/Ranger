@@ -941,7 +941,7 @@ class VlCompile {
                 ; that names its y axis once, in the shared encoding, has named
                 ; it for every layer. Read from the layer alone, nothing was
                 ; stated anywhere and the axis was titled after both columns.
-                VlCompile.collectAxisTitles(titles askedTitles (piece.get("axes")) (VlCompile.statedTitles((VlCompile.mergeSpec(src (layers.at(index)))))))
+                VlCompile.collectAxisTitles(titles askedTitles (piece.get("axes")) (VlCompile.statedTitles((VlCompile.mergeSpec(src (layers.at(index)))) prefix)))
             }
             index = (index + 1)
         }
@@ -2573,6 +2573,9 @@ class VlCompile {
         def paneLegends:[VlJson]
         def scaleNames:[string]
         def sharedDomains:[string:VlJson]
+        ; Which scales these panes hold in common, which is what the chart said
+        ; where it said anything and the ordinary defaults where it did not.
+        def shareable:[string:int] (VlCompile.shareMap(src))
         def sharedSeen:[string:int]
         def sourceText:[string]
         def first:boolean true
@@ -2645,9 +2648,14 @@ class VlCompile {
                 ; concatenation, where a position scale is each pane's own.
                 ; Kept apart, four repeated histograms drew four identical keys
                 ; and the page grew to hold all of them.
-                VlCompile.shareScales((piece.get("scales")) label sharedDomains)
-                VlCompile.renameScaleRefs((piece.get("marks")) label)
-                VlCompile.renameScaleRefs((piece.get("legends")) label)
+                VlCompile.shareScales((piece.get("scales")) label sharedDomains shareable)
+                VlCompile.renameScaleRefs((piece.get("marks")) label shareable)
+                VlCompile.renameScaleRefs((piece.get("legends")) label shareable)
+                ; …and the pane's own guides, which name the scale they
+                ; measure. A shared POSITION scale is the first one an axis
+                ; ever pointed at, and left under the pane's name the axis
+                ; referred to a scale nothing defined any more.
+                VlCompile.renameScaleRefs((piece.get("axes")) label shareable)
                 if first {
                     for piece.keys pk:string pi {
                         if ((((((pk == "data") || (pk == "marks")) || (pk == "scales")) || (pk == "signals")) || (pk == "axes")) || (pk == "legends")) {
@@ -2747,7 +2755,7 @@ class VlCompile {
                         def sc:VlJson (pieceScales.at(si))
                         def scName:string (sc.stringOr("name" ""))
                         def keep:boolean true
-                        if (VlCompile.sharedChannel(scName)) {
+                        if (has shareable scName) {
                             if (has sharedSeen scName) {
                                 keep = false
                             } {
@@ -2822,7 +2830,12 @@ class VlCompile {
         ; puts everything in one row, so a vertical concatenation that never
         ; stated a column count came out side by side.
         def layout (VlJson.objectValue())
-        layout.setMember("padding" (VlJson.numberValue((src.doubleOr("spacing" 20.0)))))
+        ; …and how far apart the panes stand may be said once, in the
+        ; configuration, for every concatenation in the chart. Read only from
+        ; the concatenation itself, a mosaic asking for a ten-pixel gap got the
+        ; default twenty and every block below the gap sat ten pixels low.
+        def gap:double (this.configNumber("concat" "spacing" 20.0))
+        layout.setMember("padding" (VlJson.numberValue((src.doubleOr("spacing" gap)))))
         if horizontal {
             layout.setMember("columns" (VlJson.numberValue((to_double total))))
         } {
@@ -2884,10 +2897,48 @@ class VlCompile {
         return (((name == "shape") || (name == "opacity")) || (name == "angle"))
     }
 
+    ; …and the chart may say otherwise. `"resolve": {"scale": {"x": "shared"}}`
+    ; is a stack of plots measured against ONE horizontal scale — a mosaic with
+    ; its column labels above it — and `"independent"` is the other way round.
+    ; Read as the defaults alone, the labels above a mosaic were placed on a
+    ; scale of their own and stood seventy pixels away from the blocks they
+    ; name.
+    sfn shareMap:[string:int] (src:VlJson) {
+        def out:[string:int]
+        def scales (VlJson.objectValue())
+        def resolve:VlJson (src.get("resolve"))
+        if (resolve.isObject()) {
+            def given:VlJson (resolve.get("scale"))
+            if (given.isObject()) {
+                scales = given
+            }
+        }
+        VlCompile.shareOne(out scales "color")
+        VlCompile.shareOne(out scales "fill")
+        VlCompile.shareOne(out scales "stroke")
+        VlCompile.shareOne(out scales "size")
+        VlCompile.shareOne(out scales "shape")
+        VlCompile.shareOne(out scales "opacity")
+        VlCompile.shareOne(out scales "angle")
+        for scales.keys key:string ki {
+            if ((scales.stringOr(key "")) == "shared") {
+                set out key 1
+            }
+        }
+        return out
+    }
+
+    ; A scale shared by default stays shared unless the chart said otherwise.
+    sfn shareOne:void (out:[string:int] scales:VlJson name:string) {
+        if ((scales.stringOr(name "shared")) == "shared") {
+            set out name 1
+        }
+    }
+
     ; Strip the pane's prefix off the scales it shares, and remember what each
     ; one's domain reads, so that the one surviving copy can be given the union
     ; of them all.
-    sfn shareScales:void (scales:VlJson label:string domains:[string:VlJson]) {
+    sfn shareScales:void (scales:VlJson label:string domains:[string:VlJson] shared:[string:int]) {
         if (! (scales.isArray())) {
             return
         }
@@ -2899,7 +2950,7 @@ class VlCompile {
             if ((strlen full) > n) {
                 if ((substring full 0 n) == label) {
                     def bare:string (substring full n (strlen full))
-                    if (VlCompile.sharedChannel(bare)) {
+                    if (has shared bare) {
                         sc.setMember("name" (VlJson.stringValue(bare)))
                         if (! (has domains bare)) {
                             set domains bare (VlJson.arrayValue())
@@ -2993,11 +3044,11 @@ class VlCompile {
         }
     }
 
-    sfn renameScaleRefs:void (node:VlJson label:string) {
+    sfn renameScaleRefs:void (node:VlJson label:string shared:[string:int]) {
         if (node.isArray()) {
             def k:int 0
             while (k < (node.count())) {
-                VlCompile.renameScaleRefs((node.at(k)) label)
+                VlCompile.renameScaleRefs((node.at(k)) label shared)
                 k = (k + 1)
             }
             return
@@ -3013,13 +3064,13 @@ class VlCompile {
                 if ((strlen text) > n) {
                     if ((substring text 0 n) == label) {
                         def bare:string (substring text n (strlen text))
-                        if (VlCompile.sharedChannel(bare)) {
+                        if (has shared bare) {
                             node.setMember(key (VlJson.stringValue(bare)))
                         }
                     }
                 }
             } {
-                VlCompile.renameScaleRefs(v label)
+                VlCompile.renameScaleRefs(v label shared)
             }
         }
     }
@@ -3755,7 +3806,13 @@ class VlCompile {
     ; Which of a layer's channels named their own axis title. A title the
     ; layer did not ask for is derived from a field name, and a field name
     ; another layer happens to read is not something to append to the axis.
-    sfn statedTitles:[string:boolean] (layer:VlJson) {
+    ; …keyed by the SCALE the channel names rather than by the channel, since
+    ; that is what an axis carries. A pane of a concatenation prefixes its
+    ; scales with its own name, and compared against the bare channel the
+    ; explicit title a mosaic gives its vertical axis was never recognised as
+    ; explicit: it was merged with the two column names beside it and the axis
+    ; came out headed "ny, ny2, Cylinders".
+    sfn statedTitles:[string:boolean] (layer:VlJson prefix:string) {
         def out:[string:boolean]
         def encoding:VlJson (layer.get("encoding"))
         if (encoding.isObject()) {
@@ -3770,7 +3827,7 @@ class VlCompile {
                         }
                     }
                     if named {
-                        set out key true
+                        set out (prefix + key) true
                     }
                 }
             }
@@ -7006,6 +7063,7 @@ class VlCompile {
         this.pushPaintScale(out "fill")
         this.pushPaintScale(out "stroke")
         this.pushSizeScale(out)
+        this.pushOpacityScale(out)
         return out
     }
 
@@ -8104,6 +8162,35 @@ class VlCompile {
             sc.setMember("interpolate" (VlJson.stringValue("hcl")))
             sc.setMember("zero" (VlJson.boolValue(false)))
         }
+        this.applyDeclaredScale(sc ch)
+        push out.arr sc
+    }
+
+    ; A mark may be made MORE OR LESS SEE-THROUGH by a column, which is how a
+    ; mosaic tells four cylinder counts apart inside one origin's colour. It is
+    ; an ordinary linear scale; only its range is peculiar, and the reference
+    ; runs it from three tenths to eight, so that the faintest cell is still
+    ; there to be seen.
+    fn pushOpacityScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("opacity"))
+        if (! ch.defined) {
+            return
+        }
+        if (ch.hasValue) {
+            return
+        }
+        if ((strlen (ch.outField())) == 0) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("opacity")))))
+        sc.setMember("type" (VlJson.stringValue("linear")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        def range (VlJson.arrayValue())
+        push range.arr (VlJson.numberValue(0.3))
+        push range.arr (VlJson.numberValue(0.8))
+        sc.setMember("range" range)
+        sc.setMember("zero" (VlJson.boolValue(false)))
         this.applyDeclaredScale(sc ch)
         push out.arr sc
     }
@@ -10682,7 +10769,7 @@ class VlCompile {
             if opacity.hasValue {
                 update.setMember("opacity" (this.withCondition(opacity (VlCompile.literal(opacity.value)))))
             } {
-                this.fail("an opacity read from a field is not compiled here")
+                update.setMember("opacity" (this.scaled("opacity" (opacity.outField()))))
             }
         }
         ; A rule given only one position is a line ACROSS the plot at that
