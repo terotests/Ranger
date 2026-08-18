@@ -1,18 +1,35 @@
 /**
- * Browser client: blit SoftCanvas RGBA frames and forward pointer/keyboard
- * into the Node present server as UIInput-shaped events.
+ * Web demo with separated layers:
+ *
+ *   INPUT  — mouse/keyboard → POST /input → Node UIInput → EditorApp
+ *   RENDER — GET /scene.json (EVGDisplayList) → evg-webgl.js (WebGL 2)
+ *
+ * SoftCanvas stays the CPU present path for tests; this page never blits
+ * framebuffer bytes.
  */
+import { renderDisplayList } from "/evg/gl/evg-webgl.js";
+
 const canvas = document.getElementById("screen");
-const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("status");
+const backendEl = document.getElementById("backend");
+const cmdsEl = document.getElementById("cmds");
 const fpsEl = document.getElementById("fps");
 
-let W = canvas.width;
-let H = canvas.height;
-let image = ctx.createImageData(W, H);
+const gl = canvas.getContext("webgl2", {
+  antialias: true,
+  premultipliedAlpha: false,
+  stencil: true,
+});
+if (!gl) {
+  statusEl.textContent = "WebGL 2 not available";
+  throw new Error("WebGL 2 required");
+}
+backendEl.textContent = "webgl2";
+
+let pointerDown = false;
 let frames = 0;
 let fpsT0 = performance.now();
-let pointerDown = false;
+let fontsReady = null;
 
 function canvasCoords(ev) {
   const rect = canvas.getBoundingClientRect();
@@ -95,8 +112,7 @@ canvas.addEventListener(
   "wheel",
   (ev) => {
     ev.preventDefault();
-    const delta = ev.deltaY < 0 ? 1 : -1;
-    postInput({ type: "wheel", delta });
+    postInput({ type: "wheel", delta: ev.deltaY < 0 ? 1 : -1 });
   },
   { passive: false }
 );
@@ -114,7 +130,7 @@ canvas.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.ctrlKey || ev.metaKey) {
-    if (ev.key === "a" || ev.key === "A" || ev.key === "z" || ev.key === "Z" || ev.key === "y" || ev.key === "Y") {
+    if (/^[azyAZY]$/.test(ev.key)) {
       ev.preventDefault();
       postInput({
         type: "text",
@@ -136,21 +152,47 @@ canvas.addEventListener("keydown", (ev) => {
   }
 });
 
-async function pullFrame() {
-  const res = await fetch("/frame.bin?" + Date.now(), { cache: "no-store" });
-  if (!res.ok) throw new Error("frame " + res.status);
-  const metaW = parseInt(res.headers.get("x-frame-width") || "0", 10);
-  const metaH = parseInt(res.headers.get("x-frame-height") || "0", 10);
-  if (metaW && metaH && (metaW !== W || metaH !== H)) {
-    W = metaW;
-    H = metaH;
-    canvas.width = W;
-    canvas.height = H;
-    image = ctx.createImageData(W, H);
+async function ensureFonts(doc) {
+  await document.fonts.ready;
+  const loads = [];
+  for (const c of doc.list.cmds) {
+    if (c.k === 3 && c.text && c.font && c.size) {
+      loads.push(document.fonts.load(`${c.size}px "${c.font}"`));
+    }
   }
-  const buf = await res.arrayBuffer();
-  image.data.set(new Uint8ClampedArray(buf));
-  ctx.putImageData(image, 0, 0);
+  if (loads.length) await Promise.all(loads);
+}
+
+async function pullScene() {
+  const res = await fetch("/scene.json?" + Date.now(), { cache: "no-store" });
+  if (!res.ok) throw new Error("scene " + res.status);
+  const doc = await res.json();
+  if (!fontsReady) {
+    fontsReady = ensureFonts(doc);
+  }
+  await fontsReady;
+
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const cssW = doc.width;
+  const cssH = doc.height;
+  canvas.style.width = cssW + "px";
+  canvas.style.height = cssH + "px";
+  const bw = Math.round(cssW * dpr);
+  const bh = Math.round(cssH * dpr);
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
+  }
+
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0.07, 0.08, 0.11, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+
+  const stats = renderDisplayList(gl, doc, { dpr });
+  cmdsEl.textContent = String(doc.list.cmds.length);
+  window.__evgStats = stats;
+  window.__editorDoc = doc;
+
   frames++;
   const now = performance.now();
   if (now - fpsT0 >= 1000) {
@@ -162,7 +204,7 @@ async function pullFrame() {
 
 async function loop() {
   try {
-    await pullFrame();
+    await pullScene();
     statusEl.textContent = "live";
   } catch (e) {
     statusEl.textContent = "error: " + (e && e.message ? e.message : e);

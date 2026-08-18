@@ -43,16 +43,19 @@ npm run text_editor:window     # interactive Chrome window (SoftCanvas present h
 npm run text_editor:window:smoke
 ```
 
-### Interactive window
+### Interactive window (WebGL)
 
-`npm run text_editor:window` starts a tiny Node present server and opens Chrome:
+`npm run text_editor:window` starts a present host and opens Chrome with a
+**separated input / render stack**:
 
 ```text
-browser mouse/keyboard → /input → UIInput → EditorApp
-EditorApp SoftCanvas.raw() → /frame.bin → <canvas> putImageData
+INPUT   browser events → POST /input → UIInput → EditorApp (Node)
+RENDER  EditorApp.sceneJson() → EVGDisplayList → evg-webgl.js (WebGL 2)
 ```
 
-Same editor core as the tests; only the present/I/O shell is browser-side.
+SoftCanvas remains the CPU path for tests (`/frame.bin` still works). The web
+demo never blits framebuffer bytes — it draws the same display-list seam as
+`gallery/evg/gl/`.
 
 ## What works now
 

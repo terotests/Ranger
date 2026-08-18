@@ -2,8 +2,13 @@
 /**
  * Interactive present host for the Ranger EVG text editor.
  *
- * Runs EditorApp (SoftCanvas) in Node, serves a tiny browser UI that blits
- * raw RGBA frames and posts pointer/keyboard events mapped to UIInput.
+ * Layer split (matches the SDL / GPU architecture):
+ *
+ *   INPUT   browser events → POST /input → UIInput → EditorApp (Node)
+ *   RENDER  EditorApp.sceneJson() → EVGDisplayList → GET /scene.json
+ *           → gallery/evg/gl/evg-webgl.js (WebGL 2 in the browser)
+ *
+ * SoftCanvas remains available as /frame.bin for CPU/SDL-style present.
  *
  *   node gallery/text_editor/web/serve.mjs [--port 8765] [--open] [--headless-smoke]
  */
@@ -41,6 +46,7 @@ if (!fs.existsSync(modPath)) {
 
 const { EditorApp, UIInput, UIKey } = require(modPath);
 const fontDir = path.resolve(ROOT, "gallery/pdf_writer/assets/fonts");
+const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
 
 const app = new EditorApp();
 app.init(fontDir);
@@ -49,12 +55,11 @@ app.setDocument(
     "Ranger EVG Text Editor",
     "",
     "Click here and type.",
-    "Shift+arrows select · Ctrl+A select all · Ctrl+Z undo",
-    "Wheel scrolls. Try opening a thought and editing it.",
+    "Input: UIInput  ·  Render: EVGDisplayList → WebGL 2",
+    "Shift+arrows select · Ctrl+A · Ctrl+Z undo · wheel scrolls",
     "",
   ].join("\n")
 );
-app.render();
 
 const liveInput = new UIInput();
 
@@ -74,7 +79,6 @@ const KEY = {
 
 let lastX = 40;
 let lastY = 40;
-let dirty = true;
 
 function applyEvent(ev) {
   liveInput.newFrame();
@@ -100,16 +104,15 @@ function applyEvent(ev) {
     return;
   }
   app.update(liveInput);
-  dirty = true;
+}
+
+function sceneBody() {
+  return app.sceneJson();
 }
 
 function frameBytes() {
-  if (dirty) {
-    app.render();
-    dirty = false;
-  }
+  app.render();
   const raw = app.raw();
-  // Ranger buffers are ArrayBuffer (+ optional ._view). Copy to a Node Buffer.
   return Buffer.from(raw.byteLength ? raw : raw);
 }
 
@@ -118,7 +121,25 @@ const MIME = {
   ".mjs": "text/javascript; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
 };
+
+function sendFile(res, fp) {
+  if (!fs.existsSync(fp) || fs.statSync(fp).isDirectory()) {
+    res.writeHead(404);
+    res.end("not found");
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": MIME[path.extname(fp)] || "application/octet-stream",
+    "cache-control": "no-store",
+  });
+  fs.createReadStream(fp).pipe(res);
+}
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", "http://127.0.0.1");
@@ -126,6 +147,16 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/favicon.ico") {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  if (url.pathname === "/scene.json") {
+    const body = sceneBody();
+    res.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    });
+    res.end(body);
     return;
   }
 
@@ -146,8 +177,7 @@ const server = http.createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     try {
-      const ev = JSON.parse(body || "{}");
-      applyEvent(ev);
+      applyEvent(JSON.parse(body || "{}"));
       res.writeHead(204);
       res.end();
     } catch (e) {
@@ -159,19 +189,42 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, w: app.W, h: app.H }));
+    res.end(JSON.stringify({ ok: true, w: app.W, h: app.H, render: "webgl-displaylist" }));
+    return;
+  }
+
+  if (url.pathname.startsWith("/evg/gl/")) {
+    const rel = url.pathname.slice("/evg/gl/".length);
+    const fp = path.normalize(path.join(evgGlDir, rel));
+    if (!fp.startsWith(evgGlDir)) {
+      res.writeHead(403);
+      res.end("forbidden");
+      return;
+    }
+    sendFile(res, fp);
+    return;
+  }
+
+  if (url.pathname.startsWith("/fonts/")) {
+    const rel = url.pathname.slice("/fonts/".length);
+    const fp = path.normalize(path.join(fontDir, rel));
+    if (!fp.startsWith(fontDir)) {
+      res.writeHead(403);
+      res.end("forbidden");
+      return;
+    }
+    sendFile(res, fp);
     return;
   }
 
   let rel = url.pathname === "/" ? "/index.html" : url.pathname;
   const fp = path.normalize(path.join(__dirname, rel));
-  if (!fp.startsWith(__dirname) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) {
-    res.writeHead(404);
-    res.end("not found");
+  if (!fp.startsWith(__dirname)) {
+    res.writeHead(403);
+    res.end("forbidden");
     return;
   }
-  res.writeHead(200, { "content-type": MIME[path.extname(fp)] || "application/octet-stream" });
-  fs.createReadStream(fp).pipe(res);
+  sendFile(res, fp);
 });
 
 function findChrome() {
@@ -205,27 +258,38 @@ async function headlessSmoke(url) {
   const browser = await puppeteer.launch({
     executablePath: chrome,
     headless: true,
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    args: [
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--use-gl=angle",
+      "--enable-webgl",
+      "--ignore-gpu-blocklist",
+    ],
   });
   try {
     const page = await browser.newPage();
+    page.on("pageerror", (e) => console.error("[pageerror]", e.message));
     await page.setViewport({ width: 960, height: 700 });
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
     await page.waitForSelector("#screen");
     await page.waitForFunction(
       () => document.getElementById("status")?.textContent === "live",
-      { timeout: 15000 }
+      { timeout: 20000 }
     );
+    const backend = await page.$eval("#backend", (el) => el.textContent);
+    const cmds = await page.$eval("#cmds", (el) => el.textContent);
     await page.click("#screen");
     await page.keyboard.type("Window smoke OK");
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 600));
     const status = await page.$eval("#status", (el) => el.textContent);
+    const stats = await page.evaluate(() => window.__evgStats || null);
     const text = app.documentText();
-    console.log("[smoke] status=" + status);
-    console.log("[smoke] doc snippet=" + JSON.stringify(text.slice(0, 120)));
-    if (!text.includes("Window smoke OK")) {
-      throw new Error("typed text not in document");
-    }
+    console.log("[smoke] status=" + status + " backend=" + backend + " cmds=" + cmds);
+    console.log("[smoke] evgStats=" + JSON.stringify(stats));
+    console.log("[smoke] doc snippet=" + JSON.stringify(text.slice(0, 140)));
+    if (backend !== "webgl2") throw new Error("expected webgl2 backend");
+    if (!stats || !(stats.drawn > 0)) throw new Error("WebGL drew no quads");
+    if (!text.includes("Window smoke OK")) throw new Error("typed text not in document");
     console.log("[smoke] PASS");
   } finally {
     await browser.close();
@@ -235,9 +299,10 @@ async function headlessSmoke(url) {
 
 server.listen(PORT, "127.0.0.1", async () => {
   const url = `http://127.0.0.1:${PORT}/`;
-  console.log("Ranger EVG text editor window host");
+  console.log("Ranger EVG text editor — input/UIInput + render/WebGL display list");
   console.log("  " + url);
   console.log("  fonts: " + fontDir);
+  console.log("  gl:    " + evgGlDir);
 
   if (HEADLESS_SMOKE) {
     try {
@@ -253,10 +318,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   if (DO_OPEN) {
     const chrome = findChrome();
     if (chrome) {
-      spawn(chrome, ["--new-window", url], {
-        detached: true,
-        stdio: "ignore",
-      }).unref();
+      spawn(chrome, ["--new-window", url], { detached: true, stdio: "ignore" }).unref();
       console.log("  opened " + chrome);
     } else {
       console.log("  (no chrome found — open the URL manually)");

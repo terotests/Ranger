@@ -2,8 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Ranger EVG Text Editor</title>
+    <title>Ranger EVG Text Editor (WebGL)</title>
     <style>
+      @font-face {
+        font-family: "Open Sans";
+        src: url("/fonts/Open_Sans/OpenSans-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+      }
       :root {
         --bg: #0e1018;
         --panel: #161a26;
@@ -27,9 +33,7 @@
         place-items: center;
         padding: 24px;
       }
-      .stage {
-        width: min(960px, 100%);
-      }
+      .stage { width: min(960px, 100%); }
       h1 {
         margin: 0 0 6px;
         font-size: 1.35rem;
@@ -51,7 +55,6 @@
         display: block;
         width: 100%;
         height: auto;
-        image-rendering: pixelated;
         background: #12141c;
         cursor: text;
         outline: none;
@@ -80,14 +83,16 @@
     <div class="stage">
       <h1>Ranger EVG Text Editor</h1>
       <p class="hint">
-        SoftCanvas → browser window. Click the canvas, then type. Scroll with the wheel.
-        <kbd>Ctrl</kbd>+<kbd>A</kbd> select all · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo
+        Input layer → <code>UIInput</code> · Render layer → <code>EVGDisplayList</code> → WebGL 2.
+        Click the canvas, then type. <kbd>Ctrl</kbd>+<kbd>A</kbd> · <kbd>Ctrl</kbd>+<kbd>Z</kbd>
       </p>
       <div class="frame">
         <canvas id="screen" tabindex="0" width="720" height="480"></canvas>
       </div>
       <div class="bar">
         <span>status: <strong id="status">connecting…</strong></span>
+        <span>backend: <strong id="backend">—</strong></span>
+        <span>cmds: <strong id="cmds">—</strong></span>
         <span>fps: <strong id="fps">—</strong></span>
       </div>
     </div>

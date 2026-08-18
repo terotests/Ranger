@@ -1,10 +1,15 @@
 ; ==============================================================================
-; EditorView - SoftCanvas / EVG paint for the text-editor prototype.
+; EditorView - editor scene → EVGDisplayList → SoftCanvas and/or WebGL
 ; ==============================================================================
 ;
-; Draws background, gutter, selection rects, visible text runs, and the caret.
-; Uses UITextRenderer (TrueType + line cache) — the same accelerated text path
-; as the EVG UI layer. SoftCanvas.raw() is what an SDL2 host would present.
+; The editor owns the text model and layout. Painting goes through one seam:
+;
+;   EditorView.buildDisplayList  →  EVGDisplayList (flat draw cmds)
+;        ├─ paintSoftCanvas      →  SoftCanvas (tests / SDL present)
+;        └─ sceneJson            →  gallery/evg/gl/evg-webgl.js (WebGL 2)
+;
+; So the web demo's input layer (UIInput) and render layer (WebGL) are separate
+; the same way SDL_TEXTINPUT and an SDL/GL present path would be.
 ; ==============================================================================
 
 Import "EditorBuffer.rgr"
@@ -13,6 +18,7 @@ Import "EditorLayout.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGDisplayList.rgr"
 
 class EditorTheme {
     def bg:EVGColor (EVGColor.rgb(18 20 28))
@@ -36,15 +42,20 @@ class EditorView {
     def status:string ""
     def focused:boolean true
     def frame:int 0
+    def fontFamily:string "Open Sans"
+    def pageW:int 720
+    def pageH:int 480
 
     Constructor () {
     }
 
     fn init:void (w:int h:int fontDir:string) {
+        pageW = w
+        pageH = h
         canvas.init(w h)
         ctx.attach(canvas)
         ctx.tr.addFontDir(fontDir)
-        def ok:boolean (ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf"))
+        def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
         if (ok == false) {
             status = "bitmap-font fallback"
         } {
@@ -53,6 +64,8 @@ class EditorView {
     }
 
     fn resize:void (w:int h:int) {
+        pageW = w
+        pageH = h
         canvas.init(w h)
         ctx.attach(canvas)
         ctx.tr.clearCache()
@@ -62,122 +75,217 @@ class EditorView {
         return (canvas.raw())
     }
 
-    fn drawSelection:void (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
-        if (sel.isCollapsed()) {
-            return
-        }
-        def a:EditorPos (new EditorPos)
-        def b:EditorPos (new EditorPos)
-        sel.normalized(a b)
-        def firstVis:int (layout.firstVisible())
-        def lastVis:int (layout.lastVisible(buf))
-        def line:int a.line
-        while (line <= b.line) {
-            if ((line >= firstVis) && (line <= lastVis)) {
-                def s:string (buf.lineAt(line))
-                def len:int (strlen s)
-                def c0:int 0
-                def c1:int len
-                if (line == a.line) {
-                    c0 = a.col
-                }
-                if (line == b.line) {
-                    c1 = b.col
-                }
-                if (c0 < 0) {
-                    c0 = 0
-                }
-                if (c1 > len) {
-                    c1 = len
-                }
-                if (c1 < c0) {
-                    c1 = c0
-                }
-                def x0:int (layout.caretPixelX(ctx.tr buf line c0))
-                def x1:int (layout.caretPixelX(ctx.tr buf line c1))
-                if (line < b.line) {
-                    ; extend to a comfortable line end for multi-line selection
-                    def full:int (layout.caretPixelX(ctx.tr buf line len))
-                    if (full > x1) {
-                        x1 = (full + 6)
-                    }
-                }
-                def y0:int (layout.caretPixelY(line))
-                def rw:int (x1 - x0)
-                if (rw < 2) {
-                    rw = 2
-                }
-                ctx.fillRect(x0 y0 rw layout.lineHeight theme.selection)
-            }
-            line = (line + 1)
-        }
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
     }
 
-    fn drawCaret:void (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
-        if (focused == false) {
+    fn pushBorder:void (dl:EVGDisplayList x:double y:double w:double h:double thickness:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 1
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.thickness = thickness
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor) {
+        if ((strlen text) == 0) {
             return
         }
-        def phase:int (to_int (frame / 30))
-        def on:int (phase - ((to_int (phase / 2)) * 2))
-        if (on != 0) {
-            return
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = (ctx.tr.measureWidth(text size))
+        c.h = (ctx.tr.lineHeight(size))
+        c.text = text
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushClip:void (dl:EVGDisplayList x:double y:double w:double h:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        push dl.cmds c
+    }
+
+    fn popClip:void (dl:EVGDisplayList) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 5
+        push dl.cmds c
+    }
+
+    ; One traversal: background, gutter, selection, visible text, caret, chrome.
+    fn buildDisplayList:EVGDisplayList (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
+        layout.syncMetrics(ctx.tr)
+        layout.clampScroll(buf)
+
+        def dl:EVGDisplayList (new EVGDisplayList)
+        this.pushRect(dl 0.0 0.0 (to_double pageW) (to_double pageH) theme.bg)
+        this.pushRect(dl (to_double layout.x) (to_double layout.y) (to_double layout.w) (to_double layout.h) theme.bg)
+
+        if layout.showLineNumbers {
+            this.pushRect(dl (to_double layout.x) (to_double layout.y) (to_double layout.gutterW) (to_double layout.h) theme.gutterBg)
         }
-        def cl:int sel.caret.line
-        if (cl < (layout.firstVisible())) {
-            return
+
+        ; Clip editor body so scrolled text does not paint over the status bar.
+        this.pushClip(dl (to_double layout.x) (to_double layout.y) (to_double layout.w) (to_double layout.h))
+
+        if (sel.isCollapsed() == false) {
+            def a:EditorPos (new EditorPos)
+            def b:EditorPos (new EditorPos)
+            sel.normalized(a b)
+            def firstVis:int (layout.firstVisible())
+            def lastVis:int (layout.lastVisible(buf))
+            def line:int a.line
+            while (line <= b.line) {
+                if ((line >= firstVis) && (line <= lastVis)) {
+                    def s:string (buf.lineAt(line))
+                    def len:int (strlen s)
+                    def c0:int 0
+                    def c1:int len
+                    if (line == a.line) {
+                        c0 = a.col
+                    }
+                    if (line == b.line) {
+                        c1 = b.col
+                    }
+                    if (c0 < 0) {
+                        c0 = 0
+                    }
+                    if (c1 > len) {
+                        c1 = len
+                    }
+                    if (c1 < c0) {
+                        c1 = c0
+                    }
+                    def x0:int (layout.caretPixelX(ctx.tr buf line c0))
+                    def x1:int (layout.caretPixelX(ctx.tr buf line c1))
+                    if (line < b.line) {
+                        def full:int (layout.caretPixelX(ctx.tr buf line len))
+                        if (full > x1) {
+                            x1 = (full + 6)
+                        }
+                    }
+                    def y0:int (layout.caretPixelY(line))
+                    def rw:int (x1 - x0)
+                    if (rw < 2) {
+                        rw = 2
+                    }
+                    this.pushRect(dl (to_double x0) (to_double y0) (to_double rw) (to_double layout.lineHeight) theme.selection)
+                }
+                line = (line + 1)
+            }
         }
-        if (cl > (layout.lastVisible(buf))) {
-            return
+
+        def first:int (layout.firstVisible())
+        def last:int (layout.lastVisible(buf))
+        def li:int first
+        while (li <= last) {
+            def text:string (buf.lineAt(li))
+            def ty:int (layout.caretPixelY(li))
+            if layout.showLineNumbers {
+                def num:string (to_string (li + 1))
+                def numSize:double (layout.fontSize * 0.85)
+                def nw:int (to_int (ctx.tr.measureWidth(num numSize)))
+                def nx:int ((layout.x + layout.gutterW) - nw - 6)
+                this.pushText(dl num (to_double nx) (to_double (ty + 2)) numSize theme.gutterText)
+            }
+            if ((strlen text) > 0) {
+                this.pushText(dl text (to_double (layout.contentX())) (to_double ty) layout.fontSize theme.text)
+            }
+            li = (li + 1)
         }
-        def cx:int (layout.caretPixelX(ctx.tr buf cl sel.caret.col))
-        def cy:int (layout.caretPixelY(cl))
-        ctx.fillRect(cx cy 2 layout.lineHeight theme.caret)
+
+        if focused {
+            def phase:int (to_int (frame / 30))
+            def on:int (phase - ((to_int (phase / 2)) * 2))
+            if (on == 0) {
+                def cl:int sel.caret.line
+                if ((cl >= (layout.firstVisible())) && (cl <= (layout.lastVisible(buf)))) {
+                    def cx:int (layout.caretPixelX(ctx.tr buf cl sel.caret.col))
+                    def cy:int (layout.caretPixelY(cl))
+                    this.pushRect(dl (to_double cx) (to_double cy) 2.0 (to_double layout.lineHeight) theme.caret)
+                }
+            }
+        }
+
+        this.popClip(dl)
+        this.pushBorder(dl (to_double layout.x) (to_double layout.y) (to_double layout.w) (to_double layout.h) 1.0 theme.border)
+
+        def sy:int (layout.y + layout.h)
+        if (sy < pageH) {
+            def sh:int (pageH - sy)
+            this.pushRect(dl 0.0 (to_double sy) (to_double pageW) (to_double sh) theme.statusBg)
+            def info:string ("L" + (to_string (sel.caret.line + 1)) + ":" + (to_string (sel.caret.col + 1)) + "  lines=" + (to_string (buf.lineCount())) + "  " + status + "  gl-list")
+            this.pushText(dl info 8.0 (to_double (sy + 4)) 12.0 theme.statusText)
+        }
+
+        return dl
+    }
+
+    ; CPU present path used by tests / SDL hosts — consumes the same list WebGL does.
+    fn paintSoftCanvas:void (dl:EVGDisplayList) {
+        canvas.clear((theme.bg.red()) (theme.bg.green()) (theme.bg.blue()))
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 0) {
+                def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
+            }
+            if (c.kind == 1) {
+                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
+            }
+            if (c.kind == 3) {
+                def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+            }
+            ; PUSH_CLIP / POP_CLIP: SoftCanvas has no scissor stack yet — ignored.
+            i = (i + 1)
+        }
     }
 
     fn render:void (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
         ctx.frame = frame
-        layout.syncMetrics(ctx.tr)
-        layout.clampScroll(buf)
-
-        canvas.clear((theme.bg.red()) (theme.bg.green()) (theme.bg.blue()))
-        ctx.fillRect(layout.x layout.y layout.w layout.h theme.bg)
-
-        if layout.showLineNumbers {
-            ctx.fillRect(layout.x layout.y layout.gutterW layout.h theme.gutterBg)
-        }
-
-        this.drawSelection(buf sel layout)
-
-        def first:int (layout.firstVisible())
-        def last:int (layout.lastVisible(buf))
-        def line:int first
-        while (line <= last) {
-            def text:string (buf.lineAt(line))
-            def ty:int (layout.caretPixelY(line))
-            if layout.showLineNumbers {
-                def num:string (to_string (line + 1))
-                def nw:int (to_int (ctx.tr.measureWidth(num (layout.fontSize * 0.85))))
-                def nx:int ((layout.x + layout.gutterW) - nw - 6)
-                ctx.text(num nx (ty + 2) (layout.fontSize * 0.85) theme.gutterText)
-            }
-            if ((strlen text) > 0) {
-                ctx.text(text (layout.contentX()) ty layout.fontSize theme.text)
-            }
-            line = (line + 1)
-        }
-
-        this.drawCaret(buf sel layout)
-        ctx.strokeRect(layout.x layout.y layout.w layout.h 1 theme.border)
-
-        ; status strip under the editor viewport when there is room
-        def sy:int (layout.y + layout.h)
-        if (sy < (canvas.getHeight())) {
-            def sh:int ((canvas.getHeight()) - sy)
-            ctx.fillRect(0 sy (canvas.getWidth()) sh theme.statusBg)
-            def info:string ("L" + (to_string (sel.caret.line + 1)) + ":" + (to_string (sel.caret.col + 1)) + "  lines=" + (to_string (buf.lineCount())) + "  " + status)
-            ctx.text(info 8 (sy + 4) 12.0 theme.statusText)
-        }
-
+        def dl:EVGDisplayList (this.buildDisplayList(buf sel layout))
+        this.paintSoftCanvas(dl)
         frame = (frame + 1)
+    }
+
+    ; Wire format for gallery/evg/gl/evg-webgl.js — {width,height,list:{cmds:[…]}}.
+    fn sceneJson:string (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
+        ctx.frame = frame
+        def dl:EVGDisplayList (this.buildDisplayList(buf sel layout))
+        frame = (frame + 1)
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num((to_double pageW))) + ",\"height\":" + (EVGDisplayList.num((to_double pageH))) + ",\"list\":" + body + "}")
     }
 }
