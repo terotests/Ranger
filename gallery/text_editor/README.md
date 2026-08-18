@@ -33,11 +33,17 @@ gallery/text_editor/
 From the repo root:
 
 ```bash
-npm run text_editor:test    # validation suite → ALL PASS
-npm run text_editor:demo    # PNG snapshots in gallery/text_editor/
-npm run text_editor:bench   # default 1k-line corpus
+npm run text_editor:test       # validation suite → ALL PASS
+npm run text_editor:demo       # PNG snapshots in gallery/text_editor/
+npm run text_editor:bench      # Ranger-only SoftCanvas timings (default 1k lines)
 npm run text_editor:bench -- 10000
+npm run text_editor:compare    # side-by-side vs @hufe921/canvas-editor (Chromium)
+npm run text_editor:compare -- --lines 10000
 ```
+
+`text_editor:compare` installs the local compare harness deps on first run
+(`puppeteer-core` + `@hufe921/canvas-editor`) and needs a system Chrome.
+See [`bench/compare/README.md`](bench/compare/README.md).
 
 ## What works now
 
@@ -55,10 +61,13 @@ IME composition (`SDL_TEXTEDITING`), word wrap, syntax highlighting, piece
 table / rope, clipboard, GPU/WebGL present, and a live SDL window loop. Those
 are follow-up PRs on top of this model.
 
-## Benchmark operations
+## Benchmark vs canvas-editor
 
-`editor_bench` measures the same workload shape proposed for cross-engine
-comparison:
+`bench/compare/` runs the **same ops** on:
 
-open · first paint · scroll 1000 lines · insert char · insert 1000 chars ·
-backspace · select ~100 lines · replace selection · Ctrl+A · resize · jump line
+1. Ranger `EditorApp` (Node SoftCanvas nodemodule)
+2. `@hufe921/canvas-editor` (headless Chromium via `puppeteer-core`)
+
+```bash
+npm run text_editor:compare -- --lines 1000
+```
