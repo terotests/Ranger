@@ -8892,6 +8892,25 @@ class VlCompile {
         return ""
     }
 
+    ; Does the chart bind a selection to its own scales? `"bind": "scales"` is
+    ; how a plot is made pannable and zoomable.
+    fn scalesAreBound:boolean () {
+        def params:VlJson (source.get("params"))
+        if (! (params.isArray())) {
+            return false
+        }
+        def total:int (params.count())
+        def k:int 0
+        while (k < total) {
+            def p:VlJson (params.at(k))
+            if ((p.stringOr("bind" "")) == "scales") {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
     ; A rectangle for an interval selection that was given one to start with.
     ;
     ; `{"select": "interval", "value": {"x": [55, 160], "y": [13, 37]}}` is a
@@ -9144,7 +9163,13 @@ class VlCompile {
         ; the reason: the same series is drawn twice, once shifted a band down,
         ; and the part that hangs below the plot is meant to be cut off rather
         ; than to make the page taller.
-        if (markDef.boolOr("clip" false)) {
+        ; …and a chart whose SCALES can be dragged clips whatever it draws
+        ; without being asked: panning a scatter plot moves points off the
+        ; plot, and a point that has been panned off is meant to disappear
+        ; rather than to make the page bigger. Unclipped, a chart of a stated
+        ; eighty horsepower drew every car in the file and came out three
+        ; hundred pixels wider than the plot it states.
+        if ((markDef.boolOr("clip" false)) || (this.scalesAreBound())) {
             m.setMember("clip" (VlJson.boolValue(true)))
         }
         def from (VlJson.objectValue())
