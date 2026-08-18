@@ -1,0 +1,413 @@
+; ==============================================================================
+; EditorBuffer - multiline text model for the EVG text-editor prototype.
+; ==============================================================================
+;
+; EVG renders the editor; EVG is NOT the text model. This buffer owns document
+; state as an array-of-lines (grassator tutorial step 1) so a later piece-table
+; / rope swap only touches this file. Positions are (line, col) where col is a
+; UTF-16 unit index within the line — caret motion uses EVGCodepoint stepping.
+;
+; Every mutation goes through replaceRange so undo/redo is a single reverse op.
+; ==============================================================================
+
+Import "../../evg/EVGCodepoint.rgr"
+
+class EditorPos {
+    def line:int 0
+    def col:int 0
+
+    Constructor () {
+    }
+
+    sfn create:EditorPos (line:int col:int) {
+        def p:EditorPos (new EditorPos)
+        p.line = line
+        p.col = col
+        return p
+    }
+
+    fn copyFrom:void (other:EditorPos) {
+        line = other.line
+        col = other.col
+    }
+
+    fn equals:boolean (other:EditorPos) {
+        if (line != other.line) {
+            return false
+        }
+        return (col == other.col)
+    }
+}
+
+class EditorUndoOp {
+    def startLine:int 0
+    def startCol:int 0
+    def endLine:int 0
+    def endCol:int 0
+    def deleted:string ""
+    def inserted:string ""
+
+    Constructor () {
+    }
+}
+
+class EditorBuffer {
+    def lines:[string]
+    def undoStack:[EditorUndoOp]
+    def redoStack:[EditorUndoOp]
+    def maxUndo:int 200
+    def version:int 0
+
+    Constructor () {
+        push lines ""
+    }
+
+    fn lineCount:int () {
+        return (array_length lines)
+    }
+
+    fn lineAt:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length lines)) {
+            return ""
+        }
+        return (itemAt lines i)
+    }
+
+    fn clampPos:void (p:EditorPos) {
+        def n:int (array_length lines)
+        if (n <= 0) {
+            push lines ""
+            n = 1
+        }
+        if (p.line < 0) {
+            p.line = 0
+        }
+        if (p.line >= n) {
+            p.line = (n - 1)
+        }
+        def len:int (strlen (itemAt lines p.line))
+        if (p.col < 0) {
+            p.col = 0
+        }
+        if (p.col > len) {
+            p.col = len
+        }
+    }
+
+    fn cmpPos:int (aLine:int aCol:int bLine:int bCol:int) {
+        if (aLine < bLine) {
+            return -1
+        }
+        if (aLine > bLine) {
+            return 1
+        }
+        if (aCol < bCol) {
+            return -1
+        }
+        if (aCol > bCol) {
+            return 1
+        }
+        return 0
+    }
+
+    fn setText:void (s:string) {
+        clear lines
+        def start:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            if ((charAt s i) == 10) {
+                push lines (substring s start i)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push lines (substring s start n)
+        clear undoStack
+        clear redoStack
+        version = (version + 1)
+    }
+
+    fn getText:string () {
+        return (join lines "\n")
+    }
+
+    fn charCount:int () {
+        def n:int 0
+        def i:int 0
+        def lc:int (array_length lines)
+        while (i < lc) {
+            n = (n + (strlen (itemAt lines i)))
+            if (i < (lc - 1)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Extract text from [start..end) as a single string with newlines.
+    fn textInRange:string (startLine:int startCol:int endLine:int endCol:int) {
+        def aLine:int startLine
+        def aCol:int startCol
+        def bLine:int endLine
+        def bCol:int endCol
+        if ((this.cmpPos(aLine aCol bLine bCol)) > 0) {
+            aLine = endLine
+            aCol = endCol
+            bLine = startLine
+            bCol = startCol
+        }
+        if (aLine == bLine) {
+            def line:string (this.lineAt(aLine))
+            def len:int (strlen line)
+            if (aCol < 0) {
+                aCol = 0
+            }
+            if (bCol > len) {
+                bCol = len
+            }
+            if (aCol > bCol) {
+                aCol = bCol
+            }
+            return (substring line aCol bCol)
+        }
+        def out:string ""
+        def first:string (this.lineAt(aLine))
+        def flen:int (strlen first)
+        if (aCol < 0) {
+            aCol = 0
+        }
+        if (aCol > flen) {
+            aCol = flen
+        }
+        out = (substring first aCol flen)
+        out = (out + "\n")
+        def mid:int (aLine + 1)
+        while (mid < bLine) {
+            out = (out + (this.lineAt(mid)))
+            out = (out + "\n")
+            mid = (mid + 1)
+        }
+        def last:string (this.lineAt(bLine))
+        def llen:int (strlen last)
+        if (bCol < 0) {
+            bCol = 0
+        }
+        if (bCol > llen) {
+            bCol = llen
+        }
+        out = (out + (substring last 0 bCol))
+        return out
+    }
+
+    fn pushUndo:void (op:EditorUndoOp) {
+        push undoStack op
+        while ((array_length undoStack) > maxUndo) {
+            remove_index undoStack 0
+        }
+        clear redoStack
+    }
+
+    ; Replace [start..end) with `text`. Returns the caret position after the insert.
+    fn replaceRange:EditorPos (startLine:int startCol:int endLine:int endCol:int text:string recordUndo:boolean) {
+        def aLine:int startLine
+        def aCol:int startCol
+        def bLine:int endLine
+        def bCol:int endCol
+        if ((this.cmpPos(aLine aCol bLine bCol)) > 0) {
+            aLine = endLine
+            aCol = endCol
+            bLine = startLine
+            bCol = startCol
+        }
+        def sp:EditorPos (EditorPos.create(aLine aCol))
+        def ep:EditorPos (EditorPos.create(bLine bCol))
+        this.clampPos(sp)
+        this.clampPos(ep)
+        aLine = sp.line
+        aCol = sp.col
+        bLine = ep.line
+        bCol = ep.col
+
+        def deleted:string (this.textInRange(aLine aCol bLine bCol))
+
+        ; Build the new line content around the replacement.
+        def beforeLine:string (this.lineAt(aLine))
+        def afterLine:string (this.lineAt(bLine))
+        def before:string (substring beforeLine 0 aCol)
+        def after:string (substring afterLine bCol (strlen afterLine))
+        def merged:string (before + text + after)
+
+        ; Remove lines aLine..bLine inclusive, then insert split(merged).
+        def removeCount:int ((bLine - aLine) + 1)
+        def ri:int 0
+        while (ri < removeCount) {
+            remove_index lines aLine
+            ri = (ri + 1)
+        }
+        if ((array_length lines) == 0) {
+            ; keep at least one line slot; filled below
+        }
+
+        def start:int 0
+        def i:int 0
+        def n:int (strlen merged)
+        def insertAt:int aLine
+        def parts:int 0
+        while (i < n) {
+            if ((charAt merged i) == 10) {
+                insert lines insertAt (substring merged start i)
+                insertAt = (insertAt + 1)
+                parts = (parts + 1)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        insert lines insertAt (substring merged start n)
+        parts = (parts + 1)
+
+        if ((array_length lines) == 0) {
+            push lines ""
+            parts = 1
+        }
+
+        ; Caret sits at the end of the inserted text.
+        def caretLine:int aLine
+        def caretCol:int 0
+        def ti:int 0
+        def tlen:int (strlen text)
+        def curLine:int aLine
+        def curCol:int aCol
+        while (ti < tlen) {
+            if ((charAt text ti) == 10) {
+                curLine = (curLine + 1)
+                curCol = 0
+            } {
+                curCol = (curCol + 1)
+            }
+            ti = (ti + 1)
+        }
+        caretLine = curLine
+        caretCol = curCol
+
+        if recordUndo {
+            def op:EditorUndoOp (new EditorUndoOp)
+            op.startLine = aLine
+            op.startCol = aCol
+            op.endLine = caretLine
+            op.endCol = caretCol
+            op.deleted = deleted
+            op.inserted = text
+            this.pushUndo(op)
+        }
+
+        version = (version + 1)
+        return (EditorPos.create(caretLine caretCol))
+    }
+
+    fn insertText:EditorPos (line:int col:int text:string) {
+        return (this.replaceRange(line col line col text true))
+    }
+
+    fn deleteRange:EditorPos (startLine:int startCol:int endLine:int endCol:int) {
+        return (this.replaceRange(startLine startCol endLine endCol "" true))
+    }
+
+    ; Step caret left/right by one codepoint (UTF-16 aware).
+    fn moveCodepoint:EditorPos (line:int col:int dir:int) {
+        def p:EditorPos (EditorPos.create(line col))
+        this.clampPos(p)
+        if (dir < 0) {
+            if (p.col > 0) {
+                ; step back over a possible surrogate pair
+                def s:string (this.lineAt(p.line))
+                def prev:int (p.col - 1)
+                if (prev > 0) {
+                    if (EVGCodepoint.isLowSurrogate((charAt s prev))) {
+                        if (EVGCodepoint.isHighSurrogate((charAt s (prev - 1)))) {
+                            prev = (prev - 1)
+                        }
+                    }
+                }
+                p.col = prev
+                return p
+            }
+            if (p.line > 0) {
+                p.line = (p.line - 1)
+                p.col = (strlen (this.lineAt(p.line)))
+            }
+            return p
+        }
+        def s2:string (this.lineAt(p.line))
+        def len:int (strlen s2)
+        if (p.col < len) {
+            p.col = (p.col + (EVGCodepoint.unitsAt(s2 p.col)))
+            return p
+        }
+        if (p.line < ((array_length lines) - 1)) {
+            p.line = (p.line + 1)
+            p.col = 0
+        }
+        return p
+    }
+
+    ; Advance a position by walking `text` (newlines + UTF-16 units).
+    fn posAfter:EditorPos (line:int col:int text:string) {
+        def curLine:int line
+        def curCol:int col
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            if ((charAt text i) == 10) {
+                curLine = (curLine + 1)
+                curCol = 0
+                i = (i + 1)
+            } {
+                curCol = (curCol + 1)
+                i = (i + 1)
+            }
+        }
+        return (EditorPos.create(curLine curCol))
+    }
+
+    fn undo:EditorPos () {
+        def n:int (array_length undoStack)
+        if (n <= 0) {
+            return (EditorPos.create(0 0))
+        }
+        def op:EditorUndoOp (itemAt undoStack (n - 1))
+        removeLast undoStack
+        ; Reverse: remove inserted, put deleted back.
+        def after:EditorPos (this.replaceRange(op.startLine op.startCol op.endLine op.endCol op.deleted false))
+        push redoStack op
+        if ((strlen op.deleted) == 0) {
+            return (EditorPos.create(op.startLine op.startCol))
+        }
+        return after
+    }
+
+    fn redo:EditorPos () {
+        def n:int (array_length redoStack)
+        if (n <= 0) {
+            return (EditorPos.create(0 0))
+        }
+        def op:EditorUndoOp (itemAt redoStack (n - 1))
+        removeLast redoStack
+        ; After undo, `deleted` sits at start — replace that span with `inserted`.
+        def endDel:EditorPos (this.posAfter(op.startLine op.startCol op.deleted))
+        def after:EditorPos (this.replaceRange(op.startLine op.startCol endDel.line endDel.col op.inserted false))
+        def u:EditorUndoOp (new EditorUndoOp)
+        u.startLine = op.startLine
+        u.startCol = op.startCol
+        u.endLine = after.line
+        u.endCol = after.col
+        u.deleted = op.deleted
+        u.inserted = op.inserted
+        push undoStack u
+        return after
+    }
+}
