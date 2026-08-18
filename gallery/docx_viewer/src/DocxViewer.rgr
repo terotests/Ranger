@@ -62,4 +62,8 @@ class DocxViewer {
     fn plainText:string () {
         return (doc.plainText())
     }
+
+    fn inspectJson:string () {
+        return (doc.inspectJson())
+    }
 }

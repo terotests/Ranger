@@ -214,4 +214,132 @@ class RichDocument {
         }
         return out
     }
+
+    fn jsonEsc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 92) {
+                out = (out + "\\\\")
+            } {
+                if (ch == 34) {
+                    out = (out + "\\\"")
+                } {
+                    if (ch == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (ch == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (ch == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (ch < 32) {
+                                    out = (out + " ")
+                                } {
+                                    out = (out + (strfromcode ch))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn jsonBool:string (v:boolean) {
+        if v {
+            return "true"
+        }
+        return "false"
+    }
+
+    fn paraHasBold:boolean (p:Paragraph) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            if ((itemAt p.spans i).bold) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn paraHasItalic:boolean (p:Paragraph) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            if ((itemAt p.spans i).italic) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn paraHasUnderline:boolean (p:Paragraph) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            if ((itemAt p.spans i).underline) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn imageCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length paragraphs)) {
+            def p:Paragraph (itemAt paragraphs i)
+            n = (n + (array_length p.images))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Compact JSON for semantic oracle (supported subset on current model).
+    fn inspectJson:string () {
+        def out:string "{\"title\":\""
+        out = (out + (this.jsonEsc(title)) + "\",")
+        out = (out + "\"sectionCount\":1,")
+        out = (out + "\"paragraphCount\":" + (to_string (array_length paragraphs)) + ",")
+        out = (out + "\"tableCount\":0,")
+        out = (out + "\"imageCount\":" + (to_string (this.imageCount())) + ",")
+        out = (out + "\"sections\":[{")
+        out = (out + "\"w\":" + (to_string section.pageWTwips))
+        out = (out + ",\"h\":" + (to_string section.pageHTwips))
+        out = (out + ",\"mt\":" + (to_string section.marginTopTwips))
+        out = (out + ",\"mr\":" + (to_string section.marginRightTwips))
+        out = (out + ",\"mb\":" + (to_string section.marginBottomTwips))
+        out = (out + ",\"ml\":" + (to_string section.marginLeftTwips))
+        out = (out + "}],\"paragraphs\":[")
+        def pi:int 0
+        while (pi < (array_length paragraphs)) {
+            if (pi > 0) {
+                out = (out + ",")
+            }
+            def p:Paragraph (itemAt paragraphs pi)
+            out = (out + "{\"id\":" + (to_string p.id))
+            out = (out + ",\"text\":\"" + (this.jsonEsc(p.text)) + "\"")
+            out = (out + ",\"style\":\"" + (this.jsonEsc(p.styleId)) + "\"")
+            out = (out + ",\"align\":" + (to_string p.align))
+            out = (out + ",\"bold\":" + (this.jsonBool((this.paraHasBold(p)))))
+            out = (out + ",\"italic\":" + (this.jsonBool((this.paraHasItalic(p)))))
+            out = (out + ",\"underline\":" + (this.jsonBool((this.paraHasUnderline(p)))))
+            out = (out + ",\"listKind\":" + (to_string p.listKind))
+            out = (out + ",\"listLevel\":" + (to_string p.listLevel))
+            out = (out + ",\"listNumId\":" + (to_string p.listNumId))
+            out = (out + ",\"indentLeftPt\":" + (to_string (to_int p.indentLeftPt)))
+            out = (out + ",\"images\":" + (to_string (array_length p.images)))
+            out = (out + "}")
+            pi = (pi + 1)
+        }
+        out = (out + "],\"tables\":[]}")
+        return out
+    }
 }
