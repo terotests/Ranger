@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ranger PPTX Viewer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #12141c;
+        --panel: #1a1e2a;
+        --text: #e6ebf5;
+        --muted: #9aa6bf;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: radial-gradient(1200px 600px at 50% -10%, #243056 0%, var(--bg) 55%);
+        color: var(--text);
+        font: 14px/1.4 "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 100%;
+      }
+      header {
+        display: flex;
+        gap: 1rem;
+        align-items: baseline;
+        padding: 0.85rem 1.25rem;
+        background: color-mix(in srgb, var(--panel) 88%, transparent);
+        border-bottom: 1px solid #2a3148;
+      }
+      header strong { font-size: 1.05rem; letter-spacing: 0.02em; }
+      header span { color: var(--muted); }
+      main {
+        display: grid;
+        place-items: center;
+        padding: 1.25rem;
+      }
+      canvas {
+        width: min(96vw, 960px);
+        height: auto;
+        aspect-ratio: 960 / 720;
+        background: #0c0e14;
+        border: 1px solid #2e3650;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+        cursor: pointer;
+        touch-action: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Ranger PPTX Lite</strong>
+      <span id="meta">loading…</span>
+    </header>
+    <main>
+      <canvas id="view" width="960" height="720" tabindex="0"></canvas>
+    </main>
+    <script type="module" src="./client.mjs"></script>
+  </body>
+</html>

@@ -1,0 +1,326 @@
+; ==============================================================================
+; OpcPackage - Open Packaging Conventions (ZIP) reader for .pptx / OOXML
+; ==============================================================================
+;
+; A .pptx is an OPC package: a ZIP of XML parts + relationships. This wrapper
+; sits on gallery/zip/ZipReader and exposes part lookup by package path.
+;
+;   presentation.pptx
+;         ↓
+;   OpcPackage.open
+;         ↓
+;   readXml / readBinary / resolveRelationship
+; ==============================================================================
+
+Import "../../zip/ZipReader.rgr"
+Import "../../zip/ZipEntry.rgr"
+
+class OpcRelationship {
+    def id:string ""
+    def type:string ""
+    def target:string ""
+}
+
+class OpcPackage {
+    def reader:ZipReader (new ZipReader())
+    def isOpen:boolean false
+    def dir:string "."
+    def filename:string ""
+    ; Cache of partPath -> parsed relationship list
+    def relCache:[string:[OpcRelationship]]
+
+    Constructor () {
+    }
+
+    fn splitPath:void (fullPath:string dirOut:[string] nameOut:[string]) {
+        def dir:string "."
+        def name:string fullPath
+        def lastSlash:int -1
+        def len:int (strlen fullPath)
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt fullPath i)
+            if ((ch == 47) || (ch == 92)) {
+                lastSlash = i
+            }
+            i = (i + 1)
+        }
+        if (lastSlash >= 0) {
+            if (lastSlash == 0) {
+                dir = "/"
+            } {
+                dir = (substring fullPath 0 lastSlash)
+            }
+            name = (substring fullPath (lastSlash + 1) len)
+        }
+        push dirOut dir
+        push nameOut name
+    }
+
+    ; Open a .pptx (or any OPC ZIP) from a filesystem path.
+    fn open:boolean (fullPath:string) {
+        def dirs:[string]
+        def names:[string]
+        this.splitPath(fullPath dirs names)
+        dir = (itemAt dirs 0)
+        filename = (itemAt names 0)
+        def ok:boolean (reader.open(dir filename))
+        isOpen = ok
+        return ok
+    }
+
+    fn openParts:boolean (path:string name:string) {
+        dir = path
+        filename = name
+        def ok:boolean (reader.open(path name))
+        isOpen = ok
+        return ok
+    }
+
+    fn close:void () {
+        reader.close()
+        isOpen = false
+    }
+
+    fn listParts:[string] () {
+        return (reader.listFiles())
+    }
+
+    fn hasPart:boolean (name:string) {
+        def e@(optional):ZipEntry (reader.getEntry(name))
+        if (!null? e) {
+            return true
+        }
+        return false
+    }
+
+    fn readBinary:buffer (name:string) {
+        def e@(optional):ZipEntry (reader.getEntry(name))
+        if (null? e) {
+            return (buffer_alloc 0)
+        }
+        def entry:ZipEntry (unwrap e)
+        return (reader.extract(entry))
+    }
+
+    fn readXml:string (name:string) {
+        def data:buffer (this.readBinary(name))
+        if ((buffer_length data) == 0) {
+            return ""
+        }
+        return (buffer_to_string data)
+    }
+
+    ; Resolve a relative OPC target against a part path.
+    ; part = "ppt/slides/slide1.xml", target = "../media/image1.png"
+    ;   → "ppt/media/image1.png"
+    sfn joinPartPath:string (part:string target:string) {
+        if ((strlen target) == 0) {
+            return part
+        }
+        ; Absolute package path (rare)
+        def t0:int (charAt target 0)
+        if (t0 == 47) {
+            return (substring target 1 (strlen target))
+        }
+        ; Directory of the part
+        def lastSlash:int -1
+        def i:int 0
+        def plen:int (strlen part)
+        while (i < plen) {
+            if ((charAt part i) == 47) {
+                lastSlash = i
+            }
+            i = (i + 1)
+        }
+        def base:string ""
+        if (lastSlash >= 0) {
+            base = (substring part 0 lastSlash)
+        }
+        ; Split target on '/'
+        def segs:[string]
+        def cur:string ""
+        def j:int 0
+        def tlen:int (strlen target)
+        while (j <= tlen) {
+            def done:boolean false
+            if (j == tlen) {
+                done = true
+            } {
+                if ((charAt target j) == 47) {
+                    done = true
+                }
+            }
+            if done {
+                if ((strlen cur) > 0) {
+                    push segs cur
+                }
+                cur = ""
+            } {
+                cur = (cur + (strfromcode (charAt target j)))
+            }
+            j = (j + 1)
+        }
+        ; Start from base segments
+        def stack:[string]
+        def bi:int 0
+        def bcur:string ""
+        def blen:int (strlen base)
+        while (bi <= blen) {
+            def bdone:boolean false
+            if (bi == blen) {
+                bdone = true
+            } {
+                if ((charAt base bi) == 47) {
+                    bdone = true
+                }
+            }
+            if bdone {
+                if ((strlen bcur) > 0) {
+                    push stack bcur
+                }
+                bcur = ""
+            } {
+                bcur = (bcur + (strfromcode (charAt base bi)))
+            }
+            bi = (bi + 1)
+        }
+        def si:int 0
+        while (si < (array_length segs)) {
+            def seg:string (itemAt segs si)
+            if (seg == "..") {
+                if ((array_length stack) > 0) {
+                    removeLast stack
+                }
+            } {
+                if (seg != ".") {
+                    push stack seg
+                }
+            }
+            si = (si + 1)
+        }
+        def out:string ""
+        def k:int 0
+        while (k < (array_length stack)) {
+            if (k > 0) {
+                out = (out + "/")
+            }
+            out = (out + (itemAt stack k))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Relationships for a part live in <dir>/_rels/<file>.rels
+    sfn relsPathFor:string (part:string) {
+        def lastSlash:int -1
+        def i:int 0
+        def plen:int (strlen part)
+        while (i < plen) {
+            if ((charAt part i) == 47) {
+                lastSlash = i
+            }
+            i = (i + 1)
+        }
+        if (lastSlash < 0) {
+            return ("_rels/" + part + ".rels")
+        }
+        def dir:string (substring part 0 lastSlash)
+        def file:string (substring part (lastSlash + 1) plen)
+        return (dir + "/_rels/" + file + ".rels")
+    }
+
+    fn parseRelationships:[OpcRelationship] (xml:string) {
+        def out:[OpcRelationship]
+        if ((strlen xml) == 0) {
+            return out
+        }
+        ; Tiny attribute scan: look for <Relationship ... />
+        def pos:int 0
+        def len:int (strlen xml)
+        while (pos < len) {
+            def idx:int (indexOfFrom xml "<Relationship" pos)
+            if (idx < 0) {
+                break
+            }
+            def end:int (indexOfFrom xml ">" idx)
+            if (end < 0) {
+                break
+            }
+            def tag:string (substring xml idx (end + 1))
+            def rel (new OpcRelationship())
+            rel.id = (OpcPackage.attrValue(tag "Id"))
+            rel.type = (OpcPackage.attrValue(tag "Type"))
+            rel.target = (OpcPackage.attrValue(tag "Target"))
+            if ((strlen rel.id) > 0) {
+                push out rel
+            }
+            pos = (end + 1)
+        }
+        return out
+    }
+
+    sfn attrValue:string (tag:string name:string) {
+        def key:string (name + "=\"")
+        def i:int (indexOf tag key)
+        if (i < 0) {
+            def key2:string (name + "='")
+            def j:int (indexOf tag key2)
+            if (j < 0) {
+                return ""
+            }
+            def start2:int (j + (strlen key2))
+            def end2:int (indexOfFrom tag "'" start2)
+            if (end2 < 0) {
+                return ""
+            }
+            return (substring tag start2 end2)
+        }
+        def start:int (i + (strlen key))
+        def end:int (indexOfFrom tag "\"" start)
+        if (end < 0) {
+            return ""
+        }
+        return (substring tag start end)
+    }
+
+    fn relationshipsFor:[OpcRelationship] (part:string) {
+        def cached@(optional):[OpcRelationship] (get relCache part)
+        if (!null? cached) {
+            return (unwrap cached)
+        }
+        def rpath:string (OpcPackage.relsPathFor(part))
+        def xml:string (this.readXml(rpath))
+        def list:[OpcRelationship] (this.parseRelationships(xml))
+        set relCache part list
+        return list
+    }
+
+    ; Resolve rId on a part to an absolute package path.
+    fn resolveRelationship:string (part:string rid:string) {
+        def rels:[OpcRelationship] (this.relationshipsFor(part))
+        def i:int 0
+        while (i < (array_length rels)) {
+            def rel:OpcRelationship (itemAt rels i)
+            if (rel.id == rid) {
+                return (OpcPackage.joinPartPath(part rel.target))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Find first relationship of a given type suffix (e.g. "/slide").
+    fn findRelationshipByType:string (part:string typeSuffix:string) {
+        def rels:[OpcRelationship] (this.relationshipsFor(part))
+        def i:int 0
+        while (i < (array_length rels)) {
+            def rel:OpcRelationship (itemAt rels i)
+            if ((indexOf rel.type typeSuffix) >= 0) {
+                return (OpcPackage.joinPartPath(part rel.target))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+}
