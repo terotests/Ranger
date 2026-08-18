@@ -168,6 +168,8 @@
     "text_editor:bench": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/text_editor/bench/editor_bench.rgr -d=./gallery/text_editor/bin -o=editor_bench.js -nodecli && node ./gallery/text_editor/bin/editor_bench.js",
     "text_editor:module": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/text_editor/src/EditorApp.rgr -d=./gallery/text_editor/bin -o=editor_app_module.cjs",
     "text_editor:compare": "npm run text_editor:module && npm --prefix gallery/text_editor/bench/compare install && node gallery/text_editor/bench/compare/run.mjs",
+    "text_editor:window": "npm run text_editor:module && node gallery/text_editor/web/serve.mjs --open",
+    "text_editor:window:smoke": "npm run text_editor:module && node gallery/text_editor/web/serve.mjs --headless-smoke",
     "engine:ui:wasm-select": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/ui/wasm_ui_select_demo.rgr -d=./gallery/game_engine/ui -o=wasm_ui_select_demo.js -nodecli && node ./gallery/game_engine/ui/wasm_ui_select_demo.js",
     "engine:ui:wasm-guest": "bash gallery/game_engine/games/ui_menu/src/build.sh && node gallery/game_engine/games/ui_menu/src/tools/parity.cjs",
     "engine:ui:effects": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/scripting/ui_effects_demo.rgr -d=./gallery/game_engine/scripting -o=ui_effects_demo.js -nodecli && node ./gallery/game_engine/scripting/ui_effects_demo.js",

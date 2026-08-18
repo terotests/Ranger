@@ -39,11 +39,20 @@ npm run text_editor:bench      # Ranger-only SoftCanvas timings (default 1k line
 npm run text_editor:bench -- 10000
 npm run text_editor:compare    # side-by-side vs @hufe921/canvas-editor (Chromium)
 npm run text_editor:compare -- --lines 10000
+npm run text_editor:window     # interactive Chrome window (SoftCanvas present host)
+npm run text_editor:window:smoke
 ```
 
-`text_editor:compare` installs the local compare harness deps on first run
-(`puppeteer-core` + `@hufe921/canvas-editor`) and needs a system Chrome.
-See [`bench/compare/README.md`](bench/compare/README.md).
+### Interactive window
+
+`npm run text_editor:window` starts a tiny Node present server and opens Chrome:
+
+```text
+browser mouse/keyboard → /input → UIInput → EditorApp
+EditorApp SoftCanvas.raw() → /frame.bin → <canvas> putImageData
+```
+
+Same editor core as the tests; only the present/I/O shell is browser-side.
 
 ## What works now
 

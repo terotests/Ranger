@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger EVG Text Editor</title>
+    <style>
+      :root {
+        --bg: #0e1018;
+        --panel: #161a26;
+        --ink: #dce3f2;
+        --muted: #8b97b0;
+        --accent: #78c8ff;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background:
+          radial-gradient(1200px 600px at 10% -10%, #1a2744 0%, transparent 55%),
+          radial-gradient(900px 500px at 100% 0%, #241828 0%, transparent 50%),
+          var(--bg);
+        color: var(--ink);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .stage {
+        width: min(960px, 100%);
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 1.35rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      p.hint {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .frame {
+        background: var(--panel);
+        border: 1px solid #2a3348;
+        padding: 10px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        image-rendering: pixelated;
+        background: #12141c;
+        cursor: text;
+        outline: none;
+      }
+      .bar {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .bar strong { color: var(--accent); font-weight: 600; }
+      kbd {
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 0.78rem;
+        border: 1px solid #3a4560;
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 1px 5px;
+        background: #1c2233;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>Ranger EVG Text Editor</h1>
+      <p class="hint">
+        SoftCanvas → browser window. Click the canvas, then type. Scroll with the wheel.
+        <kbd>Ctrl</kbd>+<kbd>A</kbd> select all · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo
+      </p>
+      <div class="frame">
+        <canvas id="screen" tabindex="0" width="720" height="480"></canvas>
+      </div>
+      <div class="bar">
+        <span>status: <strong id="status">connecting…</strong></span>
+        <span>fps: <strong id="fps">—</strong></span>
+      </div>
+    </div>
+    <script type="module" src="./client.mjs"></script>
+  </body>
+</html>
