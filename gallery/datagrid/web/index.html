@@ -83,10 +83,13 @@
     <div class="stage">
       <h1>Ranger EVG DataGrid · XLSX viewer</h1>
       <p class="hint">
-        Loads <code>fixtures/sales.xlsx</code> via ZIP + SpreadsheetML →
-        <code>SpreadsheetModel</code> → virtualized DataGrid →
-        <code>EVGDisplayList</code> → WebGL 2.
-        Sheet tabs at the bottom · formula bar shows cached <code>=formula</code>.
+        Default: <code>fixtures/business-workbook.xlsx</code>
+        (Sales / Costs / Forecast / Summary · formulas · CF · freeze).
+        Override with <code>--xlsx path</code> on <code>serve.mjs</code>
+        (e.g. <code>sales.xlsx</code>).
+        Pipeline: ZIP + SpreadsheetML → <code>WorkbookModel</code> +
+        <code>FormulaEngine</code> → virtualized DataGrid → WebGL 2.
+        Click column headers for sort/filter · formula bar edits <code>=…</code>.
       </p>
       <div class="frame">
         <canvas id="screen" tabindex="0" width="900" height="560"></canvas>

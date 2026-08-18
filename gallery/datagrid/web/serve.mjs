@@ -46,12 +46,29 @@ const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
 
 const app = new GridApp();
 app.init(fontDir);
-const xlsxPath = path.resolve(__dirname, "../fixtures/sales.xlsx");
+// Default showcase workbook (M4+): multi-sheet, formats, formulas, CF.
+// Override: node serve.mjs --xlsx gallery/datagrid/fixtures/sales.xlsx
+const xlsxArg = argVal("--xlsx", "");
+const xlsxPath = path.resolve(
+  ROOT,
+  xlsxArg || "gallery/datagrid/fixtures/business-workbook.xlsx",
+);
 if (fs.existsSync(xlsxPath)) {
   const ok = app.loadXlsx(xlsxPath);
   console.log(ok ? "  loaded " + xlsxPath : "  xlsx load failed: " + app.loadError);
+  // Prefer Summary sheet when present (KPIs + CF demo).
+  if (ok && typeof app.book?.sheetCount === "function") {
+    const n = app.book.sheetCount();
+    for (let i = 0; i < n; i++) {
+      const sh = app.book.sheetAt(i);
+      if (sh && sh.name === "Summary") {
+        app.setActiveSheet(i);
+        break;
+      }
+    }
+  }
 } else {
-  console.log("  (no fixtures/sales.xlsx — using demo sheet)");
+  console.log("  (no " + xlsxPath + " — using demo sheet)");
 }
 
 const liveInput = new UIInput();
