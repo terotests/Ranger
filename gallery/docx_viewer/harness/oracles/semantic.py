@@ -163,7 +163,14 @@ def main() -> int:
     if not ranger_path.exists():
         print(f"FAIL semantic: missing ranger inspect {ranger_path}")
         return 1
-    ranger = json.loads(ranger_path.read_text(encoding="utf-8"))
+    raw = ranger_path.read_bytes()
+    try:
+        ranger = json.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError:
+        ranger = json.loads(raw.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        print(f"FAIL semantic: invalid ranger JSON ({e})")
+        return 1
     fails = compare(ref, ranger)
     result = {
         "ok": len(fails) == 0,

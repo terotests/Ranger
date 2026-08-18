@@ -236,10 +236,11 @@ class RichDocument {
                             if (ch == 9) {
                                 out = (out + "\\t")
                             } {
-                                if (ch < 32) {
+                                if ((ch < 32) && (ch >= 0)) {
                                     out = (out + " ")
                                 } {
-                                    out = (out + (strfromcode ch))
+                                    ; Copy raw byte so UTF-8 multi-byte sequences stay intact.
+                                    out = (out + (substring s i (i + 1)))
                                 }
                             }
                         }

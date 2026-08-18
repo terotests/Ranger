@@ -63,13 +63,13 @@ NUMBERING = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:lvl w:ilvl="0">
       <w:start w:val="1"/>
       <w:numFmt w:val="bullet"/>
-      <w:lvlText w:val="•"/>
+      <w:lvlText w:val="-"/>
       <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
     </w:lvl>
     <w:lvl w:ilvl="1">
       <w:start w:val="1"/>
       <w:numFmt w:val="bullet"/>
-      <w:lvlText w:val="○"/>
+      <w:lvlText w:val="-"/>
       <w:pPr><w:ind w:left="1440" w:hanging="360"/></w:pPr>
     </w:lvl>
   </w:abstractNum>
@@ -249,7 +249,7 @@ def table(rows: list[list[dict | str | tuple]], col_widths: Optional[list[int]] 
     Each cell may be:
       - str
       - (text,) / (text, opts_dict)
-      - dict with keys: text, gridSpan, fill, borders (dict of side→val/color/sz)
+      - dict with keys: text, gridSpan, fill, borders (dict of side->val/color/sz)
     """
     if not rows:
         return ""
@@ -477,7 +477,7 @@ if __name__ == "__main__":
                 [
                     ("Hello ", False, False, None, None),
                     ("world", True, False, None, None),
-                    (" — ", False, False, None, None),
+                    (" -- ", False, False, None, None),
                     ("paragraphs", False, True, None, None),
                     (" with ", False, False, None, None),
                     ("runs", True, True, None, None),
@@ -528,7 +528,7 @@ if __name__ == "__main__":
             p(
                 [
                     (
-                        "Normal body continues after the heading with document defaults (11pt Calibri → Open Sans).",
+                        "Normal body continues after the heading with document defaults (11pt Calibri -> Open Sans).",
                         False,
                         False,
                         None,
@@ -557,7 +557,7 @@ if __name__ == "__main__":
             p([("Open Sans Bold", False, False, None, None)], numId=3, ilvl=1),
             p([("Roman detail", False, False, None, None)], numId=3, ilvl=2),
             p([("Parse numbering.xml", False, False, None, None)], numId=3, ilvl=0),
-            p([("Done — EVG paints the resolved page.", False, False, None, None)]),
+            p([("Done -- EVG paints the resolved page.", False, False, None, None)]),
         ],
     )
 
@@ -600,7 +600,7 @@ if __name__ == "__main__":
         "05-table-basic.docx",
         [
             p([("Basic Table", True, False, None, None)], pstyle="Heading1"),
-            p([("A simple 3×3 table with a header row.", False, False, None, None)]),
+            p([("A simple 3x3 table with a header row.", False, False, None, None)]),
             table(
                 [
                     [
@@ -716,7 +716,7 @@ if __name__ == "__main__":
             p(
                 [
                     (
-                        "This section is landscape with swapped page size 15840×12240.",
+                        "This section is landscape with swapped page size 15840x12240.",
                         False,
                         False,
                         None,
@@ -746,10 +746,10 @@ if __name__ == "__main__":
 
     # --- 12 header + footer ---
     hdr = _header_xml(
-        [p([("Acme Corp — Confidential", False, True, "18", "666666")], jc="right")]
+        [p([("Acme Corp -- Confidential", False, True, "18", "666666")], jc="right")]
     )
     ftr = _footer_xml(
-        [p([("Oracle harness footer · page sample", False, False, "16", "888888")], jc="center")]
+        [p([("Oracle harness footer  -  page sample", False, False, "16", "888888")], jc="center")]
     )
     write_docx(
         "12-header-footer.docx",
@@ -860,7 +860,7 @@ if __name__ == "__main__":
     )
     report_paras = [
         p([("Northwind Quarterly Business Report", True, False, None, None)], pstyle="Title"),
-        p([("Q2 FY2026 · Prepared for executive review", False, True, None, None)], jc="center"),
+        p([("Q2 FY2026  -  Prepared for executive review", False, True, None, None)], jc="center"),
         p([("1. Executive Summary", True, False, None, None)], pstyle="Heading1"),
         p(
             [
