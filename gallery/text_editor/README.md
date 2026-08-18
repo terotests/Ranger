@@ -61,11 +61,12 @@ demo never blits framebuffer bytes — it draws the same display-list seam as
 
 - Multiline buffer (array of lines) with insert / delete / replace
 - Undo / redo
-- Caret + selection (shift-arrows, drag, Ctrl+A)
+- Caret + selection (shift-arrows, drag, double-click word, triple-click line, Ctrl+A)
+- Rich runs / blocks: Bold (Ctrl+B), Font, Align, bullet & numbered lists
 - UTF-16 / surrogate-aware caret steps via `EVGCodepoint`
 - Scroll, jump-to-line, resize
 - SoftCanvas paint: gutter line numbers, selection rects, blinking caret, TTF text
-- Web demo: `EVGDisplayList` → WebGL 2 (`gallery/evg/gl/evg-webgl.js`)
+- Web demo: `EVGDisplayList` → WebGL 2 + Canvas2D selection/caret overlay
 - Headless `UIInput` scripting (same contract as the EVG UI layer)
 
 ## Deliberately not in this PR
