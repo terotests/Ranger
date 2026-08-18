@@ -1,0 +1,254 @@
+; ==============================================================================
+; WordMlParser - WordprocessingML document.xml → RichDocument
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "DocxPackage.rgr"
+Import "WordXml.rgr"
+Import "WordStyleResolver.rgr"
+Import "WordNumbering.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+
+class WordMlParser {
+    def resolver:WordStyleResolver (new WordStyleResolver)
+    def numbering:WordNumbering (new WordNumbering)
+    def pkg:DocxPackage (new DocxPackage)
+
+    Constructor () {
+    }
+
+    fn parsePackage:RichDocument (docxPkg:DocxPackage) {
+        pkg = docxPkg
+        def styles:string (pkg.stylesXml())
+        if ((strlen styles) > 0) {
+            resolver.parseStylesXml(styles)
+        }
+        numbering = (new WordNumbering)
+        def numXml:string (pkg.numberingXml())
+        if ((strlen numXml) > 0) {
+            numbering.parse(numXml)
+        }
+        def doc:RichDocument (this.parseDocumentXml((pkg.documentXml())))
+        ; Apply numbering indent / kind after all paras known
+        def i:int 0
+        while (i < (doc.paragraphCount())) {
+            def p:Paragraph (doc.paragraphAt(i))
+            if (p.listNumId > 0) {
+                numbering.applyToParagraph(p)
+            }
+            i = (i + 1)
+        }
+        return doc
+    }
+
+    fn parseDocumentXml:RichDocument (xml:string) {
+        def doc:RichDocument (new RichDocument)
+        def sect:int (WordXml.findNext(xml "w:sectPr" 0))
+        if (sect >= 0) {
+            def sEl:string (WordXml.sliceElement(xml "w:sectPr" sect))
+            def psz:int (WordXml.findNext(sEl "w:pgSz" 0))
+            if (psz >= 0) {
+                def pszEl:string (WordXml.sliceElement(sEl "w:pgSz" psz))
+                def ot:string (WordXml.openTag(pszEl))
+                doc.section.pageWTwips = (WordXml.twipsAttr(ot "w:w" doc.section.pageWTwips))
+                doc.section.pageHTwips = (WordXml.twipsAttr(ot "w:h" doc.section.pageHTwips))
+            }
+            def pm:int (WordXml.findNext(sEl "w:pgMar" 0))
+            if (pm >= 0) {
+                def pmEl:string (WordXml.sliceElement(sEl "w:pgMar" pm))
+                def ot2:string (WordXml.openTag(pmEl))
+                doc.section.marginTopTwips = (WordXml.twipsAttr(ot2 "w:top" doc.section.marginTopTwips))
+                doc.section.marginRightTwips = (WordXml.twipsAttr(ot2 "w:right" doc.section.marginRightTwips))
+                doc.section.marginBottomTwips = (WordXml.twipsAttr(ot2 "w:bottom" doc.section.marginBottomTwips))
+                doc.section.marginLeftTwips = (WordXml.twipsAttr(ot2 "w:left" doc.section.marginLeftTwips))
+            }
+        }
+
+        def i:int 0
+        def n:int (strlen xml)
+        while (i < n) {
+            def pStart:int (WordXml.findNext(xml "w:p" i))
+            if (pStart < 0) {
+                return doc
+            }
+            def pEl:string (WordXml.sliceElement(xml "w:p" pStart))
+            if ((strlen pEl) == 0) {
+                return doc
+            }
+            this.parseParagraph(doc pEl)
+            def pEnd:int (WordXml.elementEnd(xml "w:p" pStart))
+            if (pEnd < 0) {
+                return doc
+            }
+            i = pEnd
+        }
+        return doc
+    }
+
+    fn parseParagraph:void (doc:RichDocument pEl:string) {
+        def p:Paragraph (doc.addParagraph())
+        def pPrXml:string ""
+        def pPr:int (WordXml.findNext(pEl "w:pPr" 0))
+        if (pPr >= 0) {
+            pPrXml = (WordXml.sliceElement(pEl "w:pPr" pPr))
+            def ps:int (WordXml.findNext(pPrXml "w:pStyle" 0))
+            if (ps >= 0) {
+                def psEl:string (WordXml.sliceElement(pPrXml "w:pStyle" ps))
+                p.styleId = (WordXml.attr((WordXml.openTag(psEl)) "w:val"))
+            }
+        }
+        resolver.resolveParagraph(p pPrXml)
+        def base:ResolvedRunStyle (resolver.baseRunFromParagraph(p))
+        clear p.spans
+        p.text = ""
+
+        def ri:int 0
+        def pn:int (strlen pEl)
+        while (ri < pn) {
+            def rStart:int (WordXml.findNext(pEl "w:r" ri))
+            if (rStart < 0) {
+                return
+            }
+            def rEl:string (WordXml.sliceElement(pEl "w:r" rStart))
+            if ((strlen rEl) == 0) {
+                return
+            }
+            ; DrawingML picture inside the run?
+            def dr:int (WordXml.findNext(rEl "w:drawing" 0))
+            if (dr < 0) {
+                dr = (WordXml.findNext(rEl "w:pict" 0))
+            }
+            if (dr >= 0) {
+                def img:DocImage (this.parseDrawing(rEl))
+                if ((strlen img.relId) > 0) {
+                    push p.images img
+                }
+            }
+            def runStyle:ResolvedRunStyle (base.copy())
+            def rPr:int (WordXml.findNext(rEl "w:rPr" 0))
+            if (rPr >= 0) {
+                def rPrEl:string (WordXml.sliceElement(rEl "w:rPr" rPr))
+                resolver.applyRPr(rPrEl runStyle)
+            }
+            def chunk:string ""
+            def ti:int 0
+            def rn:int (strlen rEl)
+            while (ti < rn) {
+                def tStart:int (WordXml.findNext(rEl "w:t" ti))
+                if (tStart < 0) {
+                    ti = rn
+                } {
+                    def tEl:string (WordXml.sliceElement(rEl "w:t" tStart))
+                    def inner:string (WordXml.innerOf(tEl "w:t"))
+                    chunk = (chunk + (WordXml.decodeEntities(inner)))
+                    def tEnd:int (WordXml.elementEnd(rEl "w:t" tStart))
+                    if (tEnd < 0) {
+                        ti = rn
+                    } {
+                        ti = tEnd
+                    }
+                }
+            }
+            if ((strlen chunk) > 0) {
+                def span:TextSpan (TextSpan.create(0 0))
+                runStyle.applyToSpan(span)
+                p.appendText(chunk span)
+            }
+            def rEnd:int (WordXml.elementEnd(pEl "w:r" rStart))
+            if (rEnd < 0) {
+                return
+            }
+            ri = rEnd
+        }
+    }
+
+    fn parseDrawing:DocImage (rEl:string) {
+        def empty:DocImage (new DocImage)
+        ; a:blip r:embed="rIdN"
+        def blipAt:int (indexOf rEl "<a:blip")
+        if (blipAt < 0) {
+            blipAt = (indexOf rEl "<v:imagedata")
+        }
+        if (blipAt < 0) {
+            return empty
+        }
+        def n:int (strlen rEl)
+        def gt:int blipAt
+        while (gt < n) {
+            if ((charAt rEl gt) == 62) {
+                def tag:string (substring rEl blipAt (gt + 1))
+                def rid:string (WordXml.attr(tag "r:embed"))
+                if ((strlen rid) == 0) {
+                    rid = (WordXml.attr(tag "r:id"))
+                }
+                if ((strlen rid) == 0) {
+                    return empty
+                }
+                def img:DocImage (new DocImage)
+                img.relId = rid
+                img.partPath = (pkg.resolveRel(rid))
+                def extAt:int (indexOf rEl "<wp:extent")
+                if (extAt < 0) {
+                    extAt = (indexOf rEl "<a:ext")
+                }
+                if (extAt >= 0) {
+                    def eg:int extAt
+                    while (eg < n) {
+                        if ((charAt rEl eg) == 62) {
+                            def eTag:string (substring rEl extAt (eg + 1))
+                            def cx:string (WordXml.attr(eTag "cx"))
+                            def cy:string (WordXml.attr(eTag "cy"))
+                            def cxi@(optional):int (to_int cx)
+                            def cyi@(optional):int (to_int cy)
+                            if (!null? cxi) {
+                                img.widthEmu = (unwrap cxi)
+                            }
+                            if (!null? cyi) {
+                                img.heightEmu = (unwrap cyi)
+                            }
+                            eg = n
+                        } {
+                            eg = (eg + 1)
+                        }
+                    }
+                }
+                img.syncPx()
+                this.decodeImage(img)
+                return img
+            }
+            gt = (gt + 1)
+        }
+        return empty
+    }
+
+    fn decodeImage:void (img:DocImage) {
+        if ((strlen img.partPath) == 0) {
+            return
+        }
+        def bytes:buffer (pkg.readPartBytes(img.partPath))
+        if ((buffer_length bytes) < 8) {
+            return
+        }
+        ; JPEG FF D8 — prefer pdf_writer JPEGDecoder (same ImageBuffer as SoftCanvas).
+        def b0:int (buffer_get bytes 0)
+        def b1:int (buffer_get bytes 1)
+        if ((b0 == 255) && (b1 == 216)) {
+            def jdec:JPEGDecoder (new JPEGDecoder)
+            img.pixels = (jdec.decodeBytes(bytes))
+            if ((img.pixels.width > 0) && (img.pixels.height > 0)) {
+                img.ok = true
+                if (img.widthEmu == 0) {
+                    img.widthPx = img.pixels.width
+                    img.heightPx = img.pixels.height
+                }
+            }
+            return
+        }
+        ; PNG: decode via temporary file is heavy; for now mark placeholder unless
+        ; we add a pdf_writer PNG decoder. Fixtures ship JPEG.
+        if ((b0 == 137) && (b1 == 80)) {
+            ; Leave img.ok=false → placeholder rect in DocxView.
+            return
+        }
+    }
+}

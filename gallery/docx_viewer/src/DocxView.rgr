@@ -1,0 +1,157 @@
+; ==============================================================================
+; DocxView - SoftCanvas paint of laid-out RichDocument pages.
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "DocxLayout.rgr"
+Import "WordNumbering.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DocxView {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def layout:DocxLayout (new DocxLayout)
+    def pageIndex:int 0
+    def bg:EVGColor (EVGColor.rgb(248 248 250))
+    def ink:EVGColor (EVGColor.rgb(20 24 32))
+    def marginGuide:EVGColor (EVGColor.rgb(220 224 232))
+
+    Constructor () {
+    }
+
+    fn init:void (fontDir:string) {
+        ctx.tr.addFontDir(fontDir)
+        ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Cinzel/Cinzel-Regular.ttf")
+        ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+    }
+
+    fn present:void (doc:RichDocument page:int nums:WordNumbering) {
+        layout.layout(doc ctx.tr nums)
+        if (page < 0) {
+            page = 0
+        }
+        if (page >= (layout.pageCount())) {
+            page = ((layout.pageCount()) - 1)
+        }
+        if (page < 0) {
+            page = 0
+        }
+        pageIndex = page
+        def pg:LaidPage (layout.pageAt(pageIndex))
+        canvas.init(pg.width pg.height)
+        ctx.attach(canvas)
+        canvas.clear((bg.red()) (bg.green()) (bg.blue()))
+        def ml:int (doc.section.marginLeftPx())
+        def mt:int (doc.section.marginTopPx())
+        def mr:int (doc.section.marginRightPx())
+        def mb:int (doc.section.marginBottomPx())
+        ctx.strokeRect(ml mt ((pg.width - ml) - mr) ((pg.height - mt) - mb) 1 marginGuide)
+
+        def i:int 0
+        while (i < (array_length pg.lines)) {
+            def line:LaidLine (itemAt pg.lines i)
+            def p:Paragraph (doc.paragraphAt(line.paraIndex))
+            if (line.kind == 1) {
+                if (line.imageIndex < (array_length p.images)) {
+                    def dimg:DocImage (itemAt p.images line.imageIndex)
+                    if dimg.ok {
+                        if ((dimg.pixels.width == line.width) && (dimg.pixels.height == line.height)) {
+                            canvas.blitImage(dimg.pixels line.x line.y)
+                        } {
+                            canvas.blitImageRectScaled(dimg.pixels 0 0 dimg.pixels.width dimg.pixels.height line.x line.y line.width line.height)
+                        }
+                    } {
+                        ; placeholder
+                        ctx.fillRect(line.x line.y line.width line.height (EVGColor.rgb(200 210 220)))
+                        ctx.text("[image]" line.x (line.y + 4) 12.0 ink)
+                    }
+                }
+            } {
+                def size:double 14.0
+                def bold:boolean false
+                def col:EVGColor ink
+                if ((array_length p.spans) > 0) {
+                    def sp:TextSpan (itemAt p.spans 0)
+                    size = (DocxLayout.ptToPx(sp.fontSizePt))
+                    bold = sp.bold
+                    col = (this.hexColor(sp.colorHex))
+                }
+                if (size < 8.0) {
+                    size = 8.0
+                }
+                if bold {
+                    ctx.tr.fontFamily = "Open Sans"
+                    def face:TrueTypeFont (ctx.tr.fm.getFont("Open Sans-Bold"))
+                    if (face.unitsPerEm > 0) {
+                        ctx.tr.rt.setFont(face)
+                        ctx.tr.clearCache()
+                    }
+                } {
+                    def face2:TrueTypeFont (ctx.tr.fm.getFont("Open Sans"))
+                    if (face2.unitsPerEm > 0) {
+                        ctx.tr.rt.setFont(face2)
+                        ctx.tr.clearCache()
+                    }
+                }
+                ctx.text(line.text line.x line.y size col)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn hexColor:EVGColor (hex:string) {
+        if ((strlen hex) != 6) {
+            return ink
+        }
+        def r:int (this.hexByte((substring hex 0 2)))
+        def g:int (this.hexByte((substring hex 2 4)))
+        def b:int (this.hexByte((substring hex 4 6)))
+        return (EVGColor.rgb(r g b))
+    }
+
+    fn hexByte:int (hh:string) {
+        def hi:int (this.hexNibble((charAt hh 0)))
+        def lo:int (this.hexNibble((charAt hh 1)))
+        return ((hi * 16) + lo)
+    }
+
+    fn hexNibble:int (ch:int) {
+        if ((ch >= 48) && (ch <= 57)) {
+            return (ch - 48)
+        }
+        if ((ch >= 65) && (ch <= 70)) {
+            return (ch - 55)
+        }
+        if ((ch >= 97) && (ch <= 102)) {
+            return (ch - 87)
+        }
+        return 0
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn width:int () {
+        return canvas.w
+    }
+
+    fn height:int () {
+        return canvas.h
+    }
+
+    fn writePng:void (dir:string file:string) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (this.width())
+        rb.height = (this.height())
+        rb.pixels = (this.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+    }
+}

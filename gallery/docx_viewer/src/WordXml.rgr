@@ -1,0 +1,260 @@
+; ==============================================================================
+; WordXml - tiny WordprocessingML string helpers (no full DOM).
+; ==============================================================================
+;
+; Sufficient for the viewer subset: paragraphs, runs, text, rPr/pPr attrs.
+; ==============================================================================
+
+class WordXml {
+    sfn decodeEntities:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            if ((charAt s i) == 38) {
+                ; &
+                if ((i + 3) < n) {
+                    if ((substring s i (i + 4)) == "&lt;") {
+                        out = (out + "<")
+                        i = (i + 4)
+                    } {
+                        if ((substring s i (i + 4)) == "&gt;") {
+                            out = (out + ">")
+                            i = (i + 4)
+                        } {
+                            if ((i + 4) < n) {
+                                if ((substring s i (i + 5)) == "&amp;") {
+                                    out = (out + "&")
+                                    i = (i + 5)
+                                } {
+                                    if ((i + 5) < n) {
+                                        if ((substring s i (i + 6)) == "&quot;") {
+                                            out = (out + "\"")
+                                            i = (i + 6)
+                                        } {
+                                            if ((substring s i (i + 6)) == "&apos;") {
+                                                out = (out + "'")
+                                                i = (i + 6)
+                                            } {
+                                                out = (out + (substring s i (i + 1)))
+                                                i = (i + 1)
+                                            }
+                                        }
+                                    } {
+                                        out = (out + (substring s i (i + 1)))
+                                        i = (i + 1)
+                                    }
+                                }
+                            } {
+                                out = (out + (substring s i (i + 1)))
+                                i = (i + 1)
+                            }
+                        }
+                    }
+                } {
+                    out = (out + (substring s i (i + 1)))
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (substring s i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    sfn attr:string (tag:string name:string) {
+        def key:string (name + "=\"")
+        def i:int (indexOf tag key)
+        if (i < 0) {
+            def key2:string (name + "='")
+            i = (indexOf tag key2)
+            if (i < 0) {
+                return ""
+            }
+            def a:int (i + (strlen key2))
+            def b:int a
+            def n:int (strlen tag)
+            while (b < n) {
+                if ((charAt tag b) == 39) {
+                    return (substring tag a b)
+                }
+                b = (b + 1)
+            }
+            return ""
+        }
+        def a2:int (i + (strlen key))
+        def b2:int a2
+        def n2:int (strlen tag)
+        while (b2 < n2) {
+            if ((charAt tag b2) == 34) {
+                return (substring tag a2 b2)
+            }
+            b2 = (b2 + 1)
+        }
+        return ""
+    }
+
+    sfn findNext:int (xml:string tagName:string from:int) {
+        def open:string ("<" + tagName)
+        def i:int from
+        def n:int (strlen xml)
+        while (i < n) {
+            def j:int (indexOf (substring xml i n) open)
+            if (j < 0) {
+                return -1
+            }
+            j = (i + j)
+            def after:int (j + (strlen open))
+            if (after >= n) {
+                return -1
+            }
+            def ch:int (charAt xml after)
+            ; word tag boundary: space, /, or >
+            if ((ch == 32) || (ch == 47) || (ch == 62) || (ch == 9) || (ch == 10) || (ch == 13)) {
+                return j
+            }
+            i = (after + 1)
+        }
+        return -1
+    }
+
+    ; Extract inner XML of first <tagName ...>...</tagName> starting at from.
+    ; Returns empty on failure. Sets outEnd to index after closing tag via side
+    ; channel is awkward in Ranger — caller rescans. Here we return the element
+    ; slice including tags via a packed convention: use extractElement.
+    sfn elementEnd:int (xml:string tagName:string start:int) {
+        def n:int (strlen xml)
+        if (start < 0) {
+            return -1
+        }
+        if (start >= n) {
+            return -1
+        }
+        ; Self-closing?
+        def gt:int start
+        while (gt < n) {
+            if ((charAt xml gt) == 62) {
+                if (gt > start) {
+                    if ((charAt xml (gt - 1)) == 47) {
+                        return (gt + 1)
+                    }
+                }
+                gt = (gt + 1)
+                return (WordXml.scanClose(xml tagName (gt)))
+            }
+            gt = (gt + 1)
+        }
+        return -1
+    }
+
+    sfn scanClose:int (xml:string tagName:string from:int) {
+        def open:string ("<" + tagName)
+        def close:string ("</" + tagName + ">")
+        def depth:int 1
+        def i:int from
+        def n:int (strlen xml)
+        while (i < n) {
+            def cpos:int (indexOf (substring xml i n) close)
+            def opos:int (WordXml.findNext(xml tagName i))
+            if (cpos < 0) {
+                return -1
+            }
+            cpos = (i + cpos)
+            if ((opos >= 0) && (opos < cpos)) {
+                ; nested open
+                def oe:int (WordXml.elementEnd(xml tagName opos))
+                if (oe < 0) {
+                    return -1
+                }
+                ; If self-closing nested, depth unchanged for self-close; for
+                ; real open we already recurse via elementEnd. Simpler: bump.
+                def ogt:int opos
+                while (ogt < n) {
+                    if ((charAt xml ogt) == 62) {
+                        if ((charAt xml (ogt - 1)) == 47) {
+                            i = (ogt + 1)
+                        } {
+                            depth = (depth + 1)
+                            i = (ogt + 1)
+                        }
+                        ogt = n
+                    } {
+                        ogt = (ogt + 1)
+                    }
+                }
+            } {
+                depth = (depth - 1)
+                def after:int (cpos + (strlen close))
+                if (depth == 0) {
+                    return after
+                }
+                i = after
+            }
+        }
+        return -1
+    }
+
+    sfn sliceElement:string (xml:string tagName:string start:int) {
+        def end:int (WordXml.elementEnd(xml tagName start))
+        if (end < 0) {
+            return ""
+        }
+        return (substring xml start end)
+    }
+
+    sfn innerOf:string (el:string tagName:string) {
+        def openEnd:int (indexOf el ">")
+        if (openEnd < 0) {
+            return ""
+        }
+        if ((charAt el (openEnd - 1)) == 47) {
+            return ""
+        }
+        def close:string ("</" + tagName + ">")
+        def c:int (indexOf el close)
+        if (c < 0) {
+            return ""
+        }
+        return (substring el (openEnd + 1) c)
+    }
+
+    sfn openTag:string (el:string) {
+        def gt:int (indexOf el ">")
+        if (gt < 0) {
+            return el
+        }
+        return (substring el 0 (gt + 1))
+    }
+
+    sfn hasFlag:boolean (xml:string tag:string) {
+        ; true if <w:b/> or <w:b> or <w:b w:val="1|true|on"> present;
+        ; false if explicitly val=0|false|off.
+        def i:int (WordXml.findNext(xml tag 0))
+        if (i < 0) {
+            return false
+        }
+        def el:string (WordXml.sliceElement(xml tag i))
+        def ot:string (WordXml.openTag(el))
+        def v:string (WordXml.attr(ot "w:val"))
+        if ((strlen v) == 0) {
+            return true
+        }
+        if ((v == "0") || (v == "false") || (v == "off")) {
+            return false
+        }
+        return true
+    }
+
+    sfn twipsAttr:int (tag:string name:string fallback:int) {
+        def v:string (WordXml.attr(tag name))
+        if ((strlen v) == 0) {
+            return fallback
+        }
+        def n@(optional):int (to_int v)
+        if (null? n) {
+            return fallback
+        }
+        return (unwrap n)
+    }
+}
