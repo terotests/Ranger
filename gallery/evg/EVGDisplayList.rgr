@@ -56,6 +56,11 @@ class EVGDrawCmd {
     def text:string ""
     def fontFamily:string ""
     def fontSize:double 0.0
+    ; Optional paragraph alignment for SoftCanvas: left / center / right.
+    ; When set, `w` is the text-box content width used to measure & place the run.
+    def textAlign:string ""
+    def fontWeight:string ""
+    def maxWidth:double 0.0
     ; IMAGE
     def src:string ""
     ; PATH / STROKE. The rings are already flattened and already in page

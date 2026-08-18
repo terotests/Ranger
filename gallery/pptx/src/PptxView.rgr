@@ -4,8 +4,10 @@
 
 Import "PptxModel.rgr"
 Import "PptxToEvg.rgr"
+Import "PptxImageDecode.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
@@ -18,8 +20,11 @@ class PptxView {
     def chromeH:int 28
     def fontFamily:string "Open Sans"
     def status:string ""
+    def deckName:string ""
     def slideIndex:int 0
     def slideCount:int 0
+    ; imagePart → decoded RGBA (filled by PptxApp after load)
+    def imageCache:[string:ImageBuffer]
 
     Constructor () {
     }
@@ -36,6 +41,58 @@ class PptxView {
         } {
             status = "ready"
         }
+        ; Best-effort bold face registration (family still "Open Sans")
+        ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Bold.ttf")
+    }
+
+    fn clearImages:void () {
+        def empty:[string:ImageBuffer]
+        imageCache = empty
+    }
+
+    fn cacheImage:void (part:string bytes:buffer) {
+        if ((strlen part) == 0) {
+            return
+        }
+        def existing@(optional):ImageBuffer (get imageCache part)
+        if (!null? existing) {
+            return
+        }
+        def decoded@(optional):ImageBuffer (PptxImageDecode.decode(bytes))
+        if (!null? decoded) {
+            set imageCache part (unwrap decoded)
+        }
+    }
+
+    fn cacheShapeImages:void (shape:PptxShape) {
+        if (shape.kind == 1) {
+            if ((buffer_length shape.imageBytes) > 0) {
+                this.cacheImage(shape.imagePart shape.imageBytes)
+                def hit@(optional):ImageBuffer (get imageCache shape.imagePart)
+                if (!null? hit) {
+                    shape.imageOk = true
+                }
+            }
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            this.cacheShapeImages((itemAt shape.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn cachePresentationImages:void (pres:PptxPresentation) {
+        this.clearImages()
+        def si:int 0
+        while (si < (array_length pres.slides)) {
+            def slide:PptxSlide (itemAt pres.slides si)
+            def j:int 0
+            while (j < (array_length slide.shapes)) {
+                this.cacheShapeImages((itemAt slide.shapes j))
+                j = (j + 1)
+            }
+            si = (si + 1)
+        }
     }
 
     fn resize:void (w:int h:int) {
@@ -51,7 +108,6 @@ class PptxView {
     }
 
     fn fitScale:double (slide:PptxSlide) {
-        ; Fit slide (pt) into the content area above the chrome bar.
         def availW:double (to_double pageW)
         def availH:double (to_double (pageH - chromeH))
         def slideWpx:double (slide.width * (96.0 / 72.0))
@@ -83,7 +139,7 @@ class PptxView {
         c.b = 48
         c.a = 1.0
         push dl.cmds c
-        def label:string (("  " + (to_string (slideIndex + 1))) + (" / " + (to_string slideCount)) + "   ← → navigate   " + status)
+        def label:string (("  " + deckName + "  ·  ") + (to_string (slideIndex + 1)) + (" / " + (to_string slideCount)) + "   ← →   " + status)
         def t (new EVGDrawCmd())
         t.kind = 3
         t.x = 8.0
@@ -105,6 +161,39 @@ class PptxView {
         return dl
     }
 
+    fn paintTextCmd:void (c:EVGDrawCmd) {
+        def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+        def prevFamily:string ctx.tr.fontFamily
+        if ((strlen c.fontFamily) > 0) {
+            ; Prefer loaded Open Sans; keep family name for measure cache keys
+            ctx.tr.fontFamily = fontFamily
+        }
+        if (c.fontWeight == "bold") {
+            ; SoftCanvas currently keeps a single RasterText face; weight is
+            ; recorded on the command for WebGL / future multi-face paint.
+        }
+        def x:double c.x
+        def y:double c.y
+        def size:double c.fontSize
+        if ((strlen c.textAlign) > 0) {
+            if (c.w > 0.0) {
+                def mw:double (ctx.measureWidth(c.text size))
+                if (c.textAlign == "center") {
+                    x = (c.x + ((c.w - mw) * 0.5))
+                }
+                if (c.textAlign == "right") {
+                    x = (c.x + (c.w - mw))
+                }
+            }
+        }
+        if (c.maxWidth > 8.0) {
+            ctx.textWrapped(c.text (to_int x) (to_int y) size c.maxWidth col)
+        } {
+            ctx.text(c.text (to_int x) (to_int y) size col)
+        }
+        ctx.tr.fontFamily = prevFamily
+    }
+
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
         canvas.clear(40 44 58)
         def i:int 0
@@ -120,15 +209,22 @@ class PptxView {
                 ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
             }
             if (c.kind == 3) {
-                def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                this.paintTextCmd(c)
             }
-            ; IMAGE cmds: SoftCanvas path paints a placeholder rect for MVP
-            ; (full PNG decode lands in a follow-up). WebGL host can texturize.
             if (c.kind == 2) {
-                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (EVGColor.rgb(180 198 230)))
-                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 2 (EVGColor.rgb(68 114 196)))
-                ctx.text("[image]" (to_int (c.x + 8.0)) (to_int (c.y + 8.0)) 14.0 (EVGColor.rgb(30 50 90)))
+                def img@(optional):ImageBuffer (get imageCache c.src)
+                if (!null? img) {
+                    def pixels:ImageBuffer (unwrap img)
+                    if ((pixels.width > 0) && (pixels.height > 0)) {
+                        canvas.blitImageRectScaled(pixels 0 0 pixels.width pixels.height (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h))
+                    } {
+                        ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (EVGColor.rgb(180 198 230)))
+                    }
+                } {
+                    ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (EVGColor.rgb(180 198 230)))
+                    ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 2 (EVGColor.rgb(68 114 196)))
+                    ctx.text("[image]" (to_int (c.x + 8.0)) (to_int (c.y + 8.0)) 14.0 (EVGColor.rgb(30 50 90)))
+                }
             }
             i = (i + 1)
         }
@@ -138,6 +234,23 @@ class PptxView {
         slideIndex = index
         slideCount = count
         def dl:EVGDisplayList (this.buildDisplayList(slide))
+        this.paintSoftCanvas(dl)
+    }
+
+    ; Oracle / visual-diff path: paint the slide alone at 96dpi (1pt = 96/72 px),
+    ; no chrome, no fit-to-window scale.
+    fn renderOracleSlide:void (slide:PptxSlide dpiScale:double) {
+        converter.setScale(dpiScale)
+        def pw:int (to_int ((slide.width * (96.0 / 72.0) * dpiScale) + 0.5))
+        def ph:int (to_int ((slide.height * (96.0 / 72.0) * dpiScale) + 0.5))
+        if (pw < 1) {
+            pw = 1
+        }
+        if (ph < 1) {
+            ph = 1
+        }
+        this.resize(pw ph)
+        def dl:EVGDisplayList (converter.slideToDisplayList(slide))
         this.paintSoftCanvas(dl)
     }
 

@@ -44,6 +44,7 @@ class PptxTextRun {
     def text:string ""
     def fontFamily:string ""
     def fontSizePt:double 18.0
+    def sizeSet:boolean false
     def bold:boolean false
     def italic:boolean false
     def color:PptxColor (new PptxColor())
@@ -54,6 +55,10 @@ class PptxTextRun {
 
 class PptxParagraph {
     def align:string "l"        ; l / ctr / r / just
+    def alignSet:boolean false
+    def spaceBeforePt:double 0.0
+    def spaceAfterPt:double 0.0
+    def lineSpacingPct:double 100.0   ; 100 = single
     def runs:[PptxTextRun]
 
     Constructor () {
@@ -68,7 +73,18 @@ class PptxTextBody {
     def insetT:double 7.2
     def insetR:double 7.2
     def insetB:double 7.2
+    def insetsSet:boolean false
     def anchor:string "t"       ; t / ctr / b
+    def anchorSet:boolean false
+    def wrap:boolean true
+    ; Default run props from a:lstStyle / a:defRPr (placeholder style inheritance)
+    def hasDefRPr:boolean false
+    def defFontSizePt:double 18.0
+    def defBold:boolean false
+    def defItalic:boolean false
+    def defFontFamily:string ""
+    def defColor:PptxColor (new PptxColor())
+    def defAlign:string "l"
 
     Constructor () {
         def p:[PptxParagraph]
@@ -102,6 +118,7 @@ class PptxShape {
     def y:double 0.0
     def width:double 0.0
     def height:double 0.0
+    def hasXfrm:boolean false   ; true when spPr/xfrm supplied geometry
     def rotation:double 0.0     ; degrees
     def preset:string "rect"    ; rect / ellipse / roundRect / …
     def fill:PptxColor (new PptxColor())
@@ -113,6 +130,13 @@ class PptxShape {
     def imageRid:string ""
     def imagePart:string ""     ; resolved package path
     def imageBytes:buffer (buffer_alloc 0)
+    def imageOk:boolean false   ; decoded pixels available in viewer cache
+    ; Placeholder (PresentationML p:ph)
+    def isPlaceholder:boolean false
+    def phType:string ""        ; title / body / ctrTitle / subTitle / …
+    def phIdx:int -1
+    ; true when shape came from master/layout chrome (not authored on the slide)
+    def inherited:boolean false
     ; Group children
     def children:[PptxShape]
     ; Group child coordinate space (chOff / chExt), in pt
@@ -135,6 +159,18 @@ class PptxSlide {
     def bg:PptxColor (new PptxColor())
     def layoutPart:string ""
     def masterPart:string ""
+
+    Constructor () {
+        def s:[PptxShape]
+        shapes = s
+    }
+}
+
+; Cached master / layout sheet (same shape model as a slide).
+class PptxSheet {
+    def partPath:string ""
+    def shapes:[PptxShape]
+    def bg:PptxColor (new PptxColor())
 
     Constructor () {
         def s:[PptxShape]
@@ -170,12 +206,19 @@ class PptxPresentation {
     def slides:[PptxSlide]
     def theme:PptxTheme (new PptxTheme())
     def themePart:string ""
+    ; partPath → parsed master / layout (shared across slides)
+    def masters:[string:PptxSheet]
+    def layouts:[string:PptxSheet]
 
     Constructor () {
         def sp:[string]
         slideParts = sp
         def sl:[PptxSlide]
         slides = sl
+        def m:[string:PptxSheet]
+        masters = m
+        def l:[string:PptxSheet]
+        layouts = l
     }
 
     fn slideCount:int () {

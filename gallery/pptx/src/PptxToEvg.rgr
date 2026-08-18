@@ -63,6 +63,16 @@ class PptxToEvg {
         return "left"
     }
 
+    fn alignToken:string (algn:string) {
+        if (algn == "ctr") {
+            return "center"
+        }
+        if (algn == "r") {
+            return "right"
+        }
+        return "left"
+    }
+
     fn applyBox:void (el:EVGElement shape:PptxShape) {
         el.left = (EVGUnit.px((this.ptToPx(shape.x))))
         el.top = (EVGUnit.px((this.ptToPx(shape.y))))
@@ -99,8 +109,6 @@ class PptxToEvg {
         box.paddingTop = (EVGUnit.px(padT))
         box.paddingRight = (EVGUnit.px((this.ptToPx(body.insetR))))
         box.paddingBottom = (EVGUnit.px((this.ptToPx(body.insetB))))
-        ; Flatten paragraphs into textContent for MVP EVG text (structured runs
-        ; are preserved on the model for a future text-engine pass).
         def plain:string (body.plainText())
         box.textContent = plain
         if ((array_length body.paragraphs) > 0) {
@@ -123,6 +131,46 @@ class PptxToEvg {
         return box
     }
 
+    fn mapGroupChild:PptxShape (shape:PptxShape child:PptxShape) {
+        def mapped (new PptxShape())
+        mapped.kind = child.kind
+        mapped.name = child.name
+        mapped.preset = child.preset
+        mapped.fill = child.fill
+        mapped.line = child.line
+        mapped.lineWidthPt = child.lineWidthPt
+        mapped.hasText = child.hasText
+        mapped.text = child.text
+        mapped.imageRid = child.imageRid
+        mapped.imagePart = child.imagePart
+        mapped.imageBytes = child.imageBytes
+        mapped.imageOk = child.imageOk
+        mapped.rotation = (child.rotation + shape.rotation)
+        mapped.children = child.children
+        mapped.chX = child.chX
+        mapped.chY = child.chY
+        mapped.chW = child.chW
+        mapped.chH = child.chH
+        mapped.isPlaceholder = child.isPlaceholder
+        mapped.phType = child.phType
+        mapped.phIdx = child.phIdx
+        mapped.inherited = child.inherited
+        def sx:double 1.0
+        def sy:double 1.0
+        if ((shape.chW > 0.0) && (shape.width > 0.0)) {
+            sx = (shape.width / shape.chW)
+        }
+        if ((shape.chH > 0.0) && (shape.height > 0.0)) {
+            sy = (shape.height / shape.chH)
+        }
+        mapped.x = ((child.x - shape.chX) * sx)
+        mapped.y = ((child.y - shape.chY) * sy)
+        mapped.width = (child.width * sx)
+        mapped.height = (child.height * sy)
+        mapped.hasXfrm = true
+        return mapped
+    }
+
     fn shapeElement:EVGElement (shape:PptxShape) {
         if (shape.kind == 1) {
             def img (EVGElement.createImg())
@@ -138,46 +186,16 @@ class PptxToEvg {
             def i:int 0
             while (i < (array_length shape.children)) {
                 def child:PptxShape (itemAt shape.children i)
-                ; Child coords are in the group's child space; map into group box
-                def mapped (new PptxShape())
-                ; Shallow-copy relevant fields then offset
-                mapped.kind = child.kind
-                mapped.name = child.name
-                mapped.preset = child.preset
-                mapped.fill = child.fill
-                mapped.line = child.line
-                mapped.lineWidthPt = child.lineWidthPt
-                mapped.hasText = child.hasText
-                mapped.text = child.text
-                mapped.imageRid = child.imageRid
-                mapped.imagePart = child.imagePart
-                mapped.imageBytes = child.imageBytes
-                mapped.rotation = child.rotation
-                mapped.children = child.children
-                def ox:double 0.0
-                def oy:double 0.0
-                def sx:double 1.0
-                def sy:double 1.0
-                if ((shape.chW > 0.0) && (shape.width > 0.0)) {
-                    sx = (shape.width / shape.chW)
-                }
-                if ((shape.chH > 0.0) && (shape.height > 0.0)) {
-                    sy = (shape.height / shape.chH)
-                }
-                mapped.x = (shape.x + ((child.x - shape.chX) * sx))
-                mapped.y = (shape.y + ((child.y - shape.chY) * sy))
-                mapped.width = (child.width * sx)
-                mapped.height = (child.height * sy)
+                def mapped:PptxShape (this.mapGroupChild(shape child))
                 ; Nested absolute coords are page-relative after mapping — but
                 ; as EVG children of the group we want group-local coords.
-                mapped.x = (mapped.x - shape.x)
-                mapped.y = (mapped.y - shape.y)
+                mapped.x = mapped.x
+                mapped.y = mapped.y
                 grp.addChild((this.shapeElement(mapped)))
                 i = (i + 1)
             }
             return grp
         }
-        ; kind 0 / 3 — geometric shape, optionally with text
         if shape.hasText {
             return (this.textElement(shape))
         }
@@ -206,7 +224,6 @@ class PptxToEvg {
 
     ; --------------------------------------------------------------------------
     ; Direct display-list emission for the SoftCanvas / WebGL viewer path.
-    ; Bypasses EVGLayout so absolute PowerPoint coords paint 1:1.
     ; --------------------------------------------------------------------------
 
     fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
@@ -238,7 +255,7 @@ class PptxToEvg {
         push dl.cmds c
     }
 
-    fn pushText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor fontFamily:string rotate:double) {
+    fn pushTextCmd:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor fontFamily:string rotate:double align:string boxW:double bold:boolean maxW:double) {
         if ((strlen text) == 0) {
             return
         }
@@ -246,11 +263,16 @@ class PptxToEvg {
         c.kind = 3
         c.x = x
         c.y = y
-        c.w = 0.0
+        c.w = boxW
         c.h = size
         c.text = text
         c.fontFamily = fontFamily
         c.fontSize = size
+        c.textAlign = align
+        c.maxWidth = maxW
+        if bold {
+            c.fontWeight = "bold"
+        }
         c.r = (col.red())
         c.g = (col.green())
         c.b = (col.blue())
@@ -271,6 +293,129 @@ class PptxToEvg {
         push dl.cmds c
     }
 
+    fn estimateTextBlockHeight:double (body:PptxTextBody contentW:double) {
+        def h:double 0.0
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            def fontSize:double 18.0
+            if ((array_length para.runs) > 0) {
+                def r0:PptxTextRun (itemAt para.runs 0)
+                fontSize = (this.ptToPx(r0.fontSizePt))
+            }
+            def lineH:double (fontSize * (para.lineSpacingPct / 100.0) * 1.2)
+            if (lineH < (fontSize * 1.15)) {
+                lineH = (fontSize * 1.15)
+            }
+            ; Rough wrap estimate: ~0.5em average char width
+            def chars:int 0
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def rr:PptxTextRun (itemAt para.runs ri)
+                chars = (chars + (strlen rr.text))
+                ri = (ri + 1)
+            }
+            def avgW:double (fontSize * 0.5)
+            def lines:int 1
+            if ((avgW > 0.0) && (contentW > 0.0) && body.wrap) {
+                def need:double (((to_double chars) * avgW) / contentW)
+                lines = (to_int (need + 0.999))
+                if (lines < 1) {
+                    lines = 1
+                }
+            }
+            h = (h + (this.ptToPx(para.spaceBeforePt)))
+            h = (h + ((to_double lines) * lineH))
+            h = (h + (this.ptToPx(para.spaceAfterPt)))
+            pi = (pi + 1)
+        }
+        return h
+    }
+
+    fn emitTextBody:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
+        def body:PptxTextBody shape.text
+        def padL:double (this.ptToPx(body.insetL))
+        def padT:double (this.ptToPx(body.insetT))
+        def padR:double (this.ptToPx(body.insetR))
+        def padB:double (this.ptToPx(body.insetB))
+        def contentW:double ((w - padL) - padR)
+        if (contentW < 8.0) {
+            contentW = 8.0
+        }
+        def contentH:double ((h - padT) - padB)
+        def blockH:double (this.estimateTextBlockHeight(body contentW))
+        def originY:double (y + padT)
+        if (body.anchor == "ctr") {
+            originY = (y + padT + ((contentH - blockH) * 0.5))
+        }
+        if (body.anchor == "b") {
+            originY = (y + padT + (contentH - blockH))
+        }
+        if (originY < (y + padT)) {
+            originY = (y + padT)
+        }
+        def ty:double originY
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            ty = (ty + (this.ptToPx(para.spaceBeforePt)))
+            def align:string (this.alignToken(para.align))
+            def maxW:double 0.0
+            if body.wrap {
+                maxW = contentW
+            }
+            ; Approximate total line width so ctr/r can place multi-run lines.
+            def approxW:double 0.0
+            def ri0:int 0
+            def lineSize:double 14.0
+            while (ri0 < (array_length para.runs)) {
+                def r0:PptxTextRun (itemAt para.runs ri0)
+                def fs0:double (this.ptToPx(r0.fontSizePt))
+                if (fs0 > lineSize) {
+                    lineSize = fs0
+                }
+                approxW = (approxW + ((to_double (strlen r0.text)) * fs0 * 0.52))
+                ri0 = (ri0 + 1)
+            }
+            def runX:double (x + padL)
+            if (align == "center") {
+                runX = ((x + padL) + ((contentW - approxW) * 0.5))
+            }
+            if (align == "right") {
+                runX = ((x + padL) + (contentW - approxW))
+            }
+            ; Single-run paragraphs: let SoftCanvas measure precisely via boxW.
+            def singleRun:boolean ((array_length para.runs) == 1)
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                def fontSize:double (this.ptToPx(run.fontSizePt))
+                def fontFamily:string "Calibri"
+                if ((strlen run.fontFamily) > 0) {
+                    fontFamily = run.fontFamily
+                }
+                def col:EVGColor (EVGColor.rgb(0 0 0))
+                if (run.color.isSet) {
+                    col = (this.colorFrom(run.color))
+                }
+                if singleRun {
+                    this.pushTextCmd(dl run.text (x + padL) ty fontSize col fontFamily shape.rotation align contentW run.bold maxW)
+                } {
+                    this.pushTextCmd(dl run.text runX ty fontSize col fontFamily shape.rotation "left" 0.0 run.bold 0.0)
+                    runX = (runX + ((to_double (strlen run.text)) * fontSize * 0.52))
+                }
+                ri = (ri + 1)
+            }
+            def spacing:double (para.lineSpacingPct / 100.0)
+            if (spacing < 0.8) {
+                spacing = 1.0
+            }
+            ty = (ty + (lineSize * 1.2 * spacing))
+            ty = (ty + (this.ptToPx(para.spaceAfterPt)))
+            pi = (pi + 1)
+        }
+    }
+
     fn emitShape:void (dl:EVGDisplayList shape:PptxShape ox:double oy:double) {
         def x:double (this.ptToPx((shape.x + ox)))
         def y:double (this.ptToPx((shape.y + oy)))
@@ -280,34 +425,7 @@ class PptxToEvg {
             def i:int 0
             while (i < (array_length shape.children)) {
                 def child:PptxShape (itemAt shape.children i)
-                def sx:double 1.0
-                def sy:double 1.0
-                if ((shape.chW > 0.0) && (shape.width > 0.0)) {
-                    sx = (shape.width / shape.chW)
-                }
-                if ((shape.chH > 0.0) && (shape.height > 0.0)) {
-                    sy = (shape.height / shape.chH)
-                }
-                def mapped (new PptxShape())
-                mapped.kind = child.kind
-                mapped.name = child.name
-                mapped.preset = child.preset
-                mapped.fill = child.fill
-                mapped.line = child.line
-                mapped.lineWidthPt = child.lineWidthPt
-                mapped.hasText = child.hasText
-                mapped.text = child.text
-                mapped.imagePart = child.imagePart
-                mapped.rotation = (child.rotation + shape.rotation)
-                mapped.children = child.children
-                mapped.chX = child.chX
-                mapped.chY = child.chY
-                mapped.chW = child.chW
-                mapped.chH = child.chH
-                mapped.x = ((child.x - shape.chX) * sx)
-                mapped.y = ((child.y - shape.chY) * sy)
-                mapped.width = (child.width * sx)
-                mapped.height = (child.height * sy)
+                def mapped:PptxShape (this.mapGroupChild(shape child))
                 this.emitShape(dl mapped (ox + shape.x) (oy + shape.y))
                 i = (i + 1)
             }
@@ -317,7 +435,6 @@ class PptxToEvg {
             if ((strlen shape.imagePart) > 0) {
                 this.pushImage(dl shape.imagePart x y w h)
             } {
-                ; Placeholder when media missing
                 this.pushRect(dl x y w h (EVGColor.rgb(200 210 230)))
             }
             return
@@ -329,42 +446,7 @@ class PptxToEvg {
             this.pushBorder(dl x y w h (this.ptToPx(shape.lineWidthPt)) (this.colorFrom(shape.line)))
         }
         if shape.hasText {
-            def body:PptxTextBody shape.text
-            def tx:double (x + (this.ptToPx(body.insetL)))
-            def ty:double (y + (this.ptToPx(body.insetT)))
-            def pi:int 0
-            while (pi < (array_length body.paragraphs)) {
-                def para:PptxParagraph (itemAt body.paragraphs pi)
-                def line:string ""
-                def fontSize:double 18.0
-                def fontFamily:string "Calibri"
-                def col:EVGColor (EVGColor.rgb(0 0 0))
-                def ri:int 0
-                while (ri < (array_length para.runs)) {
-                    def run:PptxTextRun (itemAt para.runs ri)
-                    line = (line + run.text)
-                    fontSize = (this.ptToPx(run.fontSizePt))
-                    if ((strlen run.fontFamily) > 0) {
-                        fontFamily = run.fontFamily
-                    }
-                    if (run.color.isSet) {
-                        col = (this.colorFrom(run.color))
-                    }
-                    ri = (ri + 1)
-                }
-                ; Approximate centered / right alignment inside the box
-                def drawX:double tx
-                if (para.align == "ctr") {
-                    ; SoftCanvas path does not measure here — nudge toward center
-                    drawX = (x + (w * 0.15))
-                }
-                if (para.align == "r") {
-                    drawX = (x + (w * 0.4))
-                }
-                this.pushText(dl line drawX ty fontSize col fontFamily shape.rotation)
-                ty = (ty + (fontSize * 1.25))
-                pi = (pi + 1)
-            }
+            this.emitTextBody(dl shape x y w h)
         }
     }
 
