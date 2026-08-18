@@ -521,12 +521,20 @@ class VlCompile {
             }
         }
         clear channels
-        ; A composite mark is not a mark: it is several marks over several
-        ; derived data sets, which is why it is expanded rather than encoded.
-        if ((markName == "errorbar") || (markName == "errorband")) {
-            this.fail(("an " + markName) + " is not compiled here")
-        }
+        ; A composite mark is not a mark: it is a summary of the rows and a
+        ; plain shape drawn over the summary. Rather than emit that by hand it
+        ; is written back as the ordinary specification it stands for — an
+        ; error bar IS a rule from one aggregate to another — and compiled
+        ; again from there, so everything a plain chart gets (its scales, its
+        ; axis titles, its place in a layer) it gets too.
         this.readEncoding()
+        if ((markName == "errorbar") || (markName == "errorband")) {
+            def spelled:VlJson (this.errorSpec(src))
+            if (spelled.isObject()) {
+                return (this.compile(spelled))
+            }
+            return (VlJson.objectValue())
+        }
 
 
 
@@ -976,6 +984,216 @@ class VlCompile {
     ; what the box is drawn from. The whiskers are then the extremes of the rows
     ; that survived the outlier test, which is why they stop at real data rather
     ; than at a computed fence.
+    ; ------------------------------------------------------- error bars ---
+    ; Which direction the summary runs in. An error bar measures ONE column
+    ; and is repeated along the other axis, so the measured axis is the one
+    ; that names a number and does not already summarise it.
+    fn errorAxis:string () {
+        def x:VlChannel (this.channel("x"))
+        if (x.defined) {
+            if ((strlen x.field) > 0) {
+                if ((strlen x.aggregate) == 0) {
+                    if (x.isContinuous()) {
+                        if ((strlen x.timeUnit) == 0) {
+                            return "x"
+                        }
+                    }
+                }
+            }
+        }
+        def y:VlChannel (this.channel("y"))
+        if (y.defined) {
+            if ((strlen y.field) > 0) {
+                if ((strlen y.aggregate) == 0) {
+                    if (y.isContinuous()) {
+                        if ((strlen y.timeUnit) == 0) {
+                            return "y"
+                        }
+                    }
+                }
+            }
+        }
+        return ""
+    }
+
+    ; The specification an error bar or band stands for. The two are the same
+    ; summary drawn with a different shape: a rule from one end of the interval
+    ; to the other, or a band filled between them.
+    fn errorSpec:VlJson (src:VlJson) {
+        def axis:string (this.errorAxis())
+        if ((strlen axis) == 0) {
+            this.fail(("an " + markName) + " needs one continuous channel naming a column")
+            return (VlJson.nullValue())
+        }
+        def measured:VlChannel (this.channel(axis))
+        def column:string measured.field
+        def extent:string (markDef.stringOr("extent" "stderr"))
+        def band:boolean (markName == "errorband")
+
+        def out (VlJson.objectValue())
+        def transforms (VlJson.arrayValue())
+        def stated:VlJson (src.get("transform"))
+        if (stated.isArray()) {
+            def si:int 0
+            while (si < (stated.count())) {
+                push transforms.arr (stated.at(si))
+                si = (si + 1)
+            }
+        }
+        for src.keys sk:string ski {
+            if (((sk == "mark") || (sk == "encoding")) || (sk == "transform")) {
+                ; written afresh below
+            } {
+                out.setMember(sk (src.get(sk)))
+            }
+        }
+
+        ; The near and far ends of the interval, as the encoding will read
+        ; them. Two of the four extents ARE aggregates and are asked for on the
+        ; channel itself, which is what lets a band over a time unit group by
+        ; the truncated column. The other two are a centre and a spread, and
+        ; the ends have to be computed from the pair.
+        def nearDef (VlJson.objectValue())
+        def farDef (VlJson.objectValue())
+        if ((extent == "ci") || (extent == "iqr")) {
+            def low:string "ci0"
+            def high:string "ci1"
+            if (extent == "iqr") {
+                low = "q1"
+                high = "q3"
+            }
+            nearDef.setMember("field" (VlJson.stringValue(column)))
+            nearDef.setMember("aggregate" (VlJson.stringValue(low)))
+            farDef.setMember("field" (VlJson.stringValue(column)))
+            farDef.setMember("aggregate" (VlJson.stringValue(high)))
+        } {
+            if ((extent != "stdev") && (extent != "stderr")) {
+                this.fail((("an extent of '" + extent) + "' is not compiled here"))
+                return (VlJson.nullValue())
+            }
+            def spread:string ("extent_" + column)
+            def centre:string ("center_" + column)
+            def near:string ("lower_" + column)
+            def far:string ("upper_" + column)
+            def groups (VlJson.arrayValue())
+            for channels other:VlChannel oi {
+                if (other.name == axis) {
+                    ; the measured column is summarised, not grouped on
+                } {
+                    if ((strlen other.field) > 0) {
+                        if ((strlen other.aggregate) == 0) {
+                            if ((strlen other.timeUnit) > 0) {
+                                this.fail("a spread grouped by a time unit is not compiled here")
+                                return (VlJson.nullValue())
+                            }
+                            push groups.arr (VlJson.stringValue(other.field))
+                        }
+                    }
+                }
+            }
+            def summary (VlJson.objectValue())
+            def ops (VlJson.arrayValue())
+            push ops.arr (VlCompile.aggregateEntry(extent column spread))
+            push ops.arr (VlCompile.aggregateEntry("mean" column centre))
+            summary.setMember("aggregate" ops)
+            summary.setMember("groupby" groups)
+            push transforms.arr summary
+            def head:string (("datum['" + centre) + "']")
+            def tail:string (("datum['" + spread) + "']")
+            push transforms.arr (VlCompile.calculateEntry(((head + " + ") + tail) far))
+            push transforms.arr (VlCompile.calculateEntry(((head + " - ") + tail) near))
+            nearDef.setMember("field" (VlJson.stringValue(near)))
+            farDef.setMember("field" (VlJson.stringValue(far)))
+        }
+        nearDef.setMember("type" (VlJson.stringValue("quantitative")))
+        ; What the chart said about the measured axis belongs to the end that
+        ; carries the axis — its title, its scale and its guide.
+        def said:VlJson measured.def0
+        for said.keys mk:string mki {
+            if ((((mk == "field") || (mk == "type")) || (mk == "aggregate")) || (mk == "timeUnit")) {
+                ; replaced by the summary above
+            } {
+                nearDef.setMember(mk (said.get(mk)))
+            }
+        }
+
+        def encoding (VlJson.objectValue())
+        def given:VlJson (src.get("encoding"))
+        if (given.isObject()) {
+            for given.keys ek:string eki {
+                if ((ek == axis) || (ek == (axis + "2"))) {
+                    ; replaced by the two ends
+                } {
+                    encoding.setMember(ek (given.get(ek)))
+                }
+            }
+        }
+        encoding.setMember(axis nearDef)
+        encoding.setMember((axis + "2") farDef)
+        out.setMember("encoding" encoding)
+        if ((transforms.count()) > 0) {
+            out.setMember("transform" transforms)
+        }
+
+        def shape (VlJson.objectValue())
+        for markDef.keys dk:string dki {
+            if ((dk == "type") || (dk == "extent")) {
+                ; the composite's own words, spent here
+            } {
+                shape.setMember(dk (markDef.get(dk)))
+            }
+        }
+        def style (VlJson.arrayValue())
+        if band {
+            ; A band drawn along an axis is an AREA; one that has no other axis
+            ; to run along is a block across the whole plot.
+            def along:string "y"
+            if (axis == "y") {
+                along = "x"
+            }
+            def runs:boolean false
+            def other:VlChannel (this.channel(along))
+            if (other.defined) {
+                if ((strlen other.field) > 0) {
+                    runs = true
+                }
+            }
+            if runs {
+                shape.setMember("type" (VlJson.stringValue("area")))
+                push style.arr (VlJson.stringValue("area"))
+            } {
+                shape.setMember("type" (VlJson.stringValue("rect")))
+                push style.arr (VlJson.stringValue("rect"))
+            }
+            push style.arr (VlJson.stringValue("errorband-band"))
+            if (! (markDef.has("opacity"))) {
+                shape.setMember("opacity" (VlJson.numberValue(0.3)))
+            }
+        } {
+            shape.setMember("type" (VlJson.stringValue("rule")))
+            push style.arr (VlJson.stringValue("rule"))
+            push style.arr (VlJson.stringValue("errorbar-rule"))
+        }
+        shape.setMember("style" style)
+        out.setMember("mark" shape)
+        return out
+    }
+
+    sfn aggregateEntry:VlJson (op:string field:string as:string) {
+        def out (VlJson.objectValue())
+        out.setMember("op" (VlJson.stringValue(op)))
+        out.setMember("field" (VlJson.stringValue(field)))
+        out.setMember("as" (VlJson.stringValue(as)))
+        return out
+    }
+
+    sfn calculateEntry:VlJson (expr:string as:string) {
+        def out (VlJson.objectValue())
+        out.setMember("calculate" (VlJson.stringValue(expr)))
+        out.setMember("as" (VlJson.stringValue(as)))
+        return out
+    }
+
     fn compileBoxplot:VlJson (src:VlJson) {
         def x:VlChannel (this.channel("x"))
         def y:VlChannel (this.channel("y"))
@@ -3784,7 +4002,7 @@ class VlCompile {
             ch.name = key
             ch.def0 = cdef
             ch.defined = true
-            ch.field = (cdef.stringOr("field" ""))
+            ch.field = (VlCompile.fieldPath((cdef.stringOr("field" ""))))
             ch.aggregate = (cdef.stringOr("aggregate" ""))
             def aggDef:VlJson (cdef.get("aggregate"))
             if (aggDef.isObject()) {
@@ -3865,7 +4083,7 @@ class VlCompile {
                         ; name it, and without both the branch referred to a
                         ; scale the chart never built.
                         if (cond.has("field")) {
-                            ch.field = (cond.stringOr("field" ""))
+                            ch.field = (VlCompile.fieldPath((cond.stringOr("field" ""))))
                             ch.aggregate = (cond.stringOr("aggregate" ""))
                             ch.timeUnit = (cond.stringOr("timeUnit" ""))
                             def condType:string (cond.stringOr("type" ""))
@@ -5534,6 +5752,34 @@ class VlCompile {
                 }
             }
         }
+    }
+
+    ; A field name written with a SUBSCRIPT is a path like any other:
+    ; `ranges[2]` is the third entry of the `ranges` array, and the reference
+    ; writes that path as `ranges.2` and reads it the same way it reads
+    ; `record.low`. Left in brackets it was one long column name that no row
+    ; has, the validity filter threw every row away, and a bullet chart drew
+    ; nothing at all.
+    sfn fieldPath:string (field:string) {
+        if ((indexOf field "[") < 0) {
+            return field
+        }
+        def out:string ""
+        def k:int 0
+        while (k < (strlen field)) {
+            def c:string (substring field k (k + 1))
+            if (c == "[") {
+                out = (out + ".")
+            } {
+            if (c == "]") {
+                ; the subscript ends where the next step begins
+            } {
+                out = (out + c)
+            }
+            }
+            k = (k + 1)
+        }
+        return out
     }
 
     ; `datum["record"] && datum["record"]["low"]` — each step of the path
