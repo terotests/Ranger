@@ -378,6 +378,15 @@ class VlAxis {
             return out
         }
         def values:[double] (sc.ticksAbove(tickCount tickMinStep))
+        ; A guide's ticks are keyed by their value, and a date written out as a
+        ; key is written to the second — its milliseconds are dropped. Two
+        ; ticks inside one second are therefore ONE tick to the reference, and
+        ; the last of them is the one that survives. It shows only on an axis
+        ; whose ticks are milliseconds apart, which is what a column of bare
+        ; years read as instants comes to.
+        if (sc.isTime()) {
+            values = (VlAxis.oneTickPerSecond(values))
+        }
         ; A log axis labels only some of the ticks it draws, and formats those
         ; with grouped digits rather than to one shared precision — its ticks
         ; have no shared step to take a precision from.
@@ -413,6 +422,26 @@ class VlAxis {
             tv.tickPosition = tv.position
             tv.label = (itemAt labels idx)
             push out tv
+        }
+        return out
+    }
+
+    ; Of the ticks that land inside one second, the last. See the caller.
+    sfn oneTickPerSecond:[double] (values:[double]) {
+        def out:[double]
+        for values v:double vi {
+            def secondOf:double (to_double (floor (v / 1000.0)))
+            def keep:boolean true
+            for values w:double wi {
+                if (wi > vi) {
+                    if ((to_double (floor (w / 1000.0))) == secondOf) {
+                        keep = false
+                    }
+                }
+            }
+            if keep {
+                push out v
+            }
         }
         return out
     }
