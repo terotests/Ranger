@@ -360,6 +360,15 @@ class VlConfig {
         if (name == "ordinal") {
             return true
         }
+        ; `ramp` and `sequential` are the configuration's own names for a
+        ; continuous scheme, and a continuous scheme is what they stand for:
+        ; the reference resolves both to `blues`. Read as ordinary palettes,
+        ; a scale asked to cut a column into five bands took the first five
+        ; STOPS of the ramp instead of sampling it five times, and came out in
+        ; five shades of the palest blue.
+        if ((name == "ramp") || (name == "sequential")) {
+            return true
+        }
         if (((name == "blues") || (name == "greens")) || ((name == "greys") || (name == "oranges"))) {
             return true
         }

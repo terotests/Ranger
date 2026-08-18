@@ -2804,11 +2804,25 @@ class VlCompile {
             while (lj < (own.count())) {
                 def one:VlJson (own.at(lj))
                 def key:string (VlCompile.legendKey(one))
+                ; Which CHANNEL the key is about, which is what a chart names
+                ; when it resolves one: `fill` and `stroke` are both a colour.
+                def channel:string (VlCompile.legendChannel(one))
                 def apart:boolean false
                 if (resolved.isObject()) {
                     if ((resolved.stringOr(key "")) == "independent") {
                         apart = true
                     }
+                    if ((resolved.stringOr(channel "")) == "independent") {
+                        apart = true
+                    }
+                }
+                ; …and a key for a scale each pane has its OWN of belongs to
+                ; that pane whether the chart said so or not. There is no
+                ; sharing a key for three different scales: a page of three
+                ; discretizing scales drew one key on the right and left every
+                ; pane unexplained.
+                if (! (has shareable channel)) {
+                    apart = true
                 }
                 if apart {
                     push mine.arr one
@@ -9575,6 +9589,23 @@ class VlCompile {
         def own:VlJson (VlCompile.statedOn(ch "title"))
         if (own.isString()) {
             return (own.asString())
+        }
+        return ""
+    }
+
+    ; The channel a key is about, in the words a chart uses to resolve one.
+    sfn legendChannel:string (l:VlJson) {
+        if (l.has("fill")) {
+            return "color"
+        }
+        if (l.has("stroke")) {
+            return "color"
+        }
+        if (l.has("size")) {
+            return "size"
+        }
+        if (l.has("shape")) {
+            return "shape"
         }
         return ""
     }

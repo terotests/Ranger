@@ -1945,18 +1945,37 @@ class VlRuntime {
                 }
                 n = (n + 1)
             }
-            if numeric {
-                ; A DISCRETIZING scale's range is a list of outputs, one per
-                ; band, however many there are — `[80, 200, 320]` is three
-                ; sizes and not an interval from eighty to three hundred and
-                ; twenty. The ends are kept too, so nothing that reads the
-                ; range as an interval is disturbed.
-                def n2:int 0
-                while (n2 < total) {
-                    push sc.rangeNumbers (this.rangeNumber((r.at(n2))))
-                    n2 = (n2 + 1)
+            ; A DISCRETIZING scale's range is a list of outputs, one per band,
+            ; however many there are: `[80, 200, 320]` is three sizes and not
+            ; an interval from eighty to three hundred and twenty. Two entries
+            ; is what makes an interval for every OTHER scale, and a scale that
+            ; answers in bands is the exception.
+            if (sc.isDiscretizing()) {
+                def allNumbers:boolean true
+                def m:int 0
+                while (m < total) {
+                    def one:VlJson (r.at(m))
+                    if (! (one.isNumber())) {
+                        if (! (one.isObject())) {
+                            allNumbers = false
+                        }
+                    }
+                    m = (m + 1)
                 }
-                sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at((total - 1))))))
+                if allNumbers {
+                    def n2:int 0
+                    while (n2 < total) {
+                        push sc.rangeNumbers (this.rangeNumber((r.at(n2))))
+                        n2 = (n2 + 1)
+                    }
+                    if (total > 0) {
+                        sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at((total - 1))))))
+                    }
+                    return
+                }
+            }
+            if numeric {
+                sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at(1)))))
                 return
             }
             ; Anything else is a list of output values — an ordinal range.

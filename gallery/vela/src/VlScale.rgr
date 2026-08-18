@@ -373,20 +373,49 @@ class VlScale {
         return ((value - domainMin) / span)
     }
 
+    ; What one BAND answers. Where the outputs came from a scheme it is the
+    ; scheme sampled once per band; where they were listed it is the entry that
+    ; band names.
+    fn bandColourAt:string (band:int) {
+        def bands:int (this.bandCount())
+        if rampRange {
+            return (this.colourAt(((to_double (band + 1)) / (to_double (bands + 1)))))
+        }
+        def n:int (array_length rangeValues)
+        if (n == 0) {
+            return ""
+        }
+        def at:int band
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            at = 0
+        }
+        return (itemAt rangeValues at)
+    }
+
+    fn bandNumberAt:double (band:int) {
+        def n:int (array_length rangeNumbers)
+        if (n == 0) {
+            return 0.0
+        }
+        def at:int band
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            at = 0
+        }
+        return (itemAt rangeNumbers at)
+    }
+
     fn mapNumber:double (value:double) {
         ; A discretizing scale whose outputs are numbers answers the one its
         ; band names, not a point on a line.
         if (this.isDiscretizing()) {
-            def total:int (array_length rangeNumbers)
-            if (total > 0) {
-                def band:int (to_int (this.bandOf(value)))
-                if (band >= total) {
-                    band = (total - 1)
-                }
-                if (band < 0) {
-                    band = 0
-                }
-                return (itemAt rangeNumbers band)
+            if ((array_length rangeNumbers) > 0) {
+                return (this.bandNumberAt((to_int (this.bandOf(value)))))
             }
         }
         def t:double (this.fraction(value))
@@ -488,15 +517,7 @@ class VlScale {
         ; ordinal scale samples by, which keeps both ends of a ramp out of the
         ; picture where they are nearly black and nearly white.
         if (this.isDiscretizing()) {
-            def band:int (to_int (this.bandOf(value)))
-            def bands:int (this.bandCount())
-            if rampRange {
-                return (this.colourAt(((to_double (band + 1)) / (to_double (bands + 1)))))
-            }
-            if (band >= n) {
-                band = (n - 1)
-            }
-            return (itemAt rangeValues band)
+            return (this.bandColourAt((to_int (this.bandOf(value)))))
         }
         return (this.colourAt((this.rampFraction(value))))
     }

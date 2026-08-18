@@ -145,7 +145,17 @@ export const DIFFICULT = {
     + 'and not by a circle of the same area, because a wedge points; and a '
     + 'sequential colour scale multiplies by one over the span where a '
     + 'position scale divides by it — one bit apart, and thirteen of three '
-    + 'hundred and sixty-one wind directions round the other way'
+    + 'hundred and sixty-one wind directions round the other way',
+
+  concat_bar_scales_discretize:
+    'three scales that answer in BANDS rather than continuously, and every '
+    + 'number about them read off vega rather than guessed at: how many bands '
+    + 'a scheme means when nothing says (five, except four for a size), where '
+    + 'a quantile cuts, and that a key for a banded scale is one row per band '
+    + 'labelled by the cuts. Two channels reading one column are also one key '
+    + 'and not two — folded by TITLE they stayed apart, because a chart that '
+    + 'titles its colours and leaves its sizes to the column name does not '
+    + 'call them the same thing'
 };
 
 /** The names, in the order they were won. */

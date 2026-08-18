@@ -300,12 +300,12 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **169** |
+| drawn exactly as the reference draws them | 11 | **170** |
 | drawn, but not the same picture | 106 | 7 |
 | refused, with a reason | 58 | 1 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **96.6% exact, 99.4% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **97.1% exact, 99.4% drawn** |
 
 Every one of those hundred came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
@@ -327,21 +327,20 @@ invisible. And `"point": {"filled": false}` was read as a boolean, which an
 object is not, so a line asked for dots came out bare. None of the four said
 anything; they each just drew the wrong picture.
 
-The remaining six are no longer a long tail: they are three subsystems and two
-coin tosses. One wants a scale that cuts a number into bands, one wants a
-trellis whose panels each measure against their own axis, one jitters its dots
-with a random number nobody can reproduce, and one wants a lookup against a
-selection, which needs interaction. The last two draw a bootstrapped confidence
-interval, which is random by construction — they land within a few pixels and
-will never land exactly. That list is short enough to name, which is the point
-of counting.
+The remaining five are no longer a tail at all: they are two subsystems and
+three coin tosses. One wants a trellis whose panels each measure against their
+own axis, and one wants a lookup against a selection, which needs interaction.
+The other three are random by construction — one jitters its dots with a random
+number and two draw a bootstrapped confidence interval — so they land within a
+few pixels and will never land exactly. That list is short enough to name,
+which is the point of counting.
 
 ### The tail is not uniform, so the difficult ones are marked
 
 Most of what the report converts, it converts in a handful of lines. Some
 charts are not like that: they hold out until something the reference does has
 to be reproduced exactly, and several of them moved only after a wrong
-hypothesis had been measured and reverted first. Twenty of them are recorded in
+hypothesis had been measured and reverted first. Twenty-one of them are recorded in
 [`tools/reference/difficult.mjs`](tools/reference/difficult.mjs), with a note
 against each saying what it actually took:
 
@@ -367,6 +366,7 @@ against each saying what it actually took:
 | `layer_point_line_regression` | a fitted line is a running mean accumulated one row at a time, not a sum divided at the end: the two are different numbers in floating point and an R² printed to two places lands either side of a rounding. The line itself is sampled at twenty-five even steps across the range of x, which is where the reference stops refining a curve that is straight |
 | `geo_circle` | a projection is a page of constants and a convention about the order the rotation, the centring and the scaling are applied in — and `albersUsa` is not one projection but **three**, each with a rectangle, so that Alaska and Hawaii sit in the corner of a map of the mainland. Only the constants can be read off a formula; the convention had to be measured against d3 point by point, which is what [`tools/reference/geo.mjs`](tools/reference/geo.mjs) does |
 | `point_angle_windvector` | four thousand eight hundred wedges on an equal-area projection, each turned by the wind it stands for. Three separate things had to be true at once: a turned symbol is **measured** turned, or the page reserves the wrong room round it; a key is spaced by the ink of the shape it draws and not by a circle of the same area, because a wedge points; and a sequential colour scale multiplies by one over the span where a position scale divides by it — one bit apart, and thirteen of three hundred and sixty-one wind directions round the other way |
+| `concat_bar_scales_discretize` | three scales that answer in **bands** rather than continuously, and every number about them read off vega rather than guessed at: how many bands a scheme means when nothing says (five, except four for a size), where a quantile cuts, and that a key for a banded scale is one row per band labelled by the cuts. Two channels reading one column are also one key and not two — folded by **title** they stayed apart, because a chart that titles its colours and leaves its sizes to the column name does not call them the same thing |
 
 Marking them buys two things. A chart that took a rounding order to get right
 can be made wrong again by one line somewhere else, and it would come back as a
