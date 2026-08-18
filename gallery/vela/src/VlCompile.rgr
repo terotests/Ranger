@@ -2321,6 +2321,8 @@ class VlCompile {
         def signalNames:[string:int]
         def legends (VlJson.arrayValue())
         def legendNames:[string:int]
+        def paneGroups:[VlJson]
+        def paneLegends:[VlJson]
         def scaleNames:[string]
         def sharedDomains:[string:VlJson]
         def sharedSeen:[string:int]
@@ -2349,7 +2351,13 @@ class VlCompile {
             def child (new VlCompile())
             child.rootSource = rootSource
             child.prefix = label
-            child.dataLabel = ("data_" + (VlJson.intToText((index + 1))))
+            ; The pane's rows are numbered from the PANE's name, not from the
+            ; page's: a concatenation inside a concatenation numbers its panes
+            ; from one again, and two data sets called `data_1` are one data
+            ; set — the second wins and the first pane draws the second one's
+            ; rows. A chart with a histogram along each edge drew the heat
+            ; map's counts in its top histogram.
+            child.dataLabel = ((prefix + "data_") + (VlJson.intToText((index + 1))))
             child.markLabel = (label + "marks")
             ; Both dimensions, whichever way the panes are stacked. The
             ; obvious rule — panes side by side each get their own width, panes
@@ -2361,10 +2369,15 @@ class VlCompile {
             child.widthSignal = (label + "width")
             child.heightSignal = (label + "height")
             if (agreed.isNumber()) {
+                ; The shared dimension is the COMPOSITION's, and a composition
+                ; inside another is not the page: an inner row of panes reads
+                ; `concat_1_height`, not `height`. Reading the page's, two
+                ; panes inside a stack took a size nothing at that level ever
+                ; defines and came out sixty pixels short between them.
                 if horizontal {
-                    child.heightSignal = "height"
+                    child.heightSignal = (prefix + "height")
                 } {
-                    child.widthSignal = "width"
+                    child.widthSignal = (prefix + "width")
                 }
             }
             ; A pane does not inherit the CONCATENATION's title: a heading over
@@ -2467,6 +2480,17 @@ class VlCompile {
                     }
                 }
                 push marks.arr group
+                ; A key belongs to the pane whose scale it names, and only
+                ; rises to the page when SEVERAL panes name the same one. Sent
+                ; up regardless, the key for a colour only one pane paints by
+                ; was drawn past the far edge of the whole concatenation, three
+                ; hundred pixels from the plot it explains.
+                push paneGroups group
+                def ownLegends:VlJson (piece.get("legends"))
+                if (! (ownLegends.isArray())) {
+                    ownLegends = (VlJson.arrayValue())
+                }
+                push paneLegends ownLegends
 
                 def pieceScales:VlJson (piece.get("scales"))
                 if (pieceScales.isArray()) {
@@ -2490,9 +2514,45 @@ class VlCompile {
                     }
                 }
                 VlCompile.mergeSignals(signals signalNames (piece.get("signals")))
-                VlCompile.mergeLegends(legends legendNames (piece.get("legends")))
             }
             index = (index + 1)
+        }
+
+        ; Whose key it is. A concatenation's panes share one key by default —
+        ; the same colours mean the same thing in every pane, so the key is the
+        ; page's — unless the chart resolves the key INDEPENDENTLY, and then it
+        ; belongs to the pane whose scale it names and stands beside that pane.
+        ; Sent up regardless, a key for a colour only one pane paints by was
+        ; drawn past the far edge of the whole concatenation.
+        def resolved:VlJson ((src.get("resolve")).get("legend"))
+        def pane:int 0
+        while (pane < (array_length paneLegends)) {
+            def own:VlJson (itemAt paneLegends pane)
+            def mine (VlJson.arrayValue())
+            def lj:int 0
+            while (lj < (own.count())) {
+                def one:VlJson (own.at(lj))
+                def key:string (VlCompile.legendKey(one))
+                def apart:boolean false
+                if (resolved.isObject()) {
+                    if ((resolved.stringOr(key "")) == "independent") {
+                        apart = true
+                    }
+                }
+                if apart {
+                    push mine.arr one
+                } {
+                    def lifted (VlJson.arrayValue())
+                    push lifted.arr one
+                    VlCompile.mergeLegends(legends legendNames lifted)
+                }
+                lj = (lj + 1)
+            }
+            if ((mine.count()) > 0) {
+                def paneGroup:VlJson (itemAt paneGroups pane)
+                paneGroup.setMember("legends" mine)
+            }
+            pane = (pane + 1)
         }
 
         VlCompile.applyMergedDomains(scales scaleNames sharedDomains)
@@ -2539,9 +2599,17 @@ class VlCompile {
             }
         }
         ; The number the panes agreed on belongs to the PAGE: every pane reads
-        ; it from here rather than carrying a copy.
+        ; it from here rather than carrying a copy — and where this is not the
+        ; page but a row of panes inside one, it is a signal of its own.
         if (agreed.isNumber()) {
-            out.setMember(shared agreed)
+            if ((strlen prefix) > 0) {
+                def shareSignal (VlJson.objectValue())
+                shareSignal.setMember("name" (VlJson.stringValue((prefix + shared))))
+                shareSignal.setMember("value" agreed)
+                push signals.arr shareSignal
+            } {
+                out.setMember(shared agreed)
+            }
         }
         out.setMember("marks" marks)
         out.setMember("scales" scales)
@@ -3529,6 +3597,19 @@ class VlCompile {
     ; is a fill — and the reference draws a single key that is both: a filled
     ; circle with a stroke round it. Keeping only the first gave a line chart
     ; with dots a key with no dot in it.
+    ; The scale a key is FOR, which is what tells two keys apart.
+    sfn legendKey:string (l:VlJson) {
+        def key:string ""
+        for l.keys k:string ki {
+            if ((((k == "fill") || (k == "stroke")) || (k == "size")) || (k == "shape")) {
+                if ((strlen key) == 0) {
+                    key = (l.stringOr(k ""))
+                }
+            }
+        }
+        return key
+    }
+
     sfn mergeLegends:void (legends:VlJson seen:[string:int] from:VlJson) {
         if (! (from.isArray())) {
             return
@@ -3536,14 +3617,7 @@ class VlCompile {
         def i:int 0
         while (i < (from.count())) {
             def l:VlJson (from.at(i))
-            def key:string ""
-            for l.keys k:string ki {
-                if ((((k == "fill") || (k == "stroke")) || (k == "size")) || (k == "shape")) {
-                    if ((strlen key) == 0) {
-                        key = (l.stringOr(k ""))
-                    }
-                }
-            }
+            def key:string (VlCompile.legendKey(l))
             if (has seen key) {
                 def at:int (unwrap (get seen key))
                 def already:VlJson (legends.at(at))
@@ -4203,13 +4277,32 @@ class VlCompile {
         if theta.defined {
             return theta
         }
+        ; A BINNED field is a dimension however continuous it is: it says which
+        ; group a row is in, not how much the row is worth. Taken as the
+        ; measure, a histogram drawn on its side had its bins measured and its
+        ; counts left with only one end, so every bar came out with no length
+        ; at all.
         def y:VlChannel (this.channel("y"))
+        if (y.defined) {
+            if (y.isContinuous()) {
+                if (! (VlCompile.countsAsDimension(y))) {
+                    return y
+                }
+            }
+        }
+        def x:VlChannel (this.channel("x"))
+        if (x.defined) {
+            if (x.isContinuous()) {
+                if (! (VlCompile.countsAsDimension(x))) {
+                    return x
+                }
+            }
+        }
         if (y.defined) {
             if (y.isContinuous()) {
                 return y
             }
         }
-        def x:VlChannel (this.channel("x"))
         if (x.defined) {
             if (x.isContinuous()) {
                 return x
@@ -4217,6 +4310,16 @@ class VlCompile {
         }
         def none (new VlChannel())
         return none
+    }
+
+    sfn countsAsDimension:boolean (ch:VlChannel) {
+        if ch.hasBin {
+            return true
+        }
+        if ch.binnedAlready {
+            return true
+        }
+        return false
     }
 
     ; The other axis: what a stack is grouped by.
@@ -7842,6 +7945,20 @@ class VlCompile {
             if (stated.has("offset")) {
                 a.setMember("offset" (stated.get("offset")))
             }
+            ; …and how the grid is PAINTED belongs to the grid axis and not to
+            ; the labelled one. Left behind, an axis asked for dashed grid
+            ; lines drew solid ones.
+            for stated.keys gk:string gki {
+                if ((strlen gk) > 4) {
+                    if ((substring gk 0 4) == "grid") {
+                        if (gk != "grid") {
+                            if (! (VlCompile.isConditional((stated.get(gk))))) {
+                                a.setMember(gk (stated.get(gk)))
+                            }
+                        }
+                    }
+                }
+            }
         }
         if (! (a.has("values"))) {
             if (! (a.has("tickCount"))) {
@@ -9733,7 +9850,11 @@ class VlCompile {
         def shape:VlChannel (this.channel("shape"))
         if shape.defined {
             if shape.hasValue {
-                update.setMember("shape" (VlCompile.literal(shape.value)))
+                ; …and a shape may answer to a TEST the way a colour does: an
+                ; arrow drawn under a chart points left or right according to
+                ; which way it runs. Written as the fallback alone, both arrows
+                ; pointed the same way.
+                update.setMember("shape" (this.withCondition(shape (VlCompile.literal(shape.value)))))
             } {
                 update.setMember("shape" (this.scaled("shape" (shape.outField()))))
             }
@@ -10020,11 +10141,21 @@ class VlCompile {
                 update.setMember(axis mid)
                 return
             }
+            ; Which end of the bin is nudged which way depends on which way
+            ; the scale runs. Along x the far edge of a bin is further right,
+            ; so it is pulled back and the near edge pushed forward; down y the
+            ; far edge is further UP, so the two swap. Nudged the x way, a
+            ; histogram drawn on its side had every bar a pixel taller than its
+            ; own bin instead of a pixel shorter.
+            def upperFirst:boolean true
+            if (axis == "y") {
+                upperFirst = false
+            }
             def from:VlJson (this.scaled(axis endField))
-            from.setMember("offset" (VlCompile.binNudge((ch.outField()) endField axis true (this.binSpacing()))))
+            from.setMember("offset" (VlCompile.binNudge((ch.outField()) endField (this.sname(axis)) upperFirst (this.binSpacing()))))
             update.setMember(axis from)
             def to:VlJson (this.scaled(axis (this.unitStartField(ch))))
-            to.setMember("offset" (VlCompile.binNudge((this.unitStartField(ch)) endField axis false (this.binSpacing()))))
+            to.setMember("offset" (VlCompile.binNudge((this.unitStartField(ch)) endField (this.sname(axis)) (! upperFirst) (this.binSpacing()))))
             update.setMember((axis + "2") to)
             return
         }

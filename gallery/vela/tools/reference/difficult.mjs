@@ -76,7 +76,19 @@ export const DIFFICULT = {
     'a bar on a continuous axis is given a band — five pixels, centred — and '
     + 'the scale five pixels of room at each end; a label turned forty-five '
     + 'degrees is worth a rotated box; and a padded time domain is truncated '
-    + 'to whole milliseconds, which is worth a pixel on two gridlines'
+    + 'to whole milliseconds, which is worth a pixel on two gridlines',
+
+  concat_marginal_histograms:
+    'a concatenation inside a concatenation numbers its panes from one again, '
+    + 'so two panes were called data_1 and one drew the other\'s rows; the '
+    + 'inner row names its own shared height; a group\'s rectangle reaches as '
+    + 'far as its panes do and not a margin further; and which end of a bin is '
+    + 'nudged which way follows the direction the scale runs',
+
+  brush_table:
+    'a key belongs to the page unless the chart resolves it independently, and '
+    + 'then it belongs to the pane whose scale it names — which means a pane '
+    + 'has to be able to carry one and to reserve the room beside it'
 };
 
 /** The names, in the order they were won. */

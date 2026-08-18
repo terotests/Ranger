@@ -2165,7 +2165,13 @@ class VlRuntime {
     ; its contents correctly in the wrong place rather than not at all — and
     ; says so.
     fn encodeLegends:void (rootItem:VlSceneItem) {
-        def legends:VlJson (spec.get("legends"))
+        this.encodeLegendsOn(rootItem (spec.get("legends")))
+    }
+
+    ; The same, for a group that carries keys of its own: a pane of a
+    ; concatenation keeps the key for a scale only it paints by, and the key
+    ; then stands beside that PANE rather than beyond the whole page.
+    fn encodeLegendsOn:void (rootItem:VlSceneItem legends:VlJson) {
         if (! (legends.isArray())) {
             return
         }
@@ -2572,7 +2578,7 @@ class VlRuntime {
                     rowItem.hasDatum = true
                     this.encodeChannels(rowItem enter row)
                     this.encodeChannels(rowItem update row)
-                    def rowBox:VlGroupBox (this.encodePlotGroup(rowItem (mdef.get("axes")) children mark.role))
+                    def rowBox:VlGroupBox (this.encodePlotGroup(rowItem (mdef.get("axes")) children mark.role (mdef.get("legends"))))
                     this.encodeGroupTitle(rowItem (mdef.get("title")) row rowBox)
                 }
                 return
@@ -2588,7 +2594,7 @@ class VlRuntime {
             this.encodeChannels(item enter empty)
             this.encodeChannels(item update empty)
             def before:int (array_length groupBoxes)
-            def plainBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role))
+            def plainBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role (mdef.get("legends"))))
             this.encodeGroupTitle(item (mdef.get("title")) empty plainBox)
             ; A group that carries a layout is a grid rather than a plot, and
             ; its panes are arranged inside it before the page ever sees them.
@@ -2643,7 +2649,7 @@ class VlRuntime {
             this.encodeChannels(item enter datum)
             this.encodeChannels(item update datum)
             def panelStart:int (array_length groupBoxes)
-            def cellBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role))
+            def cellBox:VlGroupBox (this.encodePlotGroup(item (mdef.get("axes")) children mark.role (mdef.get("legends"))))
             this.encodeGroupTitle(item (mdef.get("title")) datum cellBox)
             this.absorbInnerBoxes(panelStart)
         }
@@ -2923,7 +2929,7 @@ class VlRuntime {
         box.bottom = (box.bottom + half)
     }
 
-    fn encodePlotGroup:VlGroupBox (item:VlSceneItem axes:VlJson children:VlJson role:string) {
+    fn encodePlotGroup:VlGroupBox (item:VlSceneItem axes:VlJson children:VlJson role:string legends:VlJson) {
         if (! (axes.isArray())) {
             ; A group with no axes is still a PLOT, and what is drawn in it is
             ; measured against its size rather than the chart's. Encoded with
@@ -2971,6 +2977,7 @@ class VlRuntime {
         extentBottom = 0.0
         this.encodeAxes(item axes)
         this.encodeChildMarks(item children)
+        this.encodeLegendsOn(item legends)
 
         def box (new VlGroupBox())
         box.role = role
@@ -3094,7 +3101,7 @@ class VlRuntime {
     ; trellis whose third row reaches four pixels past its plot on the right
     ; and whose fourth hangs seven past it on the left is laid out on a pitch
     ; that has room for both, even though no single panel wants that much.
-    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double rowGap:double alignCol:string alignRow:string) {
+    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double rowGap:double alignCol:string alignRow:string flush:boolean) {
         def n:int (array_length cells)
         def ncols:int columns
         if (ncols <= 0) {
@@ -3144,8 +3151,17 @@ class VlRuntime {
             ri = (ri + 1)
         }
         for cells box:VlGroupBox idx {
+            ; `"bounds": "flush"` lays the panes out by the rectangles they
+            ; DECLARE and lets their guides hang into the gaps: a chart with a
+            ; histogram along each edge wants the histogram flush against the
+            ; plot, not pushed clear of its axis. Laid out by the full bounds
+            ; instead, the panes stood as far apart as their labels are wide.
             def px:double (VlBounds.ceilTo((box.width + box.right)))
             def py:double (VlBounds.ceilTo((box.height + box.bottom)))
+            if flush {
+                px = (VlBounds.ceilTo(box.width))
+                py = (VlBounds.ceilTo(box.height))
+            }
             xMax = (VlRuntime.higher(xMax px))
             yMax = (VlRuntime.higher(yMax py))
             def c:int (itemAt colOf idx)
@@ -3154,11 +3170,17 @@ class VlRuntime {
             set_at yExtent r (VlRuntime.higher((itemAt yExtent r) py))
             ; The first panel of a row starts flush against the grid's own
             ; left edge; only the ones after it are pushed clear of it.
+            def leadX:double (VlRuntime.overhang(box.left))
+            def leadY:double (VlRuntime.overhang(box.top))
+            if flush {
+                leadX = 0.0
+                leadY = 0.0
+            }
             if (c > 0) {
-                set_at xOffset idx (gap + (VlRuntime.overhang(box.left)))
+                set_at xOffset idx (gap + leadX)
             }
             if (r > 0) {
-                set_at yOffset idx (rowGap + (VlRuntime.overhang(box.top)))
+                set_at yOffset idx (rowGap + leadY)
             }
         }
 
@@ -3353,12 +3375,17 @@ class VlRuntime {
         def gap:double (VlRuntime.layoutGap(layoutDef "column"))
         def rowGap:double (VlRuntime.layoutGap(layoutDef "row"))
         def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignOf(layoutDef "column")) (VlRuntime.alignOf(layoutDef "row"))))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignOf(layoutDef "column")) (VlRuntime.alignOf(layoutDef "row")) ((layoutDef.stringOr("bounds" "full")) == "flush")))
         ; The group is exactly what its panes cover. Its own origin stays at
         ; zero, so whatever hangs off the top-left of the first pane — an axis,
         ; a label — is room the page has to leave in front of the group.
-        parent.width = (reach.x2 - reach.x1)
-        parent.height = (reach.y2 - reach.y1)
+        ; The group's own rectangle reaches as far as its panes DO, and what
+        ; hangs off its top left is recorded beside it rather than inside it.
+        ; Counted as part of the rectangle as well, a row of panes inside a
+        ; stack claimed its own left margin twice over and the key beyond it
+        ; stood forty-six pixels clear of the plot it belongs to.
+        parent.width = reach.x2
+        parent.height = reach.y2
         parent.left = (0.0 - reach.x1)
         parent.top = (0.0 - reach.y1)
         parent.right = 0.0
@@ -3391,7 +3418,7 @@ class VlRuntime {
             return
         }
         def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignOf(layoutDef "column")) (VlRuntime.alignOf(layoutDef "row"))))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignOf(layoutDef "column")) (VlRuntime.alignOf(layoutDef "row")) ((layoutDef.stringOr("bounds" "full")) == "flush")))
         this.layoutTrellis(cells columns layoutDef reach)
 
         ; The view is what the placed plots and their furniture cover, and the

@@ -524,9 +524,9 @@ class VlViewBox {
         if ((strlen (item.text("stroke"))) == 0) {
             return
         }
-        if ((item.text("stroke")) == "transparent") {
-            return
-        }
+        ; …but "transparent" is not nothing: it is an outline painted in
+        ; nothing, which is still stroked and still half a pixel wide. The
+        ; reference reserves the room whether or not the paint shows.
         if (item.has("opacity")) {
             if ((item.number("opacity")) == 0.0) {
                 return
