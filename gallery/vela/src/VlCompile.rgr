@@ -585,6 +585,7 @@ class VlCompile {
         }
         out.setMember("style" (VlJson.stringValue(frame)))
         out.setMember("data" (this.buildData()))
+        this.pushParamSignals(signals)
         if ((signals.count()) > 0) {
             out.setMember("signals" signals)
         }
@@ -2584,6 +2585,10 @@ class VlCompile {
             pane = (pane + 1)
         }
 
+        ; The names the composition carries are the page's, not a pane's: a
+        ; scale in any pane may be written in terms of one.
+        this.pushParamSignals(signals)
+
         VlCompile.applyMergedDomains(scales scaleNames sharedDomains)
 
         out.setMember("data" data)
@@ -3481,6 +3486,34 @@ class VlCompile {
                     }
                     if literal {
                         sc.setMember("domain" collected)
+                        i = (i + 1)
+                        continue
+                    }
+                    ; A domain the chart WROTE OUT is the whole domain: the
+                    ; categories it names are the categories, and a pane that
+                    ; reads the same column contributes nothing to a list that
+                    ; has already been given. Merged together, a chart naming
+                    ; five kinds of weather asked for five names and a column
+                    ; at once, and the scale had no categories it could use.
+                    def anyLiteral:boolean false
+                    def li:int 0
+                    while (li < (collected.count())) {
+                        if (! ((collected.at(li)).isObject())) {
+                            anyLiteral = true
+                        }
+                        li = (li + 1)
+                    }
+                    if anyLiteral {
+                        def named (VlJson.arrayValue())
+                        def ki:int 0
+                        while (ki < (collected.count())) {
+                            def one:VlJson (collected.at(ki))
+                            if (! (one.isObject())) {
+                                push named.arr one
+                            }
+                            ki = (ki + 1)
+                        }
+                        sc.setMember("domain" named)
                         i = (i + 1)
                         continue
                     }
@@ -7133,12 +7166,40 @@ class VlCompile {
                     named.setMember("scheme" (declared.get("scheme")))
                     sc.setMember("range" named)
                 } {
-                    sc.setMember(key (declared.get(key)))
+                    sc.setMember(key (VlCompile.asSignals((declared.get(key)))))
                 }
                 }
                 }
             }
         }
+    }
+
+    ; A value written as an EXPRESSION — `{"expr": "color_rain"}` — is a signal
+    ; wherever it lands: the chart names a value it carries and asks for
+    ; whatever that value is now. Left as an expression, a scale whose range is
+    ; five named colours had five objects nothing can paint with, and every
+    ; mark it coloured came out with no colour at all.
+    sfn asSignals:VlJson (given:VlJson) {
+        if (given.isArray()) {
+            def out (VlJson.arrayValue())
+            def k:int 0
+            while (k < (given.count())) {
+                push out.arr (VlCompile.asSignals((given.at(k))))
+                k = (k + 1)
+            }
+            return out
+        }
+        if (! (given.isObject())) {
+            return given
+        }
+        if ((array_length given.keys) == 1) {
+            if (given.has("expr")) {
+                def out2 (VlJson.objectValue())
+                out2.setMember("signal" (given.get("expr")))
+                return out2
+            }
+        }
+        return given
     }
 
     ; The reference's own rule, and it is about the mark rather than the field:
@@ -9111,6 +9172,39 @@ class VlCompile {
             k = (k + 1)
         }
         return false
+    }
+
+    ; A named value the chart carries: `{"name": "color_rain", "value":
+    ; "#4682b4", "bind": {"input": "color"}}` is a colour a reader can change,
+    ; and everything that reads it reads a SIGNAL. Nothing interactive happens
+    ; here — the value stays what the chart opened with — but a scale whose
+    ; range is written in terms of one has to find the name defined, or the
+    ; range is empty and every mark it paints comes out with no colour at all.
+    fn pushParamSignals:void (signals:VlJson) {
+        def params:VlJson (source.get("params"))
+        if (! (params.isArray())) {
+            return
+        }
+        def total:int (params.count())
+        def k:int 0
+        while (k < total) {
+            def p:VlJson (params.at(k))
+            def name:string (p.stringOr("name" ""))
+            if ((strlen name) > 0) {
+                if (p.has("value")) {
+                    if (! (p.has("select"))) {
+                        def sig (VlJson.objectValue())
+                        sig.setMember("name" (VlJson.stringValue(name)))
+                        sig.setMember("value" (p.get("value")))
+                        if (p.has("bind")) {
+                            sig.setMember("bind" (p.get("bind")))
+                        }
+                        push signals.arr sig
+                    }
+                }
+            }
+            k = (k + 1)
+        }
     }
 
     ; A rectangle for an interval selection that was given one to start with.

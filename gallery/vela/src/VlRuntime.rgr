@@ -1636,7 +1636,21 @@ class VlRuntime {
                     ; same machinery every other ordinal output does.
                     push sc.rangeValues (VlRuntime.joinNumbers(value))
                 } {
-                    push sc.rangeValues (value.asString())
+                    ; An entry may be a NAME the chart carries rather than a
+                    ; value: a page whose colours a reader can change writes
+                    ; each one as a signal. Kept as the object it is written
+                    ; as, the range was five things nothing can paint with and
+                    ; every mark it coloured came out with no colour at all.
+                    if (value.isObject()) {
+                        if (value.has("signal")) {
+                            def resolved:VlJson (this.evalExpr((value.stringOr("signal" ""))))
+                            push sc.rangeValues (resolved.asString())
+                        } {
+                            push sc.rangeValues (value.asString())
+                        }
+                    } {
+                        push sc.rangeValues (value.asString())
+                    }
                 }
                 k = (k + 1)
             }
