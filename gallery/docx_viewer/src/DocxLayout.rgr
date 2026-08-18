@@ -18,6 +18,11 @@ class LaidLine {
     def baseline:int 0
     def height:int 0
     def width:int 0
+    ; Hit-test content box (full wrap column / cell inner), not just glyph bounds.
+    ; x/width are painted text origin+advance; boxX/boxW decide which line owns a click
+    ; when several lines share a Y band (table row cells).
+    def boxX:int 0
+    def boxW:int 0
     def align:int 0
     def listPrefix:string ""
     def kind:int 0
@@ -481,6 +486,11 @@ class DocxLayout {
                 }
                 line.x = x0
                 line.width = tw
+                line.boxX = (ml + indent)
+                line.boxW = (contentW - indent)
+                if (line.boxW < 4) {
+                    line.boxW = 4
+                }
                 push curPage.lines line
                 y = (y + lh)
                 li = (li + 1)
@@ -505,6 +515,11 @@ class DocxLayout {
             emptyLine.fontSizePx = fontPx
             emptyLine.x = (ml + indent)
             emptyLine.width = 4
+            emptyLine.boxX = (ml + indent)
+            emptyLine.boxW = (contentW - indent)
+            if (emptyLine.boxW < 4) {
+                emptyLine.boxW = 4
+            }
             push curPage.lines emptyLine
             y = (y + lh)
             if ((array_length p.images) == 0) {
@@ -738,13 +753,18 @@ class DocxLayout {
         if ((array_length wrapped) == 0) {
             push wrapped ""
         }
+        def cursor:int 0
         def li:int 0
         while (li < (array_length wrapped)) {
+            def chunk:string (itemAt wrapped li)
             def line:LaidLine (new LaidLine)
             line.kind = 0
             line.paragraphRef = p
             line.paraIndex = p.id
-            line.text = (itemAt wrapped li)
+            line.docStart = cursor
+            line.docEnd = (cursor + (strlen chunk))
+            cursor = line.docEnd
+            line.text = chunk
             line.height = lh
             line.y = y
             line.fontSizePx = fontPx
@@ -766,6 +786,11 @@ class DocxLayout {
             }
             line.x = x
             line.width = tw
+            line.boxX = x0
+            line.boxW = wrapW
+            if (line.boxW < 4) {
+                line.boxW = 4
+            }
             push curPage.lines line
             y = (y + lh)
             li = (li + 1)

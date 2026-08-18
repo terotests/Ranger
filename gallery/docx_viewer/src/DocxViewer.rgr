@@ -181,10 +181,13 @@ class DocxViewer {
             return "{\"active\":false}"
         }
         def c:DocumentPosition (edit.caret())
+        def sel:DocumentRange (edit.selection())
+        def a:int (sel.startOffset())
+        def b:int (sel.endOffset())
         def boldFlag:string "false"
         if (edit.typingBold) {
             boldFlag = "true"
         }
-        return ("{\"active\":true,\"paragraphId\":" + (to_string c.paragraphId) + ",\"offset\":" + (to_string c.textOffset) + ",\"boldTyping\":" + boldFlag + "}")
+        return ("{\"active\":true,\"paragraphId\":" + (to_string c.paragraphId) + ",\"offset\":" + (to_string c.textOffset) + ",\"selStart\":" + (to_string a) + ",\"selEnd\":" + (to_string b) + ",\"boldTyping\":" + boldFlag + "}")
     }
 }

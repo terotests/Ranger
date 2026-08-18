@@ -104,6 +104,8 @@ class RichDocumentEdit {
     }
 
     ; Rebuild spans after text replacement at [start,end) → text.
+    ; Overlapping spans are split/clipped — never dropped wholesale (that used
+    ; to wipe heading/title run formatting down to default 11pt on Backspace).
     fn replaceRange:void (paragraphId:int start:int end:int text:string) {
         def p:Paragraph (this.findParagraph(paragraphId))
         if (p.id != paragraphId) {
@@ -122,35 +124,40 @@ class RichDocumentEdit {
         if (end > len) {
             end = len
         }
-        def before:string (substring p.text 0 start)
-        def after:string (substring p.text end len)
         def tip:TextSpan (this.spanAt(p start))
         def insertFmt:TextSpan (tip.copy())
-        p.text = (before + text + after)
-        ; Rebuild spans simply: keep left spans, middle insert, right shifted.
-        def newSpans:[TextSpan]
+        ; Align span edges to the edit range before removing the middle.
+        this.splitSpansAt(p start)
+        this.splitSpansAt(p end)
+        def before:string (substring p.text 0 start)
+        def after:string (substring p.text end len)
         def delta:int ((strlen text) - (end - start))
+        def newSpans:[TextSpan]
         def si:int 0
         while (si < (array_length p.spans)) {
             def s:TextSpan (itemAt p.spans si)
             if (s.end <= start) {
-                push newSpans (s.copy())
+                if (s.end > s.start) {
+                    push newSpans (s.copy())
+                }
             } {
                 if (s.start >= end) {
                     def r:TextSpan (s.copy())
                     r.start = (r.start + delta)
                     r.end = (r.end + delta)
-                    push newSpans r
+                    if (r.end > r.start) {
+                        push newSpans r
+                    }
                 }
-                ; overlapping removed — replaced by insert span below
+                ; fully inside [start,end) — drop
             }
             si = (si + 1)
         }
+        p.text = (before + text + after)
         if ((strlen text) > 0) {
             def mid:TextSpan (insertFmt.copy())
             mid.start = start
             mid.end = (start + (strlen text))
-            ; Insert in order
             def placed:boolean false
             def out2:[TextSpan]
             def k:int 0
@@ -180,7 +187,10 @@ class RichDocumentEdit {
             m = (m + 1)
         }
         if ((array_length p.spans) == 0) {
-            def one:TextSpan (TextSpan.create(0 (strlen p.text)))
+            ; Preserve tip formatting even for empty paragraphs / full deletes.
+            def one:TextSpan (insertFmt.copy())
+            one.start = 0
+            one.end = (strlen p.text)
             push p.spans one
         }
         this.mergeAdjacentSpans(p)
@@ -392,6 +402,38 @@ class RichDocumentEdit {
             i = (i + 1)
         }
         this.mergeAdjacentSpans(p)
+    }
+
+    ; True when every span covering [start,end) is already bold.
+    fn rangeIsBold:boolean (paragraphId:int start:int end:int) {
+        def p:Paragraph (this.findParagraph(paragraphId))
+        if (p.id != paragraphId) {
+            return false
+        }
+        if (start >= end) {
+            return false
+        }
+        def covered:boolean false
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            def a:int s.start
+            def b:int s.end
+            if (a < start) {
+                a = start
+            }
+            if (b > end) {
+                b = end
+            }
+            if (a < b) {
+                covered = true
+                if (s.bold == false) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return covered
     }
 
     fn applyFont:void (paragraphId:int start:int end:int font:string) {

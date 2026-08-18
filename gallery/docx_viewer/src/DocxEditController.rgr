@@ -250,14 +250,19 @@ class DocxEditController {
         def pid:int sel.anchor.paragraphId
         def a:int (sel.startOffset())
         def b:int (sel.endOffset())
-        adapter.applyBold(pid a b true)
+        def turnOn:boolean true
+        if (adapter.rangeIsBold(pid a b)) {
+            turnOn = false
+        }
+        adapter.applyBold(pid a b turnOn)
+        typingBold = turnOn
         def op:DocEditOp (new DocEditOp)
         op.kind = 3
         op.paragraphId = pid
         op.start = a
         op.end = b
         op.boldSet = true
-        op.boldVal = true
+        op.boldVal = turnOn
         this.pushUndo(op)
     }
 
@@ -302,6 +307,8 @@ class DocxEditController {
     }
 
     ; Hit-test using laid lines on the current page (same metrics as paint).
+    ; Prefer the line whose content box contains (x,y). Y-only matching used to
+    ; pick the last table-cell line on a row (always the rightmost column).
     fn hitTest:DocumentPosition (layout:DocxLayout pageIndex:int x:int y:int) {
         def miss:DocumentPosition (DocumentPosition.create(0 0))
         if ((pageIndex < 0) || (pageIndex >= (layout.pageCount()))) {
@@ -310,30 +317,66 @@ class DocxEditController {
         def page:LaidPage (layout.pageAt(pageIndex))
         def best:LaidLine
         def found:boolean false
+        def bestBoxW:int 1000000
         def i:int 0
         while (i < (array_length page.lines)) {
             def line:LaidLine (itemAt page.lines i)
             if (line.kind == 0) {
+                def bw:int line.boxW
+                if (bw < 4) {
+                    bw = line.width
+                }
+                if (bw < 4) {
+                    bw = 4
+                }
+                def bx:int line.boxX
                 if ((y >= line.y) && (y < (line.y + line.height))) {
-                    best = line
-                    found = true
-                    ; prefer innermost / last matching body line
+                    if ((x >= bx) && (x < (bx + bw))) {
+                        ; Innermost box wins when boxes nest / overlap.
+                        if ((found == false) || (bw <= bestBoxW)) {
+                            best = line
+                            found = true
+                            bestBoxW = bw
+                        }
+                    }
                 }
             }
             i = (i + 1)
         }
         if (found == false) {
-            ; nearest line by y
+            ; Nearest body line by distance to its content box (2D).
             def bestDist:int 1000000
             def j:int 0
             while (j < (array_length page.lines)) {
                 def line2:LaidLine (itemAt page.lines j)
                 if (line2.kind == 0) {
-                    def mid:int (line2.y + (idiv line2.height 2))
-                    def d:int (y - mid)
-                    if (d < 0) {
-                        d = (0 - d)
+                    def bw2:int line2.boxW
+                    if (bw2 < 4) {
+                        bw2 = line2.width
                     }
+                    if (bw2 < 4) {
+                        bw2 = 4
+                    }
+                    def bx2:int line2.boxX
+                    def by2:int line2.y
+                    def bh2:int line2.height
+                    def dx:int 0
+                    if (x < bx2) {
+                        dx = (bx2 - x)
+                    } {
+                        if (x >= (bx2 + bw2)) {
+                            dx = (x - ((bx2 + bw2) - 1))
+                        }
+                    }
+                    def dy:int 0
+                    if (y < by2) {
+                        dy = (by2 - y)
+                    } {
+                        if (y >= (by2 + bh2)) {
+                            dy = (y - ((by2 + bh2) - 1))
+                        }
+                    }
+                    def d:int ((dx * dx) + (dy * dy))
                     if (d < bestDist) {
                         bestDist = d
                         best = line2

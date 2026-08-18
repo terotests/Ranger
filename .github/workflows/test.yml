@@ -47,9 +47,9 @@ jobs:
             echo "Gallery-only change detected — skipping full ES6 matrix"
           fi
 
+  # Required matrix checks must report success even for gallery-only PRs.
   test:
     needs: changes
-    if: needs.changes.outputs.gallery_only != 'true'
     runs-on: ubuntu-latest
 
     strategy:
@@ -57,10 +57,16 @@ jobs:
         node-version: [20.x, 22.x, 24.x]
 
     steps:
+      - name: Gallery-only — required check no-op
+        if: needs.changes.outputs.gallery_only == 'true'
+        run: echo "Skipping ES6 matrix for gallery-only PR"
+
       - name: Checkout repository
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js ${{ matrix.node-version }}
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -69,9 +75,11 @@ jobs:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Install dependencies
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm ci
 
       - name: Run ES6 tests
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm run test:es6
 
   gallery-smoke:
@@ -110,10 +118,14 @@ jobs:
         run: |
           if [ "${{ needs.changes.outputs.gallery_only }}" = "true" ]; then
             if [ "${{ needs.gallery-smoke.result }}" != "success" ]; then
-              echo "Gallery smoke test failed or was cancelled"
+              echo "Gallery smoke test failed or were cancelled"
               exit 1
             fi
-            echo "Gallery-only change: smoke test passed (full checks skipped)"
+            if [ "${{ needs.test.result }}" != "success" ]; then
+              echo "ES6 matrix no-op job failed"
+              exit 1
+            fi
+            echo "Gallery-only change: smoke + required no-ops passed"
             exit 0
           fi
 

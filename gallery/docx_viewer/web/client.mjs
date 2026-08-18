@@ -11,6 +11,8 @@ let page = 0;
 let pageCount = 1;
 let editMode = false;
 let dragging = false;
+let dragPending = null;
+let dragFlushTimer = 0;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -79,7 +81,7 @@ async function sendInput(payload) {
   if (data.pageCount) pageCount = Math.max(1, data.pageCount | 1);
   if (data.caret && caretEl) {
     caretEl.textContent = data.caret.active
-      ? `p${data.caret.paragraphId}@${data.caret.offset}`
+      ? `p${data.caret.paragraphId}@${data.caret.offset}${data.caret.selEnd != null && data.caret.selEnd !== data.caret.offset ? "…" + data.caret.selEnd : ""}`
       : "—";
   }
   await refreshPage();
@@ -88,10 +90,18 @@ async function sendInput(payload) {
 
 function imgLocalXY(ev) {
   const rect = pageImg.getBoundingClientRect();
-  const scaleX = pageImg.naturalWidth / Math.max(1, rect.width);
-  const scaleY = pageImg.naturalHeight / Math.max(1, rect.height);
-  const x = Math.round((ev.clientX - rect.left) * scaleX);
-  const y = Math.round((ev.clientY - rect.top) * scaleY);
+  const nw = Math.max(1, pageImg.naturalWidth || 0);
+  const nh = Math.max(1, pageImg.naturalHeight || 0);
+  // Map CSS box → SoftCanvas / layout pixels (same space as LaidLine.x/y).
+  // Prefer natural size; fall back to 1:1 if the image has not decoded yet.
+  const scaleX = nw / Math.max(1, rect.width);
+  const scaleY = nh / Math.max(1, rect.height);
+  let x = Math.floor((ev.clientX - rect.left) * scaleX);
+  let y = Math.floor((ev.clientY - rect.top) * scaleY);
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x >= nw) x = nw - 1;
+  if (y >= nh) y = nh - 1;
   return { x, y };
 }
 
@@ -118,7 +128,7 @@ async function refreshPage() {
   syncEditBtn();
   if (st.caret && caretEl) {
     caretEl.textContent = st.caret.active
-      ? `p${st.caret.paragraphId}@${st.caret.offset}`
+      ? `p${st.caret.paragraphId}@${st.caret.offset}${st.caret.selEnd != null && st.caret.selEnd !== st.caret.offset ? "…" + st.caret.selEnd : ""}`
       : "—";
   }
 }
@@ -143,17 +153,55 @@ pageImg.addEventListener("mousedown", async (ev) => {
   if (!editMode) return;
   ev.preventDefault();
   dragging = true;
+  dragPending = null;
   const { x, y } = imgLocalXY(ev);
   await sendInput({ type: "click", x, y, shift: !!ev.shiftKey });
   pageImg.focus?.();
 });
-window.addEventListener("mouseup", () => {
+
+async function flushDrag() {
+  dragFlushTimer = 0;
+  if (!dragging || !dragPending) return;
+  const payload = dragPending;
+  dragPending = null;
+  await sendInput(payload);
+  if (dragPending) {
+    // Another move arrived while we were flushing.
+    scheduleDragFlush();
+  }
+}
+
+function scheduleDragFlush() {
+  if (dragFlushTimer) return;
+  dragFlushTimer = window.setTimeout(() => {
+    flushDrag().catch(() => {});
+  }, 32);
+}
+
+window.addEventListener("mouseup", async () => {
+  if (!editMode) {
+    dragging = false;
+    return;
+  }
+  if (dragging && dragPending) {
+    const payload = dragPending;
+    dragPending = null;
+    dragging = false;
+    if (dragFlushTimer) {
+      clearTimeout(dragFlushTimer);
+      dragFlushTimer = 0;
+    }
+    await sendInput(payload);
+    return;
+  }
   dragging = false;
 });
-pageImg.addEventListener("mousemove", async (ev) => {
+
+pageImg.addEventListener("mousemove", (ev) => {
   if (!editMode || !dragging) return;
   const { x, y } = imgLocalXY(ev);
-  await sendInput({ type: "click", x, y, shift: true });
+  dragPending = { type: "click", x, y, shift: true };
+  scheduleDragFlush();
 });
 
 window.addEventListener("keydown", async (ev) => {

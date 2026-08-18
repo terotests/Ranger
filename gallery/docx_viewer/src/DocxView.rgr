@@ -24,7 +24,7 @@ class DocxView {
     def pageGap:int 24
     def docRef:RichDocument
     def caretColor:EVGColor (EVGColor.rgb(20 90 200))
-    def selColor:EVGColor (EVGColor.rgb(180 210 255))
+    def selColor:EVGColor (EVGColor.rgb(120 170 255))
 
     Constructor () {
     }
@@ -116,6 +116,9 @@ class DocxView {
         def pid:int sel.anchor.paragraphId
         def a:int (sel.startOffset())
         def b:int (sel.endOffset())
+        if (a >= b) {
+            return
+        }
         def pg:LaidPage (layout.pageAt(pageIndex))
         def i:int 0
         while (i < (array_length pg.lines)) {
@@ -124,6 +127,10 @@ class DocxView {
                 if (line.paraIndex == pid) {
                     def ls:int line.docStart
                     def le:int line.docEnd
+                    ; Inclusive end for caret-at-docEnd on this visual line.
+                    if ((le == ls) && ((strlen line.text) == 0)) {
+                        le = ls
+                    }
                     def s:int a
                     def e:int b
                     if (s < ls) {
@@ -146,13 +153,27 @@ class DocxView {
                         }
                         def into0:int (s - ls)
                         def into1:int (e - ls)
-                        def x1:int (x0 + (to_int (ctx.tr.measureWidth((substring display 0 into0) fontPx))))
-                        def x2:int (x0 + (to_int (ctx.tr.measureWidth((substring display 0 into1) fontPx))))
-                        def w:int (x2 - x1)
-                        if (w < 1) {
-                            w = 1
+                        if (into0 < 0) {
+                            into0 = 0
                         }
-                        ctx.fillRect(x1 line.y w line.height selColor)
+                        if (into1 > (strlen display)) {
+                            into1 = (strlen display)
+                        }
+                        if (into0 < into1) {
+                            def x1:int (x0 + (to_int (ctx.tr.measureWidth((substring display 0 into0) fontPx))))
+                            def x2:int (x0 + (to_int (ctx.tr.measureWidth((substring display 0 into1) fontPx))))
+                            def w:int (x2 - x1)
+                            if (w < 2) {
+                                w = 2
+                            }
+                            ctx.fillRect(x1 line.y w line.height selColor)
+                        }
+                    } {
+                        ; Selection ends exactly at line start of next chunk — skip.
+                        ; If selection covers an empty line at caret, show a thin bar.
+                        if ((ls == le) && (a <= ls) && (b >= ls) && ((strlen line.text) == 0)) {
+                            ctx.fillRect(line.x line.y 4 line.height selColor)
+                        }
                     }
                 }
             }
@@ -235,36 +256,136 @@ class DocxView {
                 }
             }
             if ((line.kind == 0) || (line.kind == 4) || (line.kind == 5)) {
-                def size:double line.fontSizePx
-                if (size < 8.0) {
-                    size = 8.0
-                }
-                def col:EVGColor (this.hexColor(line.colorHex))
-                if ((line.kind == 4) || (line.kind == 5)) {
-                    ; slightly muted chrome
-                    col = (EVGColor.rgb(80 90 110))
-                }
-                if line.bold {
-                    def face:TrueTypeFont (ctx.tr.fm.getFont("Open Sans-Bold"))
-                    if (face.unitsPerEm > 0) {
-                        ctx.tr.rt.setFont(face)
-                        ctx.tr.clearCache()
-                    }
-                } {
-                    def face2:TrueTypeFont (ctx.tr.fm.getFont("Open Sans"))
-                    if (face2.unitsPerEm > 0) {
-                        ctx.tr.rt.setFont(face2)
-                        ctx.tr.clearCache()
-                    }
-                }
-                ctx.text(line.text lx ly size col)
-                if line.underline {
-                    def uy:int ((ly + (to_int size)) + 1)
-                    ctx.fillRect(lx uy line.width 1 col)
-                }
+                this.paintStyledLine(line lx ly)
             }
             i = (i + 1)
         }
+    }
+
+    ; Paint a visual line using paragraph TextSpan runs (bold/color/underline).
+    ; Layout still wraps with the line's primary size; run styles drive glyphs.
+    fn paintStyledLine:void (line:LaidLine lx:int ly:int) {
+        def size:double line.fontSizePx
+        if (size < 8.0) {
+            size = 8.0
+        }
+        def p:Paragraph line.paragraphRef
+        def muteChrome:boolean false
+        if ((line.kind == 4) || (line.kind == 5)) {
+            muteChrome = true
+        }
+        if ((p.id <= 0) || ((array_length p.spans) == 0)) {
+            def col0:EVGColor (this.hexColor(line.colorHex))
+            if muteChrome {
+                col0 = (EVGColor.rgb(80 90 110))
+            }
+            this.setPaintFace(line.bold)
+            ctx.text(line.text lx ly size col0)
+            if line.underline {
+                def uy0:int ((ly + (to_int size)) + 1)
+                ctx.fillRect(lx uy0 line.width 1 col0)
+            }
+            return
+        }
+        def display:string line.text
+        def x:int lx
+        def prefixLen:int 0
+        if ((strlen line.listPrefix) > 0) {
+            if ((indexOf display line.listPrefix) == 0) {
+                prefixLen = (strlen line.listPrefix)
+            }
+        }
+        if (prefixLen > 0) {
+            def pref:string (substring display 0 prefixLen)
+            def colP:EVGColor (this.hexColor(line.colorHex))
+            if muteChrome {
+                colP = (EVGColor.rgb(80 90 110))
+            }
+            this.setPaintFace(line.bold)
+            ctx.text(pref x ly size colP)
+            x = (x + (to_int (ctx.tr.measureWidth(pref size))))
+            display = (substring display prefixLen (strlen display))
+        }
+        def doc0:int line.docStart
+        def doc1:int line.docEnd
+        if (doc1 < doc0) {
+            doc1 = doc0
+        }
+        ; Empty line still needs a hit target; nothing to paint.
+        if ((strlen display) == 0) {
+            return
+        }
+        ; If doc offsets were never set, paint whole line with first span.
+        if ((doc0 == 0) && (doc1 == 0) && ((strlen p.text) > 0) && ((strlen display) > 0)) {
+            if ((indexOf p.text display) < 0) {
+                def s0:TextSpan (itemAt p.spans 0)
+                this.paintTextRun(display x ly size s0 muteChrome)
+                return
+            }
+        }
+        def si:int 0
+        while (si < (array_length p.spans)) {
+            def sp:TextSpan (itemAt p.spans si)
+            def a:int sp.start
+            def b:int sp.end
+            if (a < doc0) {
+                a = doc0
+            }
+            if (b > doc1) {
+                b = doc1
+            }
+            if (a < b) {
+                def local0:int (a - doc0)
+                def local1:int (b - doc0)
+                if (local0 < 0) {
+                    local0 = 0
+                }
+                if (local1 > (strlen display)) {
+                    local1 = (strlen display)
+                }
+                if (local0 < local1) {
+                    def chunk:string (substring display local0 local1)
+                    def runW:int (this.paintTextRun(chunk x ly size sp muteChrome))
+                    x = (x + runW)
+                }
+            }
+            si = (si + 1)
+        }
+    }
+
+    fn setPaintFace:void (bold:boolean) {
+        if bold {
+            def face:TrueTypeFont (ctx.tr.fm.getFont("Open Sans-Bold"))
+            if (face.unitsPerEm > 0) {
+                ctx.tr.rt.setFont(face)
+                ctx.tr.clearCache()
+            }
+        } {
+            def face2:TrueTypeFont (ctx.tr.fm.getFont("Open Sans"))
+            if (face2.unitsPerEm > 0) {
+                ctx.tr.rt.setFont(face2)
+                ctx.tr.clearCache()
+            }
+        }
+    }
+
+    fn paintTextRun:int (chunk:string x:int y:int size:double sp:TextSpan muteChrome:boolean) {
+        def col:EVGColor (this.hexColor(sp.colorHex))
+        if muteChrome {
+            col = (EVGColor.rgb(80 90 110))
+        }
+        def runSize:double size
+        if (runSize < 8.0) {
+            runSize = 8.0
+        }
+        this.setPaintFace(sp.bold)
+        ctx.text(chunk x y runSize col)
+        def w:int (to_int (ctx.tr.measureWidth(chunk runSize)))
+        if sp.underline {
+            def uy:int ((y + (to_int runSize)) + 1)
+            ctx.fillRect(x uy w 1 col)
+        }
+        return w
     }
 
     fn hexColor:EVGColor (hex:string) {
