@@ -14,6 +14,7 @@
 
 Import "EditorBuffer.rgr"
 Import "EditorSelection.rgr"
+Import "EditorStyle.rgr"
 Import "EditorLayout.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
@@ -45,6 +46,9 @@ class EditorView {
     def fontFamily:string "Open Sans"
     def pageW:int 720
     def pageH:int 480
+    ; SoftCanvas paints selection+caret; WebGL path uses a client overlay so
+    ; Canvas2D metrics match the atlas (Ranger TTF advances differ).
+    def paintInteractive:boolean true
 
     Constructor () {
     }
@@ -56,6 +60,10 @@ class EditorView {
         ctx.attach(canvas)
         ctx.tr.addFontDir(fontDir)
         def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
+        ; Extra faces for rich text (WebGL @font-face + FontManager).
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Cinzel/Cinzel-Regular.ttf")
+        ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
         if (ok == false) {
             status = "bitmap-font fallback"
         } {
@@ -105,6 +113,27 @@ class EditorView {
     }
 
     fn pushText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor) {
+        this.pushTextFont(dl text x y size col fontFamily false)
+    }
+
+    ; WebGL atlas uses CSS family names; bold face is a separate @font-face family.
+    fn cssFontName:string (family:string bold:boolean) {
+        if bold {
+            if (family == "Open Sans") {
+                return "Open Sans Bold"
+            }
+            if (family == "Cinzel") {
+                return "Cinzel Bold"
+            }
+            if (family == "Josefin Sans") {
+                return "Josefin Sans Bold"
+            }
+            return (family + " Bold")
+        }
+        return family
+    }
+
+    fn pushTextFont:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor family:string bold:boolean) {
         if ((strlen text) == 0) {
             return
         }
@@ -115,7 +144,7 @@ class EditorView {
         c.w = (ctx.tr.measureWidth(text size))
         c.h = (ctx.tr.lineHeight(size))
         c.text = text
-        c.fontFamily = fontFamily
+        c.fontFamily = (this.cssFontName(family bold))
         c.fontSize = size
         c.r = (col.red())
         c.g = (col.green())
@@ -156,50 +185,52 @@ class EditorView {
         ; Clip editor body so scrolled text does not paint over the status bar.
         this.pushClip(dl (to_double layout.x) (to_double layout.y) (to_double layout.w) (to_double layout.h))
 
-        if (sel.isCollapsed() == false) {
-            def a:EditorPos (new EditorPos)
-            def b:EditorPos (new EditorPos)
-            sel.normalized(a b)
-            def firstVis:int (layout.firstVisible())
-            def lastVis:int (layout.lastVisible(buf))
-            def line:int a.line
-            while (line <= b.line) {
-                if ((line >= firstVis) && (line <= lastVis)) {
-                    def s:string (buf.lineAt(line))
-                    def len:int (strlen s)
-                    def c0:int 0
-                    def c1:int len
-                    if (line == a.line) {
-                        c0 = a.col
-                    }
-                    if (line == b.line) {
-                        c1 = b.col
-                    }
-                    if (c0 < 0) {
-                        c0 = 0
-                    }
-                    if (c1 > len) {
-                        c1 = len
-                    }
-                    if (c1 < c0) {
-                        c1 = c0
-                    }
-                    def x0:int (layout.caretPixelX(ctx.tr buf line c0))
-                    def x1:int (layout.caretPixelX(ctx.tr buf line c1))
-                    if (line < b.line) {
-                        def full:int (layout.caretPixelX(ctx.tr buf line len))
-                        if (full > x1) {
-                            x1 = (full + 6)
+        if paintInteractive {
+            if (sel.isCollapsed() == false) {
+                def a:EditorPos (new EditorPos)
+                def b:EditorPos (new EditorPos)
+                sel.normalized(a b)
+                def firstVis:int (layout.firstVisible())
+                def lastVis:int (layout.lastVisible(buf))
+                def line:int a.line
+                while (line <= b.line) {
+                    if ((line >= firstVis) && (line <= lastVis)) {
+                        def s:string (buf.lineAt(line))
+                        def len:int (strlen s)
+                        def c0:int 0
+                        def c1:int len
+                        if (line == a.line) {
+                            c0 = a.col
                         }
+                        if (line == b.line) {
+                            c1 = b.col
+                        }
+                        if (c0 < 0) {
+                            c0 = 0
+                        }
+                        if (c1 > len) {
+                            c1 = len
+                        }
+                        if (c1 < c0) {
+                            c1 = c0
+                        }
+                        def x0:int (layout.caretPixelX(ctx.tr buf line c0))
+                        def x1:int (layout.caretPixelX(ctx.tr buf line c1))
+                        if (line < b.line) {
+                            def full:int (layout.caretPixelX(ctx.tr buf line len))
+                            if (full > x1) {
+                                x1 = (full + 6)
+                            }
+                        }
+                        def y0:int (layout.caretPixelY(line))
+                        def rw:int (x1 - x0)
+                        if (rw < 2) {
+                            rw = 2
+                        }
+                        this.pushRect(dl (to_double x0) (to_double y0) (to_double rw) (to_double layout.lineHeight) theme.selection)
                     }
-                    def y0:int (layout.caretPixelY(line))
-                    def rw:int (x1 - x0)
-                    if (rw < 2) {
-                        rw = 2
-                    }
-                    this.pushRect(dl (to_double x0) (to_double y0) (to_double rw) (to_double layout.lineHeight) theme.selection)
+                    line = (line + 1)
                 }
-                line = (line + 1)
             }
         }
 
@@ -209,6 +240,7 @@ class EditorView {
         while (li <= last) {
             def text:string (buf.lineAt(li))
             def ty:int (layout.caretPixelY(li))
+            def st:LineStyle (buf.styleAt(li))
             if layout.showLineNumbers {
                 def num:string (to_string (li + 1))
                 def numSize:double (layout.fontSize * 0.85)
@@ -216,21 +248,47 @@ class EditorView {
                 def nx:int ((layout.x + layout.gutterW) - nw - 6)
                 this.pushText(dl num (to_double nx) (to_double (ty + 2)) numSize theme.gutterText)
             }
-            if ((strlen text) > 0) {
-                this.pushText(dl text (to_double (layout.contentX())) (to_double ty) layout.fontSize theme.text)
+            ; List marker (ul disc / ol decimal) — canvas-editor listType.
+            if (st.listKind != 0) {
+                def mark:string "•"
+                if (st.listKind == 2) {
+                    mark = ((to_string (buf.listNumber(li))) + ".")
+                }
+                def mx:int (layout.contentX())
+                this.pushText(dl mark (to_double mx) (to_double ty) layout.fontSize theme.text)
+            }
+            def ox:int (layout.lineOriginX(ctx.tr buf li))
+            def pos:int 0
+            def ri:int 0
+            while (ri < (array_length st.runs)) {
+                def run:StyleRun (itemAt st.runs ri)
+                if (run.len > 0) {
+                    def chunk:string (substring text pos (pos + run.len))
+                    def fam:string run.font
+                    if ((strlen fam) == 0) {
+                        fam = fontFamily
+                    }
+                    this.pushTextFont(dl chunk (to_double ox) (to_double ty) layout.fontSize theme.text fam run.bold)
+                    def cw:int (to_int (ctx.tr.measureWidth(chunk layout.fontSize)))
+                    ox = (ox + cw)
+                    pos = (pos + run.len)
+                }
+                ri = (ri + 1)
             }
             li = (li + 1)
         }
 
-        if focused {
-            def phase:int (to_int (frame / 30))
-            def on:int (phase - ((to_int (phase / 2)) * 2))
-            if (on == 0) {
-                def cl:int sel.caret.line
-                if ((cl >= (layout.firstVisible())) && (cl <= (layout.lastVisible(buf)))) {
-                    def cx:int (layout.caretPixelX(ctx.tr buf cl sel.caret.col))
-                    def cy:int (layout.caretPixelY(cl))
-                    this.pushRect(dl (to_double cx) (to_double cy) 2.0 (to_double layout.lineHeight) theme.caret)
+        if paintInteractive {
+            if focused {
+                def phase:int (to_int (frame / 30))
+                def on:int (phase - ((to_int (phase / 2)) * 2))
+                if (on == 0) {
+                    def cl:int sel.caret.line
+                    if ((cl >= (layout.firstVisible())) && (cl <= (layout.lastVisible(buf)))) {
+                        def cx:int (layout.caretPixelX(ctx.tr buf cl sel.caret.col))
+                        def cy:int (layout.caretPixelY(cl))
+                        this.pushRect(dl (to_double cx) (to_double cy) 2.0 (to_double layout.lineHeight) theme.caret)
+                    }
                 }
             }
         }
@@ -283,7 +341,10 @@ class EditorView {
     ; Wire format for gallery/evg/gl/evg-webgl.js — {width,height,list:{cmds:[…]}}.
     fn sceneJson:string (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
         ctx.frame = frame
+        def prev:boolean paintInteractive
+        paintInteractive = false
         def dl:EVGDisplayList (this.buildDisplayList(buf sel layout))
+        paintInteractive = prev
         frame = (frame + 1)
         def body:string (dl.toJson())
         return ("{\"width\":" + (EVGDisplayList.num((to_double pageW))) + ",\"height\":" + (EVGDisplayList.num((to_double pageH))) + ",\"list\":" + body + "}")

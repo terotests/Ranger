@@ -11,6 +11,7 @@
 ; ==============================================================================
 
 Import "../../evg/EVGCodepoint.rgr"
+Import "EditorStyle.rgr"
 
 class EditorPos {
     def line:int 0
@@ -53,13 +54,58 @@ class EditorUndoOp {
 
 class EditorBuffer {
     def lines:[string]
+    def lineStyles:[LineStyle]
     def undoStack:[EditorUndoOp]
     def redoStack:[EditorUndoOp]
     def maxUndo:int 200
     def version:int 0
+    ; Style applied to newly typed / inserted text (canvas-editor range style).
+    def typingBold:boolean false
+    def typingFont:string "Open Sans"
 
     Constructor () {
         push lines ""
+        push lineStyles (LineStyle.plain())
+    }
+
+    fn styleAt:LineStyle (i:int) {
+        if (i < 0) {
+            return (LineStyle.plain())
+        }
+        if (i >= (array_length lineStyles)) {
+            return (LineStyle.plain())
+        }
+        return (itemAt lineStyles i)
+    }
+
+    fn ensureStyleCount:void () {
+        while ((array_length lineStyles) < (array_length lines)) {
+            push lineStyles (LineStyle.plain())
+        }
+        while ((array_length lineStyles) > (array_length lines)) {
+            removeLast lineStyles
+        }
+        def i:int 0
+        while (i < (array_length lines)) {
+            def st:LineStyle (itemAt lineStyles i)
+            st.syncLen((strlen (itemAt lines i)))
+            i = (i + 1)
+        }
+    }
+
+    ; Build runs for plain text using the current typing style.
+    fn runsForText:LineStyle (text:string inheritAlign:int inheritList:int) {
+        def st:LineStyle (new LineStyle)
+        clear st.runs
+        st.align = inheritAlign
+        st.listKind = inheritList
+        def n:int (strlen text)
+        if (n == 0) {
+            push st.runs (StyleRun.create(typingBold typingFont 0))
+        } {
+            push st.runs (StyleRun.create(typingBold typingFont n))
+        }
+        return st
     }
 
     fn lineCount:int () {
@@ -115,17 +161,22 @@ class EditorBuffer {
 
     fn setText:void (s:string) {
         clear lines
+        clear lineStyles
         def start:int 0
         def i:int 0
         def n:int (strlen s)
         while (i < n) {
             if ((charAt s i) == 10) {
-                push lines (substring s start i)
+                def piece:string (substring s start i)
+                push lines piece
+                push lineStyles (this.runsForText(piece 0 0))
                 start = (i + 1)
             }
             i = (i + 1)
         }
-        push lines (substring s start n)
+        def last:string (substring s start n)
+        push lines last
+        push lineStyles (this.runsForText(last 0 0))
         clear undoStack
         clear redoStack
         version = (version + 1)
@@ -214,6 +265,7 @@ class EditorBuffer {
 
     ; Replace [start..end) with `text`. Returns the caret position after the insert.
     fn replaceRange:EditorPos (startLine:int startCol:int endLine:int endCol:int text:string recordUndo:boolean) {
+        this.ensureStyleCount()
         def aLine:int startLine
         def aCol:int startCol
         def bLine:int endLine
@@ -235,6 +287,12 @@ class EditorBuffer {
 
         def deleted:string (this.textInRange(aLine aCol bLine bCol))
 
+        ; Style fragments around the edit (canvas-editor spliceElementList analogue).
+        def headStyle:LineStyle ((this.styleAt(aLine)).slice(0 aCol))
+        def tailStyle:LineStyle ((this.styleAt(bLine)).slice(bCol (strlen (this.lineAt(bLine)))))
+        def keepAlign:int (this.styleAt(aLine)).align
+        def keepList:int (this.styleAt(aLine)).listKind
+
         ; Build the new line content around the replacement.
         def beforeLine:string (this.lineAt(aLine))
         def afterLine:string (this.lineAt(bLine))
@@ -247,10 +305,8 @@ class EditorBuffer {
         def ri:int 0
         while (ri < removeCount) {
             remove_index lines aLine
+            remove_index lineStyles aLine
             ri = (ri + 1)
-        }
-        if ((array_length lines) == 0) {
-            ; keep at least one line slot; filled below
         }
 
         def start:int 0
@@ -258,6 +314,20 @@ class EditorBuffer {
         def n:int (strlen merged)
         def insertAt:int aLine
         def parts:int 0
+        def textParts:[string]
+        def tStart:int 0
+        def ti:int 0
+        def tlen:int (strlen text)
+        while (ti < tlen) {
+            if ((charAt text ti) == 10) {
+                push textParts (substring text tStart ti)
+                tStart = (ti + 1)
+            }
+            ti = (ti + 1)
+        }
+        push textParts (substring text tStart tlen)
+        def partCount:int (array_length textParts)
+
         while (i < n) {
             if ((charAt merged i) == 10) {
                 insert lines insertAt (substring merged start i)
@@ -275,21 +345,72 @@ class EditorBuffer {
             parts = 1
         }
 
+        ; Rebuild styles for inserted lines.
+        def newStyles:[LineStyle]
+        if (partCount == 1) {
+            def one:LineStyle (new LineStyle)
+            clear one.runs
+            one.align = keepAlign
+            one.listKind = keepList
+            one.concatRuns(headStyle)
+            one.appendRun(typingBold typingFont (strlen (itemAt textParts 0)))
+            one.concatRuns(tailStyle)
+            if ((array_length one.runs) == 0) {
+                push one.runs (StyleRun.create(typingBold typingFont 0))
+            }
+            one.mergeAdjacent()
+            push newStyles one
+        } {
+            def first:LineStyle (new LineStyle)
+            clear first.runs
+            first.align = keepAlign
+            first.listKind = keepList
+            first.concatRuns(headStyle)
+            first.appendRun(typingBold typingFont (strlen (itemAt textParts 0)))
+            if ((array_length first.runs) == 0) {
+                push first.runs (StyleRun.create(typingBold typingFont 0))
+            }
+            first.mergeAdjacent()
+            push newStyles first
+            def mid:int 1
+            while (mid < (partCount - 1)) {
+                def midSt:LineStyle (this.runsForText((itemAt textParts mid) 0 0))
+                push newStyles midSt
+                mid = (mid + 1)
+            }
+            def lastSt:LineStyle (new LineStyle)
+            clear lastSt.runs
+            lastSt.align = 0
+            lastSt.listKind = 0
+            lastSt.appendRun(typingBold typingFont (strlen (itemAt textParts (partCount - 1))))
+            lastSt.concatRuns(tailStyle)
+            if ((array_length lastSt.runs) == 0) {
+                push lastSt.runs (StyleRun.create(typingBold typingFont 0))
+            }
+            lastSt.mergeAdjacent()
+            push newStyles lastSt
+        }
+        def si:int 0
+        while (si < (array_length newStyles)) {
+            insert lineStyles (aLine + si) (itemAt newStyles si)
+            si = (si + 1)
+        }
+        this.ensureStyleCount()
+
         ; Caret sits at the end of the inserted text.
         def caretLine:int aLine
         def caretCol:int 0
-        def ti:int 0
-        def tlen:int (strlen text)
+        def tix:int 0
         def curLine:int aLine
         def curCol:int aCol
-        while (ti < tlen) {
-            if ((charAt text ti) == 10) {
+        while (tix < tlen) {
+            if ((charAt text tix) == 10) {
                 curLine = (curLine + 1)
                 curCol = 0
             } {
                 curCol = (curCol + 1)
             }
-            ti = (ti + 1)
+            tix = (tix + 1)
         }
         caretLine = curLine
         caretCol = curCol
@@ -409,5 +530,140 @@ class EditorBuffer {
         u.inserted = op.inserted
         push undoStack u
         return after
+    }
+
+    ; --- rich style (canvas-editor executeBold / executeFont / rowFlex / list) ---
+
+    fn applyInlineStyle:void (startLine:int startCol:int endLine:int endCol:int boldSet:boolean boldVal:boolean fontSet:boolean fontVal:string) {
+        this.ensureStyleCount()
+        def aLine:int startLine
+        def aCol:int startCol
+        def bLine:int endLine
+        def bCol:int endCol
+        if ((this.cmpPos(aLine aCol bLine bCol)) > 0) {
+            aLine = endLine
+            aCol = endCol
+            bLine = startLine
+            bCol = startCol
+        }
+        def line:int aLine
+        while (line <= bLine) {
+            def s:string (this.lineAt(line))
+            def len:int (strlen s)
+            def c0:int 0
+            def c1:int len
+            if (line == aLine) {
+                c0 = aCol
+            }
+            if (line == bLine) {
+                c1 = bCol
+            }
+            if (c0 < 0) {
+                c0 = 0
+            }
+            if (c1 > len) {
+                c1 = len
+            }
+            if (c1 > c0) {
+                def st:LineStyle (this.styleAt(line))
+                def left:LineStyle (st.slice(0 c0))
+                def mid:LineStyle (st.slice(c0 c1))
+                def right:LineStyle (st.slice(c1 len))
+                def mi:int 0
+                while (mi < (array_length mid.runs)) {
+                    def r:StyleRun (itemAt mid.runs mi)
+                    if boldSet {
+                        r.bold = boldVal
+                    }
+                    if fontSet {
+                        r.font = fontVal
+                    }
+                    mi = (mi + 1)
+                }
+                def rebuilt:LineStyle (new LineStyle)
+                clear rebuilt.runs
+                rebuilt.align = st.align
+                rebuilt.listKind = st.listKind
+                rebuilt.concatRuns(left)
+                rebuilt.concatRuns(mid)
+                rebuilt.concatRuns(right)
+                if ((array_length rebuilt.runs) == 0) {
+                    push rebuilt.runs (StyleRun.create(typingBold typingFont 0))
+                }
+                rebuilt.mergeAdjacent()
+                set lineStyles line rebuilt
+            }
+            line = (line + 1)
+        }
+        version = (version + 1)
+    }
+
+    fn setBlockAlign:void (startLine:int endLine:int align:int) {
+        this.ensureStyleCount()
+        def a:int startLine
+        def b:int endLine
+        if (a > b) {
+            def t:int a
+            a = b
+            b = t
+        }
+        if (a < 0) {
+            a = 0
+        }
+        def maxL:int ((this.lineCount()) - 1)
+        if (b > maxL) {
+            b = maxL
+        }
+        def i:int a
+        while (i <= b) {
+            def st:LineStyle (this.styleAt(i))
+            st.align = align
+            i = (i + 1)
+        }
+        version = (version + 1)
+    }
+
+    fn setBlockList:void (startLine:int endLine:int listKind:int) {
+        this.ensureStyleCount()
+        def a:int startLine
+        def b:int endLine
+        if (a > b) {
+            def t:int a
+            a = b
+            b = t
+        }
+        if (a < 0) {
+            a = 0
+        }
+        def maxL:int ((this.lineCount()) - 1)
+        if (b > maxL) {
+            b = maxL
+        }
+        def i:int a
+        while (i <= b) {
+            def st:LineStyle (this.styleAt(i))
+            st.listKind = listKind
+            i = (i + 1)
+        }
+        version = (version + 1)
+    }
+
+    ; Ordered-list index for a line (1-based within a contiguous ol run).
+    fn listNumber:int (line:int) {
+        def st:LineStyle (this.styleAt(line))
+        if (st.listKind != 2) {
+            return 0
+        }
+        def n:int 1
+        def i:int (line - 1)
+        while (i >= 0) {
+            def prev:LineStyle (this.styleAt(i))
+            if (prev.listKind != 2) {
+                return n
+            }
+            n = (n + 1)
+            i = (i - 1)
+        }
+        return n
     }
 }

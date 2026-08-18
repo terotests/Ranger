@@ -54,7 +54,8 @@ app.setDocument(
   [
     "Ranger EVG Text Editor",
     "",
-    "Click here and type.",
+    "Double-click selects a word; drag to select a range.",
+    "Toolbar: Bold, Font, Align, Lists — Ctrl+B toggles bold.",
     "Input: UIInput  ·  Render: EVGDisplayList → WebGL 2",
     "Shift+arrows select · Ctrl+A · Ctrl+Z undo · wheel scrolls",
     "",
@@ -102,6 +103,32 @@ function applyEvent(ev) {
     app.view.focused = true;
     app.moveCaret(ev.line | 0, ev.col | 0, !!ev.extend);
     return;
+  } else if (ev.type === "select") {
+    if (typeof ev.x === "number") lastX = ev.x | 0;
+    if (typeof ev.y === "number") lastY = ev.y | 0;
+    app.view.focused = true;
+    app.setRange(ev.aLine | 0, ev.aCol | 0, ev.cLine | 0, ev.cCol | 0);
+    return;
+  } else if (ev.type === "selectWord") {
+    if (typeof ev.x === "number") lastX = ev.x | 0;
+    if (typeof ev.y === "number") lastY = ev.y | 0;
+    app.view.focused = true;
+    app.selectWordAt(ev.line | 0, ev.col | 0);
+    return;
+  } else if (ev.type === "selectLine") {
+    if (typeof ev.x === "number") lastX = ev.x | 0;
+    if (typeof ev.y === "number") lastY = ev.y | 0;
+    app.view.focused = true;
+    app.selectLineAt(ev.line | 0);
+    return;
+  } else if (ev.type === "format") {
+    app.view.focused = true;
+    const op = String(ev.op || "");
+    if (op === "bold") app.toggleBold();
+    else if (op === "font") app.setFont(String(ev.value || "Open Sans"));
+    else if (op === "align") app.setAlign(ev.value | 0);
+    else if (op === "list") app.setList(ev.value | 0);
+    return;
   } else if (ev.type === "text") {
     liveInput.setPointerPos(lastX, lastY);
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
@@ -119,21 +146,42 @@ function sceneBody() {
   const first = layout.firstVisible();
   const last = layout.lastVisible(buf);
   const lines = [];
+  const lineMeta = [];
   for (let i = first; i <= last; i++) {
-    lines.push(buf.lineAt(i));
+    const text = buf.lineAt(i);
+    lines.push(text);
+    const st = buf.styleAt(i);
+    const runs = [];
+    const n = st.runs ? st.runs.length : 0;
+    for (let r = 0; r < n; r++) {
+      const run = st.runs[r];
+      runs.push({
+        bold: !!run.bold,
+        font: run.font || "Open Sans",
+        len: run.len | 0,
+      });
+    }
+    lineMeta.push({
+      text,
+      align: st.align | 0,
+      listKind: st.listKind | 0,
+      runs,
+    });
   }
   // Hit-testing meta for the browser: WebGL text is atlas-rasterized with
-  // Canvas2D metrics, so caret X must use the same measureText — not the
-  // Ranger TTF advances SoftCanvas uses.
+  // Canvas2D metrics, so caret/selection must use the same measureText — not
+  // the Ranger TTF advances SoftCanvas uses. Selection+caret paint on overlay.
   doc.hit = {
     contentX: layout.contentX(),
     contentY: layout.contentY(),
+    contentW: layout.contentW(),
     lineHeight: layout.lineHeight,
     scrollLine: layout.scrollLine,
     fontSize: layout.fontSize,
     font: app.view.fontFamily,
     firstVisible: first,
     lines,
+    lineMeta,
   };
   return JSON.stringify(doc);
 }
@@ -234,6 +282,8 @@ const server = http.createServer(async (req, res) => {
         anchorCol: app.sel.anchor.col,
         focused: app.view.focused,
         lines: app.buf.lineCount(),
+        typingBold: !!app.buf.typingBold,
+        typingFont: app.buf.typingFont,
         text: app.documentText(),
       })
     );
@@ -361,6 +411,97 @@ async function headlessSmoke(url) {
     if (afterClick.caretLine !== expect.line || afterClick.caretCol !== expect.col) {
       throw new Error("caret not placed at clicked character");
     }
+
+    // Word select (canvas-editor dblclick analogue).
+    await page.evaluate(async () => {
+      const doc = window.__editorDoc;
+      const hit = doc.hit;
+      const vis = Math.min(2, hit.lines.length - 1);
+      const s = hit.lines[vis];
+      const line = hit.firstVisible + vis;
+      // Pick a letter inside the second word.
+      const parts = s.split(/\s+/);
+      let col = 0;
+      if (parts.length > 1) {
+        col = s.indexOf(parts[1]) + 1;
+      } else {
+        col = Math.min(3, s.length);
+      }
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "selectWord", line, col }),
+      });
+      window.__smokeWord = { line, col };
+    });
+    await new Promise((r) => setTimeout(r, 120));
+    const afterWord = await (await fetch(`http://127.0.0.1:${PORT}/state.json`)).json();
+    console.log(
+      "[smoke] word sel=" +
+        afterWord.anchorLine +
+        ":" +
+        afterWord.anchorCol +
+        "->" +
+        afterWord.caretLine +
+        ":" +
+        afterWord.caretCol
+    );
+    if (
+      afterWord.anchorLine !== afterWord.caretLine ||
+      afterWord.anchorCol === afterWord.caretCol
+    ) {
+      throw new Error("word select did not create a range");
+    }
+
+    // Drag-select range via extend caret.
+    await page.evaluate(async () => {
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "caret", line: 2, col: 0, extend: false }),
+      });
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "caret", line: 2, col: 10, extend: true }),
+      });
+    });
+    await new Promise((r) => setTimeout(r, 120));
+    const afterDrag = await (await fetch(`http://127.0.0.1:${PORT}/state.json`)).json();
+    if (afterDrag.anchorCol === afterDrag.caretCol && afterDrag.anchorLine === afterDrag.caretLine) {
+      throw new Error("drag select range missing");
+    }
+    console.log(
+      "[smoke] drag sel=" +
+        afterDrag.anchorCol +
+        "->" +
+        afterDrag.caretCol
+    );
+
+    // Bold + align format commands.
+    await page.evaluate(async () => {
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "format", op: "bold" }),
+      });
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "format", op: "align", value: 1 }),
+      });
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "format", op: "list", value: 1 }),
+      });
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "format", op: "font", value: "Cinzel" }),
+      });
+    });
+    await new Promise((r) => setTimeout(r, 150));
 
     await page.click("#screen");
     await page.keyboard.type("Window smoke OK");

@@ -1,0 +1,321 @@
+; ==============================================================================
+; EditorStyle - canvas-editor-like block/run styles for the EVG text editor.
+; ==============================================================================
+;
+; Benchmark target (Hufe921/canvas-editor) stores inline styles on elements
+; (bold/font/…) and block props on rows (rowFlex align, listType). We keep a
+; line-oriented model that stays in sync with EditorBuffer.lines:
+;
+;   LineStyle.align     0=left  1=center  2=right   (rowFlex)
+;   LineStyle.listKind  0=none  1=ul      2=ol      (listType)
+;   StyleRun            contiguous span covering the line text
+;
+; Typing style (bold/font) is applied to newly inserted characters.
+; ==============================================================================
+
+class StyleRun {
+    def bold:boolean false
+    def font:string "Open Sans"
+    def len:int 0
+
+    Constructor () {
+    }
+
+    sfn create:StyleRun (bold:boolean font:string len:int) {
+        def r:StyleRun (new StyleRun)
+        r.bold = bold
+        r.font = font
+        r.len = len
+        return r
+    }
+
+    fn copy:StyleRun () {
+        return (StyleRun.create(bold font len))
+    }
+}
+
+class LineStyle {
+    def align:int 0
+    def listKind:int 0
+    def runs:[StyleRun]
+
+    Constructor () {
+        ; empty line → one zero-length run so paint/edit always have a slot
+        push runs (StyleRun.create(false "Open Sans" 0))
+    }
+
+    sfn plain:LineStyle () {
+        return (new LineStyle)
+    }
+
+    fn copy:LineStyle () {
+        def out:LineStyle (new LineStyle)
+        clear out.runs
+        out.align = align
+        out.listKind = listKind
+        def i:int 0
+        while (i < (array_length runs)) {
+            def r:StyleRun (itemAt runs i)
+            push out.runs (r.copy())
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn totalLen:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length runs)) {
+            def r:StyleRun (itemAt runs i)
+            n = (n + r.len)
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Ensure runs cover exactly `want` UTF-16 units (merge empties, pad/trim).
+    fn syncLen:void (want:int) {
+        if (want < 0) {
+            want = 0
+        }
+        def cur:int (this.totalLen())
+        if (cur < want) {
+            def last:StyleRun (itemAt runs ((array_length runs) - 1))
+            last.len = (last.len + (want - cur))
+        }
+        if (cur > want) {
+            def left:int want
+            def i:int 0
+            def kept:[StyleRun]
+            while (i < (array_length runs)) {
+                def r:StyleRun (itemAt runs i)
+                if (left <= 0) {
+                    i = (i + 1)
+                } {
+                    def take:int r.len
+                    if (take > left) {
+                        take = left
+                    }
+                    if (take > 0) {
+                        push kept (StyleRun.create(r.bold r.font take))
+                        left = (left - take)
+                    }
+                    i = (i + 1)
+                }
+            }
+            clear runs
+            if ((array_length kept) == 0) {
+                push runs (StyleRun.create(false "Open Sans" 0))
+            } {
+                def k:int 0
+                while (k < (array_length kept)) {
+                    push runs (itemAt kept k)
+                    k = (k + 1)
+                }
+            }
+        }
+        this.mergeAdjacent()
+    }
+
+    fn mergeAdjacent:void () {
+        if ((array_length runs) <= 1) {
+            return
+        }
+        def out:[StyleRun]
+        def i:int 0
+        while (i < (array_length runs)) {
+            def r:StyleRun (itemAt runs i)
+            if ((array_length out) == 0) {
+                push out (r.copy())
+            } {
+                def prev:StyleRun (itemAt out ((array_length out) - 1))
+                if ((prev.bold == r.bold) && (prev.font == r.font)) {
+                    prev.len = (prev.len + r.len)
+                } {
+                    push out (r.copy())
+                }
+            }
+            i = (i + 1)
+        }
+        clear runs
+        def j:int 0
+        while (j < (array_length out)) {
+            push runs (itemAt out j)
+            j = (j + 1)
+        }
+        if ((array_length runs) == 0) {
+            push runs (StyleRun.create(false "Open Sans" 0))
+        }
+    }
+
+    ; Slice runs covering [start, end) within this line.
+    fn slice:LineStyle (start:int end:int) {
+        this.syncLen((this.totalLen()))
+        def out:LineStyle (new LineStyle)
+        clear out.runs
+        out.align = align
+        out.listKind = listKind
+        if (end < start) {
+            def t:int start
+            start = end
+            end = t
+        }
+        if (start < 0) {
+            start = 0
+        }
+        def total:int (this.totalLen())
+        if (end > total) {
+            end = total
+        }
+        if (start >= end) {
+            push out.runs (StyleRun.create(false "Open Sans" 0))
+            return out
+        }
+        def pos:int 0
+        def i:int 0
+        while (i < (array_length runs)) {
+            def r:StyleRun (itemAt runs i)
+            def r0:int pos
+            def r1:int (pos + r.len)
+            def a:int start
+            if (a < r0) {
+                a = r0
+            }
+            def b:int end
+            if (b > r1) {
+                b = r1
+            }
+            if (b > a) {
+                push out.runs (StyleRun.create(r.bold r.font (b - a)))
+            }
+            pos = r1
+            i = (i + 1)
+        }
+        if ((array_length out.runs) == 0) {
+            push out.runs (StyleRun.create(false "Open Sans" 0))
+        }
+        out.mergeAdjacent()
+        return out
+    }
+
+    fn concatRuns:void (other:LineStyle) {
+        def i:int 0
+        while (i < (array_length other.runs)) {
+            def r:StyleRun (itemAt other.runs i)
+            if (r.len > 0) {
+                push runs (r.copy())
+            }
+            i = (i + 1)
+        }
+        this.mergeAdjacent()
+    }
+
+    fn appendRun:void (bold:boolean font:string len:int) {
+        if (len <= 0) {
+            return
+        }
+        push runs (StyleRun.create(bold font len))
+        this.mergeAdjacent()
+    }
+
+    ; Paint helper: run covering column `col` (clamped).
+    fn runAt:StyleRun (col:int) {
+        if (col < 0) {
+            col = 0
+        }
+        def pos:int 0
+        def i:int 0
+        while (i < (array_length runs)) {
+            def r:StyleRun (itemAt runs i)
+            if (col < (pos + r.len)) {
+                return r
+            }
+            if ((i == ((array_length runs) - 1)) && (r.len == 0)) {
+                return r
+            }
+            pos = (pos + r.len)
+            i = (i + 1)
+        }
+        return (itemAt runs ((array_length runs) - 1))
+    }
+}
+
+class EditorWord {
+    ; Word / line selection helpers (canvas-editor dblclick / threeClick).
+    sfn isWordChar:boolean (ch:int) {
+        if ((ch >= 48) && (ch <= 57)) {
+            return true
+        }
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return true
+        }
+        if (ch == 95) {
+            return true
+        }
+        ; Latin-1 letters
+        if ((ch >= 192) && (ch <= 255) && (ch != 215) && (ch != 247)) {
+            return true
+        }
+        return false
+    }
+
+    sfn wordStart:int (s:string col:int) {
+        def n:int (strlen s)
+        if (col > n) {
+            col = n
+        }
+        if (col < 0) {
+            col = 0
+        }
+        if (n == 0) {
+            return 0
+        }
+        def i:int col
+        if (i >= n) {
+            i = (n - 1)
+        }
+        if ((EditorWord.isWordChar((charAt s i))) == false) {
+            return col
+        }
+        while (i > 0) {
+            if ((EditorWord.isWordChar((charAt s (i - 1)))) == false) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return 0
+    }
+
+    sfn wordEnd:int (s:string col:int) {
+        def n:int (strlen s)
+        if (col > n) {
+            col = n
+        }
+        if (col < 0) {
+            col = 0
+        }
+        if (n == 0) {
+            return 0
+        }
+        def i:int col
+        if (i >= n) {
+            return n
+        }
+        if ((EditorWord.isWordChar((charAt s i))) == false) {
+            if (i < n) {
+                return (i + 1)
+            }
+            return n
+        }
+        while (i < n) {
+            if ((EditorWord.isWordChar((charAt s i))) == false) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}
