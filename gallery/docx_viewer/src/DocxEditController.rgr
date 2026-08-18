@@ -1,0 +1,492 @@
+; ==============================================================================
+; DocxEditController - TextEditCore-style editing over RichDocument + DocxLayout.
+; ==============================================================================
+;
+; Shared types: DocumentPosition / DocumentRange / DocEditOp from TextEditCore.
+; Adapter: RichDocumentEdit. Hit-test + caret geometry come from DocxLayout —
+; the same layout used to paint text.
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "RichDocumentEdit.rgr"
+Import "DocxLayout.rgr"
+Import "../../text_editor/src/TextEditCore.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+class DocxEditController {
+    def adapter:RichDocumentEdit (new RichDocumentEdit)
+    def sel:DocumentRange (new DocumentRange)
+    def undoStack:[DocEditOp]
+    def redoStack:[DocEditOp]
+    def maxUndo:int 200
+    def active:boolean false
+    def enabled:boolean false
+    def typingBold:boolean false
+    def typingFont:string "Open Sans"
+    def caretBlink:boolean true
+
+    Constructor () {
+    }
+
+    fn bindDocument:void (doc:RichDocument) {
+        adapter.bind(doc)
+        active = false
+        clear undoStack
+        clear redoStack
+    }
+
+    fn setEnabled:void (on:boolean) {
+        enabled = on
+        if (on == false) {
+            active = false
+        }
+    }
+
+    fn isEnabled:boolean () {
+        return enabled
+    }
+
+    fn isActive:boolean () {
+        return (enabled && active)
+    }
+
+    fn setCaret:void (paragraphId:int offset:int) {
+        def len:int (adapter.textLength(paragraphId))
+        if (offset < 0) {
+            offset = 0
+        }
+        if (offset > len) {
+            offset = len
+        }
+        def p:DocumentPosition (DocumentPosition.create(paragraphId offset))
+        sel.anchor = (p.copy())
+        sel.focus = (p.copy())
+        active = true
+    }
+
+    fn setRange:void (paragraphId:int a:int b:int) {
+        def len:int (adapter.textLength(paragraphId))
+        if (a < 0) {
+            a = 0
+        }
+        if (b < 0) {
+            b = 0
+        }
+        if (a > len) {
+            a = len
+        }
+        if (b > len) {
+            b = len
+        }
+        sel.anchor = (DocumentPosition.create(paragraphId a))
+        sel.focus = (DocumentPosition.create(paragraphId b))
+        active = true
+    }
+
+    fn caret:DocumentPosition () {
+        return (sel.focus.copy())
+    }
+
+    fn selection:DocumentRange () {
+        return sel
+    }
+
+    fn pushUndo:void (op:DocEditOp) {
+        push undoStack op
+        while ((array_length undoStack) > maxUndo) {
+            remove_index undoStack 0
+        }
+        clear redoStack
+    }
+
+    fn deleteSelection:void () {
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        if (sel.isCollapsed()) {
+            return
+        }
+        def pid:int sel.anchor.paragraphId
+        def a:int (sel.startOffset())
+        def b:int (sel.endOffset())
+        def old:string (substring (adapter.getText(pid)) a b)
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 0
+        op.paragraphId = pid
+        op.start = a
+        op.end = a
+        op.oldText = old
+        op.newText = ""
+        adapter.replaceRange(pid a b "")
+        this.pushUndo(op)
+        this.setCaret(pid a)
+    }
+
+    fn insertText:void (text:string) {
+        if ((this.isActive()) == false) {
+            return
+        }
+        if ((strlen text) == 0) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        if ((sel.isCollapsed()) == false) {
+            this.deleteSelection()
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 0
+        op.paragraphId = pid
+        op.start = off
+        op.end = (off + (strlen text))
+        op.oldText = ""
+        op.newText = text
+        adapter.replaceRange(pid off off text)
+        if typingBold {
+            adapter.applyBold(pid off (off + (strlen text)) true)
+        }
+        this.pushUndo(op)
+        this.setCaret(pid (off + (strlen text)))
+    }
+
+    fn backspace:void () {
+        if ((this.isActive()) == false) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        if ((sel.isCollapsed()) == false) {
+            this.deleteSelection()
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        if (off > 0) {
+            def old:string (substring (adapter.getText(pid)) (off - 1) off)
+            def op:DocEditOp (new DocEditOp)
+            op.kind = 0
+            op.paragraphId = pid
+            op.start = (off - 1)
+            op.end = (off - 1)
+            op.oldText = old
+            op.newText = ""
+            adapter.replaceRange(pid (off - 1) off "")
+            this.pushUndo(op)
+            this.setCaret(pid (off - 1))
+            return
+        }
+        def dest:DocumentPosition (adapter.mergePrevious(pid))
+        if (dest.paragraphId > 0) {
+            def op2:DocEditOp (new DocEditOp)
+            op2.kind = 2
+            op2.paragraphId = pid
+            op2.secondId = dest.paragraphId
+            op2.start = dest.textOffset
+            this.pushUndo(op2)
+            this.setCaret(dest.paragraphId dest.textOffset)
+        }
+    }
+
+    fn deleteForward:void () {
+        if ((this.isActive()) == false) {
+            return
+        }
+        if ((sel.isCollapsed()) == false) {
+            this.deleteSelection()
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        def len:int (adapter.textLength(pid))
+        if (off < len) {
+            def old:string (substring (adapter.getText(pid)) off (off + 1))
+            def op:DocEditOp (new DocEditOp)
+            op.kind = 0
+            op.paragraphId = pid
+            op.start = off
+            op.end = off
+            op.oldText = old
+            op.newText = ""
+            adapter.replaceRange(pid off (off + 1) "")
+            this.pushUndo(op)
+            this.setCaret(pid off)
+        }
+    }
+
+    fn splitAtCaret:void () {
+        if ((this.isActive()) == false) {
+            return
+        }
+        if ((sel.isCollapsed()) == false) {
+            this.deleteSelection()
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        def newId:int (adapter.splitParagraph(pid off))
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 1
+        op.paragraphId = pid
+        op.start = off
+        op.secondId = newId
+        this.pushUndo(op)
+        this.setCaret(newId 0)
+    }
+
+    fn toggleBold:void () {
+        if ((this.isActive()) == false) {
+            return
+        }
+        if (sel.isCollapsed()) {
+            typingBold = (typingBold == false)
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        def pid:int sel.anchor.paragraphId
+        def a:int (sel.startOffset())
+        def b:int (sel.endOffset())
+        adapter.applyBold(pid a b true)
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 3
+        op.paragraphId = pid
+        op.start = a
+        op.end = b
+        op.boldSet = true
+        op.boldVal = true
+        this.pushUndo(op)
+    }
+
+    fn setFont:void (font:string) {
+        typingFont = font
+        if ((this.isActive()) == false) {
+            return
+        }
+        if (sel.isCollapsed()) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        adapter.applyFont(sel.anchor.paragraphId (sel.startOffset()) (sel.endOffset()) font)
+    }
+
+    fn undo:void () {
+        if ((array_length undoStack) == 0) {
+            return
+        }
+        def op:DocEditOp (itemAt undoStack ((array_length undoStack) - 1))
+        removeLast undoStack
+        if (op.kind == 0) {
+            adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
+            this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
+        }
+        push redoStack op
+    }
+
+    fn redo:void () {
+        if ((array_length redoStack) == 0) {
+            return
+        }
+        def op:DocEditOp (itemAt redoStack ((array_length redoStack) - 1))
+        removeLast redoStack
+        if (op.kind == 0) {
+            adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.oldText)) op.newText)
+            this.setCaret(op.paragraphId (op.start + (strlen op.newText)))
+        }
+        push undoStack op
+    }
+
+    ; Hit-test using laid lines on the current page (same metrics as paint).
+    fn hitTest:DocumentPosition (layout:DocxLayout pageIndex:int x:int y:int) {
+        def miss:DocumentPosition (DocumentPosition.create(0 0))
+        if ((pageIndex < 0) || (pageIndex >= (layout.pageCount()))) {
+            return miss
+        }
+        def page:LaidPage (layout.pageAt(pageIndex))
+        def best:LaidLine
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length page.lines)) {
+            def line:LaidLine (itemAt page.lines i)
+            if (line.kind == 0) {
+                if ((y >= line.y) && (y < (line.y + line.height))) {
+                    best = line
+                    found = true
+                    ; prefer innermost / last matching body line
+                }
+            }
+            i = (i + 1)
+        }
+        if (found == false) {
+            ; nearest line by y
+            def bestDist:int 1000000
+            def j:int 0
+            while (j < (array_length page.lines)) {
+                def line2:LaidLine (itemAt page.lines j)
+                if (line2.kind == 0) {
+                    def mid:int (line2.y + (idiv line2.height 2))
+                    def d:int (y - mid)
+                    if (d < 0) {
+                        d = (0 - d)
+                    }
+                    if (d < bestDist) {
+                        bestDist = d
+                        best = line2
+                        found = true
+                    }
+                }
+                j = (j + 1)
+            }
+        }
+        if (found == false) {
+            return miss
+        }
+        def p:Paragraph best.paragraphRef
+        if (p.id <= 0) {
+            return miss
+        }
+        def tr:UITextRenderer layout.tr
+        def fontPx:double best.fontSizePx
+        if (fontPx < 8.0) {
+            fontPx = 8.0
+        }
+        ; Map x → offset within this visual line, then to document offset.
+        def localX:int (x - best.x)
+        if (localX < 0) {
+            localX = 0
+        }
+        def display:string best.text
+        def prefixLen:int 0
+        if ((strlen best.listPrefix) > 0) {
+            if ((indexOf display best.listPrefix) == 0) {
+                prefixLen = (strlen best.listPrefix)
+            }
+        }
+        def content:string display
+        if (prefixLen > 0) {
+            content = (substring display prefixLen (strlen display))
+            localX = (localX - (to_int (tr.measureWidth((substring display 0 prefixLen) fontPx))))
+            if (localX < 0) {
+                localX = 0
+            }
+        }
+        def offInLine:int 0
+        def n:int (strlen content)
+        while (offInLine < n) {
+            def prevW:int (to_int (tr.measureWidth((substring content 0 offInLine) fontPx)))
+            def nextW:int (to_int (tr.measureWidth((substring content 0 (offInLine + 1)) fontPx)))
+            def mid2:int (idiv (prevW + nextW) 2)
+            if (localX < mid2) {
+                n = offInLine
+            } {
+                offInLine = (offInLine + 1)
+            }
+        }
+        def docOff:int (best.docStart + offInLine)
+        def plen:int (strlen p.text)
+        if (docOff > plen) {
+            docOff = plen
+        }
+        if (docOff < 0) {
+            docOff = 0
+        }
+        return (DocumentPosition.create(p.id docOff))
+    }
+
+    fn caretPixelX:int (layout:DocxLayout pageIndex:int) {
+        if ((this.isActive()) == false) {
+            return -1
+        }
+        def c:DocumentPosition (this.caret())
+        if ((pageIndex < 0) || (pageIndex >= (layout.pageCount()))) {
+            return -1
+        }
+        def page:LaidPage (layout.pageAt(pageIndex))
+        def i:int 0
+        while (i < (array_length page.lines)) {
+            def line:LaidLine (itemAt page.lines i)
+            if (line.kind == 0) {
+                if (line.paraIndex == c.paragraphId) {
+                    if ((c.textOffset >= line.docStart) && (c.textOffset <= line.docEnd)) {
+                        def tr:UITextRenderer layout.tr
+                        def fontPx:double line.fontSizePx
+                        def into:int (c.textOffset - line.docStart)
+                        def prefixLen:int 0
+                        def display:string line.text
+                        if ((strlen line.listPrefix) > 0) {
+                            if ((indexOf display line.listPrefix) == 0) {
+                                prefixLen = (strlen line.listPrefix)
+                            }
+                        }
+                        def content:string display
+                        def x:int line.x
+                        if (prefixLen > 0) {
+                            content = (substring display prefixLen (strlen display))
+                            x = (x + (to_int (tr.measureWidth((substring display 0 prefixLen) fontPx))))
+                        }
+                        if (into > (strlen content)) {
+                            into = (strlen content)
+                        }
+                        if (into < 0) {
+                            into = 0
+                        }
+                        x = (x + (to_int (tr.measureWidth((substring content 0 into) fontPx))))
+                        return x
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn caretPixelY:int (layout:DocxLayout pageIndex:int) {
+        if ((this.isActive()) == false) {
+            return -1
+        }
+        def c:DocumentPosition (this.caret())
+        if ((pageIndex < 0) || (pageIndex >= (layout.pageCount()))) {
+            return -1
+        }
+        def page:LaidPage (layout.pageAt(pageIndex))
+        def i:int 0
+        while (i < (array_length page.lines)) {
+            def line:LaidLine (itemAt page.lines i)
+            if (line.kind == 0) {
+                if (line.paraIndex == c.paragraphId) {
+                    if ((c.textOffset >= line.docStart) && (c.textOffset <= line.docEnd)) {
+                        return line.y
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn caretHeight:int (layout:DocxLayout pageIndex:int) {
+        if ((this.isActive()) == false) {
+            return 14
+        }
+        def c:DocumentPosition (this.caret())
+        def page:LaidPage (layout.pageAt(pageIndex))
+        def i:int 0
+        while (i < (array_length page.lines)) {
+            def line:LaidLine (itemAt page.lines i)
+            if (line.kind == 0) {
+                if (line.paraIndex == c.paragraphId) {
+                    if ((c.textOffset >= line.docStart) && (c.textOffset <= line.docEnd)) {
+                        return line.height
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return 14
+    }
+}

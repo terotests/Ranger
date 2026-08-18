@@ -142,6 +142,10 @@ async function handleRequest(req, res) {
 
   if (url.pathname === "/api/state") {
     res.writeHead(200, { "content-type": "application/json" });
+    let caret = { active: false };
+    try {
+      caret = JSON.parse(viewer.caretInfoJson());
+    } catch (_) {}
     res.end(
       JSON.stringify({
         file: currentFile,
@@ -150,8 +154,22 @@ async function handleRequest(req, res) {
         width: viewer.pageWidth(),
         height: viewer.pageHeight(),
         text: String(viewer.plainText() || "").slice(0, 200),
+        editMode: !!viewer.editMode(),
+        caret,
       })
     );
+    return;
+  }
+
+  if (url.pathname === "/api/edit" && req.method === "POST") {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const ev = JSON.parse(body || "{}");
+    if (typeof ev.enabled === "boolean") {
+      viewer.setEditMode(ev.enabled);
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, editMode: !!viewer.editMode() }));
     return;
   }
 
@@ -161,12 +179,55 @@ async function handleRequest(req, res) {
     try {
       const ev = JSON.parse(body || "{}");
       const out = openDoc(ev.file);
+      viewer.setEditMode(false);
       res.writeHead(out.ok ? 200 : 400, { "content-type": "application/json" });
       res.end(JSON.stringify(out));
     } catch (e) {
       res.writeHead(400, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) }));
     }
+    return;
+  }
+
+  if (url.pathname === "/api/input" && req.method === "POST") {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const ev = JSON.parse(body || "{}");
+    const type = ev.type || "";
+    if (type === "click") {
+      viewer.clickAt(ev.x | 0, ev.y | 0, !!ev.shift);
+    } else if (type === "text") {
+      viewer.typeText(String(ev.text || ""));
+    } else if (type === "backspace") {
+      viewer.keyBackspace();
+    } else if (type === "delete") {
+      viewer.keyDelete();
+    } else if (type === "enter") {
+      viewer.keyEnter();
+    } else if (type === "undo") {
+      viewer.keyUndo();
+    } else if (type === "redo") {
+      viewer.keyRedo();
+    } else if (type === "bold") {
+      viewer.toggleBold();
+    } else if (type === "font") {
+      viewer.setFont(String(ev.font || "Open Sans"));
+    }
+    currentPage = viewer.currentPage | currentPage;
+    let caret = { active: false };
+    try {
+      caret = JSON.parse(viewer.caretInfoJson());
+    } catch (_) {}
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        ok: true,
+        pageCount: viewer.pageCount(),
+        page: currentPage,
+        caret,
+        editMode: !!viewer.editMode(),
+      })
+    );
     return;
   }
 

@@ -4,12 +4,14 @@
 
 Import "RichDocument.rgr"
 Import "DocxLayout.rgr"
+Import "DocxEditController.rgr"
 Import "WordNumbering.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
 Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../text_editor/src/TextEditCore.rgr"
 
 class DocxView {
     def canvas:SoftCanvas (new SoftCanvas)
@@ -21,6 +23,8 @@ class DocxView {
     def marginGuide:EVGColor (EVGColor.rgb(220 224 232))
     def pageGap:int 24
     def docRef:RichDocument
+    def caretColor:EVGColor (EVGColor.rgb(20 90 200))
+    def selColor:EVGColor (EVGColor.rgb(180 210 255))
 
     Constructor () {
     }
@@ -57,6 +61,103 @@ class DocxView {
         def mb:int (sec.marginBottomPx())
         ctx.strokeRect(ml mt ((pg.width - ml) - mr) ((pg.height - mt) - mb) 1 marginGuide)
         this.paintPage(pg)
+    }
+
+    fn presentWithEdit:void (doc:RichDocument page:int nums:WordNumbering edit:DocxEditController) {
+        docRef = doc
+        layout.layout(doc ctx.tr nums)
+        if (page < 0) {
+            page = 0
+        }
+        if (page >= (layout.pageCount())) {
+            page = ((layout.pageCount()) - 1)
+        }
+        if (page < 0) {
+            page = 0
+        }
+        pageIndex = page
+        def pg:LaidPage (layout.pageAt(pageIndex))
+        canvas.init(pg.width pg.height)
+        ctx.attach(canvas)
+        canvas.clear((bg.red()) (bg.green()) (bg.blue()))
+        def sec:DocSection (doc.sectionAt(pg.sectionIndex))
+        def ml:int (sec.marginLeftPx())
+        def mt:int (sec.marginTopPx())
+        def mr:int (sec.marginRightPx())
+        def mb:int (sec.marginBottomPx())
+        ctx.strokeRect(ml mt ((pg.width - ml) - mr) ((pg.height - mt) - mb) 1 marginGuide)
+        if (edit.isActive()) {
+            this.paintSelection(edit)
+        }
+        this.paintPage(pg)
+        if (edit.isActive()) {
+            this.paintCaret(edit)
+        }
+    }
+
+    fn paintCaret:void (edit:DocxEditController) {
+        def cx:int (edit.caretPixelX(layout pageIndex))
+        def cy:int (edit.caretPixelY(layout pageIndex))
+        def ch:int (edit.caretHeight(layout pageIndex))
+        if ((cx < 0) || (cy < 0)) {
+            return
+        }
+        ctx.fillRect(cx cy 2 ch caretColor)
+    }
+
+    fn paintSelection:void (edit:DocxEditController) {
+        def sel:DocumentRange (edit.selection())
+        if (sel.isCollapsed()) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        def pid:int sel.anchor.paragraphId
+        def a:int (sel.startOffset())
+        def b:int (sel.endOffset())
+        def pg:LaidPage (layout.pageAt(pageIndex))
+        def i:int 0
+        while (i < (array_length pg.lines)) {
+            def line:LaidLine (itemAt pg.lines i)
+            if (line.kind == 0) {
+                if (line.paraIndex == pid) {
+                    def ls:int line.docStart
+                    def le:int line.docEnd
+                    def s:int a
+                    def e:int b
+                    if (s < ls) {
+                        s = ls
+                    }
+                    if (e > le) {
+                        e = le
+                    }
+                    if (s < e) {
+                        def fontPx:double line.fontSizePx
+                        def prefixLen:int 0
+                        def display:string line.text
+                        def x0:int line.x
+                        if ((strlen line.listPrefix) > 0) {
+                            if ((indexOf display line.listPrefix) == 0) {
+                                prefixLen = (strlen line.listPrefix)
+                                x0 = (x0 + (to_int (ctx.tr.measureWidth((substring display 0 prefixLen) fontPx))))
+                                display = (substring display prefixLen (strlen display))
+                            }
+                        }
+                        def into0:int (s - ls)
+                        def into1:int (e - ls)
+                        def x1:int (x0 + (to_int (ctx.tr.measureWidth((substring display 0 into0) fontPx))))
+                        def x2:int (x0 + (to_int (ctx.tr.measureWidth((substring display 0 into1) fontPx))))
+                        def w:int (x2 - x1)
+                        if (w < 1) {
+                            w = 1
+                        }
+                        ctx.fillRect(x1 line.y w line.height selColor)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     ; Multi-page strip with gap (for window host / overview).
