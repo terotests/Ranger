@@ -675,11 +675,19 @@ class VlLegend {
                 ; their share and the big ones spilling over it. Treated as a
                 ; maximum, the rows nearest the top were as short as their own
                 ; symbols and the whole key rode up.
-                def own:double extent
-                ; Centred in its share whichever way it overflows: a symbol
-                ; smaller than the row sits in the middle of it, and one
-                ; bigger spills equally above and below.
-                def shift:double (VlBounds.roundHalfUp(((clipHeight - own) / 2.0)))
+                ; Centred on the SYMBOL, not on the block the symbol and its
+                ; label together happen to fill: the label is one line of text
+                ; whatever the symbol is, and averaging the two put the big
+                ; dots half a pixel out of their rows.
+                def middle:double (extent / 2.0)
+                for row.marks part:VlSceneMark pi {
+                    if (part.role == "legend-symbol") {
+                        for part.items dot:VlSceneItem di {
+                            middle = (dot.number("y"))
+                        }
+                    }
+                }
+                def shift:double ((clipHeight / 2.0) - middle)
                 row.setNumber("y" (y + shift))
                 box.translate(0.0 shift)
                 extent = clipHeight
