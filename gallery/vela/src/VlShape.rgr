@@ -83,6 +83,20 @@ class VlShape {
 
     ; A symbol centred on (cx, cy). Everything below is the reference's own
     ; construction, in its own order, so the vertices line up one for one.
+    ; A symbol, and how far round it is turned. The turn is done to the
+    ; geometry rather than left to a renderer's transform, so that every
+    ; target draws the same shape at the same angle.
+    sfn appendSymbolTurned:void (builder:PathBuilder shape:string size:double cx:double cy:double angle:double) {
+        if (angle == 0.0) {
+            VlShape.appendSymbol(builder shape size cx cy)
+            return
+        }
+        def local (new PathBuilder())
+        VlShape.appendSymbol(local shape size cx cy)
+        local.rotateAbout(cx cy angle)
+        builder.addCommands((local.getCommands()))
+    }
+
     sfn appendSymbol:void (builder:PathBuilder shape:string size:double cx:double cy:double) {
         def area:double size
         if (area < 0.0) {

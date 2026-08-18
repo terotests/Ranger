@@ -1,0 +1,439 @@
+; ==============================================================================
+; VlGeo.rgr — longitude and latitude, turned into pixels.
+; ==============================================================================
+; A map projection is two things: a page of constants, and a convention about
+; the order the rotation, the centring and the scaling are applied in. The
+; constants can be read off a formula; the convention cannot, and getting it
+; wrong moves a continent rather than breaking anything. So every projection
+; here is checked against d3's own answer for the same point —
+; `tools/reference/geo_oracle.mjs` prints them — rather than against a
+; derivation.
+;
+; The pipeline, which is d3's:
+;
+;     lon, lat  ->  ROTATE  ->  raw projection  ->  scale and translate
+;
+; and the translate carries a correction for the projection's CENTRE, which is
+; stated in the projection's own coordinates AFTER the rotation. That is why
+; `albers` can say "rotate the world 96 degrees and call -0.6, 38.7 the middle"
+; and mean something.
+;
+; A COMPOSITE projection — `albersUsa` is the only one anybody uses — is three
+; projections with a rectangle each: a point is offered to each in turn and
+; belongs to the first whose rectangle it lands in, which is how Alaska and
+; Hawaii come to sit in the corner of a map of the mainland.
+; ==============================================================================
+
+Import "VlMath.rgr"
+
+; A projected point, and whether there was one: a composite projection drops a
+; point that lands in none of its rectangles, and so does a clipped one.
+class VlGeoXY {
+    def x:double 0.0
+    def y:double 0.0
+    def ok:boolean false
+}
+
+class VlGeo {
+    ; "equirectangular" | "mercator" | "equalEarth" | "conicEqualArea" |
+    ; "albers" | "albersUsa" | "identity"
+    def kind:string "mercator"
+
+    def scaleValue:double 150.0
+    def translateX:double 0.0
+    def translateY:double 0.0
+
+    ; The rotation, in degrees, as the specification writes it.
+    def rotateLambda:double 0.0
+    def rotatePhi:double 0.0
+    def rotateGamma:double 0.0
+
+    ; The centre, in degrees, in the projection's own coordinates.
+    def centreLambda:double 0.0
+    def centrePhi:double 0.0
+
+    ; A conic projection stands on two parallels, in degrees.
+    def parallel0:double 0.0
+    def parallel1:double 0.0
+
+    ; A rectangle in PIXELS that a point has to land in. Only a composite's
+    ; parts use one.
+    def clipped:boolean false
+    def clipX0:double 0.0
+    def clipY0:double 0.0
+    def clipX1:double 0.0
+    def clipY1:double 0.0
+
+    ; The parts of a composite projection, in the order a point is offered to
+    ; them. Empty for every projection that is one projection.
+    def parts:[VlGeo]
+
+    sfn radians:double () {
+        return 0.017453292519943295
+    }
+
+    sfn pi:double () {
+        return 3.141592653589793
+    }
+
+    ; ------------------------------------------------------ scale and place ---
+    ; A composite's parts do not share a scale: Alaska is drawn at a third of
+    ; the mainland's, which is why it fits in the corner at all.
+    fn setScale:void (k:double) {
+        scaleValue = k
+        if ((array_length parts) == 3) {
+            def lower:VlGeo (itemAt parts 0)
+            def alaska:VlGeo (itemAt parts 1)
+            def hawaii:VlGeo (itemAt parts 2)
+            lower.scaleValue = k
+            alaska.scaleValue = (k * 0.35)
+            hawaii.scaleValue = k
+        }
+    }
+
+    fn setTranslate:void (px:double py:double) {
+        translateX = px
+        translateY = py
+        if ((array_length parts) != 3) {
+            return
+        }
+        ; Every rectangle and every offset below is a fraction of the SCALE,
+        ; which is what keeps the three parts in the same arrangement however
+        ; big the map is.
+        def k:double scaleValue
+        def tiny:double 0.000001
+        def lower:VlGeo (itemAt parts 0)
+        lower.translateX = px
+        lower.translateY = py
+        lower.setClip((px - (0.455 * k)) (py - (0.238 * k)) (px + (0.455 * k)) (py + (0.238 * k)))
+
+        def alaska:VlGeo (itemAt parts 1)
+        alaska.translateX = (px - (0.307 * k))
+        alaska.translateY = (py + (0.201 * k))
+        alaska.setClip(((px - (0.425 * k)) + tiny) ((py + (0.120 * k)) + tiny) ((px - (0.214 * k)) - tiny) ((py + (0.234 * k)) - tiny))
+
+        def hawaii:VlGeo (itemAt parts 2)
+        hawaii.translateX = (px - (0.205 * k))
+        hawaii.translateY = (py + (0.212 * k))
+        hawaii.setClip(((px - (0.214 * k)) + tiny) ((py + (0.166 * k)) + tiny) ((px - (0.115 * k)) - tiny) ((py + (0.234 * k)) - tiny))
+    }
+
+    fn setClip:void (x0:double y0:double x1:double y1:double) {
+        clipped = true
+        clipX0 = x0
+        clipY0 = y0
+        clipX1 = x1
+        clipY1 = y1
+    }
+
+    ; ----------------------------------------------------------- the names ---
+    ; A projection by the name a specification calls it, already carrying
+    ; whatever constants that name stands for. An unknown name answers a
+    ; projection with no kind, which is what lets the caller refuse by name
+    ; rather than draw the wrong map.
+    sfn named:VlGeo (type:string) {
+        def out (new VlGeo())
+        if (type == "albersUsa") {
+            out.kind = "albersUsa"
+            VlGeo.buildAlbersUsa(out)
+            return out
+        }
+        if (type == "albers") {
+            out.kind = "conicEqualArea"
+            out.parallel0 = 29.5
+            out.parallel1 = 45.5
+            out.rotateLambda = 96.0
+            out.centreLambda = -0.6
+            out.centrePhi = 38.7
+            out.scaleValue = 1070.0
+            out.translateX = 480.0
+            out.translateY = 250.0
+            return out
+        }
+        if (type == "conicEqualArea") {
+            out.kind = "conicEqualArea"
+            out.parallel0 = 0.0
+            out.parallel1 = 60.0
+            return out
+        }
+        if (((type == "equirectangular") || (type == "mercator")) || (type == "equalEarth")) {
+            out.kind = type
+            return out
+        }
+        if (type == "identity") {
+            out.kind = "identity"
+            return out
+        }
+        out.kind = ""
+        return out
+    }
+
+    ; The United States drawn as one map: the mainland on an Albers conic, and
+    ; Alaska and Hawaii on conics of their own, each pinned into a rectangle in
+    ; the corner. The numbers are d3's, and they are ratios of the scale rather
+    ; than pixels, so the three move together when the map is resized.
+    sfn buildAlbersUsa:void (out:VlGeo) {
+        def lower (new VlGeo())
+        lower.kind = "conicEqualArea"
+        lower.parallel0 = 29.5
+        lower.parallel1 = 45.5
+        lower.rotateLambda = 96.0
+        lower.centreLambda = -0.6
+        lower.centrePhi = 38.7
+
+        def alaska (new VlGeo())
+        alaska.kind = "conicEqualArea"
+        alaska.parallel0 = 55.0
+        alaska.parallel1 = 65.0
+        alaska.rotateLambda = 154.0
+        alaska.centreLambda = -2.0
+        alaska.centrePhi = 58.5
+
+        def hawaii (new VlGeo())
+        hawaii.kind = "conicEqualArea"
+        hawaii.parallel0 = 8.0
+        hawaii.parallel1 = 18.0
+        hawaii.rotateLambda = 157.0
+        hawaii.centreLambda = -3.0
+        hawaii.centrePhi = 19.9
+
+        push out.parts lower
+        push out.parts alaska
+        push out.parts hawaii
+        out.setScale(1070.0)
+        out.setTranslate(480.0 250.0)
+    }
+
+    ; --------------------------------------------------------- the pipeline ---
+    fn projectPoint:VlGeoXY (lon:double lat:double) {
+        def out (new VlGeoXY())
+        if ((array_length parts) > 0) {
+            ; A point belongs to the FIRST rectangle it lands in, and to none
+            ; of them is an answer too: a European city has no place on a map
+            ; of the United States and is not drawn on the edge of one.
+            for parts part:VlGeo pi {
+                def tried:VlGeoXY (part.projectPoint(lon lat))
+                if tried.ok {
+                    return tried
+                }
+            }
+            return out
+        }
+        if ((strlen kind) == 0) {
+            return out
+        }
+        def rad:double (VlGeo.radians())
+        def turned:VlGeoXY (this.rotate((lon * rad) (lat * rad)))
+        def flat:VlGeoXY (this.rawProject(turned.x turned.y))
+        if (! flat.ok) {
+            return out
+        }
+        ; The centre is stated in the projection's own coordinates and is not
+        ; rotated: it says which point of the PROJECTED map the translate
+        ; refers to. Left out, an Albers map of the United States came out
+        ; centred on the middle of the Atlantic.
+        def middle:VlGeoXY (this.rawProject((centreLambda * rad) (centrePhi * rad)))
+        if (! middle.ok) {
+            return out
+        }
+        out.x = ((translateX - (scaleValue * middle.x)) + (scaleValue * flat.x))
+        out.y = ((translateY + (scaleValue * middle.y)) - (scaleValue * flat.y))
+        out.ok = true
+        if clipped {
+            if (out.x < clipX0) { out.ok = false }
+            if (out.x > clipX1) { out.ok = false }
+            if (out.y < clipY0) { out.ok = false }
+            if (out.y > clipY1) { out.ok = false }
+        }
+        return out
+    }
+
+    ; The world turned before it is flattened. A map of the United States is
+    ; the same conic as a map of anywhere else, pointed at ninety-six degrees
+    ; west instead of at Greenwich.
+    fn rotate:VlGeoXY (lambda:double phi:double) {
+        def out (new VlGeoXY())
+        out.ok = true
+        def rad:double (VlGeo.radians())
+        def dl:double (rotateLambda * rad)
+        def dp:double (rotatePhi * rad)
+        def dg:double (rotateGamma * rad)
+        def l:double lambda
+        def p:double phi
+        if (dl != 0.0) {
+            l = (l + dl)
+            def turn:double (2.0 * (VlGeo.pi()))
+            if (l > (VlGeo.pi())) {
+                l = (l - turn)
+            }
+            if (l < (0.0 - (VlGeo.pi()))) {
+                l = (l + turn)
+            }
+        }
+        if ((dp != 0.0) || (dg != 0.0)) {
+            def cosP:double (cos p)
+            def x:double ((cos l) * cosP)
+            def y:double ((sin l) * cosP)
+            def z:double (sin p)
+            def k:double ((z * (cos dp)) + (x * (sin dp)))
+            l = (atan2 ((y * (cos dg)) - (k * (sin dg))) ((x * (cos dp)) - (z * (sin dp))))
+            p = (asin ((k * (cos dg)) + (y * (sin dg))))
+        }
+        out.x = l
+        out.y = p
+        return out
+    }
+
+    ; ----------------------------------------------------- the flat formulae ---
+    fn rawProject:VlGeoXY (lambda:double phi:double) {
+        def out (new VlGeoXY())
+        out.ok = true
+        if (kind == "equirectangular") {
+            out.x = lambda
+            out.y = phi
+            return out
+        }
+        if (kind == "identity") {
+            out.x = lambda
+            out.y = phi
+            return out
+        }
+        if (kind == "mercator") {
+            ; Undefined at the poles, where the formula runs away.
+            def half:double (((VlGeo.pi()) / 2.0) + phi)
+            def t:double (half / 2.0)
+            def c:double (cos t)
+            if ((c > -0.000000000001) && (c < 0.000000000001)) {
+                out.ok = false
+                return out
+            }
+            def ratio:double ((sin t) / c)
+            if (ratio <= 0.0) {
+                out.ok = false
+                return out
+            }
+            out.x = lambda
+            out.y = (VlMath.ln(ratio))
+            return out
+        }
+        if (kind == "equalEarth") {
+            ; The 2018 equal-area projection: a fifth-order polynomial in an
+            ; auxiliary latitude, and the constants are the paper's.
+            def m:double 0.8660254037844386
+            def a1:double 1.340264
+            def a2:double -0.081106
+            def a3:double 0.000893
+            def a4:double 0.003796
+            def l:double (asin (m * (sin phi)))
+            def l2:double (l * l)
+            def l6:double (l2 * (l2 * l2))
+            def denom:double (m * ((a1 + (3.0 * (a2 * l2))) + (l6 * ((7.0 * a3) + (9.0 * (a4 * l2))))))
+            if (denom == 0.0) {
+                out.ok = false
+                return out
+            }
+            out.x = ((lambda * (cos l)) / denom)
+            out.y = (l * ((a1 + (a2 * l2)) + (l6 * (a3 + (a4 * l2)))))
+            return out
+        }
+        if (kind == "conicEqualArea") {
+            def rad:double (VlGeo.radians())
+            def y0:double (parallel0 * rad)
+            def y1:double (parallel1 * rad)
+            def sy0:double (sin y0)
+            def n:double ((sy0 + (sin y1)) / 2.0)
+            def size:double n
+            if (size < 0.0) {
+                size = (0.0 - size)
+            }
+            if (size < 0.000000000001) {
+                ; Two parallels that meet make a CYLINDER rather than a cone.
+                def cosY0:double (cos y0)
+                if (cosY0 == 0.0) {
+                    out.ok = false
+                    return out
+                }
+                out.x = (lambda * cosY0)
+                out.y = ((sin phi) / cosY0)
+                return out
+            }
+            def c:double (1.0 + (sy0 * ((2.0 * n) - sy0)))
+            def r0:double ((sqrt c) / n)
+            def inner:double (c - (2.0 * (n * (sin phi))))
+            if (inner < 0.0) {
+                out.ok = false
+                return out
+            }
+            def r:double ((sqrt inner) / n)
+            def turned:double (lambda * n)
+            out.x = (r * (sin turned))
+            out.y = (r0 - (r * (cos turned)))
+            return out
+        }
+        out.ok = false
+        return out
+    }
+
+    ; --------------------------------------------------------------- fitting ---
+    ; The scale and translate that put a set of points inside a box. It is
+    ; d3's rule: project everything at a scale of 150 about the origin, take
+    ; the bounding box, and pick the larger scale that still fits — then place
+    ; the middle of what was projected at the middle of the box.
+    fn fitPoints:void (lons:[double] lats:[double] width:double height:double) {
+        def total:int (array_length lons)
+        if (total == 0) {
+            return
+        }
+        this.setScale(150.0)
+        this.setTranslate(0.0 0.0)
+        def x0:double 0.0
+        def y0:double 0.0
+        def x1:double 0.0
+        def y1:double 0.0
+        def any:boolean false
+        def k:int 0
+        while (k < total) {
+            def at:VlGeoXY (this.projectPoint((itemAt lons k) (itemAt lats k)))
+            if at.ok {
+                if any {
+                    if (at.x < x0) { x0 = at.x }
+                    if (at.x > x1) { x1 = at.x }
+                    if (at.y < y0) { y0 = at.y }
+                    if (at.y > y1) { y1 = at.y }
+                } {
+                    x0 = at.x
+                    x1 = at.x
+                    y0 = at.y
+                    y1 = at.y
+                    any = true
+                }
+            }
+            k = (k + 1)
+        }
+        if (! any) {
+            return
+        }
+        def spanX:double (x1 - x0)
+        def spanY:double (y1 - y0)
+        def factor:double 1.0
+        if ((spanX > 0.0) && (spanY > 0.0)) {
+            factor = (width / spanX)
+            def down:double (height / spanY)
+            if (down < factor) {
+                factor = down
+            }
+        } {
+            if (spanX > 0.0) {
+                factor = (width / spanX)
+            } {
+                if (spanY > 0.0) {
+                    factor = (height / spanY)
+                }
+            }
+        }
+        def placeX:double ((width - (factor * (x1 + x0))) / 2.0)
+        def placeY:double ((height - (factor * (y1 + y0))) / 2.0)
+        this.setScale((150.0 * factor))
+        this.setTranslate(placeX placeY)
+    }
+}

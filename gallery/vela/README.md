@@ -300,12 +300,12 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **167** |
+| drawn exactly as the reference draws them | 11 | **168** |
 | drawn, but not the same picture | 106 | 7 |
 | refused, with a reason | 58 | 1 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **95.4% exact, 99.4% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **96.0% exact, 99.4% drawn** |
 
 Every one of those hundred came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
@@ -327,13 +327,14 @@ invisible. And `"point": {"filled": false}` was read as a boolean, which an
 object is not, so a line asked for dots came out bare. None of the four said
 anything; they each just drew the wrong picture.
 
-The remaining eight are no longer a long tail: they are four subsystems and
-two coin tosses. Two want a map projection, one wants a scale that cuts a
-number into bands, one wants a trellis whose panels each measure against
-their own axis, and one jitters its dots with a random number nobody can
-reproduce. The last two draw a bootstrapped confidence interval, which is
-random by construction — they land within a few pixels and will never land
-exactly. That list is short enough to name, which is the point of counting.
+The remaining seven are no longer a long tail: they are three subsystems and
+two coin tosses. One wants a scale that cuts a number into bands, one wants a
+trellis whose panels each measure against their own axis, one jitters its dots
+with a random number nobody can reproduce, and one is a map whose key spaces
+its rows by a rule this does not have yet. The last two draw a bootstrapped
+confidence interval, which is random by construction — they land within a few
+pixels and will never land exactly. That list is short enough to name, which
+is the point of counting.
 
 ### The tail is not uniform, so the difficult ones are marked
 

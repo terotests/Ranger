@@ -594,6 +594,12 @@ class VlCompile {
         if (markName == "arc") {
             frame = "view"
         }
+        ; …and so does a MAP. A chart placed by longitude and latitude has no
+        ; axes to frame, and the reference draws no rectangle round one; drawn
+        ; regardless, a map of the United States came in a grey box.
+        if (this.spansGeo()) {
+            frame = "view"
+        }
         out.setMember("style" (VlJson.stringValue(frame)))
         out.setMember("data" (this.buildData()))
         this.pushParamSignals(signals)
@@ -602,6 +608,12 @@ class VlCompile {
         }
         out.setMember("marks" (this.withBrushes((this.buildMarks()))))
         out.setMember("scales" (this.buildScales()))
+        ; A map's marks are placed by a PROJECTION rather than by scales, and
+        ; the projection is fitted to the points it has to cover — which is
+        ; why it is declared beside them and not among them.
+        if (this.onProjection()) {
+            out.setMember("projections" (this.buildProjections((this.geoFitName()))))
+        }
         def axes:VlJson (this.buildAxes())
         if ((axes.count()) > 0) {
             out.setMember("axes" axes)
@@ -5176,6 +5188,7 @@ class VlCompile {
         this.pushNestedFields(transforms)
         this.pushTimeParse(transforms)
         this.pushSpecTransforms(transforms)
+        this.pushGeoTransforms(transforms (this.geoFitName()))
         this.pushDomainOrder(transforms)
         this.pushTimeUnits(transforms)
         this.pushUnitBandOffsets(transforms)
@@ -7126,6 +7139,114 @@ class VlCompile {
     }
 
     ; --------------------------------------------------------------- scales ---
+    ; ------------------------------------------------------------- maps ---
+    ; Whether this chart is drawn on a MAP: a projection is stated and the
+    ; encoding names a longitude. Placing a mark then has nothing to do with
+    ; scales — a projection turns a pair of angles into a pair of pixels, and
+    ; the position channels are the answer rather than the question.
+    fn onProjection:boolean () {
+        if (! ((rootSource.get("projection")).isObject())) {
+            if (! ((source.get("projection")).isObject())) {
+                return false
+            }
+        }
+        return ((strlen (this.geoField("longitude"))) > 0)
+    }
+
+    ; What the gathered points are called. One per data set, because a layered
+    ; map fits each layer's projection to that layer's own points.
+    fn geoFitName:string () {
+        return (dataLabel + "_geojson")
+    }
+
+    ; Whether the chart is placed geographically at all, projection or no
+    ; projection: the position channels are angles, or the mark is a shape cut
+    ; from a map.
+    fn spansGeo:boolean () {
+        if (markName == "geoshape") {
+            return true
+        }
+        if ((strlen (this.geoField("longitude"))) > 0) {
+            return true
+        }
+        return ((strlen (this.geoField("latitude"))) > 0)
+    }
+
+    fn geoField:string (name:string) {
+        def ch:VlChannel (this.channel(name))
+        if (! ch.defined) {
+            return ""
+        }
+        return (ch.outField())
+    }
+
+    ; What the chart said the projection is. A pane of a concatenation inherits
+    ; the page's, which is how a repeated map says it once.
+    fn projectionDef:VlJson () {
+        def own:VlJson (source.get("projection"))
+        if (own.isObject()) {
+            return own
+        }
+        return (rootSource.get("projection"))
+    }
+
+    ; The projection itself, sized to the plot and fitted to the points the
+    ; chart puts on it. A map is not scaled by a domain: it is fitted, which is
+    ; the only way a projection with no linear relation to its input can fill a
+    ; rectangle.
+    fn buildProjections:VlJson (fitName:string) {
+        def out (VlJson.arrayValue())
+        def stated:VlJson (this.projectionDef())
+        def one (VlJson.objectValue())
+        one.setMember("name" (VlJson.stringValue((this.sname("projection")))))
+        def size (VlJson.arrayValue())
+        push size.arr (VlCompile.signalRef(widthSignal))
+        push size.arr (VlCompile.signalRef(heightSignal))
+        def sized (VlJson.objectValue())
+        sized.setMember("signal" (VlJson.stringValue(((("[" + widthSignal) + ", ") + heightSignal) + "]")))
+        one.setMember("size" sized)
+        one.setMember("fit" (VlCompile.signalRef(fitName)))
+        for stated.keys k:string ki {
+            one.setMember(k (stated.get(k)))
+        }
+        if (! (one.has("type"))) {
+            one.setMember("type" (VlJson.stringValue("mercator")))
+        }
+        push out.arr one
+        return out
+    }
+
+    ; The two transforms a map needs: one to gather the points the projection
+    ; is fitted to, and one to place each row through it.
+    fn pushGeoTransforms:void (transforms:VlJson fitName:string) {
+        if (! (this.onProjection())) {
+            return
+        }
+        def lon:string (this.geoField("longitude"))
+        def lat:string (this.geoField("latitude"))
+        def fields (VlJson.arrayValue())
+        push fields.arr (VlJson.stringValue(lon))
+        push fields.arr (VlJson.stringValue(lat))
+        def gather (VlJson.objectValue())
+        gather.setMember("type" (VlJson.stringValue("geojson")))
+        gather.setMember("fields" fields)
+        gather.setMember("signal" (VlJson.stringValue(fitName)))
+        push transforms.arr gather
+
+        def place (VlJson.objectValue())
+        place.setMember("type" (VlJson.stringValue("geopoint")))
+        place.setMember("projection" (VlJson.stringValue((this.sname("projection")))))
+        def fields2 (VlJson.arrayValue())
+        push fields2.arr (VlJson.stringValue(lon))
+        push fields2.arr (VlJson.stringValue(lat))
+        place.setMember("fields" fields2)
+        def names (VlJson.arrayValue())
+        push names.arr (VlJson.stringValue("x"))
+        push names.arr (VlJson.stringValue("y"))
+        place.setMember("as" names)
+        push transforms.arr place
+    }
+
     fn buildScales:VlJson () {
         def out (VlJson.arrayValue())
         this.pushPositionScale(out (this.channel("x")) "x")
@@ -7140,6 +7261,7 @@ class VlCompile {
         this.pushPaintScale(out "stroke")
         this.pushSizeScale(out)
         this.pushOpacityScale(out)
+        this.pushAngleScale(out)
         return out
     }
 
@@ -8247,6 +8369,34 @@ class VlCompile {
     ; an ordinary linear scale; only its range is peculiar, and the reference
     ; runs it from three tenths to eight, so that the faintest cell is still
     ; there to be seen.
+    ; How far round a mark is TURNED by a column, which is how a chart of wind
+    ; says which way it blows. A whole turn over the whole range unless the
+    ; chart said otherwise, and no zero: the smallest reading points somewhere
+    ; rather than pointing north.
+    fn pushAngleScale:void (out:VlJson) {
+        def ch:VlChannel (this.channel("angle"))
+        if (! ch.defined) {
+            return
+        }
+        if (ch.hasValue) {
+            return
+        }
+        if ((strlen (ch.outField())) == 0) {
+            return
+        }
+        def sc (VlJson.objectValue())
+        sc.setMember("name" (VlJson.stringValue((this.sname("angle")))))
+        sc.setMember("type" (VlJson.stringValue("linear")))
+        sc.setMember("domain" (this.domainFor(ch)))
+        def range (VlJson.arrayValue())
+        push range.arr (VlJson.numberValue(0.0))
+        push range.arr (VlJson.numberValue(360.0))
+        sc.setMember("range" range)
+        sc.setMember("zero" (VlJson.boolValue(false)))
+        this.applyDeclaredScale(sc ch)
+        push out.arr sc
+    }
+
     fn pushOpacityScale:void (out:VlJson) {
         def ch:VlChannel (this.channel("opacity"))
         if (! ch.defined) {
@@ -9230,11 +9380,18 @@ class VlCompile {
                 ; A size key stands for the same dot the chart draws, and its
                 ; colour is the mark's constant since nothing encodes one.
                 if (markName == "point") {
-                    def encode:VlJson (this.pointSymbolEncode((! (markDef.boolOr("filled" false)))))
-                    def symbols:VlJson (encode.get("symbols"))
-                    def update:VlJson (symbols.get("update"))
-                    update.setMember("stroke" (VlCompile.literal((VlJson.stringValue((this.markColour()))))))
-                    l2.setMember("encode" encode)
+                    if (markDef.boolOr("filled" false)) {
+                        ; A FILLED dot's key is a filled dot: painted, with no
+                        ; outline at all. Drawn as an outline it was a ring
+                        ; where the chart draws a solid wedge.
+                        l2.setMember("encode" (VlCompile.filledSymbolEncode((this.markOpacity((this.dotOpacity()))) (this.legendInk()) (this.markOutline()) (this.opacityStated()))))
+                    } {
+                        def encode:VlJson (this.pointSymbolEncode((! (markDef.boolOr("filled" false)))))
+                        def symbols:VlJson (encode.get("symbols"))
+                        def update:VlJson (symbols.get("update"))
+                        update.setMember("stroke" (VlCompile.literal((VlJson.stringValue((this.markColour()))))))
+                        l2.setMember("encode" encode)
+                    }
                 }
                 if ((markName == "circle") || (markName == "square")) {
                     l2.setMember("encode" (VlCompile.filledSymbolEncode((this.markOpacity((this.dotOpacity()))) (this.markColour()) (this.markOutline()) (this.opacityStated()))))
@@ -9577,6 +9734,21 @@ class VlCompile {
 
     ; What the key is drawn as: a filled square for the marks that are solid
     ; blocks of colour, a short dash for a line, and a dot for everything else.
+    ; What colour a key that is NOT about colour is drawn in. Normally the
+    ; mark's own — a key of five sizes in the one colour the chart paints
+    ; everything. But where a COLUMN paints the marks, no single colour is
+    ; honest, and the reference draws the key in black rather than implying
+    ; one of them.
+    fn legendInk:string () {
+        def colour:VlChannel (this.channel("color"))
+        if colour.defined {
+            if (! colour.hasValue) {
+                return "black"
+            }
+        }
+        return (this.markColour())
+    }
+
     fn legendSymbol:string () {
         ; A trail is a line, and its key is a short line too.
         if ((markName == "line") || (markName == "trail")) {
@@ -9584,6 +9756,13 @@ class VlCompile {
         }
         if ((markName == "bar") || (markName == "rect")) {
             return "square"
+        }
+        ; A mark drawn as a WEDGE — a wind vector, an arrow — has a wedge in
+        ; its key. The key stands for the mark, so it is the mark's own shape
+        ; wherever the mark states one.
+        def stated:string (markDef.stringOr("shape" ""))
+        if ((strlen stated) > 0) {
+            return stated
         }
         return "circle"
     }
@@ -9896,6 +10075,12 @@ class VlCompile {
         def out (VlJson.objectValue())
         out.setMember("scale" (VlJson.stringValue((this.sname(channel)))))
         out.setMember("value" value)
+        return out
+    }
+
+    sfn plainField:VlJson (name:string) {
+        def out (VlJson.objectValue())
+        out.setMember("field" (VlJson.stringValue(name)))
         return out
     }
 
@@ -10772,8 +10957,17 @@ class VlCompile {
     }
 
     fn encodePosition:void (update:VlJson) {
-        this.encodeAxisPair(update (this.channel("x")) "x" "width")
-        this.encodeAxisPair(update (this.channel("y")) "y" "height")
+        ; On a map the position is already worked out: the projection wrote it
+        ; onto every row as a pair of columns, and there is no scale to read it
+        ; through. Placed by the ordinary rules instead, every point of a map
+        ; of forty thousand postcodes sat in the middle of the plot.
+        if (this.onProjection()) {
+            update.setMember("x" (VlCompile.plainField("x")))
+            update.setMember("y" (VlCompile.plainField("y")))
+        } {
+            this.encodeAxisPair(update (this.channel("x")) "x" "width")
+            this.encodeAxisPair(update (this.channel("y")) "y" "height")
+        }
         ; A mark may state where it goes IN PIXELS rather than through a
         ; channel: `{"type": "text", "x": -5, "align": "right"}` is a label
         ; standing five pixels off the left edge of the plot, whatever the
@@ -10840,6 +11034,14 @@ class VlCompile {
         ; …and it may answer to a selection rather than being flat: a hover
         ; chart fades every series but the one under the pointer, and that is
         ; the same conditional every other paint channel carries.
+        def turn:VlChannel (this.channel("angle"))
+        if turn.defined {
+            if turn.hasValue {
+                update.setMember("angle" (VlCompile.literal(turn.value)))
+            } {
+                update.setMember("angle" (this.scaled("angle" (turn.outField()))))
+            }
+        }
         def opacity:VlChannel (this.channel("opacity"))
         if opacity.defined {
             if opacity.hasValue {

@@ -1,0 +1,90 @@
+; ==============================================================================
+; geo_check.rgr — the projections, point by point, against d3's own answer.
+; ==============================================================================
+; Prints what VlGeo makes of a fixed set of places. `tools/reference/
+; geo_oracle.mjs` prints what d3 makes of the same places, and the two are
+; compared by `tools/reference/geo.mjs`. A projection is a page of constants
+; and a convention, and this is the only proof that the convention was read
+; the way the reference reads it.
+; ==============================================================================
+
+Import "../src/VlGeo.rgr"
+
+class GeoCheck {
+
+    sfn places:[double] () {
+        def out:[double]
+        push out 0.0
+        push out 0.0
+        push out 10.0
+        push out 45.0
+        push out -96.0
+        push out 38.7
+        push out -122.4
+        push out 37.8
+        push out 24.9
+        push out 60.2
+        push out -149.9
+        push out 61.2
+        push out -157.8
+        push out 21.3
+        push out 139.7
+        push out 35.7
+        push out -58.4
+        push out -34.6
+        push out 151.2
+        push out -33.9
+        return out
+    }
+
+    sfn show:string (v:double) {
+        ; Six places, which is finer than a pixel and coarser than the noise.
+        def scaled:double (v * 1000000.0)
+        def rounded:double (to_double (to_int (scaled + 0.5)))
+        if (scaled < 0.0) {
+            rounded = (to_double (to_int (scaled - 0.5)))
+        }
+        return ((double2str (rounded / 1000000.0)))
+    }
+
+    sfn one:void (type:string) {
+        def flat:[double] (GeoCheck.places())
+        def p:VlGeo (VlGeo.named(type))
+        p.setScale(150.0)
+        p.setTranslate(0.0 0.0)
+        print ("## " + type)
+        def k:int 0
+        while (k < (array_length flat)) {
+            def lon:double (itemAt flat k)
+            def lat:double (itemAt flat (k + 1))
+            def at:VlGeoXY (p.projectPoint(lon lat))
+            if at.ok {
+                print (((((("   " + (GeoCheck.show(lon))) + ",") + (GeoCheck.show(lat))) + " -> ") + (GeoCheck.show(at.x))) + " " + (GeoCheck.show(at.y)))
+            } {
+                print (((("   " + (GeoCheck.show(lon))) + ",") + (GeoCheck.show(lat))) + " -> null")
+            }
+            k = (k + 2)
+        }
+        ; …and the same points fitted into a box, which is what a chart asks
+        ; for and the only part a specification can see.
+        def lons:[double]
+        def lats:[double]
+        def j:int 0
+        while (j < (array_length flat)) {
+            push lons (itemAt flat j)
+            push lats (itemAt flat (j + 1))
+            j = (j + 2)
+        }
+        def fitted:VlGeo (VlGeo.named(type))
+        fitted.fitPoints(lons lats 500.0 300.0)
+        print (((("   fit scale=" + (GeoCheck.show(fitted.scaleValue))) + " translate=") + (GeoCheck.show(fitted.translateX))) + " " + (GeoCheck.show(fitted.translateY)))
+    }
+
+    sfn main:void () {
+        GeoCheck.one("equirectangular")
+        GeoCheck.one("mercator")
+        GeoCheck.one("equalEarth")
+        GeoCheck.one("albers")
+        GeoCheck.one("albersUsa")
+    }
+}
