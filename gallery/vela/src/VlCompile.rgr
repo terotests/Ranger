@@ -555,6 +555,7 @@ class VlCompile {
         ; count, and the spec then carries no width at all.
         def signals:VlJson (VlJson.arrayValue())
         this.sizeAndSignals(out signals)
+        VlCompile.fitToContainer(src out)
 
         ; The frame around a plotting rectangle belongs to a chart with axes.
         ; A pie has none, so it is a plain view and nothing is drawn round it.
@@ -2391,6 +2392,31 @@ class VlCompile {
         sizer.sizeAndSignals(sized spare)
         VlCompile.takeSize(out sized "width")
         VlCompile.takeSize(out sized "height")
+    }
+
+    ; `"width": "container"` is a chart that takes its width from the page it is
+    ; put on. The page it is put on here has no width to give — nothing is
+    ; measured until it is drawn — so the reference's own fallback stands, and
+    ; what the specification is really asking for is that the DRAWING fit that
+    ; width rather than the plot keep it: the axis down the left comes out of
+    ; the width given, not on top of it.
+    sfn fitToContainer:void (src:VlJson out:VlJson) {
+        def wide:boolean ((src.get("width")).isString())
+        def tall:boolean ((src.get("height")).isString())
+        if ((! wide) && (! tall)) {
+            return
+        }
+        def kind:string "fit"
+        if (! tall) {
+            kind = "fit-x"
+        }
+        if (! wide) {
+            kind = "fit-y"
+        }
+        def auto (VlJson.objectValue())
+        auto.setMember("type" (VlJson.stringValue(kind)))
+        auto.setMember("contains" (VlJson.stringValue("padding")))
+        out.setMember("autosize" auto)
     }
 
     sfn takeSize:void (out:VlJson sized:VlJson dimension:string) {

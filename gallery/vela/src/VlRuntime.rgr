@@ -144,7 +144,79 @@ class VlRuntime {
         this.buildScales()
         this.settle()
         this.buildFlow()
-        return (this.encodeScene())
+        return (this.fitToView((this.encodeScene())))
+    }
+
+    ; `autosize: fit` is the opposite of `pad`: the VIEW keeps the size the
+    ; specification asked for and the PLOT shrinks inside it until the guides
+    ; fit, rather than the plot keeping its size and the view growing round it.
+    ;
+    ; How much room the guides need depends on how wide the plot is — a wider
+    ; plot asks for more ticks and longer labels — so the drawing is measured,
+    ; resized and measured again until it stops moving. Two rounds is the usual
+    ; answer; the limit is there so a size that oscillates by a pixel stops
+    ; rather than spins.
+    fn fitToView:VlSceneMark (scene:VlSceneMark) {
+        def auto:VlJson (spec.get("autosize"))
+        def kind:string ""
+        if (auto.isString()) {
+            kind = auto.str
+        }
+        if (auto.isObject()) {
+            kind = (auto.stringOr("type" ""))
+        }
+        def fitX:boolean ((kind == "fit") || (kind == "fit-x"))
+        def fitY:boolean ((kind == "fit") || (kind == "fit-y"))
+        if ((! fitX) && (! fitY)) {
+            return scene
+        }
+        def room:double 0.0
+        if (auto.isObject()) {
+            if ((auto.stringOr("contains" "content")) == "padding") {
+                room = (padding * 2.0)
+            }
+        }
+        def targetWidth:double (chartWidth - room)
+        def targetHeight:double (chartHeight - room)
+        def out:VlSceneMark scene
+        def rounds:int 0
+        def settled:boolean false
+        while ((rounds < 4) && (! settled)) {
+            def item:VlSceneItem (itemAt out.items 0)
+            def viewW:double (item.number("viewWidth"))
+            def viewH:double (item.number("viewHeight"))
+            def left:double ((item.number("originX")) - padding)
+            def top:double ((item.number("originY")) - padding)
+            def right:double ((((viewW - (padding * 2.0)) - chartWidth) - left))
+            def bottom:double ((((viewH - (padding * 2.0)) - chartHeight) - top))
+            def wantWidth:double chartWidth
+            def wantHeight:double chartHeight
+            if fitX {
+                wantWidth = ((targetWidth - left) - right)
+                if (wantWidth < 0.0) {
+                    wantWidth = 0.0
+                }
+            }
+            if fitY {
+                wantHeight = ((targetHeight - top) - bottom)
+                if (wantHeight < 0.0) {
+                    wantHeight = 0.0
+                }
+            }
+            if ((wantWidth == chartWidth) && (wantHeight == chartHeight)) {
+                settled = true
+            } {
+                chartWidth = wantWidth
+                chartHeight = wantHeight
+                this.seedSignals()
+                this.buildScales()
+                this.settle()
+                this.buildFlow()
+                out = (this.encodeScene())
+            }
+            rounds = (rounds + 1)
+        }
+        return out
     }
 
 
