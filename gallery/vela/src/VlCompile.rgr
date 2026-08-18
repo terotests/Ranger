@@ -804,6 +804,20 @@ class VlCompile {
                 this.fail(e)
             }
             if ((array_length child.errors) == 0) {
+                for (this.independentChannels()) apart:string ai {
+                    def own:string ((("layer_" + (VlJson.intToText(index))) + "_") + apart)
+                    VlCompile.renameOneScale((piece.get("scales")) (this.sname(apart)) own)
+                    VlCompile.renameOneScale((piece.get("marks")) (this.sname(apart)) own)
+                    VlCompile.renameOneScale((piece.get("axes")) (this.sname(apart)) own)
+                    VlCompile.renameOneScale((piece.get("legends")) (this.sname(apart)) own)
+                    ; The second of two axes measuring different things up the
+                    ; same plot stands on the OTHER side of it — that is what
+                    ; makes a dual-axis chart readable — and it rules no grid,
+                    ; because the plot already has one from the first.
+                    if (index > 0) {
+                        VlCompile.sideAxes((piece.get("axes")) own apart)
+                    }
+                }
                 if first {
                     ; Everything the chart is as a whole — its size, its
                     ; background, its frame — belongs to the first layer, which
@@ -2118,6 +2132,82 @@ class VlCompile {
     ; legend's channel — now names the shared one. A scale is referred to by
     ; its NAME as a plain string, so the rename is a string rename; no other
     ; string in a compiled pane spells `concat_0_color`.
+    ; `"resolve": {"scale": {"y": "independent"}}` is a dual-axis chart: the two
+    ; layers measure different things up the same side of the plot and must not
+    ; share a scale. Each layer's scale for that channel is given a name of its
+    ; own — `layer_0_y`, `layer_1_y` — and everything in the layer that reads it
+    ; is pointed at the new name, so the merge below finds two scales where it
+    ; would otherwise find one and average them into a scale neither layer
+    ; asked for.
+    sfn renameOneScale:void (node:VlJson from:string to:string) {
+        if (node.isArray()) {
+            def k:int 0
+            while (k < (node.count())) {
+                VlCompile.renameOneScale((node.at(k)) from to)
+                k = (k + 1)
+            }
+            return
+        }
+        if (! (node.isObject())) {
+            return
+        }
+        for node.keys key:string ki {
+            def v:VlJson (node.get(key))
+            if (v.isString()) {
+                if ((v.asString()) == from) {
+                    if (((key == "scale") || (key == "gridScale")) || (key == "name")) {
+                        node.setMember(key (VlJson.stringValue(to)))
+                    }
+                }
+            } {
+                VlCompile.renameOneScale(v from to)
+            }
+        }
+    }
+
+    ; Which channels the chart said its layers must not share.
+    fn independentChannels:[string] () {
+        def out:[string]
+        def resolve:VlJson (source.get("resolve"))
+        if (! (resolve.isObject())) {
+            return out
+        }
+        def scales:VlJson (resolve.get("scale"))
+        if (! (scales.isObject())) {
+            return out
+        }
+        for scales.keys key:string ki {
+            if (((scales.get(key)).asString()) == "independent") {
+                push out key
+            }
+        }
+        return out
+    }
+
+    sfn sideAxes:void (axes:VlJson scaleName:string channel:string) {
+        if (! (axes.isArray())) {
+            return
+        }
+        def far:string "right"
+        if (channel == "x") {
+            far = "top"
+        }
+        def k:int 0
+        while (k < (axes.count())) {
+            def a:VlJson (axes.at(k))
+            if ((a.stringOr("scale" "")) == scaleName) {
+                if (a.boolOr("grid" false)) {
+                    ; A grid axis for a scale nothing else measures rules the
+                    ; plot twice over. The reference draws one grid.
+                    a.setMember("grid" (VlJson.boolValue(false)))
+                } {
+                    a.setMember("orient" (VlJson.stringValue(far)))
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
     sfn renameScaleRefs:void (node:VlJson label:string) {
         if (node.isArray()) {
             def k:int 0
