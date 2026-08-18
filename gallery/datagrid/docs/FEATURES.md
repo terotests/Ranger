@@ -28,9 +28,9 @@
 ; Cell formatting (fill/font/…)   | styles.xml → CellStyle → EVG              | done
 ; Number formats                  | XlsxNumberFormat engine (practical set)   | done
 ; Text wrap / rotation            |                                           | todo
-; Sort / filter                   | SheetView + programmatic apply            | done
+; Sort / filter                   | SheetView paint + header popup UI         | done
 ; Formulas (engine)               | AST + deps + FormulaFunctions + coerce    | partial
-; Conditional formatting          | fixture present; resolver stretch         | partial
+; Conditional formatting          | colorScale + cellIs paint resolver        | partial
 ; Hidden rows / columns           | geometry height/width 0                   | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
@@ -43,6 +43,10 @@
 ; LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT VALUE
 ; ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T. Unsupported keep cached <v>.
 ; Display: FormulaValue.asRaw → XlsxNumberFormat → DataGrid.
+; SheetView drives DataGrid virtualization (sort/filter order). Header popup:
+; sort asc/desc, filter unique, clear. CF: colorScale + cellIs on paint.
+; Oracles: openpyxl semantic + LibreOffice visual/formula (SKIP if LO absent).
+; Screenshots: gallery/datagrid/artifacts/*.png|jpg (tracked).
 ;
 ; Number formats: General, 0, 0.00, #,##0(.00), %, currency, scientific,
 ; dates/times, @, pos;neg;zero sections.

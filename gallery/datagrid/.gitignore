@@ -1,6 +1,8 @@
 *.js
 *.png
+*.jpg
+!artifacts/
+!artifacts/**
 bin/
 harness/out/
-*.png
 !fixtures/
