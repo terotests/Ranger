@@ -2632,7 +2632,17 @@ class VlRuntime {
                 along = ((((item.number("width")) + box.right) - box.left) / 2.0)
             }
         }
-        def fontSize:double (text.number("fontSize"))
+        ; What the title is worth ACROSS the side it sits on: its own measured
+        ; box, not its font size. A turned title's box is its height turned,
+        ; and a quarter turn has no exact cosine in binary — so a ten pixel
+        ; line comes back ten and a few atoms wide. The page is sized by the
+        ; CEILING of what everything covers, and those few atoms are a whole
+        ; pixel of margin either side of a row of headers.
+        def titleBox:VlBounds (VlViewBox.ofText(text))
+        def fontSize:double (titleBox.y2 - titleBox.y1)
+        if sideways {
+            fontSize = (titleBox.x2 - titleBox.x1)
+        }
         def extent:double box.top
         if (orient == "bottom") {
             extent = box.bottom
