@@ -9330,7 +9330,16 @@ class VlCompile {
             def p:VlJson (params.at(k))
             if (VlCompile.selectsInterval(p)) {
                 def initial:VlJson (p.get("value"))
-                if (initial.isObject()) {
+                ; …and a brush that each PANE answers for is drawn whether
+                ; anything is in it or not. A selection resolved globally reads
+                ; its rectangle through a test on the store, which is empty
+                ; before anyone drags and leaves the rectangle at nothing; one
+                ; resolved per unit reads the signals straight, and on a pane
+                ; that brushes in one direction only the other direction is the
+                ; whole pane. That is real ink: a scatter-plot matrix draws
+                ; three of them down its diagonal.
+                if ((initial.isObject()) || (VlCompile.brushPerUnit(p))) {
+                    def picked:VlJson (this.brushProjection(p))
                     def name:string (p.stringOr("name" "brush"))
                     def under (VlJson.objectValue())
                     under.setMember("name" (VlJson.stringValue((name + "_brush_bg"))))
@@ -9339,7 +9348,7 @@ class VlCompile {
                     def uUp (VlJson.objectValue())
                     uUp.setMember("fill" (VlCompile.plainValue((VlJson.stringValue("#333")))))
                     uUp.setMember("fillOpacity" (VlCompile.plainValue((VlJson.numberValue(0.125)))))
-                    this.brushExtent(uUp initial)
+                    this.brushExtent(uUp initial picked)
                     uEnc.setMember("update" uUp)
                     under.setMember("encode" uEnc)
                     push unders.arr under
@@ -9350,8 +9359,15 @@ class VlCompile {
                     def oEnc (VlJson.objectValue())
                     def oUp (VlJson.objectValue())
                     oUp.setMember("fill" (VlCompile.plainValue((VlJson.stringValue("transparent")))))
-                    oUp.setMember("stroke" (VlCompile.plainValue((VlJson.stringValue("white")))))
-                    this.brushExtent(oUp initial)
+                    ; The white outline belongs to a brush that HAS an extent.
+                    ; An empty one is not outlined — the reference tests both
+                    ; ends against each other and strokes nothing when they are
+                    ; the same — and an empty brush drawn with a white edge is
+                    ; a white line down the middle of three panes.
+                    if (VlCompile.brushStroked(initial picked)) {
+                        oUp.setMember("stroke" (VlCompile.plainValue((VlJson.stringValue("white")))))
+                    }
+                    this.brushExtent(oUp initial picked)
                     oEnc.setMember("update" oUp)
                     over.setMember("encode" oEnc)
                     push overs.arr over
@@ -9371,17 +9387,100 @@ class VlCompile {
 
     ; The two ends of each brushed channel, put through that channel's own
     ; scale — which is what turns "from 55 to 160 horsepower" into pixels.
-    fn brushExtent:void (update:VlJson initial:VlJson) {
-        for initial.keys channel:string ci {
-            def span:VlJson (initial.get(channel))
-            if (span.isArray()) {
-                if ((span.count()) == 2) {
-                    def far:string (channel + "2")
-                    update.setMember(channel (this.scaledValue(channel (span.at(0)))))
-                    update.setMember(far (this.scaledValue(channel (span.at(1)))))
-                }
+    fn brushExtent:void (update:VlJson initial:VlJson picked:VlJson) {
+        this.brushSide(update initial picked "x" "width")
+        this.brushSide(update initial picked "y" "height")
+    }
+
+    ; One direction of the rectangle. It is the stated interval where the chart
+    ; stated one, nothing where the selection brushes that way and nobody has
+    ; dragged yet, and the WHOLE PANE where the selection does not brush that
+    ; way at all — an interval over x alone covers every y there is.
+    fn brushSide:void (update:VlJson initial:VlJson picked:VlJson axis:string dimension:string) {
+        def far:string (axis + "2")
+        def span:VlJson (initial.get(axis))
+        if (span.isArray()) {
+            if ((span.count()) == 2) {
+                update.setMember(axis (this.scaledValue(axis (span.at(0)))))
+                update.setMember(far (this.scaledValue(axis (span.at(1)))))
+                return
             }
         }
+        update.setMember(axis (VlCompile.plainValue((VlJson.numberValue(0.0)))))
+        if (picked.has(axis)) {
+            update.setMember(far (VlCompile.plainValue((VlJson.numberValue(0.0)))))
+            return
+        }
+        update.setMember(far (VlCompile.groupField(dimension)))
+    }
+
+    ; Which directions a selection actually brushes. A chart may say so, and
+    ; where it does not, every position channel that names a column brushes —
+    ; except that a column named TWICE is one interval and not two, which is
+    ; what the diagonal of a scatter-plot matrix is: a variable against itself.
+    fn brushProjection:VlJson (p:VlJson) {
+        def out (VlJson.objectValue())
+        def sel:VlJson (p.get("select"))
+        if (sel.isObject()) {
+            def stated:VlJson (sel.get("encodings"))
+            if (stated.isArray()) {
+                def k:int 0
+                while (k < (stated.count())) {
+                    out.setMember(((stated.at(k)).asString()) (VlJson.boolValue(true)))
+                    k = (k + 1)
+                }
+                return out
+            }
+        }
+        def across:string (this.brushField("x"))
+        if ((strlen across) > 0) {
+            out.setMember("x" (VlJson.boolValue(true)))
+        }
+        def down:string (this.brushField("y"))
+        if ((strlen down) > 0) {
+            if (down != across) {
+                out.setMember("y" (VlJson.boolValue(true)))
+            }
+        }
+        return out
+    }
+
+    fn brushField:string (axis:string) {
+        def ch:VlChannel (this.channel(axis))
+        if (! ch.defined) {
+            return ""
+        }
+        return (ch.outField())
+    }
+
+    ; Whether the brush covers any ground. Every direction it brushes has to
+    ; have been given two ends that differ; nothing has been dragged here, so
+    ; what the chart stated is the whole answer.
+    sfn brushStroked:boolean (initial:VlJson picked:VlJson) {
+        if (! (initial.isObject())) {
+            return false
+        }
+        for picked.keys axis:string ai {
+            def span:VlJson (initial.get(axis))
+            if (! (span.isArray())) {
+                return false
+            }
+            if ((span.count()) != 2) {
+                return false
+            }
+        }
+        return true
+    }
+
+    ; Whether each pane answers for its own brush. The default is one selection
+    ; for the whole chart, and that one is read through a test on a store that
+    ; is empty until somebody drags.
+    sfn brushPerUnit:boolean (p:VlJson) {
+        def sel:VlJson (p.get("select"))
+        if (! (sel.isObject())) {
+            return false
+        }
+        return ((sel.stringOr("resolve" "global")) != "global")
     }
 
     fn scaledValue:VlJson (channel:string value:VlJson) {
