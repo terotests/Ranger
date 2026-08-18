@@ -2,9 +2,10 @@
 ; WordStyleResolver - document defaults + style inheritance + direct formatting.
 ; ==============================================================================
 ;
-; Chain (canvas-editor / Word analogue):
-;   defaults → Normal → pStyle → direct pPr → run style → direct rPr
-; EVG / SoftCanvas only sees the resolved result.
+; Chain:
+;   docDefaults → basedOn inheritance → paragraph style → character style
+;   → direct pPr → direct rPr
+; Loop guards prevent basedOn cycles. EVG only sees Resolved* styles.
 ; ==============================================================================
 
 Import "RichDocument.rgr"
@@ -40,16 +41,52 @@ class ResolvedRunStyle {
         span.fontFamily = fontFamily
         span.colorHex = colorHex
     }
+
+    fn mergeFrom:void (other:ResolvedRunStyle) {
+        ; later wins for set fields — caller passes incremental layers
+        bold = other.bold
+        italic = other.italic
+        underline = other.underline
+        fontSizePt = other.fontSizePt
+        fontFamily = other.fontFamily
+        colorHex = other.colorHex
+    }
+}
+
+class ResolvedParagraphStyle {
+    def align:int 0
+    def spaceBeforePt:double 0.0
+    def spaceAfterPt:double 8.0
+    def lineSpacing:double 1.15
+    def indentLeftPt:double 0.0
+    def indentRightPt:double 0.0
+    def indentFirstLinePt:double 0.0
+    def run:ResolvedRunStyle (new ResolvedRunStyle)
+
+    Constructor () {
+    }
 }
 
 class StyleDef {
     def styleId:string ""
     def basedOn:string ""
+    def typ:string "paragraph"
     def align:int -1
     def spaceBeforePt:double -1.0
     def spaceAfterPt:double -1.0
+    def lineSpacing:double -1.0
+    def indentLeftPt:double -1.0
+    def indentRightPt:double -1.0
+    def indentFirstLinePt:double -1.0
     def run:ResolvedRunStyle (new ResolvedRunStyle)
     def hasRun:boolean false
+    def hasPPr:boolean false
+    def hasBold:boolean false
+    def hasItalic:boolean false
+    def hasUnderline:boolean false
+    def hasSize:boolean false
+    def hasFont:boolean false
+    def hasColor:boolean false
 
     Constructor () {
     }
@@ -59,6 +96,8 @@ class WordStyleResolver {
     def styles:[string:StyleDef]
     def defaults:ResolvedRunStyle (new ResolvedRunStyle)
     def defaultAfterPt:double 8.0
+    def defaultLineSpacing:double 1.15
+    def defaultAlign:int 0
 
     Constructor () {
         defaults.fontSizePt = 11.0
@@ -70,7 +109,6 @@ class WordStyleResolver {
         if ((strlen name) == 0) {
             return "Open Sans"
         }
-        ; SoftCanvas faces we load in DocxView.
         if ((indexOf name "Cinzel") >= 0) {
             return "Cinzel"
         }
@@ -99,7 +137,7 @@ class WordStyleResolver {
             return 2
         }
         if (jc == "both") {
-            return 0
+            return 3
         }
         if (jc == "left") {
             return 0
@@ -108,22 +146,47 @@ class WordStyleResolver {
     }
 
     fn parseStylesXml:void (xml:string) {
-        ; docDefaults rPr
         def dd:int (WordXml.findNext(xml "w:docDefaults" 0))
         if (dd >= 0) {
             def ddEl:string (WordXml.sliceElement(xml "w:docDefaults" dd))
-            this.applyRPr(ddEl defaults)
-            def after:string (WordXml.attr((WordXml.openTag(ddEl)) "w:after"))
-            ; spacing after in pPrDefault
-            def sp:int (WordXml.findNext(ddEl "w:spacing" 0))
-            if (sp >= 0) {
-                def spEl:string (WordXml.sliceElement(ddEl "w:spacing" sp))
-                def ot:string (WordXml.openTag(spEl))
-                def av:string (WordXml.attr(ot "w:after"))
-                if ((strlen av) > 0) {
-                    def ai@(optional):int (to_int av)
-                    if (!null? ai) {
-                        defaultAfterPt = ((to_double (unwrap ai)) / 20.0)
+            def rDef:int (WordXml.findNext(ddEl "w:rPrDefault" 0))
+            if (rDef >= 0) {
+                def rDefEl:string (WordXml.sliceElement(ddEl "w:rPrDefault" rDef))
+                this.applyRPr(rDefEl defaults)
+            } {
+                this.applyRPr(ddEl defaults)
+            }
+            def pDef:int (WordXml.findNext(ddEl "w:pPrDefault" 0))
+            if (pDef >= 0) {
+                def pDefEl:string (WordXml.sliceElement(ddEl "w:pPrDefault" pDef))
+                def sp:int (WordXml.findNext(pDefEl "w:spacing" 0))
+                if (sp >= 0) {
+                    def spEl:string (WordXml.sliceElement(pDefEl "w:spacing" sp))
+                    def ot:string (WordXml.openTag(spEl))
+                    def av:string (WordXml.attr(ot "w:after"))
+                    if ((strlen av) > 0) {
+                        def ai@(optional):int (to_int av)
+                        if (!null? ai) {
+                            defaultAfterPt = ((to_double (unwrap ai)) / 20.0)
+                        }
+                    }
+                    def line:string (WordXml.attr(ot "w:line"))
+                    def rule:string (WordXml.attr(ot "w:lineRule"))
+                    if ((strlen line) > 0) {
+                        def li@(optional):int (to_int line)
+                        if (!null? li) {
+                            if ((rule == "auto") || ((strlen rule) == 0)) {
+                                defaultLineSpacing = ((to_double (unwrap li)) / 240.0)
+                            }
+                        }
+                    }
+                }
+                def jc:int (WordXml.findNext(pDefEl "w:jc" 0))
+                if (jc >= 0) {
+                    def jcEl:string (WordXml.sliceElement(pDefEl "w:jc" jc))
+                    def a:int (WordStyleResolver.alignOf((WordXml.attr((WordXml.openTag(jcEl)) "w:val"))))
+                    if (a >= 0) {
+                        defaultAlign = a
                     }
                 }
             }
@@ -143,11 +206,14 @@ class WordStyleResolver {
             def sid:string (WordXml.attr(ot2 "w:styleId"))
             def typ:string (WordXml.attr(ot2 "w:type"))
             if ((strlen sid) > 0) {
-                if ((typ == "paragraph") || ((strlen typ) == 0)) {
+                if ((typ == "paragraph") || (typ == "character") || ((strlen typ) == 0)) {
                     def defn:StyleDef (new StyleDef)
                     defn.styleId = sid
+                    defn.typ = typ
+                    if ((strlen typ) == 0) {
+                        defn.typ = "paragraph"
+                    }
                     defn.basedOn = (WordXml.attr(ot2 "w:basedOn"))
-                    ; basedOn may be on child
                     def bo:int (WordXml.findNext(el "w:basedOn" 0))
                     if (bo >= 0) {
                         def boEl:string (WordXml.sliceElement(el "w:basedOn" bo))
@@ -156,42 +222,161 @@ class WordStyleResolver {
                     def pPr:int (WordXml.findNext(el "w:pPr" 0))
                     if (pPr >= 0) {
                         def pEl:string (WordXml.sliceElement(el "w:pPr" pPr))
-                        def jc:int (WordXml.findNext(pEl "w:jc" 0))
-                        if (jc >= 0) {
-                            def jcEl:string (WordXml.sliceElement(pEl "w:jc" jc))
-                            defn.align = (WordStyleResolver.alignOf((WordXml.attr((WordXml.openTag(jcEl)) "w:val"))))
-                        }
-                        def sp2:int (WordXml.findNext(pEl "w:spacing" 0))
-                        if (sp2 >= 0) {
-                            def spEl2:string (WordXml.sliceElement(pEl "w:spacing" sp2))
-                            def sot:string (WordXml.openTag(spEl2))
-                            def bef:string (WordXml.attr(sot "w:before"))
-                            def aft:string (WordXml.attr(sot "w:after"))
-                            if ((strlen bef) > 0) {
-                                def bi@(optional):int (to_int bef)
-                                if (!null? bi) {
-                                    defn.spaceBeforePt = ((to_double (unwrap bi)) / 20.0)
-                                }
-                            }
-                            if ((strlen aft) > 0) {
-                                def ai2@(optional):int (to_int aft)
-                                if (!null? ai2) {
-                                    defn.spaceAfterPt = ((to_double (unwrap ai2)) / 20.0)
-                                }
-                            }
-                        }
+                        this.applyPPrToStyleDef(pEl defn)
+                        defn.hasPPr = true
                     }
                     def rPr:int (WordXml.findNext(el "w:rPr" 0))
                     if (rPr >= 0) {
                         def rEl:string (WordXml.sliceElement(el "w:rPr" rPr))
                         defn.run = (defaults.copy())
-                        this.applyRPr(rEl defn.run)
+                        this.applyRPrToStyleDef(rEl defn)
                         defn.hasRun = true
                     }
                     set styles sid defn
                 }
             }
             i = (s + 1)
+        }
+    }
+
+    fn applyPPrToStyleDef:void (pEl:string defn:StyleDef) {
+        def jc:int (WordXml.findNext(pEl "w:jc" 0))
+        if (jc >= 0) {
+            def jcEl:string (WordXml.sliceElement(pEl "w:jc" jc))
+            defn.align = (WordStyleResolver.alignOf((WordXml.attr((WordXml.openTag(jcEl)) "w:val"))))
+        }
+        def sp2:int (WordXml.findNext(pEl "w:spacing" 0))
+        if (sp2 >= 0) {
+            def spEl2:string (WordXml.sliceElement(pEl "w:spacing" sp2))
+            def sot:string (WordXml.openTag(spEl2))
+            def bef:string (WordXml.attr(sot "w:before"))
+            def aft:string (WordXml.attr(sot "w:after"))
+            if ((strlen bef) > 0) {
+                def bi@(optional):int (to_int bef)
+                if (!null? bi) {
+                    defn.spaceBeforePt = ((to_double (unwrap bi)) / 20.0)
+                }
+            }
+            if ((strlen aft) > 0) {
+                def ai2@(optional):int (to_int aft)
+                if (!null? ai2) {
+                    defn.spaceAfterPt = ((to_double (unwrap ai2)) / 20.0)
+                }
+            }
+            def line:string (WordXml.attr(sot "w:line"))
+            def rule:string (WordXml.attr(sot "w:lineRule"))
+            if ((strlen line) > 0) {
+                def li@(optional):int (to_int line)
+                if (!null? li) {
+                    if ((rule == "auto") || ((strlen rule) == 0)) {
+                        defn.lineSpacing = ((to_double (unwrap li)) / 240.0)
+                    }
+                }
+            }
+        }
+        def ind:int (WordXml.findNext(pEl "w:ind" 0))
+        if (ind >= 0) {
+            def indEl:string (WordXml.sliceElement(pEl "w:ind" ind))
+            def iot:string (WordXml.openTag(indEl))
+            def left:string (WordXml.attr(iot "w:left"))
+            def right:string (WordXml.attr(iot "w:right"))
+            def first:string (WordXml.attr(iot "w:firstLine"))
+            def hang:string (WordXml.attr(iot "w:hanging"))
+            if ((strlen left) > 0) {
+                def lv@(optional):int (to_int left)
+                if (!null? lv) {
+                    defn.indentLeftPt = ((to_double (unwrap lv)) / 20.0)
+                }
+            }
+            if ((strlen right) > 0) {
+                def rv@(optional):int (to_int right)
+                if (!null? rv) {
+                    defn.indentRightPt = ((to_double (unwrap rv)) / 20.0)
+                }
+            }
+            if ((strlen first) > 0) {
+                def fv@(optional):int (to_int first)
+                if (!null? fv) {
+                    defn.indentFirstLinePt = ((to_double (unwrap fv)) / 20.0)
+                }
+            }
+            if ((strlen hang) > 0) {
+                def hv@(optional):int (to_int hang)
+                if (!null? hv) {
+                    defn.indentFirstLinePt = (0.0 - ((to_double (unwrap hv)) / 20.0))
+                }
+            }
+        }
+    }
+
+    fn applyRPrToStyleDef:void (xml:string defn:StyleDef) {
+        if (WordXml.findNext(xml "w:b" 0) >= 0) {
+            defn.hasBold = true
+            defn.run.bold = (WordXml.hasFlag(xml "w:b"))
+        }
+        if (WordXml.findNext(xml "w:i" 0) >= 0) {
+            defn.hasItalic = true
+            defn.run.italic = (WordXml.hasFlag(xml "w:i"))
+        }
+        if (WordXml.findNext(xml "w:u" 0) >= 0) {
+            defn.hasUnderline = true
+            def uEl:string (WordXml.sliceElement(xml "w:u" (WordXml.findNext(xml "w:u" 0))))
+            def uv:string (WordXml.attr((WordXml.openTag(uEl)) "w:val"))
+            if ((uv == "none") || (uv == "0") || (uv == "false")) {
+                defn.run.underline = false
+            } {
+                defn.run.underline = true
+            }
+        }
+        def sz:int (WordXml.findNext(xml "w:sz" 0))
+        if (sz >= 0) {
+            def szEl:string (WordXml.sliceElement(xml "w:sz" sz))
+            def pt:double (WordStyleResolver.halfPointsToPt((WordXml.attr((WordXml.openTag(szEl)) "w:val"))))
+            if (pt > 0.0) {
+                defn.hasSize = true
+                defn.run.fontSizePt = pt
+            }
+        }
+        def rf:int (WordXml.findNext(xml "w:rFonts" 0))
+        if (rf >= 0) {
+            def rfEl:string (WordXml.sliceElement(xml "w:rFonts" rf))
+            def ot:string (WordXml.openTag(rfEl))
+            def ascii:string (WordXml.attr(ot "w:ascii"))
+            if ((strlen ascii) == 0) {
+                ascii = (WordXml.attr(ot "w:hAnsi"))
+            }
+            defn.hasFont = true
+            defn.run.fontFamily = (WordStyleResolver.mapFont(ascii))
+        }
+        def col:int (WordXml.findNext(xml "w:color" 0))
+        if (col >= 0) {
+            def cEl:string (WordXml.sliceElement(xml "w:color" col))
+            def hex:string (WordXml.attr((WordXml.openTag(cEl)) "w:val"))
+            if ((strlen hex) == 6) {
+                defn.hasColor = true
+                defn.run.colorHex = hex
+            }
+        }
+    }
+
+    fn mergeStyleRun:void (into:ResolvedRunStyle defn:StyleDef) {
+        if defn.hasBold {
+            into.bold = defn.run.bold
+        }
+        if defn.hasItalic {
+            into.italic = defn.run.italic
+        }
+        if defn.hasUnderline {
+            into.underline = defn.run.underline
+        }
+        if defn.hasSize {
+            into.fontSizePt = defn.run.fontSizePt
+        }
+        if defn.hasFont {
+            into.fontFamily = defn.run.fontFamily
+        }
+        if defn.hasColor {
+            into.colorHex = defn.run.colorHex
         }
     }
 
@@ -202,8 +387,15 @@ class WordStyleResolver {
         if (WordXml.hasFlag(xml "w:i")) {
             into.italic = true
         }
-        if (WordXml.hasFlag(xml "w:u")) {
-            into.underline = true
+        def u:int (WordXml.findNext(xml "w:u" 0))
+        if (u >= 0) {
+            def uEl:string (WordXml.sliceElement(xml "w:u" u))
+            def uv:string (WordXml.attr((WordXml.openTag(uEl)) "w:val"))
+            if ((uv == "none") || (uv == "0") || (uv == "false")) {
+                into.underline = false
+            } {
+                into.underline = true
+            }
         }
         def sz:int (WordXml.findNext(xml "w:sz" 0))
         if (sz >= 0) {
@@ -231,6 +423,16 @@ class WordStyleResolver {
                 into.colorHex = hex
             }
         }
+        ; character style reference
+        def rStyle:int (WordXml.findNext(xml "w:rStyle" 0))
+        if (rStyle >= 0) {
+            def rsEl:string (WordXml.sliceElement(xml "w:rStyle" rStyle))
+            def rid:string (WordXml.attr((WordXml.openTag(rsEl)) "w:val"))
+            if ((strlen rid) > 0) {
+                def charRun:ResolvedRunStyle (this.resolveCharacterStyle(rid))
+                into.mergeFrom(charRun)
+            }
+        }
     }
 
     fn lookup:StyleDef (styleId:string) {
@@ -241,99 +443,232 @@ class WordStyleResolver {
         return (new StyleDef)
     }
 
-    fn resolveParagraph:void (p:Paragraph pPrXml:string) {
-        def chain:[string]
-        push chain "Normal"
-        if ((strlen p.styleId) > 0) {
-            if (p.styleId != "Normal") {
-                push chain p.styleId
+    ; Walk basedOn chain (root → leaf), guarding against cycles.
+    fn basedOnChain:void (styleId:string out:[string]) {
+        def seen:[string:int]
+        def cur:string styleId
+        def guard:int 0
+        while ((strlen cur) > 0) {
+            if (guard > 32) {
+                return
             }
+            guard = (guard + 1)
+            def hit@(optional):int (get seen cur)
+            if (!null? hit) {
+                return
+            }
+            set seen cur 1
+            push out cur
+            def defn:StyleDef (this.lookup(cur))
+            cur = defn.basedOn
         }
-        p.align = 0
-        p.spaceBeforePt = 0.0
-        p.spaceAfterPt = defaultAfterPt
-        def baseRun:ResolvedRunStyle (defaults.copy())
-        def ci:int 0
-        while (ci < (array_length chain)) {
-            def sid:string (itemAt chain ci)
+    }
+
+    fn resolveCharacterStyle:ResolvedRunStyle (styleId:string) {
+        def chain:[string]
+        this.basedOnChain(styleId chain)
+        def run:ResolvedRunStyle (defaults.copy())
+        ; apply root → leaf
+        def rev:[string]
+        def i:int ((array_length chain) - 1)
+        while (i >= 0) {
+            push rev (itemAt chain i)
+            i = (i - 1)
+        }
+        def j:int 0
+        while (j < (array_length rev)) {
+            def sid:string (itemAt rev j)
             def defn:StyleDef (this.lookup(sid))
-            if ((strlen defn.basedOn) > 0) {
-                ; basedOn already expected earlier in chain for our fixtures
+            if defn.hasRun {
+                this.mergeStyleRun(run defn)
             }
+            j = (j + 1)
+        }
+        return run
+    }
+
+    fn resolveParagraphStyle:ResolvedParagraphStyle (styleId:string) {
+        def ps:ResolvedParagraphStyle (new ResolvedParagraphStyle)
+        ps.align = defaultAlign
+        ps.spaceAfterPt = defaultAfterPt
+        ps.lineSpacing = defaultLineSpacing
+        ps.run = (defaults.copy())
+        def chain:[string]
+        if ((strlen styleId) == 0) {
+            styleId = "Normal"
+        }
+        this.basedOnChain(styleId chain)
+        ; root → leaf
+        def rev:[string]
+        def i:int ((array_length chain) - 1)
+        while (i >= 0) {
+            push rev (itemAt chain i)
+            i = (i - 1)
+        }
+        def j:int 0
+        while (j < (array_length rev)) {
+            def sid:string (itemAt rev j)
+            def defn:StyleDef (this.lookup(sid))
             if (defn.align >= 0) {
-                p.align = defn.align
+                ps.align = defn.align
             }
             if (defn.spaceBeforePt >= 0.0) {
-                p.spaceBeforePt = defn.spaceBeforePt
+                ps.spaceBeforePt = defn.spaceBeforePt
             }
             if (defn.spaceAfterPt >= 0.0) {
-                p.spaceAfterPt = defn.spaceAfterPt
+                ps.spaceAfterPt = defn.spaceAfterPt
+            }
+            if (defn.lineSpacing >= 0.0) {
+                ps.lineSpacing = defn.lineSpacing
+            }
+            if (defn.indentLeftPt >= 0.0) {
+                ps.indentLeftPt = defn.indentLeftPt
+            }
+            if (defn.indentRightPt >= 0.0) {
+                ps.indentRightPt = defn.indentRightPt
+            }
+            ; first-line can be negative (hanging)
+            if (defn.indentFirstLinePt != -1.0) {
+                if ((defn.indentFirstLinePt != 0.0) || defn.hasPPr) {
+                    ; Only override when style actually set indent (use != -1 sentinel)
+                }
+            }
+            if (defn.indentFirstLinePt > -100000.0) {
+                if ((defn.indentLeftPt >= 0.0) || (defn.indentFirstLinePt != -1.0)) {
+                    if (defn.indentFirstLinePt != -1.0) {
+                        ps.indentFirstLinePt = defn.indentFirstLinePt
+                    }
+                }
             }
             if defn.hasRun {
-                baseRun = (defn.run.copy())
+                this.mergeStyleRun(ps.run defn)
             }
-            ci = (ci + 1)
+            j = (j + 1)
         }
-        ; Direct pPr overrides
-        if ((strlen pPrXml) > 0) {
-            def jc:int (WordXml.findNext(pPrXml "w:jc" 0))
-            if (jc >= 0) {
-                def jcEl:string (WordXml.sliceElement(pPrXml "w:jc" jc))
-                def a:int (WordStyleResolver.alignOf((WordXml.attr((WordXml.openTag(jcEl)) "w:val"))))
-                if (a >= 0) {
-                    p.align = a
+        return ps
+    }
+
+    fn applyDirectPPr:void (pPrXml:string ps:ResolvedParagraphStyle p:Paragraph) {
+        if ((strlen pPrXml) == 0) {
+            return
+        }
+        def jc:int (WordXml.findNext(pPrXml "w:jc" 0))
+        if (jc >= 0) {
+            def jcEl:string (WordXml.sliceElement(pPrXml "w:jc" jc))
+            def a:int (WordStyleResolver.alignOf((WordXml.attr((WordXml.openTag(jcEl)) "w:val"))))
+            if (a >= 0) {
+                ps.align = a
+            }
+        }
+        def sp:int (WordXml.findNext(pPrXml "w:spacing" 0))
+        if (sp >= 0) {
+            def spEl:string (WordXml.sliceElement(pPrXml "w:spacing" sp))
+            def sot:string (WordXml.openTag(spEl))
+            def bef:string (WordXml.attr(sot "w:before"))
+            def aft:string (WordXml.attr(sot "w:after"))
+            if ((strlen bef) > 0) {
+                def bi@(optional):int (to_int bef)
+                if (!null? bi) {
+                    ps.spaceBeforePt = ((to_double (unwrap bi)) / 20.0)
                 }
             }
-            def sp:int (WordXml.findNext(pPrXml "w:spacing" 0))
-            if (sp >= 0) {
-                def spEl:string (WordXml.sliceElement(pPrXml "w:spacing" sp))
-                def sot:string (WordXml.openTag(spEl))
-                def bef:string (WordXml.attr(sot "w:before"))
-                def aft:string (WordXml.attr(sot "w:after"))
-                if ((strlen bef) > 0) {
-                    def bi@(optional):int (to_int bef)
-                    if (!null? bi) {
-                        p.spaceBeforePt = ((to_double (unwrap bi)) / 20.0)
-                    }
-                }
-                if ((strlen aft) > 0) {
-                    def ai@(optional):int (to_int aft)
-                    if (!null? ai) {
-                        p.spaceAfterPt = ((to_double (unwrap ai)) / 20.0)
-                    }
+            if ((strlen aft) > 0) {
+                def ai@(optional):int (to_int aft)
+                if (!null? ai) {
+                    ps.spaceAfterPt = ((to_double (unwrap ai)) / 20.0)
                 }
             }
-            def num:int (WordXml.findNext(pPrXml "w:numPr" 0))
-            if (num >= 0) {
-                def numEl:string (WordXml.sliceElement(pPrXml "w:numPr" num))
-                def nid:int (WordXml.findNext(numEl "w:numId" 0))
-                if (nid >= 0) {
-                    def nEl:string (WordXml.sliceElement(numEl "w:numId" nid))
-                    def nv:string (WordXml.attr((WordXml.openTag(nEl)) "w:val"))
-                    def ni@(optional):int (to_int nv)
-                    if (!null? ni) {
-                        p.listNumId = (unwrap ni)
-                        p.listKind = 2
-                    }
-                }
-                def il:int (WordXml.findNext(numEl "w:ilvl" 0))
-                if (il >= 0) {
-                    def ilEl:string (WordXml.sliceElement(numEl "w:ilvl" il))
-                    def iv:string (WordXml.attr((WordXml.openTag(ilEl)) "w:val"))
-                    def ii@(optional):int (to_int iv)
-                    if (!null? ii) {
-                        p.listLevel = (unwrap ii)
+            def line:string (WordXml.attr(sot "w:line"))
+            def rule:string (WordXml.attr(sot "w:lineRule"))
+            if ((strlen line) > 0) {
+                def li@(optional):int (to_int line)
+                if (!null? li) {
+                    if ((rule == "auto") || ((strlen rule) == 0)) {
+                        ps.lineSpacing = ((to_double (unwrap li)) / 240.0)
                     }
                 }
             }
         }
-        ; Stash resolved base run on a sentinel span slot via styleId marker —
-        ; parser applies baseRun when building spans.
-        p.styleId = (p.styleId + "")
-        ; Store base run fields on a temporary paragraph convention: first span
-        ; template kept in resolver caller's local. We attach via empty span 0.
+        def ind:int (WordXml.findNext(pPrXml "w:ind" 0))
+        if (ind >= 0) {
+            def indEl:string (WordXml.sliceElement(pPrXml "w:ind" ind))
+            def iot:string (WordXml.openTag(indEl))
+            def left:string (WordXml.attr(iot "w:left"))
+            def right:string (WordXml.attr(iot "w:right"))
+            def first:string (WordXml.attr(iot "w:firstLine"))
+            def hang:string (WordXml.attr(iot "w:hanging"))
+            if ((strlen left) > 0) {
+                def lv@(optional):int (to_int left)
+                if (!null? lv) {
+                    ps.indentLeftPt = ((to_double (unwrap lv)) / 20.0)
+                }
+            }
+            if ((strlen right) > 0) {
+                def rv@(optional):int (to_int right)
+                if (!null? rv) {
+                    ps.indentRightPt = ((to_double (unwrap rv)) / 20.0)
+                }
+            }
+            if ((strlen first) > 0) {
+                def fv@(optional):int (to_int first)
+                if (!null? fv) {
+                    ps.indentFirstLinePt = ((to_double (unwrap fv)) / 20.0)
+                }
+            }
+            if ((strlen hang) > 0) {
+                def hv@(optional):int (to_int hang)
+                if (!null? hv) {
+                    ps.indentFirstLinePt = (0.0 - ((to_double (unwrap hv)) / 20.0))
+                }
+            }
+        }
+        def num:int (WordXml.findNext(pPrXml "w:numPr" 0))
+        if (num >= 0) {
+            def numEl:string (WordXml.sliceElement(pPrXml "w:numPr" num))
+            def nid:int (WordXml.findNext(numEl "w:numId" 0))
+            if (nid >= 0) {
+                def nEl:string (WordXml.sliceElement(numEl "w:numId" nid))
+                def nv:string (WordXml.attr((WordXml.openTag(nEl)) "w:val"))
+                def ni@(optional):int (to_int nv)
+                if (!null? ni) {
+                    p.listNumId = (unwrap ni)
+                    p.listKind = 2
+                }
+            }
+            def il:int (WordXml.findNext(numEl "w:ilvl" 0))
+            if (il >= 0) {
+                def ilEl:string (WordXml.sliceElement(numEl "w:ilvl" il))
+                def iv:string (WordXml.attr((WordXml.openTag(ilEl)) "w:val"))
+                def ii@(optional):int (to_int iv)
+                if (!null? ii) {
+                    p.listLevel = (unwrap ii)
+                }
+            }
+        }
+        ; page break before
+        if (WordXml.hasFlag(pPrXml "w:pageBreakBefore")) {
+            p.pageBreakBefore = true
+        }
+    }
+
+    fn resolveParagraph:void (p:Paragraph pPrXml:string) {
+        def sid:string p.styleId
+        if ((strlen sid) == 0) {
+            sid = "Normal"
+            p.styleId = sid
+        }
+        def ps:ResolvedParagraphStyle (this.resolveParagraphStyle(sid))
+        this.applyDirectPPr(pPrXml ps p)
+        p.align = ps.align
+        p.spaceBeforePt = ps.spaceBeforePt
+        p.spaceAfterPt = ps.spaceAfterPt
+        p.lineSpacing = ps.lineSpacing
+        p.indentLeftPt = ps.indentLeftPt
+        p.indentRightPt = ps.indentRightPt
+        p.indentFirstLinePt = ps.indentFirstLinePt
+        ; Stash base run on tip span for parser
         def tip:TextSpan (TextSpan.create(0 0))
-        baseRun.applyToSpan(tip)
+        ps.run.applyToSpan(tip)
         clear p.spans
         push p.spans tip
     }

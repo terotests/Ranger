@@ -11,6 +11,7 @@ class DocxPackage {
     def pathDir:string ""
     def pathFile:string ""
     def relTargets:[string:string]
+    def relTypes:[string:string]
 
     Constructor () {
     }
@@ -87,15 +88,21 @@ class DocxPackage {
                     def tag:string (substring xml rs (gt + 1))
                     def id:string (this.quotedAttr(tag "Id"))
                     def target:string (this.quotedAttr(tag "Target"))
+                    def typ:string (this.quotedAttr(tag "Type"))
                     if ((strlen id) > 0) {
                         if ((strlen target) > 0) {
                             def part:string target
                             if ((indexOf target "word/") == 0) {
                                 part = target
                             } {
-                                part = ("word/" + target)
+                                if ((indexOf target "/") == 0) {
+                                    part = (substring target 1 (strlen target))
+                                } {
+                                    part = ("word/" + target)
+                                }
                             }
                             set relTargets id part
+                            set relTypes id typ
                         }
                     }
                     i = (gt + 1)
@@ -127,6 +134,14 @@ class DocxPackage {
 
     fn resolveRel:string (relId:string) {
         def hit@(optional):string (get relTargets relId)
+        if (null? hit) {
+            return ""
+        }
+        return (unwrap hit)
+    }
+
+    fn relType:string (relId:string) {
+        def hit@(optional):string (get relTypes relId)
         if (null? hit) {
             return ""
         }
