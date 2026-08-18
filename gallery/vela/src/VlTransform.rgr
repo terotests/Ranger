@@ -674,6 +674,68 @@ class VlTransform {
         return out
     }
 
+    ; ---------------------------------------------------------------- lookup ---
+    ; Rows joined to rows of ANOTHER data set by a key: a table of people and a
+    ; table of groups, drawn as one. The table is indexed by its key first —
+    ; the reference assumes the key is unique and lets a later row replace an
+    ; earlier one — and every row is then extended with what its key found.
+    ;
+    ; Two shapes come out of it. Named `values`, the matched row's columns are
+    ; copied across one by one under `as`; without them the whole matched row
+    ; is stored under one name, which is what lets a chart read it as an
+    ; object. A key that finds nothing gets the default, whatever it is.
+    sfn lookup:[VlJson] (rows:[VlJson] table:[VlJson] key:string fields:[string] values:[string] asNames:[string] fallback:VlJson) {
+        def index:[string:VlJson]
+        for table entry:VlJson ei {
+            set index ((VlTransform.memberOf(entry key)).asString()) entry
+        }
+        def fieldCount:int (array_length fields)
+        def valueCount:int (array_length values)
+        def out:[VlJson]
+        for rows row:VlJson ri {
+            def joined:VlJson (VlTransform.copyRow(row))
+            def slot:int 0
+            def fi:int 0
+            while (fi < fieldCount) {
+                def wanted:string ((VlTransform.memberOf(row (itemAt fields fi))).asString())
+                def found:boolean (has index wanted)
+                def matched:VlJson (VlJson.nullValue())
+                if found {
+                    matched = (unwrap (get index wanted))
+                }
+                if (valueCount > 0) {
+                    def vi:int 0
+                    while (vi < valueCount) {
+                        def name:string (itemAt values vi)
+                        if (slot < (array_length asNames)) {
+                            name = (itemAt asNames slot)
+                        }
+                        if found {
+                            joined.setMember(name (VlTransform.memberOf(matched (itemAt values vi))))
+                        } {
+                            joined.setMember(name fallback)
+                        }
+                        slot = (slot + 1)
+                        vi = (vi + 1)
+                    }
+                } {
+                    def whole:string (itemAt fields fi)
+                    if (fi < (array_length asNames)) {
+                        whole = (itemAt asNames fi)
+                    }
+                    if found {
+                        joined.setMember(whole matched)
+                    } {
+                        joined.setMember(whole fallback)
+                    }
+                }
+                fi = (fi + 1)
+            }
+            push out joined
+        }
+        return out
+    }
+
     ; ------------------------------------------------------------------ kde ---
     ; A kernel density estimate: a smooth curve standing in for a histogram,
     ; which is what a chart draws when it wants the SHAPE of a distribution

@@ -776,6 +776,23 @@ class VlRuntime {
         ; The same aggregation joined back onto the rows it came from, which is
         ; how a row is compared with its own group — a box plot's outliers are
         ; the points outside their group's own quartiles.
+        ; Rows joined to rows of another data set by a key.
+        if (ttype == "lookup") {
+            def tableName:string (tdef.stringOr("from" ""))
+            def table:[VlJson]
+            if (has dataSets tableName) {
+                def other:VlDataSet (unwrap (get dataSets tableName))
+                for other.rows one:VlJson oi {
+                    push table one
+                }
+            } {
+                this.fail(("a lookup reads data set '" + tableName) + "', which the spec does not define")
+            }
+            def lookFields:[string] (VlRuntime.stringList((tdef.get("fields"))))
+            def lookValues:[string] (VlRuntime.stringList((tdef.get("values"))))
+            def lookAs:[string] (VlRuntime.stringList((tdef.get("as"))))
+            return (VlTransform.lookup(rows table (tdef.stringOr("key" "")) lookFields lookValues lookAs (tdef.get("default"))))
+        }
         if (ttype == "joinaggregate") {
             def groupby:[string] (VlRuntime.stringList((tdef.get("groupby"))))
             def ops:[string] (VlRuntime.stringList((tdef.get("ops"))))

@@ -241,6 +241,10 @@ class VlCompile {
     def stackField:string ""
     def stackOffset:string "zero"
     def dataName:string "source_0"
+    ; Data sets a TRANSFORM brought with it — the table a lookup joins against
+    ; — which are sources in their own right and have to be written beside the
+    ; chart's own before anything reads them.
+    def sideData:[VlJson]
     ; A layered chart compiles each layer on its own and then merges them, so
     ; each layer needs its own names and has to be told the scale types the
     ; merge settled on — a text label sits on a BAND scale when it is layered
@@ -4299,6 +4303,9 @@ class VlCompile {
         if (! generated) {
             push out.arr src
         }
+        ; The transforms are read before the list is written so that anything
+        ; they brought with them is already known.
+        clear sideData
 
         def derived (VlJson.objectValue())
         derived.setMember("name" (VlJson.stringValue(dataLabel)))
@@ -4337,6 +4344,9 @@ class VlCompile {
             dataLabel = "source_0"
             dataName = dataLabel
             return out
+        }
+        for sideData beside:VlJson bi {
+            push out.arr beside
         }
         if ((transforms.count()) == 0) {
             dataLabel = "source_0"
@@ -4607,6 +4617,66 @@ class VlCompile {
                     }
                     push transforms.arr pv
                 } {
+                if (t.has("lookup")) {
+                    ; Rows joined to the rows of another table by a key. The
+                    ; table is a data set in its own right, so it is written
+                    ; beside the chart's own and the transform names it.
+                    def lkFrom:VlJson (t.get("from"))
+                    if (! (lkFrom.isObject())) {
+                        this.fail("a lookup needs a `from`")
+                    } {
+                    def lkData:VlJson (lkFrom.get("data"))
+                    if (! (lkData.isObject())) {
+                        ; `{"from": {"param": …}} is a lookup against what a
+                        ; selection holds, which needs interaction.
+                        this.fail("a lookup against a selection needs interaction, which is not compiled here")
+                    } {
+                        def table (VlJson.objectValue())
+                        def tableName:string ("source_" + (VlJson.intToText(((array_length sideData) + 1))))
+                        table.setMember("name" (VlJson.stringValue(tableName)))
+                        if (lkData.has("values")) {
+                            table.setMember("values" (lkData.get("values")))
+                        }
+                        if (lkData.has("url")) {
+                            table.setMember("url" (lkData.get("url")))
+                        }
+                        def namedSet:string (lkData.stringOr("name" ""))
+                        if ((strlen namedSet) > 0) {
+                            def sets:VlJson (rootSource.get("datasets"))
+                            if (sets.isObject()) {
+                                if (sets.has(namedSet)) {
+                                    table.setMember("values" (sets.get(namedSet)))
+                                }
+                            }
+                        }
+                        push sideData table
+                        def lk (VlJson.objectValue())
+                        lk.setMember("type" (VlJson.stringValue("lookup")))
+                        lk.setMember("from" (VlJson.stringValue(tableName)))
+                        lk.setMember("key" (VlJson.stringValue((lkFrom.stringOr("key" "")))))
+                        def lkFields (VlJson.arrayValue())
+                        push lkFields.arr (VlJson.stringValue((t.stringOr("lookup" ""))))
+                        lk.setMember("fields" lkFields)
+                        if ((lkFrom.get("fields")).isArray()) {
+                            lk.setMember("values" (lkFrom.get("fields")))
+                        }
+                        if (t.has("as")) {
+                            def lkAs:VlJson (t.get("as"))
+                            if (lkAs.isString()) {
+                                def one (VlJson.arrayValue())
+                                push one.arr lkAs
+                                lk.setMember("as" one)
+                            } {
+                                lk.setMember("as" lkAs)
+                            }
+                        }
+                        if (t.has("default")) {
+                            lk.setMember("default" (t.get("default")))
+                        }
+                        push transforms.arr lk
+                    }
+                    }
+                } {
                 if (t.has("timeUnit")) {
                     ; A time unit as a TRANSFORM rather than on a channel: the
                     ; same rounding, written where the data is prepared, so
@@ -4636,6 +4706,7 @@ class VlCompile {
                     ; how Vega-Lite writes a transform, so the refusal can say
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
                 }
                 }
                 }
