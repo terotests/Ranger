@@ -11,6 +11,8 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
+Import "PptxGeom.rgr"
+Import "PptxChartVela.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -364,6 +366,12 @@ class PptxToEvg {
             if body.wrap {
                 maxW = contentW
             }
+            def bulletPrefix:string ""
+            def textOriginX:double (x + padL)
+            if para.hasBullet {
+                bulletPrefix = (para.bulletChar + " ")
+                textOriginX = (textOriginX + ((to_double para.level) * (this.ptToPx(18.0))) + (this.ptToPx(12.0)))
+            }
             ; Approximate total line width so ctr/r can place multi-run lines.
             def approxW:double 0.0
             def ri0:int 0
@@ -377,15 +385,22 @@ class PptxToEvg {
                 approxW = (approxW + ((to_double (strlen r0.text)) * fs0 * 0.52))
                 ri0 = (ri0 + 1)
             }
-            def runX:double (x + padL)
+            if para.hasBullet {
+                approxW = (approxW + ((to_double (strlen bulletPrefix)) * lineSize * 0.52))
+            }
+            def runX:double textOriginX
             if (align == "center") {
-                runX = ((x + padL) + ((contentW - approxW) * 0.5))
+                runX = (textOriginX + ((contentW - approxW) * 0.5))
             }
             if (align == "right") {
-                runX = ((x + padL) + (contentW - approxW))
+                runX = (textOriginX + (contentW - approxW))
             }
-            ; Single-run paragraphs: let SoftCanvas measure precisely via boxW.
             def singleRun:boolean ((array_length para.runs) == 1)
+            if para.hasBullet {
+                this.pushTextCmd(dl bulletPrefix runX ty lineSize (EVGColor.rgb(40 40 50)) "Calibri" shape.rotation "left" 0.0 false 0.0)
+                runX = (runX + ((to_double (strlen bulletPrefix)) * lineSize * 0.52))
+                singleRun = false
+            }
             def ri:int 0
             while (ri < (array_length para.runs)) {
                 def run:PptxTextRun (itemAt para.runs ri)
@@ -398,10 +413,55 @@ class PptxToEvg {
                 if (run.color.isSet) {
                     col = (this.colorFrom(run.color))
                 }
-                if singleRun {
-                    this.pushTextCmd(dl run.text (x + padL) ty fontSize col fontFamily shape.rotation align contentW run.bold maxW)
+                def weight:string ""
+                if run.bold {
+                    if run.italic {
+                        weight = "bolditalic"
+                    } {
+                        weight = "bold"
+                    }
                 } {
-                    this.pushTextCmd(dl run.text runX ty fontSize col fontFamily shape.rotation "left" 0.0 run.bold 0.0)
+                    if run.italic {
+                        weight = "italic"
+                    }
+                }
+                if (singleRun && (para.hasBullet == false)) {
+                    def c (new EVGDrawCmd())
+                    c.kind = 3
+                    c.x = (x + padL)
+                    c.y = ty
+                    c.w = contentW
+                    c.h = fontSize
+                    c.text = run.text
+                    c.fontFamily = fontFamily
+                    c.fontSize = fontSize
+                    c.textAlign = align
+                    c.maxWidth = maxW
+                    c.fontWeight = weight
+                    c.r = (col.red())
+                    c.g = (col.green())
+                    c.b = (col.blue())
+                    c.a = (col.alpha())
+                    c.rotate = shape.rotation
+                    push dl.cmds c
+                } {
+                    def c2 (new EVGDrawCmd())
+                    c2.kind = 3
+                    c2.x = runX
+                    c2.y = ty
+                    c2.w = 0.0
+                    c2.h = fontSize
+                    c2.text = run.text
+                    c2.fontFamily = fontFamily
+                    c2.fontSize = fontSize
+                    c2.textAlign = "left"
+                    c2.fontWeight = weight
+                    c2.r = (col.red())
+                    c2.g = (col.green())
+                    c2.b = (col.blue())
+                    c2.a = (col.alpha())
+                    c2.rotate = shape.rotation
+                    push dl.cmds c2
                     runX = (runX + ((to_double (strlen run.text)) * fontSize * 0.52))
                 }
                 ri = (ri + 1)
@@ -413,6 +473,94 @@ class PptxToEvg {
             ty = (ty + (lineSize * 1.2 * spacing))
             ty = (ty + (this.ptToPx(para.spaceAfterPt)))
             pi = (pi + 1)
+        }
+    }
+
+    fn pushPathFill:void (dl:EVGDisplayList pts:[double] col:EVGColor) {
+        if ((array_length pts) < 6) {
+            return
+        }
+        def c (new EVGDrawCmd())
+        c.kind = 6
+        c.pts = pts
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushGradRect:void (dl:EVGDisplayList x:double y:double w:double h:double grad:PptxGradient) {
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.hasGrad = true
+        c.gradDir = grad.dir
+        def c1:EVGColor (this.colorFrom(grad.c1))
+        def c2:EVGColor (this.colorFrom(grad.c2))
+        c.r = (c1.red())
+        c.g = (c1.green())
+        c.b = (c1.blue())
+        c.a = (c1.alpha())
+        c.r2 = (c2.red())
+        c.g2 = (c2.green())
+        c.b2 = (c2.blue())
+        c.a2 = (c2.alpha())
+        push dl.cmds c
+    }
+
+    fn applyShadowToCmd:void (c:EVGDrawCmd shape:PptxShape) {
+        if (shape.shadow.isSet == false) {
+            return
+        }
+        c.hasShadow = true
+        c.shadowX = (this.ptToPx(shape.shadow.offsetXPt))
+        c.shadowY = (this.ptToPx(shape.shadow.offsetYPt))
+        c.shadowBlur = (this.ptToPx(shape.shadow.blurPt))
+        def sc:EVGColor (this.colorFrom(shape.shadow.color))
+        c.shadowR = (sc.red())
+        c.shadowG = (sc.green())
+        c.shadowB = (sc.blue())
+        c.shadowA = shape.shadow.alpha
+    }
+
+    fn emitTable:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
+        def rows:int shape.tableRows
+        def cols:int shape.tableCols
+        if (rows < 1) { rows = 1 }
+        if (cols < 1) { cols = 1 }
+        def cellW:double (w / (to_double cols))
+        def cellH:double (h / (to_double rows))
+        def i:int 0
+        while (i < (array_length shape.tableCells)) {
+            def cell:PptxTableCell (itemAt shape.tableCells i)
+            def ri:int (idiv i cols)
+            def ci:int (i - (ri * cols))
+            def cx:double (x + ((to_double ci) * cellW))
+            def cy:double (y + ((to_double ri) * cellH))
+            def fillCol:EVGColor (EVGColor.rgb(255 255 255))
+            if (cell.fill.isSet) {
+                fillCol = (this.colorFrom(cell.fill))
+            } {
+                if ((ri % 2) == 1) {
+                    fillCol = (EVGColor.rgb(245 247 250))
+                }
+            }
+            this.pushRect(dl cx cy cellW cellH fillCol)
+            this.pushBorder(dl cx cy cellW cellH 1.0 (EVGColor.rgb(180 190 200)))
+            if ((strlen cell.text) > 0) {
+                def tc:EVGColor (EVGColor.rgb(30 30 40))
+                def fs:double (this.ptToPx(cell.fontSizePt))
+                def weight:string ""
+                if cell.bold {
+                    weight = "bold"
+                }
+                this.pushTextCmd(dl cell.text (cx + 4.0) (cy + 4.0) fs tc "Calibri" 0.0 (this.alignToken(cell.align)) (cellW - 8.0) cell.bold 0.0)
+            }
+            i = (i + 1)
         }
     }
 
@@ -439,8 +587,89 @@ class PptxToEvg {
             }
             return
         }
-        if (shape.fill.isSet) {
-            this.pushRect(dl x y w h (this.colorFrom(shape.fill)))
+        if (shape.kind == 4) {
+            this.emitTable(dl shape x y w h)
+            return
+        }
+        if (shape.kind == 5) {
+            PptxChartVela.emitToDisplayList(dl shape.chart x y w h)
+            return
+        }
+        ; Fill: gradient, path preset, or rect
+        def filled:boolean false
+        if (shape.fillGrad.isSet) {
+            def gc (new EVGDrawCmd())
+            ; use pushGradRect path via temporary
+            this.pushGradRect(dl x y w h shape.fillGrad)
+            def last:EVGDrawCmd (itemAt dl.cmds ((array_length dl.cmds) - 1))
+            this.applyShadowToCmd(last shape)
+            filled = true
+        } {
+            def usePath:boolean shape.hasPath
+            if (usePath == false) {
+                usePath = (PptxGeom.needsPath(shape.preset))
+            }
+            if usePath {
+                def unit:[double] shape.pathUnit
+                if (shape.hasPath == false) {
+                    unit = (PptxGeom.unitPreset(shape.preset))
+                }
+                def pts:[double] (PptxGeom.scaleToBox(unit x y w h))
+                def col:EVGColor (EVGColor.rgb(180 180 190))
+                if (shape.fill.isSet) {
+                    col = (this.colorFrom(shape.fill))
+                }
+                ; shadow as offset dark polygon first
+                if (shape.shadow.isSet) {
+                    def spts:[double] (PptxGeom.scaleToBox(unit (x + (this.ptToPx(shape.shadow.offsetXPt))) (y + (this.ptToPx(shape.shadow.offsetYPt))) w h))
+                    def sc:EVGColor (this.colorFrom(shape.shadow.color))
+                    def sh (new EVGDrawCmd())
+                    sh.kind = 6
+                    sh.pts = spts
+                    sh.r = (sc.red())
+                    sh.g = (sc.green())
+                    sh.b = (sc.blue())
+                    sh.a = shape.shadow.alpha
+                    push dl.cmds sh
+                }
+                this.pushPathFill(dl pts col)
+                filled = true
+            } {
+                if (shape.fill.isSet) {
+                    def rc (new EVGDrawCmd())
+                    rc.kind = 0
+                    rc.x = x
+                    rc.y = y
+                    rc.w = w
+                    rc.h = h
+                    def col2:EVGColor (this.colorFrom(shape.fill))
+                    rc.r = (col2.red())
+                    rc.g = (col2.green())
+                    rc.b = (col2.blue())
+                    rc.a = (col2.alpha())
+                    if (shape.preset == "roundRect") {
+                        rc.radius = 12.0
+                    }
+                    this.applyShadowToCmd(rc shape)
+                    push dl.cmds rc
+                    filled = true
+                } {
+                    if (shape.shadow.isSet) {
+                        def rc2 (new EVGDrawCmd())
+                        rc2.kind = 0
+                        rc2.x = x
+                        rc2.y = y
+                        rc2.w = w
+                        rc2.h = h
+                        rc2.r = 255
+                        rc2.g = 255
+                        rc2.b = 255
+                        rc2.a = 0.0
+                        this.applyShadowToCmd(rc2 shape)
+                        push dl.cmds rc2
+                    }
+                }
+            }
         }
         if ((shape.line.isSet) && (shape.lineWidthPt > 0.0)) {
             this.pushBorder(dl x y w h (this.ptToPx(shape.lineWidthPt)) (this.colorFrom(shape.line)))

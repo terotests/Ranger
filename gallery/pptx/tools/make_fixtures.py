@@ -2022,6 +2022,293 @@ def main() -> None:
     print(f"wrote {path}")
 
     # Enrich kitchen sink with a second real raster
+
+    # ------------------------------------------------------------------
+    # Effects / tables / charts / geom
+    # ------------------------------------------------------------------
+
+    def grad_rect(sid, name, x, y, cx, cy, c1="4472C4", c2="70AD47", ang=5400000):
+        return f"""      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="{sid}" name="{name}"/>
+          <p:cNvSpPr/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="{x}" y="{y}"/>
+            <a:ext cx="{cx}" cy="{cy}"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:gradFill>
+            <a:gsLst>
+              <a:gs pos="0"><a:srgbClr val="{c1}"/></a:gs>
+              <a:gs pos="100000"><a:srgbClr val="{c2}"/></a:gs>
+            </a:gsLst>
+            <a:lin ang="{ang}" scaled="0"/>
+          </a:gradFill>
+        </p:spPr>
+      </p:sp>"""
+
+    def shadow_rect(sid, name, x, y, cx, cy, fill="ED7D31"):
+        return f"""      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="{sid}" name="{name}"/>
+          <p:cNvSpPr/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="{x}" y="{y}"/>
+            <a:ext cx="{cx}" cy="{cy}"/>
+          </a:xfrm>
+          <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+          <a:solidFill><a:srgbClr val="{fill}"/></a:solidFill>
+          <a:effectLst>
+            <a:outerShdw blurRad="101600" dist="76200" dir="2700000" algn="tl" rotWithShape="0">
+              <a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr>
+            </a:outerShdw>
+          </a:effectLst>
+        </p:spPr>
+      </p:sp>"""
+
+    def bullet_shape(sid, name, x, y, cx, cy, lines):
+        paras = []
+        for text in lines:
+            paras.append(f"""          <a:p>
+            <a:pPr lvl="0">
+              <a:buChar char="•"/>
+            </a:pPr>
+            <a:r>
+              <a:rPr lang="en-US" sz="2400" dirty="0">
+                <a:solidFill><a:schemeClr val="dk1"/></a:solidFill>
+                <a:latin typeface="Calibri"/>
+              </a:rPr>
+              <a:t>{_xml_escape(text)}</a:t>
+            </a:r>
+          </a:p>""")
+        body = "\n".join(paras)
+        return f"""      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="{sid}" name="{name}"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="{x}" y="{y}"/>
+            <a:ext cx="{cx}" cy="{cy}"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr/><a:lstStyle/>
+{body}
+        </p:txBody>
+      </p:sp>"""
+
+    def cust_triangle(sid, name, x, y, cx, cy, fill="5B9BD5"):
+        return f"""      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="{sid}" name="{name}"/>
+          <p:cNvSpPr/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="{x}" y="{y}"/>
+            <a:ext cx="{cx}" cy="{cy}"/>
+          </a:xfrm>
+          <a:custGeom>
+            <a:avLst/>
+            <a:gdLst/>
+            <a:ahLst/>
+            <a:cxnLst/>
+            <a:rect l="0" t="0" r="0" b="0"/>
+            <a:pathLst>
+              <a:path w="100" h="100">
+                <a:moveTo><a:pt x="50" y="0"/></a:moveTo>
+                <a:lnTo><a:pt x="100" y="100"/></a:lnTo>
+                <a:lnTo><a:pt x="0" y="100"/></a:lnTo>
+                <a:close/>
+              </a:path>
+            </a:pathLst>
+          </a:custGeom>
+          <a:solidFill><a:srgbClr val="{fill}"/></a:solidFill>
+        </p:spPr>
+      </p:sp>"""
+
+    s21 = slide_xml(sp_tree(
+        text_shape(2, "Title", 457200, 228600, 8229600, 685800, "Gradients", size_hundredths=3600, bold=True, scheme="dk1"),
+        grad_rect(3, "VGrad", 914400, 1371600, 3429000, 2286000, "4472C4", "70AD47", 5400000),
+        grad_rect(4, "HGrad", 5029200, 1371600, 3429000, 2286000, "ED7D31", "FFC000", 0),
+    ))
+    write_pptx("21-gradient.pptx", [(s21, slide_rels())])
+
+    s22 = slide_xml(sp_tree(
+        text_shape(2, "Title", 457200, 228600, 8229600, 685800, "Shadows", size_hundredths=3600, bold=True, scheme="dk1"),
+        shadow_rect(3, "Card", 2286000, 1714500, 4572000, 2743200, "5B9BD5"),
+    ))
+    write_pptx("22-shadow.pptx", [(s22, slide_rels())])
+
+    s23 = slide_xml(sp_tree(
+        text_shape(2, "Title", 457200, 228600, 8229600, 685800, "Bullets", size_hundredths=3600, bold=True, scheme="dk1"),
+        bullet_shape(3, "List", 914400, 1371600, 7315200, 4114800, [
+            "Ship gradients and shadows",
+            "Render bullets with indent",
+            "Tables and charts next",
+        ]),
+    ))
+    write_pptx("23-bullets.pptx", [(s23, slide_rels())])
+
+    s24 = slide_xml(sp_tree(
+        text_shape(2, "Title", 457200, 228600, 8229600, 685800, "Custom geom + presets", size_hundredths=3600, bold=True, scheme="dk1"),
+        cust_triangle(3, "CustTri", 914400, 1600200, 2743200, 2286000, "4472C4"),
+        rect_shape(4, "Diamond", 4114800, 1600200, 2286000, 2286000, fill="ED7D31", prst="diamond"),
+        rect_shape(5, "Star", 6858000, 1600200, 1828800, 2286000, fill="70AD47", prst="star5"),
+    ))
+    write_pptx("24-custom-geom.pptx", [(s24, slide_rels())])
+
+    # 25-table via graphicFrame
+    table_xml = f"""  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="6858000"/><a:chOff x="0" y="0"/><a:chExt cx="9144000" cy="6858000"/></a:xfrm></p:grpSpPr>
+{text_shape(2, "Title", 457200, 228600, 8229600, 685800, "Table", size_hundredths=3600, bold=True, scheme="dk1")}
+      <p:graphicFrame>
+        <p:nvGraphicFramePr>
+          <p:cNvPr id="3" name="Table 1"/>
+          <p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr>
+          <p:nvPr/>
+        </p:nvGraphicFramePr>
+        <p:xfrm>
+          <a:off x="914400" y="1371600"/>
+          <a:ext cx="7315200" cy="3429000"/>
+        </p:xfrm>
+        <a:graphic>
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+            <a:tbl>
+              <a:tblGrid>
+                <a:gridCol w="2438400"/>
+                <a:gridCol w="2438400"/>
+                <a:gridCol w="2438400"/>
+              </a:tblGrid>
+              <a:tr h="1143000">
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="2000" b="1"/><a:t>Q1</a:t></a:r></a:p></a:txBody><a:tcPr><a:solidFill><a:srgbClr val="4472C4"/></a:solidFill></a:tcPr></a:tc>
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="2000" b="1"/><a:t>Q2</a:t></a:r></a:p></a:txBody><a:tcPr><a:solidFill><a:srgbClr val="4472C4"/></a:solidFill></a:tcPr></a:tc>
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="2000" b="1"/><a:t>Q3</a:t></a:r></a:p></a:txBody><a:tcPr><a:solidFill><a:srgbClr val="4472C4"/></a:solidFill></a:tcPr></a:tc>
+              </a:tr>
+              <a:tr h="1143000">
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>12</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>18</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>21</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>
+              </a:tr>
+              <a:tr h="1143000">
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>9</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>14</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>
+                <a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>16</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>
+              </a:tr>
+            </a:tbl>
+          </a:graphicData>
+        </a:graphic>
+      </p:graphicFrame>
+    </p:spTree>
+  </p:cSld>"""
+    write_pptx("25-table.pptx", [(slide_xml(table_xml), slide_rels())])
+
+    # 26-chart: minimal chart part
+    chart_part = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <c:chart>
+    <c:title>
+      <c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Revenue</a:t></a:r></a:p></c:rich></c:tx>
+    </c:title>
+    <c:plotArea>
+      <c:barChart>
+        <c:barDir val="col"/>
+        <c:grouping val="clustered"/>
+        <c:ser>
+          <c:idx val="0"/><c:order val="0"/>
+          <c:tx><c:v>Series 1</c:v></c:tx>
+          <c:cat>
+            <c:strRef><c:strCache>
+              <c:ptCount val="4"/>
+              <c:pt idx="0"><c:v>A</c:v></c:pt>
+              <c:pt idx="1"><c:v>B</c:v></c:pt>
+              <c:pt idx="2"><c:v>C</c:v></c:pt>
+              <c:pt idx="3"><c:v>D</c:v></c:pt>
+            </c:strCache></c:strRef>
+          </c:cat>
+          <c:val>
+            <c:numRef><c:numCache>
+              <c:ptCount val="4"/>
+              <c:pt idx="0"><c:v>28</c:v></c:pt>
+              <c:pt idx="1"><c:v>55</c:v></c:pt>
+              <c:pt idx="2"><c:v>43</c:v></c:pt>
+              <c:pt idx="3"><c:v>91</c:v></c:pt>
+            </c:numCache></c:numRef>
+          </c:val>
+        </c:ser>
+      </c:barChart>
+    </c:plotArea>
+  </c:chart>
+</c:chartSpace>
+"""
+    chart_slide = f"""  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="6858000"/><a:chOff x="0" y="0"/><a:chExt cx="9144000" cy="6858000"/></a:xfrm></p:grpSpPr>
+{text_shape(2, "Title", 457200, 228600, 8229600, 685800, "Chart via Vela", size_hundredths=3600, bold=True, scheme="dk1")}
+      <p:graphicFrame>
+        <p:nvGraphicFramePr>
+          <p:cNvPr id="3" name="Chart 1"/>
+          <p:cNvGraphicFramePr/>
+          <p:nvPr/>
+        </p:nvGraphicFramePr>
+        <p:xfrm>
+          <a:off x="914400" y="1371600"/>
+          <a:ext cx="7315200" cy="4572000"/>
+        </p:xfrm>
+        <a:graphic>
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">
+            <c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId2"/>
+          </a:graphicData>
+        </a:graphic>
+      </p:graphicFrame>
+    </p:spTree>
+  </p:cSld>"""
+    # Custom writer for chart relationships + content types
+    path = FIXTURES / "26-chart-vela.pptx"
+    overrides = [
+        '<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>',
+        '<Override PartName="/ppt/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>',
+    ]
+    ct = CT.format(overrides="\n  ".join(overrides))
+    srels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/>
+</Relationships>
+"""
+    with ZipFile(path, "w", compression=ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", ct)
+        zf.writestr("_rels/.rels", ROOT_RELS)
+        zf.writestr("ppt/presentation.xml", presentation_xml(1))
+        zf.writestr("ppt/_rels/presentation.xml.rels", presentation_rels(1))
+        zf.writestr("ppt/theme/theme1.xml", THEME)
+        zf.writestr("ppt/slideMasters/slideMaster1.xml", MASTER)
+        zf.writestr("ppt/slideMasters/_rels/slideMaster1.xml.rels", MASTER_RELS)
+        zf.writestr("ppt/slideLayouts/slideLayout1.xml", LAYOUT)
+        zf.writestr("ppt/slideLayouts/_rels/slideLayout1.xml.rels", LAYOUT_RELS)
+        zf.writestr("ppt/slides/slide1.xml", slide_xml(chart_slide))
+        zf.writestr("ppt/slides/_rels/slide1.xml.rels", srels)
+        zf.writestr("ppt/charts/chart1.xml", chart_part)
+    print(f"wrote {path}")
+
+
     print("fixtures ready")
 
 

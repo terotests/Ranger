@@ -47,8 +47,9 @@ function run(cmd, args, opts = {}) {
 }
 
 function ensureDumpTool() {
+  // Always recompile so oracle dumps pick up src/ changes (mtime-cache was
+  // leaving stale table/chart/gradient paint out of inspect + PNGs).
   const bin = path.join(PPTX, "bin/pptx_oracle_dump.js");
-  if (fs.existsSync(bin)) return bin;
   const compile = run("node", [
     "bin/output.js",
     "-es6",
@@ -66,8 +67,8 @@ function ensureDumpTool() {
 }
 
 function ensureModule() {
-  const mod = path.join(PPTX, "bin/pptx_app_module.cjs");
-  if (fs.existsSync(mod)) return;
+  // pptx:oracles already runs pptx:module; keep a hard rebuild here too so
+  // `node harness/run_oracles.mjs` alone stays correct.
   const r = run("npm", ["run", "pptx:module"]);
   if (r.status !== 0) throw new Error("pptx:module failed");
 }

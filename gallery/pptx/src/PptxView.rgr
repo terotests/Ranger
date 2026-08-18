@@ -41,8 +41,11 @@ class PptxView {
         } {
             status = "ready"
         }
-        ; Best-effort bold face registration (family still "Open Sans")
         ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Italic.ttf")
+        ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-BoldItalic.ttf")
+        ctx.tr.fontFamily = fontFamily
+        ctx.tr.applyFace()
     }
 
     fn clearImages:void () {
@@ -164,13 +167,16 @@ class PptxView {
     fn paintTextCmd:void (c:EVGDrawCmd) {
         def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
         def prevFamily:string ctx.tr.fontFamily
-        if ((strlen c.fontFamily) > 0) {
-            ; Prefer loaded Open Sans; keep family name for measure cache keys
-            ctx.tr.fontFamily = fontFamily
-        }
+        ctx.tr.fontFamily = fontFamily
         if (c.fontWeight == "bold") {
-            ; SoftCanvas currently keeps a single RasterText face; weight is
-            ; recorded on the command for WebGL / future multi-face paint.
+            ctx.tr.fontFamily = "Open Sans-Bold"
+        }
+        if (c.fontWeight == "italic") {
+            ctx.tr.fontFamily = "Open Sans-Italic"
+        }
+        if (c.fontWeight == "bolditalic") {
+            ; FontManager style string is "Bold Italic" (space), not "BoldItalic"
+            ctx.tr.fontFamily = "Open Sans-Bold Italic"
         }
         def x:double c.x
         def y:double c.y
@@ -201,8 +207,21 @@ class PptxView {
         while (i < n) {
             def c:EVGDrawCmd (dl.at(i))
             if (c.kind == 0) {
-                def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
+                if c.hasShadow {
+                    ctx.shadowRoundRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) (to_int c.shadowX) (to_int c.shadowY) (to_int c.shadowBlur) c.shadowR c.shadowG c.shadowB (to_int (c.shadowA * 255.0)))
+                }
+                if c.hasGrad {
+                    ctx.fillRoundRectGrad((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) c.gradDir c.r c.g c.b (to_int (c.a * 255.0)) c.r2 c.g2 c.b2 (to_int (c.a2 * 255.0)))
+                } {
+                    if (c.a > 0.001) {
+                        def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                        if (c.radius > 0.5) {
+                            ctx.fillRoundRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) col)
+                        } {
+                            ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
+                        }
+                    }
+                }
             }
             if (c.kind == 1) {
                 def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
@@ -225,6 +244,9 @@ class PptxView {
                     ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 2 (EVGColor.rgb(68 114 196)))
                     ctx.text("[image]" (to_int (c.x + 8.0)) (to_int (c.y + 8.0)) 14.0 (EVGColor.rgb(30 50 90)))
                 }
+            }
+            if (c.kind == 6) {
+                ctx.fillPolygon(c.pts c.r c.g c.b (to_int (c.a * 255.0)))
             }
             i = (i + 1)
         }

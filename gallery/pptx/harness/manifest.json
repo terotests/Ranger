@@ -18,7 +18,13 @@
     "placeholders",
     "display-list",
     "evg-tree",
-    "business-deck"
+    "business-deck",
+    "gradients",
+    "shadows",
+    "bullets",
+    "tables",
+    "charts",
+    "custom-geom"
   ],
   "fixtures": [
     {
@@ -267,6 +273,72 @@
         "minPictures": 2,
         "minGroups": 1,
         "minShapesTotal": 8
+      }
+    },
+    {
+      "file": "21-gradient.pptx",
+      "title": "Linear gradient fills",
+      "features": ["gradients", "shapes", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Gradients"],
+        "minShapes": 3,
+        "minDisplayListCmds": 3
+      }
+    },
+    {
+      "file": "22-shadow.pptx",
+      "title": "Outer shadow on shapes",
+      "features": ["shadows", "shapes", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Shadows"],
+        "minShapes": 2,
+        "minDisplayListCmds": 2
+      }
+    },
+    {
+      "file": "23-bullets.pptx",
+      "title": "Bullet paragraphs",
+      "features": ["bullets", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Bullets", "Ship gradients", "Render bullets"],
+        "minShapes": 2
+      }
+    },
+    {
+      "file": "24-custom-geom.pptx",
+      "title": "custGeom path + preset polygons",
+      "features": ["custom-geom", "presets", "shapes", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Custom geom"],
+        "presets": ["diamond", "star5"],
+        "minShapes": 4,
+        "minDisplayListCmds": 4
+      }
+    },
+    {
+      "file": "25-table.pptx",
+      "title": "DrawingML table graphicFrame",
+      "features": ["tables", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Table", "Q1", "Q2"],
+        "minShapes": 2,
+        "minDisplayListCmds": 5
+      }
+    },
+    {
+      "file": "26-chart-vela.pptx",
+      "title": "Bar chart via Vela",
+      "features": ["charts", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Chart via Vela"],
+        "minShapes": 2,
+        "minDisplayListCmds": 3
       }
     }
   ]

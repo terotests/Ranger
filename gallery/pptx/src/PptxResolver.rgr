@@ -358,11 +358,28 @@ class PptxResolver {
         if (shape.fill.isSet) {
             shape.fill = (this.resolveColor(shape.fill theme))
         }
+        if (shape.fillGrad.isSet) {
+            shape.fillGrad.c1 = (this.resolveColor(shape.fillGrad.c1 theme))
+            shape.fillGrad.c2 = (this.resolveColor(shape.fillGrad.c2 theme))
+        }
         if (shape.line.isSet) {
             shape.line = (this.resolveColor(shape.line theme))
         }
+        if (shape.shadow.isSet) {
+            shape.shadow.color = (this.resolveColor(shape.shadow.color theme))
+        }
         if shape.hasText {
             this.resolveTextBody(shape.text theme)
+        }
+        if (shape.kind == 4) {
+            def ti:int 0
+            while (ti < (array_length shape.tableCells)) {
+                def cell:PptxTableCell (itemAt shape.tableCells ti)
+                if (cell.fill.isSet) {
+                    cell.fill = (this.resolveColor(cell.fill theme))
+                }
+                ti = (ti + 1)
+            }
         }
         def i:int 0
         while (i < (array_length shape.children)) {

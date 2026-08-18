@@ -61,6 +61,22 @@ class EVGDrawCmd {
     def textAlign:string ""
     def fontWeight:string ""
     def maxWidth:double 0.0
+    ; Optional 2-stop gradient for RECT (kind 0)
+    def hasGrad:boolean false
+    def gradDir:int 0
+    def r2:int 0
+    def g2:int 0
+    def b2:int 0
+    def a2:double 1.0
+    ; Optional drop shadow under RECT / PATH
+    def hasShadow:boolean false
+    def shadowX:double 0.0
+    def shadowY:double 0.0
+    def shadowBlur:double 0.0
+    def shadowR:int 0
+    def shadowG:int 0
+    def shadowB:int 0
+    def shadowA:double 0.35
     ; IMAGE
     def src:string ""
     ; PATH / STROKE. The rings are already flattened and already in page

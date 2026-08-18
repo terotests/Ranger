@@ -30,6 +30,10 @@ def shape_summary(shape) -> dict:
         kind = "group"
     elif st == MSO_SHAPE_TYPE.LINE:
         kind = "connector"
+    elif st == MSO_SHAPE_TYPE.TABLE:
+        kind = "table"
+    elif st == MSO_SHAPE_TYPE.CHART:
+        kind = "chart"
     elif st == MSO_SHAPE_TYPE.TEXT_BOX:
         kind = "shape"
 
@@ -138,7 +142,7 @@ def compare(ref: dict, ranger: dict) -> list[str]:
         if t not in ranger_blob:
             fails.append(f"missing text {t!r}")
 
-    for kind in ("picture", "group"):
+    for kind in ("picture", "group", "table", "chart"):
         rc = count_kind(ref, kind)
         sc = count_kind(ranger, kind)
         if rc != sc:

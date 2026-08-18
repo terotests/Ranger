@@ -229,6 +229,12 @@ class PptxApp {
         if (kind == 3) {
             return "connector"
         }
+        if (kind == 4) {
+            return "table"
+        }
+        if (kind == 5) {
+            return "chart"
+        }
         return "shape"
     }
 
@@ -289,6 +295,29 @@ class PptxApp {
             }
             out = (out + ",\"runs\":" + (to_string runCount))
             out = (out + ",\"paragraphs\":" + (to_string (array_length shape.text.paragraphs)))
+        }
+        if (shape.kind == 4) {
+            def blob:string ""
+            def ti:int 0
+            while (ti < (array_length shape.tableCells)) {
+                def cell:PptxTableCell (itemAt shape.tableCells ti)
+                if ((strlen cell.text) > 0) {
+                    if ((strlen blob) > 0) {
+                        blob = (blob + "\n")
+                    }
+                    blob = (blob + cell.text)
+                }
+                ti = (ti + 1)
+            }
+            out = (out + ",\"text\":" + (this.jsonEscape(blob)))
+            out = (out + ",\"tableRows\":" + (to_string shape.tableRows))
+            out = (out + ",\"tableCols\":" + (to_string shape.tableCols))
+        }
+        if (shape.kind == 5) {
+            out = (out + ",\"chartType\":" + (this.jsonEscape(shape.chart.chartType)))
+            if ((strlen shape.chart.title) > 0) {
+                out = (out + ",\"text\":" + (this.jsonEscape(shape.chart.title)))
+            }
         }
         if (shape.fill.isSet) {
             out = (out + ",\"fill\":" + (this.jsonEscape(shape.fill.srgb)))

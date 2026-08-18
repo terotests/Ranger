@@ -38,13 +38,15 @@ gallery/pptx/
     PptxParser.rgr      presentation / slide / theme / master / layout
     PptxResolver.rgr    theme → master → layout → slide
     PptxImageDecode.rgr PNG/JPEG bytes → ImageBuffer
+    PptxGeom.rgr        Preset / custGeom unit polygons
+    PptxChartVela.rgr   ChartML → VL JSON → Vela → display list
     PptxToEvg.rgr       ResolvedSlide → EVG + display list
     PptxView.rgr        SoftCanvas / sceneJson (+ image cache)
     PptxApp.rgr         UIInput navigation host
     pptx_demo.rgr       headless PNG demo
     pptx_oracle_dump.rgr  inspect.json + oracle PNGs
   harness/              feature + semantic + visual oracles
-  fixtures/             OOXML decks 01–20
+  fixtures/             OOXML decks 01–26
   tools/make_fixtures.py
   web/                  interactive WebGL present host
 ```
@@ -57,13 +59,18 @@ gallery/pptx/
 - [x] Master + layout backgrounds and chrome shapes
 - [x] Placeholder match by `type` / `idx` with geometry + style inheritance
 - [x] PNG + JPEG SoftCanvas blit (`PptxImageDecode` + `blitImageRectScaled`)
-- [x] Text: align L/C/R (measured), font size, bold/italic flags, run color,
-      insets, wrap, vertical anchor (top/middle/bottom estimate)
+- [x] Text: align L/C/R (measured), font size, bold/italic/bold-italic faces,
+      run color, insets, wrap, vertical anchor (top/middle/bottom estimate)
+- [x] Two-stop linear gradients + outer shadow under SoftCanvas rects
+- [x] Bullets (`buChar` / `buAutoNum`) as indented prefixes
+- [x] Preset + `custGeom` path fills (triangle / diamond / chevron / star / …)
+- [x] Tables (`graphicFrame` / `a:tbl`) as cell grid + text
+- [x] Charts → Vela PoC (bar ChartML → VL → SoftCanvas)
 - [x] UIInput navigation + fixture picker; chrome shows deck name + slide index
 - [x] Oracles: feature harness, python-pptx semantic, LibreOffice visual MAE
 
-Still later: gradients, shadows, bullets, tables, charts→Vela, true multi-face
-bold paint, animations, embedded fonts, full DrawingML geom paths.
+Still later: multi-stop gradients, crop/transparency, table merges, richer
+ChartML (pie/line/multi-series), curve geom, animations, embedded fonts.
 
 ## Run
 
