@@ -7829,6 +7829,7 @@ class VlCompile {
                     }
                 }
                 VlCompile.applyStatedLegend(l colour)
+                VlCompile.defaultLegendDirection(l)
                 ; A key whose fill comes from the scale does not also state a
                 ; fill: the scale is the fill. Told to be transparent as well,
                 ; the outlined key of a scatter plot was drawn hollow where the
@@ -7853,6 +7854,7 @@ class VlCompile {
                 ld.setMember("symbolType" (VlJson.stringValue("stroke")))
                 VlCompile.nameLegend(ld dashCh)
                 VlCompile.applyStatedLegend(ld dashCh)
+                VlCompile.defaultLegendDirection(ld)
                 def dashUpdate (VlJson.objectValue())
                 dashUpdate.setMember("stroke" (VlCompile.literal((VlJson.stringValue("#4c78a8")))))
                 def dashSymbols (VlJson.objectValue())
@@ -7877,6 +7879,7 @@ class VlCompile {
                 l3.setMember("shape" (VlJson.stringValue((this.sname("shape")))))
                 VlCompile.nameLegend(l3 shapeCh)
                 VlCompile.applyStatedLegend(l3 shapeCh)
+                VlCompile.defaultLegendDirection(l3)
                 if (markName == "point") {
                     def shapeEncode:VlJson (this.pointSymbolEncode((! (markDef.boolOr("filled" false)))))
                     def shapeSymbols:VlJson (shapeEncode.get("symbols"))
@@ -7905,6 +7908,7 @@ class VlCompile {
                 l2.setMember("symbolType" (VlJson.stringValue((this.legendSymbol()))))
                 VlCompile.nameLegend(l2 size)
                 VlCompile.applyStatedLegend(l2 size)
+                VlCompile.defaultLegendDirection(l2)
                 ; A size key stands for the same dot the chart draws, and its
                 ; colour is the mark's constant since nothing encodes one.
                 if (markName == "point") {
@@ -8121,6 +8125,22 @@ class VlCompile {
         return part.num
     }
 
+    ; Which way a key runs, when the specification did not say. A key above or
+    ; below the chart runs ACROSS it — that is where the width is — and one at
+    ; the side runs down, which is the renderer's own default and is left
+    ; unsaid. Read as vertical wherever it sat, a two-colour key over a
+    ; population pyramid stacked its swatches and took thirteen pixels of page
+    ; the reference does not.
+    sfn defaultLegendDirection:void (l:VlJson) {
+        if (l.has("direction")) {
+            return
+        }
+        def orient:string (l.stringOr("orient" ""))
+        if ((orient == "top") || (orient == "bottom")) {
+            l.setMember("direction" (VlJson.stringValue("horizontal")))
+        }
+    }
+
     sfn applyStatedLegend:void (l:VlJson ch:VlChannel) {
         def given:VlJson (VlCompile.statedOn(ch "legend"))
         if (! (given.isObject())) {
@@ -8168,6 +8188,7 @@ class VlCompile {
         }
         VlCompile.nameLegend(l ch)
         VlCompile.applyStatedLegend(l ch)
+        VlCompile.defaultLegendDirection(l)
         return l
     }
 

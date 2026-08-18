@@ -488,6 +488,15 @@ class VlAxis {
         ; and not six decimal places of each. The step is measured in the units
         ; the label is printed in, so a percentage's step is a hundred times
         ; the scale's own.
+        ; An SI format on an AXIS names one prefix for the whole set rather
+        ; than the nearest one for each label. The prefix is chosen from the
+        ; end of the scale and every tick is written in it — which is what
+        ; makes the middle of a population pyramid read "0M" and not "0", and
+        ; a tick a thousand times smaller than its neighbour read "0.001M"
+        ; rather than "1k".
+        if (spec.type == "s") {
+            return (VlFormat.siOver(values spec))
+        }
         if (spec.precision < 0) {
             def scaled:[double]
             for values v0:double vi0 {

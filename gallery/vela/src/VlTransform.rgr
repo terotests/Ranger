@@ -277,6 +277,12 @@ class VlTransform {
         ; from the baseline and negatives down.
         def groupSum:[string:double]
         def groupRun:[string:double]
+        ; A plain stack runs positives UP from the baseline and negatives DOWN,
+        ; and the two runs are kept apart. Accumulated together they cancel: a
+        ; population pyramid whose women are written as negatives came out as
+        ; the difference between the sexes rather than as both of them, and its
+        ; axis ran from minus twelve million to one.
+        def groupNeg:[string:double]
         def widest:double 0.0
         for rows row:VlJson idx {
             def key:string (VlTransform.groupKey(row groupby))
@@ -291,6 +297,7 @@ class VlTransform {
             def grown:double (sum + v)
             set groupSum key grown
             set groupRun key 0.0
+            set groupNeg key 0.0
             if (grown > widest) {
                 widest = grown
             }
@@ -343,7 +350,17 @@ class VlTransform {
                     hi = (lo + magnitude)
                     set groupRun key (run + magnitude)
                 } {
-                    set groupRun key hi
+                    if (v < 0.0) {
+                        def down:double 0.0
+                        if (has groupNeg key) {
+                            down = (unwrap (get groupNeg key))
+                        }
+                        lo = down
+                        hi = (down + v)
+                        set groupNeg key hi
+                    } {
+                        set groupRun key hi
+                    }
                 }
             }
             set_at starts rowIndex lo
