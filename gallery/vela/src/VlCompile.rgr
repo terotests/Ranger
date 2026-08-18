@@ -621,24 +621,28 @@ class VlCompile {
         }
         def rows:VlJson (repeat.get("row"))
         def cols:VlJson (repeat.get("column"))
+        ; A grid of rows AND columns is ONE wrapped concatenation that folds at
+        ; the column count — not rows of rows. Built as rows of rows, every row
+        ; was a composition of its own with its own scales and its own pitch,
+        ; and a scatterplot matrix came out as four unrelated strips.
         if ((rows.isArray()) && (cols.isArray())) {
-            def stacked (VlJson.arrayValue())
+            def flat (VlJson.arrayValue())
             def r:int 0
             while (r < (rows.count())) {
-                def band (VlJson.objectValue())
-                def acrossOne (VlJson.arrayValue())
                 def c:int 0
                 while (c < (cols.count())) {
                     def cell:VlJson (VlCompile.substituteRepeat(spec "row" (rows.at(r).asString())))
                     cell = (VlCompile.substituteRepeat(cell "column" (cols.at(c).asString())))
-                    push acrossOne.arr cell
+                    push flat.arr cell
                     c = (c + 1)
                 }
-                band.setMember("hconcat" acrossOne)
-                push stacked.arr band
                 r = (r + 1)
             }
-            out.setMember("vconcat" stacked)
+            out.setMember("concat" flat)
+            if (! (out.has("columns"))) {
+                out.setMember("columns" (VlJson.numberValue((to_double (cols.count())))))
+            }
+            VlCompile.alignRepeat(out)
             return out
         }
         if (rows.isArray()) {
