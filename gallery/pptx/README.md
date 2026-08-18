@@ -94,7 +94,41 @@ node gallery/pptx/harness/run.mjs --json
 
 Add a new feature by dropping a `.pptx` into `fixtures/`, extending
 `tools/make_fixtures.py`, and appending an entry to the manifest.
-## Design notes
+
+## Oracles (OOXML correctness stack)
+
+Three layers, matching the planned OSS test pile:
+
+| Layer | Tool | Script |
+| --- | --- | --- |
+| A. Feature / model | Ranger `inspectJson` + manifest | `npm run pptx:harness` |
+| B. Semantic | **python-pptx** vs Ranger inspect | `harness/oracles/semantic.py` |
+| C. Visual | **LibreOffice** headless → PDF → `pdftoppm` vs Ranger SoftCanvas PNG | `harness/oracles/visual.py` |
+
+```bash
+# Needs: python-pptx, Pillow, soffice, pdftoppm (poppler-utils)
+pip install python-pptx Pillow
+sudo apt-get install libreoffice-impress poppler-utils
+
+npm run pptx:oracles                 # A+B hard-fail, C advisory
+npm run pptx:oracles:visual          # also fail on visual MAE
+node gallery/pptx/harness/run_oracles.mjs --fixture 01-text.pptx
+```
+
+Artifacts land in `gallery/pptx/harness/out/<fixture>/`:
+
+```text
+ranger/slide-000.png      SoftCanvas @ 96dpi
+libreoffice/slide-000.png LibreOffice reference
+diff/slide-000-diff.png   side-by-side + amplified delta
+python-pptx.json          semantic oracle dump
+inspect.json              Ranger model summary
+```
+
+Visual compare uses mean absolute channel error (default limit 45/255). Font
+rasterisation will differ — treat C as a regression signal, not pixel-perfect
+truth, until shared fonts / higher fidelity land. Open XML SDK + Apache POI
+`PPTX2PNG` can plug in later as layers A0 / D.## Design notes
 
 `PptxResolver` is the long-term fidelity bottleneck (master → layout →
 placeholder → theme). The first cut resolves theme colors and major/minor

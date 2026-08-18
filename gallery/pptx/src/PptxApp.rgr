@@ -165,6 +165,25 @@ class PptxApp {
         view.render((unwrap slide) index (this.slideCount()))
     }
 
+    ; Paint slide i at 96dpi into SoftCanvas (no viewer chrome). Used by the
+    ; LibreOffice visual oracle so pixel sizes line up with pdftoppm -r 96.
+    fn renderOracleSlide:boolean (slideIndex:int) {
+        if (loaded == false) {
+            return false
+        }
+        if (slideIndex < 0) {
+            return false
+        }
+        if (slideIndex >= (array_length presentation.slides)) {
+            return false
+        }
+        def slide:PptxSlide (itemAt presentation.slides slideIndex)
+        view.renderOracleSlide(slide 1.0)
+        W = view.pageW
+        H = view.pageH
+        return true
+    }
+
     fn raw:buffer () {
         return (view.raw())
     }
@@ -201,11 +220,46 @@ class PptxApp {
         return "shape"
     }
 
+    fn jsonEscape:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (c == 34) {
+                out = (out + "\\\"")
+            } {
+                if (c == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (c == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (c == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (c == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (c < 32) {
+                                    out = (out + " ")
+                                } {
+                                    out = (out + (strfromcode c))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
     fn shapeJson:string (shape:PptxShape) {
         def out:string "{"
-        out = (out + "\"kind\":" + (EVGDisplayList.jsonString((this.kindName(shape.kind)))))
-        out = (out + ",\"name\":" + (EVGDisplayList.jsonString(shape.name)))
-        out = (out + ",\"preset\":" + (EVGDisplayList.jsonString(shape.preset)))
+        out = (out + "\"kind\":" + (this.jsonEscape((this.kindName(shape.kind)))))
+        out = (out + ",\"name\":" + (this.jsonEscape(shape.name)))
+        out = (out + ",\"preset\":" + (this.jsonEscape(shape.preset)))
         out = (out + ",\"x\":" + (EVGDisplayList.num(shape.x)))
         out = (out + ",\"y\":" + (EVGDisplayList.num(shape.y)))
         out = (out + ",\"w\":" + (EVGDisplayList.num(shape.width)))
@@ -213,7 +267,7 @@ class PptxApp {
         out = (out + ",\"rotation\":" + (EVGDisplayList.num(shape.rotation)))
         out = (out + ",\"hasText\":" + (to_string shape.hasText))
         if shape.hasText {
-            out = (out + ",\"text\":" + (EVGDisplayList.jsonString((shape.text.plainText()))))
+            out = (out + ",\"text\":" + (this.jsonEscape((shape.text.plainText()))))
             def runCount:int 0
             def pi:int 0
             while (pi < (array_length shape.text.paragraphs)) {
@@ -225,11 +279,11 @@ class PptxApp {
             out = (out + ",\"paragraphs\":" + (to_string (array_length shape.text.paragraphs)))
         }
         if (shape.fill.isSet) {
-            out = (out + ",\"fill\":" + (EVGDisplayList.jsonString(shape.fill.srgb)))
+            out = (out + ",\"fill\":" + (this.jsonEscape(shape.fill.srgb)))
             out = (out + ",\"fillScheme\":" + (to_string shape.fill.isScheme))
         }
         if (shape.kind == 1) {
-            out = (out + ",\"imagePart\":" + (EVGDisplayList.jsonString(shape.imagePart)))
+            out = (out + ",\"imagePart\":" + (this.jsonEscape(shape.imagePart)))
             out = (out + ",\"imageBytes\":" + (to_string (buffer_length shape.imageBytes)))
         }
         if (shape.kind == 2) {
@@ -243,17 +297,17 @@ class PptxApp {
     fn inspectJson:string () {
         def out:string "{"
         out = (out + "\"loaded\":" + (to_string loaded))
-        out = (out + ",\"path\":" + (EVGDisplayList.jsonString(lastPath)))
+        out = (out + ",\"path\":" + (this.jsonEscape(lastPath)))
         out = (out + ",\"slides\":" + (to_string (this.slideCount())))
         out = (out + ",\"slideWidth\":" + (EVGDisplayList.num(presentation.slideWidth)))
         out = (out + ",\"slideHeight\":" + (EVGDisplayList.num(presentation.slideHeight)))
         out = (out + ",\"theme\":{")
-        out = (out + "\"accent1\":" + (EVGDisplayList.jsonString((presentation.theme.colorOf("accent1")))))
-        out = (out + ",\"accent2\":" + (EVGDisplayList.jsonString((presentation.theme.colorOf("accent2")))))
-        out = (out + ",\"dk1\":" + (EVGDisplayList.jsonString((presentation.theme.colorOf("dk1")))))
-        out = (out + ",\"lt1\":" + (EVGDisplayList.jsonString((presentation.theme.colorOf("lt1")))))
-        out = (out + ",\"majorFont\":" + (EVGDisplayList.jsonString(presentation.theme.majorFont)))
-        out = (out + ",\"minorFont\":" + (EVGDisplayList.jsonString(presentation.theme.minorFont)))
+        out = (out + "\"accent1\":" + (this.jsonEscape((presentation.theme.colorOf("accent1")))))
+        out = (out + ",\"accent2\":" + (this.jsonEscape((presentation.theme.colorOf("accent2")))))
+        out = (out + ",\"dk1\":" + (this.jsonEscape((presentation.theme.colorOf("dk1")))))
+        out = (out + ",\"lt1\":" + (this.jsonEscape((presentation.theme.colorOf("lt1")))))
+        out = (out + ",\"majorFont\":" + (this.jsonEscape(presentation.theme.majorFont)))
+        out = (out + ",\"minorFont\":" + (this.jsonEscape(presentation.theme.minorFont)))
         out = (out + "}")
         out = (out + ",\"slide\":[")
         def si:int 0
@@ -266,12 +320,12 @@ class PptxApp {
             def page:EVGElement (converter.slideToEvg(slide))
             out = (out + "{")
             out = (out + "\"index\":" + (to_string si))
-            out = (out + ",\"part\":" + (EVGDisplayList.jsonString(slide.partPath)))
+            out = (out + ",\"part\":" + (this.jsonEscape(slide.partPath)))
             out = (out + ",\"shapeCount\":" + (to_string (array_length slide.shapes)))
             out = (out + ",\"displayListCmds\":" + (to_string (dl.count())))
             out = (out + ",\"evgChildren\":" + (to_string (page.getChildCount())))
             if (slide.bg.isSet) {
-                out = (out + ",\"bg\":" + (EVGDisplayList.jsonString(slide.bg.srgb)))
+                out = (out + ",\"bg\":" + (this.jsonEscape(slide.bg.srgb)))
             }
             out = (out + ",\"shapes\":[")
             def j:int 0

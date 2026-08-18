@@ -1,5 +1,7 @@
 *.js
 !web/*.mjs
+!harness/**/*.mjs
 bin/
 *.png
 demo_*.png
+harness/out/

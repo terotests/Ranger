@@ -141,6 +141,24 @@ class PptxView {
         this.paintSoftCanvas(dl)
     }
 
+    ; Oracle / visual-diff path: paint the slide alone at 96dpi (1pt = 96/72 px),
+    ; no chrome, no fit-to-window scale. Size matches LibreOffice pdftoppm @ 96 DPI
+    ; for a standard deck (720pt×540pt → 960×720).
+    fn renderOracleSlide:void (slide:PptxSlide dpiScale:double) {
+        converter.setScale(dpiScale)
+        def pw:int (to_int ((slide.width * (96.0 / 72.0) * dpiScale) + 0.5))
+        def ph:int (to_int ((slide.height * (96.0 / 72.0) * dpiScale) + 0.5))
+        if (pw < 1) {
+            pw = 1
+        }
+        if (ph < 1) {
+            ph = 1
+        }
+        this.resize(pw ph)
+        def dl:EVGDisplayList (converter.slideToDisplayList(slide))
+        this.paintSoftCanvas(dl)
+    }
+
     fn sceneJson:string (slide:PptxSlide index:int count:int) {
         slideIndex = index
         slideCount = count
