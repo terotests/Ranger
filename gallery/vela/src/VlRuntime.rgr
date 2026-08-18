@@ -1531,6 +1531,59 @@ class VlRuntime {
         }
     }
 
+    ; Where a discretizing scale cuts. `quantize` cuts the DOMAIN into equal
+    ; pieces, `quantile` cuts the DATA so that each piece holds the same number
+    ; of readings, and `threshold` was told the cuts and needs nothing done.
+    ;
+    ; How many pieces is how many outputs there are: a stated range says so by
+    ; its length, and a scheme says so by its `count` or, saying nothing, by
+    ; the reference's own default of five.
+    fn cutBands:void (sc:VlScale sdef:VlJson) {
+        if (! (sc.isDiscretizing())) {
+            return
+        }
+        if (sc.scaleType == "threshold") {
+            return
+        }
+        def bands:int (array_length sc.rangeNumbers)
+        if (bands == 0) {
+            bands = (array_length sc.rangeValues)
+            if sc.rampRange {
+                bands = 0
+            }
+        }
+        if (bands == 0) {
+            def r:VlJson (sdef.get("range"))
+            if (r.isObject()) {
+                bands = (to_int (r.doubleOr("count" 0.0)))
+            }
+        }
+        if (bands == 0) {
+            bands = 5
+        }
+        if (bands < 2) {
+            return
+        }
+        if (sc.scaleType == "quantize") {
+            def span:double (sc.domainMax - sc.domainMin)
+            def k:int 1
+            while (k < bands) {
+                push sc.thresholds (sc.domainMin + ((span * (to_double k)) / (to_double bands)))
+                k = (k + 1)
+            }
+            return
+        }
+        def sorted:[double] (VlTransform.sortedNumbers(sc.sampleValues))
+        if ((array_length sorted) == 0) {
+            return
+        }
+        def j:int 1
+        while (j < bands) {
+            push sc.thresholds (VlTransform.quantile(sorted ((to_double j) / (to_double bands))))
+            j = (j + 1)
+        }
+    }
+
     fn buildScale:void (sdef:VlJson) {
         def name:string (sdef.stringOr("name" ""))
         def sc (new VlScale())
@@ -1595,6 +1648,7 @@ class VlRuntime {
                 sc.domainMid = (sdef.doubleOr("domainMid" 0.0))
                 sc.hasDomainMid = true
             }
+            this.cutBands(sc sdef)
         }
 
         if (! (has scope.scales name)) {
@@ -1662,6 +1716,20 @@ class VlRuntime {
             ; scale had no categories at all — so the key was drawn with its
             ; title and nothing under it.
             def discrete:boolean ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal")))
+            ; A `threshold` scale is TOLD where to cut: its domain is the list
+            ; of cuts, not a pair of ends, and one more output than there are
+            ; cuts follows from it.
+            if (allNumbers && (sc.scaleType == "threshold")) {
+                def ti:int 0
+                while (ti < total) {
+                    push sc.thresholds ((d.at(ti)).asDouble())
+                    ti = (ti + 1)
+                }
+                if (total > 0) {
+                    sc.setNumericDomain(((d.at(0)).asDouble()) ((d.at((total - 1))).asDouble()))
+                }
+                return
+            }
             if (((allNumbers && (total == 2)) && (! discrete))) {
                 sc.setNumericDomain((d.at(0).asDouble()) (d.at(1).asDouble()))
                 return
@@ -1711,6 +1779,14 @@ class VlRuntime {
             }
             def ext:[double] (VlTransform.extent(rows field))
             sc.setNumericDomain((itemAt ext 0) (itemAt ext 1))
+            if (sc.scaleType == "quantile") {
+                for rows row:VlJson ri {
+                    def raw:VlJson (VlTransform.memberOf(row field))
+                    if (raw.isNumber()) {
+                        push sc.sampleValues raw.num
+                    }
+                }
+            }
             return
         }
         def fieldList:VlJson (d.get("fields"))
@@ -1870,7 +1946,17 @@ class VlRuntime {
                 n = (n + 1)
             }
             if numeric {
-                sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at(1)))))
+                ; A DISCRETIZING scale's range is a list of outputs, one per
+                ; band, however many there are — `[80, 200, 320]` is three
+                ; sizes and not an interval from eighty to three hundred and
+                ; twenty. The ends are kept too, so nothing that reads the
+                ; range as an interval is disturbed.
+                def n2:int 0
+                while (n2 < total) {
+                    push sc.rangeNumbers (this.rangeNumber((r.at(n2))))
+                    n2 = (n2 + 1)
+                }
+                sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at((total - 1))))))
                 return
             }
             ; Anything else is a list of output values — an ordinal range.

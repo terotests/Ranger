@@ -8421,6 +8421,58 @@ class VlCompile {
         push out.arr sc
     }
 
+    ; The scale type the chart ASKED for, which is not always the one the
+    ; channel implies.
+    fn statedScaleType:string (ch:VlChannel) {
+        def declared:VlJson (VlCompile.statedOn(ch "scale"))
+        if (! (declared.isObject())) {
+            return ""
+        }
+        return (declared.stringOr("type" ""))
+    }
+
+    ; The three scale types that answer in BANDS rather than continuously.
+    sfn cutsIntoBands:boolean (kind:string) {
+        return (((kind == "quantize") || (kind == "quantile")) || (kind == "threshold"))
+    }
+
+    ; One size per band. The chart may list them; where it does not, the
+    ; reference takes FOUR evenly spaced sizes across the ordinary range of a
+    ; dot — and does not take the `rangeMax` a chart states, because a banded
+    ; scale has no far end to move.
+    fn bandedSizes:VlJson (ch:VlChannel kind:string) {
+        def declared:VlJson (VlCompile.statedOn(ch "scale"))
+        if (declared.isObject()) {
+            def stated:VlJson (declared.get("range"))
+            if (stated.isArray()) {
+                return stated
+            }
+        }
+        def bands:int 4
+        if (kind == "threshold") {
+            if (declared.isObject()) {
+                def cuts:VlJson (declared.get("domain"))
+                if (cuts.isArray()) {
+                    bands = ((cuts.count()) + 1)
+                }
+            }
+        }
+        def out (VlJson.arrayValue())
+        def lo:double 4.0
+        def hi:double 361.0
+        if (bands < 2) {
+            push out.arr (VlJson.numberValue(hi))
+            return out
+        }
+        def step:double ((hi - lo) / (to_double (bands - 1)))
+        def k:int 0
+        while (k < bands) {
+            push out.arr (VlJson.numberValue((lo + (step * (to_double k)))))
+            k = (k + 1)
+        }
+        return out
+    }
+
     fn pushSizeScale:void (out:VlJson) {
         def ch:VlChannel (this.channel("size"))
         if (! ch.defined) {
@@ -8431,8 +8483,21 @@ class VlCompile {
         }
         def sc (VlJson.objectValue())
         sc.setMember("name" (VlJson.stringValue((this.sname("size")))))
-        sc.setMember("type" (VlJson.stringValue("linear")))
+        ; A size scale may be DISCRETIZING — a chart that sorts its readings
+        ; into four bands and gives each band one size — and then it is not a
+        ; line from the smallest to the biggest but a list, one entry per band.
+        def kind:string (this.statedScaleType(ch))
+        if ((strlen kind) == 0) {
+            kind = "linear"
+        }
+        sc.setMember("type" (VlJson.stringValue(kind)))
         sc.setMember("domain" (this.domainFor(ch)))
+        if (VlCompile.cutsIntoBands(kind)) {
+            sc.setMember("range" (this.bandedSizes(ch kind)))
+            this.applyDeclaredScale(sc ch)
+            push out.arr sc
+            return
+        }
         ; The reference's own bubble sizes: an area of four up to one of 361,
         ; which is a symbol of two pixels across up to one of nineteen.
         def range (VlJson.arrayValue())
@@ -9242,6 +9307,13 @@ class VlCompile {
     ; -------------------------------------------------------------- legends ---
     fn buildLegends:VlJson () {
         def out (VlJson.arrayValue())
+        ; Which COLUMN each key is about, kept beside the keys themselves. Two
+        ; channels reading one column make one key, and the column is the only
+        ; thing that says so — the titles need not agree, and where a chart
+        ; names one of them the other has only the column's own name.
+        def columns:[string]
+        ; …and the title the chart ASKED for, empty where it asked for none.
+        def asked:[string]
         def colour:VlChannel (this.channel("color"))
         if (VlCompile.suppressed(colour "legend")) {
             colour = (new VlChannel())
@@ -9305,6 +9377,8 @@ class VlCompile {
                 VlCompile.dropScaledOverride(l "fill")
                 VlCompile.dropScaledOverride(l "stroke")
                 push out.arr l
+                push columns (colour.outField())
+                push asked (VlCompile.statedLegendTitle(colour))
             }
         }
         ; A dash pattern's key is a short line drawn in that pattern, in the
@@ -9331,6 +9405,8 @@ class VlCompile {
                 dashEncode.setMember("symbols" dashSymbols)
                 ld.setMember("encode" dashEncode)
                 push out.arr ld
+                push columns (dashCh.outField())
+                push asked (VlCompile.statedLegendTitle(dashCh))
             }
         }
         ; A chart may paint with `fill` or `stroke` rather than with `color`,
@@ -9356,6 +9432,8 @@ class VlCompile {
                     l3.setMember("encode" shapeEncode)
                 }
                 push out.arr l3
+                push columns (shapeCh.outField())
+                push asked (VlCompile.statedLegendTitle(shapeCh))
             }
         }
         def size:VlChannel (this.channel("size"))
@@ -9401,9 +9479,11 @@ class VlCompile {
                     l2.setMember("encode" (VlCompile.filledSymbolEncode((this.markOpacity((this.dotOpacity()))) (this.markColour()) (this.markOutline()) (this.opacityStated()))))
                 }
                 push out.arr l2
+                push columns (size.outField())
+                push asked (VlCompile.statedLegendTitle(size))
             }
         }
-        return (VlCompile.foldSameTitleLegends(out))
+        return (VlCompile.foldSameColumnLegends(out columns asked))
     }
 
     ; Two channels reading the SAME column are one key, not two. A scatter
@@ -9413,17 +9493,36 @@ class VlCompile {
     ; twice the width of page to say it.
     ;
     ; They are recognised by their title, which is the column they name.
-    sfn foldSameTitleLegends:VlJson (legends:VlJson) {
+    sfn foldSameColumnLegends:VlJson (legends:VlJson columns:[string] asked:[string]) {
         def out (VlJson.arrayValue())
         def byTitle:[string:VlJson]
         def i:int 0
         while (i < (legends.count())) {
             def l:VlJson (legends.at(i))
+            ; Keyed by the COLUMN where there is one, and by the title
+            ; otherwise: a key with no column behind it — a dash pattern named
+            ; by hand — still folds with another of the same name.
             def title:string (l.stringOr("title" ""))
+            if (i < (array_length columns)) {
+                def column:string (itemAt columns i)
+                if ((strlen column) > 0) {
+                    title = ("column:" + column)
+                }
+            }
             def folded:boolean false
             if ((strlen title) > 0) {
                 if (has byTitle title) {
                     def into:VlJson (unwrap (get byTitle title))
+                    ; …and the TITLE that survives is the one a chart asked
+                    ; for. Two channels on one column need not agree about
+                    ; what to call it, and the derived name is the one to
+                    ; lose.
+                    if (i < (array_length asked)) {
+                        def wanted:string (itemAt asked i)
+                        if ((strlen wanted) > 0) {
+                            into.setMember("title" (VlJson.stringValue(wanted)))
+                        }
+                    }
                     for l.keys k:string ki {
                         if (VlCompile.legendChannelKey(k)) {
                             if (! (into.has(k))) {
@@ -9437,6 +9536,19 @@ class VlCompile {
                     ; filled by the scale.
                     VlCompile.dropScaledOverride(into "fill")
                     VlCompile.dropScaledOverride(into "stroke")
+                    ; A key that names a SIZE is a column of symbols, whatever
+                    ; the colour behind it is: there is no way to draw a
+                    ; gradient bar in five sizes. Left as a bar, a chart of
+                    ; three discretizing scales drew three ramps and none of
+                    ; the dots they were about.
+                    if (into.has("size")) {
+                        if (into.has("gradientLength")) {
+                            into.removeMember("gradientLength")
+                        }
+                        if (! (into.has("symbolType"))) {
+                            into.setMember("symbolType" (VlJson.stringValue("circle")))
+                        }
+                    }
                     folded = true
                 } {
                     set byTitle title l
@@ -9448,6 +9560,23 @@ class VlCompile {
             i = (i + 1)
         }
         return out
+    }
+
+    ; The heading a chart asked a key to carry, as opposed to the one derived
+    ; from the column it reads. Empty where the chart said nothing.
+    sfn statedLegendTitle:string (ch:VlChannel) {
+        def given:VlJson (VlCompile.statedOn(ch "legend"))
+        if (given.isObject()) {
+            def named:VlJson (given.get("title"))
+            if (named.isString()) {
+                return (named.asString())
+            }
+        }
+        def own:VlJson (VlCompile.statedOn(ch "title"))
+        if (own.isString()) {
+            return (own.asString())
+        }
+        return ""
     }
 
     sfn legendChannelKey:boolean (key:string) {
