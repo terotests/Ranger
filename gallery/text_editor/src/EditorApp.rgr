@@ -262,4 +262,10 @@ class EditorApp {
     fn raw:buffer () {
         return (view.raw())
     }
+
+    ; EVG display-list document for the WebGL present path.
+    fn sceneJson:string () {
+        view.status = ("v" + (to_string buf.version))
+        return (view.sceneJson(buf sel layout))
+    }
 }
