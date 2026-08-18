@@ -1,0 +1,206 @@
+; ==============================================================================
+; PptxModel - normalized PowerPoint scene (pre-EVG)
+; ==============================================================================
+;
+; Units in the model are already converted from EMU:
+;   pt = emu / 12700
+; Rotations are degrees (DrawingML stores 1/60000 deg).
+;
+; Shape kinds:
+;   0 = shape (rect/ellipse/preset + optional text)
+;   1 = picture
+;   2 = group
+;   3 = connector (MVP: treated like a thin shape)
+; ==============================================================================
+
+class PptxColor {
+    def isSet:boolean false
+    def isScheme:boolean false
+    def scheme:string ""
+    def srgb:string ""          ; RRGGBB
+    def alpha:double 1.0
+
+    Constructor () {
+    }
+
+    sfn srgbOf:PptxColor (hex:string) {
+        def c (new PptxColor())
+        c.isSet = true
+        c.isScheme = false
+        c.srgb = hex
+        return c
+    }
+
+    sfn schemeOf:PptxColor (name:string) {
+        def c (new PptxColor())
+        c.isSet = true
+        c.isScheme = true
+        c.scheme = name
+        return c
+    }
+}
+
+class PptxTextRun {
+    def text:string ""
+    def fontFamily:string ""
+    def fontSizePt:double 18.0
+    def bold:boolean false
+    def italic:boolean false
+    def color:PptxColor (new PptxColor())
+
+    Constructor () {
+    }
+}
+
+class PptxParagraph {
+    def align:string "l"        ; l / ctr / r / just
+    def runs:[PptxTextRun]
+
+    Constructor () {
+        def r:[PptxTextRun]
+        runs = r
+    }
+}
+
+class PptxTextBody {
+    def paragraphs:[PptxParagraph]
+    def insetL:double 7.2       ; pt defaults ≈ 0.1"
+    def insetT:double 7.2
+    def insetR:double 7.2
+    def insetB:double 7.2
+    def anchor:string "t"       ; t / ctr / b
+
+    Constructor () {
+        def p:[PptxParagraph]
+        paragraphs = p
+    }
+
+    fn plainText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length paragraphs)) {
+            if (i > 0) {
+                out = (out + "\n")
+            }
+            def para:PptxParagraph (itemAt paragraphs i)
+            def j:int 0
+            while (j < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs j)
+                out = (out + run.text)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class PptxShape {
+    def kind:int 0
+    def name:string ""
+    def x:double 0.0            ; pt
+    def y:double 0.0
+    def width:double 0.0
+    def height:double 0.0
+    def rotation:double 0.0     ; degrees
+    def preset:string "rect"    ; rect / ellipse / roundRect / …
+    def fill:PptxColor (new PptxColor())
+    def line:PptxColor (new PptxColor())
+    def lineWidthPt:double 0.0
+    def hasText:boolean false
+    def text:PptxTextBody (new PptxTextBody())
+    ; Picture
+    def imageRid:string ""
+    def imagePart:string ""     ; resolved package path
+    def imageBytes:buffer (buffer_alloc 0)
+    ; Group children
+    def children:[PptxShape]
+    ; Group child coordinate space (chOff / chExt), in pt
+    def chX:double 0.0
+    def chY:double 0.0
+    def chW:double 0.0
+    def chH:double 0.0
+
+    Constructor () {
+        def c:[PptxShape]
+        children = c
+    }
+}
+
+class PptxSlide {
+    def partPath:string ""
+    def width:double 720.0      ; pt (default 10")
+    def height:double 540.0     ; pt (default 7.5")
+    def shapes:[PptxShape]
+    def bg:PptxColor (new PptxColor())
+    def layoutPart:string ""
+    def masterPart:string ""
+
+    Constructor () {
+        def s:[PptxShape]
+        shapes = s
+    }
+}
+
+class PptxTheme {
+    def colors:[string:string]  ; scheme name → RRGGBB
+    def majorFont:string "Calibri Light"
+    def minorFont:string "Calibri"
+
+    Constructor () {
+    }
+
+    fn setColor:void (name:string hex:string) {
+        set colors name hex
+    }
+
+    fn colorOf:string (name:string) {
+        def v@(optional):string (get colors name)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return "000000"
+    }
+}
+
+class PptxPresentation {
+    def slideWidth:double 720.0
+    def slideHeight:double 540.0
+    def slideParts:[string]
+    def slides:[PptxSlide]
+    def theme:PptxTheme (new PptxTheme())
+    def themePart:string ""
+
+    Constructor () {
+        def sp:[string]
+        slideParts = sp
+        def sl:[PptxSlide]
+        slides = sl
+    }
+
+    fn slideCount:int () {
+        return (array_length slides)
+    }
+}
+
+; Shared EMU helpers — DrawingML uses English Metric Units.
+class PptxUnits {
+    sfn emuToPt:double (emu:double) {
+        return (emu / 12700.0)
+    }
+
+    sfn emuToPx:double (emu:double) {
+        ; CSS reference pixel at 96dpi: 1in = 96px = 914400 EMU
+        return (emu / 9525.0)
+    }
+
+    sfn rotToDeg:double (rot:double) {
+        ; DrawingML rotation is 1/60000 of a degree
+        return (rot / 60000.0)
+    }
+
+    sfn hundredthsPtToPt:double (sz:double) {
+        ; a:rPr sz is in hundredths of a point
+        return (sz / 100.0)
+    }
+}

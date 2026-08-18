@@ -1,0 +1,108 @@
+; ==============================================================================
+; pptx_demo - headless PPTX Lite viewer demo (PNG snapshots)
+; ==============================================================================
+;
+; Usage (after compile):
+;   node gallery/pptx/bin/pptx_demo.js [path/to/file.pptx]
+;
+; Defaults to gallery/pptx/fixtures/01-text.pptx and also walks a few fixtures.
+; ==============================================================================
+
+Import "PptxApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../game_engine/ui/UIInput.rgr"
+
+class PptxDemo {
+    sfn snapshot:void (app:PptxApp dir:string file:string) {
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+    }
+
+    sfn dumpSlide:void (app:PptxApp) {
+        def slide@(optional):PptxSlide (app.currentSlide())
+        if (null? slide) {
+            print "  (no slide)"
+            return
+        }
+        def s:PptxSlide (unwrap slide)
+        print ("  size_pt = " + (to_string s.width) + " x " + (to_string s.height))
+        print ("  shapes  = " + (to_string (array_length s.shapes)))
+        def i:int 0
+        while (i < (array_length s.shapes)) {
+            def sh:PptxShape (itemAt s.shapes i)
+            def kind:string "shape"
+            if (sh.kind == 1) {
+                kind = "picture"
+            }
+            if (sh.kind == 2) {
+                kind = "group"
+            }
+            def extra:string ""
+            if sh.hasText {
+                extra = (" text=\"" + (sh.text.plainText()) + "\"")
+            }
+            if (sh.kind == 1) {
+                extra = (" part=" + sh.imagePart)
+            }
+            print ("    [" + kind + "] " + sh.name + " @(" + (to_string sh.x) + "," + (to_string sh.y) + ") " + (to_string sh.width) + "x" + (to_string sh.height) + " fill=" + sh.fill.srgb + extra)
+            i = (i + 1)
+        }
+    }
+
+    sfn runFile:void (app:PptxApp path:string name:string outPrefix:string) {
+        print ("=== " + path + "/" + name + " ===")
+        def ok:boolean (app.loadParts(path name))
+        if (ok == false) {
+            print "FAILED to open"
+            return
+        }
+        print ("slides = " + (to_string (app.slideCount())))
+        PptxDemo.dumpSlide(app)
+        PptxDemo.snapshot(app "gallery/pptx" (outPrefix + "_s1.png"))
+        print ("wrote gallery/pptx/" + outPrefix + "_s1.png")
+        if ((app.slideCount()) > 1) {
+            def input:UIInput (new UIInput)
+            input.newFrame()
+            input.pushKey((UIKey.right()))
+            app.update(input)
+            PptxDemo.dumpSlide(app)
+            PptxDemo.snapshot(app "gallery/pptx" (outPrefix + "_s2.png"))
+            print ("wrote gallery/pptx/" + outPrefix + "_s2.png")
+        }
+    }
+
+    sfn main:void () {
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+
+        def argc:int (shell_arg_cnt)
+        if (argc >= 1) {
+            def full:string (shell_arg 0)
+            print ("=== " + full + " ===")
+            def ok:boolean (app.load(full))
+            if ok {
+                print ("slides = " + (to_string (app.slideCount())))
+                PptxDemo.dumpSlide(app)
+                PptxDemo.snapshot(app "gallery/pptx" "demo_custom.png")
+                print "wrote gallery/pptx/demo_custom.png"
+            } {
+                print "FAILED to open"
+            }
+            app.close()
+            return
+        }
+
+        PptxDemo.runFile(app "gallery/pptx/fixtures" "01-text.pptx" "demo_text")
+        PptxDemo.runFile(app "gallery/pptx/fixtures" "02-shapes.pptx" "demo_shapes")
+        PptxDemo.runFile(app "gallery/pptx/fixtures" "03-image.pptx" "demo_image")
+        PptxDemo.runFile(app "gallery/pptx/fixtures" "04-multi.pptx" "demo_multi")
+        app.close()
+        print "pptx_demo done"
+    }
+}

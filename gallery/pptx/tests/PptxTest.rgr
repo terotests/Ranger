@@ -1,0 +1,199 @@
+; ==============================================================================
+; PptxTest - unit validation for the PPTX Lite pipeline
+; ==============================================================================
+
+Import "../src/OpcPackage.rgr"
+Import "../src/PptxXml.rgr"
+Import "../src/PptxParser.rgr"
+Import "../src/PptxResolver.rgr"
+Import "../src/PptxToEvg.rgr"
+Import "../src/PptxModel.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class PptxTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn run:void () {
+        print "=== PptxTest ==="
+        this.testUnits()
+        this.testXml()
+        this.testJoinPath()
+        this.testPackageAndSlides()
+        this.testThemeResolve()
+        this.testEvgTree()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testUnits:void () {
+        print "--- units ---"
+        def pt:double (PptxUnits.emuToPt(914400.0))
+        this.check("1 inch = 72 pt" ((pt > 71.9) && (pt < 72.1)))
+        def px:double (PptxUnits.emuToPx(914400.0))
+        this.check("1 inch = 96 px" ((px > 95.9) && (px < 96.1)))
+        def deg:double (PptxUnits.rotToDeg(60000.0))
+        this.check("60000 rot = 1 deg" ((deg > 0.99) && (deg < 1.01)))
+        def fsz:double (PptxUnits.hundredthsPtToPt(3200.0))
+        this.check("sz 3200 = 32 pt" ((fsz > 31.9) && (fsz < 32.1)))
+    }
+
+    fn testXml:void () {
+        print "--- xml ---"
+        def p (new PptxXmlParser())
+        def root@(optional):PptxXmlNode (p.parse("<a><b x=\"1\">hi</b><c/></a>"))
+        this.check("parse root" (!null? root))
+        if (!null? root) {
+            def r:PptxXmlNode (unwrap root)
+            this.check("root name a" (r.name == "a"))
+            def b@(optional):PptxXmlNode (r.firstChild("b"))
+            this.check("child b" (!null? b))
+            if (!null? b) {
+                def bn:PptxXmlNode (unwrap b)
+                this.check("attr x=1" ((bn.attr("x")) == "1"))
+                this.check("text hi" ((bn.textContent()) == "hi"))
+            }
+            def ns@(optional):PptxXmlNode (p.parse("<p:sp><p:spPr/></p:sp>"))
+            this.check("ns local name" (!null? ns))
+            if (!null? ns) {
+                this.check("sp name" (((unwrap ns).name) == "sp"))
+            }
+        }
+    }
+
+    fn testJoinPath:void () {
+        print "--- opc paths ---"
+        def a:string (OpcPackage.joinPartPath("ppt/slides/slide1.xml" "../media/image1.png"))
+        this.check("rel media path" (a == "ppt/media/image1.png"))
+        def b:string (OpcPackage.joinPartPath("ppt/presentation.xml" "slides/slide1.xml"))
+        this.check("rel slide path" (b == "ppt/slides/slide1.xml"))
+        def c:string (OpcPackage.relsPathFor("ppt/slides/slide1.xml"))
+        this.check("rels path" (c == "ppt/slides/_rels/slide1.xml.rels"))
+    }
+
+    fn testPackageAndSlides:void () {
+        print "--- package / slides ---"
+        def parser (new PptxParser())
+        def ok:boolean (parser.openParts("gallery/pptx/fixtures" "01-text.pptx"))
+        this.check("open 01-text" ok)
+        if ok {
+            def pres:PptxPresentation (parser.parsePresentation())
+            this.check("one slide" ((pres.slideCount()) == 1))
+            this.check("width 720pt" ((pres.slideWidth > 719.0) && (pres.slideWidth < 721.0)))
+            this.check("height 540pt" ((pres.slideHeight > 539.0) && (pres.slideHeight < 541.0)))
+            if ((pres.slideCount()) > 0) {
+                def slide:PptxSlide (itemAt pres.slides 0)
+                this.check("has shapes" ((array_length slide.shapes) >= 2))
+                def foundText:boolean false
+                def i:int 0
+                while (i < (array_length slide.shapes)) {
+                    def sh:PptxShape (itemAt slide.shapes i)
+                    if sh.hasText {
+                        def t:string (sh.text.plainText())
+                        if ((indexOf t "Hello") >= 0) {
+                            foundText = true
+                        }
+                    }
+                    i = (i + 1)
+                }
+                this.check("Hello text" foundText)
+            }
+            this.check("theme accent1" ((pres.theme.colorOf("accent1")) == "4472C4"))
+        }
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok2:boolean (p2.openParts("gallery/pptx/fixtures" "04-multi.pptx"))
+        this.check("open 04-multi" ok2)
+        if ok2 {
+            def pres2:PptxPresentation (p2.parsePresentation())
+            this.check("two slides" ((pres2.slideCount()) == 2))
+        }
+        p2.close()
+
+        def p3 (new PptxParser())
+        def ok3:boolean (p3.openParts("gallery/pptx/fixtures" "03-image.pptx"))
+        this.check("open 03-image" ok3)
+        if ok3 {
+            def pres3:PptxPresentation (p3.parsePresentation())
+            def slide3:PptxSlide (itemAt pres3.slides 0)
+            def foundPic:boolean false
+            def j:int 0
+            while (j < (array_length slide3.shapes)) {
+                def sh2:PptxShape (itemAt slide3.shapes j)
+                if (sh2.kind == 1) {
+                    foundPic = true
+                    this.check("image part set" ((strlen sh2.imagePart) > 0))
+                    this.check("image bytes" ((buffer_length sh2.imageBytes) > 20))
+                }
+                j = (j + 1)
+            }
+            this.check("has picture" foundPic)
+        }
+        p3.close()
+    }
+
+    fn testThemeResolve:void () {
+        print "--- resolver ---"
+        def parser (new PptxParser())
+        parser.openParts("gallery/pptx/fixtures" "01-text.pptx")
+        def raw:PptxPresentation (parser.parsePresentation())
+        def resolver (new PptxResolver())
+        def pres:PptxPresentation (resolver.resolvePresentation(raw))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def resolved:boolean false
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if sh.hasText {
+                def para:PptxParagraph (itemAt sh.text.paragraphs 0)
+                if ((array_length para.runs) > 0) {
+                    def run:PptxTextRun (itemAt para.runs 0)
+                    if ((run.color.isSet) && (run.color.isScheme == false) && ((strlen run.color.srgb) == 6)) {
+                        resolved = true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("scheme → srgb" resolved)
+        parser.close()
+    }
+
+    fn testEvgTree:void () {
+        print "--- to EVG ---"
+        def parser (new PptxParser())
+        parser.openParts("gallery/pptx/fixtures" "02-shapes.pptx")
+        def raw:PptxPresentation (parser.parsePresentation())
+        def resolver (new PptxResolver())
+        def pres:PptxPresentation (resolver.resolvePresentation(raw))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def conv (new PptxToEvg())
+        def page:EVGElement (conv.slideToEvg(slide))
+        this.check("evg children" ((page.getChildCount()) >= 3))
+        def dl:EVGDisplayList (conv.slideToDisplayList(slide))
+        this.check("display list cmds" ((dl.count()) >= 3))
+        parser.close()
+    }
+}

@@ -1,0 +1,120 @@
+; ==============================================================================
+; PptxResolver - theme / layout / master → ResolvedSlide
+; ==============================================================================
+;
+; Raw slides often say color=accent1 or font=+mj-lt. The resolver turns those
+; scheme references into concrete sRGB + font faces using the theme (and later
+; master/layout placeholders). Only a ResolvedSlide should feed EVG.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+
+class PptxResolver {
+    Constructor () {
+    }
+
+    ; Map placeholder / mapped scheme names used on slides (bg1, tx1, …) onto
+    ; the theme's clrScheme keys. Masters can remap these; MVP uses defaults.
+    fn mapSchemeName:string (name:string) {
+        if (name == "bg1") { return "lt1" }
+        if (name == "tx1") { return "dk1" }
+        if (name == "bg2") { return "lt2" }
+        if (name == "tx2") { return "dk2" }
+        if (name == "phClr") { return "accent1" }
+        return name
+    }
+
+    fn resolveColor:PptxColor (c:PptxColor theme:PptxTheme) {
+        if (c.isSet == false) {
+            return c
+        }
+        if (c.isScheme == false) {
+            return c
+        }
+        def key:string (this.mapSchemeName(c.scheme))
+        def hex:string (theme.colorOf(key))
+        def out:PptxColor (PptxColor.srgbOf(hex))
+        out.alpha = c.alpha
+        return out
+    }
+
+    fn resolveFont:string (face:string theme:PptxTheme) {
+        if ((strlen face) == 0) {
+            return theme.minorFont
+        }
+        if (face == "+mj-lt") {
+            return theme.majorFont
+        }
+        if (face == "+mn-lt") {
+            return theme.minorFont
+        }
+        if (face == "+mj-ea") {
+            return theme.majorFont
+        }
+        if (face == "+mn-ea") {
+            return theme.minorFont
+        }
+        return face
+    }
+
+    fn resolveTextBody:void (body:PptxTextBody theme:PptxTheme) {
+        def i:int 0
+        while (i < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs i)
+            def j:int 0
+            while (j < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs j)
+                run.fontFamily = (this.resolveFont(run.fontFamily theme))
+                if (run.color.isSet) {
+                    run.color = (this.resolveColor(run.color theme))
+                } {
+                    ; Default text → dk1
+                    run.color = (this.resolveColor((PptxColor.schemeOf("dk1")) theme))
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn resolveShape:void (shape:PptxShape theme:PptxTheme) {
+        if (shape.fill.isSet) {
+            shape.fill = (this.resolveColor(shape.fill theme))
+        }
+        if (shape.line.isSet) {
+            shape.line = (this.resolveColor(shape.line theme))
+        }
+        if shape.hasText {
+            this.resolveTextBody(shape.text theme)
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            this.resolveShape((itemAt shape.children i) theme)
+            i = (i + 1)
+        }
+    }
+
+    fn resolveSlide:PptxSlide (slide:PptxSlide theme:PptxTheme) {
+        if (slide.bg.isSet) {
+            slide.bg = (this.resolveColor(slide.bg theme))
+        } {
+            ; Default white from lt1
+            slide.bg = (this.resolveColor((PptxColor.schemeOf("lt1")) theme))
+        }
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            this.resolveShape((itemAt slide.shapes i) theme)
+            i = (i + 1)
+        }
+        return slide
+    }
+
+    fn resolvePresentation:PptxPresentation (pres:PptxPresentation) {
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            this.resolveSlide((itemAt pres.slides i) pres.theme)
+            i = (i + 1)
+        }
+        return pres
+    }
+}
