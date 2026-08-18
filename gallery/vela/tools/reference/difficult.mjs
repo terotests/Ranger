@@ -155,7 +155,16 @@ export const DIFFICULT = {
     + 'labelled by the cuts. Two channels reading one column are also one key '
     + 'and not two — folded by TITLE they stayed apart, because a chart that '
     + 'titles its colours and leaves its sizes to the column name does not '
-    + 'call them the same thing'
+    + 'call them the same thing',
+
+  facet_bullet:
+    'a trellis may resolve a scale INDEPENDENTLY, and then the scale is not '
+    + 'the only thing that moves into the panel: the rows it measures go with '
+    + 'it — re-derived from that panel\'s partition — and so does the axis '
+    + 'that labels it, so there is no strip of axes under the trellis at all. '
+    + 'A bar with nothing on the other axis is the other half: it has no band '
+    + 'to sit in, so it crosses the whole panel, centred, as thick as the '
+    + 'panel unless the mark says otherwise'
 };
 
 /** The names, in the order they were won. */

@@ -2924,6 +2924,31 @@ class VlRuntime {
         return (this.sortedByComparator(rows sortDef))
     }
 
+    ; A panel may hold data sets and scales of its own: that is what
+    ; "independent" resolution compiles to — every panel measures against its
+    ; own axis, over rows derived from its own partition. They are rebuilt
+    ; once per panel, before anything inside it is encoded, so the scale a
+    ; mark reads and the axis that labels it both belong to the panel they are
+    ; drawn in rather than to the one before.
+    fn runGroupScope:void (mdef:VlJson) {
+        def own:VlJson (mdef.get("data"))
+        if (own.isArray()) {
+            def k:int 0
+            while (k < (own.count())) {
+                this.runDataSet((own.at(k)))
+                k = (k + 1)
+            }
+        }
+        def ownScales:VlJson (mdef.get("scales"))
+        if (ownScales.isArray()) {
+            def si:int 0
+            while (si < (ownScales.count())) {
+                this.buildScale((ownScales.at(si)))
+                si = (si + 1)
+            }
+        }
+    }
+
     fn encodeGroupMark:void (mark:VlSceneMark mdef:VlJson) {
         def markRole:string mark.role
         def from:VlJson (mdef.get("from"))
@@ -3000,6 +3025,7 @@ class VlRuntime {
             ; The facet's rows are published under its own name for the duration
             ; of this group, which is how the marks inside it find their data.
             set dataSets facetName part
+            this.runGroupScope(mdef)
             def item:VlSceneItem (mark.addItem())
             def datum:VlJson (VlJson.objectValue())
             if ((array_length part.rows) > 0) {

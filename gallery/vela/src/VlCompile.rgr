@@ -1777,13 +1777,30 @@ class VlCompile {
         }
         clear channels
 
+        ; Which scales the PANELS do not share. `"resolve": {"scale": {"x":
+        ; "independent"}}` on a trellis means every panel measures against its
+        ; own horizontal axis, which is what a bullet chart is: five rows, five
+        ; different quantities, five different scales.
+        def apart:[string] (this.independentChannels())
+        def panelScales:boolean ((array_length apart) > 0)
+
         def child (new VlCompile())
         child.rootSource = rootSource
         child.insidePanel = true
         child.widthSignal = "child_width"
         child.heightSignal = "child_height"
         child.markLabel = "child_marks"
-        def piece:VlJson (child.compile(src))
+        ; The resolution belongs to the TRELLIS, not to what it repeats: handed
+        ; down, a stack of layers read it as a statement about ITSELF and gave
+        ; every layer a scale of its own — six scales where the chart asked for
+        ; one per panel.
+        def childSpec (VlJson.objectValue())
+        for src.keys sk:string ski {
+            if (sk != "resolve") {
+                childSpec.setMember(sk (src.get(sk)))
+            }
+        }
+        def piece:VlJson (child.compile(childSpec))
         for child.errors e:string ei {
             this.fail(e)
         }
@@ -1800,11 +1817,49 @@ class VlCompile {
             }
         }
 
-        ; The panel's marks read the partition rather than the whole data set.
+        ; The domain of the trellis: the distinct values of the facet field, in
+        ; the order they are to be drawn.
+        def data:VlJson (piece.get("data"))
+        def cellData (VlJson.arrayValue())
+        def cellScales (VlJson.arrayValue())
+        if panelScales {
+            ; A scale each PANEL has its own of belongs to the panel, and so
+            ; does everything that reads it: the rows it measures, the axis
+            ; that labels it, and the gridlines it rules. Kept on the page,
+            ; five panels of a bullet chart were measured against one scale
+            ; spanning every quantity at once, and the strip of axes under
+            ; them said nothing about any of them.
+            ;
+            ; Every derived set moves in, sourced from the partition rather
+            ; than from the whole. The SOURCE stays where it is: it is the
+            ; rows the partition is cut from. This runs before the trellis's
+            ; own domain sets are added, because those name the panels and
+            ; cannot themselves be inside one.
+            def kept (VlJson.arrayValue())
+            def di:int 0
+            while (di < (data.count())) {
+                def node:VlJson (data.at(di))
+                di = (di + 1)
+                if ((strlen (node.stringOr("source" ""))) == 0) {
+                    push kept.arr node
+                } {
+                    node.setMember("source" (VlJson.stringValue("facet")))
+                    push cellData.arr node
+                }
+            }
+            data = kept
+        }
+
+        ; The panel's marks read the partition rather than the whole data set —
+        ; unless the set they read has itself moved INSIDE the panel, which is
+        ; what independent scales do to it. Rewritten anyway, a bullet chart's
+        ; five bars all read the raw partition and none of them found the
+        ; stacked bounds they are drawn between.
         def panelMarks:VlJson (piece.get("marks"))
         def pm:int 0
         while (pm < (panelMarks.count())) {
             def one:VlJson (panelMarks.at(pm))
+            pm = (pm + 1)
             ; A mark that is ITSELF a partition — a coloured line or area, which
             ; is one shape per series — keeps its partition and only changes
             ; where the rows come from. Given the plain treatment it lost the
@@ -1813,18 +1868,18 @@ class VlCompile {
             ; thousand pixels of page.
             def existing:VlJson ((one.get("from")).get("facet"))
             if (existing.isObject()) {
-                existing.setMember("data" (VlJson.stringValue("facet")))
+                if (! (VlCompile.namesData((existing.stringOr("data" "")) cellData))) {
+                    existing.setMember("data" (VlJson.stringValue("facet")))
+                }
             } {
-                def innerFrom (VlJson.objectValue())
-                innerFrom.setMember("data" (VlJson.stringValue("facet")))
-                one.setMember("from" innerFrom)
+                def fromName:string ((one.get("from")).stringOr("data" ""))
+                if (! (VlCompile.namesData(fromName cellData))) {
+                    def innerFrom (VlJson.objectValue())
+                    innerFrom.setMember("data" (VlJson.stringValue("facet")))
+                    one.setMember("from" innerFrom)
+                }
             }
-            pm = (pm + 1)
         }
-
-        ; The domain of the trellis: the distinct values of the facet field, in
-        ; the order they are to be drawn.
-        def data:VlJson (piece.get("data"))
         def wrapped:boolean ((strlen wrapField) > 0)
         def domainName:string "column_domain"
         if ((strlen rowField) > 0) {
@@ -1869,7 +1924,14 @@ class VlCompile {
             push data.arr (VlCompile.domainData("column_domain" columnField child.dataLabel "" "min"))
             push data.arr (VlCompile.domainData("row_domain" rowField child.dataLabel "" "min"))
         } {
-            push data.arr (VlCompile.domainData(domainName facetField child.dataLabel sortField sortOp))
+            def domainFrom:string child.dataLabel
+            if panelScales {
+                ; …and it reads the SOURCE, because everything derived from it
+                ; has moved inside the panels and a panel cannot say what the
+                ; panels are.
+                domainFrom = "source_0"
+            }
+            push data.arr (VlCompile.domainData(domainName facetField domainFrom sortField sortOp))
         }
         def columns:VlJson columnsDef
         if wrapped {
@@ -1909,6 +1971,53 @@ class VlCompile {
                 }
                 ai = (ai + 1)
             }
+        }
+
+        if panelScales {
+            def pieceScales:VlJson (piece.get("scales"))
+            def keptScales (VlJson.arrayValue())
+            if (pieceScales.isArray()) {
+                def si2:int 0
+                while (si2 < (pieceScales.count())) {
+                    def one:VlJson (pieceScales.at(si2))
+                    si2 = (si2 + 1)
+                    if (VlCompile.namesAnyChannel((one.stringOr("name" "")) apart)) {
+                        push cellScales.arr one
+                    } {
+                        push keptScales.arr one
+                    }
+                }
+            }
+            piece.setMember("scales" keptScales)
+            ; …and the labelled axis goes in with it, so there is no strip of
+            ; axes under the panels at all.
+            def moved (VlJson.arrayValue())
+            def ai2:int 0
+            while (ai2 < (xAxes.count())) {
+                def one2:VlJson (xAxes.at(ai2))
+                ai2 = (ai2 + 1)
+                if (VlCompile.namesAnyChannel((one2.stringOr("scale" "")) apart)) {
+                    push gridAxes.arr one2
+                } {
+                    push moved.arr one2
+                }
+            }
+            xAxes = moved
+            def movedY (VlJson.arrayValue())
+            def ai3:int 0
+            while (ai3 < (yAxes.count())) {
+                def one3:VlJson (yAxes.at(ai3))
+                ai3 = (ai3 + 1)
+                if (VlCompile.namesAnyChannel((one3.stringOr("scale" "")) apart)) {
+                    push gridAxes.arr one3
+                } {
+                    push movedY.arr one3
+                }
+            }
+            yAxes = movedY
+            ; …and what the page publishes is what is LEFT, not what the child
+            ; handed over: the panel's own scales have gone inside it.
+            out.setMember("scales" (piece.get("scales")))
         }
 
         def marks (VlJson.arrayValue())
@@ -1966,7 +2075,11 @@ class VlCompile {
         if gridded {
             crossField = columnField
         }
-        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel (VlCompile.facetHeaderOf(src facetKey)) sortField sortOp sortDir crossField orderKey))
+        def cellFrom:string child.dataLabel
+        if panelScales {
+            cellFrom = "source_0"
+        }
+        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) cellFrom (VlCompile.facetHeaderOf(src facetKey)) sortField sortOp sortDir crossField orderKey cellData cellScales))
         out.setMember("marks" marks)
 
         ; Where the panels go, and how far the title stands clear of them.
@@ -2393,7 +2506,43 @@ class VlCompile {
     }
 
     ; One panel: the chart itself, drawn over the partition it belongs to.
-    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string header:VlJson sortField:string sortOp:string orderDir:string crossField:string orderKey:string) {
+    ; Whether a scale's name is one of a set of CHANNELS — `child_x` is the x
+    ; channel's scale, and so is `x`.
+    ; Whether a data set of this name is among those a panel holds. A mark
+    ; reading one of them is already inside the panel and must not be pointed
+    ; at the raw partition instead.
+    sfn namesData:boolean (name:string nodes:VlJson) {
+        if ((strlen name) == 0) {
+            return false
+        }
+        def k:int 0
+        while (k < (nodes.count())) {
+            if (((nodes.at(k)).stringOr("name" "")) == name) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    sfn namesAnyChannel:boolean (name:string channels:[string]) {
+        for channels one:string oi {
+            if (name == one) {
+                return true
+            }
+            def tail:int ((strlen name) - (strlen one))
+            if (tail > 0) {
+                if ((substring name tail (strlen name)) == one) {
+                    if ((substring name (tail - 1) tail) == "_") {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string header:VlJson sortField:string sortOp:string orderDir:string crossField:string orderKey:string cellData:VlJson cellScales:VlJson) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue("cell")))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -2485,6 +2634,14 @@ class VlCompile {
         def encode (VlJson.objectValue())
         encode.setMember("update" update)
         out.setMember("encode" encode)
+        ; What the panel owns: the rows it derives from its own partition and
+        ; the scales it measures them against.
+        if ((cellData.count()) > 0) {
+            out.setMember("data" cellData)
+        }
+        if ((cellScales.count()) > 0) {
+            out.setMember("scales" cellScales)
+        }
         out.setMember("marks" marks)
         if ((gridAxes.count()) > 0) {
             out.setMember("axes" gridAxes)
@@ -11339,10 +11496,47 @@ class VlCompile {
         return out
     }
 
+    ; A bar with nothing on the other axis has no band to sit in, so it
+    ; crosses the whole panel: centred on it, and as thick as the panel unless
+    ; the mark stated a size of its own. A bullet chart is five of these laid
+    ; over one another, and with no thickness every one of them was drawn as a
+    ; line of no height at all.
+    fn barAcross:void (update:VlJson axis:string) {
+        if (markName != "bar") {
+            return
+        }
+        def otherB:string "y"
+        def otherSizeB:string "height"
+        if (axis == "y") {
+            otherB = "x"
+            otherSizeB = "width"
+        }
+        if (this.hasChannel(otherB)) {
+            return
+        }
+        def centreB (VlJson.objectValue())
+        centreB.setMember("signal" (VlJson.stringValue((this.sizeSignal(otherSizeB)))))
+        centreB.setMember("mult" (VlJson.numberValue(0.5)))
+        update.setMember((otherB + "c") centreB)
+        def thickB:double (this.statedSize())
+        if (thickB > 0.0) {
+            update.setMember(otherSizeB (VlCompile.literal((VlJson.numberValue(thickB)))))
+            return
+        }
+        ; How much of the band a bar fills is a scale setting, and with no band
+        ; to speak of it is how much of the panel.
+        def ratio:double (1.0 - (this.configNumber("scale" "barBandPaddingInner" 0.1)))
+        def acrossB (VlJson.objectValue())
+        def ratioText:string (VlJson.numberToText(ratio false))
+        acrossB.setMember("signal" (VlJson.stringValue(((ratioText + " * ") + (this.sizeSignal(otherSizeB))))))
+        update.setMember(otherSizeB acrossB)
+    }
+
     fn encodeAxisPair:void (update:VlJson ch:VlChannel axis:string dimension:string) {
         if (! ch.defined) {
             return
         }
+        this.barAcross(update axis)
         if ch.hasValue {
             ; A TICK given a number on the axis it is THIN in is CENTRED on it
             ; and drawn a pixel deep: the axis rules of a parallel-coordinate
@@ -11563,7 +11757,8 @@ class VlCompile {
         ; value and given a thickness rather than placed by its corner.
         if (markName == "tick") {
             update.setMember((axis + "c") (this.scaled(axis (ch.outField()))))
-            update.setMember(dimension (VlCompile.literal((VlJson.numberValue(1.0)))))
+            ; How thick, which the chart may say once for every tick it draws.
+            update.setMember(dimension (VlCompile.literal((VlJson.numberValue((this.configNumber("tick" "thickness" 1.0)))))))
             ; With nothing on the other axis there is no band to cross, so the
             ; tick crosses the plot itself — three quarters of it, centred.
             def other:string "y"
