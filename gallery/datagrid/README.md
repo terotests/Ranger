@@ -5,6 +5,10 @@ specialized `DataGrid` layout engine, then paints **only visible cells** through
 the existing **EVG display-list → SoftCanvas / WebGL** stack — the same editor
 architecture as [`gallery/text_editor`](../text_editor/README.md).
 
+Feature checklist is grounded in **FortuneSheet** (OSS spreadsheet ops);
+render path peers with **x-spreadsheet** (Canvas virtualization). See
+[`docs/FEATURES.md`](docs/FEATURES.md).
+
 Also an **`.xlsx` viewer**: ZIP (`gallery/zip`) → SpreadsheetML parse →
 `WorkbookModel` / `SpreadsheetModel` → DataGrid. Formula engine is not required
 for viewing — cached `<v>` results are shown; the formula bar shows `=<f>`.
@@ -16,7 +20,7 @@ XlsxPackage (ZipReader)
    ↓
 XlsxLoader → WorkbookModel
    ↓
-DataGrid (virtualized)
+DataGrid (virtualized + freeze bands)
    ↓
 EVGDisplayList → SoftCanvas / WebGL
 ```
@@ -26,11 +30,11 @@ EVGDisplayList → SoftCanvas / WebGL
 ```text
 gallery/datagrid/
   src/           SpreadsheetModel, WorkbookModel, DataGrid, GridView, GridApp
-  src/xlsx/      XlsxPackage, Workbook, SharedStrings, Worksheet, Loader
-  fixtures/      sales.xlsx, sparse500.xlsx
+  src/xlsx/      Package, Workbook, SharedStrings, Worksheet, Styles, Loader
+  fixtures/      sales.xlsx (styles + freeze), sparse500.xlsx
   tests/         GridTest.rgr, XlsxTest.rgr
   bench/         grid_bench.rgr
-  docs/PLAN.md
+  docs/          PLAN.md, FEATURES.md
   web/           Chrome host (loads fixtures/sales.xlsx)
 ```
 
@@ -45,7 +49,7 @@ npm run datagrid:window         # WebGL viewer of sales.xlsx
 npm run datagrid:xlsx:fixtures  # regenerate fixtures/*.xlsx
 ```
 
-## XLSX viewer v1
+## XLSX viewer (through Milestone 3)
 
 - workbook + multiple sheets (tabs)
 - shared strings, inline strings, numbers, booleans
@@ -53,8 +57,11 @@ npm run datagrid:xlsx:fixtures  # regenerate fixtures/*.xlsx
 - column widths / row heights
 - merged cells
 - sparse sheets (empty cells not allocated)
+- **styles.xml** → fill / font color / bold / align / basic numFmt
+- **freeze panes** (`sheetViews` pane xSplit/ySplit) + fixed bands while scrolling
+- **copy / paste** (Ctrl+C / Ctrl+V TSV) and **fill handle** (drag copy-fill)
 
-Not yet: styles/number formats, freeze panes, charts, `.xls`, write-back.
+Not yet: full formula engine, charts, `.xls`, write-back, sort/filter, wrap.
 
 ## What else works
 
