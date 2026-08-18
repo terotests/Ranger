@@ -96,7 +96,17 @@ export const DIFFICULT = {
     + 'panel, written onto every row and carried through by being grouped on. '
     + 'A sort that names a column and no op is the other case entirely: the '
     + 'reference looks for it in the derived rows and orders nothing when it '
-    + 'is not there, which is what trellis_area_seattle relies on'
+    + 'is not there, which is what trellis_area_seattle relies on',
+
+  parallel_coordinate:
+    'a line is one shape per SERIES and a chart may tell its series apart by '
+    + 'more than one thing at once, so the partition is a list and not a '
+    + 'column: coloured by species alone, three hundred birds came out as '
+    + 'three lines. Its guides are marks rather than axes, which needs three '
+    + 'more things read where the chart actually says them — a per-side axis '
+    + 'block at COMPILE time, a named style resolved for a mark that carries '
+    + 'one, and a tick centred on the axis it is thin in rather than placed '
+    + 'by an edge it has no depth along'
 };
 
 /** The names, in the order they were won. */

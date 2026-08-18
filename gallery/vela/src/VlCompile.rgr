@@ -4142,6 +4142,58 @@ class VlCompile {
         return (inner.stringOr(key fallback))
     }
 
+    ; What a mark is told, wherever the chart chose to say it. A property may
+    ; sit on the mark definition, under the mark's own name in the
+    ; configuration, or in a named STYLE the mark carries — and a style is how
+    ; a chart says a thing once and uses it in four layers. Read from the
+    ; mark's own block alone, a parallel-coordinate plot's `label` style went
+    ; unseen and its axis numbers sat centred on the axis rather than beside
+    ; it. The later name wins, which is the order the reference resolves them.
+    fn markStyleText:string (key:string fallback:string) {
+        def stated:VlJson (markDef.get(key))
+        if (stated.isString()) {
+            return (stated.asString())
+        }
+        def answer:string (this.configText(markName key fallback))
+        def config:VlJson (rootSource.get("config"))
+        if (! (config.isObject())) {
+            config = (source.get("config"))
+        }
+        if (! (config.isObject())) {
+            return answer
+        }
+        def styles:VlJson (config.get("style"))
+        if (! (styles.isObject())) {
+            return answer
+        }
+        def names (VlJson.arrayValue())
+        VlCompile.pushStyleNames(names (VlJson.stringValue(markName)))
+        VlCompile.pushStyleNames(names (markDef.get("style")))
+        def total:int (names.count())
+        def k:int 0
+        while (k < total) {
+            def block:VlJson (styles.get(((names.at(k)).asString())))
+            if (block.isObject()) {
+                def said:VlJson (block.get(key))
+                if (said.isString()) {
+                    answer = (said.asString())
+                }
+            }
+            k = (k + 1)
+        }
+        return answer
+    }
+
+    ; Which way a tick is THIN. A tick is a short line, and the axis it is thin
+    ; in is the one across its own direction: a vertical tick is thin in x, a
+    ; horizontal one thin in y.
+    fn tickThinAxis:string () {
+        if ((this.markStyleText("orient" "vertical")) == "horizontal") {
+            return "y"
+        }
+        return "x"
+    }
+
     ; The signal a dimension reads. A shared dimension is the chart's own.
     fn sizeSignal:string (dimension:string) {
         if (dimension == "width") {
@@ -8051,6 +8103,30 @@ class VlCompile {
         return own
     }
 
+    ; The same, for the axes of ONE dimension. `"axisX": {…}` speaks for the
+    ; axes across the top and bottom and `"axisY"` for the ones down the
+    ; sides, and either beats the block that speaks for all of them.
+    sfn sidedBlock:string (orient:string) {
+        if ((orient == "bottom") || (orient == "top")) {
+            return "axisX"
+        }
+        return "axisY"
+    }
+
+    fn axisStates:boolean (orient:string key:string) {
+        if (this.configStates((VlCompile.sidedBlock(orient)) key)) {
+            return true
+        }
+        return (this.configStates("axis" key))
+    }
+
+    fn axisFlag:VlJson (orient:string key:string) {
+        if (this.configStates((VlCompile.sidedBlock(orient)) key)) {
+            return (this.configFlag((VlCompile.sidedBlock(orient)) key))
+        }
+        return (this.configFlag("axis" key))
+    }
+
     ; Does the configuration MENTION this guide property? A member written as
     ; null and a member nobody wrote are the same value and not the same
     ; statement.
@@ -8416,9 +8492,9 @@ class VlCompile {
         ; Asked the other way, the rule never fired and a chart of wheat and
         ; wages headed its axes with a list of every column any layer of it
         ; reads.
-        def titledEverywhere:VlJson (this.configFlag("axis" "title"))
+        def titledEverywhere:VlJson (this.axisFlag(orient "title"))
         def refusedEverywhere:boolean false
-        if (this.configStates("axis" "title")) {
+        if (this.axisStates(orient "title")) {
             refusedEverywhere = (titledEverywhere.isNull())
         }
         if refusedEverywhere {
@@ -8458,8 +8534,14 @@ class VlCompile {
             ; leaves level however discrete the scale under them is.
             if (! (this.continuousScale(ch))) {
                 if ((strlen ch.timeUnit) == 0) {
+                    ; …and a chart may have said, once, that its horizontal
+                    ; labels are to stay level. Turned anyway, four column
+                    ; names stood on end under a parallel-coordinates plot and
+                    ; took a hundred and fifty pixels of page with them.
                     if (! (a.has("labelAngle"))) {
-                        a.setMember("labelAngle" (VlJson.numberValue(270.0)))
+                        if (! (this.axisStates(orient "labelAngle"))) {
+                            a.setMember("labelAngle" (VlJson.numberValue(270.0)))
+                        }
                     }
                 } {
                     ; A discrete axis of DATES keeps its labels level, and
@@ -9113,13 +9195,19 @@ class VlCompile {
     ; shape is drawn rather than coloured after it. That is a faceted group —
     ; the same construction a trellis uses, with the panels drawn on top of one
     ; another instead of side by side.
-    fn seriesField:string () {
+    ; The answer is a LIST, not one column, because a chart may tell its series
+    ; apart by more than one thing at once. A parallel-coordinate plot colours
+    ; its lines by species AND gives every bird its own line: partitioned by
+    ; the colour alone, three hundred birds came out as three lines that ran
+    ; back and forth across the plot.
+    fn seriesFields:[string] () {
+        def out:[string]
         ; A TRAIL is a line whose width varies along it, and it is one shape
         ; per series for exactly the same reason. Left out, five companies'
         ; share prices came out as one ribbon running back and forth across
         ; the plot.
         if (((markName != "line") && (markName != "area")) && (markName != "trail")) {
-            return ""
+            return out
         }
         def colour:VlChannel (this.channel("color"))
         if (colour.encodes()) {
@@ -9129,7 +9217,7 @@ class VlCompile {
             ; Read as a constant, four series came out as one line running
             ; back and forth across the plot.
             if ((! colour.hasValue) || colour.conditional) {
-                return (colour.outField())
+                VlCompile.pushSeriesField(out (colour.outField()))
             }
         }
         ; `detail` is a channel that groups and nothing else — it paints no
@@ -9139,7 +9227,7 @@ class VlCompile {
         def detail:VlChannel (this.channel("detail"))
         if (detail.encodes()) {
             if ((strlen detail.field) > 0) {
-                return (detail.outField())
+                VlCompile.pushSeriesField(out (detail.outField()))
             }
         }
         ; A line is one shape per series however the series are told apart, and
@@ -9149,10 +9237,24 @@ class VlCompile {
         def dash:VlChannel (this.channel("strokeDash"))
         if (dash.encodes()) {
             if (! dash.hasValue) {
-                return (dash.outField())
+                VlCompile.pushSeriesField(out (dash.outField()))
             }
         }
-        return ""
+        return out
+    }
+
+    ; One column named twice — coloured and detailed by the same thing — is
+    ; still one partition, and a blank name is no partition at all.
+    sfn pushSeriesField:void (out:[string] name:string) {
+        if ((strlen name) < 1) {
+            return
+        }
+        for out have:string hi {
+            if (have == name) {
+                return
+            }
+        }
+        push out name
     }
 
     ; Does the chart bind a selection to its own scales? `"bind": "scales"` is
@@ -9357,14 +9459,14 @@ class VlCompile {
     }
 
     fn buildMarks:VlJson () {
-        def series:string (this.seriesField())
-        if ((strlen series) > 0) {
+        def series:[string] (this.seriesFields())
+        if ((array_length series) > 0) {
             return (this.buildSeriesGroup(series))
         }
         return (this.buildFlatMarks())
     }
 
-    fn buildSeriesGroup:VlJson (series:string) {
+    fn buildSeriesGroup:VlJson (series:[string]) {
         def out (VlJson.arrayValue())
         def group (VlJson.objectValue())
         group.setMember("name" (VlJson.stringValue("pathgroup")))
@@ -9373,7 +9475,9 @@ class VlCompile {
         facet.setMember("name" (VlJson.stringValue("faceted_path_main")))
         facet.setMember("data" (VlJson.stringValue(dataName)))
         def groupby (VlJson.arrayValue())
-        push groupby.arr (VlJson.stringValue(series))
+        for series name:string ni {
+            push groupby.arr (VlJson.stringValue(name))
+        }
         facet.setMember("groupby" groupby)
         def from (VlJson.objectValue())
         from.setMember("facet" facet)
@@ -9696,15 +9800,15 @@ class VlCompile {
             ; `"config": {"text": {"align": "left"}}` is a chart labelling the
             ; ends of its lines, and written over with the default every label
             ; sat on the line rather than beside it.
-            update.setMember("align" (VlCompile.literal((VlJson.stringValue((this.configText("text" "align" "center")))))))
-            update.setMember("baseline" (VlCompile.literal((VlJson.stringValue((this.configText("text" "baseline" "middle")))))))
+            update.setMember("align" (VlCompile.literal((VlJson.stringValue((this.markStyleText("align" "center")))))))
+            update.setMember("baseline" (VlCompile.literal((VlJson.stringValue((this.markStyleText("baseline" "middle")))))))
             def colour0:VlChannel (this.channel("color"))
             if (! colour0.defined) {
                 ; …in the colour the chart said labels are, which is black
                 ; unless it said. Written black regardless, a chart asking for
                 ; dark grey labels got none of them.
-                def inkName:string (this.configText("text" "fill" "black"))
-                inkName = (this.configText("text" "color" inkName))
+                def inkName:string (this.markStyleText("fill" "black"))
+                inkName = (this.markStyleText("color" inkName))
                 update.setMember("fill" (VlCompile.literal((VlJson.stringValue(inkName)))))
                 this.applyMarkPaint(update "fill")
                 return
@@ -10353,6 +10457,18 @@ class VlCompile {
             return
         }
         if ch.hasValue {
+            ; A TICK given a number on the axis it is THIN in is CENTRED on it
+            ; and drawn a pixel deep: the axis rules of a parallel-coordinate
+            ; plot are ticks pinned at 0, 150 and 300 that way. Placed by an
+            ; edge instead they had no depth at all and four thousand of them
+            ; drew nothing.
+            if (markName == "tick") {
+                if (axis == (this.tickThinAxis())) {
+                    update.setMember((axis + "c") (VlCompile.literal(ch.value)))
+                    update.setMember(dimension (VlCompile.literal((VlJson.numberValue(1.0)))))
+                    return
+                }
+            }
             update.setMember(axis (VlCompile.literal(ch.value)))
             return
         }

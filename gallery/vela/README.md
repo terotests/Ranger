@@ -300,12 +300,12 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **159** |
-| drawn, but not the same picture | 106 | 6 |
+| drawn exactly as the reference draws them | 11 | **160** |
+| drawn, but not the same picture | 106 | 5 |
 | refused, with a reason | 58 | 10 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **90.9% exact, 94.3% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **91.4% exact, 94.3% drawn** |
 
 Every one of those hundred came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
@@ -327,7 +327,7 @@ invisible. And `"point": {"filled": false}` was read as a boolean, which an
 object is not, so a line asked for dots came out bare. None of the four said
 anything; they each just drew the wrong picture.
 
-The remaining thirty-five are a long tail rather than a wall. Most come out
+The remaining fifteen are a long tail rather than a wall. Most come out
 within a few pixels of the reference and differ for their own reason — a
 rounding rule here, a guide default there — which is what a coverage report is
 for: without it, each of those would be found one paste at a time.
@@ -337,7 +337,7 @@ for: without it, each of those would be found one paste at a time.
 Most of what the report converts, it converts in a handful of lines. Some
 charts are not like that: they hold out until something the reference does has
 to be reproduced exactly, and several of them moved only after a wrong
-hypothesis had been measured and reverted first. Fourteen of them are recorded in
+hypothesis had been measured and reverted first. Fifteen of them are recorded in
 [`tools/reference/difficult.mjs`](tools/reference/difficult.mjs), with a note
 against each saying what it actually took:
 
@@ -357,6 +357,7 @@ against each saying what it actually took:
 | `concat_marginal_histograms` | a concatenation inside a concatenation numbers its panes from one again, so two panes were called `data_1` and one drew the other's rows; the inner row names its own shared height; a group's rectangle reaches as far as its panes do and not a margin further; and which end of a bin is nudged which way follows the direction the scale runs |
 | `brush_table` | a key belongs to the page unless the chart resolves it **independently**, and then it belongs to the pane whose scale it names — which means a pane has to be able to carry one and to reserve the room beside it |
 | `trellis_barley` | a trellis ordered by a **summary** of a column has to compute the ranking before its own aggregate summarises that column away — one value per panel, written onto every row and carried through by being grouped on. A sort that names a column and no op is the other case entirely: the reference looks for it in the derived rows and orders nothing when it is not there, which is what `trellis_area_seattle` relies on |
+| `parallel_coordinate` | a line is one shape per **series**, and a chart may tell its series apart by more than one thing at once — so the partition is a list and not a column: coloured by species alone, three hundred birds came out as three lines. Its guides are marks rather than axes, which needs three more things read where the chart actually says them — a per-side axis block at **compile** time, a named style resolved for a mark that carries one, and a tick centred on the axis it is thin in rather than placed by an edge it has no depth along |
 
 Marking them buys two things. A chart that took a rounding order to get right
 can be made wrong again by one line somewhere else, and it would come back as a
