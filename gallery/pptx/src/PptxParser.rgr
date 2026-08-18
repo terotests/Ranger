@@ -76,6 +76,7 @@ class PptxParser {
     }
 
     fn parseXfrm:void (xfrm:PptxXmlNode shape:PptxShape) {
+        shape.hasXfrm = true
         def rotS:string (xfrm.attr("rot"))
         if ((strlen rotS) > 0) {
             def rd@(optional):double (str2double rotS)
@@ -108,6 +109,82 @@ class PptxParser {
         }
     }
 
+    fn applyRPrToRun:void (rp:PptxXmlNode run:PptxTextRun) {
+        def sz:string (rp.attr("sz"))
+        if ((strlen sz) > 0) {
+            def sd@(optional):double (str2double sz)
+            run.fontSizePt = (PptxUnits.hundredthsPtToPt((?? sd 1800.0)))
+            run.sizeSet = true
+        }
+        if ((rp.attr("b")) == "1") {
+            run.bold = true
+        }
+        if ((rp.attr("i")) == "1") {
+            run.italic = true
+        }
+        def latin@(optional):PptxXmlNode (rp.firstChild("latin"))
+        if (!null? latin) {
+            def ln:PptxXmlNode (unwrap latin)
+            def tf:string (ln.attr("typeface"))
+            if ((strlen tf) > 0) {
+                run.fontFamily = tf
+            }
+        }
+        def col@(optional):PptxColor (this.parseColor(rp))
+        if (!null? col) {
+            run.color = (unwrap col)
+        }
+    }
+
+    fn parseLstStyleDefaults:void (txBody:PptxXmlNode body:PptxTextBody) {
+        def lst@(optional):PptxXmlNode (txBody.firstChild("lstStyle"))
+        if (null? lst) {
+            return
+        }
+        def ls:PptxXmlNode (unwrap lst)
+        ; Prefer lvl1pPr, then defPPr
+        def lvl@(optional):PptxXmlNode (ls.firstChild("lvl1pPr"))
+        if (null? lvl) {
+            lvl = (ls.firstChild("defPPr"))
+        }
+        if (null? lvl) {
+            return
+        }
+        def ln:PptxXmlNode (unwrap lvl)
+        def algn:string (ln.attr("algn"))
+        if ((strlen algn) > 0) {
+            body.defAlign = algn
+        }
+        def defRPr@(optional):PptxXmlNode (ln.firstChild("defRPr"))
+        if (null? defRPr) {
+            return
+        }
+        def rp:PptxXmlNode (unwrap defRPr)
+        body.hasDefRPr = true
+        def sz:string (rp.attr("sz"))
+        if ((strlen sz) > 0) {
+            def sd@(optional):double (str2double sz)
+            body.defFontSizePt = (PptxUnits.hundredthsPtToPt((?? sd 1800.0)))
+        }
+        if ((rp.attr("b")) == "1") {
+            body.defBold = true
+        }
+        if ((rp.attr("i")) == "1") {
+            body.defItalic = true
+        }
+        def latin@(optional):PptxXmlNode (rp.firstChild("latin"))
+        if (!null? latin) {
+            def tf:string ((unwrap latin).attr("typeface"))
+            if ((strlen tf) > 0) {
+                body.defFontFamily = tf
+            }
+        }
+        def col@(optional):PptxColor (this.parseColor(rp))
+        if (!null? col) {
+            body.defColor = (unwrap col)
+        }
+    }
+
     fn parseTextBody:PptxTextBody (txBody:PptxXmlNode) {
         def body (new PptxTextBody())
         def bodyPr@(optional):PptxXmlNode (txBody.firstChild("bodyPr"))
@@ -117,27 +194,37 @@ class PptxParser {
             if ((strlen lIns) > 0) {
                 def ld@(optional):double (str2double lIns)
                 body.insetL = (PptxUnits.emuToPt((?? ld 0.0)))
+                body.insetsSet = true
             }
             def tIns:string (bp.attr("tIns"))
             if ((strlen tIns) > 0) {
                 def td@(optional):double (str2double tIns)
                 body.insetT = (PptxUnits.emuToPt((?? td 0.0)))
+                body.insetsSet = true
             }
             def rIns:string (bp.attr("rIns"))
             if ((strlen rIns) > 0) {
                 def rd@(optional):double (str2double rIns)
                 body.insetR = (PptxUnits.emuToPt((?? rd 0.0)))
+                body.insetsSet = true
             }
             def bIns:string (bp.attr("bIns"))
             if ((strlen bIns) > 0) {
                 def bd@(optional):double (str2double bIns)
                 body.insetB = (PptxUnits.emuToPt((?? bd 0.0)))
+                body.insetsSet = true
             }
             def anc:string (bp.attr("anchor"))
             if ((strlen anc) > 0) {
                 body.anchor = anc
+                body.anchorSet = true
+            }
+            def wrap:string (bp.attr("wrap"))
+            if (wrap == "none") {
+                body.wrap = false
             }
         }
+        this.parseLstStyleDefaults(txBody body)
         def paras:[PptxXmlNode] (txBody.childrenNamed("p"))
         def i:int 0
         while (i < (array_length paras)) {
@@ -149,6 +236,63 @@ class PptxParser {
                 def algn:string (pp.attr("algn"))
                 if ((strlen algn) > 0) {
                     para.align = algn
+                    para.alignSet = true
+                }
+                def lvlS:string (pp.attr("lvl"))
+                if ((strlen lvlS) > 0) {
+                    def lv@(optional):int (str2int lvlS)
+                    para.level = (?? lv 0)
+                }
+                def buFont@(optional):PptxXmlNode (pp.firstChild("buFont"))
+                def buChar@(optional):PptxXmlNode (pp.firstChild("buChar"))
+                def buNone@(optional):PptxXmlNode (pp.firstChild("buNone"))
+                def buAuto@(optional):PptxXmlNode (pp.firstChild("buAutoNum"))
+                if (!null? buNone) {
+                    para.hasBullet = false
+                } {
+                    if (!null? buChar) {
+                        para.hasBullet = true
+                        def ch:string ((unwrap buChar).attr("char"))
+                        if ((strlen ch) > 0) {
+                            para.bulletChar = ch
+                        }
+                    } {
+                        if (!null? buAuto) {
+                            para.hasBullet = true
+                            para.bulletChar = "•"
+                        } {
+                            if (!null? buFont) {
+                                para.hasBullet = true
+                            }
+                        }
+                    }
+                }
+                def spcBef@(optional):PptxXmlNode (pp.firstChild("spcBef"))
+                if (!null? spcBef) {
+                    def spc:PptxXmlNode (unwrap spcBef)
+                    def pts@(optional):PptxXmlNode (spc.firstChild("spcPts"))
+                    if (!null? pts) {
+                        def pv@(optional):double (str2double ((unwrap pts).attr("val")))
+                        para.spaceBeforePt = ((?? pv 0.0) / 100.0)
+                    }
+                }
+                def spcAft@(optional):PptxXmlNode (pp.firstChild("spcAft"))
+                if (!null? spcAft) {
+                    def spa:PptxXmlNode (unwrap spcAft)
+                    def pts2@(optional):PptxXmlNode (spa.firstChild("spcPts"))
+                    if (!null? pts2) {
+                        def pv2@(optional):double (str2double ((unwrap pts2).attr("val")))
+                        para.spaceAfterPt = ((?? pv2 0.0) / 100.0)
+                    }
+                }
+                def lnSpc@(optional):PptxXmlNode (pp.firstChild("lnSpc"))
+                if (!null? lnSpc) {
+                    def lsp:PptxXmlNode (unwrap lnSpc)
+                    def pct@(optional):PptxXmlNode (lsp.firstChild("spcPct"))
+                    if (!null? pct) {
+                        def pcv@(optional):double (str2double ((unwrap pct).attr("val")))
+                        para.lineSpacingPct = ((?? pcv 100000.0) / 1000.0)
+                    }
                 }
             }
             def runs:[PptxXmlNode] (pnode.childrenNamed("r"))
@@ -158,30 +302,7 @@ class PptxParser {
                 def run (new PptxTextRun())
                 def rPr@(optional):PptxXmlNode (rnode.firstChild("rPr"))
                 if (!null? rPr) {
-                    def rp:PptxXmlNode (unwrap rPr)
-                    def sz:string (rp.attr("sz"))
-                    if ((strlen sz) > 0) {
-                        def sd@(optional):double (str2double sz)
-                        run.fontSizePt = (PptxUnits.hundredthsPtToPt((?? sd 1800.0)))
-                    }
-                    if ((rp.attr("b")) == "1") {
-                        run.bold = true
-                    }
-                    if ((rp.attr("i")) == "1") {
-                        run.italic = true
-                    }
-                    def latin@(optional):PptxXmlNode (rp.firstChild("latin"))
-                    if (!null? latin) {
-                        def ln:PptxXmlNode (unwrap latin)
-                        def tf:string (ln.attr("typeface"))
-                        if ((strlen tf) > 0) {
-                            run.fontFamily = tf
-                        }
-                    }
-                    def col@(optional):PptxColor (this.parseColor(rp))
-                    if (!null? col) {
-                        run.color = (unwrap col)
-                    }
+                    this.applyRPrToRun((unwrap rPr) run)
                 }
                 def t@(optional):PptxXmlNode (rnode.firstChild("t"))
                 if (!null? t) {
@@ -191,11 +312,229 @@ class PptxParser {
                 push para.runs run
                 j = (j + 1)
             }
-            ; Also pick up <a:br/> as a soft break inside paragraph via empty run
             push body.paragraphs para
             i = (i + 1)
         }
         return body
+    }
+
+    fn parsePlaceholderAttrs:void (sp:PptxXmlNode shape:PptxShape) {
+        def nv@(optional):PptxXmlNode (sp.firstChild("nvSpPr"))
+        if (null? nv) {
+            ; Pictures use nvPicPr
+            nv = (sp.firstChild("nvPicPr"))
+        }
+        if (null? nv) {
+            return
+        }
+        def nvPr@(optional):PptxXmlNode ((unwrap nv).firstChild("nvPr"))
+        if (null? nvPr) {
+            return
+        }
+        def ph@(optional):PptxXmlNode ((unwrap nvPr).firstChild("ph"))
+        if (null? ph) {
+            return
+        }
+        def phn:PptxXmlNode (unwrap ph)
+        shape.isPlaceholder = true
+        def typ:string (phn.attr("type"))
+        if ((strlen typ) > 0) {
+            shape.phType = typ
+        } {
+            ; OOXML: omitted type means body
+            shape.phType = "body"
+        }
+        def idxS:string (phn.attr("idx"))
+        if ((strlen idxS) > 0) {
+            def id@(optional):int (str2int idxS)
+            shape.phIdx = (?? id -1)
+        }
+    }
+
+    fn parseDirectColor@(optional):PptxColor (parent:PptxXmlNode) {
+        def srgb@(optional):PptxXmlNode (parent.firstChild("srgbClr"))
+        if (!null? srgb) {
+            def hex:string ((unwrap srgb).attr("val"))
+            if ((strlen hex) == 6) {
+                def hit@(optional):PptxColor (PptxColor.srgbOf(hex))
+                return hit
+            }
+        }
+        def sch@(optional):PptxXmlNode (parent.firstChild("schemeClr"))
+        if (!null? sch) {
+            def name:string ((unwrap sch).attr("val"))
+            if ((strlen name) > 0) {
+                def hit2@(optional):PptxColor (PptxColor.schemeOf(name))
+                return hit2
+            }
+        }
+        def viaSolid@(optional):PptxColor (this.parseColor(parent))
+        return viaSolid
+    }
+
+    fn parseGradient@(optional):PptxGradient (parent:PptxXmlNode) {
+        def gf@(optional):PptxXmlNode (parent.firstChild("gradFill"))
+        if (null? gf) {
+            def __missing@(optional):PptxGradient
+            return __missing
+        }
+        def gnode:PptxXmlNode (unwrap gf)
+        def g (new PptxGradient())
+        g.isSet = true
+        def lin@(optional):PptxXmlNode (gnode.firstChild("lin"))
+        if (!null? lin) {
+            def angS:string ((unwrap lin).attr("ang"))
+            def ang@(optional):double (str2double angS)
+            def a:double (?? ang 0.0)
+            if (a > 2700000.0) {
+                g.dir = 0
+            } {
+                g.dir = 1
+            }
+        }
+        def gsLst@(optional):PptxXmlNode (gnode.firstChild("gsLst"))
+        if (!null? gsLst) {
+            def lst:PptxXmlNode (unwrap gsLst)
+            def stops:[PptxXmlNode] (lst.childrenNamed("gs"))
+            if ((array_length stops) > 0) {
+                def c0@(optional):PptxColor (this.parseDirectColor((itemAt stops 0)))
+                if (!null? c0) {
+                    g.c1 = (unwrap c0)
+                }
+            }
+            if ((array_length stops) > 1) {
+                def last:int ((array_length stops) - 1)
+                def c1@(optional):PptxColor (this.parseDirectColor((itemAt stops last)))
+                if (!null? c1) {
+                    g.c2 = (unwrap c1)
+                }
+            }
+        }
+        if (g.c1.isSet == false) {
+            g.c1 = (PptxColor.srgbOf("4472C4"))
+        }
+        if (g.c2.isSet == false) {
+            g.c2 = (PptxColor.srgbOf("FFFFFF"))
+        }
+        def hit@(optional):PptxGradient g
+        return hit
+    }
+
+    fn parseShadow:void (spPr:PptxXmlNode shape:PptxShape) {
+        def eff@(optional):PptxXmlNode (spPr.firstChild("effectLst"))
+        if (null? eff) {
+            return
+        }
+        def outer@(optional):PptxXmlNode ((unwrap eff).firstChild("outerShdw"))
+        if (null? outer) {
+            return
+        }
+        def o:PptxXmlNode (unwrap outer)
+        shape.shadow.isSet = true
+        def blurS:string (o.attr("blurRad"))
+        if ((strlen blurS) > 0) {
+            def bd@(optional):double (str2double blurS)
+            shape.shadow.blurPt = (PptxUnits.emuToPt((?? bd 0.0)))
+        }
+        def distS:string (o.attr("dist"))
+        def dirS:string (o.attr("dir"))
+        def dist:double 0.0
+        if ((strlen distS) > 0) {
+            def dd@(optional):double (str2double distS)
+            dist = (PptxUnits.emuToPt((?? dd 0.0)))
+        }
+        def dirDeg:double 45.0
+        if ((strlen dirS) > 0) {
+            def dr@(optional):double (str2double dirS)
+            dirDeg = (PptxUnits.rotToDeg((?? dr 2700000.0)))
+        }
+        ; Approximate offset from polar dist/dir (dir 0 = right in DrawingML)
+        ; Use simple quadrant: default down-right.
+        shape.shadow.offsetXPt = (dist * 0.7)
+        shape.shadow.offsetYPt = (dist * 0.7)
+        if (dirDeg > 90.0) {
+            if (dirDeg < 180.0) {
+                shape.shadow.offsetXPt = (0.0 - (dist * 0.7))
+            }
+        }
+        def col@(optional):PptxColor (this.parseColor(o))
+        if (!null? col) {
+            shape.shadow.color = (unwrap col)
+        } {
+            ; Often srgbClr is direct child of outerShdw
+            def srgb@(optional):PptxXmlNode (o.firstChild("srgbClr"))
+            if (!null? srgb) {
+                def hex:string ((unwrap srgb).attr("val"))
+                if ((strlen hex) == 6) {
+                    shape.shadow.color = (PptxColor.srgbOf(hex))
+                }
+                def alpha@(optional):PptxXmlNode ((unwrap srgb).firstChild("alpha"))
+                if (!null? alpha) {
+                    def av@(optional):double (str2double ((unwrap alpha).attr("val")))
+                    ; alpha is 1000ths of a percent (100000 = opaque)
+                    shape.shadow.alpha = ((?? av 35000.0) / 100000.0)
+                }
+            }
+            def sch@(optional):PptxXmlNode (o.firstChild("schemeClr"))
+            if (!null? sch) {
+                shape.shadow.color = (PptxColor.schemeOf(((unwrap sch).attr("val"))))
+            }
+        }
+        if (shape.shadow.color.isSet == false) {
+            shape.shadow.color = (PptxColor.srgbOf("000000"))
+        }
+    }
+
+    fn parseCustGeomPath:void (spPr:PptxXmlNode shape:PptxShape) {
+        def cust@(optional):PptxXmlNode (spPr.firstChild("custGeom"))
+        if (null? cust) {
+            return
+        }
+        def pathLst@(optional):PptxXmlNode ((unwrap cust).firstChild("pathLst"))
+        if (null? pathLst) {
+            return
+        }
+        def path@(optional):PptxXmlNode ((unwrap pathLst).firstChild("path"))
+        if (null? path) {
+            return
+        }
+        def pnode:PptxXmlNode (unwrap path)
+        def wS:string (pnode.attr("w"))
+        def hS:string (pnode.attr("h"))
+        def pw:double 1.0
+        def ph:double 1.0
+        if ((strlen wS) > 0) {
+            def wd@(optional):double (str2double wS)
+            pw = (?? wd 1.0)
+        }
+        if ((strlen hS) > 0) {
+            def hd@(optional):double (str2double hS)
+            ph = (?? hd 1.0)
+        }
+        if (pw < 1.0) { pw = 1.0 }
+        if (ph < 1.0) { ph = 1.0 }
+        def pts:[double]
+        def i:int 0
+        while (i < (pnode.childCount())) {
+            def ch:PptxXmlNode (pnode.childAt(i))
+            if (ch.isText == false) {
+                if ((ch.name == "moveTo") || (ch.name == "lnTo")) {
+                    def pt@(optional):PptxXmlNode (ch.firstChild("pt"))
+                    if (!null? pt) {
+                        def pn:PptxXmlNode (unwrap pt)
+                        def x:double ((this.parseDoubleAttr(pn "x")) / pw)
+                        def y:double ((this.parseDoubleAttr(pn "y")) / ph)
+                        push pts x
+                        push pts y
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length pts) >= 6) {
+            shape.hasPath = true
+            shape.pathUnit = pts
+        }
     }
 
     fn parseSpPr:void (spPr:PptxXmlNode shape:PptxShape) {
@@ -211,14 +550,20 @@ class PptxParser {
                 shape.preset = prst
             }
         }
+        this.parseCustGeomPath(spPr shape)
         def fill@(optional):PptxColor (this.parseColor(spPr))
         if (!null? fill) {
             shape.fill = (unwrap fill)
+        }
+        def grad@(optional):PptxGradient (this.parseGradient(spPr))
+        if (!null? grad) {
+            shape.fillGrad = (unwrap grad)
         }
         ; noFill explicitly clears
         def nf@(optional):PptxXmlNode (spPr.firstChild("noFill"))
         if (!null? nf) {
             shape.fill = (new PptxColor())
+            shape.fillGrad = (new PptxGradient())
         }
         def ln@(optional):PptxXmlNode (spPr.firstChild("ln"))
         if (!null? ln) {
@@ -233,6 +578,7 @@ class PptxParser {
                 shape.line = (unwrap lc)
             }
         }
+        this.parseShadow(spPr shape)
     }
 
     fn parseShape:PptxShape (sp:PptxXmlNode) {
@@ -246,6 +592,7 @@ class PptxParser {
                 shape.name = ((unwrap cNv).attr("name"))
             }
         }
+        this.parsePlaceholderAttrs(sp shape)
         def spPr@(optional):PptxXmlNode (sp.firstChild("spPr"))
         if (!null? spPr) {
             this.parseSpPr((unwrap spPr) shape)
@@ -329,6 +676,205 @@ class PptxParser {
         return shape
     }
 
+    fn parseTableCell:PptxTableCell (tc:PptxXmlNode) {
+        def cell (new PptxTableCell())
+        def txBody@(optional):PptxXmlNode (tc.find("txBody"))
+        if (!null? txBody) {
+            def body:PptxTextBody (this.parseTextBody((unwrap txBody)))
+            cell.text = (body.plainText())
+            if ((array_length body.paragraphs) > 0) {
+                def para:PptxParagraph (itemAt body.paragraphs 0)
+                cell.align = para.align
+                if ((array_length para.runs) > 0) {
+                    def run:PptxTextRun (itemAt para.runs 0)
+                    cell.fontSizePt = run.fontSizePt
+                    cell.bold = run.bold
+                }
+            }
+        }
+        def tcPr@(optional):PptxXmlNode (tc.firstChild("tcPr"))
+        if (!null? tcPr) {
+            def fill@(optional):PptxColor (this.parseColor((unwrap tcPr)))
+            if (!null? fill) {
+                cell.fill = (unwrap fill)
+            }
+        }
+        return cell
+    }
+
+    fn parseTable:PptxShape (tbl:PptxXmlNode x:double y:double w:double h:double) {
+        def shape (new PptxShape())
+        shape.kind = 4
+        shape.name = "Table"
+        shape.x = x
+        shape.y = y
+        shape.width = w
+        shape.height = h
+        shape.hasXfrm = true
+        def grid@(optional):PptxXmlNode (tbl.firstChild("tblGrid"))
+        def cols:int 0
+        if (!null? grid) {
+            def gcs:[PptxXmlNode] ((unwrap grid).childrenNamed("gridCol"))
+            cols = (array_length gcs)
+        }
+        def rows:[PptxXmlNode] (tbl.childrenNamed("tr"))
+        shape.tableRows = (array_length rows)
+        shape.tableCols = cols
+        def ri:int 0
+        while (ri < (array_length rows)) {
+            def tr:PptxXmlNode (itemAt rows ri)
+            def tcs:[PptxXmlNode] (tr.childrenNamed("tc"))
+            if ((array_length tcs) > shape.tableCols) {
+                shape.tableCols = (array_length tcs)
+            }
+            def ci:int 0
+            while (ci < (array_length tcs)) {
+                push shape.tableCells (this.parseTableCell((itemAt tcs ci)))
+                ci = (ci + 1)
+            }
+            ; Pad row if short
+            while (ci < shape.tableCols) {
+                push shape.tableCells (new PptxTableCell())
+                ci = (ci + 1)
+            }
+            ri = (ri + 1)
+        }
+        return shape
+    }
+
+    fn parseChartPart:PptxChart (chartPart:string) {
+        def chart (new PptxChart())
+        def xml:string (pkg.readXml(chartPart))
+        if ((strlen xml) == 0) {
+            return chart
+        }
+        def root@(optional):PptxXmlNode (xmlParser.parse(xml))
+        if (null? root) {
+            return chart
+        }
+        def doc:PptxXmlNode (unwrap root)
+        def title@(optional):PptxXmlNode (doc.find("title"))
+        if (!null? title) {
+            def t:PptxXmlNode (unwrap title)
+            def tv@(optional):PptxXmlNode (t.find("t"))
+            if (!null? tv) {
+                chart.title = ((unwrap tv).textContent())
+            }
+        }
+        def bar@(optional):PptxXmlNode (doc.find("barChart"))
+        if (!null? bar) {
+            chart.chartType = "bar"
+        }
+        def line@(optional):PptxXmlNode (doc.find("lineChart"))
+        if (!null? line) {
+            chart.chartType = "line"
+        }
+        def pie@(optional):PptxXmlNode (doc.find("pieChart"))
+        if (!null? pie) {
+            chart.chartType = "pie"
+        }
+        ; Categories from first ser/cat/strRef/strCache or numCache
+        def ser@(optional):PptxXmlNode (doc.find("ser"))
+        if (null? ser) {
+            return chart
+        }
+        def snode:PptxXmlNode (unwrap ser)
+        def series (new PptxChartSeries())
+        def tx@(optional):PptxXmlNode (snode.firstChild("tx"))
+        if (!null? tx) {
+            def vt@(optional):PptxXmlNode ((unwrap tx).find("v"))
+            if (!null? vt) {
+                series.name = ((unwrap vt).textContent())
+            }
+        }
+        def cat@(optional):PptxXmlNode (snode.firstChild("cat"))
+        if (!null? cat) {
+            def cache@(optional):PptxXmlNode ((unwrap cat).find("strCache"))
+            if (null? cache) {
+                cache = ((unwrap cat).find("numCache"))
+            }
+            if (!null? cache) {
+                def pts2:[PptxXmlNode] ((unwrap cache).childrenNamed("pt"))
+                def pi:int 0
+                while (pi < (array_length pts2)) {
+                    def pt:PptxXmlNode (itemAt pts2 pi)
+                    def v@(optional):PptxXmlNode (pt.firstChild("v"))
+                    if (!null? v) {
+                        push chart.categories ((unwrap v).textContent())
+                    }
+                    pi = (pi + 1)
+                }
+            }
+        }
+        def val@(optional):PptxXmlNode (snode.firstChild("val"))
+        if (!null? val) {
+            def ncache@(optional):PptxXmlNode ((unwrap val).find("numCache"))
+            if (!null? ncache) {
+                def vpts:[PptxXmlNode] ((unwrap ncache).childrenNamed("pt"))
+                def vi:int 0
+                while (vi < (array_length vpts)) {
+                    def vp:PptxXmlNode (itemAt vpts vi)
+                    def vv@(optional):PptxXmlNode (vp.firstChild("v"))
+                    if (!null? vv) {
+                        def vd@(optional):double (str2double ((unwrap vv).textContent()))
+                        push series.values (?? vd 0.0)
+                    }
+                    vi = (vi + 1)
+                }
+            }
+        }
+        push chart.series series
+        return chart
+    }
+
+    fn parseGraphicFrame@(optional):PptxShape (gf:PptxXmlNode slidePart:string) {
+        def x:double 0.0
+        def y:double 0.0
+        def w:double 0.0
+        def h:double 0.0
+        def xfrm@(optional):PptxXmlNode (gf.find("xfrm"))
+        if (!null? xfrm) {
+            def tmp (new PptxShape())
+            this.parseXfrm((unwrap xfrm) tmp)
+            x = tmp.x
+            y = tmp.y
+            w = tmp.width
+            h = tmp.height
+        }
+        ; Table?
+        def tbl@(optional):PptxXmlNode (gf.find("tbl"))
+        if (!null? tbl) {
+            def hit@(optional):PptxShape (this.parseTable((unwrap tbl) x y w h))
+            return hit
+        }
+        ; Chart via graphicData / chart r:id
+        def chartEl@(optional):PptxXmlNode (gf.find("chart"))
+        if (!null? chartEl) {
+            def rid:string ((unwrap chartEl).attr("r:id"))
+            if ((strlen rid) == 0) {
+                rid = ((unwrap chartEl).attr("id"))
+            }
+            def shape (new PptxShape())
+            shape.kind = 5
+            shape.name = "Chart"
+            shape.x = x
+            shape.y = y
+            shape.width = w
+            shape.height = h
+            shape.hasXfrm = true
+            if ((strlen rid) > 0) {
+                def part:string (pkg.resolveRelationship(slidePart rid))
+                if ((strlen part) > 0) {
+                    shape.chart = (this.parseChartPart(part))
+                }
+            }
+            def hit2@(optional):PptxShape shape
+            return hit2
+        }
+        def __missing@(optional):PptxShape
+        return __missing
+    }
+
     fn parseTreeChild@(optional):PptxShape (node:PptxXmlNode slidePart:string) {
         if (node.name == "sp") {
             def hit@(optional):PptxShape (this.parseShape(node))
@@ -343,7 +889,6 @@ class PptxParser {
             return hit3
         }
         if (node.name == "cxnSp") {
-            ; Connector: reuse shape path (spPr only)
             def shape (new PptxShape())
             shape.kind = 3
             def spPr@(optional):PptxXmlNode (node.firstChild("spPr"))
@@ -353,8 +898,76 @@ class PptxParser {
             def hit4@(optional):PptxShape shape
             return hit4
         }
+        if (node.name == "graphicFrame") {
+            return (this.parseGraphicFrame(node slidePart))
+        }
         def __missing@(optional):PptxShape
         return __missing
+    }
+
+    fn parseSpTreeInto:void (tree:PptxXmlNode partPath:string shapes:[PptxShape]) {
+        def i:int 0
+        while (i < (tree.childCount())) {
+            def child:PptxXmlNode (tree.childAt(i))
+            if (child.isText == false) {
+                if ((child.name != "nvGrpSpPr") && (child.name != "grpSpPr")) {
+                    def parsed@(optional):PptxShape (this.parseTreeChild(child partPath))
+                    if (!null? parsed) {
+                        push shapes (unwrap parsed)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn parseSheet:PptxSheet (partPath:string) {
+        def sheet (new PptxSheet())
+        sheet.partPath = partPath
+        def xml:string (pkg.readXml(partPath))
+        if ((strlen xml) == 0) {
+            return sheet
+        }
+        def root@(optional):PptxXmlNode (xmlParser.parse(xml))
+        if (null? root) {
+            return sheet
+        }
+        def doc:PptxXmlNode (unwrap root)
+        def cSld@(optional):PptxXmlNode (doc.find("cSld"))
+        if (!null? cSld) {
+            def cs:PptxXmlNode (unwrap cSld)
+            def bg@(optional):PptxXmlNode (cs.firstChild("bg"))
+            if (!null? bg) {
+                def bgNode:PptxXmlNode (unwrap bg)
+                def bgPr@(optional):PptxXmlNode (bgNode.firstChild("bgPr"))
+                if (!null? bgPr) {
+                    def col@(optional):PptxColor (this.parseColor((unwrap bgPr)))
+                    if (!null? col) {
+                        sheet.bg = (unwrap col)
+                    }
+                }
+            }
+            def spTree@(optional):PptxXmlNode (cs.firstChild("spTree"))
+            if (!null? spTree) {
+                this.parseSpTreeInto((unwrap spTree) partPath sheet.shapes)
+            }
+        }
+        return sheet
+    }
+
+    fn ensureSheet@(optional):PptxSheet (cache:[string:PptxSheet] partPath:string) {
+        if ((strlen partPath) == 0) {
+            def __missing@(optional):PptxSheet
+            return __missing
+        }
+        def existing@(optional):PptxSheet (get cache partPath)
+        if (!null? existing) {
+            return existing
+        }
+        def sheet:PptxSheet (this.parseSheet(partPath))
+        set cache partPath sheet
+        def hit@(optional):PptxSheet sheet
+        return hit
     }
 
     fn parseSlide:PptxSlide (partPath:string width:double height:double) {
@@ -388,21 +1001,7 @@ class PptxParser {
             }
             def spTree@(optional):PptxXmlNode (cs.firstChild("spTree"))
             if (!null? spTree) {
-                def tree:PptxXmlNode (unwrap spTree)
-                def i:int 0
-                while (i < (tree.childCount())) {
-                    def child:PptxXmlNode (tree.childAt(i))
-                    if (child.isText == false) {
-                        ; Skip nvGrpSpPr / grpSpPr of the tree itself
-                        if ((child.name != "nvGrpSpPr") && (child.name != "grpSpPr")) {
-                            def parsed@(optional):PptxShape (this.parseTreeChild(child partPath))
-                            if (!null? parsed) {
-                                push slide.shapes (unwrap parsed)
-                            }
-                        }
-                    }
-                    i = (i + 1)
-                }
+                this.parseSpTreeInto((unwrap spTree) partPath slide.shapes)
             }
         }
         ; Layout relationship
@@ -532,13 +1131,17 @@ class PptxParser {
             }
         }
         pres.theme = (this.parseTheme(pres.themePart))
-        ; Parse each slide
+        ; Parse each slide + ensure layout/master sheets are cached
         def si:int 0
         while (si < (array_length pres.slideParts)) {
             def part:string (itemAt pres.slideParts si)
             def slide:PptxSlide (this.parseSlide(part pres.slideWidth pres.slideHeight))
             if ((strlen slide.layoutPart) > 0) {
                 slide.masterPart = (pkg.findRelationshipByType(slide.layoutPart "/slideMaster"))
+                this.ensureSheet(pres.layouts slide.layoutPart)
+            }
+            if ((strlen slide.masterPart) > 0) {
+                this.ensureSheet(pres.masters slide.masterPart)
             }
             push pres.slides slide
             si = (si + 1)

@@ -46,6 +46,8 @@ class PptxApp {
         }
         def raw:PptxPresentation (parser.parsePresentation())
         presentation = (resolver.resolvePresentation(raw))
+        view.cachePresentationImages(presentation)
+        view.deckName = (this.basenameOf(fullPath))
         index = 0
         loaded = true
         view.status = ((to_string (presentation.slideCount())) + " slides")
@@ -64,10 +66,20 @@ class PptxApp {
         }
         def raw:PptxPresentation (parser.parsePresentation())
         presentation = (resolver.resolvePresentation(raw))
+        view.cachePresentationImages(presentation)
+        view.deckName = name
         index = 0
         loaded = true
         view.status = ((to_string (presentation.slideCount())) + " slides")
         return true
+    }
+
+    fn basenameOf:string (fullPath:string) {
+        def slash:int (lastIndexOf fullPath "/")
+        if (slash >= 0) {
+            return (substring fullPath (slash + 1) (strlen fullPath))
+        }
+        return fullPath
     }
 
     fn slideCount:int () {
@@ -217,6 +229,12 @@ class PptxApp {
         if (kind == 3) {
             return "connector"
         }
+        if (kind == 4) {
+            return "table"
+        }
+        if (kind == 5) {
+            return "chart"
+        }
         return "shape"
     }
 
@@ -278,6 +296,29 @@ class PptxApp {
             out = (out + ",\"runs\":" + (to_string runCount))
             out = (out + ",\"paragraphs\":" + (to_string (array_length shape.text.paragraphs)))
         }
+        if (shape.kind == 4) {
+            def blob:string ""
+            def ti:int 0
+            while (ti < (array_length shape.tableCells)) {
+                def cell:PptxTableCell (itemAt shape.tableCells ti)
+                if ((strlen cell.text) > 0) {
+                    if ((strlen blob) > 0) {
+                        blob = (blob + "\n")
+                    }
+                    blob = (blob + cell.text)
+                }
+                ti = (ti + 1)
+            }
+            out = (out + ",\"text\":" + (this.jsonEscape(blob)))
+            out = (out + ",\"tableRows\":" + (to_string shape.tableRows))
+            out = (out + ",\"tableCols\":" + (to_string shape.tableCols))
+        }
+        if (shape.kind == 5) {
+            out = (out + ",\"chartType\":" + (this.jsonEscape(shape.chart.chartType)))
+            if ((strlen shape.chart.title) > 0) {
+                out = (out + ",\"text\":" + (this.jsonEscape(shape.chart.title)))
+            }
+        }
         if (shape.fill.isSet) {
             out = (out + ",\"fill\":" + (this.jsonEscape(shape.fill.srgb)))
             out = (out + ",\"fillScheme\":" + (to_string shape.fill.isScheme))
@@ -288,6 +329,11 @@ class PptxApp {
         }
         if (shape.kind == 2) {
             out = (out + ",\"children\":" + (to_string (array_length shape.children)))
+        }
+        out = (out + ",\"inherited\":" + (to_string shape.inherited))
+        if shape.isPlaceholder {
+            out = (out + ",\"phType\":" + (this.jsonEscape(shape.phType)))
+            out = (out + ",\"phIdx\":" + (to_string shape.phIdx))
         }
         out = (out + "}")
         return out
@@ -318,10 +364,22 @@ class PptxApp {
             def slide:PptxSlide (itemAt presentation.slides si)
             def dl:EVGDisplayList (converter.slideToDisplayList(slide))
             def page:EVGElement (converter.slideToEvg(slide))
+            def authored:int 0
+            def aj:int 0
+            while (aj < (array_length slide.shapes)) {
+                def ash:PptxShape (itemAt slide.shapes aj)
+                if (ash.inherited == false) {
+                    authored = (authored + 1)
+                }
+                aj = (aj + 1)
+            }
             out = (out + "{")
             out = (out + "\"index\":" + (to_string si))
             out = (out + ",\"part\":" + (this.jsonEscape(slide.partPath)))
-            out = (out + ",\"shapeCount\":" + (to_string (array_length slide.shapes)))
+            out = (out + ",\"layoutPart\":" + (this.jsonEscape(slide.layoutPart)))
+            out = (out + ",\"masterPart\":" + (this.jsonEscape(slide.masterPart)))
+            out = (out + ",\"shapeCount\":" + (to_string authored))
+            out = (out + ",\"resolvedShapeCount\":" + (to_string (array_length slide.shapes)))
             out = (out + ",\"displayListCmds\":" + (to_string (dl.count())))
             out = (out + ",\"evgChildren\":" + (to_string (page.getChildCount())))
             if (slide.bg.isSet) {

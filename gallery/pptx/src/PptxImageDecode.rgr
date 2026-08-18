@@ -1,0 +1,58 @@
+; ==============================================================================
+; PptxImageDecode - generic PNG/JPEG bytes → SoftCanvas ImageBuffer
+; ==============================================================================
+;
+; Not PPTX-specific beyond living next to the viewer: any gallery code that
+; already has OPC image bytes can reuse this. SoftCanvas blits the same
+; pdf_writer ImageBuffer type.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "../../game_engine/lpc/src/png_decoder.rgr"
+
+class PptxImageDecode {
+    Constructor () {
+    }
+
+    sfn decode@(optional):ImageBuffer (bytes:buffer) {
+        def n:int (buffer_length bytes)
+        if (n < 8) {
+            def __missing@(optional):ImageBuffer
+            return __missing
+        }
+        def b0:int (buffer_get bytes 0)
+        def b1:int (buffer_get bytes 1)
+        ; JPEG SOI
+        if ((b0 == 255) && (b1 == 216)) {
+            def jdec:JPEGDecoder (new JPEGDecoder)
+            def jim:ImageBuffer (jdec.decodeBytes(bytes))
+            if ((jim.width > 0) && (jim.height > 0)) {
+                def hit@(optional):ImageBuffer jim
+                return hit
+            }
+            def __failJ@(optional):ImageBuffer
+            return __failJ
+        }
+        ; PNG signature 89 50 4E 47
+        if ((b0 == 137) && (b1 == 80)) {
+            def pdec:PNGDecoder (new PNGDecoder)
+            def pim:ImageBuffer (pdec.decodeBytes(bytes))
+            if ((pim.width > 1) || (pim.height > 1)) {
+                if ((pim.width > 0) && (pim.height > 0)) {
+                    def hit2@(optional):ImageBuffer pim
+                    return hit2
+                }
+            }
+            ; decodeBytes returns 1x1 on failure — treat as missing
+            if ((pim.width == 1) && (pim.height == 1)) {
+                def __failP@(optional):ImageBuffer
+                return __failP
+            }
+            def hit3@(optional):ImageBuffer pim
+            return hit3
+        }
+        def __missing2@(optional):ImageBuffer
+        return __missing2
+    }
+}

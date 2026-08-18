@@ -30,6 +30,10 @@ def shape_summary(shape) -> dict:
         kind = "group"
     elif st == MSO_SHAPE_TYPE.LINE:
         kind = "connector"
+    elif st == MSO_SHAPE_TYPE.TABLE:
+        kind = "table"
+    elif st == MSO_SHAPE_TYPE.CHART:
+        kind = "chart"
     elif st == MSO_SHAPE_TYPE.TEXT_BOX:
         kind = "shape"
 
@@ -90,6 +94,8 @@ def texts_of(info: dict) -> list[str]:
     out = []
     for slide in info.get("slide", []):
         for s in slide.get("shapes", []):
+            if s.get("inherited"):
+                continue
             if s.get("text"):
                 out.append(s["text"])
     return out
@@ -99,6 +105,8 @@ def count_kind(info: dict, kind: str) -> int:
     n = 0
     for slide in info.get("slide", []):
         for s in slide.get("shapes", []):
+            if s.get("inherited"):
+                continue
             if s.get("kind") == kind:
                 n += 1
     return n
@@ -118,6 +126,7 @@ def compare(ref: dict, ranger: dict) -> list[str]:
             fails.append(f"slide[{i}] missing in ranger")
             continue
         sslide = ranger["slide"][i]
+        # shapeCount is authored (non-inherited) on the Ranger side
         if rslide["shapeCount"] != sslide.get("shapeCount"):
             fails.append(
                 f"slide[{i}].shapeCount ref={rslide['shapeCount']} ranger={sslide.get('shapeCount')}"
@@ -133,7 +142,7 @@ def compare(ref: dict, ranger: dict) -> list[str]:
         if t not in ranger_blob:
             fails.append(f"missing text {t!r}")
 
-    for kind in ("picture", "group"):
+    for kind in ("picture", "group", "table", "chart"):
         rc = count_kind(ref, kind)
         sc = count_kind(ranger, kind)
         if rc != sc:

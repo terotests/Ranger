@@ -2,17 +2,29 @@
   "features": [
     "text",
     "text-runs",
+    "text-align",
     "shapes",
     "presets",
     "rotation",
     "theme-colors",
     "theme-fills",
     "images",
+    "images-png",
+    "images-jpeg",
     "groups",
     "multi-slide",
     "widescreen",
+    "master-layout",
+    "placeholders",
     "display-list",
-    "evg-tree"
+    "evg-tree",
+    "business-deck",
+    "gradients",
+    "shadows",
+    "bullets",
+    "tables",
+    "charts",
+    "custom-geom"
   ],
   "fixtures": [
     {
@@ -46,7 +58,7 @@
     {
       "file": "03-image.pptx",
       "title": "Embedded PNG via relationship",
-      "features": ["images", "text", "display-list"],
+      "features": ["images", "images-png", "text", "display-list"],
       "expect": {
         "slides": 1,
         "minPictures": 1,
@@ -113,10 +125,10 @@
     {
       "file": "09-kitchen.pptx",
       "title": "Kitchen sink (multi-feature deck)",
-      "features": ["text", "shapes", "images", "groups", "multi-slide", "theme-colors"],
+      "features": ["text", "shapes", "images", "images-png", "images-jpeg", "groups", "multi-slide", "theme-colors"],
       "expect": {
         "slides": 2,
-        "minPictures": 1,
+        "minPictures": 2,
         "minGroups": 1,
         "textContains": ["Kitchen sink", "Image + group"],
         "minDisplayListCmds": 4
@@ -131,6 +143,202 @@
         "slideWidthPt": [959, 961],
         "slideHeightPt": [539, 541],
         "textContains": ["Widescreen 16:9"]
+      }
+    },
+    {
+      "file": "11-master-background.pptx",
+      "title": "Master background + chrome bars",
+      "features": ["master-layout", "theme-colors", "shapes"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Master chrome"],
+        "minDisplayListCmds": 3
+      }
+    },
+    {
+      "file": "12-layout-placeholder.pptx",
+      "title": "Layout placeholder geometry inheritance",
+      "features": ["master-layout", "placeholders", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Inherited title box", "Position comes from the layout"],
+        "minShapes": 2,
+        "minDisplayListCmds": 4
+      }
+    },
+    {
+      "file": "13-title-placeholder.pptx",
+      "title": "Title placeholder + lstStyle",
+      "features": ["master-layout", "placeholders", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Title via placeholder style"],
+        "minShapes": 1
+      }
+    },
+    {
+      "file": "14-theme-inheritance.pptx",
+      "title": "Custom theme + master bg inheritance",
+      "features": ["master-layout", "theme-colors", "theme-fills"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Theme + master background"],
+        "themeAccent1": "2E7D32",
+        "minDisplayListCmds": 3
+      }
+    },
+    {
+      "file": "15-master-layout-mixed.pptx",
+      "title": "Master chrome + layout ph + slide override",
+      "features": ["master-layout", "placeholders", "shapes", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Slide overrides title Y", "Body position inherited"],
+        "fills": ["ED7D31", "70AD47"],
+        "minDisplayListCmds": 5
+      }
+    },
+    {
+      "file": "16-image-png.pptx",
+      "title": "PNG SoftCanvas blit",
+      "features": ["images", "images-png", "text"],
+      "expect": {
+        "slides": 1,
+        "minPictures": 1,
+        "minImageBytes": 40,
+        "textContains": ["PNG in SoftCanvas"]
+      }
+    },
+    {
+      "file": "17-image-jpeg.pptx",
+      "title": "JPEG SoftCanvas blit",
+      "features": ["images", "images-jpeg", "text"],
+      "expect": {
+        "slides": 1,
+        "minPictures": 1,
+        "minImageBytes": 40,
+        "textContains": ["JPEG in SoftCanvas"]
+      }
+    },
+    {
+      "file": "18-image-mixed.pptx",
+      "title": "PNG + JPEG on one slide",
+      "features": ["images", "images-png", "images-jpeg", "text"],
+      "expect": {
+        "slides": 1,
+        "minPictures": 2,
+        "textContains": ["PNG + JPEG"]
+      }
+    },
+    {
+      "file": "19-text-fidelity.pptx",
+      "title": "Alignment, sizes, wrap, run styles",
+      "features": ["text", "text-runs", "text-align"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Left aligned", "Center", "Right", "wraps inside", "44pt"],
+        "minRuns": 5,
+        "minDisplayListCmds": 6
+      }
+    },
+    {
+      "file": "20-business-deck.pptx",
+      "title": "Business deck (widescreen, multi-layout)",
+      "features": [
+        "business-deck",
+        "widescreen",
+        "master-layout",
+        "placeholders",
+        "images",
+        "images-png",
+        "images-jpeg",
+        "groups",
+        "text",
+        "text-runs",
+        "shapes",
+        "presets",
+        "multi-slide"
+      ],
+      "expect": {
+        "slides": 5,
+        "slideWidthPt": [959, 961],
+        "slideHeightPt": [539, 541],
+        "textContains": [
+          "Northwind Quarterly Review",
+          "Agenda",
+          "Product snapshot",
+          "Shape language",
+          "Thank you"
+        ],
+        "minPictures": 2,
+        "minGroups": 1,
+        "minShapesTotal": 8
+      }
+    },
+    {
+      "file": "21-gradient.pptx",
+      "title": "Linear gradient fills",
+      "features": ["gradients", "shapes", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Gradients"],
+        "minShapes": 3,
+        "minDisplayListCmds": 3
+      }
+    },
+    {
+      "file": "22-shadow.pptx",
+      "title": "Outer shadow on shapes",
+      "features": ["shadows", "shapes", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Shadows"],
+        "minShapes": 2,
+        "minDisplayListCmds": 2
+      }
+    },
+    {
+      "file": "23-bullets.pptx",
+      "title": "Bullet paragraphs",
+      "features": ["bullets", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Bullets", "Ship gradients", "Render bullets"],
+        "minShapes": 2
+      }
+    },
+    {
+      "file": "24-custom-geom.pptx",
+      "title": "custGeom path + preset polygons",
+      "features": ["custom-geom", "presets", "shapes", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Custom geom"],
+        "presets": ["diamond", "star5"],
+        "minShapes": 4,
+        "minDisplayListCmds": 4
+      }
+    },
+    {
+      "file": "25-table.pptx",
+      "title": "DrawingML table graphicFrame",
+      "features": ["tables", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Table", "Q1", "Q2"],
+        "minShapes": 2,
+        "minDisplayListCmds": 5
+      }
+    },
+    {
+      "file": "26-chart-vela.pptx",
+      "title": "Bar chart via Vela",
+      "features": ["charts", "text"],
+      "expect": {
+        "slides": 1,
+        "textContains": ["Chart via Vela"],
+        "minShapes": 2,
+        "minDisplayListCmds": 3
       }
     }
   ]

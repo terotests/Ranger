@@ -472,9 +472,11 @@ class PptxXmlParser {
             def selfCloseHit@(optional):PptxXmlNode node
             return selfCloseHit
         }
-        ; Children / text until matching end tag
+        ; Children / text until matching end tag.
+        ; Do NOT skipSpace() here — leading spaces inside <a:t> are significant
+        ; in DrawingML runs (e.g. " and "). Inter-element whitespace becomes a
+        ; text node that we drop when it is onlySpace below.
         while ((pos < len) && (aborted == false)) {
-            this.skipSpace()
             if (pos >= len) {
                 break
             }

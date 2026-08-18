@@ -73,20 +73,21 @@ function collect(info) {
     minDl = Math.min(minDl, slide.displayListCmds || 0);
     minEvg = Math.min(minEvg, slide.evgChildren || 0);
     for (const s of slide.shapes || []) {
-      if (s.text) texts.push(s.text);
+      const inherited = s.inherited === true || s.inherited === "true";
+      if (s.text && !inherited) texts.push(s.text);
       if (s.fill) fills.push(s.fill.toUpperCase());
-      if (s.preset) presets.push(s.preset);
-      if (s.kind === "picture") {
+      if (s.preset && !inherited) presets.push(s.preset);
+      if (s.kind === "picture" && !inherited) {
         pictures += 1;
         imagePart = s.imagePart || imagePart;
         imageBytes = Math.max(imageBytes, s.imageBytes || 0);
       }
-      if (s.kind === "group") {
+      if (s.kind === "group" && !inherited) {
         groups += 1;
         groupChildren = Math.max(groupChildren, s.children || 0);
       }
-      if (typeof s.runs === "number") runs += s.runs;
-      if (typeof s.paragraphs === "number") paragraphs = Math.max(paragraphs, s.paragraphs);
+      if (!inherited && typeof s.runs === "number") runs += s.runs;
+      if (!inherited && typeof s.paragraphs === "number") paragraphs = Math.max(paragraphs, s.paragraphs);
       if (s.fillScheme === true || s.fillScheme === "true") unresolvedSchemeFills += 1;
       if (typeof s.rotation === "number") maxRotation = Math.max(maxRotation, Math.abs(s.rotation));
     }

@@ -47,8 +47,9 @@ function run(cmd, args, opts = {}) {
 }
 
 function ensureDumpTool() {
+  // Always recompile so oracle dumps pick up src/ changes (mtime-cache was
+  // leaving stale table/chart/gradient paint out of inspect + PNGs).
   const bin = path.join(PPTX, "bin/pptx_oracle_dump.js");
-  if (fs.existsSync(bin)) return bin;
   const compile = run("node", [
     "bin/output.js",
     "-es6",
@@ -66,8 +67,8 @@ function ensureDumpTool() {
 }
 
 function ensureModule() {
-  const mod = path.join(PPTX, "bin/pptx_app_module.cjs");
-  if (fs.existsSync(mod)) return;
+  // pptx:oracles already runs pptx:module; keep a hard rebuild here too so
+  // `node harness/run_oracles.mjs` alone stays correct.
   const r = run("npm", ["run", "pptx:module"]);
   if (r.status !== 0) throw new Error("pptx:module failed");
 }
@@ -140,6 +141,8 @@ for (const entry of manifest.fixtures) {
     }
   }
 
+  let maeVals = [];
+  let maxErr = null;
   if (!SKIP_VISUAL) {
     const vis = run("python3", [
       path.join(__dirname, "oracles/visual.py"),
@@ -153,27 +156,68 @@ for (const entry of manifest.fixtures) {
       "--mae-limit",
       String(MAE),
       "--skip-if-missing",
+      "--json",
     ]);
-    const out = (vis.stdout || "").trim();
-    process.stdout.write("  " + out.split("\n").join("\n  ") + "\n");
-    if (out.includes("SKIP visual")) {
+    let visJson = null;
+    try {
+      visJson = JSON.parse((vis.stdout || "").trim().split("\n").pop());
+    } catch {
+      visJson = null;
+    }
+    if (visJson && visJson.skipped) {
+      process.stdout.write("  SKIP visual\n");
       visSkip = true;
       visualSkipped += 1;
-    } else if (vis.status !== 0) {
-      visOk = false;
-      visualFails += 1;
+    } else if (visJson) {
+      for (const s of visJson.slides || []) {
+        const mark = s.ok ? "ok" : "DIFF";
+        process.stdout.write(
+          `  ${mark}  ${s.slide}  mae=${s.mae} max=${s.max} sizes=${JSON.stringify(s.refSize)}/${JSON.stringify(s.rangerSize)}\n`
+        );
+        if (typeof s.mae === "number") maeVals.push(s.mae);
+        if (typeof s.max === "number") maxErr = maxErr == null ? s.max : Math.max(maxErr, s.max);
+      }
+      if (!visJson.ok) {
+        visOk = false;
+        visualFails += 1;
+        for (const f of visJson.fails || []) process.stdout.write("  · " + f + "\n");
+      } else {
+        process.stdout.write("  PASS visual\n");
+      }
+    } else {
+      const out = (vis.stdout || "").trim();
+      process.stdout.write("  " + out.split("\n").join("\n  ") + "\n");
+      if (out.includes("SKIP visual")) {
+        visSkip = true;
+        visualSkipped += 1;
+      } else if (vis.status !== 0) {
+        visOk = false;
+        visualFails += 1;
+      }
     }
   }
 
-  rows.push({ file: entry.file, dump: true, semantic: semOk, visual: visSkip ? "skip" : visOk });
+  const inspectObj = JSON.parse(fs.readFileSync(inspect, "utf8"));
+  rows.push({
+    file: entry.file,
+    dump: true,
+    semantic: semOk,
+    visual: visSkip ? "skip" : visOk,
+    mae: maeVals.length ? Math.max(...maeVals) : null,
+    maeAvg: maeVals.length ? maeVals.reduce((a, b) => a + b, 0) / maeVals.length : null,
+    maxError: maxErr,
+    dims: `${inspectObj.slideWidth}x${inspectObj.slideHeight}pt`,
+    features: (entry.features || []).join(","),
+  });
 }
 
 console.log("\n=== oracle summary ===");
 for (const r of rows) {
+  const maeStr = r.mae == null ? "-" : `mae_max=${r.mae.toFixed(1)} avg=${(r.maeAvg || 0).toFixed(1)}`;
   console.log(
     `  ${r.file}  semantic=${r.semantic === false ? "FAIL" : r.semantic ? "PASS" : "-"}  visual=${
       r.visual === "skip" ? "SKIP" : r.visual === false ? "FAIL" : r.visual ? "PASS" : "-"
-    }`
+    }  ${maeStr}  ${r.dims || ""}  [${r.features || ""}]`
   );
 }
 console.log(

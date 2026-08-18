@@ -1,0 +1,114 @@
+; ==============================================================================
+; PptxGeom - preset DrawingML geometries → flat polygon points (unit box)
+; ==============================================================================
+;
+; Returns [x0,y0,x1,y1,…] in unit space [0,1]×[0,1]. SoftCanvas scales into
+; the shape destination rectangle. Custom pathLst parsing can feed the same
+; consumer later.
+; ==============================================================================
+
+class PptxGeom {
+    Constructor () {
+    }
+
+    sfn pushPt:void (pts:[double] x:double y:double) {
+        push pts x
+        push pts y
+    }
+
+    sfn unitPreset:[double] (preset:string) {
+        def pts:[double]
+        if (preset == "ellipse") {
+            ; Approximate ellipse with a regular 24-gon
+            def i:int 0
+            while (i < 24) {
+                def ang:double (((to_double i) * 6.28318530718) / 24.0)
+                ; cos/sin via crude Taylor-ish using Ranger: use known samples
+                ; Prefer explicit table for portability without math lib.
+                i = (i + 1)
+            }
+            ; 16-point ellipse approximation
+            PptxGeom.pushPt(pts 0.5 0.0)
+            PptxGeom.pushPt(pts 0.75 0.067)
+            PptxGeom.pushPt(pts 0.933 0.25)
+            PptxGeom.pushPt(pts 1.0 0.5)
+            PptxGeom.pushPt(pts 0.933 0.75)
+            PptxGeom.pushPt(pts 0.75 0.933)
+            PptxGeom.pushPt(pts 0.5 1.0)
+            PptxGeom.pushPt(pts 0.25 0.933)
+            PptxGeom.pushPt(pts 0.067 0.75)
+            PptxGeom.pushPt(pts 0.0 0.5)
+            PptxGeom.pushPt(pts 0.067 0.25)
+            PptxGeom.pushPt(pts 0.25 0.067)
+            return pts
+        }
+        if (preset == "triangle") {
+            PptxGeom.pushPt(pts 0.5 0.0)
+            PptxGeom.pushPt(pts 1.0 1.0)
+            PptxGeom.pushPt(pts 0.0 1.0)
+            return pts
+        }
+        if (preset == "diamond") {
+            PptxGeom.pushPt(pts 0.5 0.0)
+            PptxGeom.pushPt(pts 1.0 0.5)
+            PptxGeom.pushPt(pts 0.5 1.0)
+            PptxGeom.pushPt(pts 0.0 0.5)
+            return pts
+        }
+        if (preset == "chevron") {
+            PptxGeom.pushPt(pts 0.0 0.0)
+            PptxGeom.pushPt(pts 0.65 0.0)
+            PptxGeom.pushPt(pts 1.0 0.5)
+            PptxGeom.pushPt(pts 0.65 1.0)
+            PptxGeom.pushPt(pts 0.0 1.0)
+            PptxGeom.pushPt(pts 0.35 0.5)
+            return pts
+        }
+        if (preset == "star5") {
+            ; Flat 5-point star (outer/inner radii)
+            PptxGeom.pushPt(pts 0.5 0.0)
+            PptxGeom.pushPt(pts 0.62 0.35)
+            PptxGeom.pushPt(pts 1.0 0.38)
+            PptxGeom.pushPt(pts 0.7 0.62)
+            PptxGeom.pushPt(pts 0.81 1.0)
+            PptxGeom.pushPt(pts 0.5 0.78)
+            PptxGeom.pushPt(pts 0.19 1.0)
+            PptxGeom.pushPt(pts 0.3 0.62)
+            PptxGeom.pushPt(pts 0.0 0.38)
+            PptxGeom.pushPt(pts 0.38 0.35)
+            return pts
+        }
+        if (preset == "roundRect") {
+            ; SoftCanvas paints roundRect via radius; empty path → rect fallback
+            return pts
+        }
+        ; Default rect
+        PptxGeom.pushPt(pts 0.0 0.0)
+        PptxGeom.pushPt(pts 1.0 0.0)
+        PptxGeom.pushPt(pts 1.0 1.0)
+        PptxGeom.pushPt(pts 0.0 1.0)
+        return pts
+    }
+
+    sfn scaleToBox:[double] (unit:[double] x:double y:double w:double h:double) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length unit)) {
+            def ux:double (itemAt unit i)
+            def uy:double (itemAt unit (i + 1))
+            push out (x + (ux * w))
+            push out (y + (uy * h))
+            i = (i + 2)
+        }
+        return out
+    }
+
+    sfn needsPath:boolean (preset:string) {
+        if (preset == "triangle") { return true }
+        if (preset == "diamond") { return true }
+        if (preset == "chevron") { return true }
+        if (preset == "star5") { return true }
+        if (preset == "ellipse") { return true }
+        return false
+    }
+}
