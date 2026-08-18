@@ -186,6 +186,7 @@
     "datagrid:bench": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/bench/grid_bench.rgr -d=./gallery/datagrid/bin -o=grid_bench.js -nodecli && node ./gallery/datagrid/bin/grid_bench.js",
     "datagrid:module": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/datagrid/src/GridApp.rgr -d=./gallery/datagrid/bin -o=grid_app_module.cjs",
     "datagrid:window": "npm run datagrid:module && node gallery/datagrid/web/serve.mjs --open",
+    "datagrid:window:sales": "npm run datagrid:module && node gallery/datagrid/web/serve.mjs --open --xlsx gallery/datagrid/fixtures/sales.xlsx",
     "datagrid:window:smoke": "npm run datagrid:module && node gallery/datagrid/web/serve.mjs --headless-smoke",
     "datagrid:xlsx:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/XlsxTest.rgr -d=./gallery/datagrid/bin -o=XlsxTest.js -nodecli && node ./gallery/datagrid/bin/XlsxTest.js",
     "datagrid:xlsx:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/src/xlsx_demo.rgr -d=./gallery/datagrid/bin -o=xlsx_demo.js -nodecli && node ./gallery/datagrid/bin/xlsx_demo.js",

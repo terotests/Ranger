@@ -33,9 +33,12 @@ npm run datagrid:bench -- 100000
 npm run datagrid:oracle:dump
 npm run datagrid:oracles
 npm run datagrid:window
+# older tiny fixture:
+# npm run datagrid:module && node gallery/datagrid/web/serve.mjs --open --xlsx gallery/datagrid/fixtures/sales.xlsx
 ```
 
-## What works (workbook viewer level)
+`datagrid:window` rebuilds the module and opens the WebGL host. **Default workbook is
+`business-workbook.xlsx`** (not the old `sales.xlsx`).
 
 - Multi-sheet workbook + tabs (hidden sheet metadata)
 - styles.xml → fill / font / align / **XlsxNumberFormat** engine
