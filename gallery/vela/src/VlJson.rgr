@@ -47,6 +47,27 @@ class VlJson {
         return (kind != 0)
     }
 
+    ; Whether this holds a NUMBER, counting one written as text. The reference
+    ; coerces what it measures, so a column of years quoted in the data is a
+    ; column of years — but "north" is not a number however hard it is asked,
+    ; and answering zero for it would put zero in the domain.
+    fn looksNumeric:boolean () {
+        if (kind == 2) {
+            return true
+        }
+        if (kind != 3) {
+            return false
+        }
+        if ((strlen str) == 0) {
+            return false
+        }
+        def d@(optional):double (str2double str)
+        if d {
+            return true
+        }
+        return false
+    }
+
     ; --- scalar access --------------------------------------------------------
     fn asInt:int () {
         return (to_int num)
@@ -72,6 +93,22 @@ class VlJson {
     fn asString:string () {
         if (kind == 3) {
             return str
+        }
+        ; A LIST of strings is one label written on several lines — a heading
+        ; given as `["Weekly Weather", "Observations and Predictions"]`. The
+        ; renderers split it again on the line break; read as no string at all,
+        ; the heading was simply missing.
+        if (kind == 4) {
+            def joined:string ""
+            def k:int 0
+            while (k < (array_length arr)) {
+                if (k > 0) {
+                    joined = (joined + "\n")
+                }
+                joined = (joined + ((itemAt arr k).asString()))
+                k = (k + 1)
+            }
+            return joined
         }
         if (kind == 2) {
             return (VlJson.numberToText(num isInt))
@@ -162,6 +199,25 @@ class VlJson {
             push keys key
         }
         set members key value
+    }
+
+    ; Take a key back out. The order of what remains is kept, because the
+    ; order the keys were written in is the order they are written back out
+    ; and a diff against the reference reads them one for one.
+    fn removeMember:void (key:string) {
+        if (! (has members key)) {
+            return
+        }
+        def kept:[string]
+        def fresh:[string:VlJson]
+        for keys k:string ki {
+            if (k != key) {
+                push kept k
+                set fresh k (unwrap (get members k))
+            }
+        }
+        keys = kept
+        members = fresh
     }
 
     ; --- construction ---------------------------------------------------------
@@ -256,10 +312,37 @@ class VlJson {
     ; target's own formatting rather than printing a wrapped number. Chart
     ; geometry never reaches it; a data value could, and a visibly
     ; target-specific string is better than a silently wrong one.
+    ; What a discrete domain calls a cell. A MISSING value is a category like
+    ; any other and the reference names it "null" — an axis with a blank label
+    ; where the reference writes one is an axis that reserved the wrong width.
+    ; An empty string stays empty, which is a different thing entirely.
+    sfn domainKey:string (cell:VlJson) {
+        if (cell.isNull()) {
+            return "null"
+        }
+        return (cell.asString())
+    }
+
     sfn formatNumber:string (value:double maxDecimals:int) {
         def v:double value
+        ; A number that is not one. Nothing here can print an infinity — the
+        ; big-number path looks for the highest power of ten in it and never
+        ; finds one — so the loop ran until the process ran out of memory. An
+        ; expression that divides by a category name is all it takes.
+        if (! (value == value)) {
+            return "NaN"
+        }
+        ; An infinity is the only non-zero number that is unchanged by halving,
+        ; which is an exact test and not a threshold — a chart of large numbers
+        ; is not an infinity and must not be printed as one.
         if (v == 0.0) {
             return "0"
+        }
+        if ((value * 0.5) == value) {
+            if (value > 0.0) {
+                return "Infinity"
+            }
+            return "-Infinity"
         }
         def neg:boolean false
         if (v < 0.0) {

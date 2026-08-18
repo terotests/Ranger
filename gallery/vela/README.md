@@ -263,6 +263,134 @@ The reference is an **optional** dev dependency. Without it the parity step says
 that nothing was compared and the rest of the suite still runs — a silent skip
 would read as a pass.
 
+### And a suite of chosen charts is not coverage
+
+Everything above holds Vela to a quarter of a pixel on `tests/specs`. That is a
+strong statement about those forty-four charts and **no statement at all** about
+any other: they were chosen, and a suite that contains only what already works
+cannot tell you what does not. Pasting specifications into the page found seven
+real defects in an afternoon, one paste at a time, which is what a missing
+measurement feels like from the outside.
+
+`tools/reference/coverage.mjs` is the measurement. It runs the **official
+Vega-Lite gallery** — every example on the Vega-Lite site, vendored under
+`tests/corpus/specs` — through both implementations and gives each one a
+verdict:
+
+```
+npm run vela:coverage              # what works, what does not, and why
+npm run vela:coverage -- --fetch   # first run: get the data sets
+npm run vela:coverage -- --verbose bar_layered_transparent
+```
+
+| verdict | meaning |
+| --- | --- |
+| `same` | the two SVGs agree, ink for ink, through the same comparison `render.mjs` uses |
+| `differs` | both drew; they are not the same picture |
+| `refused` | Vela said what it could not do, and drew nothing |
+| `crashed` | it threw, or produced something that is not an SVG |
+| `skipped` | the data is not available, or the reference would not draw it either |
+
+The output that matters is the last part: **causes, ranked by how many examples
+each one blocks**. That is an implementation queue ordered by the only measure
+worth having — how much of the real corpus each missing piece would unlock —
+and it makes a claim of progress checkable rather than anecdotal.
+
+Where it stands, and it is worth stating plainly rather than rounding up:
+
+| | first run | now |
+| --- | --- | --- |
+| drawn exactly as the reference draws them | 11 | **167** |
+| drawn, but not the same picture | 106 | 7 |
+| refused, with a reason | 58 | 1 |
+| crashed | 0 | 0 |
+| skipped (no data, or the reference refused it too) | 13 | 13 |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **95.4% exact, 99.4% drawn** |
+
+Every one of those hundred came from the report rather than from a guess,
+and several were things the curated suite could not have found: no axis in it
+reaches a thousand, so nobody noticed that thousands were not grouped; none of
+its legend labels is long enough to be truncated, so nobody noticed that a
+label overhanging its limit made the plot narrower; none of its data files
+writes a date as "Jan 1 2000", so the parser only ever read ISO; and every one
+of its channels states its type, so nobody noticed that an untyped one was
+read as a quantity instead of a category.
+
+Four of them were charts that DREW and were wrong, which is the failure this
+whole apparatus exists to catch. A colour written as a test and a fallback kept
+only the fallback, so a heat map's labels were all white where half of them
+should have been black. A scale range of two colours was read as a numeric
+interval, so every bar in two charts was drawn the right size in the right
+place and painted with nothing. An `opacity` channel was read and never
+written, so two overlapping series came out opaque and one of them was
+invisible. And `"point": {"filled": false}` was read as a boolean, which an
+object is not, so a line asked for dots came out bare. None of the four said
+anything; they each just drew the wrong picture.
+
+The remaining eight are no longer a long tail: they are four subsystems and
+two coin tosses. Two want a map projection, one wants a scale that cuts a
+number into bands, one wants a trellis whose panels each measure against
+their own axis, and one jitters its dots with a random number nobody can
+reproduce. The last two draw a bootstrapped confidence interval, which is
+random by construction — they land within a few pixels and will never land
+exactly. That list is short enough to name, which is the point of counting.
+
+### The tail is not uniform, so the difficult ones are marked
+
+Most of what the report converts, it converts in a handful of lines. Some
+charts are not like that: they hold out until something the reference does has
+to be reproduced exactly, and several of them moved only after a wrong
+hypothesis had been measured and reverted first. Eighteen of them are recorded in
+[`tools/reference/difficult.mjs`](tools/reference/difficult.mjs), with a note
+against each saying what it actually took:
+
+| chart | what it took |
+| --- | --- |
+| `trellis_scatter` | a grid rounds each **end** of a panel outward on its own and takes the widest of each end across the whole trellis — not the widest panel |
+| `circle_natural_disasters` | a guide's items are keyed by their value, and a date used as a key is written only to the second: two ticks inside one second are one tick |
+| `isotype_bar_chart_emoji` | a turned title is worth its measured box, not its font size — a quarter turn has no exact cosine in binary, and the page is sized by the ceiling |
+| `interactive_overview_detail` | how far a vertical axis' end labels hang past the plot is **measured**; assuming half a line spaced two concatenated plots four pixels apart |
+| `interactive_layered_crossfilter` | a repeated grid lines its copies up on one pitch, the way a trellis does, rather than taking a concatenation's per-pane spacing |
+| `bar_grouped_repeated` | a discrete scale unions the categories its layers each name, a sub-scale given as a datum is written as a value, and a band step does not survive the round trip out to the plot width and back |
+| `bar_size_responsive` | `"width": "container"` is autosize **fit**: the drawing fits the width given rather than the plot keeping it, which takes measure, resize, measure |
+| `layer_likert` | a band's padding follows the mark, a scale's domain reads its own layer's rows, a mark may state its position in pixels, and a `view` block may sit on the chart rather than in its configuration |
+| `bar_layered_weather` | a dotted field name is a path into the row, a bar's end room goes **across** the bar, a stated domain suppresses zero, and a label may be written on several lines |
+| `trellis_area_seattle` | a facet states how its strips are labelled **and** what order they come in: the label's angle decides the shape of the strip, the order is an aggregate the partition carries under a name of its own, and an area whose scale misses zero stands on the near end of its domain instead |
+| `layer_candlestick` | a bar on a continuous axis is given a band — five pixels, centred — and the scale five pixels of room at each end; a label turned forty-five degrees is worth a rotated box; and a padded time domain is truncated to whole milliseconds, which is worth a pixel on two gridlines |
+| `concat_marginal_histograms` | a concatenation inside a concatenation numbers its panes from one again, so two panes were called `data_1` and one drew the other's rows; the inner row names its own shared height; a group's rectangle reaches as far as its panes do and not a margin further; and which end of a bin is nudged which way follows the direction the scale runs |
+| `brush_table` | a key belongs to the page unless the chart resolves it **independently**, and then it belongs to the pane whose scale it names — which means a pane has to be able to carry one and to reserve the room beside it |
+| `trellis_barley` | a trellis ordered by a **summary** of a column has to compute the ranking before its own aggregate summarises that column away — one value per panel, written onto every row and carried through by being grouped on. A sort that names a column and no op is the other case entirely: the reference looks for it in the derived rows and orders nothing when it is not there, which is what `trellis_area_seattle` relies on |
+| `parallel_coordinate` | a line is one shape per **series**, and a chart may tell its series apart by more than one thing at once — so the partition is a list and not a column: coloured by species alone, three hundred birds came out as three lines. Its guides are marks rather than axes, which needs three more things read where the chart actually says them — a per-side axis block at **compile** time, a named style resolved for a mark that carries one, and a tick centred on the axis it is thin in rather than placed by an edge it has no depth along |
+| `interactive_splom` | a brush that each **pane** answers for is drawn whether anything is in it or not, and on a pane it brushes in one direction only the other direction is the whole pane — three rectangles three hundred pixels tall and none wide, down the diagonal, where a variable is plotted against itself and is therefore brushed once and not twice |
+| `rect_mosaic_labelled_with_offset` | four things at once, none of them about mosaics: an opacity read from a column, a **position** scale shared across a concatenation because the chart said so, a pane gap stated once in the configuration, and an axis title merge that compared a channel name against a scale name — the same string in a plain chart and not in a pane |
+| `layer_point_line_regression` | a fitted line is a running mean accumulated one row at a time, not a sum divided at the end: the two are different numbers in floating point and an R² printed to two places lands either side of a rounding. The line itself is sampled at twenty-five even steps across the range of x, which is where the reference stops refining a curve that is straight |
+
+Marking them buys two things. A chart that took a rounding order to get right
+can be made wrong again by one line somewhere else, and it would come back as a
+single `DIFF` among two dozen in a report that exits 0 whatever it finds — so
+the report says so plainly instead, naming what the chart was won by and what
+it now does. And a difficult chart is a good place to start reading: the note
+against each one is the shortest route into that part of the layout.
+
+```
+  ok  *trellis_scatter                              750 primitives
+ DIFF *bar_layered_weather                          0/76 — the page comes out …
+
+9 of the 9 charts marked difficult are still exact
+```
+
+The list does not gate anything and is not a count of anything. A chart belongs
+on it because it was hard, not because it matters more than its neighbours.
+
+The specs are vendored because they are small and change rarely; the data is
+not, because it is eight megabytes of somebody else's numbers. Both
+implementations are handed the same rows, so no comparison depends on which
+copy is on disk — but a comparison cannot run without one, and those examples
+are reported as `skipped` rather than quietly passed.
+
+Coverage is a measurement, not a gate: it exits 0 whatever it finds, because
+the number going down is the news. `render.mjs` is the gate.
+
 ```bash
 npm install --no-save vega vega-lite
 node gallery/vela/tools/reference/parity.mjs
@@ -822,15 +950,20 @@ intermediate value is ever larger than a digit.
   and `dayofyear` are refused by name. Each has a real rule and none of the
   three is a variation on the others, so a chart that asked for a week and
   silently got a month would be wrong in a way nobody would notice.
-* **A rotated title can size the page a pixel differently.** The reference
-  lays an axis title out by MOVING it — it bounds the title where it first put
-  it and then translates the box — so the bounds it ends up with carry the
-  floating-point residue of a position the title no longer has. A quarter turn
-  has no exact cosine in binary, the page is sized by the CEILING of those
-  bounds, and a title whose rotated extent lands exactly on a whole pixel can
-  therefore tip either way. Vela computes the bounds where the title actually
-  is, which agrees with the reference on every chart in the suite; it is not
-  guaranteed to on a chart that sits exactly on the tie.
+* **A rotated box is turned by the reference's own expression, term for
+  term, and an axis title is bounded where it STARTED.** A quarter turn has no
+  exact cosine in binary — `cos(-pi/2)` is 6.1e-17, not 0 — so the corners of
+  a turned box land a few atoms from where the arithmetic says, and the page
+  is sized by the CEILING of them. Two things follow. "Offset from the anchor,
+  turn, put back" and "fold the anchor into a constant and turn" are the same
+  identity and not the same number, so the expression is written the
+  reference's way rather than the tidier way. And the reference lays an axis
+  title out by MOVING it: it measures the title at the axis' own line, before
+  anything is decided in the cross direction, and then translates the box out
+  to the extent the labels asked for. A title 30 pixels wide comes out 30
+  measured that way and 30.000000000000004 measured where it ends up, which is
+  a whole pixel of page. Neither is a style choice; eleven charts in the
+  gallery turned on the two of them.
 * **No loader.** `data.url` is refused by the runtime; the browser page fetches
   it and passes values instead. Seven of the eight targets have no idea what a
   URL is, so this belongs to the host rather than to the runtime.
@@ -857,6 +990,7 @@ gallery/vela/
 │   ├── VlEvg.rgr         the EVG backend: commands → path data
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
+│   ├── VlRegex.rgr       a regular expression, matched
 │   ├── VlScale.rgr       band / point / linear / log / ordinal, ticks
 │   ├── VlTime.rgr        the calendar, and the zones it is read in
 │   ├── VlTransform.rgr   data transforms
@@ -883,7 +1017,8 @@ gallery/vela/
 │   ├── data/             …and the files it writes
 │   └── smoke.mjs         open it in a browser and check it drew
 ├── tests/
-│   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow)
+│   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow,
+│   │                     regular expressions)
 │   ├── specs/            generated Vega-Lite sources and compiled Vega specs
 │   ├── golden/           committed scene and command output
 │   ├── run.sh            build + test everything

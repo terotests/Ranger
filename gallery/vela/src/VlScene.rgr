@@ -38,8 +38,22 @@ class VlSceneItem {
     fn text:string (key:string) {
         return (props.stringOr(key ""))
     }
+    ; The same, for a value that need not BE a string. A label reads whatever
+    ; column it was pointed at, and a running total is a number: asked for a
+    ; string it answered nothing, and every label of a waterfall came out
+    ; blank.
+    fn textOf:string (key:string) {
+        if (! (props.has(key))) {
+            return ""
+        }
+        return ((props.get(key)).asString())
+    }
     fn has:boolean (key:string) {
         return (props.has(key))
+    }
+    ; A yes/no property, with the answer to give when the mark never set one.
+    fn flag:boolean (key:string dflt:boolean) {
+        return (props.boolOr(key dflt))
     }
 
     ; A mark encodes any two of (x, x2, width) and any two of (y, y2, height);
@@ -96,6 +110,11 @@ class VlSceneMark {
     def markType:string "group"
     def name:string ""
     def role:string ""
+    ; Whether what this mark draws is cut off at the edge of the plot it is
+    ; drawn in. A horizon chart draws the same series twice, once shifted a
+    ; band down, and means the part that hangs below to be cut rather than to
+    ; make the page taller.
+    def clipped:boolean false
     def items:[VlSceneItem]
 
     fn addItem:VlSceneItem () {

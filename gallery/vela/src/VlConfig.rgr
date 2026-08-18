@@ -15,6 +15,9 @@
 Import "VlJson.rgr"
 
 class VlConfig {
+    ; What a built-in range name means in THIS chart, when its
+    ; configuration renamed it.
+    def rangeSchemes:[string:string]
     def styles:[string:VlJson]
     ; Per-mark-type defaults: `config.rect`, `config.line`, `config.symbol`, …
     ; These are applied before the styles and are what give a line its width and
@@ -26,6 +29,11 @@ class VlConfig {
     ; A spec that wants its guides in a different colour says so once here
     ; rather than on each of its axes, and the reference reads it the same way.
     def axisAll:VlJson (VlJson.objectValue())
+    ; …and what it says about the axes of ONE dimension. `"axisX": {…}` is how
+    ; a page of histograms narrows every horizontal axis at once, and it is
+    ; read by the axis' orientation: top and bottom are the x axes.
+    def axisAcross:VlJson (VlJson.objectValue())
+    def axisDown:VlJson (VlJson.objectValue())
     ; `config.legend`, which every legend inherits the same way every axis
     ; inherits `config.axis` — the colours a legend reads on a dark page are a
     ; property of the chart, and stating them once is the only way to say so
@@ -138,6 +146,12 @@ class VlConfig {
         set markTypes "trail" trail
     }
 
+    ; A mark drawn as a line rather than as a block of colour, for which
+    ; `color` means the stroke.
+    sfn outlinedMark:boolean (name:string) {
+        return (((name == "line") || (name == "rule")) || (name == "path"))
+    }
+
     fn markTypeDefaults:VlJson (markType:string) {
         if (has markTypes markType) {
             return (unwrap (get markTypes markType))
@@ -150,11 +164,56 @@ class VlConfig {
         if (! (config.isObject())) {
             return
         }
+        ; `config.range` renames the palettes the built-in range NAMES stand
+        ; for: `{"range": {"ramp": {"scheme": "yellowgreenblue"}}}` says every
+        ; continuous colour scale in this chart reads that scheme rather than
+        ; the default blues. The scale still says `"range": "ramp"`; what ramp
+        ; means is what changes.
+        ; `config.view` is the plotting frame's own style: `{"strokeWidth": 0}`
+        ; or `{"stroke": ""}` is a chart asking for no border round its plot,
+        ; and drawn anyway that border is a rectangle the reference does not
+        ; have. `step` belongs to the layout rather than to the paint and is
+        ; read where the sizes are decided.
+        def viewBlock:VlJson (config.get("view"))
+        if (viewBlock.isObject()) {
+            def cellStyle:VlJson (VlJson.objectValue())
+            if (has styles "cell") {
+                def base:VlJson (unwrap (get styles "cell"))
+                for base.keys bk:string bi {
+                    cellStyle.setMember(bk (base.get(bk)))
+                }
+            }
+            for viewBlock.keys vk:string vi {
+                if (vk != "step") {
+                    cellStyle.setMember(vk (viewBlock.get(vk)))
+                }
+            }
+            set styles "cell" cellStyle
+        }
+
+        def rangeBlock:VlJson (config.get("range"))
+        if (rangeBlock.isObject()) {
+            for rangeBlock.keys rk:string ri {
+                def entry:VlJson (rangeBlock.get(rk))
+                if (entry.isObject()) {
+                    def named:string (entry.stringOr("scheme" ""))
+                    if ((strlen named) > 0) {
+                        set rangeSchemes rk named
+                    }
+                }
+            }
+        }
         if (config.get("mark").isObject()) {
             markAll = (config.get("mark"))
         }
         if (config.get("axis").isObject()) {
             axisAll = (config.get("axis"))
+        }
+        if (config.get("axisX").isObject()) {
+            axisAcross = (config.get("axisX"))
+        }
+        if (config.get("axisY").isObject()) {
+            axisDown = (config.get("axisY"))
         }
         if (config.has("legend")) {
             legendAll = (config.get("legend"))
@@ -169,7 +228,19 @@ class VlConfig {
                         mergedMark.setMember(key (base.get(key)))
                     }
                     for incomingMark.keys key:string ii {
-                        mergedMark.setMember(key (incomingMark.get(key)))
+                        ; `color` is what a person writes and `fill` or
+                        ; `stroke` is what a renderer reads — which of the two
+                        ; depends on the mark. Copied across as it stands it
+                        ; reached nothing, and a chart that asked for dark grey
+                        ; labels got black ones.
+                        def target:string key
+                        if (key == "color") {
+                            target = "fill"
+                            if (VlConfig.outlinedMark(name)) {
+                                target = "stroke"
+                            }
+                        }
+                        mergedMark.setMember(target (incomingMark.get(key)))
                     }
                     set markTypes name mergedMark
                 }
@@ -199,12 +270,23 @@ class VlConfig {
 
     ; One axis' settings: the config's defaults with the axis' own on top.
     fn mergedAxis:VlJson (adef:VlJson) {
+        def orient:string (adef.stringOr("orient" "bottom"))
+        def sided:VlJson axisDown
+        if ((orient == "bottom") || (orient == "top")) {
+            sided = axisAcross
+        }
+        def anySided:int (array_length sided.keys)
         if ((array_length axisAll.keys) == 0) {
-            return adef
+            if (anySided == 0) {
+                return adef
+            }
         }
         def out:VlJson (VlJson.objectValue())
         for axisAll.keys key:string ai {
             out.setMember(key (axisAll.get(key)))
+        }
+        for sided.keys skey:string si {
+            out.setMember(skey (sided.get(skey)))
         }
         for adef.keys key:string di {
             out.setMember(key (adef.get(key)))
@@ -254,9 +336,48 @@ class VlConfig {
         return out
     }
 
+    ; The palette a range name stands for in this chart, after any renaming
+    ; the configuration did.
+    fn schemeFor:[string] (name:string) {
+        if (has rangeSchemes name) {
+            return (VlConfig.schemeColors((unwrap (get rangeSchemes name))))
+        }
+        return (VlConfig.schemeColors(name))
+    }
+
+    ; Is that scheme a RAMP — a continuous run of colour — rather than a list
+    ; of distinct ones? An ordinal scale is spread along the first and takes
+    ; the second in turn, and the two read completely differently.
+    fn schemeIsRamp:boolean (name:string) {
+        def resolved:string name
+        if (has rangeSchemes name) {
+            resolved = (unwrap (get rangeSchemes name))
+        }
+        return (VlConfig.rampScheme(resolved))
+    }
+
+    sfn rampScheme:boolean (name:string) {
+        if (name == "ordinal") {
+            return true
+        }
+        if (((name == "blues") || (name == "greens")) || ((name == "greys") || (name == "oranges"))) {
+            return true
+        }
+        if (((name == "purples") || (name == "reds")) || ((name == "viridis") || (name == "magma"))) {
+            return true
+        }
+        if (((name == "rainbow") || (name == "greenblue")) || ((name == "inferno") || (name == "plasma"))) {
+            return true
+        }
+        if ((name == "yellowgreenblue") || (name == "yellowGreenBlue")) {
+            return true
+        }
+        return ((name == "lighttealblue") || (name == "lightTealBlue"))
+    }
+
     sfn schemeColors:[string] (name:string) {
         def out:[string]
-        if ((name == "category") || ((name == "tableau10") || (name == "ordinal"))) {
+        if ((name == "category") || (name == "tableau10")) {
             push out "#4c78a8"
             push out "#f58518"
             push out "#e45756"
@@ -290,8 +411,21 @@ class VlConfig {
         if ((name == "heatmap") || (name == "yellowgreenblue")) {
             return (VlConfig.ramp("eff9bddbf1b4bde5b594d5b969c5be45b4c22c9ec02182b82163aa23479c1c3185"))
         }
-        if (((name == "ramp") || (name == "blues")) || (name == "sequential")) {
+        ; An ORDINAL column has an order — four cylinders is more than three —
+        ; so the reference's default range for one is the blue ramp rather
+        ; than the palette, with the categories spread along it.
+        if ((((name == "ramp") || (name == "blues")) || (name == "sequential")) || (name == "ordinal")) {
             return (VlConfig.ramp("cfe1f2bed8eca8cee58fc1de74b2d75ba3cf4592c63181bd206fb2125ca40a4a90"))
+        }
+        ; A scale read in two directions from a middle. The reference's default
+        ; is blue-orange, taken from its high end down — `extent: [1, 0]` — so
+        ; the stops are listed here in that order rather than carrying an
+        ; extent through the scale layer for one scheme's sake.
+        if (name == "diverging") {
+            return (VlConfig.ramp("994a07c5690de8932ffbbf74fce0baf2f0ebd2e5ef9dcae15da2cb2f78b3134b85"))
+        }
+        if ((name == "blueorange") || (name == "blue-orange")) {
+            return (VlConfig.ramp("134b852f78b35da2cb9dcae1d2e5eff2f0ebfce0bafbbf74e8932fc5690d994a07"))
         }
         if (name == "greens") {
             return (VlConfig.ramp("d3eecdc0e6baabdda594d3917bc77d60ba6c46ab5e329a512089430e7735036429"))
@@ -307,6 +441,26 @@ class VlConfig {
         }
         if (name == "reds") {
             return (VlConfig.ramp("fdc9b4fcb49afc9e80fc8767fa7051f6573fec3f2fdc2a25c81b1db21218970b13"))
+        }
+        if (name == "viridis") {
+            return (VlConfig.ramp("440154470e61481a6c482575472f7d443a834144873d4e8a39568c35608d31688e2d708e2a788e27818e23888e21918d1f988b1fa08822a8842ab07f35b77943bf7154c56866cc5d7ad1518fd744a5db36bcdf27d2e21be9e51afde725"))
+        }
+        if (name == "magma") {
+            return (VlConfig.ramp("0000040404130b0924150e3720114b2c11603b0f704a107957157e651a80721f817f24828c29819a2e80a8327db6377ac43c75d1426fde4968e95462f1605df76f5cfa7f5efc8f65fe9f6dfeaf78febf84fece91fddea0fcedaffcfdbf"))
+        }
+        if (name == "rainbow") {
+            return (VlConfig.ramp("6e40aa883eb1a43db3bf3cafd83fa4ee4395fe4b83ff576eff6659ff7847ff8c38f3a130e2b72fcfcc36bee044aff05b8ff4576ff65b52f6673af27828ea8d1ddfa319d0b81cbecb23abd82f96e03d82e14c6edb5a5dd0664dbf6e40aa"))
+        }
+        if ((name == "yellowgreenblue") || (name == "yellowGreenBlue")) {
+            return (VlConfig.ramp("eff9bdd4eeb4a9ddb774c9bd45b4c22997be2173b1234ea01c3185"))
+        }
+        if ((name == "lighttealblue") || (name == "lightTealBlue")) {
+            return (VlConfig.ramp("e3e9e0c0dccf9aceca7abfc859afc0389fb9328dad2f7ca0276b95255988"))
+        }
+        ; A twenty-colour categorical palette, in four shades of five hues —
+        ; what a chart reaches for when ten categories are not enough.
+        if (name == "category20b") {
+            return (VlConfig.ramp("393b795254a36b6ecf9c9ede6379398ca252b5cf6bcedb9c8c6d31bd9e39e7ba52e7cb94843c39ad494ad6616be7969c7b4173a55194ce6dbdde9ed6"))
         }
         if (name == "category10") {
             push out "#1f77b4"

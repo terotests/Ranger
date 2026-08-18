@@ -45,7 +45,7 @@ class VlViewBox {
         def bounds (new VlBounds())
         bounds.set(0.0 0.0 plotWidth plotHeight)
         for rootItem.marks child:VlSceneMark ci {
-            bounds.union((VlViewBox.ofMark(child)))
+            bounds.union((VlViewBox.cut(child plotWidth plotHeight)))
         }
 
         def left:double (VlViewBox.overhang((0.0 - bounds.x1)))
@@ -71,12 +71,62 @@ class VlViewBox {
     }
 
     ; --------------------------------------------------------------- per mark ---
+    ; What a mark covers, cut to the plot it is drawn in when it says it is
+    ; clipped. A horizon chart draws the same series twice, once shifted a band
+    ; down, and means the part that hangs below to be cut off — measured whole
+    ; it made the page half as tall again.
+    sfn cut:VlBounds (mark:VlSceneMark width:double height:double) {
+        def box:VlBounds (VlViewBox.ofMark(mark))
+        if (! mark.clipped) {
+            return box
+        }
+        if (! box.isSet) {
+            return box
+        }
+        def out (new VlBounds())
+        def x1:double box.x1
+        def y1:double box.y1
+        def x2:double box.x2
+        def y2:double box.y2
+        if (x1 < 0.0) { x1 = 0.0 }
+        if (y1 < 0.0) { y1 = 0.0 }
+        if (x2 > width) { x2 = width }
+        if (y2 > height) { y2 = height }
+        if ((x2 < x1) || (y2 < y1)) {
+            return out
+        }
+        out.add(x1 y1)
+        out.add(x2 y2)
+        return out
+    }
+
+
     sfn ofMark:VlBounds (mark:VlSceneMark) {
         def out (new VlBounds())
         ; A line or an area is ONE shape over every item, so its bounds are the
         ; curve's and not the union of a box per point.
         if ((mark.markType == "line") || (mark.markType == "area")) {
             return (VlViewBox.ofCurve(mark))
+        }
+        ; A trail is a ribbon and its items are the MIDDLE of it: half the
+        ; width at each vertex hangs past it on either side. Measured by the
+        ; vertices alone, a key stood two pixels too close to a chart whose
+        ; widest trail reached the right edge.
+        if (mark.markType == "trail") {
+            def ribbon (new VlBounds())
+            for mark.items item:VlSceneItem idx {
+                if (VlViewBox.drawn(item)) {
+                    def half:double 0.5
+                    if (item.has("size")) {
+                        half = ((item.number("size")) / 2.0)
+                    }
+                    def cx:double (item.number("x"))
+                    def cy:double (item.number("y"))
+                    ribbon.add((cx - half) (cy - half))
+                    ribbon.add((cx + half) (cy + half))
+                }
+            }
+            return ribbon
         }
         for mark.items item:VlSceneItem idx {
             if (VlViewBox.drawn(item)) {
@@ -139,7 +189,7 @@ class VlViewBox {
 
         for item.marks child2:VlSceneMark ci2 {
             if (child2.role == "axis-title") {
-                box.union((VlViewBox.ofMark(child2)))
+                box.union((VlViewBox.ofAxisTitle(child2 ((orient == "left") || (orient == "right")))))
             }
         }
         VlViewBox.strokeExpand(box item false)
@@ -152,6 +202,37 @@ class VlViewBox {
         }
         box.translate(((item.number("x")) - delta) ((item.number("y")) - delta))
         return box
+    }
+
+    ; An axis title is bounded where it STARTED and then moved, which is not
+    ; the same number as bounding it where it ended up. The reference lays one
+    ; out by measuring the title at the axis' own line — nothing decided yet in
+    ; the cross direction — and then translating the box out to the extent the
+    ; labels asked for. A quarter turn has no exact cosine in binary, so the
+    ; two routes differ by an atom, and the page is sized by the CEILING of
+    ; that: a title 30 pixels wide comes out 30 measured the reference's way
+    ; and 30.000000000000004 measured where it is, which is 31 pixels of page.
+    ;
+    ; Six charts in the gallery were a pixel wide for exactly this reason. It
+    ; is not arithmetic, it is layout order, and this is that order.
+    sfn ofAxisTitle:VlBounds (mark:VlSceneMark vertical:boolean) {
+        def out (new VlBounds())
+        for mark.items t:VlSceneItem ti {
+            if (VlViewBox.drawn(t)) {
+                def tx:double (t.number("x"))
+                def ty:double (t.number("y"))
+                def b (new VlBounds())
+                if vertical {
+                    b = (VlViewBox.ofTextAt(t 0.0 ty))
+                    b.translate(tx 0.0)
+                } {
+                    b = (VlViewBox.ofTextAt(t tx 0.0))
+                    b.translate(0.0 ty)
+                }
+                out.union(b)
+            }
+        }
+        return out
     }
 
     sfn clampExtent:double (reach:double item:VlSceneItem) {
@@ -249,10 +330,14 @@ class VlViewBox {
         if (interpolate == "catmull-rom") { tension = 0.5 }
         if (first.has("tension")) { tension = (first.number("tension")) }
 
+        ; A row the path could not place is not part of the shape, so it is
+        ; not part of the box either.
         def pts:[double]
         for mark.items item:VlSceneItem idx {
-            push pts (item.number("x"))
-            push pts (item.number("y"))
+            if (item.flag("defined" true)) {
+                push pts (item.number("x"))
+                push pts (item.number("y"))
+            }
         }
         def builder (new PathBuilder())
         VlShape.appendCurve(builder pts interpolate tension false)
@@ -263,12 +348,14 @@ class VlViewBox {
             def k:int (count - 1)
             while (k >= 0) {
                 def item:VlSceneItem (itemAt mark.items k)
-                if horizontal {
-                    push back (item.number("x2"))
-                    push back (item.number("y"))
-                } {
-                    push back (item.number("x"))
-                    push back (item.number("y2"))
+                if (item.flag("defined" true)) {
+                    if horizontal {
+                        push back (item.number("x2"))
+                        push back (item.number("y"))
+                    } {
+                        push back (item.number("x"))
+                        push back (item.number("y2"))
+                    }
                 }
                 k = (k - 1)
             }
@@ -282,7 +369,7 @@ class VlViewBox {
     sfn ofGroup:VlBounds (item:VlSceneItem) {
         def out (new VlBounds())
         for item.marks child:VlSceneMark ci {
-            out.union((VlViewBox.ofMark(child)))
+            out.union((VlViewBox.cut(child (item.number("width")) (item.number("height")))))
         }
         ; A group with a size reserves it whether or not it paints one: an
         ; unpainted scope group still stands for the plot inside it.
@@ -301,26 +388,69 @@ class VlViewBox {
     ; are rotated rather than the box, because a rotated box's bounds are the
     ; bounds of its four corners and nothing simpler is correct.
     sfn ofText:VlBounds (item:VlSceneItem) {
+        ; A label round a pie is placed in POLAR coordinates: x and y are the
+        ; centre of the chart and the label stands `radius` away at `theta`.
+        ; Measured at the centre, the labels round a radial chart took no room
+        ; at all and the page came out the size of the plot.
+        def x:double (item.number("x"))
+        def y:double (item.number("y"))
+        if (item.has("radius")) {
+            def r:double (item.number("radius"))
+            def a:double (item.number("theta"))
+            x = (x + (r * (sin a)))
+            y = (y - (r * (cos a)))
+        }
+        return (VlViewBox.ofTextAt(item x y))
+    }
+
+    ; The same, with the anchor stated rather than read — which is what lets an
+    ; axis title be measured at the position it was laid out from.
+    sfn ofTextAt:VlBounds (item:VlSceneItem x:double y:double) {
         def fontSize:double 11.0
         if (item.has("fontSize")) { fontSize = (item.number("fontSize")) }
         def align:string "left"
         if (item.has("align")) { align = (item.text("align")) }
         def baseline:string "alphabetic"
         if (item.has("baseline")) { baseline = (item.text("baseline")) }
-        def x:double (item.number("x"))
-        def y:double (item.number("y"))
-
         ; The reference's own construction, in its own order. The nudge is
         ; folded into the box; the ROTATION is about the un-nudged anchor,
         ; which is a difference of a whole label for anything both nudged and
         ; turned.
         def h:double fontSize
-        def w:double (VlText.estimateWidth((item.text("text")) fontSize))
+        def w:double (VlText.estimateWidth((item.textOf("text")) fontSize))
+        ; A label written on several lines is as wide as its widest line and
+        ; as tall as one line plus a line's step for each one after it. The
+        ; anchor is still measured from the FIRST line, which is why the
+        ; nudge below is left alone.
+        ; …and the value the way the item HOLDS it, which for a label written on
+        ; several lines is a list. Asked for a string a list answers nothing,
+        ; so a two-line label measured as an empty one and reserved no room at
+        ; all — not its depth and not even its width.
+        def lines:[string] (VlText.lines((item.textOf("text"))))
+        if ((array_length lines) > 1) {
+            def step:double (VlText.lineStep(fontSize))
+            if (item.has("lineHeight")) {
+                step = (item.number("lineHeight"))
+            }
+            h = (h + (step * (to_double ((array_length lines) - 1))))
+            w = 0.0
+            for lines one:string oi {
+                def wide:double (VlText.estimateWidth(one fontSize))
+                if (wide > w) {
+                    w = wide
+                }
+            }
+        }
         def dx:double 0.0
         if (item.has("dx")) { dx = (item.number("dx")) }
         def dy:double 0.0
         if (item.has("dy")) { dy = (item.number("dy")) }
-        dy = ((dy + (VlBounds.baselineOffset(baseline h))) - (VlBounds.roundHalfUp((0.8 * h))))
+        ; Where the box STARTS is settled by one line of type — the anchor is
+        ; the first line's, and the lines below it hang from that. Only the
+        ; box's depth knows about them. Measured with the whole block's height,
+        ; a two-line label's box began half a line above where the reference
+        ; puts it and the page came eleven pixels short of the words in it.
+        dy = ((dy + (VlBounds.baselineOffset(baseline fontSize))) - (VlBounds.roundHalfUp((0.8 * fontSize))))
         if (align == "center") {
             dx = (dx - (w / 2.0))
         }
@@ -346,29 +476,28 @@ class VlViewBox {
         ; page is sized by the CEILING of that. Writing the same expression a
         ; different way rounds somewhere else and can cost a whole pixel.
         ;
-        ; It still does not always agree, and the reason is not arithmetic: the
-        ; reference lays an axis title out by MOVING it — it bounds the title
-        ; where it first put it and then translates the box — so its residue is
-        ; the residue of a position the title no longer has. That is a property
-        ; of its layout order rather than of the geometry, and reproducing it
-        ; would mean reproducing the order. See the README.
+        ; So the expression below is the reference's, written its way rather
+        ; than the algebraically equivalent "offset from the anchor, turned,
+        ; put back". The two agree to within a few atoms and disagree about
+        ; whole pixels: a y axis title 46 pixels wide comes out 46 exactly one
+        ; way and 46.00000000000001 the other, and the page is sized by the
+        ; CEILING of it.
+        def cx:double ((x - (x * cosA)) + (y * sinA))
+        def cy:double ((y - (x * sinA)) - (y * cosA))
         def out (new VlBounds())
-        VlViewBox.addRotated(out box.x1 box.y1 x y cosA sinA)
-        VlViewBox.addRotated(out box.x1 box.y2 x y cosA sinA)
-        VlViewBox.addRotated(out box.x2 box.y1 x y cosA sinA)
-        VlViewBox.addRotated(out box.x2 box.y2 x y cosA sinA)
+        VlViewBox.addRotated(out box.x1 box.y1 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x1 box.y2 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x2 box.y1 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x2 box.y2 cx cy cosA sinA)
         return out
     }
 
-    ; Rotated about the anchor, as an offset from it. Algebraically the same as
-    ; the reference's own expression and numerically not — which of the two
-    ; lands on the reference's pixel depends on the chart, because the number
-    ; it is being compared against carries a residue of its own. This form
-    ; agrees on every chart in the suite but one.
+    ; One corner of a turned box, in the reference's own terms: the rotation
+    ; and the move back to the anchor are folded into `cx`/`cy` beforehand, so
+    ; a corner costs one multiply-add per axis and rounds where the reference
+    ; rounds.
     sfn addRotated:void (out:VlBounds px:double py:double cx:double cy:double cosA:double sinA:double) {
-        def dx:double (px - cx)
-        def dy:double (py - cy)
-        out.add((cx + ((dx * cosA) - (dy * sinA))) (cy + ((dx * sinA) + (dy * cosA))))
+        out.add((((cosA * px) - (sinA * py)) + cx) (((sinA * px) + (cosA * py)) + cy))
     }
 
     sfn ofBuilder:VlBounds (builder:PathBuilder) {
@@ -389,9 +518,15 @@ class VlViewBox {
         if (! (item.has("stroke"))) {
             return
         }
-        if ((item.text("stroke")) == "transparent") {
+        ; A stroke stated as nothing — `{"value": null}`, which is a mark
+        ; overruling the outline its style would have given it — is not a
+        ; colour, and an outline nobody draws takes up no room.
+        if ((strlen (item.text("stroke"))) == 0) {
             return
         }
+        ; …but "transparent" is not nothing: it is an outline painted in
+        ; nothing, which is still stroked and still half a pixel wide. The
+        ; reference reserves the room whether or not the paint shows.
         if (item.has("opacity")) {
             if ((item.number("opacity")) == 0.0) {
                 return

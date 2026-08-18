@@ -517,11 +517,30 @@ class VlEvgWriter {
                 }
                 k = (k + 1)
             }
-            VlShape.appendCurve(builder pts cmd.interpolate cmd.tension (cmd.op == "polygon"))
+            VlShape.appendBrokenCurve(builder pts cmd.breaks cmd.interpolate cmd.tension (cmd.op == "polygon"))
             return
         }
         if (cmd.op == "arc") {
             VlShape.appendArc(builder (cmd.x + ox) (cmd.y + oy) cmd.startAngle cmd.endAngle cmd.innerRadius cmd.outerRadius)
+            return
+        }
+        ; A trail's ribbon is built here, from the vertices and the widths the
+        ; command carries, so that it can be offset to the plot's origin the
+        ; same way every other shape is.
+        if (cmd.op == "trail") {
+            def pts:[double]
+            def total:int (array_length cmd.points)
+            def k:int 0
+            while (k < total) {
+                def v:double (itemAt cmd.points k)
+                if ((k % 2) == 0) {
+                    push pts (v + ox)
+                } {
+                    push pts (v + oy)
+                }
+                k = (k + 1)
+            }
+            VlShape.appendBrokenTrail(builder pts cmd.widths cmd.breaks)
             return
         }
         if (cmd.op == "path") {

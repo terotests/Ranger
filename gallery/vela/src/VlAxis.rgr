@@ -31,6 +31,11 @@ class VlAxisTickValue {
     ; The reference does the same, and only for band and point scales — a
     ; continuous axis puts both at the same place.
     def labelPosition:double 0.0
+    ; Where the TICK and its grid line go, which on a band scale is not where
+    ; the label goes either. `tickBand: "extent"` rules a heat map's cells off
+    ; from each other: the tick sits on the band's far EDGE while the label
+    ; stays under its middle. Everywhere else the two are the same number.
+    def tickPosition:double 0.0
     def label:string ""
 }
 
@@ -40,20 +45,53 @@ class VlAxis {
     def tickWidth:double 1.0
     def tickColor:string "#888"
     def labelPadding:double 2.0
+    ; How far a label slides ALONG the axis from the tick it names. It is not
+    ; the padding: the padding is the gap across the axis, and this moves the
+    ; label sideways past its own tick.
+    def labelOffset:double 0.0
     def labelFontSize:double 10.0
     def labelFont:string "sans-serif"
     def labelColor:string "#000"
     def labelLimit:double 180.0
+    ; How wide a TITLE may be before it is cut. A page of histograms names its
+    ; axes after long columns and narrows them all at once; measured whole,
+    ; a title thirty characters long overhung its own plot by sixty pixels and
+    ; took them out of the page.
+    ; Nothing by default: the reference caps a LABEL at a hundred and eighty
+    ; pixels and leaves titles alone, however long the column is called.
+    def titleLimit:double 0.0
     def domainColor:string "#888"
     def domainWidth:double 1.0
     def gridColor:string "#ddd"
     def gridWidth:double 1.0
     def gridOpacity:double 1.0
     def titlePadding:double 4.0
+    ; Where the title goes when the chart PLACED it rather than leaving the
+    ; axis to. A space-saving axis puts its name above the plot at the left
+    ; instead of turned down the side, which is a position, an angle and an
+    ; anchoring — and, because the title is then inside the drawing, no room at
+    ; all for the axis to reserve.
+    def titlePlaced:boolean false
+    def titleX:double 0.0
+    def titleY:double 0.0
+    def titleAngleSet:boolean false
+    def titleAngle:double 0.0
+    def titleAlign:string ""
+    def titleBaseline:string ""
     def titleFontSize:double 11.0
     def titleColor:string "#000"
     def titleFontWeight:string "bold"
+    ; How heavy the LABELS are. A questionnaire naming its questions down the
+    ; side sets them bold to tell them from the ratings beside them, and drawn
+    ; at the ordinary weight they read as data rather than as headings — and
+    ; they measure narrower, so the axis reserves too little room for them.
+    def labelFontWeight:string ""
     def bandPosition:double 0.5
+    ; Where a tick sits on a BAND. "center" puts it under the middle of the
+    ; band, which is where the label goes; "extent" puts it on the band's edge
+    ; and adds one at the far end, so the ticks and grid rule the bands off
+    ; from each other rather than pointing at them. A heat map asks for extent.
+    def tickBand:string "center"
     ; A tick is a one-pixel line, so its position is rounded — the reference's
     ; `tickRound`, on by default. Labels are not rounded: text has no pixel
     ; grid to align to.
@@ -78,10 +116,24 @@ class VlAxis {
     ; dashed grid came out solid. The scene comparison could not see it either,
     ; because a dash is an ARRAY and the comparison only looked at channels
     ; whose value was a single number or string.
+    ; A colour per TICK, when the axis' grid paint was written as a condition.
+    ; Empty on every axis whose grid is one colour, which is nearly all of them.
+    def gridColors:[string]
+    def tickColors:[string]
+    def tickColorsSet:boolean false
+    def labelColors:[string]
+    def labelColorsSet:boolean false
     def gridDash:VlJson (new VlJson)
     def gridDashSet:boolean false
     def tickDash:VlJson (new VlJson)
     def tickDashSet:boolean false
+    ; A dash per tick rather than one for the whole axis: a chart may draw
+    ; every month dashed and every January solid, which is how a year is
+    ; marked on an axis of months.
+    def gridDashes:[VlJson]
+    def gridDashesSet:boolean false
+    def tickDashes:[VlJson]
+    def tickDashesSet:boolean false
     def domainDash:VlJson (new VlJson)
     def domainDashSet:boolean false
     def tickOpacitySet:boolean false
@@ -95,6 +147,11 @@ class VlAxis {
     def labelBaseline:string ""
     def minExtent:double 0.0
     def maxExtent:double 200.0
+    ; How far the whole axis stands off the plot it measures. A diverging
+    ; stacked bar sets `"offset": 5` to keep its question labels clear of the
+    ; bars that start at zero; the grid stays where it is, because a grid line
+    ; belongs to the plot rather than to the axis.
+    def axisOffset:double 0.0
     ; A specification may name the number format its labels use — `".0%"` on a
     ; normalized bar chart. Without one a tick SET shares a precision chosen
     ; from its own step, which is the reference's behaviour for an unformatted
@@ -109,18 +166,80 @@ class VlAxis {
     def labelExtent:double 0.0
     def totalExtent:double 0.0
 
+    ; Ranger cannot assign a list field from outside the class, and it should
+    ; not have to: the axis owns its own paint.
+    fn useGridColors:void (colors:[string]) {
+        clear gridColors
+        for colors c:string ci {
+            push gridColors c
+        }
+    }
+
+    ; The same, per tick and per label. A chart may paint the tick and the
+    ; label at each January black and leave the rest of them out, so an empty
+    ; answer here means NOT DRAWN rather than "use the default" — which is why
+    ; the flag is separate from the list being empty.
+    fn useGridDashes:void (list:[VlJson]) {
+        clear gridDashes
+        gridDashesSet = true
+        for list one:VlJson oi {
+            push gridDashes one
+        }
+    }
+
+    fn useTickDashes:void (list:[VlJson]) {
+        clear tickDashes
+        tickDashesSet = true
+        for list one:VlJson oi {
+            push tickDashes one
+        }
+    }
+
+    fn useTickColors:void (colors:[string]) {
+        clear tickColors
+        tickColorsSet = true
+        for colors c:string ci {
+            push tickColors c
+        }
+    }
+    fn useLabelColors:void (colors:[string]) {
+        clear labelColors
+        labelColorsSet = true
+        for colors c:string ci {
+            push labelColors c
+        }
+    }
+
     fn readConfig:void (adef:VlJson) {
         tickSize = (adef.doubleOr("tickSize" tickSize))
         labelPadding = (adef.doubleOr("labelPadding" labelPadding))
+        labelOffset = (adef.doubleOr("labelOffset" labelOffset))
         labelFontSize = (adef.doubleOr("labelFontSize" labelFontSize))
         titlePadding = (adef.doubleOr("titlePadding" titlePadding))
+        if (adef.has("titleX")) {
+            titleX = (adef.doubleOr("titleX" 0.0))
+            titlePlaced = true
+        }
+        if (adef.has("titleY")) {
+            titleY = (adef.doubleOr("titleY" 0.0))
+            titlePlaced = true
+        }
+        if (adef.has("titleAngle")) {
+            titleAngle = (adef.doubleOr("titleAngle" 0.0))
+            titleAngleSet = true
+        }
+        titleAlign = (adef.stringOr("titleAlign" titleAlign))
+        titleBaseline = (adef.stringOr("titleBaseline" titleBaseline))
         titleFontSize = (adef.doubleOr("titleFontSize" titleFontSize))
+        titleLimit = (adef.doubleOr("titleLimit" titleLimit))
         bandPosition = (adef.doubleOr("bandPosition" bandPosition))
         minExtent = (adef.doubleOr("minExtent" minExtent))
         maxExtent = (adef.doubleOr("maxExtent" maxExtent))
+        axisOffset = (adef.doubleOr("offset" axisOffset))
         tickColor = (adef.stringOr("tickColor" tickColor))
         labelColor = (adef.stringOr("labelColor" labelColor))
         labelFont = (adef.stringOr("labelFont" labelFont))
+        labelFontWeight = (adef.stringOr("labelFontWeight" labelFontWeight))
         domainColor = (adef.stringOr("domainColor" domainColor))
         gridColor = (adef.stringOr("gridColor" gridColor))
         titleColor = (adef.stringOr("titleColor" titleColor))
@@ -155,6 +274,7 @@ class VlAxis {
         labelAngle = (adef.doubleOr("labelAngle" labelAngle))
         labelAlign = (adef.stringOr("labelAlign" labelAlign))
         labelBaseline = (adef.stringOr("labelBaseline" labelBaseline))
+        tickBand = (adef.stringOr("tickBand" tickBand))
     }
 
     ; `labelFlush` is a threshold in pixels, and `true` is the number one — the
@@ -233,6 +353,25 @@ class VlAxis {
         return true
     }
 
+    ; How far a TURNED label reaches away from the axis it hangs off: the box
+    ; a rotated rectangle needs, not one of its sides. On its side at a right
+    ; angle the two are the same thing — the width, laid down the page — which
+    ; is why the width alone served for as long as every turned axis was
+    ; turned by ninety degrees. At forty-five it is wrong by a quarter: a
+    ; candlestick chart's dates reserved forty pixels where the reference
+    ; reserves thirty-five, and the axis title sat five pixels low.
+    fn turnedReach:double (wide:double deep:double vertical:boolean) {
+        def radians:double ((labelAngle * 3.141592653589793) / 180.0)
+        def s:double (sin radians)
+        def c:double (cos radians)
+        if (s < 0.0) { s = (0.0 - s) }
+        if (c < 0.0) { c = (0.0 - c) }
+        if vertical {
+            return ((wide * c) + (deep * s))
+        }
+        return ((wide * s) + (deep * c))
+    }
+
     sfn roundTo:double (v:double) {
         return (to_double (floor (v + 0.5)))
     }
@@ -240,7 +379,7 @@ class VlAxis {
     ; --------------------------------------------------------------- ticks ----
     ; A band or point scale is labelled by its domain; a quantitative one by the
     ; tick algorithm. `bandPosition` centres a band's label under its band.
-    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string formatType:string) {
+    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double format:string formatType:string tickBand:string tickMinStep:double) {
         def out:[VlAxisTickValue]
         ; A binned scale is labelled at its bin boundaries. Asking the tick
         ; algorithm instead gives a tick count that has nothing to do with the
@@ -255,16 +394,23 @@ class VlAxis {
                 tvb.value = (VlJson.numberValue(v))
                 tvb.position = (sc.mapNumber(v))
                 tvb.labelPosition = tvb.position
+                tvb.tickPosition = tvb.position
                 tvb.label = (itemAt labels idx)
                 push out tvb
             }
             return out
         }
         if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+            ; A tick on a band edge rather than under its middle, with one more
+            ; at the far end — the label still sits in the middle, so the two
+            ; positions part company here.
+            def onEdges:boolean (tickBand == "extent")
+            def tickAt:double bandPosition
+            if onEdges { tickAt = 1.0 }
             for sc.domainValues name:string idx {
                 def tv (new VlAxisTickValue())
                 tv.value = (VlJson.stringValue(name))
-                tv.position = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * bandPosition))
+                tv.position = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * tickAt))
                 ; A BAND's label takes back the half pixel the axis group was
                 ; offset by, because a band's own positions are whole numbers
                 ; and the label wants to sit on one. A POINT scale's are not —
@@ -272,9 +418,17 @@ class VlAxis {
                 ; 55.555 — so there is no half pixel to take back, and taking
                 ; one anyway moves the label off its own point and rounds the
                 ; tick to the wrong pixel.
-                tv.labelPosition = tv.position
+                ; `bandPosition` moves the TICKS along the band and leaves the
+                ; labels where they are: the reference keeps a band's label
+                ; under the middle of it whatever the ticks are doing. Moved
+                ; with the ticks, a chart that draws its gridlines on the band
+                ; edges printed its categories on the lines instead of between
+                ; them.
+                tv.labelPosition = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * 0.5))
+                tv.tickPosition = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * tickAt))
                 if (sc.scaleType == "band") {
-                    tv.labelPosition = (tv.position - 0.5)
+                    tv.labelPosition = (tv.labelPosition - 0.5)
+                    tv.tickPosition = (tv.tickPosition - 0.5)
                 }
                 ; A discrete domain of INSTANTS is what a time unit produces —
                 ; twelve months are twelve categories, and each one is a date.
@@ -286,9 +440,40 @@ class VlAxis {
                 }
                 push out tv
             }
+            if onEdges {
+                def last:int ((array_length sc.domainValues) - 1)
+                if (last >= 0) {
+                    ; The N ticks above sit on the FAR edge of each band, which
+                    ; leaves the near edge of the first one unmarked. This is
+                    ; the tick that marks it — and the reference builds it as a
+                    ; tick with no value at all rather than as a position, so
+                    ; the scale is asked where nothing goes and answers zero.
+                    ;
+                    ; Its label is empty and draws no ink, but an empty label is
+                    ; still a font high, and at the origin that height hangs off
+                    ; the near edge of the plot and makes the page five pixels
+                    ; bigger than the plot and its axes asked for.
+                    def extra (new VlAxisTickValue())
+                    extra.value = (VlJson.stringValue(""))
+                    extra.position = 0.0
+                    extra.labelPosition = 0.0
+                    extra.tickPosition = 0.0
+                    extra.label = ""
+                    push out extra
+                }
+            }
             return out
         }
-        def values:[double] (sc.ticks(tickCount))
+        def values:[double] (sc.ticksAbove(tickCount tickMinStep))
+        ; A guide's ticks are keyed by their value, and a date written out as a
+        ; key is written to the second — its milliseconds are dropped. Two
+        ; ticks inside one second are therefore ONE tick to the reference, and
+        ; the last of them is the one that survives. It shows only on an axis
+        ; whose ticks are milliseconds apart, which is what a column of bare
+        ; years read as instants comes to.
+        if (sc.isTime()) {
+            values = (VlAxis.oneTickPerSecond(values))
+        }
         ; A log axis labels only some of the ticks it draws, and formats those
         ; with grouped digits rather than to one shared precision — its ticks
         ; have no shared step to take a precision from.
@@ -300,10 +485,19 @@ class VlAxis {
         ; already on decides what to call it, which is why a January tick reads
         ; as its year while its neighbours read as their months.
         if (sc.isTime()) {
+            clear labels
             if ((strlen format) == 0) {
-                clear labels
                 for values v:double vi {
                     push labels (VlTime.multiFormat(v sc.zone))
+                }
+            } {
+                ; A STATED format on a time axis is a date pattern, not a
+                ; number one. It was being handed to the number formatter,
+                ; which has nothing to say about `%Y` and returned the instant
+                ; — so `"format": "%Y"` printed thirteen digits of milliseconds
+                ; where the specification asked for a year.
+                for values v2:double vi2 {
+                    push labels (VlTime.format(v2 format sc.zone))
                 }
             }
         }
@@ -312,8 +506,29 @@ class VlAxis {
             tv.value = (VlJson.numberValue(v))
             tv.position = (sc.mapNumber(v))
             tv.labelPosition = tv.position
+            tv.tickPosition = tv.position
             tv.label = (itemAt labels idx)
             push out tv
+        }
+        return out
+    }
+
+    ; Of the ticks that land inside one second, the last. See the caller.
+    sfn oneTickPerSecond:[double] (values:[double]) {
+        def out:[double]
+        for values v:double vi {
+            def secondOf:double (to_double (floor (v / 1000.0)))
+            def keep:boolean true
+            for values w:double wi {
+                if (wi > vi) {
+                    if ((to_double (floor (w / 1000.0))) == secondOf) {
+                        keep = false
+                    }
+                }
+            }
+            if keep {
+                push out v
+            }
         }
         return out
     }
@@ -325,9 +540,36 @@ class VlAxis {
         if ((strlen format) == 0) {
             return (VlScale.tickLabels(values))
         }
+        def spec:VlFormatSpec (VlFormat.parse(format))
+        ; A specifier that names a TYPE but no precision takes its precision
+        ; from the tick step, which is what `scale.tickFormat` does and what an
+        ; axis needs: `"format": "%"` on shares of a whole means 0%, 50%, 100%
+        ; and not six decimal places of each. The step is measured in the units
+        ; the label is printed in, so a percentage's step is a hundred times
+        ; the scale's own.
+        ; An SI format on an AXIS names one prefix for the whole set rather
+        ; than the nearest one for each label. The prefix is chosen from the
+        ; end of the scale and every tick is written in it — which is what
+        ; makes the middle of a population pyramid read "0M" and not "0", and
+        ; a tick a thousand times smaller than its neighbour read "0.001M"
+        ; rather than "1k".
+        if (spec.type == "s") {
+            return (VlFormat.siOver(values spec))
+        }
+        if (spec.precision < 0) {
+            def scaled:[double]
+            for values v0:double vi0 {
+                if (spec.type == "%") {
+                    push scaled (v0 * 100.0)
+                } {
+                    push scaled v0
+                }
+            }
+            spec.precision = (VlScale.tickDecimals(scaled))
+        }
         def out:[string]
         for values v:double idx {
-            push out (VlFormat.apply(v format))
+            push out (VlFormat.applySpec(v spec))
         }
         return out
     }
@@ -350,7 +592,7 @@ class VlAxis {
         mark.role = "axis"
         def group:VlSceneItem (mark.addItem())
         group.setString("orient" orient)
-        group.setNumber("offset" 0.0)
+        group.setNumber("offset" axisOffset)
         group.setNumber("position" 0.0)
         group.setNumber("titlePadding" titlePadding)
         group.setNumber("minExtent" minExtent)
@@ -408,7 +650,7 @@ class VlAxis {
                 flushFrom = 0.0
                 flushTo = range
             }
-            def labelMark:VlSceneMark (this.buildLabels(ticks orient vertical flushFrom flushTo))
+            def labelMark:VlSceneMark (this.buildLabels(ticks orient vertical flushFrom flushTo wantTicks))
             push group.marks labelMark
             ; A label that was thinned away takes up no room: the widest one is
             ; the widest DRAWN one, measured after the overlap pass rather than
@@ -417,18 +659,42 @@ class VlAxis {
             ; counting it reserves eight pixels nothing is printed in.
             widest = (VlAxis.widestVisible(labelMark labelFontSize widest))
             def turned:boolean (this.labelsAreTurned())
-            if vertical {
-                def alongV:double widest
-                if turned {
-                    alongV = labelFontSize
-                }
-                labelExtent = ((tickSize + labelPadding) + alongV)
+            ; The room a label needs is measured from where the label actually
+            ; is, and with the ticks turned off it sits against the plot: the
+            ; reference gives the label mark a tick size of zero, so the axis
+            ; reserves five pixels less and its title moves in with it.
+            def clearance:double tickSize
+            if (! wantTicks) {
+                clearance = 0.0
+            }
+            ; How DEEP the labels are, which is one line unless a label was
+            ; written on several. An axis of months naming the year under the
+            ; month is two lines deep, and measured as one the title sat over
+            ; the second line of it.
+            def deep:double (VlAxis.tallestVisible(labelMark labelFontSize))
+            if turned {
+                labelExtent = ((clearance + labelPadding) + (this.turnedReach(widest deep vertical)))
             } {
-                def alongH:double labelFontSize
-                if turned {
-                    alongH = widest
+                ; How far the labels reach, MEASURED from where they ended up
+                ; rather than assumed from the padding. The two agree whenever
+                ; a label hangs away from the plot, which is nearly always —
+                ; and they part company the moment a chart turns one round to
+                ; sit inside the plot instead. A bar chart that saves space by
+                ; printing its categories over their own bars reserves nothing
+                ; at all for them, where the assumption reserved the width of
+                ; the longest name.
+                labelExtent = (this.measuredExtent(labelMark orient))
+            }
+            ; What the axis reserves is what its ticks AND its labels cover,
+            ; whichever reaches further. Labels normally reach further and the
+            ; ticks never come into it — until a chart pulls its labels back
+            ; over the plot with a negative padding, and then the ticks are the
+            ; whole of the extent and the title stands clear of them.
+            if wantTicks {
+                def tickReach:double (tickSize + (tickWidth / 2.0))
+                if (tickReach > labelExtent) {
+                    labelExtent = tickReach
                 }
-                labelExtent = ((tickSize + labelPadding) + alongH)
             }
         } {
             if wantTicks {
@@ -448,12 +714,63 @@ class VlAxis {
             }
             push group.marks (this.buildDomain(orient vertical domainFrom domainTo))
         }
+        ; A floor and a ceiling on how much room the labels get. `minExtent`
+        ; is how a chart keeps two plots' axes lined up when one of them has
+        ; shorter numbers on it, and it is a floor under the LABELS — the
+        ; title still stands outside whatever they end up taking.
+        if (labelExtent > maxExtent) {
+            labelExtent = maxExtent
+        }
+        if (labelExtent < minExtent) {
+            labelExtent = minExtent
+        }
         totalExtent = labelExtent
         if ((strlen title) > 0) {
             push group.marks (this.buildTitle(title orient vertical range))
-            totalExtent = ((labelExtent + titlePadding) + titleFontSize)
+            ; A title the CHART placed is not outside the axis, so the axis
+            ; reserves nothing for it: an axis that saves space by printing its
+            ; name over the plot reserved fourteen pixels beside the plot for a
+            ; title that is not there.
+            if (! titlePlaced) {
+                totalExtent = ((labelExtent + titlePadding) + titleFontSize)
+            }
+        }
+        ; The offset moves the axis away from the plot — every part of it
+        ; except the grid, which crosses the plot and never left it — and the
+        ; room the axis asks for grows by as much.
+        if (axisOffset != 0.0) {
+            this.shiftParts(group orient vertical)
+            totalExtent = (totalExtent + axisOffset)
         }
         return mark
+    }
+
+    ; Move the drawn parts of an axis outward. `x2`/`y2` travel with `x`/`y`
+    ; because a tick is a rule written as two ends, and a tick that moved only
+    ; at one end would change length rather than position.
+    fn shiftParts:void (group:VlSceneItem orient:string vertical:boolean) {
+        def away:double axisOffset
+        if ((orient == "left") || (orient == "top")) {
+            away = (0.0 - axisOffset)
+        }
+        def first:string "y"
+        def second:string "y2"
+        if vertical {
+            first = "x"
+            second = "x2"
+        }
+        for group.marks child:VlSceneMark ci {
+            if (child.role != "axis-grid") {
+                for child.items item:VlSceneItem ii {
+                    if (item.has(first)) {
+                        item.setNumber(first ((item.number(first)) + away))
+                    }
+                    if (item.has(second)) {
+                        item.setNumber(second ((item.number(second)) + away))
+                    }
+                }
+            }
+        }
     }
 
     ; A grid line crosses the plot from one end of the OTHER scale's range to
@@ -471,12 +788,24 @@ class VlAxis {
             if gridOpacitySet {
                 item.setNumber("strokeOpacity" gridOpacity)
             }
-            item.setString("stroke" gridColor)
+            def paint:string gridColor
+            if (idx < (array_length gridColors)) {
+                def perTick:string (itemAt gridColors idx)
+                if ((strlen perTick) > 0) {
+                    paint = perTick
+                }
+            }
+            item.setString("stroke" paint)
             item.setNumber("strokeWidth" gridWidth)
             if gridDashSet {
                 item.setValue("strokeDash" gridDash)
             }
-            def at:double tv.labelPosition
+            if gridDashesSet {
+                if (idx < (array_length gridDashes)) {
+                    item.setValue("strokeDash" (itemAt gridDashes idx))
+                }
+            }
+            def at:double tv.tickPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
             }
@@ -507,12 +836,24 @@ class VlAxis {
             if tickOpacitySet {
                 item.setNumber("strokeOpacity" tickOpacity)
             }
-            item.setString("stroke" tickColor)
+            def tickPaint:string tickColor
+            if tickColorsSet {
+                tickPaint = ""
+                if (idx < (array_length tickColors)) {
+                    tickPaint = (itemAt tickColors idx)
+                }
+            }
+            item.setString("stroke" tickPaint)
             item.setNumber("strokeWidth" tickWidth)
             if tickDashSet {
                 item.setValue("strokeDash" tickDash)
             }
-            def at:double tv.labelPosition
+            if tickDashesSet {
+                if (idx < (array_length tickDashes)) {
+                    item.setValue("strokeDash" (itemAt tickDashes idx))
+                }
+            }
+            def at:double tv.tickPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
             }
@@ -530,22 +871,43 @@ class VlAxis {
         return mark
     }
 
-    fn buildLabels:VlSceneMark (ticks:[VlAxisTickValue] orient:string vertical:boolean flushFrom:double flushTo:double) {
+    fn buildLabels:VlSceneMark (ticks:[VlAxisTickValue] orient:string vertical:boolean flushFrom:double flushTo:double drawnTicks:boolean) {
         def mark (new VlSceneMark())
         mark.markType = "text"
         mark.role = "axis-label"
-        def away:double (tickSize + labelPadding)
+        ; A label stands clear of the TICK, so an axis with its ticks turned off
+        ; has nothing to stand clear of: the reference hands the label mark a
+        ; tick size of zero rather than the size of the ticks it did not draw,
+        ; and the labels move five pixels in towards the plot.
+        def reach:double tickSize
+        if (! drawnTicks) {
+            reach = 0.0
+        }
+        def away:double (reach + labelPadding)
         for ticks tv:VlAxisTickValue idx {
             def item:VlSceneItem (mark.addItem())
-            item.setString("fill" labelColor)
+            def labelPaint:string labelColor
+            if labelColorsSet {
+                labelPaint = ""
+                if (idx < (array_length labelColors)) {
+                    labelPaint = (itemAt labelColors idx)
+                }
+            }
+            item.setString("fill" labelPaint)
             item.setString("font" labelFont)
+            if ((strlen labelFontWeight) > 0) {
+                item.setString("fontWeight" labelFontWeight)
+            }
             item.setNumber("fontSize" labelFontSize)
             item.setNumber("opacity" 1.0)
             item.setNumber("angle" labelAngle)
             item.setNumber("limit" labelLimit)
-            item.setString("text" tv.label)
+            ; An axis label is cut to fit too — a hundred and eighty pixels by
+            ; default — and the extent the axis reserves is measured from what
+            ; is left, not from what was asked for.
+            item.setString("text" (VlText.truncate(tv.label labelFontSize labelLimit)))
             if vertical {
-                item.setNumber("y" tv.labelPosition)
+                item.setNumber("y" (tv.labelPosition + labelOffset))
                 if (orient == "left") {
                     item.setNumber("x" (0.0 - away))
                     item.setString("align" "right")
@@ -569,7 +931,7 @@ class VlAxis {
                     item.setString("baseline" labelBaseline)
                 }
             } {
-                item.setNumber("x" tv.labelPosition)
+                item.setNumber("x" (tv.labelPosition + labelOffset))
                 if (orient == "bottom") {
                     item.setNumber("y" away)
                     item.setString("baseline" "top")
@@ -655,6 +1017,24 @@ class VlAxis {
 
     ; The widest label still being drawn. A mark with nothing hidden answers the
     ; same number it was given, so an axis that never thinned pays nothing.
+    ; The deepest label still being drawn: one line of type, plus a line's step
+    ; for each line after the first of the tallest one.
+    sfn tallestVisible:double (mark:VlSceneMark fontSize:double) {
+        def deep:double fontSize
+        for mark.items item:VlSceneItem idx {
+            if ((item.number("opacity")) > 0.0) {
+                def lines:int (array_length (VlText.lines((item.text("text")))))
+                if (lines > 1) {
+                    def tall:double (fontSize + ((VlText.lineStep(fontSize)) * (to_double (lines - 1))))
+                    if (tall > deep) {
+                        deep = tall
+                    }
+                }
+            }
+        }
+        return deep
+    }
+
     sfn widestVisible:double (mark:VlSceneMark fontSize:double whenEmpty:double) {
         def shown:[string]
         for mark.items item:VlSceneItem idx {
@@ -746,6 +1126,33 @@ class VlAxis {
     ; A label's box, as the renderer would draw it — the same measurement the
     ; legend's rows are laid out with, so an axis and a legend agree on how big
     ; a piece of text is.
+    ; The far edge of the drawn labels, on the side the axis is on.
+    fn measuredExtent:double (mark:VlSceneMark orient:string) {
+        def reach:double 0.0
+        for mark.items item:VlSceneItem idx {
+            if ((item.number("opacity")) > 0.0) {
+                def box:VlBounds (this.labelBox(item))
+                def far:double 0.0
+                if (orient == "left") {
+                    far = (0.0 - box.x1)
+                }
+                if (orient == "right") {
+                    far = box.x2
+                }
+                if (orient == "top") {
+                    far = (0.0 - box.y1)
+                }
+                if (orient == "bottom") {
+                    far = box.y2
+                }
+                if (far > reach) {
+                    reach = far
+                }
+            }
+        }
+        return reach
+    }
+
     fn labelBox:VlBounds (item:VlSceneItem) {
         return (VlBounds.ofText((item.text("text")) (item.number("fontSize")) (item.text("align")) (item.text("baseline")) (item.number("x")) (item.number("y"))))
     }
@@ -831,6 +1238,10 @@ class VlAxis {
         ; spec positioned, which is what the reference records here.
         item.setValue("auto" (VlJson.boolValue(true)))
         item.setString("text" title)
+        if (titleLimit > 0.0) {
+            item.setString("text" (VlText.truncate(title titleFontSize titleLimit)))
+            item.setNumber("limit" titleLimit)
+        }
         def away:double (labelExtent + titlePadding)
         if vertical {
             item.setNumber("y" (range / 2.0))
@@ -852,6 +1263,24 @@ class VlAxis {
                 item.setNumber("y" (0.0 - away))
                 item.setString("baseline" "bottom")
             }
+        }
+        ; …and where the chart placed the title itself, that wins over all of
+        ; it. `auto` says which of the two happened, and the reference records
+        ; it the same way.
+        if titlePlaced {
+            item.setNumber("x" titleX)
+            item.setNumber("y" titleY)
+            item.setValue("auto" (VlJson.boolValue(false)))
+            item.setNumber("angle" 0.0)
+        }
+        if titleAngleSet {
+            item.setNumber("angle" titleAngle)
+        }
+        if ((strlen titleAlign) > 0) {
+            item.setString("align" titleAlign)
+        }
+        if ((strlen titleBaseline) > 0) {
+            item.setString("baseline" titleBaseline)
         }
         return mark
     }

@@ -146,6 +146,21 @@ class VlBounds {
     sfn ofText:VlBounds (text:string fontSize:double align:string baseline:string x:double y:double) {
         def w:double (VlText.estimateWidth(text fontSize))
         def h:double fontSize
+        ; A label written on several lines is as wide as its WIDEST line, not
+        ; as wide as all of them run together. Measured whole, two labels that
+        ; stand clear of each other on the page read as colliding, and an axis
+        ; of months thinned itself to every other one.
+        def lines:[string] (VlText.lines(text))
+        if ((array_length lines) > 1) {
+            h = (h + ((VlText.lineStep(fontSize)) * (to_double ((array_length lines) - 1))))
+            w = 0.0
+            for lines one:string oi {
+                def wide:double (VlText.estimateWidth(one fontSize))
+                if (wide > w) {
+                    w = wide
+                }
+            }
+        }
         def dy:double ((VlBounds.baselineOffset(baseline fontSize)) - (VlBounds.roundHalfUp((0.8 * h))))
         def dx:double 0.0
         if (align == "center") {

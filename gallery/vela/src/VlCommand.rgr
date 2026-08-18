@@ -21,6 +21,8 @@
 
 Import "VlJson.rgr"
 Import "VlScene.rgr"
+Import "VlShape.rgr"
+Import "../../evg/PathBuilder.rgr"
 
 ; op: "rect" | "line" | "text" | "path" | "symbol" | "image" | "group-begin" | "group-end"
 class VlDrawCommand {
@@ -42,9 +44,27 @@ class VlDrawCommand {
 
     def fill:string ""
     def hasFill:boolean false
+    ; A fill need not be a colour. A gradient is a direction and a list of
+    ; stops, and it is carried as itself rather than flattened to one of its
+    ; ends: a target that can paint one paints it, and a target that cannot
+    ; still has the stops to approximate with. The direction is in the shape's
+    ; own bounding box, 0 to 1 on each axis, which is what SVG's
+    ; objectBoundingBox units mean and what the reference writes.
+    def gradientKind:string ""
+    def gradientX1:double 0.0
+    def gradientY1:double 0.0
+    def gradientX2:double 0.0
+    def gradientY2:double 0.0
+    def gradientOffsets:[double]
+    def gradientColors:[string]
     def fillOpacity:double 1.0
     def stroke:string ""
     def hasStroke:boolean false
+    ; A stroke the specification NAMED but gave no width. It paints nothing —
+    ; the picture is the same either way — but the reference writes it out, and
+    ; a comparison that reads every attribute is the whole point of the
+    ; harness, so it is written out here too.
+    def strokeNamed:boolean false
     def strokeWidth:double 1.0
     def strokeOpacity:double 1.0
     def opacity:double 1.0
@@ -84,6 +104,18 @@ class VlDrawCommand {
     ; rather than as a path string: a line mark is a list of points, and turning
     ; it into path syntax is the backend's decision, not this layer's.
     def points:[double]
+    ; A TRAIL's width at each of those vertices. The ribbon's outline is worked
+    ; out from the two together, and it is worked out by the BACKEND rather
+    ; than here, so that the shape can be placed at the plot's origin like
+    ; every other one. Built into path syntax up here it had nowhere to put
+    ; that origin, and every trail was drawn against the left edge of the page.
+    def widths:[double]
+    ; Where the pen lifts. A path may be drawn in more than one stroke — a line
+    ; whose data goes missing in the middle is one mark with a hole in it, not
+    ; two marks — so the vertices stay in one command and these are the indices
+    ; (into the VERTICES, not the coordinates) at which a new stroke begins.
+    ; Index 0 always begins one, so an empty list means a single unbroken run.
+    def breaks:[int]
     def interpolate:string "linear"
     ; What a cardinal or catmull-rom curve is asked to do with its tangents.
     ; The reference's defaults differ per interpolation, so the command carries
@@ -198,6 +230,12 @@ class VlSceneCommands {
             VlSceneCommands.emitArea(list mark offsetX offsetY)
             return
         }
+        ; A trail is a line whose width is read from the data, so it is a
+        ; filled shape rather than a stroked one — and one shape, like a line.
+        if (mark.markType == "trail") {
+            VlSceneCommands.emitTrail(list mark offsetX offsetY)
+            return
+        }
         for mark.items item:VlSceneItem idx {
             if (mark.markType == "group") {
                 VlSceneCommands.emitGroup(list mark item offsetX offsetY)
@@ -207,22 +245,114 @@ class VlSceneCommands {
         }
     }
 
-    ; The vertices of a line mark, in item order.
-    sfn emitLine:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
+    ; Which stretches of a path are drawable. A row a path cannot place — a
+    ; missing number, an infinity — is not a row to step over but a BREAK: the
+    ; reference lifts the pen and starts again on the far side, because joining
+    ; across the gap would draw a straight line where the data says nothing.
+    ; The answer is pairs of indices, each a half-open run.
+    sfn runsOf:[int] (mark:VlSceneMark) {
+        def runs:[int]
         def count:int (array_length mark.items)
-        if (count == 0) {
+        def k:int 0
+        while (k < count) {
+            def item:VlSceneItem (itemAt mark.items k)
+            if (item.flag("defined" true)) {
+                def start:int k
+                def going:boolean true
+                while going {
+                    if (k >= count) {
+                        going = false
+                    } {
+                        def look:VlSceneItem (itemAt mark.items k)
+                        if (look.flag("defined" true)) {
+                            k = (k + 1)
+                        } {
+                            going = false
+                        }
+                    }
+                }
+                push runs start
+                push runs k
+            } {
+                k = (k + 1)
+            }
+        }
+        return runs
+    }
+
+    ; The vertices of a line mark, in item order. A break in the data does not
+    ; make a second mark: it is one shape drawn in more than one stroke, so the
+    ; vertices of every run go into ONE command and the run boundaries are
+    ; recorded beside them.
+    sfn emitLine:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
+        def runs:[int] (VlSceneCommands.runsOf(mark))
+        def marked:int (array_length runs)
+        if (marked == 0) {
             return
         }
         def cmd (new VlDrawCommand())
         cmd.op = "polyline"
         cmd.markType = mark.markType
         cmd.role = mark.role
-        for mark.items item:VlSceneItem idx {
-            push cmd.points (offsetX + (item.number("x")))
-            push cmd.points (offsetY + (item.number("y")))
+        def vertices:int 0
+        def r:int 0
+        while (r < marked) {
+            def start:int (itemAt runs r)
+            def stop:int (itemAt runs (r + 1))
+            r = (r + 2)
+            push cmd.breaks vertices
+            def k:int start
+            while (k < stop) {
+                def item:VlSceneItem (itemAt mark.items k)
+                push cmd.points (offsetX + (item.number("x")))
+                push cmd.points (offsetY + (item.number("y")))
+                vertices = (vertices + 1)
+                k = (k + 1)
+            }
         }
-        def first:VlSceneItem (itemAt mark.items 0)
+        def first:VlSceneItem (itemAt mark.items (itemAt runs 0))
         VlSceneCommands.applyCurve(cmd first)
+        VlSceneCommands.applyStyle(cmd first)
+        push list.commands cmd
+    }
+
+    ; A trail: the vertices, each with the width the data gave it. The shape
+    ; is built once, here, from the geometry every backend shares, and handed
+    ; on as path data — the same road a Vega `path` mark takes.
+    sfn emitTrail:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
+        def runs:[int] (VlSceneCommands.runsOf(mark))
+        def marked:int (array_length runs)
+        if (marked == 0) {
+            return
+        }
+        def cmd (new VlDrawCommand())
+        cmd.op = "trail"
+        cmd.markType = mark.markType
+        cmd.role = mark.role
+        cmd.x = 0.0
+        cmd.y = 0.0
+        def vertices:int 0
+        def r:int 0
+        while (r < marked) {
+            def start:int (itemAt runs r)
+            def stop:int (itemAt runs (r + 1))
+            r = (r + 2)
+            push cmd.breaks vertices
+            def k:int start
+            while (k < stop) {
+                def item:VlSceneItem (itemAt mark.items k)
+                push cmd.points (offsetX + (item.number("x")))
+                push cmd.points (offsetY + (item.number("y")))
+                def wide:double 1.0
+                if (item.has("size")) {
+                    wide = (item.number("size"))
+                }
+                push cmd.widths wide
+                vertices = (vertices + 1)
+                k = (k + 1)
+            }
+        }
+        def first:VlSceneItem (itemAt mark.items (itemAt runs 0))
         VlSceneCommands.applyStyle(cmd first)
         push list.commands cmd
     }
@@ -231,34 +361,51 @@ class VlSceneCommands {
     ; horizontal area): the tops in order, then the baseline back again, which
     ; closes the polygon.
     sfn emitArea:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
-        def count:int (array_length mark.items)
-        if (count == 0) {
+        def runs:[int] (VlSceneCommands.runsOf(mark))
+        def marked:int (array_length runs)
+        if (marked == 0) {
             return
         }
         def cmd (new VlDrawCommand())
         cmd.op = "polygon"
         cmd.markType = mark.markType
         cmd.role = mark.role
+        def first:VlSceneItem (itemAt mark.items (itemAt runs 0))
         def horizontal:boolean false
-        def first:VlSceneItem (itemAt mark.items 0)
         if (first.has("x2")) {
             horizontal = true
         }
-        for mark.items item:VlSceneItem idx {
-            push cmd.points (offsetX + (item.number("x")))
-            push cmd.points (offsetY + (item.number("y")))
-        }
-        def k:int (count - 1)
-        while (k >= 0) {
-            def item:VlSceneItem (itemAt mark.items k)
-            if horizontal {
-                push cmd.points (offsetX + (item.number("x2")))
-                push cmd.points (offsetY + (item.number("y")))
-            } {
+        def vertices:int 0
+        def r:int 0
+        while (r < marked) {
+            def start:int (itemAt runs r)
+            def stop:int (itemAt runs (r + 1))
+            r = (r + 2)
+            push cmd.breaks vertices
+            def k:int start
+            while (k < stop) {
+                def item:VlSceneItem (itemAt mark.items k)
                 push cmd.points (offsetX + (item.number("x")))
-                push cmd.points (offsetY + (item.number("y2")))
+                push cmd.points (offsetY + (item.number("y")))
+                vertices = (vertices + 1)
+                k = (k + 1)
             }
-            k = (k - 1)
+            ; The turn from the tops to the baseline is a CORNER, and the
+            ; two halves are curved separately either side of it.
+            push cmd.breaks vertices
+            k = (stop - 1)
+            while (k >= start) {
+                def item:VlSceneItem (itemAt mark.items k)
+                if horizontal {
+                    push cmd.points (offsetX + (item.number("x2")))
+                    push cmd.points (offsetY + (item.number("y")))
+                } {
+                    push cmd.points (offsetX + (item.number("x")))
+                    push cmd.points (offsetY + (item.number("y2")))
+                }
+                vertices = (vertices + 1)
+                k = (k - 1)
+            }
         }
         VlSceneCommands.applyCurve(cmd first)
         VlSceneCommands.applyStyle(cmd first)
@@ -340,10 +487,11 @@ class VlSceneCommands {
         push list.commands end
     }
 
-    ; `cornerRadius` sets all four; a named corner overrides its own. The
-    ; fallback order is the reference's and it is not symmetric: an unstated
-    ; bottom-left follows the top-RIGHT, so a bar rounded at one end by two
-    ; values rounds the diagonal pair.
+    ; `cornerRadius` sets all four; a named corner overrides its own, and one
+    ; nobody named follows `cornerRadius` and nothing else. A bar rounded at
+    ; the end it grows toward names two corners and leaves the other two
+    ; alone — and with the bottom-left following the top-RIGHT it came out
+    ; rounded at three corners, which is not a shape the reference draws.
     sfn applyCorners:void (cmd:VlDrawCommand item:VlSceneItem) {
         def all:double 0.0
         if (item.has("cornerRadius")) {
@@ -361,7 +509,7 @@ class VlSceneCommands {
         if (item.has("cornerRadiusBottomRight")) {
             br = (item.number("cornerRadiusBottomRight"))
         }
-        def bl:double tr
+        def bl:double all
         if (item.has("cornerRadiusBottomLeft")) {
             bl = (item.number("cornerRadiusBottomLeft"))
         }
@@ -447,7 +595,17 @@ class VlSceneCommands {
             cmd.op = "text"
             cmd.x = (offsetX + (item.number("x")))
             cmd.y = (offsetY + (item.number("y")))
-            cmd.text = (item.text("text"))
+            ; A label on a pie is placed in POLAR coordinates: x and y are the
+            ; centre of the chart, and the label stands `radius` away from it
+            ; at `theta` round. Zero is straight up and the angle runs
+            ; clockwise, which is how a pie is read.
+            if (item.has("radius")) {
+                def r:double (item.number("radius"))
+                def a:double (item.number("theta"))
+                cmd.x = (cmd.x + (r * (sin a)))
+                cmd.y = (cmd.y - (r * (cos a)))
+            }
+            cmd.text = (item.textOf("text"))
             cmd.fontSize = 11.0
             if (item.has("fontSize")) {
                 cmd.fontSize = (item.number("fontSize"))
@@ -456,7 +614,11 @@ class VlSceneCommands {
                 cmd.font = (item.text("font"))
             }
             if (item.has("fontWeight")) {
-                cmd.fontWeight = (item.text("fontWeight"))
+                ; A weight may be a NUMBER — `"fontWeight": 100` is the
+                ; thinnest face a family has — and asked for a string a number
+                ; answers nothing, so the label came out at the ordinary
+                ; weight.
+                cmd.fontWeight = (item.textOf("fontWeight"))
             }
             if (item.has("align")) {
                 cmd.align = (item.text("align"))
@@ -566,22 +728,74 @@ class VlSceneCommands {
         }
     }
 
+    ; A fill written as an object rather than a colour: `{"gradient": "linear",
+    ; "x1": …, "stops": [{"offset": …, "color": …}]}`. The ends default to a
+    ; ramp left to right, which is what the reference defaults them to.
+    sfn applyGradient:void (cmd:VlDrawCommand paint:VlJson) {
+        def kind:string (paint.stringOr("gradient" ""))
+        if ((strlen kind) == 0) {
+            return
+        }
+        def stops:VlJson (paint.get("stops"))
+        if (! (stops.isArray())) {
+            return
+        }
+        def total:int (stops.count())
+        if (total == 0) {
+            return
+        }
+        cmd.gradientKind = kind
+        cmd.gradientX1 = (paint.doubleOr("x1" 0.0))
+        cmd.gradientY1 = (paint.doubleOr("y1" 0.0))
+        cmd.gradientX2 = (paint.doubleOr("x2" 1.0))
+        cmd.gradientY2 = (paint.doubleOr("y2" 0.0))
+        def k:int 0
+        while (k < total) {
+            def stop:VlJson (stops.at(k))
+            push cmd.gradientOffsets (stop.doubleOr("offset" 0.0))
+            push cmd.gradientColors (stop.stringOr("color" "black"))
+            k = (k + 1)
+        }
+        ; The nearest flat colour, for a target that cannot ramp: the last
+        ; stop, which is the end a gradient is usually named for.
+        cmd.fill = (itemAt cmd.gradientColors (total - 1))
+        cmd.hasFill = true
+    }
+
     ; The style channels are shared by every mark type, and "absent" is not the
     ; same as "zero": a rect with no fill is not painted at all, so the flag is
     ; what a backend reads, not the colour string.
     sfn applyStyle:void (cmd:VlDrawCommand item:VlSceneItem) {
         if (item.has("fill")) {
+            def painted:VlJson (item.props.get("fill"))
+            if (painted.isObject()) {
+                VlSceneCommands.applyGradient(cmd painted)
+            } {
             def fill:string (item.text("fill"))
+            ; An empty fill is nothing to paint with — a label the axis asked
+            ; not to draw — and it is not a colour.
+            if ((strlen fill) == 0) {
+                fill = "transparent"
+            }
             if (fill != "transparent") {
                 cmd.fill = fill
                 cmd.hasFill = true
             }
+            }
         }
         if (item.has("stroke")) {
             def stroke:string (item.text("stroke"))
+            ; `"stroke": ""` is a chart asking for no outline at all — a view
+            ; with no frame round it — and it is not a colour. Painted anyway,
+            ; the frame was half a pixel off the plot on every side and the
+            ; page grew by one.
+            if ((strlen stroke) == 0) {
+                stroke = "transparent"
+            }
             if (stroke != "transparent") {
                 cmd.stroke = stroke
                 cmd.hasStroke = true
+                cmd.strokeNamed = true
                 cmd.strokeWidth = 1.0
             }
         }

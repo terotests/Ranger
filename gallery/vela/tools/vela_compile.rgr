@@ -56,7 +56,7 @@ class VelaCompileTool {
         }
 
         def compiler (new VlCompile())
-        def out:VlJson (compiler.compile(src))
+        def out:VlJson (compiler.compileSpec(src))
         for compiler.errors e:string ei {
             print ("error: " + e)
         }

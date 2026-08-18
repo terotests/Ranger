@@ -153,10 +153,42 @@ class VlFormat {
     }
 
     sfn apply:string (value:double spec:string) {
+        ; An infinity is written as the SIGN, which is what d3 writes and what
+        ; a chart of frame times shows at the end of an axis where the interval
+        ; is zero. Written as the word, an axis of rates read "Infinity".
+        if (value != value) {
+            return "NaN"
+        }
+        if (value != 0.0) {
+            if ((value * 0.5) == value) {
+                if (value > 0.0) {
+                    return (strfromcode 8734)
+                }
+                return ((VlJson.withMinusSign("-")) + (strfromcode 8734))
+            }
+        }
         if ((strlen spec) == 0) {
             return (VlJson.withMinusSign((VlJson.formatSignificant(value 12))))
         }
         return (VlFormat.applySpec(value (VlFormat.parse(spec))))
+    }
+
+    ; The zeroes at the end of a fraction, and the point they hang off if they
+    ; were all of it. Only after the decimal point: 100 keeps its zeroes.
+    sfn trimZeroes:string (text:string) {
+        def dot:int (lastIndexOf text ".")
+        if (dot < 0) {
+            return text
+        }
+        def end:int (strlen text)
+        while (end > (dot + 1)) {
+            if ((substring text (end - 1) end) == "0") {
+                end = (end - 1)
+            } {
+                return (substring text 0 end)
+            }
+        }
+        return (substring text 0 dot)
     }
 
     sfn applySpec:string (value:double s:VlFormatSpec) {
@@ -200,6 +232,12 @@ class VlFormat {
             text = (VlJson.formatSignificant(v 12))
         } {
             text = (VlFormat.fixed(v digits))
+        }
+        ; `~` asks for the trailing zeroes to go — `.1~%` prints 5% where `.1%`
+        ; prints 5.0% — and the flag was read and then never acted on, so every
+        ; label carried a decimal the specification had asked it to drop.
+        if s.trim {
+            text = (VlFormat.trimZeroes(text))
         }
         if s.comma {
             text = (VlFormat.group(text))
@@ -259,6 +297,121 @@ class VlFormat {
             i = (i + 1)
         }
         return ((sign + grouped) + rest)
+    }
+
+    ; The power of ten of a number's leading digit — d3 reads it off the
+    ; printed form, and this computes it, which agrees for everything an axis
+    ; puts through it. Nothing at all has no exponent and answers zero.
+    sfn exponentOf:int (value:double) {
+        def v:double value
+        if (v < 0.0) {
+            v = (0.0 - v)
+        }
+        if (v == 0.0) {
+            return 0
+        }
+        def e:int 0
+        while (v >= 10.0) {
+            v = (v / 10.0)
+            e = (e + 1)
+        }
+        while (v < 1.0) {
+            v = (v * 10.0)
+            e = (e - 1)
+        }
+        return e
+    }
+
+    ; Divided by three, rounding DOWN — which for a negative exponent is not
+    ; the same as dividing and truncating.
+    sfn floorDiv3:int (e:int) {
+        def group:int 0
+        def left:int e
+        while (left >= 3) {
+            group = (group + 1)
+            left = (left - 3)
+        }
+        while (left < 0) {
+            group = (group - 1)
+            left = (left + 3)
+        }
+        return group
+    }
+
+    sfn prefixNamed:string (group:int) {
+        if (group == 2) {
+            return "M"
+        }
+        if (group == 1) {
+            return "k"
+        }
+        if (group == 0) {
+            return ""
+        }
+        if (group == (0 - 1)) {
+            return "m"
+        }
+        return "µ"
+    }
+
+    ; A whole set of labels in ONE SI prefix, the way `scale.tickFormat` writes
+    ; them. The reference fixes the prefix from the far end of the scale and
+    ; then writes every tick as a plain number in it, so the labels share a
+    ; unit and can be read against each other: twelve million and nothing come
+    ; out "12M" and "0M", where a prefix chosen per label would write the
+    ; second as "0" and the reader would have to guess.
+    ;
+    ; The precision is DECIMALS once the prefix has been divided out, not
+    ; significant digits — that is the other half of the difference — and it
+    ; comes from the step between ticks when the specifier did not say.
+    sfn siOver:[string] (values:[double] s:VlFormatSpec) {
+        def out:[string]
+        def total:int (array_length values)
+        if (total == 0) {
+            return out
+        }
+        def far:double 0.0
+        for values v:double vi {
+            def size:double v
+            if (size < 0.0) {
+                size = (0.0 - size)
+            }
+            if (size > far) {
+                far = size
+            }
+        }
+        def step:double 0.0
+        if (total > 1) {
+            step = ((itemAt values 1) - (itemAt values 0))
+            if (step < 0.0) {
+                step = (0.0 - step)
+            }
+        }
+        ; The prefix steps in thousands, and the exponent it is chosen by is
+        ; clamped to the ones that have a name.
+        def three:int (VlFormat.exponentOf(far))
+        def group:int (VlFormat.floorDiv3(three))
+        if (group > 2) {
+            group = 2
+        }
+        if (group < (0 - 2)) {
+            group = (0 - 2)
+        }
+        def e:int (group * 3)
+        def digits:int s.precision
+        if (digits < 0) {
+            digits = (e - (VlFormat.exponentOf(step)))
+            if (digits < 0) {
+                digits = 0
+            }
+        }
+        def factor:double (VlMath.powInt(10.0 (0 - e)))
+        def prefix:string (VlFormat.prefixNamed(group))
+        for values v2:double vi2 {
+            def scaled:double (v2 * factor)
+            push out (VlJson.withMinusSign(((VlFormat.fixed(scaled digits)) + prefix)))
+        }
+        return out
     }
 
     ; d3's SI prefixes, which step in thousands. A precision is significant

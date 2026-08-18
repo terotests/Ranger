@@ -1,0 +1,666 @@
+; ==============================================================================
+; VlRegex.rgr — a regular expression, matched.
+; ==============================================================================
+; Vega's expression language has `regexp(pattern, flags)` and `test(re, string)`,
+; and a chart uses them for the obvious thing: a search box that dims every mark
+; whose name does not contain what was typed. There is no way to answer that
+; with string operations — the pattern is a pattern — so it is answered here.
+;
+; What is supported is the part of the syntax a specification actually writes:
+;
+;   literal characters, and `\` before one to take it literally
+;   .            any character
+;   [abc] [^a-z] a set, negatable, with ranges
+;   \d \D \w \W \s \S   the usual classes
+;   * + ? {n} {n,} {n,m}   repetition, greedy, and `?` after any of them for lazy
+;   |            alternation
+;   ( … ) (?: … )          grouping
+;   ^ $          the ends of the string
+;
+; What is NOT supported is refused by name rather than misread: back-references,
+; look-around, and named groups all answer `false` from `supported` so that the
+; caller can say it cannot draw the chart instead of drawing the wrong one.
+;
+; The matcher is a plain backtracker over the parsed tree. That is the wrong
+; algorithm for a pattern written to be slow and the right one for every pattern
+; a chart contains, and it is small enough to read.
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+; A node of the parsed pattern. `kind` is the shape and the rest is whatever
+; that shape needs:
+;
+;   0 empty        matches nothing at all, consuming nothing
+;   1 char         one literal character, `text`
+;   2 any          any character (a dot never matches a newline)
+;   3 class        a set: `ranges` as pairs of codes, `negate` to invert it
+;   4 concat       `kids` in order
+;   5 alternate    the first of `kids` that matches
+;   6 repeat       `kids[0]` between `low` and `high` times (-1 for no ceiling)
+;   7 start        the beginning of the string
+;   8 end          the end of it
+class VlRegexNode {
+    def kind:int 0
+    def text:string ""
+    def ranges:[int]
+    def negate:boolean false
+    def kids:[VlRegexNode]
+    def low:int 0
+    def high:int -1
+    def lazy:boolean false
+}
+
+class VlRegex {
+    def pattern:string ""
+    def ignoreCase:boolean false
+    def ok:boolean true
+    def why:string ""
+    def root:VlRegexNode (new VlRegexNode())
+
+    ; --------------------------------------------------------------- parsing ---
+    def src:string ""
+    def at:int 0
+    def n:int 0
+
+    fn compile:void (text:string flags:string) {
+        pattern = text
+        ignoreCase = false
+        def fi:int 0
+        while (fi < (strlen flags)) {
+            def f:string (substring flags fi (fi + 1))
+            if (f == "i") {
+                ignoreCase = true
+            }
+            ; `g` and `m` change where a match STARTS and what `^` means across
+            ; lines. Neither changes the answer to `test` over a single line,
+            ; which is the only question asked here, so both are accepted and
+            ; ignored rather than refused.
+            fi = (fi + 1)
+        }
+        src = text
+        at = 0
+        n = (strlen text)
+        ok = true
+        why = ""
+        root = (this.parseAlternate())
+        if ok {
+            if (at < n) {
+                this.refuse(("unbalanced ')' in /" + text) + "/")
+            }
+        }
+    }
+
+    fn refuse:void (reason:string) {
+        if ok {
+            ok = false
+            why = reason
+        }
+    }
+
+    fn peek:string () {
+        if (at >= n) {
+            return ""
+        }
+        return (substring src at (at + 1))
+    }
+
+    fn parseAlternate:VlRegexNode () {
+        def out (new VlRegexNode())
+        out.kind = 5
+        push out.kids (this.parseConcat())
+        while ((this.peek()) == "|") {
+            at = (at + 1)
+            push out.kids (this.parseConcat())
+        }
+        if ((array_length out.kids) == 1) {
+            return (itemAt out.kids 0)
+        }
+        return out
+    }
+
+    fn parseConcat:VlRegexNode () {
+        def out (new VlRegexNode())
+        out.kind = 4
+        def going:boolean true
+        while (going) {
+            def c:string (this.peek())
+            if ((c == "") || ((c == "|") || (c == ")"))) {
+                going = false
+            } {
+                def piece:VlRegexNode (this.parseRepeat())
+                if (! ok) {
+                    return out
+                }
+                push out.kids piece
+            }
+        }
+        if ((array_length out.kids) == 1) {
+            return (itemAt out.kids 0)
+        }
+        return out
+    }
+
+    ; An atom and whatever repetition follows it.
+    fn parseRepeat:VlRegexNode () {
+        def atom:VlRegexNode (this.parseAtom())
+        if (! ok) {
+            return atom
+        }
+        def c:string (this.peek())
+        def low:int -1
+        def high:int -1
+        if (c == "*") {
+            low = 0
+            high = -1
+            at = (at + 1)
+        }
+        if (c == "+") {
+            low = 1
+            high = -1
+            at = (at + 1)
+        }
+        if (c == "?") {
+            low = 0
+            high = 1
+            at = (at + 1)
+        }
+        if (c == "{") {
+            def close:int (this.findBrace())
+            if (close < 0) {
+                ; A brace that never closes is a literal brace, which is what
+                ; the reference's own engine does with it.
+                return atom
+            }
+            def body:string (substring src (at + 1) close)
+            def comma:int (indexOf body ",")
+            if (comma < 0) {
+                low = (VlRegex.toInt(body))
+                high = low
+            } {
+                low = (VlRegex.toInt((substring body 0 comma)))
+                def rest:string (substring body (comma + 1) (strlen body))
+                if ((strlen rest) == 0) {
+                    high = -1
+                } {
+                    high = (VlRegex.toInt(rest))
+                }
+            }
+            at = (close + 1)
+        }
+        if (low < 0) {
+            return atom
+        }
+        def out (new VlRegexNode())
+        out.kind = 6
+        out.low = low
+        out.high = high
+        push out.kids atom
+        if ((this.peek()) == "?") {
+            out.lazy = true
+            at = (at + 1)
+        }
+        return out
+    }
+
+    ; Where the `{…}` that starts at `at` ends, or -1 if it holds anything but
+    ; digits and one comma.
+    fn findBrace:int () {
+        def k:int (at + 1)
+        def digits:int 0
+        while (k < n) {
+            def c:string (substring src k (k + 1))
+            if (c == "}") {
+                if (digits > 0) {
+                    return k
+                }
+                return -1
+            }
+            def code:int (charAt src k)
+            if ((code >= 48) && (code <= 57)) {
+                digits = (digits + 1)
+            } {
+                if (c != ",") {
+                    return -1
+                }
+            }
+            k = (k + 1)
+        }
+        return -1
+    }
+
+    fn parseAtom:VlRegexNode () {
+        def c:string (this.peek())
+        if (c == "(") {
+            at = (at + 1)
+            ; `(?:` is a group that does not capture, which is the only kind
+            ; this has: nothing here asks what a group matched. Any other `(?`
+            ; is look-around or a named group, and those change the answer, so
+            ; they are refused rather than read as something else.
+            if ((this.peek()) == "?") {
+                if ((substring src at (at + 2)) == "?:") {
+                    at = (at + 2)
+                } {
+                    this.refuse((("the regular expression /" + pattern) + "/ uses a construct this runtime does not have: ") + (substring src at (at + 2)))
+                    return (new VlRegexNode())
+                }
+            }
+            def inner:VlRegexNode (this.parseAlternate())
+            if ((this.peek()) != ")") {
+                this.refuse(("unbalanced '(' in /" + pattern) + "/")
+                return inner
+            }
+            at = (at + 1)
+            return inner
+        }
+        if (c == "[") {
+            return (this.parseClass())
+        }
+        if (c == ".") {
+            at = (at + 1)
+            def any (new VlRegexNode())
+            any.kind = 2
+            return any
+        }
+        if (c == "^") {
+            at = (at + 1)
+            def start (new VlRegexNode())
+            start.kind = 7
+            return start
+        }
+        if (c == "$") {
+            at = (at + 1)
+            def end (new VlRegexNode())
+            end.kind = 8
+            return end
+        }
+        if (c == "\\") {
+            at = (at + 1)
+            def e:string (this.peek())
+            if (e == "") {
+                this.refuse(("a trailing backslash in /" + pattern) + "/"))
+                return (new VlRegexNode())
+            }
+            at = (at + 1)
+            def code:int (charAt e 0)
+            if ((code >= 49) && (code <= 57)) {
+                this.refuse(("the regular expression /" + pattern) + "/ uses a back-reference, which this runtime does not have")
+                return (new VlRegexNode())
+            }
+            def named:VlRegexNode (VlRegex.classEscape(e))
+            if (named.kind == 3) {
+                return named
+            }
+            def lit (new VlRegexNode())
+            lit.kind = 1
+            lit.text = (VlRegex.controlEscape(e))
+            return lit
+        }
+        at = (at + 1)
+        def one (new VlRegexNode())
+        one.kind = 1
+        one.text = c
+        return one
+    }
+
+    fn parseClass:VlRegexNode () {
+        at = (at + 1)
+        def out (new VlRegexNode())
+        out.kind = 3
+        if ((this.peek()) == "^") {
+            out.negate = true
+            at = (at + 1)
+        }
+        def first:boolean true
+        def going:boolean true
+        while (going) {
+            def c:string (this.peek())
+            if (c == "") {
+                this.refuse(("unbalanced '[' in /" + pattern) + "/")
+                return out
+            }
+            if ((c == "]") && (! first)) {
+                at = (at + 1)
+                going = false
+            } {
+                first = false
+                def lo:int (this.classChar())
+                if (! ok) {
+                    return out
+                }
+                if (lo < 0) {
+                    ; A named class inside a set — `[\d.]` — contributed its own
+                    ; ranges as it was read.
+                    def borrowed:VlRegexNode (VlRegex.classEscape((substring src (at - 1) at)))
+                    def bi:int 0
+                    while (bi < (array_length borrowed.ranges)) {
+                        push out.ranges (itemAt borrowed.ranges bi)
+                        bi = (bi + 1)
+                    }
+                } {
+                    def hi:int lo
+                    if ((this.peek()) == "-") {
+                        if ((at + 1) < n) {
+                            if ((substring src (at + 1) (at + 2)) != "]") {
+                                at = (at + 1)
+                                hi = (this.classChar())
+                                if (hi < 0) {
+                                    hi = lo
+                                }
+                            }
+                        }
+                    }
+                    push out.ranges lo
+                    push out.ranges hi
+                }
+            }
+        }
+        return out
+    }
+
+    ; One character inside a set, as a code. Answers -1 when it was a named
+    ; class, which the caller then borrows the ranges of.
+    fn classChar:int () {
+        def c:string (this.peek())
+        if (c == "\\") {
+            at = (at + 1)
+            def e:string (this.peek())
+            if (e == "") {
+                this.refuse(("a trailing backslash in /" + pattern) + "/")
+                return 0
+            }
+            at = (at + 1)
+            def named:VlRegexNode (VlRegex.classEscape(e))
+            if (named.kind == 3) {
+                return -1
+            }
+            return (charAt (VlRegex.controlEscape(e)) 0)
+        }
+        at = (at + 1)
+        return (charAt c 0)
+    }
+
+    ; `\d`, `\w`, `\s` and their negations, as sets. Anything else answers an
+    ; empty node, which the caller reads as "not a class".
+    sfn classEscape:VlRegexNode (e:string) {
+        def out (new VlRegexNode())
+        if (((e == "d") || (e == "D")) || ((e == "w") || (e == "W"))) {
+            out.kind = 3
+            push out.ranges 48
+            push out.ranges 57
+            if ((e == "w") || (e == "W")) {
+                push out.ranges 65
+                push out.ranges 90
+                push out.ranges 97
+                push out.ranges 122
+                push out.ranges 95
+                push out.ranges 95
+            }
+            out.negate = ((e == "D") || (e == "W"))
+            return out
+        }
+        if ((e == "s") || (e == "S")) {
+            out.kind = 3
+            push out.ranges 9
+            push out.ranges 13
+            push out.ranges 32
+            push out.ranges 32
+            out.negate = (e == "S")
+            return out
+        }
+        return out
+    }
+
+    ; The characters a backslash names by letter rather than by itself.
+    sfn controlEscape:string (e:string) {
+        if (e == "n") {
+            return (strfromcode 10)
+        }
+        if (e == "r") {
+            return (strfromcode 13)
+        }
+        if (e == "t") {
+            return (strfromcode 9)
+        }
+        if (e == "f") {
+            return (strfromcode 12)
+        }
+        if (e == "v") {
+            return (strfromcode 11)
+        }
+        if (e == "0") {
+            return (strfromcode 0)
+        }
+        return e
+    }
+
+    sfn toInt:int (text:string) {
+        def out:int 0
+        def k:int 0
+        while (k < (strlen text)) {
+            def code:int (charAt text k)
+            if ((code >= 48) && (code <= 57)) {
+                out = ((out * 10) + (code - 48))
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; -------------------------------------------------------------- matching ---
+    ; Does the pattern occur anywhere in the subject? Every starting position is
+    ; tried, which is what an unanchored match means.
+    def subject:string ""
+    def subjectLength:int 0
+
+    fn test:boolean (text:string) {
+        if (! ok) {
+            return false
+        }
+        subject = text
+        if ignoreCase {
+            subject = (VlRegex.lower(text))
+        }
+        subjectLength = (strlen subject)
+        def start:int 0
+        while (start <= subjectLength) {
+            if ((this.matchNode(root start)) >= 0) {
+                return true
+            }
+            start = (start + 1)
+        }
+        return false
+    }
+
+    ; How far the node reaches from `pos`, or -1 if it does not match there.
+    ; A node that can match in more than one way is asked for each in turn by
+    ; the concatenation above it, which is what makes this a backtracker; the
+    ; simple nodes have only one answer and return it directly.
+    fn matchNode:int (node:VlRegexNode pos:int) {
+        def ends:[int] (this.endsOf(node pos))
+        if ((array_length ends) == 0) {
+            return -1
+        }
+        return (itemAt ends 0)
+    }
+
+    ; Every position the node could reach from `pos`, in the order the engine
+    ; should try them: greedy repetition offers the longest first and a lazy one
+    ; the shortest, which is the whole difference between the two.
+    fn endsOf:[int] (node:VlRegexNode pos:int) {
+        def out:[int]
+        if (node.kind == 0) {
+            push out pos
+            return out
+        }
+        if (node.kind == 1) {
+            if (pos < subjectLength) {
+                def want:string node.text
+                if ignoreCase {
+                    want = (VlRegex.lower(want))
+                }
+                if ((substring subject pos (pos + 1)) == want) {
+                    push out (pos + 1)
+                }
+            }
+            return out
+        }
+        if (node.kind == 2) {
+            if (pos < subjectLength) {
+                if ((charAt subject pos) != 10) {
+                    push out (pos + 1)
+                }
+            }
+            return out
+        }
+        if (node.kind == 3) {
+            if (pos < subjectLength) {
+                if (VlRegex.inClass(node (charAt subject pos))) {
+                    push out (pos + 1)
+                }
+            }
+            return out
+        }
+        if (node.kind == 7) {
+            if (pos == 0) {
+                push out pos
+            }
+            return out
+        }
+        if (node.kind == 8) {
+            if (pos == subjectLength) {
+                push out pos
+            }
+            return out
+        }
+        if (node.kind == 5) {
+            for node.kids kid:VlRegexNode ki {
+                def reached:[int] (this.endsOf(kid pos))
+                for reached e:int ei {
+                    push out e
+                }
+            }
+            return (VlRegex.distinct(out))
+        }
+        if (node.kind == 4) {
+            return (this.endsOfConcat(node 0 pos))
+        }
+        if (node.kind == 6) {
+            return (this.endsOfRepeat(node pos 0))
+        }
+        return out
+    }
+
+    ; The kids from `index` on, threaded: every place the first one can end is a
+    ; place the rest may start.
+    fn endsOfConcat:[int] (node:VlRegexNode index:int pos:int) {
+        def out:[int]
+        if (index >= (array_length node.kids)) {
+            push out pos
+            return out
+        }
+        def head:VlRegexNode (itemAt node.kids index)
+        def reached:[int] (this.endsOf(head pos))
+        for reached e:int ei {
+            def rest:[int] (this.endsOfConcat(node (index + 1) e))
+            for rest r:int ri {
+                push out r
+            }
+        }
+        return (VlRegex.distinct(out))
+    }
+
+    fn endsOfRepeat:[int] (node:VlRegexNode pos:int done:int) {
+        def out:[int]
+        def body:VlRegexNode (itemAt node.kids 0)
+        def enough:boolean (done >= node.low)
+        def room:boolean true
+        if (node.high >= 0) {
+            room = (done < node.high)
+        }
+        def more:[int]
+        if room {
+            def reached:[int] (this.endsOf(body pos))
+            for reached e:int ei {
+                ; A body that consumed nothing would repeat for ever, and it has
+                ; already contributed everything it can.
+                if (e > pos) {
+                    def deeper:[int] (this.endsOfRepeat(node e (done + 1)))
+                    for deeper d:int di {
+                        push more d
+                    }
+                } {
+                    if (done >= node.low) {
+                        push more e
+                    }
+                }
+            }
+        }
+        if node.lazy {
+            if enough {
+                push out pos
+            }
+            for more m:int mi {
+                push out m
+            }
+            return (VlRegex.distinct(out))
+        }
+        for more m2:int mj {
+            push out m2
+        }
+        if enough {
+            push out pos
+        }
+        return (VlRegex.distinct(out))
+    }
+
+    sfn inClass:boolean (node:VlRegexNode code:int) {
+        def hit:boolean false
+        def k:int 0
+        while (k < (array_length node.ranges)) {
+            def lo:int (itemAt node.ranges k)
+            def hi:int (itemAt node.ranges (k + 1))
+            if ((code >= lo) && (code <= hi)) {
+                hit = true
+            }
+            k = (k + 2)
+        }
+        if node.negate {
+            return (! hit)
+        }
+        return hit
+    }
+
+    sfn distinct:[int] (values:[int]) {
+        def out:[int]
+        for values v:int vi {
+            def already:boolean false
+            for out seen:int si {
+                if (seen == v) {
+                    already = true
+                }
+            }
+            if (! already) {
+                push out v
+            }
+        }
+        return out
+    }
+
+    ; Case folding for the ASCII letters, which is what `i` means to every
+    ; pattern a chart writes.
+    sfn lower:string (text:string) {
+        def out:string ""
+        def k:int 0
+        while (k < (strlen text)) {
+            def code:int (charAt text k)
+            if ((code >= 65) && (code <= 90)) {
+                out = (out + (strfromcode (code + 32)))
+            } {
+                out = (out + (substring text k (k + 1)))
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+}

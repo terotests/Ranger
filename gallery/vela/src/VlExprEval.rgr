@@ -18,6 +18,8 @@ Import "VlFormat.rgr"
 Import "VlTime.rgr"
 Import "VlExpr.rgr"
 Import "VlScale.rgr"
+Import "VlMath.rgr"
+Import "VlRegex.rgr"
 
 class VlExprScope {
     def datum:VlJson (new VlJson)
@@ -32,6 +34,13 @@ class VlExprScope {
     ; The wall clock the LOCAL date functions read — `year`, `hours`,
     ; `timeFormat`. Their `utc…` twins ignore it, by definition.
     def zone:VlTimeZone (new VlTimeZone())
+    ; Where the pseudo-random sequence has got to. `random()` is a real
+    ; function of the language — a chart jitters its dots with it — and a
+    ; drawing has to be the same drawing twice, so the sequence is a plain
+    ; generator started from a fixed seed rather than the clock. It advances
+    ; here, on the scope, because a scope outlives the rows it is asked about.
+    def randomState:double 1.0
+
     ; Set when a function the profile does not have is called, so a spec that
     ; needs more than this evaluator has fails loudly instead of drawing
     ; something subtly wrong.
@@ -107,6 +116,31 @@ class VlExprEval {
             return ((strlen v.str) > 0)
         }
         return true
+    }
+
+    ; An index into a string, kept inside it — JavaScript's `substring` clamps
+    ; rather than throwing, and a spec relies on that.
+    sfn clampIndex:int (at:int length:int) {
+        if (at < 0) { return 0 }
+        if (at > length) { return length }
+        return at
+    }
+
+    sfn shiftCase:string (text:string upper:boolean) {
+        def out:string ""
+        def n:int (strlen text)
+        def k:int 0
+        while (k < n) {
+            def c:int (charAt text k)
+            if upper {
+                if ((c >= 97) && (c <= 122)) { c = (c - 32) }
+            } {
+                if ((c >= 65) && (c <= 90)) { c = (c + 32) }
+            }
+            out = (out + (strfromcode c))
+            k = (k + 1)
+        }
+        return out
     }
 
     sfn looseEquals:boolean (a:VlJson b:VlJson) {
@@ -216,6 +250,18 @@ class VlExprEval {
                 def idx:int (to_int (keyVal.asDouble()))
                 return (target.at(idx))
             }
+            ; A STRING indexes too: `datum.label[0]` is how a chart keeps a
+            ; month's initial, and read as a member lookup on a string it
+            ; answered nothing and the whole name stayed.
+            if (target.kind == 3) {
+                if (keyVal.isNumber()) {
+                    def at:int (to_int keyVal.num)
+                    if ((at >= 0) && (at < (strlen target.str))) {
+                        return (VlJson.stringValue((substring target.str at (at + 1))))
+                    }
+                    return (VlJson.nullValue())
+                }
+            }
             key = (keyVal.asString())
         } {
             key = node.name
@@ -260,6 +306,17 @@ class VlExprEval {
         return (VlExprEval.eval((itemAt node.children 1) scope))
     }
 
+    ; A value glued onto a string, the way the language this expression is
+    ; written in glues it: a MISSING value reads as "null" and not as nothing.
+    ; A text mark that names a column with gaps in it prints "null" over the
+    ; bar with no category, which is what the reference draws there.
+    sfn asText:string (v:VlJson) {
+        if (v.kind == 0) {
+            return "null"
+        }
+        return (v.asString())
+    }
+
     sfn evalBinary:VlJson (node:VlExprNode scope:VlExprScope) {
         def a:VlJson (VlExprEval.eval((itemAt node.children 0) scope))
         def b:VlJson (VlExprEval.eval((itemAt node.children 1) scope))
@@ -269,7 +326,7 @@ class VlExprEval {
             ; `+` concatenates when either side is a string, which is how every
             ; generated `description` signal builds its text.
             if ((a.kind == 3) || (b.kind == 3)) {
-                return (VlJson.stringValue(((a.asString()) + (b.asString()))))
+                return (VlJson.stringValue(((VlExprEval.asText(a)) + (VlExprEval.asText(b)))))
             }
             return (VlJson.numberValue(((a.asDouble()) + (b.asDouble()))))
         }
@@ -365,6 +422,46 @@ class VlExprEval {
     }
 
     ; --------------------------------------------------------------- calls ----
+    ; What a time function was handed, as an instant. A number is one already;
+    ; a string is a date that nothing has parsed yet, which is what a column
+    ; read straight out of a JSON file holds.
+    sfn instantOf:double (v:VlJson) {
+        if (v.isString()) {
+            ; A string of digits is a NUMBER of milliseconds rather than a
+            ; written date — which is what a band scale's domain holds, since a
+            ; band keeps its categories as names. Parsed as a date it answered
+            ; the epoch, so every label on an axis of days looked like the
+            ; first of January.
+            if (VlExprEval.looksNumeric((v.asString()))) {
+                return (v.asDouble())
+            }
+            return (VlTime.parseDate((v.asString())))
+        }
+        return (v.asDouble())
+    }
+
+    sfn looksNumeric:boolean (text:string) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return false
+        }
+        def k:int 0
+        if ((substring text 0 1) == "-") {
+            k = 1
+        }
+        if (k >= n) {
+            return false
+        }
+        while (k < n) {
+            def c:int (charAt text k)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
     sfn evalCall:VlJson (node:VlExprNode scope:VlExprScope) {
         def name:string node.name
         def argc:int (array_length node.children)
@@ -382,6 +479,12 @@ class VlExprEval {
         }
 
         ; --- dates ---
+        ; The first argument as an INSTANT, for the functions that take one.
+        ; A chart hands them whatever the column holds, which is very often the
+        ; date as written because nothing has parsed it yet; read as a number a
+        ; written date is zero, and `year(datum.Year)` answered 1970 for every
+        ; row of a file that spans a decade.
+        def when:double (VlExprEval.instantOf(a0))
         ; An instant is a number of milliseconds. `toDate` is what a
         ; specification calls on a temporal field before anything scales it, and
         ; a chart's dates arrive as ISO strings.
@@ -390,7 +493,7 @@ class VlExprEval {
                 return a0
             }
             if (a0.isString()) {
-                return (VlJson.numberValue((VlTime.parseIso((a0.asString())))))
+                return (VlJson.numberValue((VlTime.parseDate((a0.asString())))))
             }
             return (VlJson.nullValue())
         }
@@ -402,34 +505,50 @@ class VlExprEval {
             if (a2.isNumber()) {
                 dp.day = (a2.asInt())
             }
+            def rest:int (array_length node.children)
+            if (rest > 3) {
+                dp.hours = ((VlExprEval.eval((itemAt node.children 3) scope)).asInt())
+            }
+            if (rest > 4) {
+                dp.minutes = ((VlExprEval.eval((itemAt node.children 4) scope)).asInt())
+            }
+            if (rest > 5) {
+                dp.seconds = ((VlExprEval.eval((itemAt node.children 5) scope)).asInt())
+            }
             return (VlJson.numberValue((VlTime.msOf(dp scope.zone))))
         }
+        ; `time(d)` is the instant a date stands for, as a number. Everything
+        ; here already IS a number of milliseconds, so it is the value with a
+        ; written date parsed on the way through.
+        if (name == "time") {
+            return (VlJson.numberValue(when))
+        }
         if (name == "timeFormat") {
-            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString()) scope.zone))))
+            return (VlJson.stringValue((VlTime.format(when (a1.asString()) scope.zone))))
         }
         if (name == "utcFormat") {
-            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString()) (VlTimeZone.utc())))))
+            return (VlJson.stringValue((VlTime.format(when (a1.asString()) (VlTimeZone.utc())))))
         }
         if (name == "year") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).year)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).year)))
         }
         if (name == "month") {
-            return (VlJson.intValue((((VlTime.partsOf((a0.asDouble()) scope.zone)).month) - 1)))
+            return (VlJson.intValue((((VlTime.partsOf(when scope.zone)).month) - 1)))
         }
         if (name == "date") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).day)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).day)))
         }
         if (name == "hours") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).hours)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).hours)))
         }
         if (name == "minutes") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).minutes)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).minutes)))
         }
         if (name == "seconds") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).seconds)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).seconds)))
         }
         if (name == "day") {
-            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()) scope.zone)).weekday)))
+            return (VlJson.intValue(((VlTime.partsOf(when scope.zone)).weekday)))
         }
 
         ; --- type tests ---
@@ -466,6 +585,66 @@ class VlExprEval {
         if (name == "isDefined") {
             return (VlJson.boolValue((a0.kind != 0)))
         }
+        ; An instant is a NUMBER here — milliseconds since the epoch, which is
+        ; what the date parse leaves behind — so nothing is ever a date object
+        ; and the answer is always no. The reference asks this beside a
+        ; finiteness test (`isDate(d) || (isValid(d) && isFinite(+d))`), and
+        ; the other half of that answers correctly for a number.
+        ; `timeOffset('month', d, -1)` is the instant a whole unit before or
+        ; after another — a calendar question, not an arithmetic one, since a
+        ; month is not a fixed number of milliseconds. The reference asks it
+        ; when it places a bar over the unit its row belongs to.
+        if (name == "timeOffset") {
+            def unit:string (a0.asString())
+            def when:double (a1.asDouble())
+            def steps:int 1
+            if (a2.isDefined()) {
+                steps = (to_int (a2.asDouble()))
+            }
+            def back:boolean (steps < 0)
+            def count:int steps
+            if back {
+                count = (0 - steps)
+            }
+            def at:double when
+            def k:int 0
+            while (k < count) {
+                if back {
+                    ; A step BACK is the start of the unit before this one,
+                    ; which is where the instant a millisecond earlier falls.
+                    ; The reference only ever asks this of an instant already
+                    ; floored to its unit, so that is the whole of it.
+                    at = (VlTime.floorTo((at - 1.0) unit scope.zone))
+                } {
+                    at = (VlTime.addUnit(at unit scope.zone))
+                }
+                k = (k + 1)
+            }
+            return (VlJson.numberValue(at))
+        }
+        if (name == "isDate") {
+            return (VlJson.boolValue(false))
+        }
+        ; Whether a value falls within a pair of bounds, either way round —
+        ; the ends are included, which is how a brush covers what it touches.
+        if (name == "inrange") {
+            def span:VlJson a1
+            if (span.kind != 4) {
+                return (VlJson.boolValue(false))
+            }
+            if ((span.count()) < 2) {
+                return (VlJson.boolValue(false))
+            }
+            def lo:double (span.at(0).asDouble())
+            def hi:double (span.at(1).asDouble())
+            if (hi < lo) {
+                def swap:double lo
+                lo = hi
+                hi = swap
+            }
+            def v:double (a0.asDouble())
+            return (VlJson.boolValue(((v >= lo) && (v <= hi))))
+        }
 
         ; --- math ---
         if (name == "abs") {
@@ -486,6 +665,65 @@ class VlExprEval {
         }
         if (name == "sqrt") {
             return (VlJson.numberValue((sqrt (a0.asDouble()))))
+        }
+        ; The circle functions, which a chart uses to draw a wave or to place
+        ; something round a centre by hand.
+        if (name == "sin") {
+            return (VlJson.numberValue((sin (a0.asDouble()))))
+        }
+        if (name == "cos") {
+            return (VlJson.numberValue((cos (a0.asDouble()))))
+        }
+        if (name == "tan") {
+            return (VlJson.numberValue(((sin (a0.asDouble())) / (cos (a0.asDouble())))))
+        }
+        if (name == "atan2") {
+            return (VlJson.numberValue((atan2 (a0.asDouble()) (a1.asDouble()))))
+        }
+        if (name == "exp") {
+            return (VlJson.numberValue((VlMath.exp((a0.asDouble())))))
+        }
+        if (name == "log") {
+            return (VlJson.numberValue((VlMath.ln((a0.asDouble())))))
+        }
+        if (name == "pow") {
+            return (VlJson.numberValue((VlMath.pow((a0.asDouble()) (a1.asDouble())))))
+        }
+        ; A number between nought and one. It is not the reference's number —
+        ; nobody's is, twice — so a chart drawn through this is the same chart
+        ; every time it is opened and a different chart from the reference's.
+        if (name == "random") {
+            scope.randomState = (VlExprEval.nextRandom(scope.randomState))
+            return (VlJson.numberValue((scope.randomState / 2147483647.0)))
+        }
+        ; The value a distribution stands at, at a given probability. A
+        ; quantile-quantile plot draws a column's own quantiles against these,
+        ; which is how a chart says whether the column is shaped the way a
+        ; uniform or a normal distribution is.
+        if (name == "quantileUniform") {
+            def lo:double 0.0
+            def hi:double 1.0
+            if (a1.isNumber()) {
+                if (a2.isNumber()) {
+                    lo = (a1.asDouble())
+                    hi = (a2.asDouble())
+                } {
+                    hi = (a1.asDouble())
+                }
+            }
+            def at:double (a0.asDouble())
+            return (VlJson.numberValue((lo + (at * (hi - lo)))))
+        }
+        if (name == "quantileNormal") {
+            def centre:double 0.0
+            def spread:double 1.0
+            if (a1.isNumber()) {
+                centre = (a1.asDouble())
+            }
+            if (a2.isNumber()) {
+                spread = (a2.asDouble())
+            }
+            return (VlJson.numberValue((centre + (spread * (VlMath.probit((a0.asDouble())))))))
         }
         if (name == "max") {
             return (VlExprEval.extremum(node scope true))
@@ -628,6 +866,62 @@ class VlExprEval {
         if (name == "toString") {
             return (VlJson.stringValue((a0.asString())))
         }
+        ; --- strings ---
+        if (name == "substring") {
+            def text:string (a0.asString())
+            def n:int (strlen text)
+            def from:int (VlExprEval.clampIndex((to_int (a1.asDouble())) n))
+            def to:int n
+            if (argc > 2) {
+                to = (VlExprEval.clampIndex((to_int (a2.asDouble())) n))
+            }
+            if (from > to) {
+                def swap:int from
+                from = to
+                to = swap
+            }
+            return (VlJson.stringValue((substring text from to)))
+        }
+        ; --- regular expressions ---
+        ; `regexp(pattern, flags)` compiles one and `test(re, string)` asks
+        ; whether it occurs. The compiled expression is carried as an object
+        ; rather than as a string, so that a pattern and a string that happens
+        ; to look like one cannot be confused.
+        if (name == "regexp") {
+            def re (VlJson.objectValue())
+            re.setMember("__regexp" (VlJson.stringValue((a0.asString()))))
+            def flags:string ""
+            if (argc > 1) {
+                flags = (a1.asString())
+            }
+            re.setMember("__flags" (VlJson.stringValue(flags)))
+            return re
+        }
+        if (name == "test") {
+            def engine (new VlRegex())
+            def flags2:string ""
+            def source:string (a0.asString())
+            if (a0.isObject()) {
+                source = (a0.stringOr("__regexp" ""))
+                flags2 = (a0.stringOr("__flags" ""))
+            }
+            engine.compile(source flags2)
+            if (! engine.ok) {
+                scope.noteMissing(engine.why)
+                return (VlJson.boolValue(false))
+            }
+            def against:string ""
+            if (argc > 1) {
+                against = (a1.asString())
+            }
+            return (VlJson.boolValue((engine.test(against))))
+        }
+        if (name == "upper") {
+            return (VlJson.stringValue((VlExprEval.shiftCase((a0.asString()) true))))
+        }
+        if (name == "lower") {
+            return (VlJson.stringValue((VlExprEval.shiftCase((a0.asString()) false))))
+        }
         if (name == "toNumber") {
             if (a0.kind == 0) {
                 return (VlJson.nullValue())
@@ -693,6 +987,18 @@ class VlExprEval {
 
         scope.noteMissing(name)
         return (VlJson.nullValue())
+    }
+
+    ; MINSTD, which stays exact in a double because the product never reaches
+    ; two to the fifty-third.
+    sfn nextRandom:double (state:double) {
+        def next:double (state * 16807.0)
+        def whole:double (to_double (to_int (next / 2147483647.0)))
+        next = (next - (whole * 2147483647.0))
+        if (next < 1.0) {
+            next = 1.0
+        }
+        return next
     }
 
     sfn extremum:VlJson (node:VlExprNode scope:VlExprScope wantMax:boolean) {

@@ -41,7 +41,44 @@ class VlShape {
         if (shape == "triangle-right") { return true }
         if (shape == "triangle-left") { return true }
         if (shape == "stroke") { return true }
-        return false
+        return (VlShape.isPathShape(shape))
+    }
+
+    ; A shape may be a PATH rather than a name: a specification hands the
+    ; symbol scale a list of SVG path strings and gets a pictogram per
+    ; category. It is recognised the way the reference recognises it — by the
+    ; move-to it has to start with.
+    sfn isPathShape:boolean (shape:string) {
+        if ((strlen shape) < 2) {
+            return false
+        }
+        def first:string (substring shape 0 1)
+        return ((first == "M") || (first == "m"))
+    }
+
+    ; A path, scaled about its own origin and moved. The parser has already
+    ; turned every relative command into an absolute one, so each command is a
+    ; handful of points and nothing else needs to know which is which.
+    sfn appendScaledPath:void (builder:PathBuilder data:string scale:double dx:double dy:double) {
+        def parser (new SVGPathParser())
+        parser.parse(data)
+        for (parser.getCommands()) c:PathCommand ci {
+            if (c.type == "M") {
+                builder.moveTo(((c.x * scale) + dx) ((c.y * scale) + dy))
+            }
+            if (c.type == "L") {
+                builder.lineTo(((c.x * scale) + dx) ((c.y * scale) + dy))
+            }
+            if (c.type == "C") {
+                builder.cubicTo(((c.x1 * scale) + dx) ((c.y1 * scale) + dy) ((c.x2 * scale) + dx) ((c.y2 * scale) + dy) ((c.x * scale) + dx) ((c.y * scale) + dy))
+            }
+            if (c.type == "Q") {
+                builder.quadTo(((c.x1 * scale) + dx) ((c.y1 * scale) + dy) ((c.x * scale) + dx) ((c.y * scale) + dy))
+            }
+            if (c.type == "Z") {
+                builder.close()
+            }
+        }
     }
 
     ; A symbol centred on (cx, cy). Everything below is the reference's own
@@ -52,6 +89,15 @@ class VlShape {
             area = 0.0
         }
         def r:double ((sqrt area) / 2.0)
+
+        ; A custom path is drawn AS ITSELF, scaled to the symbol's radius and
+        ; moved to where the symbol goes. The path is written round the origin
+        ; in the same units every built-in shape is, so the radius is the whole
+        ; transformation: `size` is an area and a drawing is a length.
+        if (VlShape.isPathShape(shape)) {
+            VlShape.appendScaledPath(builder shape r cx cy)
+            return
+        }
 
         if (shape == "square") {
             def w:double (sqrt area)
@@ -201,6 +247,23 @@ class VlShape {
         def rbl:double (VlShape.clamp(bl 0.0 limit))
 
         if ((((rtl <= 0.0) && (rtr <= 0.0)) && (rbr <= 0.0)) && (rbl <= 0.0)) {
+            ; A bar of zero height is still a bar. SVG says a rectangle with no
+            ; width or no height is not rendered, and the shape library the
+            ; PDF side shares answers that question that way — but the
+            ; reference renderer writes the outline regardless, and a
+            ; histogram whose first two bars are zero is a chart of eight bars
+            ; rather than of six. Written here, where a mark is turned into a
+            ; path, it does not change what an imported SVG document means.
+            if ((w <= 0.0) || (h <= 0.0)) {
+                if ((w >= 0.0) && (h >= 0.0)) {
+                    builder.moveTo(x y)
+                    builder.lineTo((x + w) y)
+                    builder.lineTo((x + w) (y + h))
+                    builder.lineTo(x (y + h))
+                    builder.close()
+                }
+                return
+            }
             builder.addRect(x y w h)
             return
         }
@@ -351,6 +414,110 @@ class VlShape {
         return out
     }
 
+    sfn subrange:[double] (values:[double] from:int upto:int) {
+        def out:[double]
+        def k:int from
+        while (k < upto) {
+            push out (itemAt values k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; The same, for a path drawn in more than one stroke. `breaks` names the
+    ; vertex each stroke starts at, so a line whose data goes missing in the
+    ; middle stays ONE path with a hole in it rather than becoming two paths —
+    ; which is what the reference draws, and what a renderer that fills has to
+    ; be handed if the pieces are to share one fill.
+    ; The runs of a closed shape, joined corner to corner. Each run is curved
+    ; on its own and the join between them is a straight line, which is how the
+    ; reference draws an area: along the tops, down to the baseline, back along
+    ; the baseline, and closed.
+    sfn appendCornered:void (builder:PathBuilder pts:[double] breaks:[int] interpolate:string tension:double) {
+        def strokes:int (array_length breaks)
+        def total:int (array_length pts)
+        def b:int 0
+        while (b < strokes) {
+            def from:int ((itemAt breaks b) * 2)
+            def upto:int total
+            if ((b + 1) < strokes) {
+                upto = ((itemAt breaks (b + 1)) * 2)
+            }
+            def run:[double] (VlShape.subrange(pts from upto))
+            def piece (new PathBuilder())
+            VlShape.appendCurve(piece run interpolate tension false)
+            def cmds:[PathCommand] (piece.getCommands())
+            def first:boolean (b == 0)
+            b = (b + 1)
+            for cmds c:PathCommand ci {
+                if ((ci == 0) && (! first)) {
+                    builder.lineTo(c.x c.y)
+                } {
+                    VlShape.replay(builder c)
+                }
+            }
+        }
+        builder.close()
+    }
+
+    sfn replay:void (builder:PathBuilder c:PathCommand) {
+        if (c.type == "M") { builder.moveTo(c.x c.y) }
+        if (c.type == "L") { builder.lineTo(c.x c.y) }
+        if (c.type == "C") { builder.cubicTo(c.x1 c.y1 c.x2 c.y2 c.x c.y) }
+        if (c.type == "Q") { builder.quadTo(c.x1 c.y1 c.x c.y) }
+        if (c.type == "Z") { builder.close() }
+    }
+
+    sfn appendBrokenCurve:void (builder:PathBuilder pts:[double] breaks:[int] interpolate:string tension:double closed:boolean) {
+        def strokes:int (array_length breaks)
+        if (strokes < 2) {
+            VlShape.appendCurve(builder pts interpolate tension closed)
+            return
+        }
+        ; A CLOSED shape's breaks are corners, not gaps. An area is the curve
+        ; along its tops and the curve back along its baseline, joined by a
+        ; straight line at each end — curved through the corner instead, the
+        ; shape bulged past where the reference turns.
+        if closed {
+            VlShape.appendCornered(builder pts breaks interpolate tension)
+            return
+        }
+        def total:int (array_length pts)
+        def b:int 0
+        while (b < strokes) {
+            def from:int ((itemAt breaks b) * 2)
+            def upto:int total
+            if ((b + 1) < strokes) {
+                upto = ((itemAt breaks (b + 1)) * 2)
+            }
+            b = (b + 1)
+            def run:[double] (VlShape.subrange(pts from upto))
+            VlShape.appendCurve(builder run interpolate tension closed)
+        }
+    }
+
+    ; A trail broken the same way: each stroke carries its own widths.
+    sfn appendBrokenTrail:void (builder:PathBuilder pts:[double] sizes:[double] breaks:[int]) {
+        def strokes:int (array_length breaks)
+        if (strokes < 2) {
+            VlShape.appendTrail(builder pts sizes)
+            return
+        }
+        def vertices:int (array_length sizes)
+        def b:int 0
+        while (b < strokes) {
+            def from:int (itemAt breaks b)
+            def upto:int vertices
+            if ((b + 1) < strokes) {
+                upto = (itemAt breaks (b + 1))
+            }
+            b = (b + 1)
+            def run:[double] (VlShape.subrange(pts (from * 2) (upto * 2)))
+            def wide:[double] (VlShape.subrange(sizes from upto))
+            VlShape.appendTrail(builder run wide)
+        }
+    }
+
     ; A run of points as the curve the specification asked for. Steps become
     ; more points and stay straight; the smooth interpolations become cubics,
     ; which is what the reference emits too — a curve flattened into segments
@@ -360,6 +527,15 @@ class VlShape {
         def stepped:[double] (VlShape.steppedPoints(pts interpolate))
         def n:int (idiv (array_length stepped) 2)
         if (n == 0) {
+            return
+        }
+        ; One point on its own is still drawn: the reference writes `M x,y Z`,
+        ; which a round cap paints as a dot. It is what a line looks like where
+        ; the data has one reading with nothing either side of it, and dropping
+        ; it silently loses the reading.
+        if (n == 1) {
+            builder.moveTo((itemAt stepped 0) (itemAt stepped 1))
+            builder.close()
             return
         }
         def smooth:boolean false
@@ -706,6 +882,100 @@ class VlShape {
             builder.cubicTo(ax ay bx by x2 y2)
             i = (i + 1)
         }
+    }
+
+    ; ---------------------------------------------------------------- trail ---
+    ; A line whose width varies along it. Each pair of consecutive points is a
+    ; CAPSULE of its own — two parallel edges and a round cap at each end,
+    ; closed — so that a trail whose size changes tapers rather than stepping.
+    ; Overlapping capsules is the point: the joins are filled by the caps.
+    ;
+    ; This is the reference's own construction, which matters because a trail
+    ; built any other way looks nearly right and is wrong at every join.
+    sfn appendTrail:void (builder:PathBuilder points:[double] sizes:[double]) {
+        def count:int (array_length sizes)
+        if (count == 0) {
+            return
+        }
+        def ready:boolean false
+        def x1:double 0.0
+        def y1:double 0.0
+        def r1:double 0.0
+        def k:int 0
+        while (k < count) {
+            def x2:double (itemAt points (k * 2))
+            def y2:double (itemAt points ((k * 2) + 1))
+            def r2:double ((itemAt sizes k) / 2.0)
+            if ready {
+                ; The normal to the segment, which is where the two parallel
+                ; edges sit.
+                def ux:double (y1 - y2)
+                def uy:double (x2 - x1)
+                def ud:double (sqrt ((ux * ux) + (uy * uy)))
+                if (ud > 0.0) {
+                    ux = (ux / ud)
+                    uy = (uy / ud)
+                    def rx:double (ux * r1)
+                    def ry:double (uy * r1)
+                    def t:double (atan2 uy ux)
+                    def pi:double (VlShape.piOf())
+                    builder.moveTo((x1 - rx) (y1 - ry))
+                    builder.lineTo((x2 - (ux * r2)) (y2 - (uy * r2)))
+                    VlShape.arcSegments(builder x2 y2 r2 (t - pi) t)
+                    builder.lineTo((x1 + rx) (y1 + ry))
+                    VlShape.arcSegments(builder x1 y1 r1 t (t + pi))
+                    builder.close()
+                } {
+                    ; Two points in the same place: a dot, not a segment.
+                    VlShape.appendDot(builder x2 y2 r2)
+                }
+            } {
+                ready = true
+            }
+            x1 = x2
+            y1 = y2
+            r1 = r2
+            k = (k + 1)
+        }
+    }
+
+    sfn piOf:double () {
+        return 3.14159265358979323846
+    }
+
+    ; A circular arc appended to the subpath already being built, in the
+    ; screen's own convention: angle zero points along +x and grows towards +y.
+    ; Flattened finely enough that the chord never sits more than a twentieth of
+    ; a pixel inside the true arc.
+    sfn arcSegments:void (builder:PathBuilder cx:double cy:double r:double a0:double a1:double) {
+        if (r <= 0.0) {
+            return
+        }
+        def span:double (a1 - a0)
+        def steps:int (to_int ((((VlShape.absOf(span)) * r) / 0.4) + 1.0))
+        if (steps < 6) {
+            steps = 6
+        }
+        if (steps > 240) {
+            steps = 240
+        }
+        def k:int 1
+        while (k <= steps) {
+            def t:double ((to_double k) / (to_double steps))
+            def a:double (a0 + (span * t))
+            builder.lineTo((cx + ((cos a) * r)) (cy + ((sin a) * r)))
+            k = (k + 1)
+        }
+    }
+
+    sfn appendDot:void (builder:PathBuilder cx:double cy:double r:double) {
+        if (r <= 0.0) {
+            return
+        }
+        builder.moveTo((cx + r) cy)
+        def full:double (2.0 * (VlShape.piOf()))
+        VlShape.arcSegments(builder cx cy r 0.0 full)
+        builder.close()
     }
 
     sfn knot:double (x0:double y0:double x1:double y1:double alpha:double) {
