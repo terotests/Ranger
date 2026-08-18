@@ -193,6 +193,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/state.json") {
+    res.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    });
+    res.end(
+      JSON.stringify({
+        caretLine: app.sel.caret.line,
+        caretCol: app.sel.caret.col,
+        anchorLine: app.sel.anchor.line,
+        anchorCol: app.sel.anchor.col,
+        focused: app.view.focused,
+        lines: app.buf.lineCount(),
+        text: app.documentText(),
+      })
+    );
+    return;
+  }
+
   if (url.pathname.startsWith("/evg/gl/")) {
     const rel = url.pathname.slice("/evg/gl/".length);
     const fp = path.normalize(path.join(evgGlDir, rel));
@@ -278,6 +297,46 @@ async function headlessSmoke(url) {
     );
     const backend = await page.$eval("#backend", (el) => el.textContent);
     const cmds = await page.$eval("#cmds", (el) => el.textContent);
+
+    // Click into line 2 body text (layout page coords → CSS via canvas box).
+    // Line 0 at padY≈6, lineHeight≈20 → line 2 around y≈50; contentX≈56.
+    await page.evaluate(() => {
+      const c = document.getElementById("screen");
+      const r = c.getBoundingClientRect();
+      const pageW = 720;
+      const pageH = 480;
+      const px = 120;
+      const py = 55;
+      const clientX = r.left + (px / pageW) * r.width;
+      const clientY = r.top + (py / pageH) * r.height;
+      c.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          clientX,
+          clientY,
+          pointerId: 1,
+          pointerType: "mouse",
+          buttons: 1,
+        })
+      );
+      c.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          clientX,
+          clientY,
+          pointerId: 1,
+          pointerType: "mouse",
+          buttons: 0,
+        })
+      );
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const afterClick = await (await fetch(`http://127.0.0.1:${PORT}/state.json`)).json();
+    console.log("[smoke] caret after click=" + afterClick.caretLine + ":" + afterClick.caretCol);
+    if (afterClick.caretLine < 1) {
+      throw new Error("click did not move caret onto a later line");
+    }
+
     await page.click("#screen");
     await page.keyboard.type("Window smoke OK");
     await new Promise((r) => setTimeout(r, 600));
