@@ -29,6 +29,11 @@ class VlConfig {
     ; A spec that wants its guides in a different colour says so once here
     ; rather than on each of its axes, and the reference reads it the same way.
     def axisAll:VlJson (VlJson.objectValue())
+    ; …and what it says about the axes of ONE dimension. `"axisX": {…}` is how
+    ; a page of histograms narrows every horizontal axis at once, and it is
+    ; read by the axis' orientation: top and bottom are the x axes.
+    def axisAcross:VlJson (VlJson.objectValue())
+    def axisDown:VlJson (VlJson.objectValue())
     ; `config.legend`, which every legend inherits the same way every axis
     ; inherits `config.axis` — the colours a legend reads on a dark page are a
     ; property of the chart, and stating them once is the only way to say so
@@ -204,6 +209,12 @@ class VlConfig {
         if (config.get("axis").isObject()) {
             axisAll = (config.get("axis"))
         }
+        if (config.get("axisX").isObject()) {
+            axisAcross = (config.get("axisX"))
+        }
+        if (config.get("axisY").isObject()) {
+            axisDown = (config.get("axisY"))
+        }
         if (config.has("legend")) {
             legendAll = (config.get("legend"))
         }
@@ -259,12 +270,23 @@ class VlConfig {
 
     ; One axis' settings: the config's defaults with the axis' own on top.
     fn mergedAxis:VlJson (adef:VlJson) {
+        def orient:string (adef.stringOr("orient" "bottom"))
+        def sided:VlJson axisDown
+        if ((orient == "bottom") || (orient == "top")) {
+            sided = axisAcross
+        }
+        def anySided:int (array_length sided.keys)
         if ((array_length axisAll.keys) == 0) {
-            return adef
+            if (anySided == 0) {
+                return adef
+            }
         }
         def out:VlJson (VlJson.objectValue())
         for axisAll.keys key:string ai {
             out.setMember(key (axisAll.get(key)))
+        }
+        for sided.keys skey:string si {
+            out.setMember(skey (sided.get(skey)))
         }
         for adef.keys key:string di {
             out.setMember(key (adef.get(key)))

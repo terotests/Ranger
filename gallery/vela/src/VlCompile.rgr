@@ -7802,6 +7802,28 @@ class VlCompile {
         return true
     }
 
+    ; What a channel is CALLED, with the one name a chart is allowed to change
+    ; wholesale: `"countTitle": "Count"` renames every count in the drawing,
+    ; which is how a page of histograms keeps its axes narrow. Left unread,
+    ; four axes were headed "Count of Records" and the page was wider than the
+    ; plots in it.
+    fn titleOf:string (ch:VlChannel) {
+        def own:string (ch.title())
+        if (own == "Count of Records") {
+            def config:VlJson (rootSource.get("config"))
+            if (! (config.isObject())) {
+                config = (source.get("config"))
+            }
+            if (config.isObject()) {
+                def named:string (config.stringOr("countTitle" ""))
+                if ((strlen named) > 0) {
+                    return named
+                }
+            }
+        }
+        return own
+    }
+
     ; What the whole chart's configuration says about one guide property, or
     ; nothing at all if it does not say.
     fn configFlag:VlJson (block:string key:string) {
@@ -8100,7 +8122,7 @@ class VlCompile {
         a.setMember("orient" (VlJson.stringValue(orient)))
         a.setMember("grid" (VlJson.boolValue(false)))
         ; An axis measuring a channel with two ends names both of them.
-        def axisTitle:string (ch.title())
+        def axisTitle:string (this.titleOf(ch))
         ; A stated title is the whole title, and a stated EMPTY title is a
         ; chart asking for no name at all — which is not the same as saying
         ; nothing. Read as silence it was given the column's name back, and

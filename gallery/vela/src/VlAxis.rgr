@@ -53,6 +53,13 @@ class VlAxis {
     def labelFont:string "sans-serif"
     def labelColor:string "#000"
     def labelLimit:double 180.0
+    ; How wide a TITLE may be before it is cut. A page of histograms names its
+    ; axes after long columns and narrows them all at once; measured whole,
+    ; a title thirty characters long overhung its own plot by sixty pixels and
+    ; took them out of the page.
+    ; Nothing by default: the reference caps a LABEL at a hundred and eighty
+    ; pixels and leaves titles alone, however long the column is called.
+    def titleLimit:double 0.0
     def domainColor:string "#888"
     def domainWidth:double 1.0
     def gridColor:string "#ddd"
@@ -224,6 +231,7 @@ class VlAxis {
         titleAlign = (adef.stringOr("titleAlign" titleAlign))
         titleBaseline = (adef.stringOr("titleBaseline" titleBaseline))
         titleFontSize = (adef.doubleOr("titleFontSize" titleFontSize))
+        titleLimit = (adef.doubleOr("titleLimit" titleLimit))
         bandPosition = (adef.doubleOr("bandPosition" bandPosition))
         minExtent = (adef.doubleOr("minExtent" minExtent))
         maxExtent = (adef.doubleOr("maxExtent" maxExtent))
@@ -1230,6 +1238,10 @@ class VlAxis {
         ; spec positioned, which is what the reference records here.
         item.setValue("auto" (VlJson.boolValue(true)))
         item.setString("text" title)
+        if (titleLimit > 0.0) {
+            item.setString("text" (VlText.truncate(title titleFontSize titleLimit)))
+            item.setNumber("limit" titleLimit)
+        }
         def away:double (labelExtent + titlePadding)
         if vertical {
             item.setNumber("y" (range / 2.0))
