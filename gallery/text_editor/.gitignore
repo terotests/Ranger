@@ -2,5 +2,4 @@
 *.png
 bin/
 bench/compare/node_modules/
-bench/compare/package-lock.json
 bench/compare/last-results.json
