@@ -13,6 +13,7 @@ drive a viewer today and a slide editor later.
 4. Theme color + major/minor font resolution
 5. SoftCanvas PNG demo + WebGL present host (`UIInput` navigation)
 6. Feature harness (`harness/manifest.json` + `run.mjs`) with 10 fixtures
+7. Oracles: python-pptx semantic + LibreOffice/`pdftoppm` visual diff
 
 ## Next
 

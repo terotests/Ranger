@@ -1,0 +1,75 @@
+; ==============================================================================
+; pptx_oracle_dump - write inspect.json + per-slide PNGs for visual oracles
+; ==============================================================================
+;
+; Usage:
+;   node gallery/pptx/bin/pptx_oracle_dump.js <file.pptx> <outDir>
+; ==============================================================================
+
+Import "PptxApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class PptxOracleDump {
+    sfn writeText:void (dir:string name:string text:string) {
+        def len:int (strlen text)
+        def data:buffer (buffer_alloc len)
+        def i:int 0
+        while (i < len) {
+            buffer_set data i (charAt text i)
+            i = (i + 1)
+        }
+        buffer_write_file dir name data
+    }
+
+    sfn pad3:string (n:int) {
+        if (n < 10) {
+            return ("00" + (to_string n))
+        }
+        if (n < 100) {
+            return ("0" + (to_string n))
+        }
+        return (to_string n)
+    }
+
+    sfn main:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 2) {
+            print "usage: pptx_oracle_dump <file.pptx> <outDir>"
+            return
+        }
+        def full:string (shell_arg 0)
+        def outDir:string (shell_arg 1)
+        ; Caller creates outDir (Node mkdirSync recursive).
+
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def ok:boolean (app.load(full))
+        if (ok == false) {
+            print ("FAILED open " + full)
+            return
+        }
+
+        PptxOracleDump.writeText(outDir "inspect.json" (app.inspectJson()))
+        print ("wrote " + outDir + "/inspect.json")
+
+        def n:int (app.slideCount())
+        def i:int 0
+        while (i < n) {
+            def painted:boolean (app.renderOracleSlide(i))
+            if painted {
+                def rb:RasterBuffer (new RasterBuffer)
+                rb.width = app.W
+                rb.height = app.H
+                rb.pixels = (app.raw())
+                def name:string (("slide-" + (PptxOracleDump.pad3(i))) + ".png")
+                def png:PNGEncoder (new PNGEncoder)
+                png.encode(rb outDir name)
+                print ("wrote " + outDir + "/" + name + " " + (to_string app.W) + "x" + (to_string app.H))
+            }
+            i = (i + 1)
+        }
+        app.close()
+        print ("oracle dump done slides=" + (to_string n))
+    }
+}
