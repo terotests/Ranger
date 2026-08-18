@@ -2788,7 +2788,8 @@ class VlCompile {
             ; not a list of categories to union: collected from every layer it
             ; became [0, 100, 0, 100]. Only an ordinal scale's literal domain
             ; is a set of names.
-            def ordinal:boolean ((sc.stringOr("type" "")) == "ordinal")
+            def kind:string (sc.stringOr("type" ""))
+            def ordinal:boolean (((kind == "ordinal") || (kind == "band")) || (kind == "point"))
             VlCompile.collectDomain(collected (sc.get("domain")) ordinal)
             i = (i + 1)
         }
