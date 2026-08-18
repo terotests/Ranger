@@ -200,6 +200,21 @@ class PptxApp {
         return (view.raw())
     }
 
+    ; OPC media bytes for the WebGL host (`/part/ppt/media/...`). Only
+    ; `ppt/media/` is exposed — slide XML and other package parts stay private.
+    fn readMediaPart:buffer (part:string) {
+        if ((strlen part) < 11) {
+            return (buffer_alloc 0)
+        }
+        if ((indexOf part "..") >= 0) {
+            return (buffer_alloc 0)
+        }
+        if ((indexOf part "ppt/media/") != 0) {
+            return (buffer_alloc 0)
+        }
+        return (parser.pkg.readBinary(part))
+    }
+
     fn sceneJson:string () {
         def slide@(optional):PptxSlide (this.currentSlide())
         if (null? slide) {
