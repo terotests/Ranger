@@ -88,10 +88,18 @@ async function sendInput(payload) {
 
 function imgLocalXY(ev) {
   const rect = pageImg.getBoundingClientRect();
-  const scaleX = pageImg.naturalWidth / Math.max(1, rect.width);
-  const scaleY = pageImg.naturalHeight / Math.max(1, rect.height);
-  const x = Math.round((ev.clientX - rect.left) * scaleX);
-  const y = Math.round((ev.clientY - rect.top) * scaleY);
+  const nw = Math.max(1, pageImg.naturalWidth || 0);
+  const nh = Math.max(1, pageImg.naturalHeight || 0);
+  // Map CSS box → SoftCanvas / layout pixels (same space as LaidLine.x/y).
+  // Prefer natural size; fall back to 1:1 if the image has not decoded yet.
+  const scaleX = nw / Math.max(1, rect.width);
+  const scaleY = nh / Math.max(1, rect.height);
+  let x = Math.floor((ev.clientX - rect.left) * scaleX);
+  let y = Math.floor((ev.clientY - rect.top) * scaleY);
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x >= nw) x = nw - 1;
+  if (y >= nh) y = nh - 1;
   return { x, y };
 }
 
