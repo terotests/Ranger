@@ -9,9 +9,11 @@ Import "XlsxWorksheet.rgr"
 Import "XlsxStyles.rgr"
 Import "../WorkbookModel.rgr"
 Import "../CellStyle.rgr"
+Import "../FormulaEngine.rgr"
 
 class XlsxLoader {
     def lastError:string ""
+    def engine:FormulaEngine (new FormulaEngine)
 
     Constructor () {
     }
@@ -47,12 +49,14 @@ class XlsxLoader {
             sty.parse("")
         }
         def parser:XlsxWorksheet (new XlsxWorksheet)
+        def firstVisible:int -1
         def i:int 0
         def n:int (wb.sheetCount())
         while (i < n) {
             def info:XlsxSheetInfo (wb.sheetAt(i))
             def sheet:SpreadsheetModel (new SpreadsheetModel)
             sheet.name = info.name
+            sheet.sheetHidden = info.hidden
             def xml:string (pkg.entryText(info.path))
             if ((strlen xml) == 0) {
                 lastError = ("missing sheet part: " + info.path)
@@ -61,9 +65,19 @@ class XlsxLoader {
             parser.parse(xml sheet sst)
             sheet.setStylesFrom(sty.styles)
             book.addSheet(sheet)
+            if (info.hidden == false) {
+                if (firstVisible < 0) {
+                    firstVisible = i
+                }
+            }
             i = (i + 1)
         }
-        book.setActive(0)
+        if (firstVisible < 0) {
+            firstVisible = 0
+        }
+        book.setActive(firstVisible)
+        engine.attach(book)
+        engine.rebuildAll()
         return true
     }
 }

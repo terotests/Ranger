@@ -9,6 +9,7 @@ class XlsxSheetInfo {
     def name:string ""
     def rid:string ""
     def path:string ""
+    def hidden:boolean false
 
     Constructor () {
     }
@@ -45,7 +46,7 @@ class XlsxWorkbook {
     }
 
     fn resolvePath:string (target:string) {
-        ; Targets are relative to xl/
+        ; Targets are relative to xl/, or absolute /xl/...
         if ((strlen target) >= 3) {
             if ((substring target 0 3) == "../") {
                 return (substring target 3 (strlen target))
@@ -53,12 +54,7 @@ class XlsxWorkbook {
         }
         if ((strlen target) >= 1) {
             if ((charAt target 0) == 47) {
-                ; absolute part name /xl/...
-                if ((strlen target) >= 4) {
-                    if ((substring target 0 4) == "/xl/") {
-                        return (substring target 4 (strlen target))
-                    }
-                }
+                ; absolute part name /xl/worksheets/sheet1.xml → xl/worksheets/...
                 return (substring target 1 (strlen target))
             }
         }
@@ -81,6 +77,13 @@ class XlsxWorkbook {
                 def info:XlsxSheetInfo (new XlsxSheetInfo)
                 info.name = (t.attr("name"))
                 info.rid = (t.attrAny("r:id" "id"))
+                def st:string (t.attr("state"))
+                if (st == "hidden") {
+                    info.hidden = true
+                }
+                if (st == "veryHidden") {
+                    info.hidden = true
+                }
                 if (has rels info.rid) {
                     def target:string (unwrap (get rels info.rid))
                     info.path = (this.resolvePath(target))

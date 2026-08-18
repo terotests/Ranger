@@ -393,6 +393,15 @@ class DataGrid {
         def c:int (model.xToCol(cx))
         def p:CellPos (CellPos.create(r c))
         model.clampPos(p)
+        ; Merged area → origin (FortuneSheet / Excel selection behaviour)
+        def mk:string (model.mergeAt(p.row p.col))
+        if ((strlen mk) > 0) {
+            def parts:[string] (strsplit mk ",")
+            if ((array_length parts) >= 2) {
+                p.row = (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                p.col = (SpreadsheetModel.parseInt0((itemAt parts 1)))
+            }
+        }
         return p
     }
 

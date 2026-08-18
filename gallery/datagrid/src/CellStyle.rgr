@@ -3,8 +3,10 @@
 ; ==============================================================================
 ;
 ; XLSX style index → this struct → EVG fill/text. Number format is applied when
-; producing the display string (FortuneSheet data-types / numFmt).
+; producing the display string via XlsxNumberFormat.
 ; ==============================================================================
+
+Import "XlsxNumberFormat.rgr"
 
 class CellStyle {
     def fillRgb:string ""
@@ -22,74 +24,12 @@ class CellStyle {
     }
 }
 
-; Tiny number formatter for common SpreadsheetML built-in ids / patterns.
+; Tiny number formatter kept as alias for older call sites.
 class XlsxFormatter {
     Constructor () {
     }
 
     sfn format:string (raw:string numFmt:string) {
-        if ((strlen raw) == 0) {
-            return ""
-        }
-        if ((strlen numFmt) == 0) {
-            return raw
-        }
-        if (numFmt == "General") {
-            return raw
-        }
-        if (numFmt == "@") {
-            return raw
-        }
-        ; percent: value 0.25 → 25%
-        if ((numFmt == "0%") || (numFmt == "0.00%")) {
-            def p@(optional):double (to_double raw)
-            if p {
-                def pct:double ((unwrap p) * 100.0)
-                if (numFmt == "0%") {
-                    return ((to_string (to_int pct)) + "%")
-                }
-                return ((XlsxFormatter.fixed2(pct)) + "%")
-            }
-            return raw
-        }
-        ; two decimal places
-        if ((numFmt == "0.00") || (numFmt == "#,##0.00")) {
-            def d@(optional):double (to_double raw)
-            if d {
-                return (XlsxFormatter.fixed2((unwrap d)))
-            }
-            return raw
-        }
-        if (numFmt == "0") {
-            def i@(optional):double (to_double raw)
-            if i {
-                return (to_string (to_int (unwrap i)))
-            }
-            return raw
-        }
-        return raw
-    }
-
-    sfn fixed2:string (v:double) {
-        def neg:boolean false
-        if (v < 0.0) {
-            neg = true
-            v = (0.0 - v)
-        }
-        def whole:int (to_int v)
-        def frac:int (to_int (((v - (to_double whole)) * 100.0) + 0.5))
-        if (frac >= 100) {
-            whole = (whole + 1)
-            frac = 0
-        }
-        def fs:string (to_string frac)
-        if (frac < 10) {
-            fs = ("0" + fs)
-        }
-        def out:string ((to_string whole) + "." + fs)
-        if neg {
-            return ("-" + out)
-        }
-        return out
+        return (XlsxNumberFormat.format(raw numFmt))
     }
 }

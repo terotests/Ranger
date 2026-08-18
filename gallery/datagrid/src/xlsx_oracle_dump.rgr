@@ -1,0 +1,56 @@
+; ==============================================================================
+; xlsx_oracle_dump - load fixture → SoftCanvas PNG (+ print inspect JSON).
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class XlsxOracleDump {
+    sfn main:void () {
+        def path:string "gallery/datagrid/fixtures/business-workbook.xlsx"
+        def outDir:string "gallery/datagrid/harness/out/business"
+        def outFile:string "ranger.png"
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def ok:boolean (app.loadXlsx(path))
+        if (ok == false) {
+            print ("FAIL load " + app.loadError)
+            return
+        }
+        def si:int 0
+        while (si < (app.book.sheetCount())) {
+            def sh:SpreadsheetModel (app.book.sheetAt(si))
+            if (sh.name == "Summary") {
+                app.setActiveSheet(si)
+            }
+            si = (si + 1)
+        }
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb outDir outFile)
+        print "---INSPECT---"
+        print ("{\"sheetCount\":" + (to_string (app.book.sheetCount())) + ",\"active\":\"" + (app.book.activeName()) + "\",\"sheets\":[")
+        si = 0
+        while (si < (app.book.sheetCount())) {
+            def s:SpreadsheetModel (app.book.sheetAt(si))
+            def hid:string "false"
+            if s.sheetHidden {
+                hid = "true"
+            }
+            def line:string ("{\"name\":\"" + s.name + "\",\"rowCount\":" + (to_string s.rowCount) + ",\"colCount\":" + (to_string s.colCount) + ",\"freezeRows\":" + (to_string s.freezeRows) + ",\"mergedCount\":" + (to_string (array_length s.merges)) + ",\"hidden\":" + hid + "}")
+            if (si < ((app.book.sheetCount()) - 1)) {
+                print (line + ",")
+            } {
+                print line
+            }
+            si = (si + 1)
+        }
+        print "]}"
+        print ("wrote " + outDir + "/" + outFile)
+    }
+}

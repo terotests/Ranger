@@ -34,6 +34,21 @@ class XlsxDemo {
         XlsxDemo.snapshot(app "gallery/datagrid" "xlsx_sales_sheet2.png")
         print ("Summary A1=" + (app.model.getCell(0 0)))
 
+        def okB:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if okB {
+            def si:int 0
+            while (si < (app.book.sheetCount())) {
+                def sh:SpreadsheetModel (app.book.sheetAt(si))
+                if (sh.name == "Summary") {
+                    app.setActiveSheet(si)
+                }
+                si = (si + 1)
+            }
+            app.render()
+            XlsxDemo.snapshot(app "gallery/datagrid" "xlsx_business_summary.png")
+            print ("business Summary active=" + (app.book.activeName()))
+        }
+
         def ok2:boolean (app.loadXlsx("gallery/datagrid/fixtures/sparse500.xlsx"))
         if ok2 {
             app.grid.scrollByRows(app.model 200)

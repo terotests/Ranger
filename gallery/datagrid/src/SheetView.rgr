@@ -1,0 +1,385 @@
+; ==============================================================================
+; SheetView - visible/order mapping over SpreadsheetModel (not CSS layout).
+; ==============================================================================
+;
+; Keeps storage indices (model rows/cols) separate from screen rows/cols so
+; hidden / filter / sort do not destroy worksheet data. DataGrid virtualizes
+; over this view's geometry (prefix sums on visible rows only).
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+
+class SheetView {
+    def model:SpreadsheetModel
+    def rowOrder:[int]
+    def colOrder:[int]
+    def rowOffsets:[int]
+    def colOffsets:[int]
+    def dirty:boolean true
+
+    Constructor () {
+    }
+
+    fn attach:void (m:SpreadsheetModel) {
+        model = m
+        dirty = true
+        this.rebuild()
+    }
+
+    fn rebuild:void () {
+        clear rowOrder
+        clear colOrder
+        model.ensureGeometry()
+        ; columns: skip hidden
+        def c:int 0
+        while (c < model.colCount) {
+            if (model.isColHidden(c) == false) {
+                push colOrder c
+            }
+            c = (c + 1)
+        }
+        ; rows: skip hidden + apply filter, then sort
+        def rows:[int]
+        def r:int 0
+        while (r < model.rowCount) {
+            if (model.isRowHidden(r) == false) {
+                if (this.rowPassesFilter(r)) {
+                    push rows r
+                }
+            }
+            r = (r + 1)
+        }
+        if (model.sortCol >= 0) {
+            this.sortRows(rows model.sortCol model.sortAsc)
+        }
+        ; keep freeze header rows first if present
+        def fz:int model.freezeRows
+        if (fz > 0) {
+            def head:[int]
+            def body:[int]
+            def i:int 0
+            def n:int (array_length rows)
+            while (i < n) {
+                def rr:int (itemAt rows i)
+                if (rr < fz) {
+                    push head rr
+                } {
+                    push body rr
+                }
+                i = (i + 1)
+            }
+            clear rowOrder
+            i = 0
+            while (i < (array_length head)) {
+                push rowOrder (itemAt head i)
+                i = (i + 1)
+            }
+            i = 0
+            while (i < (array_length body)) {
+                push rowOrder (itemAt body i)
+                i = (i + 1)
+            }
+        } {
+            clear rowOrder
+            def j:int 0
+            while (j < (array_length rows)) {
+                push rowOrder (itemAt rows j)
+                j = (j + 1)
+            }
+        }
+        this.rebuildOffsets()
+        dirty = false
+    }
+
+    fn rowPassesFilter:boolean (row:int) {
+        if (model.filterEnabled == false) {
+            return true
+        }
+        if (model.filterCol < 0) {
+            return true
+        }
+        ; header row always visible when freeze includes it
+        if (row < model.freezeRows) {
+            return true
+        }
+        def v:string (model.getCell(row model.filterCol))
+        def i:int 0
+        def n:int (array_length model.filterValues)
+        if (n == 0) {
+            return true
+        }
+        while (i < n) {
+            if (v == (itemAt model.filterValues i)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn sortRows:void (rows:[int] col:int asc:boolean) {
+        ; simple insertion sort on model row indices by cell display/raw
+        def i:int 1
+        def n:int (array_length rows)
+        while (i < n) {
+            def key:int (itemAt rows i)
+            def keyVal:string (model.getCell(key col))
+            def j:int (i - 1)
+            while (j >= 0) {
+                def cur:int (itemAt rows j)
+                ; do not reorder freeze header
+                if (cur < model.freezeRows) {
+                    break
+                }
+                if (key < model.freezeRows) {
+                    break
+                }
+                def cv:string (model.getCell(cur col))
+                def cmp:int (this.compareValues(cv keyVal))
+                def outOfOrder:boolean false
+                if asc {
+                    if (cmp > 0) {
+                        outOfOrder = true
+                    }
+                } {
+                    if (cmp < 0) {
+                        outOfOrder = true
+                    }
+                }
+                if outOfOrder {
+                    set_at rows (j + 1) cur
+                    j = (j - 1)
+                } {
+                    break
+                }
+            }
+            set_at rows (j + 1) key
+            i = (i + 1)
+        }
+    }
+
+    fn compareValues:int (a:string b:string) {
+        def da@(optional):double (to_double a)
+        def db@(optional):double (to_double b)
+        if da {
+            if db {
+                def x:double (unwrap da)
+                def y:double (unwrap db)
+                if (x < y) {
+                    return -1
+                }
+                if (x > y) {
+                    return 1
+                }
+                return 0
+            }
+        }
+        ; string fallback: lexicographic by code units
+        def i:int 0
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def n:int na
+        if (nb < n) {
+            n = nb
+        }
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) {
+                return -1
+            }
+            if (ca > cb) {
+                return 1
+            }
+            i = (i + 1)
+        }
+        if (na < nb) {
+            return -1
+        }
+        if (na > nb) {
+            return 1
+        }
+        return 0
+    }
+
+    fn rebuildOffsets:void () {
+        clear rowOffsets
+        clear colOffsets
+        def acc:int 0
+        push rowOffsets 0
+        def i:int 0
+        def rn:int (array_length rowOrder)
+        while (i < rn) {
+            def mr:int (itemAt rowOrder i)
+            acc = (acc + (model.rowHeight(mr)))
+            push rowOffsets acc
+            i = (i + 1)
+        }
+        acc = 0
+        push colOffsets 0
+        i = 0
+        def cn:int (array_length colOrder)
+        while (i < cn) {
+            def mc:int (itemAt colOrder i)
+            acc = (acc + (model.colWidth(mc)))
+            push colOffsets acc
+            i = (i + 1)
+        }
+    }
+
+    fn ensure:void () {
+        if dirty {
+            this.rebuild()
+        }
+    }
+
+    fn rowCount:int () {
+        this.ensure()
+        return (array_length rowOrder)
+    }
+
+    fn colCount:int () {
+        this.ensure()
+        return (array_length colOrder)
+    }
+
+    fn modelRow:int (viewRow:int) {
+        this.ensure()
+        if ((viewRow < 0) || (viewRow >= (array_length rowOrder))) {
+            return viewRow
+        }
+        return (itemAt rowOrder viewRow)
+    }
+
+    fn modelCol:int (viewCol:int) {
+        this.ensure()
+        if ((viewCol < 0) || (viewCol >= (array_length colOrder))) {
+            return viewCol
+        }
+        return (itemAt colOrder viewCol)
+    }
+
+    fn viewRowOf:int (modelRow:int) {
+        this.ensure()
+        def i:int 0
+        def n:int (array_length rowOrder)
+        while (i < n) {
+            if ((itemAt rowOrder i) == modelRow) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn viewColOf:int (modelCol:int) {
+        this.ensure()
+        def i:int 0
+        def n:int (array_length colOrder)
+        while (i < n) {
+            if ((itemAt colOrder i) == modelCol) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn rowToY:int (viewRow:int) {
+        this.ensure()
+        if (viewRow <= 0) {
+            return 0
+        }
+        def n:int (array_length rowOrder)
+        if (viewRow >= n) {
+            return (itemAt rowOffsets n)
+        }
+        return (itemAt rowOffsets viewRow)
+    }
+
+    fn colToX:int (viewCol:int) {
+        this.ensure()
+        if (viewCol <= 0) {
+            return 0
+        }
+        def n:int (array_length colOrder)
+        if (viewCol >= n) {
+            return (itemAt colOffsets n)
+        }
+        return (itemAt colOffsets viewCol)
+    }
+
+    fn totalHeight:int () {
+        this.ensure()
+        return (itemAt rowOffsets (array_length rowOrder))
+    }
+
+    fn totalWidth:int () {
+        this.ensure()
+        return (itemAt colOffsets (array_length colOrder))
+    }
+
+    fn yToRow:int (y:int) {
+        this.ensure()
+        if (y <= 0) {
+            return 0
+        }
+        def n:int (array_length rowOrder)
+        if (n == 0) {
+            return 0
+        }
+        def total:int (itemAt rowOffsets n)
+        if (y >= total) {
+            return (n - 1)
+        }
+        def lo:int 0
+        def hi:int (n - 1)
+        while (lo < hi) {
+            def mid:int (to_int ((lo + hi + 1) / 2))
+            if ((itemAt rowOffsets mid) <= y) {
+                lo = mid
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return lo
+    }
+
+    fn xToCol:int (x:int) {
+        this.ensure()
+        if (x <= 0) {
+            return 0
+        }
+        def n:int (array_length colOrder)
+        if (n == 0) {
+            return 0
+        }
+        def total:int (itemAt colOffsets n)
+        if (x >= total) {
+            return (n - 1)
+        }
+        def lo:int 0
+        def hi:int (n - 1)
+        while (lo < hi) {
+            def mid:int (to_int ((lo + hi + 1) / 2))
+            if ((itemAt colOffsets mid) <= x) {
+                lo = mid
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return lo
+    }
+
+    fn rowHeight:int (viewRow:int) {
+        return (model.rowHeight((this.modelRow(viewRow))))
+    }
+
+    fn colWidth:int (viewCol:int) {
+        return (model.colWidth((this.modelCol(viewCol))))
+    }
+
+    fn markDirty:void () {
+        dirty = true
+    }
+}

@@ -53,6 +53,18 @@ class XlsxStyles {
         if (id == 49) {
             return "@"
         }
+        if (id == 14) {
+            return "mm/dd/yyyy"
+        }
+        if (id == 15) {
+            return "dd.mm.yyyy"
+        }
+        if (id == 22) {
+            return "hh:mm"
+        }
+        if (id == 164) {
+            return "yyyy-mm-dd"
+        }
         return "General"
     }
 

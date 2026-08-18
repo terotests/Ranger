@@ -200,10 +200,34 @@ class XlsxWorksheet {
                     maxC = minC
                 }
                 this.ensureSize(model 0 maxC)
+                def hideCol:boolean false
+                if (t.has("hidden")) {
+                    def hv:string (t.attr("hidden"))
+                    if ((hv == "1") || (hv == "true")) {
+                        hideCol = true
+                    }
+                }
                 def c:int minC
                 while (c <= maxC) {
                     model.setColWidth(c px)
+                    if hideCol {
+                        model.setColHidden(c true)
+                    }
                     c = (c + 1)
+                }
+            }
+            if ((t.name == "autoFilter") && (t.isEnd == false)) {
+                ; record filter range start col for SheetView (basic)
+                def ref:string (t.attr("ref"))
+                if ((strlen ref) > 0) {
+                    def r1:[int]
+                    def c1:[int]
+                    def r2:[int]
+                    def c2:[int]
+                    XlsxWorksheet.parseMergeRef(ref r1 c1 r2 c2)
+                    model.filterCol = (itemAt c1 0)
+                    ; enabled after user applies; presence marks autofilter exists
+                    model.filterEnabled = false
                 }
             }
             if ((t.name == "row") && (t.isEnd == false) && (t.selfClose == false)) {
@@ -212,10 +236,16 @@ class XlsxWorksheet {
                 if ((strlen rAttr) > 0) {
                     rowIdx = ((XlsxWorksheet.parseInt0(rAttr)) - 1)
                 }
+                this.ensureSize(model rowIdx 0)
                 if (t.has("ht")) {
                     def ht:double (XlsxWorksheet.parseDouble((t.attr("ht"))))
-                    this.ensureSize(model rowIdx 0)
                     model.setRowHeight(rowIdx (XlsxWorksheet.rowHeightToPx(ht)))
+                }
+                if (t.has("hidden")) {
+                    def rh:string (t.attr("hidden"))
+                    if ((rh == "1") || (rh == "true")) {
+                        model.setRowHidden(rowIdx true)
+                    }
                 }
                 ; walk children until </row>
                 def depth:int 1

@@ -4,7 +4,6 @@
 ;
 ; Feature benchmark:  FortuneSheet (MIT) — https://github.com/ruilisi/fortune-sheet
 ; Render benchmark:   x-spreadsheet (MIT) — https://github.com/myliang/x-spreadsheet
-; Excel feature ceiling (reference only): Luckysheet (archived → Univer)
 ;
 ; Goal: grow Ranger toward FortuneSheet's OSS spreadsheet checklist, while
 ; keeping DataGrid a specialized virtualized engine (x-spreadsheet-like Canvas
@@ -17,28 +16,33 @@
 ; ------------------------------------------------------------------------------
 ; Multiple selection              | GridSelection range + shift/drag          | done
 ; Keyboard navigation             | arrows / tab / enter / home / end         | done
-; Inline edit + formula bar       | single EditView buffer                    | done
+; Inline edit + formula bar       | address + formula/value bar               | done
 ; Row / column headers            | painted chrome                            | done
 ; Resize columns                  | header edge drag                          | done
 ; Resize rows                     | (row ht from xlsx; interactive todo)      | partial
 ; Copy / paste / cut              | Ctrl+C / Ctrl+V TSV clipboard             | done
 ; Fill handle                     | drag active-cell handle (copy fill)       | done
-; Merge cells                     | xlsx merge + paint origin rect            | done
-; Multiple sheets                 | WorkbookModel + tabs                      | done
+; Merge cells                     | paint origin + hit-test → origin          | done
+; Multiple sheets                 | tabs + hidden metadata + scroll save      | done
 ; Freeze panes                    | freezeRows/Cols + fixed bands             | done
 ; Cell formatting (fill/font/…)   | styles.xml → CellStyle → EVG              | done
-; Number formats                  | basic numFmt (0.00, %, integer)           | partial
+; Number formats                  | XlsxNumberFormat engine (practical set)   | done
 ; Text wrap / rotation            |                                           | todo
-; Sort / filter                   |                                           | todo
-; Formulas (engine)               | cached <v> + formula bar only             | partial
-; Conditional formatting          |                                           | todo
+; Sort / filter                   | SheetView + programmatic apply            | done
+; Formulas (engine)               | AST + deps + subset + cached fallback     | partial
+; Conditional formatting          | fixture present; resolver stretch         | partial
+; Hidden rows / columns           | geometry height/width 0                   | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
 ;
-; Milestone 3 (this PR): styles, freeze, copy/paste, fill handle.
+; Formula coverage (calculated): + - * / ^ & comparisons, A1/$A$1, ranges,
+; Sheet!A1, SUM AVERAGE MIN MAX COUNT COUNTA IF AND OR NOT ABS ROUND CONCAT.
+; Unsupported XLSX formulas keep cached <v>.
 ;
-; x-spreadsheet render peer ops we already exercise in grid_bench:
-;   open, first paint, scroll, edit, range select, resize, Ctrl+A
-; Also covered in tests: freeze scroll bands, styled display, paste, fill.
+; Number formats: General, 0, 0.00, #,##0(.00), %, currency, scientific,
+; dates/times, @, pos;neg;zero sections.
+;
+; Oracles: openpyxl semantic + LibreOffice visual (SKIP if LO absent).
+; Perf: grid_bench + sparse100k fixture (sheet size ≠ painted cells).
 ;
 ; ==============================================================================
