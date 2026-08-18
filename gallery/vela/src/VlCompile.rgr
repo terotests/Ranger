@@ -286,6 +286,31 @@ class VlCompile {
             return out
         }
         def cfg:VlJson (src.get("config"))
+        ; A view block may be stated on the CHART rather than in its
+        ; configuration — `"view": {"stroke": null}` beside the layers, which
+        ; is a chart asking for no frame round its plot. Read only out of the
+        ; configuration, the frame was drawn anyway.
+        def view:VlJson (src.get("view"))
+        if (view.isObject()) {
+            def merged (VlJson.objectValue())
+            if (cfg.isObject()) {
+                for cfg.keys ck:string cki {
+                    merged.setMember(ck (cfg.get(ck)))
+                }
+            }
+            def folded (VlJson.objectValue())
+            def before:VlJson (merged.get("view"))
+            if (before.isObject()) {
+                for before.keys bk:string bki {
+                    folded.setMember(bk (before.get(bk)))
+                }
+            }
+            for view.keys vk:string vki {
+                folded.setMember(vk (view.get(vk)))
+            }
+            merged.setMember("view" folded)
+            cfg = merged
+        }
         if ((cfg.isObject()) && (!(out.has("config")))) {
             out.setMember("config" (VlCompile.vegaConfig(cfg)))
         }
@@ -879,6 +904,7 @@ class VlCompile {
                     ; transforming reads the source itself, so renaming only
                     ; the data sets left the marks pointing at the layer below.
                     VlCompile.renameSourceRefs((piece.get("marks")) renamed)
+                    VlCompile.renameScaleSources((piece.get("scales")) renamed)
                 }
                 ; An axis belongs to a SCALE, and the scales are shared down
                 ; the stack, so a layer that reads a column the one below it
@@ -2005,6 +2031,7 @@ class VlCompile {
                     def renamed:string ("source_" + (VlJson.intToText(at)))
                     VlCompile.renameSource(ownData renamed)
                     VlCompile.renameSourceRefs((piece.get("marks")) renamed)
+                    VlCompile.renameScaleSources((piece.get("scales")) renamed)
                 }
                 def pieceData2:VlJson (piece.get("data"))
                 def di:int 1
@@ -2627,6 +2654,42 @@ class VlCompile {
                 one.setMember("source" (VlJson.stringValue(name)))
             }
             k = (k + 1)
+        }
+    }
+
+    ; A scale's DOMAIN reads a data set too, and a layer whose data needs no
+    ; transforming reads its source directly. Renaming only the data sets and
+    ; the marks left the scale reading the rows of the layer BELOW: a chart of
+    ; seven questions took its band count from ten unfiltered ones and drew
+    ; them on a pitch three quarters of the right one.
+    sfn renameScaleSources:void (scales:VlJson name:string) {
+        if (! (scales.isArray())) {
+            return
+        }
+        def total:int (scales.count())
+        def k:int 0
+        while (k < total) {
+            def sc:VlJson (scales.at(k))
+            k = (k + 1)
+            VlCompile.renameDomainSource((sc.get("domain")) name)
+            VlCompile.renameDomainSource((sc.get("domainRaw")) name)
+        }
+    }
+
+    sfn renameDomainSource:void (domain:VlJson name:string) {
+        if (! (domain.isObject())) {
+            return
+        }
+        if ((domain.stringOr("data" "")) == "source_0") {
+            domain.setMember("data" (VlJson.stringValue(name)))
+        }
+        def fields:VlJson (domain.get("fields"))
+        if (fields.isArray()) {
+            def i:int 0
+            while (i < (fields.count())) {
+                VlCompile.renameDomainSource((fields.at(i)) name)
+                i = (i + 1)
+            }
         }
     }
 
@@ -3869,18 +3932,23 @@ class VlCompile {
         if (stated >= 0.0) {
             return stated
         }
-        if (markName == "rect") {
-            return 0.0
-        }
         if (markName == "tick") {
             return 0.25
         }
-        ; A grouped bar chart's bands hold a whole sub-band each, so they are
-        ; spaced further apart than bands holding a single bar.
-        if (this.hasChannel("xOffset")) {
-            return 0.2
+        if (markName == "bar") {
+            ; A grouped bar chart's bands hold a whole sub-band each, so they
+            ; are spaced further apart than bands holding a single bar.
+            if (this.hasChannel("xOffset")) {
+                return 0.2
+            }
+            return 0.1
         }
-        return 0.1
+        ; A BAR leaves a tenth of its band empty and a TICK a quarter;
+        ; everything else fills its band edge to edge. A row of dots is not a
+        ; row of bars: given a bar's padding, seven questions over a hundred
+        ; and seventy-five pixels came out on a pitch of seventeen and a half
+        ; rather than twenty-five.
+        return 0.0
     }
 
     ; The outer padding matches the inner one for a grouped chart and is half
@@ -8716,9 +8784,28 @@ class VlCompile {
     ; Where the mark goes. A band puts the mark at the start of its band and
     ; gives it the band's width; a stacked value is drawn between the two ends
     ; the stack wrote; everything else is a point on a scale.
+    fn markPosition:void (update:VlJson axis:string) {
+        ; Only where the channel put nothing there. A channel that names a
+        ; scale but no column — the shared encoding of a layered chart, which
+        ; is where the axis is declared — leaves the position to the mark.
+        if (update.has(axis)) {
+            return
+        }
+        def stated:VlJson (markDef.get(axis))
+        if (stated.isNumber()) {
+            update.setMember(axis (VlCompile.literal(stated)))
+        }
+    }
+
     fn encodePosition:void (update:VlJson) {
         this.encodeAxisPair(update (this.channel("x")) "x" "width")
         this.encodeAxisPair(update (this.channel("y")) "y" "height")
+        ; A mark may state where it goes IN PIXELS rather than through a
+        ; channel: `{"type": "text", "x": -5, "align": "right"}` is a label
+        ; standing five pixels off the left edge of the plot, whatever the
+        ; chart is measuring. Without it the label sat on the edge itself.
+        this.markPosition(update "x")
+        this.markPosition(update "y")
         def size:VlChannel (this.channel("size"))
         if size.defined {
             ; A rule and a line have no area, so their `size` is a THICKNESS:
