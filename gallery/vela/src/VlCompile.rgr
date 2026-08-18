@@ -7381,6 +7381,8 @@ class VlCompile {
         def ticks (VlJson.objectValue())
         VlCompile.gridBranch(ticks given "tickColor" "stroke" (this))
         VlCompile.gridBranch(ticks given "tickOpacity" "strokeOpacity" (this))
+        VlCompile.gridBranch(ticks given "tickWidth" "strokeWidth" (this))
+        VlCompile.gridBranch(ticks given "tickDash" "strokeDash" (this))
         if ((array_length ticks.keys) > 0) {
             def tickEncode (VlJson.objectValue())
             tickEncode.setMember("update" ticks)
@@ -7415,6 +7417,14 @@ class VlCompile {
         def encode (VlJson.objectValue())
         encode.setMember("grid" gridEncode)
         a.setMember("encode" encode)
+    }
+
+    ; A value with a branch in it, rather than a value.
+    sfn isConditional:boolean (value:VlJson) {
+        if (! (value.isObject())) {
+            return false
+        }
+        return (value.has("condition"))
     }
 
     sfn gridBranch:void (update:VlJson given:VlJson key:string channel:string owner:VlCompile) {
@@ -7506,7 +7516,13 @@ class VlCompile {
                 ; A stated `grid` belongs to the grid axis and not to this one.
                 ; Copied here as well, the labelled axis drew the grid a second
                 ; time, over the marks instead of under them.
-                if (key != "grid") {
+                ;
+                ; …and a CONDITIONAL is not a property. `"tickDash": {…}` with a
+                ; branch in it has already been moved onto the tick mark's own
+                ; encoding, where the branch can be tested per tick; left here
+                ; as well it reads as a dash pattern that is an object, which
+                ; is not a dash pattern at all.
+                if ((key != "grid") && (! (VlCompile.isConditional((given.get(key)))))) {
                     a.setMember(key (given.get(key)))
                 }
             }

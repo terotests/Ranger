@@ -45,6 +45,10 @@ class VlAxis {
     def tickWidth:double 1.0
     def tickColor:string "#888"
     def labelPadding:double 2.0
+    ; How far a label slides ALONG the axis from the tick it names. It is not
+    ; the padding: the padding is the gap across the axis, and this moves the
+    ; label sideways past its own tick.
+    def labelOffset:double 0.0
     def labelFontSize:double 10.0
     def labelFont:string "sans-serif"
     def labelColor:string "#000"
@@ -104,6 +108,13 @@ class VlAxis {
     def gridDashSet:boolean false
     def tickDash:VlJson (new VlJson)
     def tickDashSet:boolean false
+    ; A dash per tick rather than one for the whole axis: a chart may draw
+    ; every month dashed and every January solid, which is how a year is
+    ; marked on an axis of months.
+    def gridDashes:[VlJson]
+    def gridDashesSet:boolean false
+    def tickDashes:[VlJson]
+    def tickDashesSet:boolean false
     def domainDash:VlJson (new VlJson)
     def domainDashSet:boolean false
     def tickOpacitySet:boolean false
@@ -149,6 +160,22 @@ class VlAxis {
     ; label at each January black and leave the rest of them out, so an empty
     ; answer here means NOT DRAWN rather than "use the default" — which is why
     ; the flag is separate from the list being empty.
+    fn useGridDashes:void (list:[VlJson]) {
+        clear gridDashes
+        gridDashesSet = true
+        for list one:VlJson oi {
+            push gridDashes one
+        }
+    }
+
+    fn useTickDashes:void (list:[VlJson]) {
+        clear tickDashes
+        tickDashesSet = true
+        for list one:VlJson oi {
+            push tickDashes one
+        }
+    }
+
     fn useTickColors:void (colors:[string]) {
         clear tickColors
         tickColorsSet = true
@@ -167,6 +194,7 @@ class VlAxis {
     fn readConfig:void (adef:VlJson) {
         tickSize = (adef.doubleOr("tickSize" tickSize))
         labelPadding = (adef.doubleOr("labelPadding" labelPadding))
+        labelOffset = (adef.doubleOr("labelOffset" labelOffset))
         labelFontSize = (adef.doubleOr("labelFontSize" labelFontSize))
         titlePadding = (adef.doubleOr("titlePadding" titlePadding))
         titleFontSize = (adef.doubleOr("titleFontSize" titleFontSize))
@@ -571,18 +599,34 @@ class VlAxis {
             if (! wantTicks) {
                 clearance = 0.0
             }
+            ; How DEEP the labels are, which is one line unless a label was
+            ; written on several. An axis of months naming the year under the
+            ; month is two lines deep, and measured as one the title sat over
+            ; the second line of it.
+            def deep:double (VlAxis.tallestVisible(labelMark labelFontSize))
             if vertical {
                 def alongV:double widest
                 if turned {
-                    alongV = labelFontSize
+                    alongV = deep
                 }
                 labelExtent = ((clearance + labelPadding) + alongV)
             } {
-                def alongH:double labelFontSize
+                def alongH:double deep
                 if turned {
                     alongH = widest
                 }
                 labelExtent = ((clearance + labelPadding) + alongH)
+            }
+            ; What the axis reserves is what its ticks AND its labels cover,
+            ; whichever reaches further. Labels normally reach further and the
+            ; ticks never come into it — until a chart pulls its labels back
+            ; over the plot with a negative padding, and then the ticks are the
+            ; whole of the extent and the title stands clear of them.
+            if wantTicks {
+                def tickReach:double (tickSize + (tickWidth / 2.0))
+                if (tickReach > labelExtent) {
+                    labelExtent = tickReach
+                }
             }
         } {
             if wantTicks {
@@ -682,6 +726,11 @@ class VlAxis {
             if gridDashSet {
                 item.setValue("strokeDash" gridDash)
             }
+            if gridDashesSet {
+                if (idx < (array_length gridDashes)) {
+                    item.setValue("strokeDash" (itemAt gridDashes idx))
+                }
+            }
             def at:double tv.tickPosition
             if tickRound {
                 at = (VlAxis.roundTo(at))
@@ -724,6 +773,11 @@ class VlAxis {
             item.setNumber("strokeWidth" tickWidth)
             if tickDashSet {
                 item.setValue("strokeDash" tickDash)
+            }
+            if tickDashesSet {
+                if (idx < (array_length tickDashes)) {
+                    item.setValue("strokeDash" (itemAt tickDashes idx))
+                }
             }
             def at:double tv.tickPosition
             if tickRound {
@@ -779,7 +833,7 @@ class VlAxis {
             ; is left, not from what was asked for.
             item.setString("text" (VlText.truncate(tv.label labelFontSize labelLimit)))
             if vertical {
-                item.setNumber("y" tv.labelPosition)
+                item.setNumber("y" (tv.labelPosition + labelOffset))
                 if (orient == "left") {
                     item.setNumber("x" (0.0 - away))
                     item.setString("align" "right")
@@ -803,7 +857,7 @@ class VlAxis {
                     item.setString("baseline" labelBaseline)
                 }
             } {
-                item.setNumber("x" tv.labelPosition)
+                item.setNumber("x" (tv.labelPosition + labelOffset))
                 if (orient == "bottom") {
                     item.setNumber("y" away)
                     item.setString("baseline" "top")
@@ -889,6 +943,24 @@ class VlAxis {
 
     ; The widest label still being drawn. A mark with nothing hidden answers the
     ; same number it was given, so an axis that never thinned pays nothing.
+    ; The deepest label still being drawn: one line of type, plus a line's step
+    ; for each line after the first of the tallest one.
+    sfn tallestVisible:double (mark:VlSceneMark fontSize:double) {
+        def deep:double fontSize
+        for mark.items item:VlSceneItem idx {
+            if ((item.number("opacity")) > 0.0) {
+                def lines:int (array_length (VlText.lines((item.text("text")))))
+                if (lines > 1) {
+                    def tall:double (fontSize + ((VlText.lineStep(fontSize)) * (to_double (lines - 1))))
+                    if (tall > deep) {
+                        deep = tall
+                    }
+                }
+            }
+        }
+        return deep
+    }
+
     sfn widestVisible:double (mark:VlSceneMark fontSize:double whenEmpty:double) {
         def shown:[string]
         for mark.items item:VlSceneItem idx {

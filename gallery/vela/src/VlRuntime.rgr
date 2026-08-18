@@ -1886,6 +1886,15 @@ class VlRuntime {
                 if (VlRuntime.axisPaints(adef "labels" "fill")) {
                     axis.useLabelColors((this.axisPartPaint(adef ticks "labels" "fill")))
                 }
+                ; A dash is not a colour, so it comes back as the value it is
+                ; rather than as a name: an empty list is a solid line and the
+                ; reference writes exactly that for the ticks it wants solid.
+                if (VlRuntime.axisPaints(adef "grid" "strokeDash")) {
+                    axis.useGridDashes((this.axisPartDash(adef ticks "grid" "strokeDash")))
+                }
+                if (VlRuntime.axisPaints(adef "ticks" "strokeDash")) {
+                    axis.useTickDashes((this.axisPartDash(adef ticks "ticks" "strokeDash")))
+                }
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 def axisMark:VlSceneMark (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
                 push rootItem.marks axisMark
@@ -1949,6 +1958,20 @@ class VlRuntime {
                 colour = painted.str
             }
             push out colour
+        }
+        return out
+    }
+
+    ; The same, for a channel whose answer is not a colour: a dash pattern is
+    ; a list of lengths, and an empty one is a solid line.
+    fn axisPartDash:[VlJson] (adef:VlJson ticks:[VlAxisTickValue] part:string channel:string) {
+        def out:[VlJson]
+        def branches:VlJson ((((adef.get("encode")).get(part)).get("update")).get(channel))
+        for ticks tv:VlAxisTickValue ti {
+            def row:VlJson (VlJson.objectValue())
+            row.setMember("value" tv.value)
+            scope.setDatum(row)
+            push out (this.encodeChannel(channel branches row))
         }
         return out
     }
