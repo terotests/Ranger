@@ -233,8 +233,15 @@ def write_sparse(n=100000):
 
 def write_formula_fixture():
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Calc"
+    # Input sheet
+    inp = wb.active
+    inp.title = "Input"
+    inp["A1"] = 10
+    inp["A2"] = 20
+    inp["A3"] = 30
+
+    # Calc sheet — relative, absolute, cross-sheet, IF
+    ws = wb.create_sheet("Calc", 0)
     ws["A1"] = 10
     ws["A2"] = 20
     ws["B1"] = "=A1+A2"
@@ -242,16 +249,24 @@ def write_formula_fixture():
     ws["D1"] = "=SUM(A1:A2)"
     ws["E1"] = "=IF(A1>5,1,0)"
     ws["F1"] = "=A1/0"  # DIV/0
-    # unsupported keeps cached
-    ws["G1"] = "=COMPLEX(1,2)"
-    ws["G1"].value = "=COMPLEX(1,2)"
-    # openpyxl may not set cached - set number after
-    from openpyxl.cell.cell import Cell
-    ws["G1"] = 1.0  # will overwrite — better leave formula only
-    ws["G1"] = "=COMPLEX(1,2)"
-    wb2 = wb.create_sheet("Other")
-    wb2["A1"] = 7
+    ws["G1"] = "=COMPLEX(1,2)"  # unsupported → keep cached if present
+    other = wb.create_sheet("Other")
+    other["A1"] = 7
     ws["H1"] = "=Other!A1*3"
+    ws["I1"] = "=$A$1+Input!A1"
+    ws["J1"] = "=SUM(Input!A1:A3)"
+    ws["K1"] = "=IF(J1>50,\"large\",\"small\")"
+
+    # Errors sheet
+    err = wb.create_sheet("Errors")
+    err["A1"] = "=1/0"
+    err["A2"] = "=IFERROR(A1,123)"
+
+    # Quoted sheet name
+    spaced = wb.create_sheet("My Sheet")
+    spaced["A1"] = 5
+    ws["L1"] = "='My Sheet'!A1*2"
+
     save_wb(wb, ROOT / "formulas.xlsx")
     print("wrote", ROOT / "formulas.xlsx")
 

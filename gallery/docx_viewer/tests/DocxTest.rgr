@@ -6,6 +6,7 @@ Import "../src/DocxViewer.rgr"
 Import "../src/WordXml.rgr"
 Import "../src/WordMlParser.rgr"
 Import "../src/WordNumbering.rgr"
+Import "../src/WordStyleResolver.rgr"
 Import "../src/RichDocument.rgr"
 
 class Checker {
@@ -34,15 +35,28 @@ class Checker {
 class DocxTest {
     sfn main:void () {
         def c:Checker (new Checker)
+        def fix:string "gallery/docx_viewer/fixtures"
 
         print "== WordXml entities =="
         c.eqStr("lt" (WordXml.decodeEntities("a&lt;b")) "a<b")
         c.eqStr("amp" (WordXml.decodeEntities("x&amp;y")) "x&y")
 
+        print "== style basedOn chain + loop guard =="
+        def stylesXml:string "<w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val=\"22\"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type=\"paragraph\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/><w:rPr><w:sz w:val=\"22\"/></w:rPr></w:style><w:style w:type=\"paragraph\" w:styleId=\"BaseA\"><w:basedOn w:val=\"Normal\"/><w:rPr><w:b/><w:color w:val=\"112233\"/></w:rPr></w:style><w:style w:type=\"paragraph\" w:styleId=\"ChildB\"><w:basedOn w:val=\"BaseA\"/><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:rPr><w:sz w:val=\"28\"/></w:rPr></w:style><w:style w:type=\"paragraph\" w:styleId=\"LoopX\"><w:basedOn w:val=\"LoopY\"/></w:style><w:style w:type=\"paragraph\" w:styleId=\"LoopY\"><w:basedOn w:val=\"LoopX\"/></w:style></w:styles>"
+        def res:WordStyleResolver (new WordStyleResolver)
+        res.parseStylesXml(stylesXml)
+        def ps:ResolvedParagraphStyle (res.resolveParagraphStyle("ChildB"))
+        c.ok("child inherit bold" ps.run.bold)
+        c.eqStr("child inherit color" ps.run.colorHex "112233")
+        c.ok("child size override" (ps.run.fontSizePt == 14.0))
+        c.eqInt("child align center" ps.align 1)
+        def loopPs:ResolvedParagraphStyle (res.resolveParagraphStyle("LoopX"))
+        c.ok("loop does not hang" ((strlen loopPs.run.colorHex) >= 0))
+
         print "== parse hello.docx =="
         def viewer:DocxViewer (new DocxViewer)
         viewer.init("gallery/pdf_writer/assets/fonts")
-        c.ok("open hello" (viewer.openFile("gallery/docx_viewer/fixtures" "hello.docx")))
+        c.ok("open hello" (viewer.openFile(fix "hello.docx")))
         def doc:RichDocument (viewer.document())
         c.ok("has paragraphs" ((doc.paragraphCount()) >= 3))
         def plain:string (doc.plainText())
@@ -51,7 +65,6 @@ class DocxTest {
         def p0:Paragraph (doc.paragraphAt(0))
         c.ok("title has spans" ((array_length p0.spans) >= 1))
         def p1:Paragraph (doc.paragraphAt(1))
-        ; Merged / styled runs should include a bold span for "world"
         def hasBold:boolean false
         def si:int 0
         while (si < (array_length p1.spans)) {
@@ -64,7 +77,7 @@ class DocxTest {
         c.ok("mixed run bold" hasBold)
 
         print "== styles_demo align =="
-        c.ok("open styles" (viewer.openFile("gallery/docx_viewer/fixtures" "styles_demo.docx")))
+        c.ok("open styles" (viewer.openFile(fix "styles_demo.docx")))
         def d2:RichDocument (viewer.document())
         def foundCenter:boolean false
         def foundRight:boolean false
@@ -83,7 +96,7 @@ class DocxTest {
         c.ok("has right" foundRight)
 
         print "== lists_demo =="
-        c.ok("open lists" (viewer.openFile("gallery/docx_viewer/fixtures" "lists_demo.docx")))
+        c.ok("open lists" (viewer.openFile(fix "lists_demo.docx")))
         def d3:RichDocument (viewer.document())
         def bullets:int 0
         def nums:int 0
@@ -105,7 +118,6 @@ class DocxTest {
         c.eqInt("bullet paras" bullets 3)
         c.ok("numbered paras>=3" (nums >= 3))
         c.ok("nested list level" (nested >= 2))
-        ; numbering.xml → marker for outline
         def markers:string ""
         def counters:[int:int]
         def mj:int 0
@@ -123,7 +135,7 @@ class DocxTest {
         c.ok("outline has letter" ((indexOf markers "a)") >= 0) || ((indexOf markers "1.a") >= 0))
 
         print "== images_demo =="
-        c.ok("open images" (viewer.openFile("gallery/docx_viewer/fixtures" "images_demo.docx")))
+        c.ok("open images" (viewer.openFile(fix "images_demo.docx")))
         def d4:RichDocument (viewer.document())
         def imgCount:int 0
         def okImg:int 0
@@ -144,7 +156,125 @@ class DocxTest {
         c.eqInt("image count" imgCount 1)
         c.eqInt("decoded jpeg" okImg 1)
 
+        print "== tables =="
+        c.ok("open table basic" (viewer.openFile(fix "05-table-basic.docx")))
+        def dt:RichDocument (viewer.document())
+        c.ok("has table" ((array_length dt.tables) >= 1))
+        def t0:DocumentTable (itemAt dt.tables 0)
+        c.ok("table rows>=2" ((array_length t0.rows) >= 2))
+        c.ok("table cols" ((array_length t0.colWidthsTwips) >= 2))
+        viewer.renderPage(0)
+        c.ok("table page painted" ((buffer_length (viewer.view.raw())) > 1000))
+
+        c.ok("open table merged" (viewer.openFile(fix "07-table-merged.docx")))
+        def dm:RichDocument (viewer.document())
+        def hasSpan:boolean false
+        def ti:int 0
+        while (ti < (array_length dm.tables)) {
+            def tm:DocumentTable (itemAt dm.tables ti)
+            def ri:int 0
+            while (ri < (array_length tm.rows)) {
+                def row:DocTableRow (itemAt tm.rows ri)
+                def ci:int 0
+                while (ci < (array_length row.cells)) {
+                    def cell:DocTableCell (itemAt row.cells ci)
+                    if (cell.gridSpan > 1) {
+                        hasSpan = true
+                    }
+                    ci = (ci + 1)
+                }
+                ri = (ri + 1)
+            }
+            ti = (ti + 1)
+        }
+        c.ok("gridSpan present" hasSpan)
+
+        print "== pagination =="
+        c.ok("open pages" (viewer.openFile(fix "08-pages.docx")))
+        viewer.renderPage(0)
+        c.ok("multi page" ((viewer.pageCount()) >= 2))
+        c.ok("open page break" (viewer.openFile(fix "09-page-break.docx")))
+        viewer.renderPage(0)
+        c.ok("page break pages>=2" ((viewer.pageCount()) >= 2))
+
+        print "== landscape / sections =="
+        c.ok("open landscape" (viewer.openFile(fix "10-landscape-section.docx")))
+        def dl:RichDocument (viewer.document())
+        def foundLand:boolean false
+        def si2:int 0
+        while (si2 < (dl.sectionCount())) {
+            def sec:DocSection (dl.sectionAt(si2))
+            if sec.landscape {
+                foundLand = true
+            }
+            if (sec.pageWTwips > sec.pageHTwips) {
+                foundLand = true
+            }
+            si2 = (si2 + 1)
+        }
+        c.ok("landscape section" foundLand)
+        viewer.renderPage(0)
+        c.ok("landscape pages>=1" ((viewer.pageCount()) >= 1))
+
+        print "== header/footer =="
+        c.ok("open hf" (viewer.openFile(fix "12-header-footer.docx")))
+        def dh:RichDocument (viewer.document())
+        def hfOk:boolean false
+        def hi:int 0
+        while (hi < (dh.sectionCount())) {
+            def hs:DocSection (dh.sectionAt(hi))
+            if ((array_length hs.headerParas) > 0) {
+                hfOk = true
+            }
+            if ((array_length hs.footerParas) > 0) {
+                hfOk = true
+            }
+            hi = (hi + 1)
+        }
+        c.ok("header or footer paras" hfOk)
+        viewer.renderPage(0)
+        c.ok("hf render" ((buffer_length (viewer.view.raw())) > 1000))
+
+        print "== mixed images =="
+        c.ok("open mixed images" (viewer.openFile(fix "13-images-mixed.docx")))
+        def di:RichDocument (viewer.document())
+        def imgs:int 0
+        def okImgs:int 0
+        def pngOk:boolean false
+        def mi:int 0
+        while (mi < (di.paragraphCount())) {
+            def mp2:Paragraph (di.paragraphAt(mi))
+            def ii2:int 0
+            while (ii2 < (array_length mp2.images)) {
+                imgs = (imgs + 1)
+                def im:DocImage (itemAt mp2.images ii2)
+                if im.ok {
+                    okImgs = (okImgs + 1)
+                }
+                if (im.format == "png") {
+                    if im.ok {
+                        pngOk = true
+                    }
+                }
+                ii2 = (ii2 + 1)
+            }
+            mi = (mi + 1)
+        }
+        c.ok("mixed image count>=2" (imgs >= 2))
+        c.ok("decoded images>=1" (okImgs >= 1))
+        c.ok("png decoded or jpeg fallback" (pngOk || (okImgs >= 1)))
+
+        print "== business report =="
+        c.ok("open report" (viewer.openFile(fix "20-business-report.docx")))
+        def dr:RichDocument (viewer.document())
+        c.ok("report tables" ((array_length dr.tables) >= 1))
+        c.ok("report blocks" ((dr.blockCount()) >= 5))
+        viewer.renderPage(0)
+        c.ok("report multipage" ((viewer.pageCount()) >= 3))
+        c.ok("inspect json" ((indexOf (viewer.inspectJson()) "paragraphs") >= 0))
+
         print "== render page =="
+        c.ok("open hello again" (viewer.openFile(fix "hello.docx")))
         viewer.renderPage(0)
         c.ok("framebuffer" ((buffer_length (viewer.view.raw())) > 1000))
         c.ok("pages>=1" ((viewer.pageCount()) >= 1))

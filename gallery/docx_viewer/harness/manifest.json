@@ -1,0 +1,101 @@
+{
+  "features": [
+    "paragraphs",
+    "runs",
+    "styles",
+    "lists",
+    "images",
+    "tables",
+    "sections",
+    "headers-footers",
+    "page-breaks",
+    "indents"
+  ],
+  "fixtures": [
+    {
+      "file": "hello.docx",
+      "title": "Title + mixed bold/italic runs",
+      "features": ["paragraphs", "runs", "styles"]
+    },
+    {
+      "file": "styles_demo.docx",
+      "title": "Heading styles, alignment, color, size",
+      "features": ["styles", "runs"]
+    },
+    {
+      "file": "lists_demo.docx",
+      "title": "Bullets, decimal, multi-level outline",
+      "features": ["lists"]
+    },
+    {
+      "file": "images_demo.docx",
+      "title": "Inline JPEG DrawingML picture",
+      "features": ["images"]
+    },
+    {
+      "file": "05-table-basic.docx",
+      "title": "Simple 3×3 table with header row",
+      "features": ["tables"]
+    },
+    {
+      "file": "06-table-format.docx",
+      "title": "Cell backgrounds and borders",
+      "features": ["tables"]
+    },
+    {
+      "file": "07-table-merged.docx",
+      "title": "Horizontal gridSpan merges",
+      "features": ["tables"]
+    },
+    {
+      "file": "08-pages.docx",
+      "title": "Enough body text to paginate 2+ pages",
+      "features": ["paragraphs", "page-breaks"]
+    },
+    {
+      "file": "09-page-break.docx",
+      "title": "Explicit w:br page break",
+      "features": ["page-breaks"]
+    },
+    {
+      "file": "10-landscape-section.docx",
+      "title": "Portrait then landscape section",
+      "features": ["sections"]
+    },
+    {
+      "file": "11-mixed-sections.docx",
+      "title": "Two sections with different margins",
+      "features": ["sections"]
+    },
+    {
+      "file": "12-header-footer.docx",
+      "title": "Header and footer parts via sectPr refs",
+      "features": ["headers-footers", "sections"]
+    },
+    {
+      "file": "13-images-mixed.docx",
+      "title": "JPEG + PNG media parts",
+      "features": ["images"]
+    },
+    {
+      "file": "14-styles-indent.docx",
+      "title": "First-line/hanging indent, underline, justify",
+      "features": ["styles", "indents", "runs"]
+    },
+    {
+      "file": "20-business-report.docx",
+      "title": "Kitchen-sink multi-page business report",
+      "features": [
+        "paragraphs",
+        "runs",
+        "styles",
+        "lists",
+        "images",
+        "tables",
+        "sections",
+        "headers-footers",
+        "page-breaks"
+      ]
+    }
+  ]
+}

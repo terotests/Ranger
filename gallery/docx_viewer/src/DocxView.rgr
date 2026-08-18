@@ -19,6 +19,8 @@ class DocxView {
     def bg:EVGColor (EVGColor.rgb(248 248 250))
     def ink:EVGColor (EVGColor.rgb(20 24 32))
     def marginGuide:EVGColor (EVGColor.rgb(220 224 232))
+    def pageGap:int 24
+    def docRef:RichDocument
 
     Constructor () {
     }
@@ -32,6 +34,7 @@ class DocxView {
     }
 
     fn present:void (doc:RichDocument page:int nums:WordNumbering) {
+        docRef = doc
         layout.layout(doc ctx.tr nums)
         if (page < 0) {
             page = 0
@@ -47,46 +50,100 @@ class DocxView {
         canvas.init(pg.width pg.height)
         ctx.attach(canvas)
         canvas.clear((bg.red()) (bg.green()) (bg.blue()))
-        def ml:int (doc.section.marginLeftPx())
-        def mt:int (doc.section.marginTopPx())
-        def mr:int (doc.section.marginRightPx())
-        def mb:int (doc.section.marginBottomPx())
+        def sec:DocSection (doc.sectionAt(pg.sectionIndex))
+        def ml:int (sec.marginLeftPx())
+        def mt:int (sec.marginTopPx())
+        def mr:int (sec.marginRightPx())
+        def mb:int (sec.marginBottomPx())
         ctx.strokeRect(ml mt ((pg.width - ml) - mr) ((pg.height - mt) - mb) 1 marginGuide)
+        this.paintPage(pg)
+    }
 
+    ; Multi-page strip with gap (for window host / overview).
+    fn presentAll:void (doc:RichDocument nums:WordNumbering maxPages:int) {
+        docRef = doc
+        layout.layout(doc ctx.tr nums)
+        def n:int (layout.pageCount())
+        if (n < 1) {
+            canvas.init(100 100)
+            return
+        }
+        if ((maxPages > 0) && (n > maxPages)) {
+            n = maxPages
+        }
+        def maxW:int 0
+        def totalH:int 0
+        def i:int 0
+        while (i < n) {
+            def pg:LaidPage (layout.pageAt(i))
+            if (pg.width > maxW) {
+                maxW = pg.width
+            }
+            totalH = (totalH + pg.height)
+            if (i < (n - 1)) {
+                totalH = (totalH + pageGap)
+            }
+            i = (i + 1)
+        }
+        canvas.init(maxW totalH)
+        ctx.attach(canvas)
+        canvas.clear(210 214 220)
+        def yOff:int 0
+        i = 0
+        while (i < n) {
+            def pg2:LaidPage (layout.pageAt(i))
+            ; page shadow card
+            ctx.fillRect(0 yOff pg2.width pg2.height bg)
+            ; temporarily paint into offset by adjusting line y — copy approach:
+            this.paintPageAt(pg2 0 yOff)
+            yOff = (yOff + pg2.height + pageGap)
+            i = (i + 1)
+        }
+    }
+
+    fn paintPage:void (pg:LaidPage) {
+        this.paintPageAt(pg 0 0)
+    }
+
+    fn paintPageAt:void (pg:LaidPage ox:int oy:int) {
         def i:int 0
         while (i < (array_length pg.lines)) {
             def line:LaidLine (itemAt pg.lines i)
-            def p:Paragraph (doc.paragraphAt(line.paraIndex))
+            def lx:int (line.x + ox)
+            def ly:int (line.y + oy)
+            if (line.kind == 2) {
+                ctx.fillRect(lx ly line.width line.height (this.hexColor(line.fillHex)))
+            }
+            if (line.kind == 3) {
+                ctx.fillRect(lx ly line.width line.height (this.hexColor(line.borderColor)))
+            }
             if (line.kind == 1) {
+                def p:Paragraph line.paragraphRef
                 if (line.imageIndex < (array_length p.images)) {
                     def dimg:DocImage (itemAt p.images line.imageIndex)
                     if dimg.ok {
                         if ((dimg.pixels.width == line.width) && (dimg.pixels.height == line.height)) {
-                            canvas.blitImage(dimg.pixels line.x line.y)
+                            canvas.blitImage(dimg.pixels lx ly)
                         } {
-                            canvas.blitImageRectScaled(dimg.pixels 0 0 dimg.pixels.width dimg.pixels.height line.x line.y line.width line.height)
+                            canvas.blitImageRectScaled(dimg.pixels 0 0 dimg.pixels.width dimg.pixels.height lx ly line.width line.height)
                         }
                     } {
-                        ; placeholder
-                        ctx.fillRect(line.x line.y line.width line.height (EVGColor.rgb(200 210 220)))
-                        ctx.text("[image]" line.x (line.y + 4) 12.0 ink)
+                        ctx.fillRect(lx ly line.width line.height (EVGColor.rgb(200 210 220)))
+                        ctx.text("[image]" lx (ly + 4) 12.0 ink)
                     }
                 }
-            } {
-                def size:double 14.0
-                def bold:boolean false
-                def col:EVGColor ink
-                if ((array_length p.spans) > 0) {
-                    def sp:TextSpan (itemAt p.spans 0)
-                    size = (DocxLayout.ptToPx(sp.fontSizePt))
-                    bold = sp.bold
-                    col = (this.hexColor(sp.colorHex))
-                }
+            }
+            if ((line.kind == 0) || (line.kind == 4) || (line.kind == 5)) {
+                def size:double line.fontSizePx
                 if (size < 8.0) {
                     size = 8.0
                 }
-                if bold {
-                    ctx.tr.fontFamily = "Open Sans"
+                def col:EVGColor (this.hexColor(line.colorHex))
+                if ((line.kind == 4) || (line.kind == 5)) {
+                    ; slightly muted chrome
+                    col = (EVGColor.rgb(80 90 110))
+                }
+                if line.bold {
                     def face:TrueTypeFont (ctx.tr.fm.getFont("Open Sans-Bold"))
                     if (face.unitsPerEm > 0) {
                         ctx.tr.rt.setFont(face)
@@ -99,7 +156,11 @@ class DocxView {
                         ctx.tr.clearCache()
                     }
                 }
-                ctx.text(line.text line.x line.y size col)
+                ctx.text(line.text lx ly size col)
+                if line.underline {
+                    def uy:int ((ly + (to_int size)) + 1)
+                    ctx.fillRect(lx uy line.width 1 col)
+                }
             }
             i = (i + 1)
         }
@@ -153,5 +214,14 @@ class DocxView {
         rb.pixels = (this.raw())
         def png:PNGEncoder (new PNGEncoder)
         png.encode(rb dir file)
+    }
+
+    fn pngBytes:buffer () {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (this.width())
+        rb.height = (this.height())
+        rb.pixels = (this.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        return (png.encodeToBuffer(rb))
     }
 }

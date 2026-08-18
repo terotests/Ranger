@@ -340,6 +340,24 @@ class SpreadsheetModel {
         set formulas k formula
     }
 
+    fn clearFormula:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has formulas k) {
+            set formulas k ""
+        }
+    }
+
+    fn hasFormula:boolean (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has formulas k) {
+            def f:string (unwrap (get formulas k))
+            if ((strlen f) > 0) {
+                return true
+            }
+        }
+        return false
+    }
+
     fn collectFormulaKeys:void (sheetIdx:int out:[string]) {
         def i:int 0
         def n:int (array_length formulaKeys)

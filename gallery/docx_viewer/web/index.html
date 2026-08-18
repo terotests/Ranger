@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger DOCX Viewer</title>
+    <style>
+      :root {
+        --bg: #12141c;
+        --panel: #1a1f2c;
+        --ink: #e6ebf5;
+        --muted: #8b97b0;
+        --accent: #78c8ff;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(900px 500px at 0% 0%, #1a2744 0%, transparent 55%),
+          var(--bg);
+        color: var(--ink);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body {
+        display: grid;
+        place-items: start center;
+        padding: 24px;
+      }
+      .stage { width: min(920px, 100%); }
+      h1 { margin: 0 0 6px; font-size: 1.3rem; }
+      p.hint { margin: 0 0 14px; color: var(--muted); font-size: 0.92rem; }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+        padding: 10px;
+        background: var(--panel);
+        border: 1px solid #2a3348;
+      }
+      select, button {
+        font: inherit;
+        color: var(--ink);
+        background: #1c2436;
+        border: 1px solid #3a4560;
+        border-radius: 4px;
+        padding: 6px 10px;
+      }
+      button:hover, select:hover { border-color: var(--accent); cursor: pointer; }
+      .frame {
+        background: var(--panel);
+        border: 1px solid #2a3348;
+        padding: 10px;
+        overflow: auto;
+        max-height: calc(100vh - 180px);
+      }
+      #page {
+        display: block;
+        margin: 0 auto;
+        background: #fff;
+        max-width: 100%;
+        height: auto;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+      }
+      .bar {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .bar strong { color: var(--accent); }
+      code { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>Ranger DOCX Viewer</h1>
+      <p class="hint">
+        SoftCanvas page preview of WordprocessingML fixtures.
+        Use <code>npm run docx_viewer:window</code> (not <code>docs_viewer</code>).
+      </p>
+      <div class="toolbar">
+        <label>
+          Document
+          <select id="docSelect"></select>
+        </label>
+        <button type="button" id="prevPage">Prev</button>
+        <span id="pageLabel">page 1 / 1</span>
+        <button type="button" id="nextPage">Next</button>
+        <button type="button" id="reload">Reload</button>
+      </div>
+      <div class="frame">
+        <img id="page" alt="DOCX page" />
+      </div>
+      <div class="bar">
+        <span>status: <strong id="status">loading…</strong></span>
+        <span>size: <strong id="size">—</strong></span>
+      </div>
+    </div>
+    <script type="module" src="./client.mjs"></script>
+  </body>
+</html>

@@ -167,10 +167,21 @@ class GridApp {
                 engine.registerFormula(book.activeIndex sel.active.row sel.active.col expr)
                 engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
             } {
+                ; Plain value overwrites any prior formula.
+                def had:boolean (model.hasFormula(sel.active.row sel.active.col))
+                if had {
+                    model.clearFormula(sel.active.row sel.active.col)
+                    engine.clearFormula(book.activeIndex sel.active.row sel.active.col)
+                }
                 model.setCell(sel.active.row sel.active.col editBuf)
                 engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
             }
         } {
+            def had2:boolean (model.hasFormula(sel.active.row sel.active.col))
+            if had2 {
+                model.clearFormula(sel.active.row sel.active.col)
+                engine.clearFormula(book.activeIndex sel.active.row sel.active.col)
+            }
             model.setCell(sel.active.row sel.active.col "")
             engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
         }
@@ -363,7 +374,7 @@ class GridApp {
         }
     }
 
-    ; FortuneSheet fill handle: tile the source rectangle into the extended selection.
+    ; FortuneSheet fill handle: tile source rect; translate relative formula refs.
     fn fillFromSource:void () {
         def a:CellPos (new CellPos)
         def b:CellPos (new CellPos)
@@ -376,6 +387,7 @@ class GridApp {
         if (srcW < 1) {
             return
         }
+        engine.attach(book)
         def r:int a.row
         while (r <= b.row) {
             def c:int a.col
@@ -389,12 +401,34 @@ class GridApp {
                     def dc:int (c - fillC0)
                     def sr:int (fillR0 + (dr - ((to_int (dr / srcH)) * srcH)))
                     def sc:int (fillC0 + (dc - ((to_int (dc / srcW)) * srcW)))
-                    model.setCell(r c (model.getCell(sr sc)))
+                    def srcF:string (model.getFormula(sr sc))
+                    if ((strlen srcF) > 0) {
+                        def dx:int (c - sc)
+                        def dy:int (r - sr)
+                        def translated:string (FormulaParser.translateFormula(srcF dx dy))
+                        if ((strlen translated) > 0) {
+                            model.setFormula(r c translated)
+                            model.setCellRaw(r c "")
+                            engine.registerFormula(book.activeIndex r c translated)
+                        } {
+                            model.setCell(r c (model.getCell(sr sc)))
+                        }
+                    } {
+                        def had:boolean (model.hasFormula(r c))
+                        if had {
+                            model.clearFormula(r c)
+                            engine.clearFormula(book.activeIndex r c)
+                        }
+                        model.setCell(r c (model.getCell(sr sc)))
+                    }
                 }
                 c = (c + 1)
             }
             r = (r + 1)
         }
+        ; Recalc newly registered / dependent formulas once.
+        engine.resetStats()
+        engine.recalcDirty()
     }
 
     fn update:void (input:UIInput) {
@@ -433,15 +467,21 @@ class GridApp {
                         dragging = false
                     } {
                         def hit:CellPos (grid.hitTest(model input.pointerX input.pointerY))
-                        if ((hit.row >= 0) && (hit.col >= 0)) {
+                        if ((hit.row == -3) && (hit.col == -3)) {
+                            ; Formula bar click → edit active cell formula/value.
                             view.focused = true
-                            if editing {
-                                if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
-                                    this.commitEdit()
+                            this.beginEdit("" false)
+                        } {
+                            if ((hit.row >= 0) && (hit.col >= 0)) {
+                                view.focused = true
+                                if editing {
+                                    if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
+                                        this.commitEdit()
+                                    }
                                 }
+                                this.moveActive(hit.row hit.col input.shiftDown)
+                                dragging = true
                             }
-                            this.moveActive(hit.row hit.col input.shiftDown)
-                            dragging = true
                         }
                     }
                 }
