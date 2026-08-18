@@ -88,7 +88,15 @@ export const DIFFICULT = {
   brush_table:
     'a key belongs to the page unless the chart resolves it independently, and '
     + 'then it belongs to the pane whose scale it names — which means a pane '
-    + 'has to be able to carry one and to reserve the room beside it'
+    + 'has to be able to carry one and to reserve the room beside it',
+
+  trellis_barley:
+    'a trellis ordered by a SUMMARY of a column has to compute the ranking '
+    + 'before its own aggregate summarises that column away — one value per '
+    + 'panel, written onto every row and carried through by being grouped on. '
+    + 'A sort that names a column and no op is the other case entirely: the '
+    + 'reference looks for it in the derived rows and orders nothing when it '
+    + 'is not there, which is what trellis_area_seattle relies on'
 };
 
 /** The names, in the order they were won. */

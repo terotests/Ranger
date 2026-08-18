@@ -1533,6 +1533,10 @@ class VlCompile {
         ; level, but a wrapped FACET channel says it on the channel — and read
         ; only from the top level the grid never wrapped, so every panel of a
         ; six-site trellis stood in one very wide row.
+        ; The column the panels are RANKED by, where the chart's own aggregate
+        ; would have thrown the raw one away. The child wrote it onto every
+        ; row and grouped on it, so it is here to be read.
+        def orderKey:string (this.facetOrderKey())
         def columnsDef:VlJson ((this.channel("facet")).def0.get("columns"))
         if (! (columnsDef.isNumber())) {
             columnsDef = (src.get("columns"))
@@ -1615,6 +1619,10 @@ class VlCompile {
         def sortField:string (facetSort.stringOr("field" ""))
         def sortOp:string (facetSort.stringOr("op" "min"))
         def sortDir:string (facetSort.stringOr("order" "ascending"))
+        if ((strlen orderKey) > 0) {
+            sortField = orderKey
+            sortOp = "min"
+        }
         def orderField:string facetField
         if ((strlen sortField) > 0) {
             orderField = sortField
@@ -1724,7 +1732,7 @@ class VlCompile {
         if gridded {
             crossField = columnField
         }
-        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel (VlCompile.facetHeaderOf(src facetKey)) sortField sortOp sortDir crossField))
+        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) child.dataLabel (VlCompile.facetHeaderOf(src facetKey)) sortField sortOp sortDir crossField orderKey))
         out.setMember("marks" marks)
 
         ; Where the panels go, and how far the title stands clear of them.
@@ -2151,7 +2159,7 @@ class VlCompile {
     }
 
     ; One panel: the chart itself, drawn over the partition it belongs to.
-    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string header:VlJson sortField:string sortOp:string orderDir:string crossField:string) {
+    sfn cellGroup:VlJson (field:string marks:VlJson gridAxes:VlJson wrapped:boolean bare:boolean from:string header:VlJson sortField:string sortOp:string orderDir:string crossField:string orderKey:string) {
         def out (VlJson.objectValue())
         out.setMember("name" (VlJson.stringValue("cell")))
         out.setMember("type" (VlJson.stringValue("group")))
@@ -2189,6 +2197,22 @@ class VlCompile {
         ; that field before it can be placed: the partition carries the
         ; aggregate that reads it, and the panel is sorted by the result.
         def sortBy:string field
+        if ((strlen orderKey) > 0) {
+            ; The ranking was computed upstream and rides on every row, so the
+            ; partition only has to pick it up again.
+            sortBy = orderKey
+            def carried (VlJson.objectValue())
+            def carriedFields (VlJson.arrayValue())
+            push carriedFields.arr (VlJson.stringValue(orderKey))
+            carried.setMember("fields" carriedFields)
+            def carriedOps (VlJson.arrayValue())
+            push carriedOps.arr (VlJson.stringValue("min"))
+            carried.setMember("ops" carriedOps)
+            def carriedAs (VlJson.arrayValue())
+            push carriedAs.arr (VlJson.stringValue(orderKey))
+            carried.setMember("as" carriedAs)
+            facet.setMember("aggregate" carried)
+        } {
         if ((strlen sortField) > 0) {
             sortBy = ((sortField + "_by_") + field)
             def agg (VlJson.objectValue())
@@ -2202,6 +2226,7 @@ class VlCompile {
             push aggAs.arr (VlJson.stringValue(sortBy))
             agg.setMember("as" aggAs)
             facet.setMember("aggregate" agg)
+        }
         }
         def from (VlJson.objectValue())
         from.setMember("facet" facet)
@@ -4780,6 +4805,7 @@ class VlCompile {
         ; list of day names is looked up by the name the instant formats to.
         this.pushStatedOrder(transforms)
         this.pushBin(transforms)
+        this.pushFacetOrder(transforms)
         this.pushAggregate(transforms)
         this.pushImpute(transforms)
         this.pushStack(transforms)
@@ -5537,6 +5563,92 @@ class VlCompile {
         }
     }
 
+    ; The column a trellis is ORDERED by, where that is not a column the
+    ; panels are cut on. A trellis of barley sites is ordered by the median
+    ; yield of each site, and the chart's own aggregate — one median per site,
+    ; variety and year — throws the raw yields away before anything can rank
+    ; the sites by them. So the ranking is computed FIRST, one value per site
+    ; written onto every row of that site, and carried through the aggregate
+    ; by being grouped on. It is constant within the group, so grouping on it
+    ; splits nothing.
+    fn facetOrderKey:string () {
+        if (! (this.aggregatesAnything())) {
+            return ""
+        }
+        for channels ch:VlChannel ci {
+            def isFacet:boolean (((ch.name == "row") || (ch.name == "column")) || (ch.name == "facet"))
+            if isFacet {
+                def cut:string (ch.outField())
+                if ((strlen cut) > 0) {
+                    def sort:VlJson (ch.def0.get("sort"))
+                    if (sort.isObject()) {
+                        def by:string (sort.stringOr("field" ""))
+                        if ((strlen by) > 0) {
+                            ; …and only where the chart asked for a SUMMARY of
+                            ; that column. `{"op": "median", "field": "yield"}`
+                            ; is a ranking that has to be computed before the
+                            ; chart's own aggregate summarises the yields away;
+                            ; `{"field": "order"}` names a column and expects
+                            ; to find it, and the reference looks for it in the
+                            ; derived rows and orders nothing when it is not
+                            ; there.
+                            if (sort.has("op")) {
+                                if (by != cut) {
+                                    def op:string (sort.stringOr("op" "min"))
+                                    return ((((op + "_") + by) + "_by_") + cut)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return ""
+    }
+
+    fn aggregatesAnything:boolean () {
+        for channels a:VlChannel ai {
+            if ((strlen a.aggregate) > 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn pushFacetOrder:void (transforms:VlJson) {
+        def key:string (this.facetOrderKey())
+        if ((strlen key) == 0) {
+            return
+        }
+        for channels ch:VlChannel ci {
+            def isFacet:boolean (((ch.name == "row") || (ch.name == "column")) || (ch.name == "facet"))
+            if isFacet {
+                def sort:VlJson (ch.def0.get("sort"))
+                if (sort.isObject()) {
+                    def by:string (sort.stringOr("field" ""))
+                    if ((strlen by) > 0) {
+                        def t (VlJson.objectValue())
+                        t.setMember("type" (VlJson.stringValue("joinaggregate")))
+                        def groupby (VlJson.arrayValue())
+                        push groupby.arr (VlJson.stringValue((ch.outField())))
+                        t.setMember("groupby" groupby)
+                        def fields (VlJson.arrayValue())
+                        push fields.arr (VlJson.stringValue(by))
+                        t.setMember("fields" fields)
+                        def ops (VlJson.arrayValue())
+                        push ops.arr (VlJson.stringValue((sort.stringOr("op" "min"))))
+                        t.setMember("ops" ops)
+                        def asNames (VlJson.arrayValue())
+                        push asNames.arr (VlJson.stringValue(key))
+                        t.setMember("as" asNames)
+                        push transforms.arr t
+                        return
+                    }
+                }
+            }
+        }
+    }
+
     fn pushAggregate:void (transforms:VlJson) {
         def ops (VlJson.arrayValue())
         def fields (VlJson.arrayValue())
@@ -5629,6 +5741,13 @@ class VlCompile {
                     }
                 }
             }
+        }
+        ; The ranking a trellis is ordered by travels with the rows it belongs
+        ; to: it is one value per panel, so grouping on it splits nothing and
+        ; leaving it out loses the order the panels were asked for.
+        def carriedOrder:string (this.facetOrderKey())
+        if ((strlen carriedOrder) > 0) {
+            push groupby.arr (VlJson.stringValue(carriedOrder))
         }
         def t (VlJson.objectValue())
         t.setMember("type" (VlJson.stringValue("aggregate")))
