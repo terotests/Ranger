@@ -920,6 +920,38 @@ class VlRuntime {
         ; A smoother: the curve a scatter plot implies, fitted locally. It
         ; GENERATES its rows — the answer is one point per distinct x — so the
         ; data set it produces replaces the one it read.
+        ; A straight line through two columns, or the numbers that describe it.
+        if (ttype == "regression") {
+            def rx:string (tdef.stringOr("x" ""))
+            def ry:string (tdef.stringOr("y" ""))
+            def rGroup:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            def rNames:[string] (VlRuntime.stringList((tdef.get("as"))))
+            def method:string (tdef.stringOr("method" "linear"))
+            if (method != "linear") {
+                this.fail((("regression method '" + method) + "' is not implemented (data '") + dataName + "')")
+                return rows
+            }
+            return (VlTransform.regression(rows rx ry rGroup (tdef.boolOr("params" false)) rNames))
+        }
+        ; A column reduced to the values standing at evenly spaced
+        ; probabilities through it, which is what a quantile-quantile plot is
+        ; drawn from. It generates its rows the way the smoother does.
+        if (ttype == "quantile") {
+            def qField:string (tdef.stringOr("field" ""))
+            def qStep:double (tdef.doubleOr("step" 0.01))
+            def qProbs:[double]
+            def statedProbs:VlJson (tdef.get("probs"))
+            if (statedProbs.isArray()) {
+                def qi:int 0
+                while (qi < (statedProbs.count())) {
+                    push qProbs ((statedProbs.at(qi)).asDouble())
+                    qi = (qi + 1)
+                }
+            }
+            def qGroup:[string] (VlRuntime.stringList((tdef.get("groupby"))))
+            def qNames:[string] (VlRuntime.stringList((tdef.get("as"))))
+            return (VlTransform.quantiles(rows qField qStep qProbs qGroup qNames))
+        }
         if (ttype == "loess") {
             def lx:string (tdef.stringOr("x" ""))
             def ly:string (tdef.stringOr("y" ""))

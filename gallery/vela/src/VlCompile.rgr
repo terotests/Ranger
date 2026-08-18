@@ -63,6 +63,9 @@ class VlChannel {
     ; rename — only a scale that has to be told where the edges are.
     def binnedAlready:boolean false
     def binStep:double 0.0
+    ; The range the bins are cut over, where the chart stated one rather than
+    ; letting the data decide.
+    def binExtent:VlJson (new VlJson)
     def hasValue:boolean false
     ; The channel states a constant AND names a field inside a condition: the
     ; selected rows are painted by the field, everything else by the constant.
@@ -4096,8 +4099,23 @@ class VlCompile {
                         if (binDef.has("maxbins")) {
                             ch.maxbins = (to_int (binDef.doubleOr("maxbins" 10.0)))
                         }
+                        ; `extent` says which RANGE the bins cover. Written as
+                        ; two numbers it is the range itself; written as a
+                        ; SELECTION it is whatever somebody has brushed, and
+                        ; with nothing brushed and nothing to brush with, that
+                        ; is the whole of the data — the same bins the chart
+                        ; above it draws, which is exactly what the reference
+                        ; draws too.
+                        if (binDef.has("extent")) {
+                            def stated:VlJson (binDef.get("extent"))
+                            if (stated.isArray()) {
+                                if ((stated.count()) == 2) {
+                                    ch.binExtent = stated
+                                }
+                            }
+                        }
                         for binDef.keys bk:string bki {
-                            if (bk != "maxbins") {
+                            if ((bk != "maxbins") && (bk != "extent")) {
                                 this.fail((("a bin written with '" + bk) + "' is not compiled here"))
                             }
                         }
@@ -5284,6 +5302,53 @@ class VlCompile {
                     VlCompile.spreadAggregate(ja (t.get("joinaggregate")))
                     push transforms.arr ja
                 } {
+                if (t.has("regression")) {
+                    ; A straight line fitted through two columns. Emitted as it
+                    ; stands: the runtime does the fitting, and the answer
+                    ; REPLACES the rows it read — one line, or one row of
+                    ; coefficients where the chart asked for the parameters.
+                    def rg (VlJson.objectValue())
+                    rg.setMember("type" (VlJson.stringValue("regression")))
+                    rg.setMember("x" (VlJson.stringValue((t.stringOr("on" "")))))
+                    rg.setMember("y" (VlJson.stringValue((t.stringOr("regression" "")))))
+                    if (t.has("groupby")) {
+                        rg.setMember("groupby" (t.get("groupby")))
+                    }
+                    if (t.has("method")) {
+                        rg.setMember("method" (t.get("method")))
+                    }
+                    if (t.has("params")) {
+                        rg.setMember("params" (t.get("params")))
+                    }
+                    def rgNames (VlJson.arrayValue())
+                    push rgNames.arr (VlJson.stringValue((t.stringOr("on" ""))))
+                    push rgNames.arr (VlJson.stringValue((t.stringOr("regression" ""))))
+                    if (t.has("as")) {
+                        rgNames = (t.get("as"))
+                    }
+                    rg.setMember("as" rgNames)
+                    push transforms.arr rg
+                } {
+                if (t.has("quantile")) {
+                    ; A column reduced to its quantiles: the transform is
+                    ; emitted as it stands and the runtime does the sorting.
+                    def qt (VlJson.objectValue())
+                    qt.setMember("type" (VlJson.stringValue("quantile")))
+                    qt.setMember("field" (VlJson.stringValue((t.stringOr("quantile" "")))))
+                    if (t.has("probs")) {
+                        qt.setMember("probs" (t.get("probs")))
+                    }
+                    if (t.has("step")) {
+                        qt.setMember("step" (t.get("step")))
+                    }
+                    if (t.has("groupby")) {
+                        qt.setMember("groupby" (t.get("groupby")))
+                    }
+                    if (t.has("as")) {
+                        qt.setMember("as" (t.get("as")))
+                    }
+                    push transforms.arr qt
+                } {
                 if (t.has("loess")) {
                     ; A smoother over two fields, which REPLACES the data with
                     ; one point per distinct x — so it is emitted as it stands
@@ -5550,6 +5615,8 @@ class VlCompile {
                     ; how Vega-Lite writes a transform, so the refusal can say
                     ; which one it was.
                     this.fail(("the transform '" + (VlCompile.transformName(t))) + "' is not compiled here")
+                }
+                }
                 }
                 }
                 }
@@ -5928,11 +5995,16 @@ class VlCompile {
             if ch.hasBin {
                 def base:string (ch.outField())
                 def sig:string (ch.binSignal())
-                def extent (VlJson.objectValue())
-                extent.setMember("type" (VlJson.stringValue("extent")))
-                extent.setMember("field" (VlJson.stringValue(ch.field)))
-                extent.setMember("signal" (VlJson.stringValue((sig + "_extent"))))
-                push transforms.arr extent
+                def stated:boolean ((ch.binExtent).isArray())
+                if stated {
+                    ; A stated range needs nothing measured off the rows.
+                } {
+                    def extent (VlJson.objectValue())
+                    extent.setMember("type" (VlJson.stringValue("extent")))
+                    extent.setMember("field" (VlJson.stringValue(ch.field)))
+                    extent.setMember("signal" (VlJson.stringValue((sig + "_extent"))))
+                    push transforms.arr extent
+                }
 
                 def bin (VlJson.objectValue())
                 bin.setMember("type" (VlJson.stringValue("bin")))
@@ -5942,9 +6014,13 @@ class VlCompile {
                 push asNames.arr (VlJson.stringValue((ch.binEndField())))
                 bin.setMember("as" asNames)
                 bin.setMember("signal" (VlJson.stringValue((sig + "_bins"))))
-                def from (VlJson.objectValue())
-                from.setMember("signal" (VlJson.stringValue((sig + "_extent"))))
-                bin.setMember("extent" from)
+                if stated {
+                    bin.setMember("extent" (ch.binExtent))
+                } {
+                    def from (VlJson.objectValue())
+                    from.setMember("signal" (VlJson.stringValue((sig + "_extent"))))
+                    bin.setMember("extent" from)
+                }
                 bin.setMember("maxbins" (VlJson.numberValue((to_double ch.maxbins))))
                 push transforms.arr bin
             }

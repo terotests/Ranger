@@ -34,6 +34,13 @@ class VlExprScope {
     ; The wall clock the LOCAL date functions read — `year`, `hours`,
     ; `timeFormat`. Their `utc…` twins ignore it, by definition.
     def zone:VlTimeZone (new VlTimeZone())
+    ; Where the pseudo-random sequence has got to. `random()` is a real
+    ; function of the language — a chart jitters its dots with it — and a
+    ; drawing has to be the same drawing twice, so the sequence is a plain
+    ; generator started from a fixed seed rather than the clock. It advances
+    ; here, on the scope, because a scope outlives the rows it is asked about.
+    def randomState:double 1.0
+
     ; Set when a function the profile does not have is called, so a spec that
     ; needs more than this evaluator has fails loudly instead of drawing
     ; something subtly wrong.
@@ -682,6 +689,42 @@ class VlExprEval {
         if (name == "pow") {
             return (VlJson.numberValue((VlMath.pow((a0.asDouble()) (a1.asDouble())))))
         }
+        ; A number between nought and one. It is not the reference's number —
+        ; nobody's is, twice — so a chart drawn through this is the same chart
+        ; every time it is opened and a different chart from the reference's.
+        if (name == "random") {
+            scope.randomState = (VlExprEval.nextRandom(scope.randomState))
+            return (VlJson.numberValue((scope.randomState / 2147483647.0)))
+        }
+        ; The value a distribution stands at, at a given probability. A
+        ; quantile-quantile plot draws a column's own quantiles against these,
+        ; which is how a chart says whether the column is shaped the way a
+        ; uniform or a normal distribution is.
+        if (name == "quantileUniform") {
+            def lo:double 0.0
+            def hi:double 1.0
+            if (a1.isNumber()) {
+                if (a2.isNumber()) {
+                    lo = (a1.asDouble())
+                    hi = (a2.asDouble())
+                } {
+                    hi = (a1.asDouble())
+                }
+            }
+            def at:double (a0.asDouble())
+            return (VlJson.numberValue((lo + (at * (hi - lo)))))
+        }
+        if (name == "quantileNormal") {
+            def centre:double 0.0
+            def spread:double 1.0
+            if (a1.isNumber()) {
+                centre = (a1.asDouble())
+            }
+            if (a2.isNumber()) {
+                spread = (a2.asDouble())
+            }
+            return (VlJson.numberValue((centre + (spread * (VlMath.probit((a0.asDouble())))))))
+        }
         if (name == "max") {
             return (VlExprEval.extremum(node scope true))
         }
@@ -944,6 +987,18 @@ class VlExprEval {
 
         scope.noteMissing(name)
         return (VlJson.nullValue())
+    }
+
+    ; MINSTD, which stays exact in a double because the product never reaches
+    ; two to the fifty-third.
+    sfn nextRandom:double (state:double) {
+        def next:double (state * 16807.0)
+        def whole:double (to_double (to_int (next / 2147483647.0)))
+        next = (next - (whole * 2147483647.0))
+        if (next < 1.0) {
+            next = 1.0
+        }
+        return next
     }
 
     sfn extremum:VlJson (node:VlExprNode scope:VlExprScope wantMax:boolean) {

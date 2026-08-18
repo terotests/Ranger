@@ -1843,6 +1843,206 @@ class VlTransform {
     ;
     ; It GENERATES rows: the answer is one point per distinct x, not a column
     ; added to what came in.
+    ; The QUANTILE transform: a column reduced to the values that stand at
+    ; evenly spaced probabilities through it. It is what a Q-Q plot is drawn
+    ; from — a hundred points, one every hundredth of the way up the sorted
+    ; column — and like the smoother it GENERATES its rows rather than
+    ; annotating them.
+    ; A straight line fitted through two columns by least squares. Like the
+    ; smoother it GENERATES its rows — the answer is the line, sampled along
+    ; the range of x — unless the chart asked for the PARAMETERS instead, and
+    ; then the answer is one row per group holding the two coefficients and how
+    ; much of the variation the line accounts for.
+    ;
+    ; The means are accumulated the way the reference accumulates them, one
+    ; row at a time, because a running mean and a sum divided at the end are
+    ; not the same number in floating point and an R² printed to two places
+    ; can land either side of a rounding.
+    sfn regression:[VlJson] (rows:[VlJson] xField:string yField:string groupby:[string] params:boolean asNames:[string]) {
+        def xName:string xField
+        def yName:string yField
+        if ((array_length asNames) > 0) {
+            xName = (itemAt asNames 0)
+        }
+        if ((array_length asNames) > 1) {
+            yName = (itemAt asNames 1)
+        }
+        def out:[VlJson]
+        def keys:[string]
+        def seen:[string:int]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has seen key)) {
+                set seen key 1
+                push keys key
+            }
+        }
+        for keys key:string ki {
+            def xs:[double]
+            def ys:[double]
+            def sample:VlJson (VlJson.objectValue())
+            def haveSample:boolean false
+            for rows row2:VlJson r2 {
+                if ((VlTransform.groupKey(row2 groupby)) == key) {
+                    def xv:VlJson (row2.get(xField))
+                    def yv:VlJson (row2.get(yField))
+                    if ((xv.isNumber()) && (yv.isNumber())) {
+                        push xs xv.num
+                        push ys yv.num
+                        if (! haveSample) {
+                            sample = row2
+                            haveSample = true
+                        }
+                    }
+                }
+            }
+            def n:int (array_length xs)
+            if (n > 1) {
+                def mx:double 0.0
+                def my:double 0.0
+                def mxy:double 0.0
+                def mxx:double 0.0
+                def k:int 0
+                while (k < n) {
+                    def dx:double (itemAt xs k)
+                    def dy:double (itemAt ys k)
+                    def count:double (to_double (k + 1))
+                    mx = (mx + ((dx - mx) / count))
+                    my = (my + ((dy - my) / count))
+                    mxy = (mxy + (((dx * dy) - mxy) / count))
+                    mxx = (mxx + (((dx * dx) - mxx) / count))
+                    k = (k + 1)
+                }
+                def delta:double (mxx - (mx * mx))
+                def spread:double delta
+                if (spread < 0.0) {
+                    spread = (0.0 - spread)
+                }
+                def slope:double 0.0
+                if (spread > 0.000000000000000000000001) {
+                    slope = ((mxy - (mx * my)) / delta)
+                }
+                def intercept:double (my - (slope * mx))
+                if params {
+                    def sse:double 0.0
+                    def sst:double 0.0
+                    def j:int 0
+                    while (j < n) {
+                        def ex:double ((itemAt ys j) - (intercept + (slope * (itemAt xs j))))
+                        def et:double ((itemAt ys j) - my)
+                        sse = (sse + (ex * ex))
+                        sst = (sst + (et * et))
+                        j = (j + 1)
+                    }
+                    def made (VlJson.objectValue())
+                    for groupby g:string gi {
+                        made.setMember(g (sample.get(g)))
+                    }
+                    def coef (VlJson.arrayValue())
+                    push coef.arr (VlJson.numberValue(intercept))
+                    push coef.arr (VlJson.numberValue(slope))
+                    made.setMember("coef" coef)
+                    def fit:double 0.0
+                    if (sst > 0.0) {
+                        fit = (1.0 - (sse / sst))
+                    }
+                    made.setMember("rSquared" (VlJson.numberValue(fit)))
+                    push out made
+                } {
+                    ; The line, sampled the way the reference samples a curve:
+                    ; twenty-five even steps across the range of x, refined no
+                    ; further because a straight line has nothing to refine.
+                    def lo:double (itemAt xs 0)
+                    def hi:double lo
+                    def m:int 0
+                    while (m < n) {
+                        def at:double (itemAt xs m)
+                        if (at < lo) { lo = at }
+                        if (at > hi) { hi = at }
+                        m = (m + 1)
+                    }
+                    def steps:int 25
+                    def span:double (hi - lo)
+                    def step:int 0
+                    while (step <= steps) {
+                        def px:double (lo + ((span * (to_double step)) / (to_double steps)))
+                        def made2 (VlJson.objectValue())
+                        for groupby g2:string g2i {
+                            made2.setMember(g2 (sample.get(g2)))
+                        }
+                        made2.setMember(xName (VlJson.numberValue(px)))
+                        made2.setMember(yName (VlJson.numberValue((intercept + (slope * px)))))
+                        push out made2
+                        step = (step + 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn quantiles:[VlJson] (rows:[VlJson] field:string step:double probs:[double] groupby:[string] asNames:[string]) {
+        def pName:string "prob"
+        def vName:string "value"
+        if ((array_length asNames) > 0) {
+            pName = (itemAt asNames 0)
+        }
+        if ((array_length asNames) > 1) {
+            vName = (itemAt asNames 1)
+        }
+        ; With nothing said, the probabilities start HALF a step in and walk
+        ; up by a step: a hundredth step gives 0.005, 0.015, … 0.995, which is
+        ; a hundred points and not a hundred and one.
+        def wanted:[double] probs
+        if ((array_length wanted) == 0) {
+            def at:double (step / 2.0)
+            while (at < 1.0) {
+                push wanted at
+                at = (at + step)
+            }
+        }
+        def out:[VlJson]
+        def keys:[string]
+        def seen:[string:int]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has seen key)) {
+                set seen key 1
+                push keys key
+            }
+        }
+        for keys key:string ki {
+            def values:[double]
+            def sample:VlJson (VlJson.objectValue())
+            def haveSample:boolean false
+            for rows row2:VlJson r2 {
+                if ((VlTransform.groupKey(row2 groupby)) == key) {
+                    def v:VlJson (row2.get(field))
+                    if (v.isNumber()) {
+                        push values v.num
+                        if (! haveSample) {
+                            sample = row2
+                            haveSample = true
+                        }
+                    }
+                }
+            }
+            if ((array_length values) > 0) {
+                def sorted:[double] (VlTransform.sortedNumbers(values))
+                for wanted p:double pi {
+                    def made (VlJson.objectValue())
+                    for groupby g:string gi {
+                        made.setMember(g (sample.get(g)))
+                    }
+                    made.setMember(pName (VlJson.numberValue(p)))
+                    made.setMember(vName (VlJson.numberValue((VlTransform.quantile(sorted p)))))
+                    push out made
+                }
+            }
+        }
+        return out
+    }
+
     sfn loess:[VlJson] (rows:[VlJson] xField:string yField:string groupby:[string] bandwidth:double asNames:[string]) {
         def xName:string xField
         def yName:string yField
