@@ -2858,81 +2858,232 @@ class VlRuntime {
         return false
     }
 
-    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double rowGap:double uniform:boolean) {
+    ; Which way a grid lines its panels up, per direction. `"all"` measures
+    ; every panel against every other and gives them all one pitch; `"each"`
+    ; lines a column up with the column beside it only; anything else lets
+    ; each panel take exactly the room it needs.
+    sfn alignOf:string (layoutDef:VlJson which:string) {
+        def align:VlJson (layoutDef.get("align"))
+        if (align.isObject()) {
+            def side:VlJson (align.get(which))
+            if (side.isString()) {
+                return side.str
+            }
+            return "none"
+        }
+        if (align.isString()) {
+            return align.str
+        }
+        return "none"
+    }
+
+    ; How far a panel hangs off the given side, rounded outward. A side it does
+    ; not hang off at all is worth nothing — not a negative.
+    sfn overhang:double (v:double) {
+        if (v > 0.0) {
+            return (VlBounds.ceilTo(v))
+        }
+        return 0.0
+    }
+
+    ; The panels of a grid, placed the way the reference places them.
+    ;
+    ; The two ends of a panel are rounded outward SEPARATELY and then the
+    ; widest of each end is taken across the grid — not the widest panel. A
+    ; trellis whose third row reaches four pixels past its plot on the right
+    ; and whose fourth hangs seven past it on the left is laid out on a pitch
+    ; that has room for both, even though no single panel wants that much.
+    sfn placeCells:VlBounds (cells:[VlGroupBox] columns:int gap:double rowGap:double alignCol:string alignRow:string) {
+        def n:int (array_length cells)
+        def ncols:int columns
+        if (ncols <= 0) {
+            ncols = n
+        }
+        if (ncols <= 0) {
+            ncols = 1
+        }
+        def nrows:int 0
+        def xOffset:[double]
+        def yOffset:[double]
+        def xExtent:[double]
+        def yExtent:[double]
+        def rowOf:[int]
+        def colOf:[int]
+        def xMax:double 0.0
+        def yMax:double 0.0
+        def col:int 0
+        def row:int 0
+        for cells box:VlGroupBox idx {
+            VlRuntime.growByContents(box)
+            push xOffset 0.0
+            push yOffset 0.0
+            push colOf col
+            push rowOf row
+            col = (col + 1)
+            if (col == ncols) {
+                col = 0
+                row = (row + 1)
+            }
+        }
+        nrows = row
+        if (col > 0) {
+            nrows = (row + 1)
+        }
+        if (nrows <= 0) {
+            nrows = 1
+        }
+        def ci:int 0
+        while (ci < ncols) {
+            push xExtent 0.0
+            ci = (ci + 1)
+        }
+        def ri:int 0
+        while (ri < nrows) {
+            push yExtent 0.0
+            ri = (ri + 1)
+        }
+        for cells box:VlGroupBox idx {
+            def px:double (VlBounds.ceilTo((box.width + box.right)))
+            def py:double (VlBounds.ceilTo((box.height + box.bottom)))
+            xMax = (VlRuntime.higher(xMax px))
+            yMax = (VlRuntime.higher(yMax py))
+            def c:int (itemAt colOf idx)
+            def r:int (itemAt rowOf idx)
+            set_at xExtent c (VlRuntime.higher((itemAt xExtent c) px))
+            set_at yExtent r (VlRuntime.higher((itemAt yExtent r) py))
+            ; The first panel of a row starts flush against the grid's own
+            ; left edge; only the ones after it are pushed clear of it.
+            if (c > 0) {
+                set_at xOffset idx (gap + (VlRuntime.overhang(box.left)))
+            }
+            if (r > 0) {
+                set_at yOffset idx (rowGap + (VlRuntime.overhang(box.top)))
+            }
+        }
+
+        if (alignCol == "all") {
+            def offset:double 0.0
+            for cells box:VlGroupBox idx {
+                if ((itemAt colOf idx) > 0) {
+                    offset = (VlRuntime.higher(offset (itemAt xOffset idx)))
+                }
+            }
+            for cells box:VlGroupBox idx {
+                if ((itemAt colOf idx) > 0) {
+                    set_at xOffset idx (offset + xMax)
+                }
+            }
+        } {
+            if (alignCol == "each") {
+                def c2:int 1
+                while (c2 < ncols) {
+                    def offset2:double 0.0
+                    for cells box:VlGroupBox idx {
+                        if ((itemAt colOf idx) == c2) {
+                            offset2 = (VlRuntime.higher(offset2 (itemAt xOffset idx)))
+                        }
+                    }
+                    for cells box:VlGroupBox idx {
+                        if ((itemAt colOf idx) == c2) {
+                            set_at xOffset idx (offset2 + (itemAt xExtent (c2 - 1)))
+                        }
+                    }
+                    c2 = (c2 + 1)
+                }
+            } {
+                for cells box:VlGroupBox idx {
+                    def c3:int (itemAt colOf idx)
+                    if (c3 > 0) {
+                        set_at xOffset idx ((itemAt xOffset idx) + (itemAt xExtent (c3 - 1)))
+                    }
+                }
+            }
+        }
+
+        if (alignRow == "all") {
+            def offsetR:double 0.0
+            for cells box:VlGroupBox idx {
+                if ((itemAt rowOf idx) > 0) {
+                    offsetR = (VlRuntime.higher(offsetR (itemAt yOffset idx)))
+                }
+            }
+            for cells box:VlGroupBox idx {
+                if ((itemAt rowOf idx) > 0) {
+                    set_at yOffset idx (offsetR + yMax)
+                }
+            }
+        } {
+            if (alignRow == "each") {
+                def r2:int 1
+                while (r2 < nrows) {
+                    def offsetR2:double 0.0
+                    for cells box:VlGroupBox idx {
+                        if ((itemAt rowOf idx) == r2) {
+                            offsetR2 = (VlRuntime.higher(offsetR2 (itemAt yOffset idx)))
+                        }
+                    }
+                    for cells box:VlGroupBox idx {
+                        if ((itemAt rowOf idx) == r2) {
+                            set_at yOffset idx (offsetR2 + (itemAt yExtent (r2 - 1)))
+                        }
+                    }
+                    r2 = (r2 + 1)
+                }
+            } {
+                for cells box:VlGroupBox idx {
+                    def r3:int (itemAt rowOf idx)
+                    if (r3 > 0) {
+                        set_at yOffset idx ((itemAt yOffset idx) + (itemAt yExtent (r3 - 1)))
+                    }
+                }
+            }
+        }
+
+        ; The run along a row: each panel starts its own offset past the one
+        ; before it, and the first of a row starts over.
+        def runX:double 0.0
+        for cells box:VlGroupBox idx {
+            if ((itemAt colOf idx) > 0) {
+                runX = (runX + (itemAt xOffset idx))
+            } {
+                runX = (itemAt xOffset idx)
+            }
+            box.item.setNumber("x" runX)
+        }
+        ; The run down a column, taken one column at a time so that a column
+        ; whose panels are shorter than its neighbour's does not inherit the
+        ; neighbour's pitch.
+        def c4:int 0
+        while (c4 < ncols) {
+            def runY:double 0.0
+            for cells box:VlGroupBox idx {
+                if ((itemAt colOf idx) == c4) {
+                    runY = (runY + (itemAt yOffset idx))
+                    box.item.setNumber("y" runY)
+                }
+            }
+            c4 = (c4 + 1)
+        }
+
         def gridX1:double 0.0
         def gridY1:double 0.0
         def gridX2:double 0.0
         def gridY2:double 0.0
-        def x:double 0.0
-        def y:double 0.0
-        ; The running edge of the row below which the next one starts, rounded
-        ; outward the same way the horizontal run is. A cell with a frame is
-        ; half a stroke taller than its plotting area, and a row that does not
-        ; round that half pixel out lands the whole next row one pixel high.
-        def rowBottom:double 0.0
         def first:boolean true
-        ; Every panel of a grid is the same size, whatever each one happens to
-        ; cover. That is what `"align": "all"` means and it is the default for
-        ; a trellis: the columns line up down the page, so the third panel does
-        ; not start two pixels early because its rightmost dot sits further in
-        ; than its neighbour's. The pitch is the widest panel, rounded outward,
-        ; plus the spacing — measured once, over all of them.
-        def widest:double 0.0
-        def deepest:double 0.0
         for cells box:VlGroupBox idx {
-            ; `bounds: "full"` means a panel is worth what it COVERS, not what
-            ; it declared: a row of pictograms whose last symbol hangs a
-            ; fraction below the plot pushes the row under it down by a whole
-            ; pixel, because the reference rounds outward.
-            VlRuntime.growByContents(box)
-            ; Each side is rounded outward on its own before the panel is
-            ; measured: three and a bit pixels of circle hanging past the plot
-            ; on the left and half a pixel of axis stroke on the right is four
-            ; and one, not four altogether.
-            widest = (VlRuntime.higher(widest (((VlBounds.ceilTo(box.left)) + box.width) + (VlBounds.ceilTo(box.right)))))
-            deepest = (VlRuntime.higher(deepest (((VlBounds.ceilTo(box.top)) + box.height) + (VlBounds.ceilTo(box.bottom)))))
-        }
-        def pitchX:double ((VlBounds.ceilTo(widest)) + gap)
-        def pitchY:double ((VlBounds.ceilTo(deepest)) + rowGap)
-        for cells box:VlGroupBox idx {
-            def column:int (idx % columns)
-            if (column == 0) {
-                x = 0.0
-                if (idx > 0) {
-                    if uniform {
-                        y = (y + pitchY)
-                    } {
-                        y = ((VlBounds.ceilTo(rowBottom)) + rowGap + (VlBounds.ceilTo(box.top)))
-                    }
-                }
-            } {
-                if uniform {
-                    x = (x + pitchX)
-                } {
-                    x = (x + gap + (VlBounds.ceilTo(box.left)))
-                }
-            }
-            box.item.setNumber("x" x)
-            box.item.setNumber("y" y)
+            def bx:double (box.item.number("x"))
+            def by:double (box.item.number("y"))
             if first {
-                gridX1 = (x - box.left)
-                gridY1 = (y - box.top)
-                gridX2 = (x + box.width + box.right)
-                gridY2 = (y + box.height + box.bottom)
+                gridX1 = (bx - box.left)
+                gridY1 = (by - box.top)
+                gridX2 = ((bx + box.width) + box.right)
+                gridY2 = ((by + box.height) + box.bottom)
                 first = false
             } {
-                gridX1 = (VlRuntime.lower(gridX1 (x - box.left)))
-                gridY1 = (VlRuntime.lower(gridY1 (y - box.top)))
-                gridX2 = (VlRuntime.higher(gridX2 (x + box.width + box.right)))
-                gridY2 = (VlRuntime.higher(gridY2 (y + box.height + box.bottom)))
-            }
-            if (! uniform) {
-                if (column == 0) {
-                    rowBottom = ((y + box.height) + box.bottom)
-                } {
-                    rowBottom = (VlRuntime.higher(rowBottom ((y + box.height) + box.bottom)))
-                }
-                x = (VlBounds.ceilTo((x + box.width + box.right)))
+                gridX1 = (VlRuntime.lower(gridX1 (bx - box.left)))
+                gridY1 = (VlRuntime.lower(gridY1 (by - box.top)))
+                gridX2 = (VlRuntime.higher(gridX2 ((bx + box.width) + box.right)))
+                gridY2 = (VlRuntime.higher(gridY2 ((by + box.height) + box.bottom)))
             }
         }
         def reach (new VlBounds())
@@ -3001,7 +3152,7 @@ class VlRuntime {
         def gap:double (VlRuntime.layoutGap(layoutDef "column"))
         def rowGap:double (VlRuntime.layoutGap(layoutDef "row"))
         def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignsAll(layoutDef))))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignOf(layoutDef "column")) (VlRuntime.alignOf(layoutDef "row"))))
         ; The group is exactly what its panes cover. Its own origin stays at
         ; zero, so whatever hangs off the top-left of the first pane — an axis,
         ; a label — is room the page has to leave in front of the group.
@@ -3039,7 +3190,7 @@ class VlRuntime {
             return
         }
         def columns:int (this.layoutColumns(layoutDef (array_length cells)))
-        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignsAll(layoutDef))))
+        def reach:VlBounds (VlRuntime.placeCells(cells columns gap rowGap (VlRuntime.alignOf(layoutDef "column")) (VlRuntime.alignOf(layoutDef "row"))))
         this.layoutTrellis(cells columns layoutDef reach)
 
         ; The view is what the placed plots and their furniture cover, and the
