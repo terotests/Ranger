@@ -13,6 +13,7 @@ Import "PptxView.rgr"
 Import "PptxToEvg.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGDisplayList.rgr"
 
 class PptxApp {
     def parser:PptxParser (new PptxParser())
@@ -185,6 +186,107 @@ class PptxApp {
         }
         def hit@(optional):EVGElement (converter.slideToEvg((unwrap slide)))
         return hit
+    }
+
+    fn kindName:string (kind:int) {
+        if (kind == 1) {
+            return "picture"
+        }
+        if (kind == 2) {
+            return "group"
+        }
+        if (kind == 3) {
+            return "connector"
+        }
+        return "shape"
+    }
+
+    fn shapeJson:string (shape:PptxShape) {
+        def out:string "{"
+        out = (out + "\"kind\":" + (EVGDisplayList.jsonString((this.kindName(shape.kind)))))
+        out = (out + ",\"name\":" + (EVGDisplayList.jsonString(shape.name)))
+        out = (out + ",\"preset\":" + (EVGDisplayList.jsonString(shape.preset)))
+        out = (out + ",\"x\":" + (EVGDisplayList.num(shape.x)))
+        out = (out + ",\"y\":" + (EVGDisplayList.num(shape.y)))
+        out = (out + ",\"w\":" + (EVGDisplayList.num(shape.width)))
+        out = (out + ",\"h\":" + (EVGDisplayList.num(shape.height)))
+        out = (out + ",\"rotation\":" + (EVGDisplayList.num(shape.rotation)))
+        out = (out + ",\"hasText\":" + (to_string shape.hasText))
+        if shape.hasText {
+            out = (out + ",\"text\":" + (EVGDisplayList.jsonString((shape.text.plainText()))))
+            def runCount:int 0
+            def pi:int 0
+            while (pi < (array_length shape.text.paragraphs)) {
+                def para:PptxParagraph (itemAt shape.text.paragraphs pi)
+                runCount = (runCount + (array_length para.runs))
+                pi = (pi + 1)
+            }
+            out = (out + ",\"runs\":" + (to_string runCount))
+            out = (out + ",\"paragraphs\":" + (to_string (array_length shape.text.paragraphs)))
+        }
+        if (shape.fill.isSet) {
+            out = (out + ",\"fill\":" + (EVGDisplayList.jsonString(shape.fill.srgb)))
+            out = (out + ",\"fillScheme\":" + (to_string shape.fill.isScheme))
+        }
+        if (shape.kind == 1) {
+            out = (out + ",\"imagePart\":" + (EVGDisplayList.jsonString(shape.imagePart)))
+            out = (out + ",\"imageBytes\":" + (to_string (buffer_length shape.imageBytes)))
+        }
+        if (shape.kind == 2) {
+            out = (out + ",\"children\":" + (to_string (array_length shape.children)))
+        }
+        out = (out + "}")
+        return out
+    }
+
+    ; Structured summary for the feature harness (parse → resolve → render).
+    fn inspectJson:string () {
+        def out:string "{"
+        out = (out + "\"loaded\":" + (to_string loaded))
+        out = (out + ",\"path\":" + (EVGDisplayList.jsonString(lastPath)))
+        out = (out + ",\"slides\":" + (to_string (this.slideCount())))
+        out = (out + ",\"slideWidth\":" + (EVGDisplayList.num(presentation.slideWidth)))
+        out = (out + ",\"slideHeight\":" + (EVGDisplayList.num(presentation.slideHeight)))
+        out = (out + ",\"theme\":{")
+        out = (out + "\"accent1\":" + (EVGDisplayList.jsonString((presentation.theme.colorOf("accent1")))))
+        out = (out + ",\"accent2\":" + (EVGDisplayList.jsonString((presentation.theme.colorOf("accent2")))))
+        out = (out + ",\"dk1\":" + (EVGDisplayList.jsonString((presentation.theme.colorOf("dk1")))))
+        out = (out + ",\"lt1\":" + (EVGDisplayList.jsonString((presentation.theme.colorOf("lt1")))))
+        out = (out + ",\"majorFont\":" + (EVGDisplayList.jsonString(presentation.theme.majorFont)))
+        out = (out + ",\"minorFont\":" + (EVGDisplayList.jsonString(presentation.theme.minorFont)))
+        out = (out + "}")
+        out = (out + ",\"slide\":[")
+        def si:int 0
+        while (si < (array_length presentation.slides)) {
+            if (si > 0) {
+                out = (out + ",")
+            }
+            def slide:PptxSlide (itemAt presentation.slides si)
+            def dl:EVGDisplayList (converter.slideToDisplayList(slide))
+            def page:EVGElement (converter.slideToEvg(slide))
+            out = (out + "{")
+            out = (out + "\"index\":" + (to_string si))
+            out = (out + ",\"part\":" + (EVGDisplayList.jsonString(slide.partPath)))
+            out = (out + ",\"shapeCount\":" + (to_string (array_length slide.shapes)))
+            out = (out + ",\"displayListCmds\":" + (to_string (dl.count())))
+            out = (out + ",\"evgChildren\":" + (to_string (page.getChildCount())))
+            if (slide.bg.isSet) {
+                out = (out + ",\"bg\":" + (EVGDisplayList.jsonString(slide.bg.srgb)))
+            }
+            out = (out + ",\"shapes\":[")
+            def j:int 0
+            while (j < (array_length slide.shapes)) {
+                if (j > 0) {
+                    out = (out + ",")
+                }
+                out = (out + (this.shapeJson((itemAt slide.shapes j))))
+                j = (j + 1)
+            }
+            out = (out + "]}")
+            si = (si + 1)
+        }
+        out = (out + "]}")
+        return out
     }
 
     fn close:void () {
