@@ -1,0 +1,416 @@
+; ==============================================================================
+; TextEditCore - portable caret/selection/input core (not OOXML-aware).
+; ==============================================================================
+;
+; Positions are DocumentPosition { paragraphId, textOffset } — same model as
+; RichDocument. Standalone EditorBuffer can later adapt (line,col) ↔ this.
+; TextEditCore never sees w:p / w:r / style IDs.
+; ==============================================================================
+
+class DocumentPosition {
+    def paragraphId:int 0
+    def textOffset:int 0
+
+    Constructor () {
+    }
+
+    sfn create:DocumentPosition (paragraphId:int textOffset:int) {
+        def p:DocumentPosition (new DocumentPosition)
+        p.paragraphId = paragraphId
+        p.textOffset = textOffset
+        return p
+    }
+
+    fn copy:DocumentPosition () {
+        return (DocumentPosition.create(paragraphId textOffset))
+    }
+
+    fn equals:boolean (other:DocumentPosition) {
+        if (paragraphId != other.paragraphId) {
+            return false
+        }
+        if (textOffset != other.textOffset) {
+            return false
+        }
+        return true
+    }
+}
+
+class DocumentRange {
+    def anchor:DocumentPosition (new DocumentPosition)
+    def focus:DocumentPosition (new DocumentPosition)
+
+    Constructor () {
+    }
+
+    sfn create:DocumentRange (anchor:DocumentPosition focus:DocumentPosition) {
+        def r:DocumentRange (new DocumentRange)
+        r.anchor = (anchor.copy())
+        r.focus = (focus.copy())
+        return r
+    }
+
+    fn isCollapsed:boolean () {
+        return (anchor.equals(focus))
+    }
+
+    ; For single-paragraph MVP: normalize start/end offsets when same para.
+    fn sameParagraph:boolean () {
+        return (anchor.paragraphId == focus.paragraphId)
+    }
+
+    fn startOffset:int () {
+        if (anchor.textOffset <= focus.textOffset) {
+            return anchor.textOffset
+        }
+        return focus.textOffset
+    }
+
+    fn endOffset:int () {
+        if (anchor.textOffset >= focus.textOffset) {
+            return anchor.textOffset
+        }
+        return focus.textOffset
+    }
+}
+
+; Undoable document op (paragraph-scoped).
+class DocEditOp {
+    def kind:int 0
+    def paragraphId:int 0
+    def start:int 0
+    def end:int 0
+    def oldText:string ""
+    def newText:string ""
+    def secondId:int 0
+    def boldSet:boolean false
+    def boldVal:boolean false
+
+    Constructor () {
+    }
+}
+
+; ==============================================================================
+; TextEditingTarget - stub surface RichDocumentEdit / EditorBuffer fill in.
+; Ranger has limited extends; callers pass a concrete adapter that owns this API.
+; ==============================================================================
+
+class TextEditingTarget {
+    Constructor () {
+    }
+
+    fn getText:string (paragraphId:int) {
+        return ""
+    }
+
+    fn textLength:int (paragraphId:int) {
+        return (strlen (this.getText(paragraphId)))
+    }
+
+    fn replaceRange:void (paragraphId:int start:int end:int text:string) {
+    }
+
+    fn splitParagraph:int (paragraphId:int offset:int) {
+        return paragraphId
+    }
+
+    fn mergeWithNext:boolean (paragraphId:int) {
+        return false
+    }
+
+    ; Merge paragraphId into the previous body paragraph.
+    ; On success returns caret position in the surviving paragraph; on failure
+    ; returns paragraphId 0.
+    fn mergePrevious:DocumentPosition (paragraphId:int) {
+        return (DocumentPosition.create(0 0))
+    }
+
+    fn applyBold:void (paragraphId:int start:int end:int value:boolean) {
+    }
+
+    fn applyFont:void (paragraphId:int start:int end:int font:string) {
+    }
+
+    fn paragraphExists:boolean (paragraphId:int) {
+        return false
+    }
+}
+
+; ==============================================================================
+; TextEditCore - caret, selection, typing, enter/backspace, bold, undo
+; ==============================================================================
+
+class TextEditCore {
+    def target:TextEditingTarget (new TextEditingTarget)
+    def sel:DocumentRange (new DocumentRange)
+    def typingBold:boolean false
+    def typingFont:string "Open Sans"
+    def undoStack:[DocEditOp]
+    def redoStack:[DocEditOp]
+    def maxUndo:int 200
+    def active:boolean false
+
+    Constructor () {
+    }
+
+    fn bind:void (t:TextEditingTarget) {
+        target = t
+    }
+
+    fn setCaret:void (paragraphId:int offset:int) {
+        def len:int (target.textLength(paragraphId))
+        if (offset < 0) {
+            offset = 0
+        }
+        if (offset > len) {
+            offset = len
+        }
+        def p:DocumentPosition (DocumentPosition.create(paragraphId offset))
+        sel.anchor = (p.copy())
+        sel.focus = (p.copy())
+        active = true
+    }
+
+    fn setRange:void (paragraphId:int a:int b:int) {
+        def len:int (target.textLength(paragraphId))
+        if (a < 0) {
+            a = 0
+        }
+        if (b < 0) {
+            b = 0
+        }
+        if (a > len) {
+            a = len
+        }
+        if (b > len) {
+            b = len
+        }
+        sel.anchor = (DocumentPosition.create(paragraphId a))
+        sel.focus = (DocumentPosition.create(paragraphId b))
+        active = true
+    }
+
+    fn caret:DocumentPosition () {
+        return (sel.focus.copy())
+    }
+
+    fn hasSelection:boolean () {
+        if (active == false) {
+            return false
+        }
+        return ((sel.isCollapsed()) == false)
+    }
+
+    fn pushUndo:void (op:DocEditOp) {
+        push undoStack op
+        while ((array_length undoStack) > maxUndo) {
+            remove_index undoStack 0
+        }
+        clear redoStack
+    }
+
+    fn deleteSelection:void () {
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        if (sel.isCollapsed()) {
+            return
+        }
+        def pid:int sel.anchor.paragraphId
+        def a:int (sel.startOffset())
+        def b:int (sel.endOffset())
+        def old:string (substring (target.getText(pid)) a b)
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 0
+        op.paragraphId = pid
+        op.start = a
+        op.end = a
+        op.oldText = old
+        op.newText = ""
+        target.replaceRange(pid a b "")
+        this.pushUndo(op)
+        this.setCaret(pid a)
+    }
+
+    fn insertText:void (text:string) {
+        if (active == false) {
+            return
+        }
+        if ((strlen text) == 0) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        if ((sel.isCollapsed()) == false) {
+            this.deleteSelection()
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 0
+        op.paragraphId = pid
+        op.start = off
+        op.end = (off + (strlen text))
+        op.oldText = ""
+        op.newText = text
+        target.replaceRange(pid off off text)
+        if typingBold {
+            target.applyBold(pid off (off + (strlen text)) true)
+        }
+        this.pushUndo(op)
+        this.setCaret(pid (off + (strlen text)))
+    }
+
+    fn backspace:void () {
+        if (active == false) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        if ((sel.isCollapsed()) == false) {
+            this.deleteSelection()
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        if (off > 0) {
+            def old:string (substring (target.getText(pid)) (off - 1) off)
+            def op:DocEditOp (new DocEditOp)
+            op.kind = 0
+            op.paragraphId = pid
+            op.start = (off - 1)
+            op.end = (off - 1)
+            op.oldText = old
+            op.newText = ""
+            target.replaceRange(pid (off - 1) off "")
+            this.pushUndo(op)
+            this.setCaret(pid (off - 1))
+            return
+        }
+        ; offset 0 → merge with previous paragraph
+        def dest:DocumentPosition (target.mergePrevious(pid))
+        if (dest.paragraphId > 0) {
+            def op:DocEditOp (new DocEditOp)
+            op.kind = 2
+            op.paragraphId = pid
+            op.secondId = dest.paragraphId
+            op.start = dest.textOffset
+            this.pushUndo(op)
+            this.setCaret(dest.paragraphId dest.textOffset)
+            return
+        }
+    }
+
+    fn deleteForward:void () {
+        if (active == false) {
+            return
+        }
+        if ((sel.isCollapsed()) == false) {
+            this.deleteSelection()
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        def len:int (target.textLength(pid))
+        if (off < len) {
+            def old:string (substring (target.getText(pid)) off (off + 1))
+            def op:DocEditOp (new DocEditOp)
+            op.kind = 0
+            op.paragraphId = pid
+            op.start = off
+            op.end = off
+            op.oldText = old
+            op.newText = ""
+            target.replaceRange(pid off (off + 1) "")
+            this.pushUndo(op)
+            this.setCaret(pid off)
+        }
+    }
+
+    fn splitAtCaret:void () {
+        if (active == false) {
+            return
+        }
+        if ((sel.isCollapsed()) == false) {
+            this.deleteSelection()
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        def newId:int (target.splitParagraph(pid off))
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 1
+        op.paragraphId = pid
+        op.start = off
+        op.secondId = newId
+        this.pushUndo(op)
+        this.setCaret(newId 0)
+    }
+
+    fn toggleBold:void () {
+        if (active == false) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        if (sel.isCollapsed()) {
+            typingBold = (typingBold == false)
+            return
+        }
+        def pid:int sel.anchor.paragraphId
+        def a:int (sel.startOffset())
+        def b:int (sel.endOffset())
+        target.applyBold(pid a b true)
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 3
+        op.paragraphId = pid
+        op.start = a
+        op.end = b
+        op.boldSet = true
+        op.boldVal = true
+        this.pushUndo(op)
+    }
+
+    fn setFont:void (font:string) {
+        if (active == false) {
+            return
+        }
+        typingFont = font
+        if (sel.isCollapsed()) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            return
+        }
+        def pid:int sel.anchor.paragraphId
+        target.applyFont(pid (sel.startOffset()) (sel.endOffset()) font)
+    }
+
+    fn undo:void () {
+        if ((array_length undoStack) == 0) {
+            return
+        }
+        def op:DocEditOp (itemAt undoStack ((array_length undoStack) - 1))
+        removeLast undoStack
+        if (op.kind == 0) {
+            target.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
+            this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
+        }
+        push redoStack op
+    }
+
+    fn redo:void () {
+        if ((array_length redoStack) == 0) {
+            return
+        }
+        def op:DocEditOp (itemAt redoStack ((array_length redoStack) - 1))
+        removeLast redoStack
+        if (op.kind == 0) {
+            target.replaceRange(op.paragraphId op.start (op.start + (strlen op.oldText)) op.newText)
+            this.setCaret(op.paragraphId (op.start + (strlen op.newText)))
+        }
+        push undoStack op
+    }
+}

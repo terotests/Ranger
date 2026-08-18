@@ -79,8 +79,8 @@
     <div class="stage">
       <h1>Ranger DOCX Viewer</h1>
       <p class="hint">
-        SoftCanvas page preview of WordprocessingML fixtures.
-        Use <code>npm run docx_viewer:window</code> (not <code>docs_viewer</code>).
+        SoftCanvas DOCX viewer. Toggle <strong>Edit</strong> to click a body paragraph,
+        type, Backspace/Delete/Enter, Ctrl+B, Ctrl+Z. Hit-test uses DocxLayout geometry.
       </p>
       <div class="toolbar">
         <label>
@@ -91,9 +91,12 @@
         <span id="pageLabel">page 1 / 1</span>
         <button type="button" id="nextPage">Next</button>
         <button type="button" id="reload">Reload</button>
+        <button type="button" id="editToggle">Edit</button>
+        <button type="button" id="btnBold"><b>B</b></button>
+        <span style="color:var(--muted);font-size:0.85rem">caret <strong id="caretInfo">—</strong></span>
       </div>
       <div class="frame">
-        <img id="page" alt="DOCX page" />
+        <img id="page" alt="DOCX page" tabindex="0" />
       </div>
       <div class="bar">
         <span>status: <strong id="status">loading…</strong></span>

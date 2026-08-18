@@ -96,7 +96,17 @@ npm run docx_viewer:window        # http://127.0.0.1:8770/
 - Visual oracle requires LibreOffice + poppler; advisory unless `--strict-visual`
 - Editing proof-of-concept (TextEditCore) not wired in this pass
 
-## Stretch (later)
+## Editing (MVP)
 
-Reuse `gallery/text_editor` for caret/selection/IME on a single paragraph
-(`paragraphId + textOffset`) once viewer fidelity is solid.
+`TextEditCore` types (`DocumentPosition` / `DocumentRange` / `DocEditOp`) live in
+`gallery/text_editor/src/TextEditCore.rgr`. DOCX binds them via:
+
+```text
+DocxEditController → RichDocumentEdit → RichDocument (paragraph + spans)
+                 ↘ DocxLayout hit-test / caret geometry
+```
+
+Window host: toggle **Edit**, click a body paragraph, type / Backspace / Delete /
+Enter / Ctrl+B / Ctrl+Z. Same SoftCanvas layout drives caret placement.
+
+v1 scope: body paragraphs only (not tables/headers yet).

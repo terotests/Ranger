@@ -30,6 +30,9 @@ class LaidLine {
     def fillHex:string ""
     def borderColor:string "666666"
     def paragraphRef:Paragraph
+    ; Offset range into paragraph.text covered by this visual line (excludes list prefix).
+    def docStart:int 0
+    def docEnd:int 0
 
     Constructor () {
     }
@@ -411,31 +414,45 @@ class DocxLayout {
         }
 
         if ((strlen p.text) > 0) {
-            def full:string (prefix + p.text)
-            def wrapW:double (to_double (contentW - indent))
+            def prefixW:int 0
+            if ((strlen prefix) > 0) {
+                prefixW = (to_int (tr.measureWidth(prefix fontPx)))
+            }
+            def wrapW:double (to_double ((contentW - indent) - prefixW))
             if (wrapW < 40.0) {
                 wrapW = 40.0
             }
-            def wrapped:[string] (tr.wrap(full fontPx wrapW))
+            ; Wrap body text only so doc offsets stay accurate for editing hit-test.
+            def wrapped:[string] (tr.wrap(p.text fontPx wrapW))
             if ((array_length wrapped) == 0) {
                 push wrapped ""
             }
+            def cursor:int 0
             def li:int 0
             while (li < (array_length wrapped)) {
                 if ((y + lh) > curMaxY) {
                     y = (this.breakPage(y))
                     ml = (curSec.marginLeftPx())
                 }
+                def chunk:string (itemAt wrapped li)
                 def line:LaidLine (new LaidLine)
                 line.kind = 0
                 line.paragraphRef = p
                 line.paraIndex = p.id
-                line.text = (itemAt wrapped li)
+                line.docStart = cursor
+                line.docEnd = (cursor + (strlen chunk))
+                cursor = line.docEnd
+                if ((li == 0) && ((strlen prefix) > 0)) {
+                    line.text = (prefix + chunk)
+                    line.listPrefix = prefix
+                } {
+                    line.text = chunk
+                    line.listPrefix = ""
+                }
                 line.height = lh
                 line.y = y
                 line.baseline = (y + (to_int (fontPx * 0.8)))
                 line.align = p.align
-                line.listPrefix = prefix
                 line.bold = bold
                 line.underline = underline
                 line.fontSizePx = fontPx
@@ -469,8 +486,29 @@ class DocxLayout {
                 li = (li + 1)
             }
         } {
+            ; Empty paragraph still occupies a line so it can receive the caret.
+            if ((y + lh) > curMaxY) {
+                y = (this.breakPage(y))
+                ml = (curSec.marginLeftPx())
+            }
+            def emptyLine:LaidLine (new LaidLine)
+            emptyLine.kind = 0
+            emptyLine.paragraphRef = p
+            emptyLine.paraIndex = p.id
+            emptyLine.docStart = 0
+            emptyLine.docEnd = 0
+            emptyLine.text = ""
+            emptyLine.height = lh
+            emptyLine.y = y
+            emptyLine.baseline = (y + (to_int (fontPx * 0.8)))
+            emptyLine.align = p.align
+            emptyLine.fontSizePx = fontPx
+            emptyLine.x = (ml + indent)
+            emptyLine.width = 4
+            push curPage.lines emptyLine
+            y = (y + lh)
             if ((array_length p.images) == 0) {
-                y = (y + (idiv lh 2))
+                ; already advanced
             }
         }
 

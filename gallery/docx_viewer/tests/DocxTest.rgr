@@ -273,6 +273,27 @@ class DocxTest {
         c.ok("report multipage" ((viewer.pageCount()) >= 3))
         c.ok("inspect json" ((indexOf (viewer.inspectJson()) "paragraphs") >= 0))
 
+        print "== edit core (single paragraph) =="
+        c.ok("open hello for edit" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def edoc:RichDocument (viewer.document())
+        def epara:Paragraph (edoc.paragraphAt(1))
+        def before:string epara.text
+        viewer.edit.setCaret(epara.id 0)
+        viewer.typeText("X")
+        def after:string ((viewer.document().paragraphAt(1)).text)
+        c.ok("insert at start" ((indexOf after "X") == 0))
+        viewer.keyBackspace()
+        c.eqStr("backspace restores" ((viewer.document().paragraphAt(1)).text) before)
+        viewer.edit.setCaret(epara.id (strlen ((viewer.document().paragraphAt(1)).text)))
+        def countBefore:int (viewer.document().paragraphCount())
+        viewer.keyEnter()
+        c.ok("enter split paras" ((viewer.document().paragraphCount()) > countBefore))
+        ; re-open clean for remaining tests
+        c.ok("reopen hello" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(false)
+
         print "== render page =="
         c.ok("open hello again" (viewer.openFile(fix "hello.docx")))
         viewer.renderPage(0)

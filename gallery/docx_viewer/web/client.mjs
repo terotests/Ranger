@@ -3,10 +3,14 @@ const sizeEl = document.getElementById("size");
 const pageImg = document.getElementById("page");
 const docSelect = document.getElementById("docSelect");
 const pageLabel = document.getElementById("pageLabel");
+const editBtn = document.getElementById("editToggle");
+const caretEl = document.getElementById("caretInfo");
 
 let docs = [];
 let page = 0;
 let pageCount = 1;
+let editMode = false;
+let dragging = false;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -41,24 +45,82 @@ async function openDoc(name) {
   if (!data.ok) throw new Error(data.error || "open failed");
   page = 0;
   pageCount = Math.max(1, data.pageCount | 1);
+  editMode = false;
+  syncEditBtn();
   await refreshPage();
+}
+
+function syncEditBtn() {
+  if (!editBtn) return;
+  editBtn.textContent = editMode ? "Edit: ON" : "Edit";
+  editBtn.style.borderColor = editMode ? "#78c8ff" : "";
+  pageImg.style.cursor = editMode ? "text" : "default";
+}
+
+async function setEditMode(on) {
+  const res = await api("/api/edit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled: !!on }),
+  });
+  const data = await res.json();
+  editMode = !!data.editMode;
+  syncEditBtn();
+  await refreshPage();
+}
+
+async function sendInput(payload) {
+  const res = await api("/api/input", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (data.pageCount) pageCount = Math.max(1, data.pageCount | 1);
+  if (data.caret && caretEl) {
+    caretEl.textContent = data.caret.active
+      ? `p${data.caret.paragraphId}@${data.caret.offset}`
+      : "—";
+  }
+  await refreshPage();
+  return data;
+}
+
+function imgLocalXY(ev) {
+  const rect = pageImg.getBoundingClientRect();
+  const scaleX = pageImg.naturalWidth / Math.max(1, rect.width);
+  const scaleY = pageImg.naturalHeight / Math.max(1, rect.height);
+  const x = Math.round((ev.clientX - rect.left) * scaleX);
+  const y = Math.round((ev.clientY - rect.top) * scaleY);
+  return { x, y };
 }
 
 async function refreshPage() {
   statusEl.textContent = "rendering…";
   pageLabel.textContent = `page ${page + 1} / ${pageCount}`;
   const url = `/page.png?page=${page}&t=${Date.now()}`;
-  pageImg.onload = () => {
-    sizeEl.textContent = `${pageImg.naturalWidth}×${pageImg.naturalHeight}`;
-    statusEl.textContent = "live";
-  };
-  pageImg.onerror = () => {
-    statusEl.textContent = "error loading page";
-  };
-  pageImg.src = url;
+  await new Promise((resolve, reject) => {
+    pageImg.onload = () => {
+      sizeEl.textContent = `${pageImg.naturalWidth}×${pageImg.naturalHeight}`;
+      statusEl.textContent = editMode ? "edit" : "live";
+      resolve();
+    };
+    pageImg.onerror = () => {
+      statusEl.textContent = "error loading page";
+      reject(new Error("page load"));
+    };
+    pageImg.src = url;
+  });
   const st = await (await api("/api/state")).json();
   pageCount = Math.max(1, st.pageCount | 1);
   pageLabel.textContent = `page ${page + 1} / ${pageCount}`;
+  editMode = !!st.editMode;
+  syncEditBtn();
+  if (st.caret && caretEl) {
+    caretEl.textContent = st.caret.active
+      ? `p${st.caret.paragraphId}@${st.caret.offset}`
+      : "—";
+  }
 }
 
 docSelect.addEventListener("change", () => openDoc(docSelect.value));
@@ -73,6 +135,69 @@ document.getElementById("nextPage").addEventListener("click", async () => {
   await refreshPage();
 });
 document.getElementById("reload").addEventListener("click", () => openDoc(docSelect.value));
+if (editBtn) {
+  editBtn.addEventListener("click", () => setEditMode(!editMode));
+}
+
+pageImg.addEventListener("mousedown", async (ev) => {
+  if (!editMode) return;
+  ev.preventDefault();
+  dragging = true;
+  const { x, y } = imgLocalXY(ev);
+  await sendInput({ type: "click", x, y, shift: !!ev.shiftKey });
+  pageImg.focus?.();
+});
+window.addEventListener("mouseup", () => {
+  dragging = false;
+});
+pageImg.addEventListener("mousemove", async (ev) => {
+  if (!editMode || !dragging) return;
+  const { x, y } = imgLocalXY(ev);
+  await sendInput({ type: "click", x, y, shift: true });
+});
+
+window.addEventListener("keydown", async (ev) => {
+  if (!editMode) return;
+  const tag = (ev.target && ev.target.tagName) || "";
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+
+  if (ev.key === "Backspace") {
+    ev.preventDefault();
+    await sendInput({ type: "backspace" });
+    return;
+  }
+  if (ev.key === "Delete") {
+    ev.preventDefault();
+    await sendInput({ type: "delete" });
+    return;
+  }
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    await sendInput({ type: "enter" });
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "b") {
+    ev.preventDefault();
+    await sendInput({ type: "bold" });
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") {
+    ev.preventDefault();
+    await sendInput({ type: ev.shiftKey ? "redo" : "undo" });
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "y") {
+    ev.preventDefault();
+    await sendInput({ type: "redo" });
+    return;
+  }
+  if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    ev.preventDefault();
+    await sendInput({ type: "text", text: ev.key });
+  }
+});
+
+document.getElementById("btnBold")?.addEventListener("click", () => sendInput({ type: "bold" }));
 
 statusEl.textContent = "starting";
 try {
