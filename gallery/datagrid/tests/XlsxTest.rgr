@@ -5,6 +5,7 @@
 Import "../src/GridApp.rgr"
 Import "../src/xlsx/XlsxLoader.rgr"
 Import "../src/xlsx/XlsxWorksheet.rgr"
+Import "../src/CellStyle.rgr"
 
 class Checker {
     def passed:int 0
@@ -74,6 +75,18 @@ class XlsxTest {
         def rh0:int (sales.rowHeight(0))
         c.ok("col A wider" (cw0 > sales.defaultColW))
         c.ok("row1 taller" (rh0 > sales.defaultRowH))
+
+        print "== styles + freeze (FortuneSheet M3) =="
+        c.eqInt("freeze rows" sales.freezeRows 2)
+        c.eqInt("freeze cols" sales.freezeCols 1)
+        c.ok("styles table" ((array_length sales.styles) >= 4))
+        def stA1:CellStyle (sales.getCellStyle(0 0))
+        c.ok("A1 has fill" stA1.hasFill)
+        c.eqStr("A1 align" stA1.align "center")
+        c.ok("A1 bold" stA1.bold)
+        c.eqStr("C3 display 0.00" (sales.getDisplay(2 2)) "4.50")
+        c.eqStr("C5 display %" (sales.getDisplay(4 2)) "25%")
+        c.eqStr("C3 raw" (sales.getCell(2 2)) "4.5")
 
         def summary:SpreadsheetModel s1
         c.eqStr("Summary A1" (summary.getCell(0 0)) "Lines")

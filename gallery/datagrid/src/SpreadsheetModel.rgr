@@ -10,6 +10,8 @@
 ; 100k×26 sheet costs almost nothing until cells are written.
 ; ==============================================================================
 
+Import "CellStyle.rgr"
+
 class CellPos {
     def row:int 0
     def col:int 0
@@ -53,8 +55,12 @@ class SpreadsheetModel {
     def colCount:int 26
     def defaultRowH:int 22
     def defaultColW:int 100
+    def freezeRows:int 0
+    def freezeCols:int 0
     def cells:[string:string]
     def formulas:[string:string]
+    def cellStyleIds:[string:int]
+    def styles:[CellStyle]
     def merges:[string]
     def rowHeights:[int]
     def colWidths:[int]
@@ -73,8 +79,11 @@ class SpreadsheetModel {
     fn clearSheet:void () {
         def emptyCells:[string:string]
         def emptyFormulas:[string:string]
+        def emptyStyleIds:[string:int]
         cells = emptyCells
         formulas = emptyFormulas
+        cellStyleIds = emptyStyleIds
+        clear styles
         clear merges
         clear rowHeights
         clear colWidths
@@ -82,6 +91,8 @@ class SpreadsheetModel {
         clear colOffsets
         clear undoStack
         clear redoStack
+        freezeRows = 0
+        freezeCols = 0
         rowCount = 1
         colCount = 1
         rowGeomDirty = true
@@ -187,6 +198,73 @@ class SpreadsheetModel {
             return (unwrap (get cells k))
         }
         return ""
+    }
+
+    fn setCellStyleId:void (row:int col:int styleId:int) {
+        def k:string (this.cellKey(row col))
+        set cellStyleIds k styleId
+    }
+
+    fn getCellStyle:CellStyle (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has cellStyleIds k) {
+            def sid:int (unwrap (get cellStyleIds k))
+            if ((sid >= 0) && (sid < (array_length styles))) {
+                return (itemAt styles sid)
+            }
+        }
+        return (CellStyle.createDefault())
+    }
+
+    ; FortuneSheet-style display value: raw cell + number format.
+    fn getDisplay:string (row:int col:int) {
+        def raw:string (this.getCell(row col))
+        def st:CellStyle (this.getCellStyle(row col))
+        return (XlsxFormatter.format(raw st.numFmt))
+    }
+
+    fn setStylesFrom:void (list:[CellStyle]) {
+        clear styles
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            push styles (itemAt list i)
+            i = (i + 1)
+        }
+    }
+
+    fn setFreeze:void (rows:int cols:int) {
+        if (rows < 0) {
+            rows = 0
+        }
+        if (cols < 0) {
+            cols = 0
+        }
+        freezeRows = rows
+        freezeCols = cols
+        version = (version + 1)
+    }
+
+    fn frozenHeight:int () {
+        this.ensureGeometry()
+        if (freezeRows <= 0) {
+            return 0
+        }
+        if (freezeRows >= rowCount) {
+            return (this.totalHeight())
+        }
+        return (this.rowToY(freezeRows))
+    }
+
+    fn frozenWidth:int () {
+        this.ensureGeometry()
+        if (freezeCols <= 0) {
+            return 0
+        }
+        if (freezeCols >= colCount) {
+            return (this.totalWidth())
+        }
+        return (this.colToX(freezeCols))
     }
 
     fn getFormula:string (row:int col:int) {

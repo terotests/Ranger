@@ -127,7 +127,7 @@ canvas.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.ctrlKey || ev.metaKey) {
-    if (/^[azyAZY]$/.test(ev.key)) {
+    if (/^[acvzyACVZY]$/.test(ev.key)) {
       ev.preventDefault();
       postInput({
         type: "text",

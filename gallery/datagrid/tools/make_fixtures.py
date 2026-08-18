@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Regenerate gallery/datagrid/fixtures/*.xlsx (stdlib zipfile, STORED)."""
+"""Regenerate gallery/datagrid/fixtures/*.xlsx (stdlib zipfile, STORED).
+
+Milestone 3 fixtures exercise FortuneSheet-aligned ops:
+  styles / numFmt, freeze panes (sheetViews pane), fills, bold headers.
+"""
 import zipfile, os
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "fixtures")
@@ -26,13 +30,33 @@ RELS = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>'''
 
+# FortuneSheet formatting slice: header fill/bold, 0.00, percent
 STYLES = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
-  <fills count="1"><fill><patternFill patternType="none"/></fill></fills>
+  <numFmts count="0"/>
+  <fonts count="2">
+    <font><sz val="11"/><color theme="1"/><name val="Calibri"/></font>
+    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF1F4E79"/></patternFill></fill>
+  </fills>
   <borders count="1"><border/></borders>
-  <cellStyleXfs count="1"><xf/></cellStyleXfs>
-  <cellXfs count="1"><xf/></cellXfs>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="4">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">
+      <alignment horizontal="center"/>
+    </xf>
+    <xf numFmtId="2" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1">
+      <alignment horizontal="right"/>
+    </xf>
+    <xf numFmtId="9" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1">
+      <alignment horizontal="right"/>
+    </xf>
+  </cellXfs>
 </styleSheet>'''
 
 WB = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -64,9 +88,15 @@ SST = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <si><t>Quarterly Sales</t></si>
 </sst>'''
 
+# Freeze: 1 col + 2 rows (FortuneSheet freeze panes / Excel sheetViews pane)
 SHEET1 = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="A1:D6"/>
+  <sheetViews>
+    <sheetView tabSelected="1" workbookViewId="0">
+      <pane xSplit="1" ySplit="2" topLeftCell="B3" activePane="bottomRight" state="frozen"/>
+    </sheetView>
+  </sheetViews>
   <cols>
     <col min="1" max="1" width="16" customWidth="1"/>
     <col min="2" max="2" width="8" customWidth="1"/>
@@ -74,35 +104,35 @@ SHEET1 = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   </cols>
   <sheetData>
     <row r="1" ht="28" customHeight="1">
-      <c r="A1" t="s"><v>7</v></c>
+      <c r="A1" s="1" t="s"><v>7</v></c>
     </row>
     <row r="2">
-      <c r="A2" t="s"><v>0</v></c>
-      <c r="B2" t="s"><v>1</v></c>
-      <c r="C2" t="s"><v>2</v></c>
-      <c r="D2" t="s"><v>3</v></c>
+      <c r="A2" s="1" t="s"><v>0</v></c>
+      <c r="B2" s="1" t="s"><v>1</v></c>
+      <c r="C2" s="1" t="s"><v>2</v></c>
+      <c r="D2" s="1" t="s"><v>3</v></c>
     </row>
     <row r="3">
       <c r="A3" t="s"><v>4</v></c>
       <c r="B3"><v>12</v></c>
-      <c r="C3"><v>4.5</v></c>
-      <c r="D3"><f>B3*C3</f><v>54</v></c>
+      <c r="C3" s="2"><v>4.5</v></c>
+      <c r="D3" s="2"><f>B3*C3</f><v>54</v></c>
     </row>
     <row r="4">
       <c r="A4" t="s"><v>5</v></c>
       <c r="B4"><v>3</v></c>
-      <c r="C4"><v>19.9</v></c>
-      <c r="D4"><f>B4*C4</f><v>59.7</v></c>
+      <c r="C4" s="2"><v>19.9</v></c>
+      <c r="D4" s="2"><f>B4*C4</f><v>59.7</v></c>
     </row>
     <row r="5">
       <c r="A5" t="s"><v>6</v></c>
       <c r="B5"><v>100</v></c>
-      <c r="C5"><v>0.25</v></c>
-      <c r="D5"><f>B5*C5</f><v>25</v></c>
+      <c r="C5" s="3"><v>0.25</v></c>
+      <c r="D5" s="2"><f>B5*C5</f><v>25</v></c>
     </row>
     <row r="6" ht="24" customHeight="1">
       <c r="A6" t="inlineStr"><is><t>Grand total</t></is></c>
-      <c r="D6"><f>SUM(D3:D5)</f><v>138.7</v></c>
+      <c r="D6" s="2"><f>SUM(D3:D5)</f><v>138.7</v></c>
     </row>
   </sheetData>
   <mergeCells count="1">
