@@ -96,6 +96,12 @@ function applyEvent(ev) {
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
     const fn = KEY[ev.key];
     if (fn) liveInput.pushKey(fn());
+  } else if (ev.type === "caret") {
+    if (typeof ev.x === "number") lastX = ev.x | 0;
+    if (typeof ev.y === "number") lastY = ev.y | 0;
+    app.view.focused = true;
+    app.moveCaret(ev.line | 0, ev.col | 0, !!ev.extend);
+    return;
   } else if (ev.type === "text") {
     liveInput.setPointerPos(lastX, lastY);
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
@@ -107,7 +113,29 @@ function applyEvent(ev) {
 }
 
 function sceneBody() {
-  return app.sceneJson();
+  const doc = JSON.parse(app.sceneJson());
+  const layout = app.layout;
+  const buf = app.buf;
+  const first = layout.firstVisible();
+  const last = layout.lastVisible(buf);
+  const lines = [];
+  for (let i = first; i <= last; i++) {
+    lines.push(buf.lineAt(i));
+  }
+  // Hit-testing meta for the browser: WebGL text is atlas-rasterized with
+  // Canvas2D metrics, so caret X must use the same measureText — not the
+  // Ranger TTF advances SoftCanvas uses.
+  doc.hit = {
+    contentX: layout.contentX(),
+    contentY: layout.contentY(),
+    lineHeight: layout.lineHeight,
+    scrollLine: layout.scrollLine,
+    fontSize: layout.fontSize,
+    font: app.view.fontFamily,
+    firstVisible: first,
+    lines,
+  };
+  return JSON.stringify(doc);
 }
 
 function frameBytes() {
@@ -190,6 +218,25 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, w: app.W, h: app.H, render: "webgl-displaylist" }));
+    return;
+  }
+
+  if (url.pathname === "/state.json") {
+    res.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    });
+    res.end(
+      JSON.stringify({
+        caretLine: app.sel.caret.line,
+        caretCol: app.sel.caret.col,
+        anchorLine: app.sel.anchor.line,
+        anchorCol: app.sel.anchor.col,
+        focused: app.view.focused,
+        lines: app.buf.lineCount(),
+        text: app.documentText(),
+      })
+    );
     return;
   }
 
@@ -278,6 +325,43 @@ async function headlessSmoke(url) {
     );
     const backend = await page.$eval("#backend", (el) => el.textContent);
     const cmds = await page.$eval("#cmds", (el) => el.textContent);
+
+    // Click mid-line using the same Canvas2D metrics the client hit-tester uses.
+    await page.evaluate(async () => {
+      const doc = window.__editorDoc;
+      const hit = doc.hit;
+      const s = hit.lines[2] || hit.lines[0];
+      const line = hit.firstVisible + Math.min(2, hit.lines.length - 1);
+      const c = document.createElement("canvas").getContext("2d");
+      c.font = `${hit.fontSize}px "${hit.font}", sans-serif`;
+      // Aim for just after the first 8 characters.
+      const colTarget = Math.min(8, s.length);
+      const x = hit.contentX + c.measureText(s.slice(0, colTarget)).width;
+      const y = hit.contentY + (line - hit.firstVisible) * hit.lineHeight + hit.lineHeight * 0.4;
+      await fetch("/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "caret", line, col: colTarget, extend: false, x, y }),
+      });
+      window.__smokeExpect = { line, col: colTarget };
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const afterClick = await (await fetch(`http://127.0.0.1:${PORT}/state.json`)).json();
+    const expect = await page.evaluate(() => window.__smokeExpect);
+    console.log(
+      "[smoke] caret after click=" +
+        afterClick.caretLine +
+        ":" +
+        afterClick.caretCol +
+        " expect=" +
+        expect.line +
+        ":" +
+        expect.col
+    );
+    if (afterClick.caretLine !== expect.line || afterClick.caretCol !== expect.col) {
+      throw new Error("caret not placed at clicked character");
+    }
+
     await page.click("#screen");
     await page.keyboard.type("Window smoke OK");
     await new Promise((r) => setTimeout(r, 600));
