@@ -13,6 +13,26 @@
 Import "CellStyle.rgr"
 Import "XlsxNumberFormat.rgr"
 
+; Conditional formatting rule (parsed from xlsx cfRule).
+class CfRule {
+    ; 0 colorScale | 1 cellIs
+    def kind:int 0
+    def r0:int 0
+    def c0:int 0
+    def r1:int 0
+    def c1:int 0
+    def op:string ""
+    def v1:double 0.0
+    def v2:double 0.0
+    def fillRgb:string ""
+    def color0:string "F8696B"
+    def color1:string "FFEB84"
+    def color2:string "63BE7B"
+
+    Constructor () {
+    }
+}
+
 class CellPos {
     def row:int 0
     def col:int 0
@@ -76,6 +96,7 @@ class SpreadsheetModel {
     def filterEnabled:boolean false
     def sortCol:int -1
     def sortAsc:boolean true
+    def cfRules:[CfRule]
     def sheetHidden:boolean false
     def scrollXSaved:int 0
     def scrollYSaved:int 0
@@ -99,6 +120,7 @@ class SpreadsheetModel {
         clear formulaKeys
         clear styles
         clear merges
+        clear cfRules
         clear rowHeights
         clear colWidths
         clear rowOffsets

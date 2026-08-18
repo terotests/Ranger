@@ -14,6 +14,7 @@ Import "SpreadsheetModel.rgr"
 Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "CellStyle.rgr"
+Import "ConditionalFormat.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -50,6 +51,10 @@ class GridView {
     def fontSize:double 13.0
     def pageW:int 900
     def pageH:int 560
+    def menuOpen:boolean false
+    def menuCol:int -1
+    def menuX:int 0
+    def menuY:int 0
 
     Constructor () {
     }
@@ -157,10 +162,19 @@ class GridView {
             return
         }
         def rect:GridRect (grid.cellRect(model r c))
+        if ((rect.x < -50000) || (rect.y < -50000)) {
+            return
+        }
         def st:CellStyle (model.getCellStyle(r c))
-        if st.hasFill {
-            def bg:EVGColor (this.colorOr(st.fillRgb theme.bg))
-            this.pushRect(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h) bg)
+        def cfFill:string (ConditionalFormat.resolveFill(model r c))
+        if ((strlen cfFill) > 0) {
+            def cfBg:EVGColor (EVGColor.parse(cfFill))
+            this.pushRect(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h) cfBg)
+        } {
+            if st.hasFill {
+                def bg:EVGColor (this.colorOr(st.fillRgb theme.bg))
+                this.pushRect(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h) bg)
+            }
         }
         if editing {
             if ((r == sel.active.row) && (c == sel.active.col)) {
@@ -191,6 +205,7 @@ class GridView {
         }
     }
 
+    ; r0..r1 / c0..c1 are VIEW indices when grid.hasView.
     fn paintCellRange:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string r0:int r1:int c0:int c1:int) {
         if (r1 < r0) {
             return
@@ -202,7 +217,9 @@ class GridView {
         while (r <= r1) {
             def c:int c0
             while (c <= c1) {
-                this.paintCell(dl model sel grid editing editBuf r c)
+                def mr:int (grid.mapRow(r))
+                def mc:int (grid.mapCol(c))
+                this.paintCell(dl model sel grid editing editBuf mr mc)
                 c = (c + 1)
             }
             r = (r + 1)
@@ -236,15 +253,27 @@ class GridView {
         ; corner
         this.pushRect(dl (to_double grid.x) (to_double headerTop) (to_double grid.rowHeaderW) (to_double grid.colHeaderH) theme.cornerBg)
 
-        ; column headers
+        ; column headers (VIEW cols → MODEL labels; ▼ when filter/sort active)
         this.pushRect(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH) theme.headerBg)
         this.pushClip(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH))
         def hc:int grid.firstVisibleCol
         while (hc <= grid.lastVisibleCol) {
-            def hr:GridRect (grid.cellRect(model 0 hc))
-            def hx:int hr.x
-            def label:string (SpreadsheetModel.colLabel(hc))
-            def cw:int (model.colWidth(hc))
+            def mc:int (grid.mapCol(hc))
+            def hr:GridRect (grid.cellRect(model 0 mc))
+            ; use view Y for header band; X from model col mapping
+            def hx:int (grid.viewColScreenX(model hc))
+            def label:string (SpreadsheetModel.colLabel(mc))
+            if (model.sortCol == mc) {
+                if model.sortAsc {
+                    label = (label + " ^")
+                } {
+                    label = (label + " v")
+                }
+            }
+            if ((model.filterEnabled) && (model.filterCol == mc)) {
+                label = (label + " [#]")
+            }
+            def cw:int (model.colWidth(mc))
             def lw:int (to_int (ctx.tr.measureWidth(label (fontSize * 0.9))))
             def lx:int (hx + (to_int ((to_double (cw - lw)) / 2.0)))
             this.pushText(dl label (to_double lx) (to_double (headerTop + 4)) (fontSize * 0.9) theme.headerText)
@@ -253,14 +282,15 @@ class GridView {
         }
         this.popClip(dl)
 
-        ; row headers
+        ; row headers — show MODEL row numbers
         this.pushRect(dl (to_double grid.x) (to_double bodyTop) (to_double grid.rowHeaderW) (to_double vh) theme.headerBg)
         this.pushClip(dl (to_double grid.x) (to_double bodyTop) (to_double grid.rowHeaderW) (to_double vh))
         def hr2:int grid.firstVisibleRow
         while (hr2 <= grid.lastVisibleRow) {
-            def rr:GridRect (grid.cellRect(model hr2 0))
-            def num:string (to_string (hr2 + 1))
-            def rh:int (model.rowHeight(hr2))
+            def mr:int (grid.mapRow(hr2))
+            def rr:GridRect (grid.cellRect(model mr 0))
+            def num:string (to_string (mr + 1))
+            def rh:int (model.rowHeight(mr))
             def nw:int (to_int (ctx.tr.measureWidth(num (fontSize * 0.85))))
             def nx:int ((grid.x + grid.rowHeaderW) - nw - 6)
             this.pushText(dl num (to_double nx) (to_double (rr.y + 3)) (fontSize * 0.85) theme.headerText)
@@ -274,8 +304,9 @@ class GridView {
         this.pushRect(dl (to_double bodyLeft) (to_double bodyTop) (to_double vw) (to_double vh) theme.bg)
 
         ; FortuneSheet-style freeze: four bands (corner / frozen rows / frozen cols / scroll)
-        def fzR:int model.freezeRows
-        def fzC:int model.freezeCols
+        ; Ranges are VIEW indices when SheetView is bound.
+        def fzR:int (grid.freezeViewRows(model))
+        def fzC:int (grid.freezeViewCols(model))
         if (fzR > 0) {
             if (fzC > 0) {
                 this.paintCellRange(dl model sel grid editing editBuf 0 (fzR - 1) 0 (fzC - 1))
@@ -287,37 +318,39 @@ class GridView {
         }
         this.paintCellRange(dl model sel grid editing editBuf grid.firstScrollRow grid.lastScrollRow grid.firstScrollCol grid.lastScrollCol)
 
-        ; vertical grid lines (scrollable + frozen)
+        ; vertical grid lines (scrollable + frozen) — VIEW indices
         def vc:int 0
         def vcLast:int grid.lastScrollCol
         while (vc <= vcLast) {
-            def vr:GridRect (grid.cellRect(model grid.firstScrollRow vc))
+            def mc2:int (grid.mapCol(vc))
+            def vr:GridRect (grid.cellRect(model (grid.mapRow(grid.firstScrollRow)) mc2))
             if (vc < fzC) {
-                vr = (grid.cellRect(model 0 vc))
+                vr = (grid.cellRect(model (grid.mapRow(0)) mc2))
             }
-            def cw2:int (model.colWidth(vc))
+            def cw2:int (model.colWidth(mc2))
             this.pushRect(dl (to_double (vr.x + cw2 - 1)) (to_double bodyTop) 1.0 (to_double vh) theme.gridLine)
             vc = (vc + 1)
         }
         def vr2:int 0
         def vrLast:int grid.lastScrollRow
         while (vr2 <= vrLast) {
-            def rr2:GridRect (grid.cellRect(model vr2 grid.firstScrollCol))
+            def mr2:int (grid.mapRow(vr2))
+            def rr2:GridRect (grid.cellRect(model mr2 (grid.mapCol(grid.firstScrollCol))))
             if (vr2 < fzR) {
-                rr2 = (grid.cellRect(model vr2 0))
+                rr2 = (grid.cellRect(model mr2 (grid.mapCol(0))))
             }
-            def rh2:int (model.rowHeight(vr2))
+            def rh2:int (model.rowHeight(mr2))
             this.pushRect(dl (to_double bodyLeft) (to_double (rr2.y + rh2 - 1)) (to_double vw) 1.0 theme.gridLine)
             vr2 = (vr2 + 1)
         }
 
-        ; freeze separators (FortuneSheet freeze lever visual)
+        ; freeze separators
         if (fzC > 0) {
-            def fx:int ((bodyLeft + (model.frozenWidth())) - 1)
+            def fx:int ((bodyLeft + (grid.geoFrozenW(model))) - 1)
             this.pushRect(dl (to_double fx) (to_double bodyTop) 2.0 (to_double vh) theme.activeBorder)
         }
         if (fzR > 0) {
-            def fy:int ((bodyTop + (model.frozenHeight())) - 1)
+            def fy:int ((bodyTop + (grid.geoFrozenH(model))) - 1)
             this.pushRect(dl (to_double bodyLeft) (to_double fy) (to_double vw) 2.0 theme.activeBorder)
         }
 
@@ -403,6 +436,20 @@ class GridView {
 
         ; outer chrome
         this.pushBorder(dl (to_double grid.x) (to_double grid.y) (to_double grid.w) (to_double grid.h) 1.0 theme.gridLine)
+
+        ; sort/filter header popup
+        if menuOpen {
+            def mw:int 168
+            def mh:int 118
+            this.pushRect(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) theme.formulaBg)
+            this.pushBorder(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) 1.0 theme.activeBorder)
+            def title:string (("Column " + (SpreadsheetModel.colLabel(menuCol))) + " filter")
+            this.pushText(dl title (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
+            this.pushText(dl "1  Sort ascending" (to_double (menuX + 8)) (to_double (menuY + 30)) 12.0 theme.cellText)
+            this.pushText(dl "2  Sort descending" (to_double (menuX + 8)) (to_double (menuY + 50)) 12.0 theme.cellText)
+            this.pushText(dl "3  Filter unique values" (to_double (menuX + 8)) (to_double (menuY + 70)) 12.0 theme.cellText)
+            this.pushText(dl "4  Clear filter" (to_double (menuX + 8)) (to_double (menuY + 90)) 12.0 theme.cellText)
+        }
 
         ; status bar
         def sy2:int (grid.y + grid.h)

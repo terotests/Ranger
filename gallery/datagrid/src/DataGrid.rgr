@@ -12,6 +12,7 @@
 
 Import "SpreadsheetModel.rgr"
 Import "GridSelection.rgr"
+Import "SheetView.rgr"
 
 class GridRect {
     def x:int 0
@@ -54,8 +55,178 @@ class DataGrid {
     def resizingCol:int -1
     def resizeStartX:int 0
     def resizeStartW:int 0
+    def sheetView:SheetView
+    def hasView:boolean false
 
     Constructor () {
+    }
+
+    fn bindView:void (sv:SheetView) {
+        sheetView = sv
+        hasView = true
+    }
+
+    fn viewRowCount:int (model:SpreadsheetModel) {
+        if hasView {
+            return (sheetView.rowCount())
+        }
+        return model.rowCount
+    }
+
+    fn viewColCount:int (model:SpreadsheetModel) {
+        if hasView {
+            return (sheetView.colCount())
+        }
+        return model.colCount
+    }
+
+    fn mapRow:int (viewOrModelRow:int) {
+        if hasView {
+            return (sheetView.modelRow(viewOrModelRow))
+        }
+        return viewOrModelRow
+    }
+
+    fn mapCol:int (viewOrModelCol:int) {
+        if hasView {
+            return (sheetView.modelCol(viewOrModelCol))
+        }
+        return viewOrModelCol
+    }
+
+    fn geoRowToY:int (model:SpreadsheetModel row:int) {
+        if hasView {
+            def vr:int (sheetView.viewRowOf(row))
+            if (vr < 0) {
+                return -100000
+            }
+            return (sheetView.rowToY(vr))
+        }
+        return (model.rowToY(row))
+    }
+
+    fn geoColToX:int (model:SpreadsheetModel col:int) {
+        if hasView {
+            def vc:int (sheetView.viewColOf(col))
+            if (vc < 0) {
+                return -100000
+            }
+            return (sheetView.colToX(vc))
+        }
+        return (model.colToX(col))
+    }
+
+    fn geoTotalH:int (model:SpreadsheetModel) {
+        if hasView {
+            return (sheetView.totalHeight())
+        }
+        return (model.totalHeight())
+    }
+
+    fn geoTotalW:int (model:SpreadsheetModel) {
+        if hasView {
+            return (sheetView.totalWidth())
+        }
+        return (model.totalWidth())
+    }
+
+    fn geoFrozenH:int (model:SpreadsheetModel) {
+        if hasView {
+            def fz:int model.freezeRows
+            if (fz <= 0) {
+                return 0
+            }
+            ; freeze headers are the leading view rows with modelRow < freezeRows
+            def n:int 0
+            def i:int 0
+            def rc:int (sheetView.rowCount())
+            while (i < rc) {
+                def mr:int (sheetView.modelRow(i))
+                if (mr < fz) {
+                    n = (n + 1)
+                } {
+                    break
+                }
+                i = (i + 1)
+            }
+            return (sheetView.rowToY(n))
+        }
+        return (model.frozenHeight())
+    }
+
+    fn geoFrozenW:int (model:SpreadsheetModel) {
+        if hasView {
+            def fz:int model.freezeCols
+            if (fz <= 0) {
+                return 0
+            }
+            def n:int 0
+            def i:int 0
+            def cc:int (sheetView.colCount())
+            while (i < cc) {
+                def mc:int (sheetView.modelCol(i))
+                if (mc < fz) {
+                    n = (n + 1)
+                } {
+                    break
+                }
+                i = (i + 1)
+            }
+            return (sheetView.colToX(n))
+        }
+        return (model.frozenWidth())
+    }
+
+    fn geoYToRow:int (model:SpreadsheetModel y:int) {
+        if hasView {
+            return (sheetView.yToRow(y))
+        }
+        return (model.yToRow(y))
+    }
+
+    fn geoXToCol:int (model:SpreadsheetModel x:int) {
+        if hasView {
+            return (sheetView.xToCol(x))
+        }
+        return (model.xToCol(x))
+    }
+
+    fn freezeViewRows:int (model:SpreadsheetModel) {
+        if hasView {
+            def fz:int model.freezeRows
+            def n:int 0
+            def i:int 0
+            def rc:int (sheetView.rowCount())
+            while (i < rc) {
+                if ((sheetView.modelRow(i)) < fz) {
+                    n = (n + 1)
+                } {
+                    break
+                }
+                i = (i + 1)
+            }
+            return n
+        }
+        return model.freezeRows
+    }
+
+    fn freezeViewCols:int (model:SpreadsheetModel) {
+        if hasView {
+            def fz:int model.freezeCols
+            def n:int 0
+            def i:int 0
+            def cc:int (sheetView.colCount())
+            while (i < cc) {
+                if ((sheetView.modelCol(i)) < fz) {
+                    n = (n + 1)
+                } {
+                    break
+                }
+                i = (i + 1)
+            }
+            return n
+        }
+        return model.freezeCols
     }
 
     fn setBounds:void (bx:int by:int bw:int bh:int) {
@@ -94,7 +265,7 @@ class DataGrid {
     }
 
     fn scrollAreaW:int (model:SpreadsheetModel) {
-        def aw:int ((this.viewportW()) - (model.frozenWidth()))
+        def aw:int ((this.viewportW()) - (this.geoFrozenW(model)))
         if (aw < 1) {
             return 1
         }
@@ -102,7 +273,7 @@ class DataGrid {
     }
 
     fn scrollAreaH:int (model:SpreadsheetModel) {
-        def ah:int ((this.viewportH()) - (model.frozenHeight()))
+        def ah:int ((this.viewportH()) - (this.geoFrozenH(model)))
         if (ah < 1) {
             return 1
         }
@@ -111,10 +282,13 @@ class DataGrid {
 
     fn clampScroll:void (model:SpreadsheetModel) {
         model.ensureGeometry()
-        def fzW:int (model.frozenWidth())
-        def fzH:int (model.frozenHeight())
-        def maxX:int (((model.totalWidth()) - fzW) - (this.scrollAreaW(model)))
-        def maxY:int (((model.totalHeight()) - fzH) - (this.scrollAreaH(model)))
+        if hasView {
+            sheetView.ensure()
+        }
+        def fzW:int (this.geoFrozenW(model))
+        def fzH:int (this.geoFrozenH(model))
+        def maxX:int (((this.geoTotalW(model)) - fzW) - (this.scrollAreaW(model)))
+        def maxY:int (((this.geoTotalH(model)) - fzH) - (this.scrollAreaH(model)))
         if (maxX < 0) {
             maxX = 0
         }
@@ -135,44 +309,55 @@ class DataGrid {
         }
     }
 
-    ; Recompute visible scrollable span (FortuneSheet freeze = fixed bands).
+    ; Recompute visible scrollable span. Indices are VIEW rows/cols when hasView.
     fn updateVisible:void (model:SpreadsheetModel) {
         this.clampScroll(model)
-        def fzR:int model.freezeRows
-        def fzC:int model.freezeCols
-        def baseY:int (model.rowToY(fzR))
-        def baseX:int (model.colToX(fzC))
+        def fzR:int (this.freezeViewRows(model))
+        def fzC:int (this.freezeViewCols(model))
+        def vrc:int (this.viewRowCount(model))
+        def vcc:int (this.viewColCount(model))
+        def baseY:int 0
+        if hasView {
+            baseY = (sheetView.rowToY(fzR))
+        } {
+            baseY = (model.rowToY(fzR))
+        }
+        def baseX:int 0
+        if hasView {
+            baseX = (sheetView.colToX(fzC))
+        } {
+            baseX = (model.colToX(fzC))
+        }
         firstScrollRow = fzR
-        if (fzR < model.rowCount) {
-            firstScrollRow = (model.yToRow((baseY + scrollY)))
+        if (fzR < vrc) {
+            firstScrollRow = (this.geoYToRow(model (baseY + scrollY)))
             if (firstScrollRow < fzR) {
                 firstScrollRow = fzR
             }
         }
         def bottomY:int (((baseY + scrollY) + (this.scrollAreaH(model))) - 1)
-        lastScrollRow = (model.yToRow(bottomY))
+        lastScrollRow = (this.geoYToRow(model bottomY))
         if (lastScrollRow < firstScrollRow) {
             lastScrollRow = firstScrollRow
         }
-        if (lastScrollRow >= model.rowCount) {
-            lastScrollRow = (model.rowCount - 1)
+        if (lastScrollRow >= vrc) {
+            lastScrollRow = (vrc - 1)
         }
         firstScrollCol = fzC
-        if (fzC < model.colCount) {
-            firstScrollCol = (model.xToCol((baseX + scrollX)))
+        if (fzC < vcc) {
+            firstScrollCol = (this.geoXToCol(model (baseX + scrollX)))
             if (firstScrollCol < fzC) {
                 firstScrollCol = fzC
             }
         }
         def rightX:int (((baseX + scrollX) + (this.scrollAreaW(model))) - 1)
-        lastScrollCol = (model.xToCol(rightX))
+        lastScrollCol = (this.geoXToCol(model rightX))
         if (lastScrollCol < firstScrollCol) {
             lastScrollCol = firstScrollCol
         }
-        if (lastScrollCol >= model.colCount) {
-            lastScrollCol = (model.colCount - 1)
+        if (lastScrollCol >= vcc) {
+            lastScrollCol = (vcc - 1)
         }
-        ; Status / simple loops: union of frozen + scrollable
         firstVisibleRow = 0
         if (fzR == 0) {
             firstVisibleRow = firstScrollRow
@@ -196,30 +381,63 @@ class DataGrid {
         this.scrollByPixels(model 0 (delta * step))
     }
 
-    ; Screen X for a column, honouring freeze (FortuneSheet frozen columns).
+    ; Screen X for a MODEL column (maps through SheetView when bound).
     fn colScreenX:int (model:SpreadsheetModel col:int) {
         def ox:int (this.gridOriginX())
-        def fzC:int model.freezeCols
-        def x0:int (model.colToX(col))
-        if (col < fzC) {
+        def fzC:int (this.freezeViewCols(model))
+        def x0:int (this.geoColToX(model col))
+        def vc:int col
+        if hasView {
+            vc = (sheetView.viewColOf(col))
+            if (vc < 0) {
+                return -100000
+            }
+        }
+        if (vc < fzC) {
             return (ox + x0)
         }
-        def base:int (model.colToX(fzC))
-        return (((ox + (model.frozenWidth())) + (x0 - base)) - scrollX)
+        def base:int 0
+        if hasView {
+            base = (sheetView.colToX(fzC))
+        } {
+            base = (model.colToX(fzC))
+        }
+        return (((ox + (this.geoFrozenW(model))) + (x0 - base)) - scrollX)
     }
 
     fn rowScreenY:int (model:SpreadsheetModel row:int) {
         def oy:int (this.gridOriginY())
-        def fzR:int model.freezeRows
-        def y0:int (model.rowToY(row))
-        if (row < fzR) {
+        def fzR:int (this.freezeViewRows(model))
+        def y0:int (this.geoRowToY(model row))
+        def vr:int row
+        if hasView {
+            vr = (sheetView.viewRowOf(row))
+            if (vr < 0) {
+                return -100000
+            }
+        }
+        if (vr < fzR) {
             return (oy + y0)
         }
-        def base:int (model.rowToY(fzR))
-        return (((oy + (model.frozenHeight())) + (y0 - base)) - scrollY)
+        def base:int 0
+        if hasView {
+            base = (sheetView.rowToY(fzR))
+        } {
+            base = (model.rowToY(fzR))
+        }
+        return (((oy + (this.geoFrozenH(model))) + (y0 - base)) - scrollY)
     }
 
-    ; Screen-space rect of a cell (may be partially off-viewport).
+    ; Screen position helpers for VIEW indices (headers / scroll bands).
+    fn viewColScreenX:int (model:SpreadsheetModel viewCol:int) {
+        return (this.colScreenX(model (this.mapCol(viewCol))))
+    }
+
+    fn viewRowScreenY:int (model:SpreadsheetModel viewRow:int) {
+        return (this.rowScreenY(model (this.mapRow(viewRow))))
+    }
+
+    ; Screen-space rect of a MODEL cell (may be partially off-viewport).
     fn cellRect:GridRect (model:SpreadsheetModel row:int col:int) {
         def cx:int (this.colScreenX(model col))
         def cy:int (this.rowScreenY(model row))
@@ -235,12 +453,13 @@ class DataGrid {
             if ((row == r1) && (col == c1)) {
                 cx = (this.colScreenX(model c1))
                 cy = (this.rowScreenY(model r1))
-                def x2:int (this.colScreenX(model (c2 + 1)))
-                ; if c2+1 is past freeze boundary, width from geometry
-                cw = ((model.colToX((c2 + 1))) - (model.colToX(c1)))
-                ch = ((model.rowToY((r2 + 1))) - (model.rowToY(r1)))
-                if (x2 > 0) {
-                    ; keep cw from offsets for merges spanning freeze
+                cw = ((this.geoColToX(model (c2 + 1))) - (this.geoColToX(model c1)))
+                ch = ((this.geoRowToY(model (r2 + 1))) - (this.geoRowToY(model r1)))
+                if (cw < 1) {
+                    cw = (model.colWidth(c1))
+                }
+                if (ch < 1) {
+                    ch = (model.rowHeight(r1))
                 }
             }
         }
@@ -353,44 +572,68 @@ class DataGrid {
         if ((px < bodyLeft) && (py < bodyTop)) {
             return (CellPos.create(-4 -4))
         }
-        def fzW:int (model.frozenWidth())
-        def fzH:int (model.frozenHeight())
-        def fzR:int model.freezeRows
-        def fzC:int model.freezeCols
+        def fzW:int (this.geoFrozenW(model))
+        def fzH:int (this.geoFrozenH(model))
+        def fzR:int (this.freezeViewRows(model))
+        def fzC:int (this.freezeViewCols(model))
         if (py < bodyTop) {
             def localX:int (px - bodyLeft)
             def contentX:int localX
             if (localX >= fzW) {
-                def baseX:int (model.colToX(fzC))
+                def baseX:int 0
+                if hasView {
+                    baseX = (sheetView.colToX(fzC))
+                } {
+                    baseX = (model.colToX(fzC))
+                }
                 contentX = ((baseX + (localX - fzW)) + scrollX)
             }
-            def col:int (model.xToCol(contentX))
-            return (CellPos.create(-2 col))
+            def vcol:int (this.geoXToCol(model contentX))
+            def mcol:int (this.mapCol(vcol))
+            return (CellPos.create(-2 mcol))
         }
         if (px < bodyLeft) {
             def localY:int (py - bodyTop)
             def contentY:int localY
             if (localY >= fzH) {
-                def baseY:int (model.rowToY(fzR))
+                def baseY:int 0
+                if hasView {
+                    baseY = (sheetView.rowToY(fzR))
+                } {
+                    baseY = (model.rowToY(fzR))
+                }
                 contentY = ((baseY + (localY - fzH)) + scrollY)
             }
-            def row:int (model.yToRow(contentY))
-            return (CellPos.create(row -2))
+            def vrow:int (this.geoYToRow(model contentY))
+            def mrow:int (this.mapRow(vrow))
+            return (CellPos.create(mrow -2))
         }
         def lx:int (px - bodyLeft)
         def ly:int (py - bodyTop)
         def cx:int lx
         def cy:int ly
         if (lx >= fzW) {
-            def baseX2:int (model.colToX(fzC))
+            def baseX2:int 0
+            if hasView {
+                baseX2 = (sheetView.colToX(fzC))
+            } {
+                baseX2 = (model.colToX(fzC))
+            }
             cx = ((baseX2 + (lx - fzW)) + scrollX)
         }
         if (ly >= fzH) {
-            def baseY2:int (model.rowToY(fzR))
+            def baseY2:int 0
+            if hasView {
+                baseY2 = (sheetView.rowToY(fzR))
+            } {
+                baseY2 = (model.rowToY(fzR))
+            }
             cy = ((baseY2 + (ly - fzH)) + scrollY)
         }
-        def r:int (model.yToRow(cy))
-        def c:int (model.xToCol(cx))
+        def vr:int (this.geoYToRow(model cy))
+        def vc:int (this.geoXToCol(model cx))
+        def r:int (this.mapRow(vr))
+        def c:int (this.mapCol(vc))
         def p:CellPos (CellPos.create(r c))
         model.clampPos(p)
         ; Merged area → origin (FortuneSheet / Excel selection behaviour)

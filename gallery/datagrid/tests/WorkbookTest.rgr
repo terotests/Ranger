@@ -6,6 +6,7 @@ Import "../src/GridApp.rgr"
 Import "../src/XlsxNumberFormat.rgr"
 Import "../src/FormulaEngine.rgr"
 Import "../src/SheetView.rgr"
+Import "../src/ConditionalFormat.rgr"
 Import "../src/xlsx/XlsxLoader.rgr"
 
 class Checker {
@@ -178,6 +179,25 @@ class WorkbookTest {
         push fvals "North"
         app.applyFilter(1 fvals)
         c.ok("filter on" app.model.filterEnabled)
+        c.ok("sheetview bound" app.grid.hasView)
+        def vr0:int (app.sheetView.modelRow(1))
+        c.ok("view row mapped" (vr0 >= 0))
+        app.openHeaderMenu(1 100 50)
+        c.ok("menu open" app.view.menuOpen)
+        app.closeHeaderMenu()
+
+        ; Summary CF color scale
+        def si:int 0
+        while (si < (app.book.sheetCount())) {
+            def sh:SpreadsheetModel (app.book.sheetAt(si))
+            if (sh.name == "Summary") {
+                app.setActiveSheet(si)
+            }
+            si = (si + 1)
+        }
+        c.ok("cf rules present" ((array_length app.model.cfRules) >= 1))
+        def fill:string (ConditionalFormat.resolveFill(app.model 2 2))
+        c.ok("cf fill non-empty" ((strlen fill) > 0))
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

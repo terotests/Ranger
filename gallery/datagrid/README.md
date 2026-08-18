@@ -26,6 +26,8 @@ npm run datagrid:xlsx:test
 npm run datagrid:workbook:test
 npm run datagrid:formula:test
 npm run datagrid:formula:workbook:test
+npm run datagrid:formula:bench
+npm run datagrid:artifacts
 npm run datagrid:xlsx:fixtures
 npm run datagrid:bench -- 100000
 npm run datagrid:oracle:dump
@@ -40,10 +42,14 @@ npm run datagrid:window
 - Freeze panes, merges (hit-test → origin), hidden rows/cols
 - Formula bar; FormulaEngine (coerce, abs/rel/cross-sheet refs, fill-translate,
   incremental recalc) + FormulaFunctions; cached `<v>` fallback
-- Sort / filter via SheetView (programmatic + header indicator path)
-- Ctrl+C/V TSV, fill-handle copy-fill
+- SheetView drives paint order; header popup for sort/filter
+- Conditional formatting: colorScale + cellIs paint overlay
+- Tracked screenshots in `artifacts/` (PNG + JPEG)
+- Sort / filter via SheetView (programmatic + header popup)
+- Ctrl+C/V TSV, fill-handle copy-fill (formula-aware translate)
 - Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`, `sparse100k`
-- Oracles: openpyxl semantic; LibreOffice visual when available
+- Oracles: openpyxl semantic; LibreOffice visual + formula CSV when available
+- Bench: `datagrid:bench`, `datagrid:formula:bench`
 
 ## Architecture invariant
 
