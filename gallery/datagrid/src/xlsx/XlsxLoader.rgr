@@ -1,0 +1,60 @@
+; ==============================================================================
+; XlsxLoader - book.xlsx → WorkbookModel (sheets → SpreadsheetModel).
+; ==============================================================================
+
+Import "XlsxPackage.rgr"
+Import "XlsxWorkbook.rgr"
+Import "XlsxSharedStrings.rgr"
+Import "XlsxWorksheet.rgr"
+Import "../WorkbookModel.rgr"
+
+class XlsxLoader {
+    def lastError:string ""
+
+    Constructor () {
+    }
+
+    fn loadPath:boolean (fullPath:string book:WorkbookModel) {
+        lastError = ""
+        def pkg:XlsxPackage (new XlsxPackage)
+        if ((pkg.openPath(fullPath)) == false) {
+            lastError = ("could not open zip: " + fullPath)
+            return false
+        }
+        def ok:boolean (this.loadPackage(pkg book))
+        pkg.close()
+        return ok
+    }
+
+    fn loadPackage:boolean (pkg:XlsxPackage book:WorkbookModel) {
+        book.clear()
+        def wb:XlsxWorkbook (new XlsxWorkbook)
+        wb.load(pkg)
+        if ((wb.sheetCount()) == 0) {
+            lastError = "workbook has no sheets"
+            return false
+        }
+        def sst:XlsxSharedStrings (new XlsxSharedStrings)
+        if (pkg.hasEntry("xl/sharedStrings.xml")) {
+            sst.parse((pkg.entryText("xl/sharedStrings.xml")))
+        }
+        def parser:XlsxWorksheet (new XlsxWorksheet)
+        def i:int 0
+        def n:int (wb.sheetCount())
+        while (i < n) {
+            def info:XlsxSheetInfo (wb.sheetAt(i))
+            def sheet:SpreadsheetModel (new SpreadsheetModel)
+            sheet.name = info.name
+            def xml:string (pkg.entryText(info.path))
+            if ((strlen xml) == 0) {
+                lastError = ("missing sheet part: " + info.path)
+                return false
+            }
+            parser.parse(xml sheet sst)
+            book.addSheet(sheet)
+            i = (i + 1)
+        }
+        book.setActive(0)
+        return true
+    }
+}

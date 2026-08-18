@@ -1,0 +1,379 @@
+; ==============================================================================
+; GridView - DataGrid scene → EVGDisplayList → SoftCanvas / WebGL
+; ==============================================================================
+;
+; Only visible cells become draw cmds (batched fills, texts, 1px grid lines).
+; Selection is an overlay rect — not a style mutation on each cell.
+;
+;   GridView.buildDisplayList  →  EVGDisplayList
+;        ├─ paintSoftCanvas    →  SoftCanvas (tests / SDL)
+;        └─ sceneJson          →  gallery/evg/gl/evg-webgl.js
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "GridSelection.rgr"
+Import "DataGrid.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "WorkbookModel.rgr"
+
+class GridTheme {
+    def bg:EVGColor (EVGColor.rgb(245 247 250))
+    def headerBg:EVGColor (EVGColor.rgb(232 236 242))
+    def headerText:EVGColor (EVGColor.rgb(55 65 80))
+    def gridLine:EVGColor (EVGColor.rgb(210 216 224))
+    def cellText:EVGColor (EVGColor.rgb(30 36 48))
+    def formulaBg:EVGColor (EVGColor.rgb(255 255 255))
+    def formulaText:EVGColor (EVGColor.rgb(30 36 48))
+    def selection:EVGColor (EVGColor.rgba(50 120 220 0.22))
+    def activeBorder:EVGColor (EVGColor.rgb(40 100 210))
+    def editBg:EVGColor (EVGColor.rgb(255 252 230))
+    def statusBg:EVGColor (EVGColor.rgb(236 240 246))
+    def statusText:EVGColor (EVGColor.rgb(80 92 110))
+    def cornerBg:EVGColor (EVGColor.rgb(220 226 234))
+
+    Constructor () {
+    }
+}
+
+class GridView {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def theme:GridTheme (new GridTheme)
+    def status:string ""
+    def focused:boolean true
+    def frame:int 0
+    def fontFamily:string "Open Sans"
+    def fontSize:double 13.0
+    def pageW:int 900
+    def pageH:int 560
+
+    Constructor () {
+    }
+
+    fn init:void (w:int h:int fontDir:string) {
+        pageW = w
+        pageH = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.addFontDir(fontDir)
+        def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
+        if (ok == false) {
+            status = "bitmap-font fallback"
+        } {
+            status = "ready"
+        }
+    }
+
+    fn resize:void (w:int h:int) {
+        pageW = w
+        pageH = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.clearCache()
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushBorder:void (dl:EVGDisplayList x:double y:double w:double h:double thickness:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 1
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.thickness = thickness
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = (ctx.tr.measureWidth(text size))
+        c.h = (ctx.tr.lineHeight(size))
+        c.text = text
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushClip:void (dl:EVGDisplayList x:double y:double w:double h:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        push dl.cmds c
+    }
+
+    fn popClip:void (dl:EVGDisplayList) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 5
+        push dl.cmds c
+    }
+
+    fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
+        grid.updateVisible(model)
+        def dl:EVGDisplayList (new EVGDisplayList)
+
+        this.pushRect(dl 0.0 0.0 (to_double pageW) (to_double pageH) theme.bg)
+
+        ; --- formula bar ---
+        def fbY:int grid.y
+        this.pushRect(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) theme.formulaBg)
+        def addr:string (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
+        def shown:string (model.formulaBarText(sel.active.row sel.active.col))
+        if editing {
+            shown = editBuf
+        }
+        this.pushText(dl addr (to_double (grid.x + 8)) (to_double (fbY + 6)) 13.0 theme.headerText)
+        this.pushText(dl shown (to_double (grid.x + 64)) (to_double (fbY + 6)) 13.0 theme.formulaText)
+        this.pushBorder(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) 1.0 theme.gridLine)
+
+        def headerTop:int (grid.y + grid.formulaBarH)
+        def bodyLeft:int (grid.x + grid.rowHeaderW)
+        def bodyTop:int (headerTop + grid.colHeaderH)
+        def vw:int (grid.viewportW())
+        def vh:int (grid.viewportH())
+
+        ; corner
+        this.pushRect(dl (to_double grid.x) (to_double headerTop) (to_double grid.rowHeaderW) (to_double grid.colHeaderH) theme.cornerBg)
+
+        ; column headers
+        this.pushRect(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH) theme.headerBg)
+        this.pushClip(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH))
+        def hc:int grid.firstVisibleCol
+        while (hc <= grid.lastVisibleCol) {
+            def hr:GridRect (grid.cellRect(model 0 hc))
+            def hx:int hr.x
+            def label:string (SpreadsheetModel.colLabel(hc))
+            def cw:int (model.colWidth(hc))
+            def lw:int (to_int (ctx.tr.measureWidth(label (fontSize * 0.9))))
+            def lx:int (hx + (to_int ((to_double (cw - lw)) / 2.0)))
+            this.pushText(dl label (to_double lx) (to_double (headerTop + 4)) (fontSize * 0.9) theme.headerText)
+            this.pushRect(dl (to_double (hx + cw - 1)) (to_double headerTop) 1.0 (to_double grid.colHeaderH) theme.gridLine)
+            hc = (hc + 1)
+        }
+        this.popClip(dl)
+
+        ; row headers
+        this.pushRect(dl (to_double grid.x) (to_double bodyTop) (to_double grid.rowHeaderW) (to_double vh) theme.headerBg)
+        this.pushClip(dl (to_double grid.x) (to_double bodyTop) (to_double grid.rowHeaderW) (to_double vh))
+        def hr2:int grid.firstVisibleRow
+        while (hr2 <= grid.lastVisibleRow) {
+            def rr:GridRect (grid.cellRect(model hr2 0))
+            def num:string (to_string (hr2 + 1))
+            def rh:int (model.rowHeight(hr2))
+            def nw:int (to_int (ctx.tr.measureWidth(num (fontSize * 0.85))))
+            def nx:int ((grid.x + grid.rowHeaderW) - nw - 6)
+            this.pushText(dl num (to_double nx) (to_double (rr.y + 3)) (fontSize * 0.85) theme.headerText)
+            this.pushRect(dl (to_double grid.x) (to_double (rr.y + rh - 1)) (to_double grid.rowHeaderW) 1.0 theme.gridLine)
+            hr2 = (hr2 + 1)
+        }
+        this.popClip(dl)
+
+        ; body: backgrounds + text + gridlines (visible cells only)
+        this.pushClip(dl (to_double bodyLeft) (to_double bodyTop) (to_double vw) (to_double vh))
+        this.pushRect(dl (to_double bodyLeft) (to_double bodyTop) (to_double vw) (to_double vh) theme.bg)
+
+        def r:int grid.firstVisibleRow
+        while (r <= grid.lastVisibleRow) {
+            def c:int grid.firstVisibleCol
+            while (c <= grid.lastVisibleCol) {
+                if (model.isMergeOrigin(r c)) {
+                    def rect:GridRect (grid.cellRect(model r c))
+                    if editing {
+                        if ((r == sel.active.row) && (c == sel.active.col)) {
+                            this.pushRect(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h) theme.editBg)
+                        }
+                    }
+                    def txt:string (model.getCell(r c))
+                    if editing {
+                        if ((r == sel.active.row) && (c == sel.active.col)) {
+                            txt = editBuf
+                        }
+                    }
+                    if ((strlen txt) > 0) {
+                        this.pushText(dl txt (to_double (rect.x + 4)) (to_double (rect.y + 3)) fontSize theme.cellText)
+                    }
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+
+        ; vertical grid lines
+        def vc:int grid.firstVisibleCol
+        while (vc <= grid.lastVisibleCol) {
+            def vr:GridRect (grid.cellRect(model grid.firstVisibleRow vc))
+            def cw2:int (model.colWidth(vc))
+            this.pushRect(dl (to_double (vr.x + cw2 - 1)) (to_double bodyTop) 1.0 (to_double vh) theme.gridLine)
+            vc = (vc + 1)
+        }
+        ; horizontal grid lines
+        def vr2:int grid.firstVisibleRow
+        while (vr2 <= grid.lastVisibleRow) {
+            def rr2:GridRect (grid.cellRect(model vr2 grid.firstVisibleCol))
+            def rh2:int (model.rowHeight(vr2))
+            this.pushRect(dl (to_double bodyLeft) (to_double (rr2.y + rh2 - 1)) (to_double vw) 1.0 theme.gridLine)
+            vr2 = (vr2 + 1)
+        }
+
+        ; selection overlay (cheap rect, not per-cell styles) — clipped to viewport
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def tl:GridRect (grid.cellRect(model a.row a.col))
+        def br:GridRect (grid.cellRect(model b.row b.col))
+        def sx:int tl.x
+        def sy:int tl.y
+        def sw:int ((br.x + br.w) - tl.x)
+        def sh:int ((br.y + br.h) - tl.y)
+        if (sx < bodyLeft) {
+            sw = (sw - (bodyLeft - sx))
+            sx = bodyLeft
+        }
+        if (sy < bodyTop) {
+            sh = (sh - (bodyTop - sy))
+            sy = bodyTop
+        }
+        if ((sx + sw) > (bodyLeft + vw)) {
+            sw = ((bodyLeft + vw) - sx)
+        }
+        if ((sy + sh) > (bodyTop + vh)) {
+            sh = ((bodyTop + vh) - sy)
+        }
+        if (sel.isSingle() == false) {
+            if ((sw > 0) && (sh > 0)) {
+                this.pushRect(dl (to_double sx) (to_double sy) (to_double sw) (to_double sh) theme.selection)
+            }
+        }
+
+        ; active cell border
+        def ar:GridRect (grid.cellRect(model sel.active.row sel.active.col))
+        this.pushBorder(dl (to_double ar.x) (to_double ar.y) (to_double ar.w) (to_double ar.h) 2.0 theme.activeBorder)
+
+        ; edit caret blink inside active cell when editing
+        if editing {
+            if focused {
+                def phase:int (to_int (frame / 30))
+                def on:int (phase - ((to_int (phase / 2)) * 2))
+                if (on == 0) {
+                    def ew:int (to_int (ctx.tr.measureWidth(editBuf fontSize)))
+                    this.pushRect(dl (to_double (ar.x + 4 + ew)) (to_double (ar.y + 3)) 2.0 (to_double (ar.h - 6)) theme.activeBorder)
+                }
+            }
+        }
+
+        this.popClip(dl)
+
+        ; sheet tabs
+        def tabY:int (grid.sheetTabY())
+        this.pushRect(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) theme.headerBg)
+        def si:int 0
+        def sn:int (book.sheetCount())
+        def tabW:int 88
+        while (si < sn) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            def tx:int (grid.x + (si * tabW))
+            if (si == book.activeIndex) {
+                this.pushRect(dl (to_double tx) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
+            }
+            def nm:string sheet.name
+            if ((strlen nm) == 0) {
+                nm = ("Sheet" + (to_string (si + 1)))
+            }
+            this.pushText(dl nm (to_double (tx + 8)) (to_double (tabY + 5)) 12.0 theme.headerText)
+            this.pushRect(dl (to_double (tx + tabW - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+            si = (si + 1)
+        }
+        this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
+
+        ; outer chrome
+        this.pushBorder(dl (to_double grid.x) (to_double grid.y) (to_double grid.w) (to_double grid.h) 1.0 theme.gridLine)
+
+        ; status bar
+        def sy2:int (grid.y + grid.h)
+        if (sy2 < pageH) {
+            def sh2:int (pageH - sy2)
+            this.pushRect(dl 0.0 (to_double sy2) (to_double pageW) (to_double sh2) theme.statusBg)
+            def src:string book.sourcePath
+            if ((strlen src) == 0) {
+                src = "(demo)"
+            }
+            def info:string ("sheet " + (book.activeName()) + "  sel " + (SpreadsheetModel.cellLabel(sel.active.row sel.active.col)) + "  visible " + (to_string grid.firstVisibleRow) + ".." + (to_string grid.lastVisibleRow) + "  rows=" + (to_string model.rowCount) + "  " + src + "  " + status)
+            this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.statusText)
+        }
+
+        return dl
+    }
+
+    fn paintSoftCanvas:void (dl:EVGDisplayList) {
+        canvas.clear((theme.bg.red()) (theme.bg.green()) (theme.bg.blue()))
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 0) {
+                def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
+            }
+            if (c.kind == 1) {
+                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
+            }
+            if (c.kind == 3) {
+                def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn render:void (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
+        ctx.frame = frame
+        def dl:EVGDisplayList (this.buildDisplayList(model sel grid editing editBuf book))
+        this.paintSoftCanvas(dl)
+        frame = (frame + 1)
+    }
+
+    fn sceneJson:string (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
+        ctx.frame = frame
+        def dl:EVGDisplayList (this.buildDisplayList(model sel grid editing editBuf book))
+        frame = (frame + 1)
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num((to_double pageW))) + ",\"height\":" + (EVGDisplayList.num((to_double pageH))) + ",\"list\":" + body + "}")
+    }
+}

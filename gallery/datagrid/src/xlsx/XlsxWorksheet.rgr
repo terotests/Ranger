@@ -1,0 +1,317 @@
+; ==============================================================================
+; XlsxWorksheet - parse one worksheet XML into a SpreadsheetModel.
+; ==============================================================================
+;
+; Viewer v1: values, shared/inline strings, booleans, cached formula results,
+; column widths, row heights, merge ranges. No formula engine.
+; ==============================================================================
+
+Import "XmlLite.rgr"
+Import "XlsxSharedStrings.rgr"
+Import "../SpreadsheetModel.rgr"
+
+class XlsxWorksheet {
+    Constructor () {
+    }
+
+    ; A1 / AA17 → 0-based row/col via out arrays (length-1).
+    sfn parseCellRef:void (ref:string rowOut:[int] colOut:[int]) {
+        def i:int 0
+        def n:int (strlen ref)
+        def col:int 0
+        def sawCol:boolean false
+        while (i < n) {
+            def ch:int (charAt ref i)
+            if ((ch >= 65) && (ch <= 90)) {
+                col = ((col * 26) + ((ch - 65) + 1))
+                sawCol = true
+                i = (i + 1)
+            } {
+                if ((ch >= 97) && (ch <= 122)) {
+                    col = ((col * 26) + ((ch - 97) + 1))
+                    sawCol = true
+                    i = (i + 1)
+                } {
+                    break
+                }
+            }
+        }
+        if sawCol {
+            col = (col - 1)
+        }
+        def row:int 0
+        def sawRow:boolean false
+        while (i < n) {
+            def ch2:int (charAt ref i)
+            if ((ch2 >= 48) && (ch2 <= 57)) {
+                row = ((row * 10) + (ch2 - 48))
+                sawRow = true
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        if sawRow {
+            row = (row - 1)
+        }
+        clear rowOut
+        clear colOut
+        push rowOut row
+        push colOut col
+    }
+
+    sfn parseMergeRef:void (ref:string r1:[int] c1:[int] r2:[int] c2:[int]) {
+        ; A1:D2
+        def colon:int -1
+        def i:int 0
+        def n:int (strlen ref)
+        while (i < n) {
+            if ((charAt ref i) == 58) {
+                colon = i
+            }
+            i = (i + 1)
+        }
+        if (colon < 0) {
+            XlsxWorksheet.parseCellRef(ref r1 c1)
+            clear r2
+            clear c2
+            push r2 (itemAt r1 0)
+            push c2 (itemAt c1 0)
+            return
+        }
+        def a:string (substring ref 0 colon)
+        def b:string (substring ref (colon + 1) n)
+        XlsxWorksheet.parseCellRef(a r1 c1)
+        XlsxWorksheet.parseCellRef(b r2 c2)
+    }
+
+    ; Excel column width (character units) → approximate CSS/pixel width.
+    sfn colWidthToPx:int (w:double) {
+        def px:int (to_int ((w * 8.0) + 5.0))
+        if (px < 24) {
+            px = 24
+        }
+        return px
+    }
+
+    ; Row height in points → pixels (96 DPI).
+    sfn rowHeightToPx:int (pt:double) {
+        def px:int (to_int ((pt * 96.0) / 72.0))
+        if (px < 8) {
+            px = 8
+        }
+        return px
+    }
+
+    sfn parseDouble:double (s:string) {
+        if ((strlen s) == 0) {
+            return 0.0
+        }
+        def parsed@(optional):double (to_double s)
+        if parsed {
+            return (unwrap parsed)
+        }
+        return 0.0
+    }
+
+    sfn parseInt0:int (s:string) {
+        def parsed@(optional):int (to_int s)
+        if parsed {
+            return (unwrap parsed)
+        }
+        return 0
+    }
+
+    fn applyDimension:void (model:SpreadsheetModel ref:string) {
+        if ((strlen ref) == 0) {
+            return
+        }
+        def r1:[int]
+        def c1:[int]
+        def r2:[int]
+        def c2:[int]
+        XlsxWorksheet.parseMergeRef(ref r1 c1 r2 c2)
+        def rows:int ((itemAt r2 0) + 1)
+        def cols:int ((itemAt c2 0) + 1)
+        if (rows < 1) {
+            rows = 1
+        }
+        if (cols < 1) {
+            cols = 1
+        }
+        if (rows < model.rowCount) {
+            rows = model.rowCount
+        }
+        if (cols < model.colCount) {
+            cols = model.colCount
+        }
+        model.resize(rows cols)
+    }
+
+    fn ensureSize:void (model:SpreadsheetModel row:int col:int) {
+        def rows:int model.rowCount
+        def cols:int model.colCount
+        if ((row + 1) > rows) {
+            rows = (row + 1)
+        }
+        if ((col + 1) > cols) {
+            cols = (col + 1)
+        }
+        if ((rows != model.rowCount) || (cols != model.colCount)) {
+            model.resize(rows cols)
+        }
+    }
+
+    fn parse:void (xml:string model:SpreadsheetModel sst:XlsxSharedStrings) {
+        model.clearSheet()
+        if ((strlen xml) == 0) {
+            return
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(xml)
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if ((t.name == "dimension") && (t.isEnd == false)) {
+                this.applyDimension(model (t.attr("ref")))
+            }
+            if ((t.name == "col") && (t.isEnd == false)) {
+                def minC:int ((XlsxWorksheet.parseInt0((t.attr("min")))) - 1)
+                def maxC:int ((XlsxWorksheet.parseInt0((t.attr("max")))) - 1)
+                def w:double (XlsxWorksheet.parseDouble((t.attr("width"))))
+                def px:int (XlsxWorksheet.colWidthToPx(w))
+                if (maxC < minC) {
+                    maxC = minC
+                }
+                this.ensureSize(model 0 maxC)
+                def c:int minC
+                while (c <= maxC) {
+                    model.setColWidth(c px)
+                    c = (c + 1)
+                }
+            }
+            if ((t.name == "row") && (t.isEnd == false) && (t.selfClose == false)) {
+                def rAttr:string (t.attr("r"))
+                def rowIdx:int 0
+                if ((strlen rAttr) > 0) {
+                    rowIdx = ((XlsxWorksheet.parseInt0(rAttr)) - 1)
+                }
+                if (t.has("ht")) {
+                    def ht:double (XlsxWorksheet.parseDouble((t.attr("ht"))))
+                    this.ensureSize(model rowIdx 0)
+                    model.setRowHeight(rowIdx (XlsxWorksheet.rowHeightToPx(ht)))
+                }
+                ; walk children until </row>
+                def depth:int 1
+                while ((p.pos < p.len) && (depth > 0)) {
+                    def ct:XmlTag (p.nextTag())
+                    if (ct.valid == false) {
+                        break
+                    }
+                    if (ct.name == "row") {
+                        if ct.isEnd {
+                            depth = (depth - 1)
+                        } {
+                            if (ct.selfClose == false) {
+                                depth = (depth + 1)
+                            }
+                        }
+                    } {
+                        if ((ct.name == "c") && (ct.isEnd == false)) {
+                            this.parseCell(p ct model sst rowIdx)
+                        }
+                    }
+                }
+            }
+            if ((t.name == "mergeCell") && (t.isEnd == false)) {
+                def mref:string (t.attr("ref"))
+                def r1:[int]
+                def c1:[int]
+                def r2:[int]
+                def c2:[int]
+                XlsxWorksheet.parseMergeRef(mref r1 c1 r2 c2)
+                model.addMerge((itemAt r1 0) (itemAt c1 0) (itemAt r2 0) (itemAt c2 0))
+            }
+        }
+        clear model.undoStack
+        clear model.redoStack
+        model.version = (model.version + 1)
+    }
+
+    fn parseCell:void (p:XmlLite open:XmlTag model:SpreadsheetModel sst:XlsxSharedStrings fallBackRow:int) {
+        def ref:string (open.attr("r"))
+        def rows:[int]
+        def cols:[int]
+        if ((strlen ref) > 0) {
+            XlsxWorksheet.parseCellRef(ref rows cols)
+        } {
+            push rows fallBackRow
+            push cols 0
+        }
+        def row:int (itemAt rows 0)
+        def col:int (itemAt cols 0)
+        def cellType:string (open.attr("t"))
+        def formula:string ""
+        def value:string ""
+        def inline:string ""
+        if open.selfClose {
+            return
+        }
+        def depth:int 1
+        while ((p.pos < p.len) && (depth > 0)) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if (t.name == "c") {
+                if t.isEnd {
+                    depth = (depth - 1)
+                } {
+                    if (t.selfClose == false) {
+                        depth = (depth + 1)
+                    }
+                }
+            } {
+                if ((t.name == "f") && (t.isEnd == false) && (t.selfClose == false)) {
+                    formula = (p.readTextUntilEnd("f"))
+                }
+                if ((t.name == "v") && (t.isEnd == false) && (t.selfClose == false)) {
+                    value = (p.readTextUntilEnd("v"))
+                }
+                if ((t.name == "is") && (t.isEnd == false) && (t.selfClose == false)) {
+                    inline = (p.collectTTextUntil("is"))
+                }
+            }
+        }
+        this.ensureSize(model row col)
+        def display:string ""
+        if (cellType == "s") {
+            def idx:int (XlsxWorksheet.parseInt0(value))
+            display = (sst.at(idx))
+        } {
+            if (cellType == "inlineStr") {
+                display = inline
+            } {
+                if (cellType == "b") {
+                    if ((value == "1") || (value == "true")) {
+                        display = "TRUE"
+                    } {
+                        display = "FALSE"
+                    }
+                } {
+                    if (cellType == "str") {
+                        display = value
+                    } {
+                        display = value
+                    }
+                }
+            }
+        }
+        model.setCellRaw(row col display)
+        if ((strlen formula) > 0) {
+            model.setFormula(row col formula)
+        }
+    }
+}

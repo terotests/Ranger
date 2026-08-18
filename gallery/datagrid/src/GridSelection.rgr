@@ -1,0 +1,78 @@
+; ==============================================================================
+; GridSelection - active cell + rectangular range (anchor → active).
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+
+class GridSelection {
+    def anchor:CellPos (new CellPos)
+    def active:CellPos (new CellPos)
+
+    Constructor () {
+    }
+
+    fn isSingle:boolean () {
+        return (anchor.equals(active))
+    }
+
+    fn setActive:void (row:int col:int) {
+        active.row = row
+        active.col = col
+    }
+
+    fn setAnchor:void (row:int col:int) {
+        anchor.row = row
+        anchor.col = col
+    }
+
+    fn collapseToActive:void () {
+        anchor.copyFrom(active)
+    }
+
+    fn selectAll:void (model:SpreadsheetModel) {
+        anchor.row = 0
+        anchor.col = 0
+        active.row = (model.rowCount - 1)
+        active.col = (model.colCount - 1)
+    }
+
+    fn normalized:void (outStart:CellPos outEnd:CellPos) {
+        def r0:int anchor.row
+        def c0:int anchor.col
+        def r1:int active.row
+        def c1:int active.col
+        if (r0 > r1) {
+            def t:int r0
+            r0 = r1
+            r1 = t
+        }
+        if (c0 > c1) {
+            def t2:int c0
+            c0 = c1
+            c1 = t2
+        }
+        outStart.row = r0
+        outStart.col = c0
+        outEnd.row = r1
+        outEnd.col = c1
+    }
+
+    fn contains:boolean (row:int col:int) {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        this.normalized(a b)
+        if (row < a.row) {
+            return false
+        }
+        if (row > b.row) {
+            return false
+        }
+        if (col < a.col) {
+            return false
+        }
+        if (col > b.col) {
+            return false
+        }
+        return true
+    }
+}

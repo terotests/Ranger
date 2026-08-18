@@ -1,0 +1,114 @@
+; ==============================================================================
+; grid_bench - DataGrid workload benchmark (JS target).
+; ==============================================================================
+;
+; First maali: x-spreadsheet-style subset + large row counts — scroll / paint /
+; edit / resize / selection latency without a formula engine.
+;
+; Usage:
+;   npm run datagrid:bench
+;   npm run datagrid:bench -- 100000
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class GridBench {
+    sfn report:void (name:string ms:double) {
+        def whole:int (to_int ms)
+        def frac:int (to_int ((ms - (to_double whole)) * 10.0))
+        if (frac < 0) {
+            frac = 0 - frac
+        }
+        print ("  " + name + ": " + (to_string whole) + "." + (to_string frac) + " ms")
+    }
+
+    sfn main:void () {
+        def rows:int 10000
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if parsed {
+                rows = (unwrap parsed)
+            }
+        }
+
+        print ("== grid_bench rows=" + (to_string rows) + " ==")
+        def app:GridApp (new GridApp)
+        def t0:double (wall_clock_ms)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def t1:double (wall_clock_ms)
+        GridBench.report("init+font" (t1 - t0))
+
+        def t2:double (wall_clock_ms)
+        app.model.seedBench(rows 26 50)
+        app.grid.updateVisible(app.model)
+        def t3:double (wall_clock_ms)
+        GridBench.report("seed sparse sheet" (t3 - t2))
+        print ("  rowCount=" + (to_string app.model.rowCount) + " totalH=" + (to_string (app.model.totalHeight())))
+
+        def t4:double (wall_clock_ms)
+        app.render()
+        def t5:double (wall_clock_ms)
+        GridBench.report("first paint" (t5 - t4))
+        print ("  visible " + (to_string app.grid.firstVisibleRow) + ".." + (to_string app.grid.lastVisibleRow) + " × " + (to_string app.grid.firstVisibleCol) + ".." + (to_string app.grid.lastVisibleCol))
+
+        def t6:double (wall_clock_ms)
+        def s:int 0
+        while (s < 500) {
+            app.grid.scrollByRows(app.model 3)
+            s = (s + 1)
+        }
+        app.render()
+        def t7:double (wall_clock_ms)
+        GridBench.report("scroll 500 steps + paint" (t7 - t6))
+
+        app.moveActive(0 0 false)
+        def input:UIInput (new UIInput)
+        def t8:double (wall_clock_ms)
+        input.newFrame()
+        input.pushText("X")
+        app.update(input)
+        input.newFrame()
+        input.pushKey((UIKey.enter()))
+        app.update(input)
+        app.render()
+        def t9:double (wall_clock_ms)
+        GridBench.report("edit cell + paint" (t9 - t8))
+
+        def t10:double (wall_clock_ms)
+        def i:int 0
+        while (i < 20) {
+            input.newFrame()
+            input.setModifiers(true false)
+            input.pushKey((UIKey.down()))
+            app.update(input)
+            i = (i + 1)
+        }
+        input.newFrame()
+        input.setModifiers(false false)
+        app.update(input)
+        app.render()
+        def t11:double (wall_clock_ms)
+        GridBench.report("range select + paint" (t11 - t10))
+
+        def t12:double (wall_clock_ms)
+        app.model.setColWidth(0 220)
+        app.model.setRowHeight(5 60)
+        app.grid.updateVisible(app.model)
+        app.render()
+        def t13:double (wall_clock_ms)
+        GridBench.report("resize row/col + paint" (t13 - t12))
+
+        def t14:double (wall_clock_ms)
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText("a")
+        app.update(input)
+        app.render()
+        def t15:double (wall_clock_ms)
+        GridBench.report("Ctrl+A + paint" (t15 - t14))
+
+        print ("  sceneJson bytes≈" + (to_string (strlen (app.sceneJson()))))
+        print "== done =="
+    }
+}

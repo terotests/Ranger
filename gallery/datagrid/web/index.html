@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger EVG DataGrid / XLSX (WebGL)</title>
+    <style>
+      @font-face {
+        font-family: "Open Sans";
+        src: url("/fonts/Open_Sans/OpenSans-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+      }
+      :root {
+        --bg: #e8eef5;
+        --panel: #f7f9fc;
+        --ink: #1e2430;
+        --muted: #5c6b80;
+        --accent: #2864d2;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background:
+          radial-gradient(1100px 520px at 0% 0%, #d5e4f7 0%, transparent 55%),
+          radial-gradient(900px 480px at 100% 10%, #dfe8f2 0%, transparent 50%),
+          linear-gradient(180deg, #edf2f8 0%, #dde6f0 100%);
+        color: var(--ink);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .stage { width: min(1100px, 100%); }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 1.4rem;
+        font-weight: 650;
+        letter-spacing: 0.01em;
+      }
+      p.hint {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .frame {
+        background: var(--panel);
+        border: 1px solid #c5d0de;
+        padding: 10px;
+        box-shadow: 0 16px 40px rgba(30, 50, 80, 0.12);
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #f5f7fa;
+        cursor: cell;
+        outline: none;
+      }
+      .bar {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .bar strong { color: var(--accent); font-weight: 600; }
+      kbd {
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 0.78rem;
+        border: 1px solid #aeb9c9;
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 1px 5px;
+        background: #eef3f9;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>Ranger EVG DataGrid · XLSX viewer</h1>
+      <p class="hint">
+        Loads <code>fixtures/sales.xlsx</code> via ZIP + SpreadsheetML →
+        <code>SpreadsheetModel</code> → virtualized DataGrid →
+        <code>EVGDisplayList</code> → WebGL 2.
+        Sheet tabs at the bottom · formula bar shows cached <code>=formula</code>.
+      </p>
+      <div class="frame">
+        <canvas id="screen" tabindex="0" width="900" height="560"></canvas>
+      </div>
+      <div class="bar">
+        <span>status: <strong id="status">connecting…</strong></span>
+        <span>backend: <strong id="backend">—</strong></span>
+        <span>cmds: <strong id="cmds">—</strong></span>
+        <span>fps: <strong id="fps">—</strong></span>
+      </div>
+    </div>
+    <script type="module" src="./client.mjs"></script>
+  </body>
+</html>
