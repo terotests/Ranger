@@ -604,18 +604,22 @@ class VlAxis {
             ; month is two lines deep, and measured as one the title sat over
             ; the second line of it.
             def deep:double (VlAxis.tallestVisible(labelMark labelFontSize))
-            if vertical {
-                def alongV:double widest
-                if turned {
-                    alongV = deep
+            if turned {
+                if vertical {
+                    labelExtent = ((clearance + labelPadding) + deep)
+                } {
+                    labelExtent = ((clearance + labelPadding) + widest)
                 }
-                labelExtent = ((clearance + labelPadding) + alongV)
             } {
-                def alongH:double deep
-                if turned {
-                    alongH = widest
-                }
-                labelExtent = ((clearance + labelPadding) + alongH)
+                ; How far the labels reach, MEASURED from where they ended up
+                ; rather than assumed from the padding. The two agree whenever
+                ; a label hangs away from the plot, which is nearly always —
+                ; and they part company the moment a chart turns one round to
+                ; sit inside the plot instead. A bar chart that saves space by
+                ; printing its categories over their own bars reserves nothing
+                ; at all for them, where the assumption reserved the width of
+                ; the longest name.
+                labelExtent = (this.measuredExtent(labelMark orient))
             }
             ; What the axis reserves is what its ticks AND its labels cover,
             ; whichever reaches further. Labels normally reach further and the
@@ -1052,6 +1056,33 @@ class VlAxis {
     ; A label's box, as the renderer would draw it — the same measurement the
     ; legend's rows are laid out with, so an axis and a legend agree on how big
     ; a piece of text is.
+    ; The far edge of the drawn labels, on the side the axis is on.
+    fn measuredExtent:double (mark:VlSceneMark orient:string) {
+        def reach:double 0.0
+        for mark.items item:VlSceneItem idx {
+            if ((item.number("opacity")) > 0.0) {
+                def box:VlBounds (this.labelBox(item))
+                def far:double 0.0
+                if (orient == "left") {
+                    far = (0.0 - box.x1)
+                }
+                if (orient == "right") {
+                    far = box.x2
+                }
+                if (orient == "top") {
+                    far = (0.0 - box.y1)
+                }
+                if (orient == "bottom") {
+                    far = box.y2
+                }
+                if (far > reach) {
+                    reach = far
+                }
+            }
+        }
+        return reach
+    }
+
     fn labelBox:VlBounds (item:VlSceneItem) {
         return (VlBounds.ofText((item.text("text")) (item.number("fontSize")) (item.text("align")) (item.text("baseline")) (item.number("x")) (item.number("y"))))
     }
