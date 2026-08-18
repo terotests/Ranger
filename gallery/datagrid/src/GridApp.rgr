@@ -1,0 +1,295 @@
+; ==============================================================================
+; GridApp - UIInput → SpreadsheetModel / DataGrid / selection / single EditView
+; ==============================================================================
+;
+; Same contract as the text editor: platform fills UIInput; app never touches
+; SDL/DOM. Only ONE inline editor is active (Excel-style), sharing the buffer
+; with the formula bar display in GridView.
+;
+;   UIInput
+;     ↓
+;   GridApp.update
+;     ↓
+;   SpreadsheetModel + GridSelection + DataGrid
+;     ↓
+;   GridView → EVGDisplayList → SoftCanvas / WebGL
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "GridSelection.rgr"
+Import "DataGrid.rgr"
+Import "GridView.rgr"
+Import "../../game_engine/ui/UIInput.rgr"
+
+class GridApp {
+    def model:SpreadsheetModel (new SpreadsheetModel)
+    def sel:GridSelection (new GridSelection)
+    def grid:DataGrid (new DataGrid)
+    def view:GridView (new GridView)
+    def W:int 900
+    def H:int 560
+    def statusH:int 22
+    def editing:boolean false
+    def editBuf:string ""
+    def dragging:boolean false
+    def resizing:boolean false
+
+    Constructor () {
+    }
+
+    fn init:void (fontDir:string) {
+        view.init(W H fontDir)
+        grid.setBounds(0 0 W (H - statusH))
+        model.seedDemo()
+        grid.updateVisible(model)
+    }
+
+    fn resize:void (nw:int nh:int) {
+        W = nw
+        H = nh
+        view.resize(W H)
+        grid.setBounds(0 0 W (H - statusH))
+        grid.updateVisible(model)
+    }
+
+    fn commitEdit:void () {
+        if (editing == false) {
+            return
+        }
+        model.setCell(sel.active.row sel.active.col editBuf)
+        editing = false
+        editBuf = ""
+    }
+
+    fn cancelEdit:void () {
+        editing = false
+        editBuf = ""
+    }
+
+    fn beginEdit:void (seed:string clearFirst:boolean) {
+        if clearFirst {
+            editBuf = seed
+        } {
+            if (editing == false) {
+                editBuf = (model.getCell(sel.active.row sel.active.col))
+            }
+            if ((strlen seed) > 0) {
+                editBuf = (editBuf + seed)
+            }
+        }
+        editing = true
+    }
+
+    fn moveActive:void (row:int col:int extend:boolean) {
+        if editing {
+            this.commitEdit()
+        }
+        def p:CellPos (CellPos.create(row col))
+        model.clampPos(p)
+        sel.setActive(p.row p.col)
+        if (extend == false) {
+            sel.collapseToActive()
+        }
+        grid.ensureCellVisible(model p.row p.col)
+    }
+
+    fn handleKey:void (key:int input:UIInput) {
+        def extend:boolean input.shiftDown
+        if editing {
+            if (key == (UIKey.enter())) {
+                this.commitEdit()
+                this.moveActive((sel.active.row + 1) sel.active.col false)
+                return
+            }
+            if (key == (UIKey.tab())) {
+                this.commitEdit()
+                this.moveActive(sel.active.row (sel.active.col + 1) false)
+                return
+            }
+            if (key == (UIKey.escape())) {
+                this.cancelEdit()
+                return
+            }
+            if (key == (UIKey.backspace())) {
+                def n:int (strlen editBuf)
+                if (n > 0) {
+                    editBuf = (substring editBuf 0 (n - 1))
+                }
+                return
+            }
+            return
+        }
+        if (key == (UIKey.left())) {
+            this.moveActive(sel.active.row (sel.active.col - 1) extend)
+            return
+        }
+        if (key == (UIKey.right())) {
+            this.moveActive(sel.active.row (sel.active.col + 1) extend)
+            return
+        }
+        if (key == (UIKey.up())) {
+            this.moveActive((sel.active.row - 1) sel.active.col extend)
+            return
+        }
+        if (key == (UIKey.down())) {
+            this.moveActive((sel.active.row + 1) sel.active.col extend)
+            return
+        }
+        if (key == (UIKey.enter())) {
+            this.beginEdit("" false)
+            return
+        }
+        if (key == (UIKey.tab())) {
+            this.moveActive(sel.active.row (sel.active.col + 1) false)
+            return
+        }
+        if (key == (UIKey.del())) {
+            model.setCell(sel.active.row sel.active.col "")
+            return
+        }
+        if (key == (UIKey.backspace())) {
+            this.beginEdit("" true)
+            return
+        }
+        if (key == (UIKey.home())) {
+            this.moveActive(sel.active.row 0 extend)
+            return
+        }
+        if (key == (UIKey.end())) {
+            this.moveActive(sel.active.row (model.colCount - 1) extend)
+            return
+        }
+        if (key == (UIKey.escape())) {
+            sel.collapseToActive()
+            return
+        }
+    }
+
+    fn update:void (input:UIInput) {
+        if input.pointerPressed {
+            def resizeCol:int (grid.hitColResize(model input.pointerX input.pointerY))
+            if (resizeCol >= 0) {
+                if editing {
+                    this.commitEdit()
+                }
+                resizing = true
+                grid.resizingCol = resizeCol
+                grid.resizeStartX = input.pointerX
+                grid.resizeStartW = (model.colWidth(resizeCol))
+                view.focused = true
+            } {
+                def hit:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                if ((hit.row >= 0) && (hit.col >= 0)) {
+                    view.focused = true
+                    if editing {
+                        if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
+                            this.commitEdit()
+                        }
+                    }
+                    this.moveActive(hit.row hit.col input.shiftDown)
+                    dragging = true
+                }
+            }
+        }
+
+        if input.pointerDown {
+            if resizing {
+                def dx:int (input.pointerX - grid.resizeStartX)
+                model.setColWidth(grid.resizingCol (grid.resizeStartW + dx))
+                grid.updateVisible(model)
+            } {
+                if dragging {
+                    if (input.pointerPressed == false) {
+                        def hit2:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                        if ((hit2.row >= 0) && (hit2.col >= 0)) {
+                            this.moveActive(hit2.row hit2.col true)
+                        }
+                    }
+                }
+            }
+        }
+
+        if input.pointerReleased {
+            dragging = false
+            resizing = false
+            grid.resizingCol = -1
+        }
+
+        if (input.scrollDelta != 0) {
+            ; wheel up → negative row scroll (toward top)
+            grid.scrollByRows(model (0 - input.scrollDelta))
+        }
+
+        if input.ctrlDown {
+            def t:string input.textInput
+            def ti:int 0
+            def tn:int (strlen t)
+            while (ti < tn) {
+                def ch:int (charAt t ti)
+                if ((ch == 97) || (ch == 65)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    sel.selectAll(model)
+                    grid.ensureCellVisible(model sel.active.row sel.active.col)
+                }
+                if ((ch == 122) || (ch == 90)) {
+                    if editing {
+                        this.cancelEdit()
+                    }
+                    def u:CellPos (model.undo())
+                    this.moveActive(u.row u.col false)
+                }
+                if ((ch == 121) || (ch == 89)) {
+                    if editing {
+                        this.cancelEdit()
+                    }
+                    def r:CellPos (model.redo())
+                    this.moveActive(r.row r.col false)
+                }
+                ti = (ti + 1)
+            }
+        } {
+            if (input.hasText()) {
+                if editing {
+                    editBuf = (editBuf + input.textInput)
+                } {
+                    ; typing starts edit and replaces cell contents (Excel-like)
+                    this.beginEdit(input.textInput true)
+                }
+            }
+        }
+
+        def ki:int 0
+        def kn:int (input.keyCount())
+        while (ki < kn) {
+            this.handleKey((input.keyAt(ki)) input)
+            ki = (ki + 1)
+        }
+    }
+
+    fn render:void () {
+        view.status = ("v" + (to_string model.version))
+        view.render(model sel grid editing editBuf)
+    }
+
+    fn raw:buffer () {
+        return (view.raw())
+    }
+
+    fn sceneJson:string () {
+        view.status = ("v" + (to_string model.version))
+        return (view.sceneJson(model sel grid editing editBuf))
+    }
+
+    fn activeLabel:string () {
+        return (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
+    }
+
+    fn activeValue:string () {
+        if editing {
+            return editBuf
+        }
+        return (model.getCell(sel.active.row sel.active.col))
+    }
+}

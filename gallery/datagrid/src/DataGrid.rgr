@@ -1,0 +1,267 @@
+; ==============================================================================
+; DataGrid - specialized layout engine (virtualization + hit-test).
+; ==============================================================================
+;
+; NOT CSS Grid / EVGGrid. Owns scroll offsets and computes which rows/cols are
+; visible for the current viewport. Only those cells are handed to EVG.
+;
+;   scrollX / scrollY  (content pixels)
+;   viewport           (layout.w × layout.h minus headers / formula bar)
+;   visible rows/cols  → GridView batched display list
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "GridSelection.rgr"
+
+class GridRect {
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+
+    Constructor () {
+    }
+
+    sfn create:GridRect (x:int y:int w:int h:int) {
+        def r:GridRect (new GridRect)
+        r.x = x
+        r.y = y
+        r.w = w
+        r.h = h
+        return r
+    }
+}
+
+class DataGrid {
+    def x:int 0
+    def y:int 0
+    def w:int 720
+    def h:int 440
+    def formulaBarH:int 28
+    def colHeaderH:int 24
+    def rowHeaderW:int 48
+    def scrollX:int 0
+    def scrollY:int 0
+    def firstVisibleRow:int 0
+    def lastVisibleRow:int 0
+    def firstVisibleCol:int 0
+    def lastVisibleCol:int 0
+    def resizingCol:int -1
+    def resizeStartX:int 0
+    def resizeStartW:int 0
+
+    Constructor () {
+    }
+
+    fn setBounds:void (bx:int by:int bw:int bh:int) {
+        x = bx
+        y = by
+        w = bw
+        h = bh
+    }
+
+    fn gridOriginX:int () {
+        return (x + rowHeaderW)
+    }
+
+    fn gridOriginY:int () {
+        return (y + formulaBarH + colHeaderH)
+    }
+
+    fn viewportW:int () {
+        def vw:int (w - rowHeaderW)
+        if (vw < 1) {
+            return 1
+        }
+        return vw
+    }
+
+    fn viewportH:int () {
+        def vh:int (h - formulaBarH - colHeaderH)
+        if (vh < 1) {
+            return 1
+        }
+        return vh
+    }
+
+    fn clampScroll:void (model:SpreadsheetModel) {
+        model.ensureGeometry()
+        def maxX:int ((model.totalWidth()) - (this.viewportW()))
+        def maxY:int ((model.totalHeight()) - (this.viewportH()))
+        if (maxX < 0) {
+            maxX = 0
+        }
+        if (maxY < 0) {
+            maxY = 0
+        }
+        if (scrollX < 0) {
+            scrollX = 0
+        }
+        if (scrollY < 0) {
+            scrollY = 0
+        }
+        if (scrollX > maxX) {
+            scrollX = maxX
+        }
+        if (scrollY > maxY) {
+            scrollY = maxY
+        }
+    }
+
+    ; Recompute visible row/col span from scroll + viewport.
+    fn updateVisible:void (model:SpreadsheetModel) {
+        this.clampScroll(model)
+        def ox:int (this.gridOriginX())
+        def oy:int (this.gridOriginY())
+        ; unused but documents content origin
+        if (ox < 0) {
+            ox = 0
+        }
+        if (oy < 0) {
+            oy = 0
+        }
+        firstVisibleRow = (model.yToRow(scrollY))
+        def bottomY:int ((scrollY + (this.viewportH())) - 1)
+        if (bottomY < scrollY) {
+            bottomY = scrollY
+        }
+        lastVisibleRow = (model.yToRow(bottomY))
+        firstVisibleCol = (model.xToCol(scrollX))
+        def rightX:int ((scrollX + (this.viewportW())) - 1)
+        if (rightX < scrollX) {
+            rightX = scrollX
+        }
+        lastVisibleCol = (model.xToCol(rightX))
+        if (firstVisibleRow < 0) {
+            firstVisibleRow = 0
+        }
+        if (lastVisibleRow >= model.rowCount) {
+            lastVisibleRow = (model.rowCount - 1)
+        }
+        if (firstVisibleCol < 0) {
+            firstVisibleCol = 0
+        }
+        if (lastVisibleCol >= model.colCount) {
+            lastVisibleCol = (model.colCount - 1)
+        }
+    }
+
+    fn scrollByPixels:void (model:SpreadsheetModel dx:int dy:int) {
+        scrollX = (scrollX + dx)
+        scrollY = (scrollY + dy)
+        this.updateVisible(model)
+    }
+
+    fn scrollByRows:void (model:SpreadsheetModel delta:int) {
+        def step:int model.defaultRowH
+        this.scrollByPixels(model 0 (delta * step))
+    }
+
+    ; Screen-space rect of a cell (may be partially off-viewport).
+    fn cellRect:GridRect (model:SpreadsheetModel row:int col:int) {
+        def cx:int (((this.gridOriginX()) + (model.colToX(col))) - scrollX)
+        def cy:int (((this.gridOriginY()) + (model.rowToY(row))) - scrollY)
+        return (GridRect.create(cx cy (model.colWidth(col)) (model.rowHeight(row))))
+    }
+
+    fn ensureCellVisible:void (model:SpreadsheetModel row:int col:int) {
+        def p:CellPos (CellPos.create(row col))
+        model.clampPos(p)
+        def x0:int (model.colToX(p.col))
+        def x1:int (x0 + (model.colWidth(p.col)))
+        def y0:int (model.rowToY(p.row))
+        def y1:int (y0 + (model.rowHeight(p.row)))
+        def vw:int (this.viewportW())
+        def vh:int (this.viewportH())
+        if (x0 < scrollX) {
+            scrollX = x0
+        }
+        if (x1 > (scrollX + vw)) {
+            scrollX = (x1 - vw)
+        }
+        if (y0 < scrollY) {
+            scrollY = y0
+        }
+        if (y1 > (scrollY + vh)) {
+            scrollY = (y1 - vh)
+        }
+        this.updateVisible(model)
+    }
+
+    ; -1,-1 = miss; row=-2 col=N = column header; row=N col=-2 = row header
+    fn hitTest:CellPos (model:SpreadsheetModel px:int py:int) {
+        def miss:CellPos (CellPos.create(-1 -1))
+        if (px < x) {
+            return miss
+        }
+        if (py < y) {
+            return miss
+        }
+        if (px >= (x + w)) {
+            return miss
+        }
+        if (py >= (y + h)) {
+            return miss
+        }
+        ; formula bar
+        if (py < (y + formulaBarH)) {
+            return (CellPos.create(-3 -3))
+        }
+        def headerTop:int (y + formulaBarH)
+        def bodyLeft:int (x + rowHeaderW)
+        def bodyTop:int (headerTop + colHeaderH)
+        ; corner chrome
+        if ((px < bodyLeft) && (py < bodyTop)) {
+            return (CellPos.create(-4 -4))
+        }
+        ; column header
+        if (py < bodyTop) {
+            def contentX:int ((px - bodyLeft) + scrollX)
+            def col:int (model.xToCol(contentX))
+            return (CellPos.create(-2 col))
+        }
+        ; row header
+        if (px < bodyLeft) {
+            def contentY:int ((py - bodyTop) + scrollY)
+            def row:int (model.yToRow(contentY))
+            return (CellPos.create(row -2))
+        }
+        def cx:int ((px - bodyLeft) + scrollX)
+        def cy:int ((py - bodyTop) + scrollY)
+        def r:int (model.yToRow(cy))
+        def c:int (model.xToCol(cx))
+        def p:CellPos (CellPos.create(r c))
+        model.clampPos(p)
+        return p
+    }
+
+    ; Column resize hit: near right edge of a column header (±3px).
+    fn hitColResize:int (model:SpreadsheetModel px:int py:int) {
+        def headerTop:int (y + formulaBarH)
+        def bodyLeft:int (x + rowHeaderW)
+        def bodyTop:int (headerTop + colHeaderH)
+        if (py < headerTop) {
+            return -1
+        }
+        if (py >= bodyTop) {
+            return -1
+        }
+        if (px < bodyLeft) {
+            return -1
+        }
+        this.updateVisible(model)
+        def c:int firstVisibleCol
+        while (c <= lastVisibleCol) {
+            def edge:int (((bodyLeft + (model.colToX(c)) + (model.colWidth(c))) - scrollX) - 1)
+            def d:int (px - edge)
+            if (d < 0) {
+                d = (0 - d)
+            }
+            if (d <= 3) {
+                return c
+            }
+            c = (c + 1)
+        }
+        return -1
+    }
+}
