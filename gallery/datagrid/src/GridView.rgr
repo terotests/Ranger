@@ -13,6 +13,7 @@
 Import "SpreadsheetModel.rgr"
 Import "GridSelection.rgr"
 Import "DataGrid.rgr"
+Import "CellStyle.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -144,6 +145,70 @@ class GridView {
         push dl.cmds c
     }
 
+    fn colorOr:EVGColor (hex:string fallback:EVGColor) {
+        if ((strlen hex) >= 4) {
+            return (EVGColor.parse(hex))
+        }
+        return fallback
+    }
+
+    fn paintCell:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string r:int c:int) {
+        if (model.isMergeOrigin(r c) == false) {
+            return
+        }
+        def rect:GridRect (grid.cellRect(model r c))
+        def st:CellStyle (model.getCellStyle(r c))
+        if st.hasFill {
+            def bg:EVGColor (this.colorOr(st.fillRgb theme.bg))
+            this.pushRect(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h) bg)
+        }
+        if editing {
+            if ((r == sel.active.row) && (c == sel.active.col)) {
+                this.pushRect(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h) theme.editBg)
+            }
+        }
+        def txt:string (model.getDisplay(r c))
+        if editing {
+            if ((r == sel.active.row) && (c == sel.active.col)) {
+                txt = editBuf
+            }
+        }
+        if ((strlen txt) > 0) {
+            def col:EVGColor theme.cellText
+            if ((strlen st.textRgb) >= 4) {
+                col = (EVGColor.parse(st.textRgb))
+            }
+            def tx:double (to_double (rect.x + 4))
+            if (st.align == "right") {
+                def tw:int (to_int (ctx.tr.measureWidth(txt fontSize)))
+                tx = (to_double ((rect.x + rect.w) - tw - 4))
+            }
+            if (st.align == "center") {
+                def tw2:int (to_int (ctx.tr.measureWidth(txt fontSize)))
+                tx = (to_double (rect.x + (to_int ((to_double (rect.w - tw2)) / 2.0))))
+            }
+            this.pushText(dl txt tx (to_double (rect.y + 3)) fontSize col)
+        }
+    }
+
+    fn paintCellRange:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string r0:int r1:int c0:int c1:int) {
+        if (r1 < r0) {
+            return
+        }
+        if (c1 < c0) {
+            return
+        }
+        def r:int r0
+        while (r <= r1) {
+            def c:int c0
+            while (c <= c1) {
+                this.paintCell(dl model sel grid editing editBuf r c)
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
     fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
         grid.updateVisible(model)
         def dl:EVGDisplayList (new EVGDisplayList)
@@ -208,47 +273,52 @@ class GridView {
         this.pushClip(dl (to_double bodyLeft) (to_double bodyTop) (to_double vw) (to_double vh))
         this.pushRect(dl (to_double bodyLeft) (to_double bodyTop) (to_double vw) (to_double vh) theme.bg)
 
-        def r:int grid.firstVisibleRow
-        while (r <= grid.lastVisibleRow) {
-            def c:int grid.firstVisibleCol
-            while (c <= grid.lastVisibleCol) {
-                if (model.isMergeOrigin(r c)) {
-                    def rect:GridRect (grid.cellRect(model r c))
-                    if editing {
-                        if ((r == sel.active.row) && (c == sel.active.col)) {
-                            this.pushRect(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h) theme.editBg)
-                        }
-                    }
-                    def txt:string (model.getCell(r c))
-                    if editing {
-                        if ((r == sel.active.row) && (c == sel.active.col)) {
-                            txt = editBuf
-                        }
-                    }
-                    if ((strlen txt) > 0) {
-                        this.pushText(dl txt (to_double (rect.x + 4)) (to_double (rect.y + 3)) fontSize theme.cellText)
-                    }
-                }
-                c = (c + 1)
+        ; FortuneSheet-style freeze: four bands (corner / frozen rows / frozen cols / scroll)
+        def fzR:int model.freezeRows
+        def fzC:int model.freezeCols
+        if (fzR > 0) {
+            if (fzC > 0) {
+                this.paintCellRange(dl model sel grid editing editBuf 0 (fzR - 1) 0 (fzC - 1))
             }
-            r = (r + 1)
+            this.paintCellRange(dl model sel grid editing editBuf 0 (fzR - 1) grid.firstScrollCol grid.lastScrollCol)
         }
+        if (fzC > 0) {
+            this.paintCellRange(dl model sel grid editing editBuf grid.firstScrollRow grid.lastScrollRow 0 (fzC - 1))
+        }
+        this.paintCellRange(dl model sel grid editing editBuf grid.firstScrollRow grid.lastScrollRow grid.firstScrollCol grid.lastScrollCol)
 
-        ; vertical grid lines
-        def vc:int grid.firstVisibleCol
-        while (vc <= grid.lastVisibleCol) {
-            def vr:GridRect (grid.cellRect(model grid.firstVisibleRow vc))
+        ; vertical grid lines (scrollable + frozen)
+        def vc:int 0
+        def vcLast:int grid.lastScrollCol
+        while (vc <= vcLast) {
+            def vr:GridRect (grid.cellRect(model grid.firstScrollRow vc))
+            if (vc < fzC) {
+                vr = (grid.cellRect(model 0 vc))
+            }
             def cw2:int (model.colWidth(vc))
             this.pushRect(dl (to_double (vr.x + cw2 - 1)) (to_double bodyTop) 1.0 (to_double vh) theme.gridLine)
             vc = (vc + 1)
         }
-        ; horizontal grid lines
-        def vr2:int grid.firstVisibleRow
-        while (vr2 <= grid.lastVisibleRow) {
-            def rr2:GridRect (grid.cellRect(model vr2 grid.firstVisibleCol))
+        def vr2:int 0
+        def vrLast:int grid.lastScrollRow
+        while (vr2 <= vrLast) {
+            def rr2:GridRect (grid.cellRect(model vr2 grid.firstScrollCol))
+            if (vr2 < fzR) {
+                rr2 = (grid.cellRect(model vr2 0))
+            }
             def rh2:int (model.rowHeight(vr2))
             this.pushRect(dl (to_double bodyLeft) (to_double (rr2.y + rh2 - 1)) (to_double vw) 1.0 theme.gridLine)
             vr2 = (vr2 + 1)
+        }
+
+        ; freeze separators (FortuneSheet freeze lever visual)
+        if (fzC > 0) {
+            def fx:int ((bodyLeft + (model.frozenWidth())) - 1)
+            this.pushRect(dl (to_double fx) (to_double bodyTop) 2.0 (to_double vh) theme.activeBorder)
+        }
+        if (fzR > 0) {
+            def fy:int ((bodyTop + (model.frozenHeight())) - 1)
+            this.pushRect(dl (to_double bodyLeft) (to_double fy) (to_double vw) 2.0 theme.activeBorder)
         }
 
         ; selection overlay (cheap rect, not per-cell styles) — clipped to viewport
@@ -285,6 +355,12 @@ class GridView {
         def ar:GridRect (grid.cellRect(model sel.active.row sel.active.col))
         this.pushBorder(dl (to_double ar.x) (to_double ar.y) (to_double ar.w) (to_double ar.h) 2.0 theme.activeBorder)
 
+        ; FortuneSheet fill handle
+        if (editing == false) {
+            def fh:GridRect (grid.fillHandleRect(model sel))
+            this.pushRect(dl (to_double fh.x) (to_double fh.y) (to_double fh.w) (to_double fh.h) theme.activeBorder)
+        }
+
         ; edit caret blink inside active cell when editing
         if editing {
             if focused {
@@ -307,17 +383,21 @@ class GridView {
         def tabW:int 88
         while (si < sn) {
             def sheet:SpreadsheetModel (book.sheetAt(si))
-            def tx:int (grid.x + (si * tabW))
-            if (si == book.activeIndex) {
-                this.pushRect(dl (to_double tx) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
+            if sheet.sheetHidden {
+                si = (si + 1)
+            } {
+                def tx:int (grid.x + (si * tabW))
+                if (si == book.activeIndex) {
+                    this.pushRect(dl (to_double tx) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
+                }
+                def nm:string sheet.name
+                if ((strlen nm) == 0) {
+                    nm = ("Sheet" + (to_string (si + 1)))
+                }
+                this.pushText(dl nm (to_double (tx + 8)) (to_double (tabY + 5)) 12.0 theme.headerText)
+                this.pushRect(dl (to_double (tx + tabW - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+                si = (si + 1)
             }
-            def nm:string sheet.name
-            if ((strlen nm) == 0) {
-                nm = ("Sheet" + (to_string (si + 1)))
-            }
-            this.pushText(dl nm (to_double (tx + 8)) (to_double (tabY + 5)) 12.0 theme.headerText)
-            this.pushRect(dl (to_double (tx + tabW - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
-            si = (si + 1)
         }
         this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
 

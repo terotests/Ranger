@@ -155,6 +155,56 @@ class GridTest {
         app.update(input)
         c.ok("col widened" ((app.model.colWidth(0)) > beforeW))
 
+        print "== copy / paste (FortuneSheet clipboard) =="
+        app.sel.anchor.row = 1
+        app.sel.anchor.col = 0
+        app.sel.active.row = 1
+        app.sel.active.col = 1
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText("c")
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+        app.update(input)
+        c.ok("clipboard non-empty" ((strlen app.clipboardTsv) > 0))
+        app.sel.anchor.row = 8
+        app.sel.anchor.col = 0
+        app.sel.active.row = 8
+        app.sel.active.col = 0
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText("v")
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+        app.update(input)
+        c.eqStr("pasted A9" (app.model.getCell(8 0)) (app.model.getCell(1 0)))
+        c.eqStr("pasted B9" (app.model.getCell(8 1)) (app.model.getCell(1 1)))
+
+        print "== fill handle (FortuneSheet fill) =="
+        app.model.setCell(10 0 "X")
+        app.sel.anchor.row = 10
+        app.sel.anchor.col = 0
+        app.sel.active.row = 10
+        app.sel.active.col = 0
+        app.fillR0 = 10
+        app.fillC0 = 0
+        app.fillR1 = 10
+        app.fillC1 = 0
+        app.sel.active.row = 12
+        app.sel.anchor.row = 10
+        app.fillFromSource()
+        c.eqStr("fill A12" (app.model.getCell(12 0)) "X")
+        c.eqStr("fill A11" (app.model.getCell(11 0)) "X")
+
+        print "== freeze geometry =="
+        app.model.setFreeze(1 1)
+        app.grid.updateVisible(app.model)
+        c.eqInt("frozen H" (app.model.frozenHeight()) (app.model.rowHeight(0)))
+        c.eqInt("firstScrollRow" app.grid.firstScrollRow 1)
+        c.eqInt("firstScrollCol" app.grid.firstScrollCol 1)
+
         print "== render paints pixels =="
         app.render()
         def raw:buffer (app.raw())

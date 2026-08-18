@@ -10,6 +10,9 @@
 ; 100k×26 sheet costs almost nothing until cells are written.
 ; ==============================================================================
 
+Import "CellStyle.rgr"
+Import "XlsxNumberFormat.rgr"
+
 class CellPos {
     def row:int 0
     def col:int 0
@@ -53,13 +56,29 @@ class SpreadsheetModel {
     def colCount:int 26
     def defaultRowH:int 22
     def defaultColW:int 100
+    def freezeRows:int 0
+    def freezeCols:int 0
     def cells:[string:string]
     def formulas:[string:string]
+    def formulaKeys:[string]
+    def cellStyleIds:[string:int]
+    def styles:[CellStyle]
     def merges:[string]
     def rowHeights:[int]
     def colWidths:[int]
     def rowOffsets:[int]
     def colOffsets:[int]
+    def rowHidden:[boolean]
+    def colHidden:[boolean]
+    def rowSuppressed:[boolean]
+    def filterCol:int -1
+    def filterValues:[string]
+    def filterEnabled:boolean false
+    def sortCol:int -1
+    def sortAsc:boolean true
+    def sheetHidden:boolean false
+    def scrollXSaved:int 0
+    def scrollYSaved:int 0
     def rowGeomDirty:boolean true
     def colGeomDirty:boolean true
     def undoStack:[SpreadsheetUndoOp]
@@ -73,15 +92,30 @@ class SpreadsheetModel {
     fn clearSheet:void () {
         def emptyCells:[string:string]
         def emptyFormulas:[string:string]
+        def emptyStyleIds:[string:int]
         cells = emptyCells
         formulas = emptyFormulas
+        cellStyleIds = emptyStyleIds
+        clear formulaKeys
+        clear styles
         clear merges
         clear rowHeights
         clear colWidths
         clear rowOffsets
         clear colOffsets
+        clear rowHidden
+        clear colHidden
+        clear rowSuppressed
+        clear filterValues
         clear undoStack
         clear redoStack
+        freezeRows = 0
+        freezeCols = 0
+        filterCol = -1
+        filterEnabled = false
+        sortCol = -1
+        sortAsc = true
+        sheetHidden = false
         rowCount = 1
         colCount = 1
         rowGeomDirty = true
@@ -115,21 +149,43 @@ class SpreadsheetModel {
         def needCols:int (colCount + 1)
         if ((array_length rowHeights) != rowCount) {
             clear rowHeights
+            clear rowHidden
             def i:int 0
             while (i < rowCount) {
                 push rowHeights defaultRowH
+                push rowHidden false
                 i = (i + 1)
             }
             rowGeomDirty = true
         }
         if ((array_length colWidths) != colCount) {
             clear colWidths
+            clear colHidden
             def j:int 0
             while (j < colCount) {
                 push colWidths defaultColW
+                push colHidden false
                 j = (j + 1)
             }
             colGeomDirty = true
+        }
+        if ((array_length rowHidden) != rowCount) {
+            clear rowHidden
+            clear rowSuppressed
+            def hi:int 0
+            while (hi < rowCount) {
+                push rowHidden false
+                push rowSuppressed false
+                hi = (hi + 1)
+            }
+        }
+        if ((array_length colHidden) != colCount) {
+            clear colHidden
+            def hj:int 0
+            while (hj < colCount) {
+                push colHidden false
+                hj = (hj + 1)
+            }
         }
         if rowGeomDirty {
             clear rowOffsets
@@ -137,7 +193,14 @@ class SpreadsheetModel {
             push rowOffsets 0
             def r:int 0
             while (r < rowCount) {
-                acc = (acc + (itemAt rowHeights r))
+                def rh:int (itemAt rowHeights r)
+                if ((r < (array_length rowHidden)) && (itemAt rowHidden r)) {
+                    rh = 0
+                }
+                if ((r < (array_length rowSuppressed)) && (itemAt rowSuppressed r)) {
+                    rh = 0
+                }
+                acc = (acc + rh)
                 push rowOffsets acc
                 r = (r + 1)
             }
@@ -149,7 +212,11 @@ class SpreadsheetModel {
             push colOffsets 0
             def c:int 0
             while (c < colCount) {
-                acc2 = (acc2 + (itemAt colWidths c))
+                def cw:int (itemAt colWidths c)
+                if ((c < (array_length colHidden)) && (itemAt colHidden c)) {
+                    cw = 0
+                }
+                acc2 = (acc2 + cw)
                 push colOffsets acc2
                 c = (c + 1)
             }
@@ -189,6 +256,73 @@ class SpreadsheetModel {
         return ""
     }
 
+    fn setCellStyleId:void (row:int col:int styleId:int) {
+        def k:string (this.cellKey(row col))
+        set cellStyleIds k styleId
+    }
+
+    fn getCellStyle:CellStyle (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has cellStyleIds k) {
+            def sid:int (unwrap (get cellStyleIds k))
+            if ((sid >= 0) && (sid < (array_length styles))) {
+                return (itemAt styles sid)
+            }
+        }
+        return (CellStyle.createDefault())
+    }
+
+    ; FortuneSheet-style display value: raw cell + number format engine.
+    fn getDisplay:string (row:int col:int) {
+        def raw:string (this.getCell(row col))
+        def st:CellStyle (this.getCellStyle(row col))
+        return (XlsxNumberFormat.format(raw st.numFmt))
+    }
+
+    fn setStylesFrom:void (list:[CellStyle]) {
+        clear styles
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            push styles (itemAt list i)
+            i = (i + 1)
+        }
+    }
+
+    fn setFreeze:void (rows:int cols:int) {
+        if (rows < 0) {
+            rows = 0
+        }
+        if (cols < 0) {
+            cols = 0
+        }
+        freezeRows = rows
+        freezeCols = cols
+        version = (version + 1)
+    }
+
+    fn frozenHeight:int () {
+        this.ensureGeometry()
+        if (freezeRows <= 0) {
+            return 0
+        }
+        if (freezeRows >= rowCount) {
+            return (this.totalHeight())
+        }
+        return (this.rowToY(freezeRows))
+    }
+
+    fn frozenWidth:int () {
+        this.ensureGeometry()
+        if (freezeCols <= 0) {
+            return 0
+        }
+        if (freezeCols >= colCount) {
+            return (this.totalWidth())
+        }
+        return (this.colToX(freezeCols))
+    }
+
     fn getFormula:string (row:int col:int) {
         def k:string (this.cellKey(row col))
         if (has formulas k) {
@@ -199,7 +333,111 @@ class SpreadsheetModel {
 
     fn setFormula:void (row:int col:int formula:string) {
         def k:string (this.cellKey(row col))
+        if (has formulas k) {
+        } {
+            push formulaKeys k
+        }
         set formulas k formula
+    }
+
+    fn collectFormulaKeys:void (sheetIdx:int out:[string]) {
+        def i:int 0
+        def n:int (array_length formulaKeys)
+        while (i < n) {
+            def k:string (itemAt formulaKeys i)
+            push out (((to_string sheetIdx) + "!") + k)
+            i = (i + 1)
+        }
+    }
+
+    fn setRowHidden:void (row:int hidden:boolean) {
+        this.ensureGeometry()
+        if ((row < 0) || (row >= rowCount)) {
+            return
+        }
+        set_at rowHidden row hidden
+        rowGeomDirty = true
+        version = (version + 1)
+    }
+
+    fn setColHidden:void (col:int hidden:boolean) {
+        this.ensureGeometry()
+        if ((col < 0) || (col >= colCount)) {
+            return
+        }
+        set_at colHidden col hidden
+        colGeomDirty = true
+        version = (version + 1)
+    }
+
+    fn isRowHidden:boolean (row:int) {
+        this.ensureGeometry()
+        if ((row < 0) || (row >= (array_length rowHidden))) {
+            return false
+        }
+        return (itemAt rowHidden row)
+    }
+
+    fn isColHidden:boolean (col:int) {
+        this.ensureGeometry()
+        if ((col < 0) || (col >= (array_length colHidden))) {
+            return false
+        }
+        return (itemAt colHidden col)
+    }
+
+    fn setFilter:void (col:int enabled:boolean values:[string]) {
+        filterCol = col
+        filterEnabled = enabled
+        clear filterValues
+        def i:int 0
+        def n:int (array_length values)
+        while (i < n) {
+            push filterValues (itemAt values i)
+            i = (i + 1)
+        }
+        this.ensureGeometry()
+        if ((array_length rowSuppressed) != rowCount) {
+            clear rowSuppressed
+            def hi:int 0
+            while (hi < rowCount) {
+                push rowSuppressed false
+                hi = (hi + 1)
+            }
+        }
+        def r:int 0
+        while (r < rowCount) {
+            def suppress:boolean false
+            if enabled {
+                if (r >= freezeRows) {
+                    def v:string (this.getCell(r col))
+                    def ok:boolean false
+                    def j:int 0
+                    while (j < n) {
+                        if (v == (itemAt filterValues j)) {
+                            ok = true
+                        }
+                        j = (j + 1)
+                    }
+                    if (n == 0) {
+                        ok = true
+                    }
+                    if (ok == false) {
+                        suppress = true
+                    }
+                }
+            }
+            set_at rowSuppressed r suppress
+            r = (r + 1)
+        }
+        rowGeomDirty = true
+        version = (version + 1)
+    }
+
+    fn setSort:void (col:int ascending:boolean) {
+        sortCol = col
+        sortAsc = ascending
+        version = (version + 1)
     }
 
     ; Formula bar text: "=SUM(...)" when present, else display value.
@@ -211,7 +449,7 @@ class SpreadsheetModel {
             }
             return ("=" + f)
         }
-        return (this.getCell(row col))
+        return (this.getDisplay(row col))
     }
 
     fn addMerge:void (r1:int c1:int r2:int c2:int) {

@@ -47,6 +47,10 @@ class DataGrid {
     def lastVisibleRow:int 0
     def firstVisibleCol:int 0
     def lastVisibleCol:int 0
+    def firstScrollRow:int 0
+    def lastScrollRow:int 0
+    def firstScrollCol:int 0
+    def lastScrollCol:int 0
     def resizingCol:int -1
     def resizeStartX:int 0
     def resizeStartW:int 0
@@ -89,10 +93,28 @@ class DataGrid {
         return ((y + h) - sheetTabH)
     }
 
+    fn scrollAreaW:int (model:SpreadsheetModel) {
+        def aw:int ((this.viewportW()) - (model.frozenWidth()))
+        if (aw < 1) {
+            return 1
+        }
+        return aw
+    }
+
+    fn scrollAreaH:int (model:SpreadsheetModel) {
+        def ah:int ((this.viewportH()) - (model.frozenHeight()))
+        if (ah < 1) {
+            return 1
+        }
+        return ah
+    }
+
     fn clampScroll:void (model:SpreadsheetModel) {
         model.ensureGeometry()
-        def maxX:int ((model.totalWidth()) - (this.viewportW()))
-        def maxY:int ((model.totalHeight()) - (this.viewportH()))
+        def fzW:int (model.frozenWidth())
+        def fzH:int (model.frozenHeight())
+        def maxX:int (((model.totalWidth()) - fzW) - (this.scrollAreaW(model)))
+        def maxY:int (((model.totalHeight()) - fzH) - (this.scrollAreaH(model)))
         if (maxX < 0) {
             maxX = 0
         }
@@ -113,42 +135,54 @@ class DataGrid {
         }
     }
 
-    ; Recompute visible row/col span from scroll + viewport.
+    ; Recompute visible scrollable span (FortuneSheet freeze = fixed bands).
     fn updateVisible:void (model:SpreadsheetModel) {
         this.clampScroll(model)
-        def ox:int (this.gridOriginX())
-        def oy:int (this.gridOriginY())
-        ; unused but documents content origin
-        if (ox < 0) {
-            ox = 0
+        def fzR:int model.freezeRows
+        def fzC:int model.freezeCols
+        def baseY:int (model.rowToY(fzR))
+        def baseX:int (model.colToX(fzC))
+        firstScrollRow = fzR
+        if (fzR < model.rowCount) {
+            firstScrollRow = (model.yToRow((baseY + scrollY)))
+            if (firstScrollRow < fzR) {
+                firstScrollRow = fzR
+            }
         }
-        if (oy < 0) {
-            oy = 0
+        def bottomY:int (((baseY + scrollY) + (this.scrollAreaH(model))) - 1)
+        lastScrollRow = (model.yToRow(bottomY))
+        if (lastScrollRow < firstScrollRow) {
+            lastScrollRow = firstScrollRow
         }
-        firstVisibleRow = (model.yToRow(scrollY))
-        def bottomY:int ((scrollY + (this.viewportH())) - 1)
-        if (bottomY < scrollY) {
-            bottomY = scrollY
+        if (lastScrollRow >= model.rowCount) {
+            lastScrollRow = (model.rowCount - 1)
         }
-        lastVisibleRow = (model.yToRow(bottomY))
-        firstVisibleCol = (model.xToCol(scrollX))
-        def rightX:int ((scrollX + (this.viewportW())) - 1)
-        if (rightX < scrollX) {
-            rightX = scrollX
+        firstScrollCol = fzC
+        if (fzC < model.colCount) {
+            firstScrollCol = (model.xToCol((baseX + scrollX)))
+            if (firstScrollCol < fzC) {
+                firstScrollCol = fzC
+            }
         }
-        lastVisibleCol = (model.xToCol(rightX))
-        if (firstVisibleRow < 0) {
-            firstVisibleRow = 0
+        def rightX:int (((baseX + scrollX) + (this.scrollAreaW(model))) - 1)
+        lastScrollCol = (model.xToCol(rightX))
+        if (lastScrollCol < firstScrollCol) {
+            lastScrollCol = firstScrollCol
         }
-        if (lastVisibleRow >= model.rowCount) {
-            lastVisibleRow = (model.rowCount - 1)
+        if (lastScrollCol >= model.colCount) {
+            lastScrollCol = (model.colCount - 1)
         }
-        if (firstVisibleCol < 0) {
-            firstVisibleCol = 0
+        ; Status / simple loops: union of frozen + scrollable
+        firstVisibleRow = 0
+        if (fzR == 0) {
+            firstVisibleRow = firstScrollRow
         }
-        if (lastVisibleCol >= model.colCount) {
-            lastVisibleCol = (model.colCount - 1)
+        lastVisibleRow = lastScrollRow
+        firstVisibleCol = 0
+        if (fzC == 0) {
+            firstVisibleCol = firstScrollCol
         }
+        lastVisibleCol = lastScrollCol
     }
 
     fn scrollByPixels:void (model:SpreadsheetModel dx:int dy:int) {
@@ -162,10 +196,33 @@ class DataGrid {
         this.scrollByPixels(model 0 (delta * step))
     }
 
+    ; Screen X for a column, honouring freeze (FortuneSheet frozen columns).
+    fn colScreenX:int (model:SpreadsheetModel col:int) {
+        def ox:int (this.gridOriginX())
+        def fzC:int model.freezeCols
+        def x0:int (model.colToX(col))
+        if (col < fzC) {
+            return (ox + x0)
+        }
+        def base:int (model.colToX(fzC))
+        return (((ox + (model.frozenWidth())) + (x0 - base)) - scrollX)
+    }
+
+    fn rowScreenY:int (model:SpreadsheetModel row:int) {
+        def oy:int (this.gridOriginY())
+        def fzR:int model.freezeRows
+        def y0:int (model.rowToY(row))
+        if (row < fzR) {
+            return (oy + y0)
+        }
+        def base:int (model.rowToY(fzR))
+        return (((oy + (model.frozenHeight())) + (y0 - base)) - scrollY)
+    }
+
     ; Screen-space rect of a cell (may be partially off-viewport).
     fn cellRect:GridRect (model:SpreadsheetModel row:int col:int) {
-        def cx:int (((this.gridOriginX()) + (model.colToX(col))) - scrollX)
-        def cy:int (((this.gridOriginY()) + (model.rowToY(row))) - scrollY)
+        def cx:int (this.colScreenX(model col))
+        def cy:int (this.rowScreenY(model row))
         def cw:int (model.colWidth(col))
         def ch:int (model.rowHeight(row))
         def m:string (model.mergeAt(row col))
@@ -176,19 +233,41 @@ class DataGrid {
             def r2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
             def c2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
             if ((row == r1) && (col == c1)) {
-                def ox:int (this.gridOriginX())
-                def oy:int (this.gridOriginY())
-                def x1:int (model.colToX(c1))
-                def y1:int (model.rowToY(r1))
-                def x2:int (model.colToX((c2 + 1)))
-                def y2:int (model.rowToY((r2 + 1)))
-                cx = ((ox + x1) - scrollX)
-                cy = ((oy + y1) - scrollY)
-                cw = (x2 - x1)
-                ch = (y2 - y1)
+                cx = (this.colScreenX(model c1))
+                cy = (this.rowScreenY(model r1))
+                def x2:int (this.colScreenX(model (c2 + 1)))
+                ; if c2+1 is past freeze boundary, width from geometry
+                cw = ((model.colToX((c2 + 1))) - (model.colToX(c1)))
+                ch = ((model.rowToY((r2 + 1))) - (model.rowToY(r1)))
+                if (x2 > 0) {
+                    ; keep cw from offsets for merges spanning freeze
+                }
             }
         }
         return (GridRect.create(cx cy cw ch))
+    }
+
+    ; Active-cell fill handle (FortuneSheet fill handle), 8×8 at bottom-right.
+    fn fillHandleRect:GridRect (model:SpreadsheetModel sel:GridSelection) {
+        def ar:GridRect (this.cellRect(model sel.active.row sel.active.col))
+        return (GridRect.create(((ar.x + ar.w) - 4) ((ar.y + ar.h) - 4) 8 8))
+    }
+
+    fn hitFillHandle:boolean (model:SpreadsheetModel sel:GridSelection px:int py:int) {
+        def fr:GridRect (this.fillHandleRect(model sel))
+        if (px < fr.x) {
+            return false
+        }
+        if (py < fr.y) {
+            return false
+        }
+        if (px >= (fr.x + fr.w)) {
+            return false
+        }
+        if (py >= (fr.y + fr.h)) {
+            return false
+        }
+        return true
     }
 
     ; Sheet tab index under pointer, or -1.
@@ -220,28 +299,37 @@ class DataGrid {
     fn ensureCellVisible:void (model:SpreadsheetModel row:int col:int) {
         def p:CellPos (CellPos.create(row col))
         model.clampPos(p)
-        def x0:int (model.colToX(p.col))
-        def x1:int (x0 + (model.colWidth(p.col)))
-        def y0:int (model.rowToY(p.row))
-        def y1:int (y0 + (model.rowHeight(p.row)))
-        def vw:int (this.viewportW())
-        def vh:int (this.viewportH())
-        if (x0 < scrollX) {
-            scrollX = x0
+        if (p.row < model.freezeRows) {
+            ; frozen rows always visible
+        } {
+            def baseY:int (model.rowToY(model.freezeRows))
+            def y0:int ((model.rowToY(p.row)) - baseY)
+            def y1:int (y0 + (model.rowHeight(p.row)))
+            def sh:int (this.scrollAreaH(model))
+            if (y0 < scrollY) {
+                scrollY = y0
+            }
+            if (y1 > (scrollY + sh)) {
+                scrollY = (y1 - sh)
+            }
         }
-        if (x1 > (scrollX + vw)) {
-            scrollX = (x1 - vw)
-        }
-        if (y0 < scrollY) {
-            scrollY = y0
-        }
-        if (y1 > (scrollY + vh)) {
-            scrollY = (y1 - vh)
+        if (p.col < model.freezeCols) {
+        } {
+            def baseX:int (model.colToX(model.freezeCols))
+            def x0:int ((model.colToX(p.col)) - baseX)
+            def x1:int (x0 + (model.colWidth(p.col)))
+            def sw:int (this.scrollAreaW(model))
+            if (x0 < scrollX) {
+                scrollX = x0
+            }
+            if (x1 > (scrollX + sw)) {
+                scrollX = (x1 - sw)
+            }
         }
         this.updateVisible(model)
     }
 
-    ; -1,-1 = miss; row=-2 col=N = column header; row=N col=-2 = row header
+    ; Map pointer in body to content coordinates with freeze.
     fn hitTest:CellPos (model:SpreadsheetModel px:int py:int) {
         def miss:CellPos (CellPos.create(-1 -1))
         if (px < x) {
@@ -256,35 +344,64 @@ class DataGrid {
         if (py >= (y + h)) {
             return miss
         }
-        ; formula bar
         if (py < (y + formulaBarH)) {
             return (CellPos.create(-3 -3))
         }
         def headerTop:int (y + formulaBarH)
         def bodyLeft:int (x + rowHeaderW)
         def bodyTop:int (headerTop + colHeaderH)
-        ; corner chrome
         if ((px < bodyLeft) && (py < bodyTop)) {
             return (CellPos.create(-4 -4))
         }
-        ; column header
+        def fzW:int (model.frozenWidth())
+        def fzH:int (model.frozenHeight())
+        def fzR:int model.freezeRows
+        def fzC:int model.freezeCols
         if (py < bodyTop) {
-            def contentX:int ((px - bodyLeft) + scrollX)
+            def localX:int (px - bodyLeft)
+            def contentX:int localX
+            if (localX >= fzW) {
+                def baseX:int (model.colToX(fzC))
+                contentX = ((baseX + (localX - fzW)) + scrollX)
+            }
             def col:int (model.xToCol(contentX))
             return (CellPos.create(-2 col))
         }
-        ; row header
         if (px < bodyLeft) {
-            def contentY:int ((py - bodyTop) + scrollY)
+            def localY:int (py - bodyTop)
+            def contentY:int localY
+            if (localY >= fzH) {
+                def baseY:int (model.rowToY(fzR))
+                contentY = ((baseY + (localY - fzH)) + scrollY)
+            }
             def row:int (model.yToRow(contentY))
             return (CellPos.create(row -2))
         }
-        def cx:int ((px - bodyLeft) + scrollX)
-        def cy:int ((py - bodyTop) + scrollY)
+        def lx:int (px - bodyLeft)
+        def ly:int (py - bodyTop)
+        def cx:int lx
+        def cy:int ly
+        if (lx >= fzW) {
+            def baseX2:int (model.colToX(fzC))
+            cx = ((baseX2 + (lx - fzW)) + scrollX)
+        }
+        if (ly >= fzH) {
+            def baseY2:int (model.rowToY(fzR))
+            cy = ((baseY2 + (ly - fzH)) + scrollY)
+        }
         def r:int (model.yToRow(cy))
         def c:int (model.xToCol(cx))
         def p:CellPos (CellPos.create(r c))
         model.clampPos(p)
+        ; Merged area → origin (FortuneSheet / Excel selection behaviour)
+        def mk:string (model.mergeAt(p.row p.col))
+        if ((strlen mk) > 0) {
+            def parts:[string] (strsplit mk ",")
+            if ((array_length parts) >= 2) {
+                p.row = (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                p.col = (SpreadsheetModel.parseInt0((itemAt parts 1)))
+            }
+        }
         return p
     }
 
@@ -303,9 +420,10 @@ class DataGrid {
             return -1
         }
         this.updateVisible(model)
-        def c:int firstVisibleCol
-        while (c <= lastVisibleCol) {
-            def edge:int (((bodyLeft + (model.colToX(c)) + (model.colWidth(c))) - scrollX) - 1)
+        def c:int 0
+        def last:int lastScrollCol
+        while (c <= last) {
+            def edge:int (((this.colScreenX(model c)) + (model.colWidth(c))) - 1)
             def d:int (px - edge)
             if (d < 0) {
                 d = (0 - d)

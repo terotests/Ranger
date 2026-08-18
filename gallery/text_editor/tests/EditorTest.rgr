@@ -5,6 +5,7 @@
 ; ==============================================================================
 
 Import "../src/EditorApp.rgr"
+Import "../src/EditorStyle.rgr"
 
 class Checker {
     def passed:int 0
@@ -147,6 +148,32 @@ class EditorTest {
         def hit:EditorPos (app.layout.hitTest(app.view.ctx.tr app.buf cx (cy + 2)))
         c.eqInt("hit col near start" hit.col 0)
         c.eqInt("hit line" hit.line 0)
+
+        print "== word select + rich style =="
+        app.setDocument("Hello brave world")
+        app.selectWordAt(0 8)
+        c.eqInt("word anchor" app.sel.anchor.col 6)
+        c.eqInt("word caret" app.sel.caret.col 11)
+        c.eqStr("word text" (app.buf.textInRange(0 app.sel.anchor.col 0 app.sel.caret.col)) "brave")
+        app.toggleBold()
+        def st0:LineStyle (app.buf.styleAt(0))
+        def midRun:StyleRun (st0.runAt(7))
+        c.ok("brave is bold" midRun.bold)
+        app.setFont("Cinzel")
+        def midRun2:StyleRun (st0.runAt(7))
+        ; re-fetch after font mutate
+        def st1:LineStyle (app.buf.styleAt(0))
+        def midRun3:StyleRun (st1.runAt(7))
+        c.eqStr("brave font" midRun3.font "Cinzel")
+        app.setAlign(1)
+        def st2:LineStyle (app.buf.styleAt(0))
+        c.eqInt("align center" st2.align 1)
+        app.setList(1)
+        def st3:LineStyle (app.buf.styleAt(0))
+        c.eqInt("ul list" st3.listKind 1)
+        app.selectLineAt(0)
+        c.eqInt("line sel start" app.sel.anchor.col 0)
+        c.eqInt("line sel end" app.sel.caret.col (strlen (app.buf.lineAt(0))))
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

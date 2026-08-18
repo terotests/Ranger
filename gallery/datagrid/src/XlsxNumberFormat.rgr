@@ -1,0 +1,516 @@
+; ==============================================================================
+; XlsxNumberFormat - reusable Spreadsheet number-format engine.
+; ==============================================================================
+;
+; Not SpreadsheetML-specific: raw numeric/string → displayText via a format
+; code (Excel-like). Used by XLSX styles, formula results, and DataGrid paint.
+;
+;   format code  →  compile (sections)  →  format(value)  →  displayText
+;
+; Supported this milestone (practical subset, not every Excel edge case):
+;   General, 0, 0.00, #,##0, #,##0.00, 0%, 0.00%, $#,##0.00, €#,##0.00,
+;   0.00E+00, yyyy-mm-dd, dd.mm.yyyy, mm/dd/yyyy, hh:mm, hh:mm:ss, @
+;   and pos;neg;zero section triples when present.
+; ==============================================================================
+
+class CompiledNumberFormat {
+    def rawCode:string "General"
+    def pos:string "General"
+    def neg:string ""
+    def zero:string ""
+    def text:string "@"
+    def sectionCount:int 1
+
+    Constructor () {
+    }
+}
+
+class XlsxNumberFormat {
+    Constructor () {
+    }
+
+    sfn compile:CompiledNumberFormat (code:string) {
+        def c:CompiledNumberFormat (new CompiledNumberFormat)
+        if ((strlen code) == 0) {
+            c.rawCode = "General"
+            c.pos = "General"
+            return c
+        }
+        c.rawCode = code
+        ; Split on ';' outside quotes (simple: no quote handling for v1)
+        def parts:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen code)
+        while (i < n) {
+            def ch:int (charAt code i)
+            if (ch == 59) {
+                push parts cur
+                cur = ""
+            } {
+                cur = (cur + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        push parts cur
+        c.sectionCount = (array_length parts)
+        c.pos = (itemAt parts 0)
+        if (c.sectionCount >= 2) {
+            c.neg = (itemAt parts 1)
+        }
+        if (c.sectionCount >= 3) {
+            c.zero = (itemAt parts 2)
+        }
+        if (c.sectionCount >= 4) {
+            c.text = (itemAt parts 3)
+        }
+        return c
+    }
+
+    sfn format:string (raw:string numFmt:string) {
+        def c:CompiledNumberFormat (XlsxNumberFormat.compile(numFmt))
+        return (XlsxNumberFormat.formatCompiled(raw c))
+    }
+
+    sfn formatCompiled:string (raw:string c:CompiledNumberFormat) {
+        if ((strlen raw) == 0) {
+            return ""
+        }
+        if (c.pos == "@") {
+            return raw
+        }
+        if (c.rawCode == "@") {
+            return raw
+        }
+        def d@(optional):double (to_double raw)
+        if d {
+            def v:double (unwrap d)
+            def pat:string c.pos
+            if ((v < 0.0) && ((strlen c.neg) > 0)) {
+                pat = c.neg
+                ; Excel neg section usually already has '-', or is absolute
+                if ((charAt pat 0) == 45) {
+                    ; keep sign in pattern; format abs
+                    return (XlsxNumberFormat.applyPattern((0.0 - v) pat true))
+                }
+                return (XlsxNumberFormat.applyPattern((0.0 - v) pat false))
+            }
+            if ((v == 0.0) && ((strlen c.zero) > 0)) {
+                if (c.zero == "-") {
+                    return "-"
+                }
+                return (XlsxNumberFormat.applyPattern(0.0 c.zero false))
+            }
+            if (v < 0.0) {
+                return (XlsxNumberFormat.applyPattern((0.0 - v) pat true))
+            }
+            return (XlsxNumberFormat.applyPattern(v pat false))
+        }
+        ; non-numeric
+        if ((strlen c.text) > 0) {
+            if (c.text == "@") {
+                return raw
+            }
+        }
+        if ((c.pos == "General") || (c.rawCode == "General")) {
+            return raw
+        }
+        return raw
+    }
+
+    sfn applyPattern:string (v:double pat:string forceMinus:boolean) {
+        if ((strlen pat) == 0) {
+            return (to_string v)
+        }
+        if (pat == "General") {
+            return (XlsxNumberFormat.general(v forceMinus))
+        }
+        if (pat == "@") {
+            return (to_string v)
+        }
+        ; strip leading '-' from pattern (already handled)
+        def p:string pat
+        if ((strlen p) > 0) {
+            if ((charAt p 0) == 45) {
+                p = (substring p 1 (strlen p))
+                forceMinus = true
+            }
+        }
+        ; date / time detection
+        if (XlsxNumberFormat.isDatePattern(p)) {
+            return (XlsxNumberFormat.formatDate(v p forceMinus))
+        }
+        if (XlsxNumberFormat.isTimePattern(p)) {
+            return (XlsxNumberFormat.formatTime(v p forceMinus))
+        }
+        ; percent
+        if (XlsxNumberFormat.hasPercent(p)) {
+            def pct:double (v * 100.0)
+            def pp:string (XlsxNumberFormat.stripPercent(p))
+            def body:string (XlsxNumberFormat.formatNumberBody(pct pp))
+            if forceMinus {
+                return ("-" + body + "%")
+            }
+            return (body + "%")
+        }
+        ; scientific
+        if (XlsxNumberFormat.hasScientific(p)) {
+            def body2:string (XlsxNumberFormat.formatScientific(v))
+            if forceMinus {
+                return ("-" + body2)
+            }
+            return body2
+        }
+        ; currency / number
+        def prefix:string ""
+        def suffix:string ""
+        def core:string p
+        if ((strlen core) > 0) {
+            def c0:int (charAt core 0)
+            if ((c0 == 36) || (c0 == 8364)) {
+                ; $ or euro as first code unit — euro may be multi-byte; check string prefix
+            }
+        }
+        if ((strlen core) >= 1) {
+            if ((substring core 0 1) == "$") {
+                prefix = "$"
+                core = (substring core 1 (strlen core))
+            }
+        }
+        if ((strlen core) >= 3) {
+            ; UTF-8 euro often arrives as the character itself in source
+        }
+        ; detect € prefix by scanning for currency-ish leading non #0,
+        if ((strlen core) > 0) {
+            def fc:int (charAt core 0)
+            if ((fc != 35) && (fc != 48) && (fc != 46) && (fc != 44) && (fc != 63)) {
+                ; treat leading run of non-pattern chars as prefix ($, €, etc.)
+                def pi:int 0
+                def pn:int (strlen core)
+                while (pi < pn) {
+                    def pc:int (charAt core pi)
+                    if ((pc == 35) || (pc == 48) || (pc == 46) || (pc == 44)) {
+                        break
+                    }
+                    prefix = (prefix + (strfromcode pc))
+                    pi = (pi + 1)
+                }
+                core = (substring core pi pn)
+            }
+        }
+        def body3:string (XlsxNumberFormat.formatNumberBody(v core))
+        if forceMinus {
+            return ("-" + prefix + body3 + suffix)
+        }
+        return (prefix + body3 + suffix)
+    }
+
+    sfn general:string (v:double forceMinus:boolean) {
+        def iv:int (to_int v)
+        if (((to_double iv) == v) || (((to_double iv) - v) == 0.0)) {
+            if forceMinus {
+                return ("-" + (to_string iv))
+            }
+            return (to_string iv)
+        }
+        def s:string (XlsxNumberFormat.fixedN(v 2))
+        if forceMinus {
+            return ("-" + s)
+        }
+        return s
+    }
+
+    sfn hasPercent:boolean (p:string) {
+        def i:int 0
+        def n:int (strlen p)
+        while (i < n) {
+            if ((charAt p i) == 37) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn stripPercent:string (p:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen p)
+        while (i < n) {
+            if ((charAt p i) != 37) {
+                out = (out + (strfromcode (charAt p i)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn hasScientific:boolean (p:string) {
+        def i:int 0
+        def n:int (strlen p)
+        while (i < n) {
+            def ch:int (charAt p i)
+            if ((ch == 69) || (ch == 101)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn isDatePattern:boolean (p:string) {
+        ; yyyy / dd / mm with separators — not pure time
+        def hasY:boolean false
+        def hasD:boolean false
+        def i:int 0
+        def n:int (strlen p)
+        while (i < n) {
+            def ch:int (charAt p i)
+            if ((ch == 121) || (ch == 89)) {
+                hasY = true
+            }
+            if ((ch == 100) || (ch == 68)) {
+                hasD = true
+            }
+            i = (i + 1)
+        }
+        if hasY {
+            return true
+        }
+        return hasD
+    }
+
+    sfn isTimePattern:boolean (p:string) {
+        if (XlsxNumberFormat.isDatePattern(p)) {
+            return false
+        }
+        def i:int 0
+        def n:int (strlen p)
+        while (i < n) {
+            def ch:int (charAt p i)
+            if ((ch == 104) || (ch == 72) || (ch == 115) || (ch == 83)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        ; mm:ss style — look for ':'
+        def hasColon:boolean false
+        def hasM:boolean false
+        i = 0
+        while (i < n) {
+            if ((charAt p i) == 58) {
+                hasColon = true
+            }
+            if ((charAt p i) == 109) {
+                hasM = true
+            }
+            i = (i + 1)
+        }
+        if (hasColon && hasM) {
+            return true
+        }
+        return false
+    }
+
+    ; Excel serial date: days since 1899-12-30 (with Excel's 1900 leap quirk ignored for display).
+    sfn formatDate:string (serial:double pat:string forceMinus:boolean) {
+        def day:int (to_int serial)
+        if (day < 1) {
+            day = 1
+        }
+        ; Convert to Y-M-D via civil from days algorithm (Gregorian), epoch 1899-12-30
+        def z:int (day + 2415019)
+        def a:int (z + 32044)
+        def b:int (to_int ((4 * a) + 3) / 146097)
+        def c:int (a - (to_int ((b * 146097) / 4)))
+        def d:int (to_int ((4 * c) + 3) / 1461)
+        def e:int (c - (to_int ((1461 * d) / 4)))
+        def m:int (to_int ((5 * e) + 2) / 153)
+        def dayOut:int ((e - (to_int (((153 * m) + 2) / 5))) + 1)
+        def monthOut:int ((m + 3) - (12 * (to_int (m / 10))))
+        def yearOut:int ((((b * 100) + d) - 4800) + (to_int (m / 10)))
+        def ys:string (to_string yearOut)
+        def ms:string (XlsxNumberFormat.pad2(monthOut))
+        def ds:string (XlsxNumberFormat.pad2(dayOut))
+        def pl:string (XlsxNumberFormat.lower(pat))
+        if (pl == "yyyy-mm-dd") {
+            return (((ys + "-") + ms) + "-" + ds)
+        }
+        if (pl == "dd.mm.yyyy") {
+            return (((ds + ".") + ms) + "." + ys)
+        }
+        if (pl == "mm/dd/yyyy") {
+            return (((ms + "/") + ds) + "/" + ys)
+        }
+        ; fallback ISO
+        return (((ys + "-") + ms) + "-" + ds)
+    }
+
+    sfn formatTime:string (serial:double pat:string forceMinus:boolean) {
+        def frac:double (serial - (to_double (to_int serial)))
+        if (frac < 0.0) {
+            frac = (0.0 - frac)
+        }
+        def totalSec:int (to_int ((frac * 86400.0) + 0.5))
+        def hh:int (to_int (totalSec / 3600))
+        def rem:int (totalSec - (hh * 3600))
+        def mm:int (to_int (rem / 60))
+        def ss:int (rem - (mm * 60))
+        if (hh >= 24) {
+            hh = (hh - ((to_int (hh / 24)) * 24))
+        }
+        def pl:string (XlsxNumberFormat.lower(pat))
+        if (pl == "hh:mm:ss") {
+            return ((((XlsxNumberFormat.pad2(hh)) + ":") + (XlsxNumberFormat.pad2(mm))) + ":" + (XlsxNumberFormat.pad2(ss)))
+        }
+        return (((XlsxNumberFormat.pad2(hh)) + ":") + (XlsxNumberFormat.pad2(mm)))
+    }
+
+    sfn formatScientific:string (v:double) {
+        if (v == 0.0) {
+            return "0.00E+00"
+        }
+        def exp:int 0
+        def m:double v
+        while (m >= 10.0) {
+            m = (m / 10.0)
+            exp = (exp + 1)
+        }
+        while (m < 1.0) {
+            m = (m * 10.0)
+            exp = (exp - 1)
+        }
+        def mant:string (XlsxNumberFormat.fixedN(m 2))
+        def es:string (XlsxNumberFormat.pad2(exp))
+        if (exp >= 0) {
+            return ((mant + "E+") + es)
+        }
+        def ae:int (0 - exp)
+        return ((mant + "E-") + (XlsxNumberFormat.pad2(ae)))
+    }
+
+    sfn formatNumberBody:string (v:double core:string) {
+        def decimals:int (XlsxNumberFormat.countDecimals(core))
+        def useComma:boolean (XlsxNumberFormat.hasThousands(core))
+        def rounded:string (XlsxNumberFormat.fixedN(v decimals))
+        if useComma {
+            return (XlsxNumberFormat.addThousands(rounded))
+        }
+        return rounded
+    }
+
+    sfn countDecimals:int (core:string) {
+        def dot:int -1
+        def i:int 0
+        def n:int (strlen core)
+        while (i < n) {
+            if ((charAt core i) == 46) {
+                dot = i
+            }
+            i = (i + 1)
+        }
+        if (dot < 0) {
+            return 0
+        }
+        def c:int 0
+        i = (dot + 1)
+        while (i < n) {
+            def ch:int (charAt core i)
+            if ((ch == 48) || (ch == 35)) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    sfn hasThousands:boolean (core:string) {
+        def i:int 0
+        def n:int (strlen core)
+        while (i < n) {
+            if ((charAt core i) == 44) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn addThousands:string (num:string) {
+        def dot:int -1
+        def i:int 0
+        def n:int (strlen num)
+        while (i < n) {
+            if ((charAt num i) == 46) {
+                dot = i
+            }
+            i = (i + 1)
+        }
+        def whole:string num
+        def frac:string ""
+        if (dot >= 0) {
+            whole = (substring num 0 dot)
+            frac = (substring num dot n)
+        }
+        def len:int (strlen whole)
+        def out:string ""
+        def k:int 0
+        while (k < len) {
+            if ((k > 0) && ((((len - k) - ((to_int ((len - k) / 3)) * 3)) == 0))) {
+                out = (out + ",")
+            }
+            out = (out + (strfromcode (charAt whole k)))
+            k = (k + 1)
+        }
+        return (out + frac)
+    }
+
+    sfn fixedN:string (v:double decimals:int) {
+        if (decimals <= 0) {
+            return (to_string (to_int (v + 0.5)))
+        }
+        def scale:double 1.0
+        def d:int 0
+        while (d < decimals) {
+            scale = (scale * 10.0)
+            d = (d + 1)
+        }
+        def scaled:int (to_int ((v * scale) + 0.5))
+        def whole:int (to_int ((to_double scaled) / scale))
+        def frac:int (scaled - (to_int ((to_double whole) * scale)))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def fs:string (to_string frac)
+        while ((strlen fs) < decimals) {
+            fs = ("0" + fs)
+        }
+        return ((to_string whole) + "." + fs)
+    }
+
+    sfn pad2:string (n:int) {
+        if (n < 0) {
+            n = (0 - n)
+        }
+        if (n < 10) {
+            return ("0" + (to_string n))
+        }
+        return (to_string n)
+    }
+
+    sfn lower:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch >= 65) && (ch <= 90)) {
+                out = (out + (strfromcode (ch + 32)))
+            } {
+                out = (out + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

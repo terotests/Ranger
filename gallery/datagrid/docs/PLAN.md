@@ -24,8 +24,13 @@
 ;   Luckysheet    = Excel feature ceiling (archived → Univer)
 ;
 ; Milestone 1: DataGrid virtualization + SoftCanvas/WebGL.
-; Milestone 2 (this): .xlsx viewer —
+; Milestone 2: .xlsx viewer —
 ;   ZipReader → workbook/sharedStrings/sheet XML → SpreadsheetModel
 ;   cached formula values, merges, col/row sizes, sheet tabs.
-; Next: styles.xml / numFmt, freeze panes, fill handle, formula engine, writer.
+; Milestone 3: styles, freeze, copy/paste, fill handle.
+; Milestone 4 (this): workbook viewer —
+;   XlsxNumberFormat engine, FormulaEngine (AST/deps/recalc + cached fallback),
+;   SheetView sort/filter/hidden, merges hit-test, multi-sheet fidelity,
+;   business-workbook fixture, openpyxl + LibreOffice oracles, 100k perf fixture.
+; Stretch: conditional formatting resolver.
 ; ==============================================================================

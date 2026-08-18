@@ -1,0 +1,258 @@
+; ==============================================================================
+; XlsxStyles - xl/styles.xml → resolved CellStyle table.
+; ==============================================================================
+;
+; FortuneSheet "Formatting" parity slice: fill, font color/bold, horizontal
+; align, number format. Theme colors / indexed palette are approximated.
+; ==============================================================================
+
+Import "XmlLite.rgr"
+Import "../CellStyle.rgr"
+
+class XlsxStyles {
+    def styles:[CellStyle]
+    def fontsBold:[boolean]
+    def fontsColor:[string]
+    def fillsRgb:[string]
+    def fillsHas:[boolean]
+    def numFmtMap:[string:string]
+
+    Constructor () {
+    }
+
+    fn styleAt:CellStyle (i:int) {
+        if (i < 0) {
+            return (CellStyle.createDefault())
+        }
+        if (i >= (array_length styles)) {
+            return (CellStyle.createDefault())
+        }
+        return (itemAt styles i)
+    }
+
+    fn count:int () {
+        return (array_length styles)
+    }
+
+    sfn builtInNumFmt:string (id:int) {
+        if (id == 0) {
+            return "General"
+        }
+        if (id == 1) {
+            return "0"
+        }
+        if (id == 2) {
+            return "0.00"
+        }
+        if (id == 9) {
+            return "0%"
+        }
+        if (id == 10) {
+            return "0.00%"
+        }
+        if (id == 49) {
+            return "@"
+        }
+        if (id == 14) {
+            return "mm/dd/yyyy"
+        }
+        if (id == 15) {
+            return "dd.mm.yyyy"
+        }
+        if (id == 22) {
+            return "hh:mm"
+        }
+        if (id == 164) {
+            return "yyyy-mm-dd"
+        }
+        return "General"
+    }
+
+    sfn parseInt0:int (s:string) {
+        def parsed@(optional):int (to_int s)
+        if parsed {
+            return (unwrap parsed)
+        }
+        return 0
+    }
+
+    fn ensureBuiltinNumFmts:void () {
+        set numFmtMap "0" "General"
+        set numFmtMap "1" "0"
+        set numFmtMap "2" "0.00"
+        set numFmtMap "9" "0%"
+        set numFmtMap "10" "0.00%"
+        set numFmtMap "49" "@"
+    }
+
+    fn parseColorAttr:string (t:XmlTag) {
+        if (t.has("rgb")) {
+            def rgb:string (t.attr("rgb"))
+            if ((strlen rgb) == 8) {
+                return ("#" + (substring rgb 2 8))
+            }
+            if ((strlen rgb) == 6) {
+                return ("#" + rgb)
+            }
+            return ("#" + rgb)
+        }
+        return ""
+    }
+
+    fn parse:void (xml:string) {
+        clear styles
+        clear fontsBold
+        clear fontsColor
+        clear fillsRgb
+        clear fillsHas
+        def emptyFmt:[string:string]
+        numFmtMap = emptyFmt
+        this.ensureBuiltinNumFmts()
+        if ((strlen xml) == 0) {
+            push styles (CellStyle.createDefault())
+            return
+        }
+
+        ; Pass 1: numFmts, fonts, fills
+        def p:XmlLite (new XmlLite)
+        p.reset(xml)
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if ((t.name == "numFmt") && (t.isEnd == false)) {
+                def id:string (t.attr("numFmtId"))
+                def code:string (t.attr("formatCode"))
+                if (((strlen id) > 0) && ((strlen code) > 0)) {
+                    set numFmtMap id code
+                }
+            }
+            if ((t.name == "font") && (t.isEnd == false) && (t.selfClose == false)) {
+                def bold:boolean false
+                def color:string ""
+                def depth:int 1
+                while ((p.pos < p.len) && (depth > 0)) {
+                    def ft:XmlTag (p.nextTag())
+                    if (ft.valid == false) {
+                        break
+                    }
+                    if (ft.name == "font") {
+                        if ft.isEnd {
+                            depth = (depth - 1)
+                        } {
+                            if (ft.selfClose == false) {
+                                depth = (depth + 1)
+                            }
+                        }
+                    } {
+                        if ((ft.name == "b") && (ft.isEnd == false)) {
+                            bold = true
+                        }
+                        if ((ft.name == "color") && (ft.isEnd == false)) {
+                            color = (this.parseColorAttr(ft))
+                        }
+                    }
+                }
+                push fontsBold bold
+                push fontsColor color
+            }
+            if ((t.name == "fill") && (t.isEnd == false) && (t.selfClose == false)) {
+                def frgb:string ""
+                def fhas:boolean false
+                def depth2:int 1
+                while ((p.pos < p.len) && (depth2 > 0)) {
+                    def ft2:XmlTag (p.nextTag())
+                    if (ft2.valid == false) {
+                        break
+                    }
+                    if (ft2.name == "fill") {
+                        if ft2.isEnd {
+                            depth2 = (depth2 - 1)
+                        } {
+                            if (ft2.selfClose == false) {
+                                depth2 = (depth2 + 1)
+                            }
+                        }
+                    } {
+                        if ((ft2.name == "fgColor") && (ft2.isEnd == false)) {
+                            frgb = (this.parseColorAttr(ft2))
+                            if ((strlen frgb) > 0) {
+                                fhas = true
+                            }
+                        }
+                    }
+                }
+                push fillsRgb frgb
+                push fillsHas fhas
+            }
+        }
+
+        ; Pass 2: cellXfs / xf only (style index used by cells)
+        p.reset(xml)
+        def inCellXfs:boolean false
+        while (p.pos < p.len) {
+            def t2:XmlTag (p.nextTag())
+            if (t2.valid == false) {
+                break
+            }
+            if ((t2.name == "cellXfs") && (t2.isEnd == false)) {
+                inCellXfs = true
+            }
+            if ((t2.name == "cellXfs") && t2.isEnd) {
+                inCellXfs = false
+            }
+            if inCellXfs {
+                if ((t2.name == "xf") && (t2.isEnd == false)) {
+                    def st:CellStyle (new CellStyle)
+                    def fontId:int (XlsxStyles.parseInt0((t2.attr("fontId"))))
+                    def fillId:int (XlsxStyles.parseInt0((t2.attr("fillId"))))
+                    def numId:int (XlsxStyles.parseInt0((t2.attr("numFmtId"))))
+                    if ((fontId >= 0) && (fontId < (array_length fontsBold))) {
+                        st.bold = (itemAt fontsBold fontId)
+                        st.textRgb = (itemAt fontsColor fontId)
+                    }
+                    if ((fillId >= 0) && (fillId < (array_length fillsHas))) {
+                        st.hasFill = (itemAt fillsHas fillId)
+                        st.fillRgb = (itemAt fillsRgb fillId)
+                    }
+                    def idKey:string (to_string numId)
+                    if (has numFmtMap idKey) {
+                        st.numFmt = (unwrap (get numFmtMap idKey))
+                    } {
+                        st.numFmt = (XlsxStyles.builtInNumFmt(numId))
+                    }
+                    if (t2.selfClose == false) {
+                        def depth3:int 1
+                        while ((p.pos < p.len) && (depth3 > 0)) {
+                            def at:XmlTag (p.nextTag())
+                            if (at.valid == false) {
+                                break
+                            }
+                            if (at.name == "xf") {
+                                if at.isEnd {
+                                    depth3 = (depth3 - 1)
+                                } {
+                                    if (at.selfClose == false) {
+                                        depth3 = (depth3 + 1)
+                                    }
+                                }
+                            } {
+                                if ((at.name == "alignment") && (at.isEnd == false)) {
+                                    def h:string (at.attr("horizontal"))
+                                    if ((strlen h) > 0) {
+                                        st.align = h
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    push styles st
+                }
+            }
+        }
+        if ((array_length styles) == 0) {
+            push styles (CellStyle.createDefault())
+        }
+    }
+}
