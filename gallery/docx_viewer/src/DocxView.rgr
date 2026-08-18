@@ -154,4 +154,13 @@ class DocxView {
         def png:PNGEncoder (new PNGEncoder)
         png.encode(rb dir file)
     }
+
+    fn pngBytes:buffer () {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (this.width())
+        rb.height = (this.height())
+        rb.pixels = (this.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        return (png.encodeToBuffer(rb))
+    }
 }

@@ -49,9 +49,13 @@ Regenerate: `npm run docx_viewer:fixtures` (needs `ffmpeg` for the sample JPEG).
 ## Run
 
 ```bash
-npm run docx_viewer:test    # parse + layout checks → ALL PASS
-npm run docx_viewer:demo    # PNG pages: docx_hello/styles/lists/images.png
+npm run docx_viewer:test      # parse + layout checks → ALL PASS
+npm run docx_viewer:demo      # PNG pages under gallery/docx_viewer/
+npm run docx_viewer:window    # browser SoftCanvas preview (port 8770)
+npm run docx_viewer:fixtures  # regenerate samples (needs ffmpeg)
 ```
+
+Note the script name is **`docx_viewer`** (not `docs_viewer`).
 
 ## Model notes
 

@@ -59,6 +59,18 @@ class DocxViewer {
         view.writePng(dir file)
     }
 
+    fn pngBytes:buffer () {
+        return (view.pngBytes())
+    }
+
+    fn pageWidth:int () {
+        return (view.width())
+    }
+
+    fn pageHeight:int () {
+        return (view.height())
+    }
+
     fn plainText:string () {
         return (doc.plainText())
     }
