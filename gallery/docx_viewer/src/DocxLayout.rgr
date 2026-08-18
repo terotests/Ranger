@@ -1,0 +1,160 @@
+; ==============================================================================
+; DocxLayout - flow layout + simple pagination for RichDocument.
+; ==============================================================================
+;
+; EVG / SoftCanvas measure text; pagination rules live here (not in EVG).
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+class LaidLine {
+    def paraIndex:int 0
+    def text:string ""
+    def x:int 0
+    def y:int 0
+    def baseline:int 0
+    def height:int 0
+    def spanStart:int 0
+    def align:int 0
+    def listPrefix:string ""
+
+    Constructor () {
+    }
+}
+
+class LaidPage {
+    def index:int 0
+    def lines:[LaidLine]
+    def width:int 0
+    def height:int 0
+
+    Constructor () {
+    }
+}
+
+class DocxLayout {
+    def pages:[LaidPage]
+    def tr:UITextRenderer
+    def contentW:int 500
+
+    Constructor () {
+    }
+
+    sfn ptToPx:double (pt:double) {
+        return ((pt * 96.0) / 72.0)
+    }
+
+    fn layout:void (doc:RichDocument textRenderer:UITextRenderer) {
+        tr = textRenderer
+        clear pages
+        def page:LaidPage (new LaidPage)
+        page.width = (doc.section.pageWidthPx())
+        page.height = (doc.section.pageHeightPx())
+        page.index = 0
+        push pages page
+
+        def ml:int (doc.section.marginLeftPx())
+        def mt:int (doc.section.marginTopPx())
+        def mr:int (doc.section.marginRightPx())
+        def mb:int (doc.section.marginBottomPx())
+        contentW = ((page.width - ml) - mr)
+        if (contentW < 40) {
+            contentW = 40
+        }
+        def y:int mt
+        def maxY:int (page.height - mb)
+        def listCounters:[int:int]
+
+        def pi:int 0
+        while (pi < (doc.paragraphCount())) {
+            def p:Paragraph (doc.paragraphAt(pi))
+            def before:int (to_int (DocxLayout.ptToPx(p.spaceBeforePt)))
+            def after:int (to_int (DocxLayout.ptToPx(p.spaceAfterPt)))
+            y = (y + before)
+
+            def prefix:string ""
+            def indent:int (to_int (DocxLayout.ptToPx(p.indentLeftPt)))
+            if (p.listKind == 1) {
+                prefix = "• "
+            }
+            if (p.listKind == 2) {
+                def cur@(optional):int (get listCounters p.listNumId)
+                def n:int 1
+                if (!null? cur) {
+                    n = ((unwrap cur) + 1)
+                }
+                set listCounters p.listNumId n
+                prefix = ((to_string n) + ". ")
+            }
+
+            def fontPx:double 14.0
+            if ((array_length p.spans) > 0) {
+                def s0:TextSpan (itemAt p.spans 0)
+                fontPx = (DocxLayout.ptToPx(s0.fontSizePt))
+            }
+            if (fontPx < 8.0) {
+                fontPx = 8.0
+            }
+            def lh:int (to_int ((tr.lineHeight(fontPx)) + 2.0))
+            if (lh < 12) {
+                lh = 12
+            }
+
+            def full:string (prefix + p.text)
+            def wrapW:double (to_double (contentW - indent))
+            if (wrapW < 40.0) {
+                wrapW = 40.0
+            }
+            def wrapped:[string] (tr.wrap(full fontPx wrapW))
+            if ((array_length wrapped) == 0) {
+                push wrapped ""
+            }
+            def li:int 0
+            while (li < (array_length wrapped)) {
+                if ((y + lh) > maxY) {
+                    def np:LaidPage (new LaidPage)
+                    np.width = page.width
+                    np.height = page.height
+                    np.index = (array_length pages)
+                    push pages np
+                    page = np
+                    y = mt
+                }
+                def line:LaidLine (new LaidLine)
+                line.paraIndex = pi
+                line.text = (itemAt wrapped li)
+                line.height = lh
+                line.y = y
+                line.baseline = (y + (to_int (fontPx * 0.8)))
+                line.align = p.align
+                line.listPrefix = prefix
+                def tw:int (to_int (tr.measureWidth(line.text fontPx)))
+                def x0:int (ml + indent)
+                if (p.align == 1) {
+                    x0 = (ml + (to_int (((contentW - indent) - tw) / 2)))
+                }
+                if (p.align == 2) {
+                    x0 = (ml + ((contentW - indent) - tw))
+                }
+                if (x0 < ml) {
+                    x0 = ml
+                }
+                line.x = x0
+                push page.lines line
+                y = (y + lh)
+                li = (li + 1)
+            }
+            y = (y + after)
+            pi = (pi + 1)
+        }
+    }
+
+    fn pageCount:int () {
+        return (array_length pages)
+    }
+
+    fn pageAt:LaidPage (i:int) {
+        return (itemAt pages i)
+    }
+}

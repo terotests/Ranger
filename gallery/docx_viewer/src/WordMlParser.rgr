@@ -1,0 +1,137 @@
+; ==============================================================================
+; WordMlParser - WordprocessingML document.xml → RichDocument
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "DocxPackage.rgr"
+Import "WordXml.rgr"
+Import "WordStyleResolver.rgr"
+
+class WordMlParser {
+    def resolver:WordStyleResolver (new WordStyleResolver)
+
+    Constructor () {
+    }
+
+    fn parsePackage:RichDocument (pkg:DocxPackage) {
+        def styles:string (pkg.stylesXml())
+        if ((strlen styles) > 0) {
+            resolver.parseStylesXml(styles)
+        }
+        return (this.parseDocumentXml((pkg.documentXml())))
+    }
+
+    fn parseDocumentXml:RichDocument (xml:string) {
+        def doc:RichDocument (new RichDocument)
+        ; Section page size / margins
+        def sect:int (WordXml.findNext(xml "w:sectPr" 0))
+        if (sect >= 0) {
+            def sEl:string (WordXml.sliceElement(xml "w:sectPr" sect))
+            def psz:int (WordXml.findNext(sEl "w:pgSz" 0))
+            if (psz >= 0) {
+                def pszEl:string (WordXml.sliceElement(sEl "w:pgSz" psz))
+                def ot:string (WordXml.openTag(pszEl))
+                doc.section.pageWTwips = (WordXml.twipsAttr(ot "w:w" doc.section.pageWTwips))
+                doc.section.pageHTwips = (WordXml.twipsAttr(ot "w:h" doc.section.pageHTwips))
+            }
+            def pm:int (WordXml.findNext(sEl "w:pgMar" 0))
+            if (pm >= 0) {
+                def pmEl:string (WordXml.sliceElement(sEl "w:pgMar" pm))
+                def ot2:string (WordXml.openTag(pmEl))
+                doc.section.marginTopTwips = (WordXml.twipsAttr(ot2 "w:top" doc.section.marginTopTwips))
+                doc.section.marginRightTwips = (WordXml.twipsAttr(ot2 "w:right" doc.section.marginRightTwips))
+                doc.section.marginBottomTwips = (WordXml.twipsAttr(ot2 "w:bottom" doc.section.marginBottomTwips))
+                doc.section.marginLeftTwips = (WordXml.twipsAttr(ot2 "w:left" doc.section.marginLeftTwips))
+            }
+        }
+
+        def i:int 0
+        def n:int (strlen xml)
+        while (i < n) {
+            def pStart:int (WordXml.findNext(xml "w:p" i))
+            if (pStart < 0) {
+                return doc
+            }
+            ; Avoid matching w:pgSz / w:pgMar / w:pPr / w:pStyle — findNext
+            ; already requires tag boundary after w:p.
+            def pEl:string (WordXml.sliceElement(xml "w:p" pStart))
+            if ((strlen pEl) == 0) {
+                return doc
+            }
+            this.parseParagraph(doc pEl)
+            def pEnd:int (WordXml.elementEnd(xml "w:p" pStart))
+            if (pEnd < 0) {
+                return doc
+            }
+            i = pEnd
+        }
+        return doc
+    }
+
+    fn parseParagraph:void (doc:RichDocument pEl:string) {
+        def p:Paragraph (doc.addParagraph())
+        def pPrXml:string ""
+        def pPr:int (WordXml.findNext(pEl "w:pPr" 0))
+        if (pPr >= 0) {
+            pPrXml = (WordXml.sliceElement(pEl "w:pPr" pPr))
+            def ps:int (WordXml.findNext(pPrXml "w:pStyle" 0))
+            if (ps >= 0) {
+                def psEl:string (WordXml.sliceElement(pPrXml "w:pStyle" ps))
+                p.styleId = (WordXml.attr((WordXml.openTag(psEl)) "w:val"))
+            }
+        }
+        resolver.resolveParagraph(p pPrXml)
+        def base:ResolvedRunStyle (resolver.baseRunFromParagraph(p))
+        ; Clear template span before appending real text spans.
+        clear p.spans
+        p.text = ""
+
+        def ri:int 0
+        def pn:int (strlen pEl)
+        while (ri < pn) {
+            def rStart:int (WordXml.findNext(pEl "w:r" ri))
+            if (rStart < 0) {
+                return
+            }
+            def rEl:string (WordXml.sliceElement(pEl "w:r" rStart))
+            if ((strlen rEl) == 0) {
+                return
+            }
+            def runStyle:ResolvedRunStyle (base.copy())
+            def rPr:int (WordXml.findNext(rEl "w:rPr" 0))
+            if (rPr >= 0) {
+                def rPrEl:string (WordXml.sliceElement(rEl "w:rPr" rPr))
+                resolver.applyRPr(rPrEl runStyle)
+            }
+            def chunk:string ""
+            def ti:int 0
+            def rn:int (strlen rEl)
+            while (ti < rn) {
+                def tStart:int (WordXml.findNext(rEl "w:t" ti))
+                if (tStart < 0) {
+                    ti = rn
+                } {
+                    def tEl:string (WordXml.sliceElement(rEl "w:t" tStart))
+                    def inner:string (WordXml.innerOf(tEl "w:t"))
+                    chunk = (chunk + (WordXml.decodeEntities(inner)))
+                    def tEnd:int (WordXml.elementEnd(rEl "w:t" tStart))
+                    if (tEnd < 0) {
+                        ti = rn
+                    } {
+                        ti = tEnd
+                    }
+                }
+            }
+            if ((strlen chunk) > 0) {
+                def span:TextSpan (TextSpan.create(0 0))
+                runStyle.applyToSpan(span)
+                p.appendText(chunk span)
+            }
+            def rEnd:int (WordXml.elementEnd(pEl "w:r" rStart))
+            if (rEnd < 0) {
+                return
+            }
+            ri = rEnd
+        }
+    }
+}

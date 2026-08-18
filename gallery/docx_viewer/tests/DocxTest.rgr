@@ -1,0 +1,114 @@
+; ==============================================================================
+; DocxTest - parse + layout checks for the DOCX viewer prototype.
+; ==============================================================================
+
+Import "../src/DocxViewer.rgr"
+Import "../src/WordXml.rgr"
+Import "../src/WordMlParser.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class DocxTest {
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== WordXml entities =="
+        c.eqStr("lt" (WordXml.decodeEntities("a&lt;b")) "a<b")
+        c.eqStr("amp" (WordXml.decodeEntities("x&amp;y")) "x&y")
+
+        print "== parse hello.docx =="
+        def viewer:DocxViewer (new DocxViewer)
+        viewer.init("gallery/pdf_writer/assets/fonts")
+        c.ok("open hello" (viewer.openFile("gallery/docx_viewer/fixtures" "hello.docx")))
+        def doc:RichDocument (viewer.document())
+        c.ok("has paragraphs" ((doc.paragraphCount()) >= 3))
+        def plain:string (doc.plainText())
+        c.ok("has Hello" ((indexOf plain "Hello") >= 0))
+        c.ok("has world" ((indexOf plain "world") >= 0))
+        def p0:Paragraph (doc.paragraphAt(0))
+        c.ok("title has spans" ((array_length p0.spans) >= 1))
+        def p1:Paragraph (doc.paragraphAt(1))
+        ; Merged / styled runs should include a bold span for "world"
+        def hasBold:boolean false
+        def si:int 0
+        while (si < (array_length p1.spans)) {
+            def sp:TextSpan (itemAt p1.spans si)
+            if sp.bold {
+                hasBold = true
+            }
+            si = (si + 1)
+        }
+        c.ok("mixed run bold" hasBold)
+
+        print "== styles_demo align =="
+        c.ok("open styles" (viewer.openFile("gallery/docx_viewer/fixtures" "styles_demo.docx")))
+        def d2:RichDocument (viewer.document())
+        def foundCenter:boolean false
+        def foundRight:boolean false
+        def i:int 0
+        while (i < (d2.paragraphCount())) {
+            def p:Paragraph (d2.paragraphAt(i))
+            if (p.align == 1) {
+                foundCenter = true
+            }
+            if (p.align == 2) {
+                foundRight = true
+            }
+            i = (i + 1)
+        }
+        c.ok("has center" foundCenter)
+        c.ok("has right" foundRight)
+
+        print "== lists_demo =="
+        c.ok("open lists" (viewer.openFile("gallery/docx_viewer/fixtures" "lists_demo.docx")))
+        def d3:RichDocument (viewer.document())
+        def bullets:int 0
+        def nums:int 0
+        def j:int 0
+        while (j < (d3.paragraphCount())) {
+            def lp:Paragraph (d3.paragraphAt(j))
+            if (lp.listKind == 1) {
+                bullets = (bullets + 1)
+            }
+            if (lp.listKind == 2) {
+                nums = (nums + 1)
+            }
+            j = (j + 1)
+        }
+        c.eqInt("bullet paras" bullets 3)
+        c.eqInt("numbered paras" nums 3)
+
+        print "== render page =="
+        viewer.renderPage(0)
+        c.ok("framebuffer" ((buffer_length (viewer.view.raw())) > 1000))
+        c.ok("pages>=1" ((viewer.pageCount()) >= 1))
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

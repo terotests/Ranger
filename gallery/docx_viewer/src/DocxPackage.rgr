@@ -1,0 +1,58 @@
+; ==============================================================================
+; DocxPackage - OPC package reader over gallery/zip ZipReader.
+; ==============================================================================
+
+Import "../../zip/ZipReader.rgr"
+Import "../../pdf_writer/src/core/Utf8.rgr"
+
+class DocxPackage {
+    def zip:ZipReader (new ZipReader)
+    def openOk:boolean false
+    def pathDir:string ""
+    def pathFile:string ""
+
+    Constructor () {
+    }
+
+    fn open:boolean (dir:string file:string) {
+        pathDir = dir
+        pathFile = file
+        openOk = (zip.open(dir file))
+        return openOk
+    }
+
+    fn close:void () {
+        zip.close()
+        openOk = false
+    }
+
+    fn hasPart:boolean (name:string) {
+        def e@(optional):ZipEntry (zip.getEntry(name))
+        return (!null? e)
+    }
+
+    fn readPart:string (name:string) {
+        def e@(optional):ZipEntry (zip.getEntry(name))
+        if (null? e) {
+            return ""
+        }
+        def entry:ZipEntry (unwrap e)
+        def data:buffer (zip.extract(entry))
+        if ((buffer_length data) == 0) {
+            return ""
+        }
+        return (Utf8.decode((buffer_to_string data)))
+    }
+
+    fn documentXml:string () {
+        return (this.readPart("word/document.xml"))
+    }
+
+    fn stylesXml:string () {
+        return (this.readPart("word/styles.xml"))
+    }
+
+    fn numberingXml:string () {
+        return (this.readPart("word/numbering.xml"))
+    }
+}

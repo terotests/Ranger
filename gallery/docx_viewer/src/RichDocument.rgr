@@ -1,0 +1,181 @@
+; ==============================================================================
+; RichDocument - normalized Word-like document model (not OOXML run indices).
+; ==============================================================================
+;
+; Caret / selection (future editor) should use paragraphId + textOffset.
+; Formatting lives in spans that can be re-split independently of Word runs:
+;
+;   Paragraph text: "Hello wonderful world"
+;   Spans: 0..6 normal · 6..16 italic · 16..21 bold
+;
+; DOCX import merges adjacent equivalent w:r into spans; export (later) emits
+; w:r from spans.
+; ==============================================================================
+
+class TextSpan {
+    def start:int 0
+    def end:int 0
+    def bold:boolean false
+    def italic:boolean false
+    def underline:boolean false
+    def fontSizePt:double 11.0
+    def fontFamily:string "Open Sans"
+    def colorHex:string "000000"
+
+    Constructor () {
+    }
+
+    sfn create:TextSpan (start:int end:int) {
+        def s:TextSpan (new TextSpan)
+        s.start = start
+        s.end = end
+        return s
+    }
+
+    fn copy:TextSpan () {
+        def s:TextSpan (TextSpan.create(start end))
+        s.bold = bold
+        s.italic = italic
+        s.underline = underline
+        s.fontSizePt = fontSizePt
+        s.fontFamily = fontFamily
+        s.colorHex = colorHex
+        return s
+    }
+
+    fn sameFormat:boolean (other:TextSpan) {
+        if (bold != other.bold) {
+            return false
+        }
+        if (italic != other.italic) {
+            return false
+        }
+        if (underline != other.underline) {
+            return false
+        }
+        if (fontSizePt != other.fontSizePt) {
+            return false
+        }
+        if (fontFamily != other.fontFamily) {
+            return false
+        }
+        if (colorHex != other.colorHex) {
+            return false
+        }
+        return true
+    }
+}
+
+class Paragraph {
+    def id:int 0
+    def text:string ""
+    def spans:[TextSpan]
+    def align:int 0
+    def styleId:string "Normal"
+    def listKind:int 0
+    def listLevel:int 0
+    def listNumId:int 0
+    def spaceBeforePt:double 0.0
+    def spaceAfterPt:double 8.0
+    def indentLeftPt:double 0.0
+
+    Constructor () {
+    }
+
+    fn appendText:void (chunk:string span:TextSpan) {
+        def a:int (strlen text)
+        text = (text + chunk)
+        def b:int (strlen text)
+        span.start = a
+        span.end = b
+        if ((array_length spans) > 0) {
+            def prev:TextSpan (itemAt spans ((array_length spans) - 1))
+            if ((prev.end == span.start) && (prev.sameFormat(span))) {
+                prev.end = span.end
+                return
+            }
+        }
+        push spans (span.copy())
+    }
+
+    fn plainText:string () {
+        return text
+    }
+}
+
+class DocSection {
+    def pageWTwips:int 12240
+    def pageHTwips:int 15840
+    def marginTopTwips:int 1440
+    def marginRightTwips:int 1440
+    def marginBottomTwips:int 1440
+    def marginLeftTwips:int 1440
+
+    Constructor () {
+    }
+
+    fn pageWidthPx:int () {
+        ; twips → px at 96dpi: twips * 96 / 1440
+        return (to_int (((to_double pageWTwips) * 96.0) / 1440.0))
+    }
+
+    fn pageHeightPx:int () {
+        return (to_int (((to_double pageHTwips) * 96.0) / 1440.0))
+    }
+
+    fn marginLeftPx:int () {
+        return (to_int (((to_double marginLeftTwips) * 96.0) / 1440.0))
+    }
+
+    fn marginRightPx:int () {
+        return (to_int (((to_double marginRightTwips) * 96.0) / 1440.0))
+    }
+
+    fn marginTopPx:int () {
+        return (to_int (((to_double marginTopTwips) * 96.0) / 1440.0))
+    }
+
+    fn marginBottomPx:int () {
+        return (to_int (((to_double marginBottomTwips) * 96.0) / 1440.0))
+    }
+}
+
+class RichDocument {
+    def title:string ""
+    def paragraphs:[Paragraph]
+    def section:DocSection (new DocSection)
+    def nextParaId:int 1
+
+    Constructor () {
+    }
+
+    fn addParagraph:Paragraph () {
+        def p:Paragraph (new Paragraph)
+        p.id = nextParaId
+        nextParaId = (nextParaId + 1)
+        push paragraphs p
+        return p
+    }
+
+    fn paragraphCount:int () {
+        return (array_length paragraphs)
+    }
+
+    fn paragraphAt:Paragraph (i:int) {
+        return (itemAt paragraphs i)
+    }
+
+    fn plainText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length paragraphs)) {
+            if (i > 0) {
+                out = (out + "\n")
+            }
+            def p:Paragraph (itemAt paragraphs i)
+            out = (out + p.text)
+            i = (i + 1)
+        }
+        return out
+    }
+}
