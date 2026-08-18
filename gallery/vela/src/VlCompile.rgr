@@ -6530,8 +6530,19 @@ class VlCompile {
                     ; A time scale is niced by its own calendar or not at all,
                     ; and it is never extended to zero — zero is 1970, and a
                     ; chart of the last decade does not want the seventies in
-                    ; it. Nor is it padded: the reference leaves a date axis
-                    ; running exactly from the first instant to the last.
+                    ; it. A date axis runs exactly from the first instant to
+                    ; the last…
+                    ;
+                    ; …unless there are BARS standing on it, which are five
+                    ; pixels wide either side of the instant they mark. A
+                    ; candlestick chart's first and last candle were drawn half
+                    ; outside the plot, and every date on the axis stood a
+                    ; pixel or four away from the candle it names.
+                    if (markName == "bar") {
+                        if (this.barPaddingHere(ch axis)) {
+                            sc.setMember("padding" (VlJson.numberValue(5.0)))
+                        }
+                    }
                 } {
                     ; A scale told where to run does not get niced: nicing is
                     ; how a scale CHOOSES round ends, and it has been given
@@ -7064,9 +7075,79 @@ class VlCompile {
         }
         out.setMember("field" (VlJson.stringValue((ch.outField()))))
         if (ch.isDiscrete()) {
-            out.setMember("sort" (this.domainSortFor(ch)))
+            def ordering:VlJson (this.domainSortFor(ch))
+            out.setMember("sort" ordering)
+            ; Ranked by a MEASURE, the categories are ranked over the rows as
+            ; they were written and not over what the chart aggregated them
+            ; into: a trellis of barley orders its varieties by the median of
+            ; every yield recorded, which is not the median of the per-site
+            ; medians the marks are drawn from — and the column the ranking
+            ; reads has by then been aggregated away, so read from the derived
+            ; rows it ranked nothing at all and the varieties came out in the
+            ; order they happened to arrive.
+            if (this.ranksOverRawRows(ch ordering)) {
+                out.setMember("data" (VlJson.stringValue("source_0")))
+            }
         }
         return out
+    }
+
+    ; Whether a discrete domain's ordering has to be computed before the
+    ; chart's own transforms rather than after them. It does when the ordering
+    ; names a column of its own — and only where that column survives the trip
+    ; unchanged, because a unit of time or a bin is a column the source does
+    ; not have yet.
+    fn ranksOverRawRows:boolean (ch:VlChannel ordering:VlJson) {
+        if (! (ordering.isObject())) {
+            return false
+        }
+        if (! (ordering.has("field"))) {
+            return false
+        }
+        if (ch.hasBin) {
+            return false
+        }
+        if ((strlen ch.timeUnit) > 0) {
+            return false
+        }
+        if ((ch.outField()) != ch.field) {
+            return false
+        }
+        return (this.groupedFinerThan(ch))
+    }
+
+    ; Whether the chart's own aggregate leaves MORE than one row per category
+    ; of this channel. Where it leaves exactly one — a bar chart of one total
+    ; per age — the total is right there in the derived rows and the ranking
+    ; can read it. Where it leaves several — a trellis grouped by site and
+    ; year as well as by variety — no summary of the summaries is the summary
+    ; of the rows, and the ranking has to be computed before the aggregate.
+    fn groupedFinerThan:boolean (ch:VlChannel) {
+        def aggregating:boolean false
+        for channels a:VlChannel ai {
+            if ((strlen a.aggregate) > 0) {
+                aggregating = true
+            }
+        }
+        if (! aggregating) {
+            return false
+        }
+        for channels g:VlChannel gi {
+            if ((strlen g.aggregate) > 0) {
+                ; an aggregated channel is a measure, not a grouping
+            } {
+                if (g.hasValue) {
+                    ; a literal is not a field
+                } {
+                    if ((strlen g.field) > 0) {
+                        if ((g.outField()) != (ch.outField())) {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        return false
     }
 
     ; How a discrete domain is ordered. Ascending by its own values unless the
@@ -9834,6 +9915,37 @@ class VlCompile {
                 update.setMember(axis (this.scaled(axis (stackField + "_end"))))
                 update.setMember((axis + "2") (this.scaled(axis (stackField + "_start"))))
                 return
+            }
+        }
+        ; A bar standing on a CONTINUOUS axis has no band to fill, so it is
+        ; given one: five pixels, centred on the value. A candlestick chart is
+        ; the case — its dates are instants, not categories — and drawn from
+        ; the instant rather than across it every candle came out with no
+        ; width at all and nothing but the wick was visible.
+        if (markName == "bar") {
+            ; …but only where the chart left it standing on one value. A bar
+            ; given both ends — a heat lane's block, a bar over a bin computed
+            ; upstream — spans what it was given, and five pixels was five
+            ; pixels wherever the far end happened to be.
+            def bothEnds:VlChannel (this.channel((axis + "2")))
+            def spanned:boolean false
+            if bothEnds.defined {
+                if ((strlen (bothEnds.outField())) > 0) {
+                    spanned = true
+                }
+            }
+            if (spanned) {
+                ; the far end is a field of its own, and placed below
+            } {
+            if (this.barPaddingHere(ch axis)) {
+                def thick:double (this.statedSize())
+                if (thick <= 0.0) {
+                    thick = 5.0
+                }
+                update.setMember((axis + "c") (this.scaled(axis (ch.outField()))))
+                update.setMember(dimension (VlCompile.literal((VlJson.numberValue(thick)))))
+                return
+            }
             }
         }
         ; A tick is a short line drawn ACROSS its band, so it is centred on its

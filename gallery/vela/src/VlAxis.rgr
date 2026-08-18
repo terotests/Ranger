@@ -319,6 +319,25 @@ class VlAxis {
         return true
     }
 
+    ; How far a TURNED label reaches away from the axis it hangs off: the box
+    ; a rotated rectangle needs, not one of its sides. On its side at a right
+    ; angle the two are the same thing — the width, laid down the page — which
+    ; is why the width alone served for as long as every turned axis was
+    ; turned by ninety degrees. At forty-five it is wrong by a quarter: a
+    ; candlestick chart's dates reserved forty pixels where the reference
+    ; reserves thirty-five, and the axis title sat five pixels low.
+    fn turnedReach:double (wide:double deep:double vertical:boolean) {
+        def radians:double ((labelAngle * 3.141592653589793) / 180.0)
+        def s:double (sin radians)
+        def c:double (cos radians)
+        if (s < 0.0) { s = (0.0 - s) }
+        if (c < 0.0) { c = (0.0 - c) }
+        if vertical {
+            return ((wide * c) + (deep * s))
+        }
+        return ((wide * s) + (deep * c))
+    }
+
     sfn roundTo:double (v:double) {
         return (to_double (floor (v + 0.5)))
     }
@@ -614,11 +633,7 @@ class VlAxis {
             ; the second line of it.
             def deep:double (VlAxis.tallestVisible(labelMark labelFontSize))
             if turned {
-                if vertical {
-                    labelExtent = ((clearance + labelPadding) + deep)
-                } {
-                    labelExtent = ((clearance + labelPadding) + widest)
-                }
+                labelExtent = ((clearance + labelPadding) + (this.turnedReach(widest deep vertical)))
             } {
                 ; How far the labels reach, MEASURED from where they ended up
                 ; rather than assumed from the padding. The two agree whenever

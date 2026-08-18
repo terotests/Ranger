@@ -2856,6 +2856,28 @@ class VlRuntime {
     ; every side, and the layout is measured from the ink. Half a pixel sounds
     ; like nothing until it is the difference between a plot and its
     ; neighbour's axis labels.
+    ; What a group actually COVERS, as against what its guides asked for. A
+    ; panel is laid out by the box its contents fill, and its contents are not
+    ; only its axes: a scatter's outermost point hangs half a symbol past the
+    ; edge of the plotting rectangle, and a trellis whose rows were spaced by
+    ; the axes alone stood every row a pixel closer than the reference draws
+    ; them. The room the axes claimed still counts — a label pulled back over
+    ; the plot covers less ink than it reserved — so this takes the greater of
+    ; the two on each side.
+    fn inkExtents:void (box:VlGroupBox item:VlSceneItem) {
+        def w:double (item.number("width"))
+        def h:double (item.number("height"))
+        def covered (new VlBounds())
+        covered.set(0.0 0.0 w h)
+        for item.marks drawn:VlSceneMark dmi {
+            covered.union((VlViewBox.cut(drawn w h)))
+        }
+        box.left = (VlRuntime.higher(box.left (0.0 - covered.x1)))
+        box.right = (VlRuntime.higher(box.right (covered.x2 - w)))
+        box.top = (VlRuntime.higher(box.top (0.0 - covered.y1)))
+        box.bottom = (VlRuntime.higher(box.bottom (covered.y2 - h)))
+    }
+
     sfn expandByFrame:void (box:VlGroupBox item:VlSceneItem) {
         if (! (item.has("stroke"))) {
             return
@@ -2903,6 +2925,7 @@ class VlRuntime {
             ; area on every side, whether or not it has axes. Left out of a
             ; panel with none, a trellis's rows sat two pixels closer together
             ; than the reference draws them — every row.
+            this.inkExtents(bare item)
             VlRuntime.expandByFrame(bare item)
             push groupBoxes bare
             return bare
@@ -2941,6 +2964,7 @@ class VlRuntime {
         ; every side, and the layout is measured from the ink. Half a pixel
         ; sounds like nothing until it is the difference between a plot and its
         ; neighbour's axis labels.
+        this.inkExtents(box item)
         VlRuntime.expandByFrame(box item)
         push groupBoxes box
 

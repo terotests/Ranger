@@ -1451,6 +1451,49 @@ class VlTransform {
             }
             return highest
         }
+        ; The ops that need the whole set in order. Left out, they all came
+        ; back as the SUM — so a bar chart told to rank its categories by the
+        ; median of a column ranked them by the total of it instead, which is
+        ; the same answer only when every category has the same number of rows
+        ; and not always then.
+        if (((op == "median") || (op == "q1")) || (op == "q3")) {
+            def sorted:[double] (VlTransform.sortedNumbers(values))
+            if (op == "q1") {
+                return (VlTransform.quantile(sorted 0.25))
+            }
+            if (op == "q3") {
+                return (VlTransform.quantile(sorted 0.75))
+            }
+            return (VlTransform.quantile(sorted 0.5))
+        }
+        if (op == "distinct") {
+            return (to_double (VlTransform.distinctCount(values)))
+        }
+        if (op == "missing") {
+            return ((to_double seen) - (to_double n))
+        }
+        def mean:double (total / (to_double n))
+        if (((op == "variance") || (op == "variancep")) || (((op == "stdev") || (op == "stdevp")) || (op == "stderr"))) {
+            def squares:double 0.0
+            for values vs:double vsi {
+                def d:double (vs - mean)
+                squares = (squares + (d * d))
+            }
+            def denom:double ((to_double n) - 1.0)
+            if ((op == "variancep") || (op == "stdevp")) {
+                denom = (to_double n)
+            }
+            if (denom <= 0.0) {
+                return 0.0
+            }
+            def variance:double (squares / denom)
+            if (op == "variance") { return variance }
+            if (op == "variancep") { return variance }
+            if (op == "stderr") {
+                return ((sqrt variance) / (sqrt (to_double n)))
+            }
+            return (sqrt variance)
+        }
         return total
     }
 

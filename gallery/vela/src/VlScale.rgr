@@ -132,6 +132,23 @@ class VlScale {
         def grow:double ((reach * by) / (span - (2.0 * by)))
         domainMin = (domainMin - grow)
         domainMax = (domainMax + grow)
+        ; A time scale's domain is a pair of INSTANTS, and an instant is a
+        ; whole number of milliseconds: the reference hands the widened ends
+        ; back as dates, which drops the fraction. Kept, the fraction is worth
+        ; a ten-thousandth of a pixel — and a ten-thousandth of a pixel either
+        ; side of a half is the difference between a gridline drawn here and
+        ; one drawn a pixel over.
+        if ((scaleType == "time") || (scaleType == "utc")) {
+            domainMin = (VlScale.wholeMillis(domainMin))
+            domainMax = (VlScale.wholeMillis(domainMax))
+        }
+    }
+
+    sfn wholeMillis:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - (to_double (floor (0.0 - v))))
+        }
+        return (to_double (floor v))
     }
 
     fn isDiscrete:boolean () {
