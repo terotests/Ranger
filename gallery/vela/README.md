@@ -300,12 +300,12 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **140** |
-| drawn, but not the same picture | 106 | 24 |
-| refused, with a reason | 58 | 11 |
+| drawn exactly as the reference draws them | 11 | **146** |
+| drawn, but not the same picture | 106 | 19 |
+| refused, with a reason | 58 | 10 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **80.0% exact, 93.7% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **83.4% exact, 94.3% drawn** |
 
 Every one of those hundred came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
@@ -337,7 +337,7 @@ for: without it, each of those would be found one paste at a time.
 Most of what the report converts, it converts in a handful of lines. Some
 charts are not like that: they hold out until something the reference does has
 to be reproduced exactly, and several of them moved only after a wrong
-hypothesis had been measured and reverted first. Nine of them are recorded in
+hypothesis had been measured and reverted first. Eleven of them are recorded in
 [`tools/reference/difficult.mjs`](tools/reference/difficult.mjs), with a note
 against each saying what it actually took:
 
@@ -352,6 +352,8 @@ against each saying what it actually took:
 | `bar_size_responsive` | `"width": "container"` is autosize **fit**: the drawing fits the width given rather than the plot keeping it, which takes measure, resize, measure |
 | `layer_likert` | a band's padding follows the mark, a scale's domain reads its own layer's rows, a mark may state its position in pixels, and a `view` block may sit on the chart rather than in its configuration |
 | `bar_layered_weather` | a dotted field name is a path into the row, a bar's end room goes **across** the bar, a stated domain suppresses zero, and a label may be written on several lines |
+| `trellis_area_seattle` | a facet states how its strips are labelled **and** what order they come in: the label's angle decides the shape of the strip, the order is an aggregate the partition carries under a name of its own, and an area whose scale misses zero stands on the near end of its domain instead |
+| `layer_candlestick` | a bar on a continuous axis is given a band — five pixels, centred — and the scale five pixels of room at each end; a label turned forty-five degrees is worth a rotated box; and a padded time domain is truncated to whole milliseconds, which is worth a pixel on two gridlines |
 
 Marking them buys two things. A chart that took a rounding order to get right
 can be made wrong again by one line somewhere else, and it would come back as a

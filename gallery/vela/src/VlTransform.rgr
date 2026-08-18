@@ -505,6 +505,14 @@ class VlTransform {
         if (stop == start) {
             stop = (start + step)
         }
+        ; The far end again, counted in WHOLE STEPS from the near one. The two
+        ; ways of arriving at it disagree by a crumb — a hundred and eighty
+        ; nine thousandths of nothing — and a crumb over a whole step is a
+        ; whole extra bin. A binned heat map of two thousand films came out
+        ; thirty-eight columns wide where the reference draws thirty-nine, and
+        ; every cell in it was a fifth of a pixel too wide.
+        def spanned:double ((stop - start) / step)
+        stop = (start + ((to_double (ceil spanned)) * step))
         def out:[double]
         push out start
         push out stop

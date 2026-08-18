@@ -2888,9 +2888,11 @@ class VlRuntime {
         if ((strlen paint) == 0) {
             return
         }
-        if (paint == "transparent") {
-            return
-        }
+        ; …and "transparent" is not no frame: it is a frame painted in nothing,
+        ; which is still stroked and still half a pixel wide on every side. The
+        ; reference reserves the room whether or not the paint shows, and a
+        ; concatenation whose panes asked for a transparent view came out a
+        ; pixel narrow with every gridline in it a pixel left.
         def half:double 0.5
         if (item.has("strokeWidth")) {
             half = ((item.number("strokeWidth")) / 2.0)

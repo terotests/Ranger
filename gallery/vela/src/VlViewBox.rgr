@@ -417,12 +417,16 @@ class VlViewBox {
         ; which is a difference of a whole label for anything both nudged and
         ; turned.
         def h:double fontSize
-        def w:double (VlText.estimateWidth((item.text("text")) fontSize))
+        def w:double (VlText.estimateWidth((item.textOf("text")) fontSize))
         ; A label written on several lines is as wide as its widest line and
         ; as tall as one line plus a line's step for each one after it. The
         ; anchor is still measured from the FIRST line, which is why the
         ; nudge below is left alone.
-        def lines:[string] (VlText.lines((item.text("text"))))
+        ; …and the value the way the item HOLDS it, which for a label written on
+        ; several lines is a list. Asked for a string a list answers nothing,
+        ; so a two-line label measured as an empty one and reserved no room at
+        ; all — not its depth and not even its width.
+        def lines:[string] (VlText.lines((item.textOf("text"))))
         if ((array_length lines) > 1) {
             def step:double (VlText.lineStep(fontSize))
             if (item.has("lineHeight")) {
@@ -441,7 +445,12 @@ class VlViewBox {
         if (item.has("dx")) { dx = (item.number("dx")) }
         def dy:double 0.0
         if (item.has("dy")) { dy = (item.number("dy")) }
-        dy = ((dy + (VlBounds.baselineOffset(baseline h))) - (VlBounds.roundHalfUp((0.8 * h))))
+        ; Where the box STARTS is settled by one line of type — the anchor is
+        ; the first line's, and the lines below it hang from that. Only the
+        ; box's depth knows about them. Measured with the whole block's height,
+        ; a two-line label's box began half a line above where the reference
+        ; puts it and the page came eleven pixels short of the words in it.
+        dy = ((dy + (VlBounds.baselineOffset(baseline fontSize))) - (VlBounds.roundHalfUp((0.8 * fontSize))))
         if (align == "center") {
             dx = (dx - (w / 2.0))
         }

@@ -4259,6 +4259,24 @@ class VlCompile {
         return (((markName == "bar") || (markName == "rect")) || (markName == "tick"))
     }
 
+    ; Did this channel's scale block state a padding of its own?
+    fn paddingStated:boolean (ch:VlChannel) {
+        def stated:VlJson (VlCompile.statedOn(ch "scale"))
+        if (! (stated.isObject())) {
+            return false
+        }
+        if ((stated.get("padding")).isNumber()) {
+            return true
+        }
+        if ((stated.get("paddingInner")).isNumber()) {
+            return true
+        }
+        if ((stated.get("paddingOuter")).isNumber()) {
+            return true
+        }
+        return false
+    }
+
     fn bandPaddingInner:double () {
         ; A specification may set the padding for every band scale it draws,
         ; and a heat map that wants its cells to touch says so exactly once.
@@ -4417,6 +4435,14 @@ class VlCompile {
                 def said:VlJson (stated.get("padding"))
                 if (said.isNumber()) {
                     outer = said.num
+                    ; On a BAND scale `padding` is both paddings at once — the
+                    ; room between the bands as well as the room at the ends.
+                    ; Read as the ends alone, a chart that asked for bands
+                    ; edge to edge still had a tenth of a band between each
+                    ; pair and came out five pixels short.
+                    if (type == "band") {
+                        inner = said.num
+                    }
                 }
                 def saidOuter:VlJson (stated.get("paddingOuter"))
                 if (saidOuter.isNumber()) {
@@ -6499,8 +6525,15 @@ class VlCompile {
             if (type == "point") {
                 sc.setMember("padding" (VlJson.numberValue(0.5)))
             } {
-                sc.setMember("paddingInner" (VlJson.numberValue((this.bandPaddingInner()))))
-                sc.setMember("paddingOuter" (VlJson.numberValue((this.bandPaddingOuter()))))
+                ; …unless the chart stated its own. `"scale": {"padding": 0}`
+                ; is both paddings at once, and writing the defaults out beside
+                ; it overrode the very thing it asked for.
+                if (this.paddingStated(ch)) {
+                    ; the declared block carries it, and is applied below
+                } {
+                    sc.setMember("paddingInner" (VlJson.numberValue((this.bandPaddingInner()))))
+                    sc.setMember("paddingOuter" (VlJson.numberValue((this.bandPaddingOuter()))))
+                }
             }
         } {
             sc.setMember("range" (this.positionRange(axis)))
@@ -8831,6 +8864,16 @@ class VlCompile {
         return out
     }
 
+    ; Half way across the plot in one direction: where a mark that has nothing
+    ; to say about that direction is put. The PANE's own size signal, because a
+    ; pane of a concatenation names the dimension that varies after itself.
+    fn middleOf:VlJson (dimension:string) {
+        def out (VlJson.objectValue())
+        out.setMember("signal" (VlJson.stringValue((this.sizeSignal(dimension)))))
+        out.setMember("mult" (VlJson.numberValue(0.5)))
+        return out
+    }
+
     sfn groupField:VlJson (name:string) {
         def inner (VlJson.objectValue())
         inner.setMember("group" (VlJson.stringValue(name)))
@@ -9654,13 +9697,26 @@ class VlCompile {
         ; A rule given only one position is a line ACROSS the plot at that
         ; value — a mean line, a threshold — so it spans the other axis.
         if (markName == "rule") {
+            ; …but a rule given BOTH ends of one axis is a segment along that
+            ; axis, not a line across the other: it sits in the middle of the
+            ; plot rather than filling it. Filled instead, an arrow drawn under
+            ; a chart to say which way is better came out as a black rectangle
+            ; twenty pixels deep.
             if (! (this.hasChannel("x"))) {
-                update.setMember("x" (VlCompile.groupField("width")))
-                update.setMember("x2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+                if (this.hasChannel("y2")) {
+                    update.setMember("x" (this.middleOf("width")))
+                } {
+                    update.setMember("x" (VlCompile.groupField("width")))
+                    update.setMember("x2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+                }
             }
             if (! (this.hasChannel("y"))) {
-                update.setMember("y" (VlCompile.groupField("height")))
-                update.setMember("y2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+                if (this.hasChannel("x2")) {
+                    update.setMember("y" (this.middleOf("height")))
+                } {
+                    update.setMember("y" (VlCompile.groupField("height")))
+                    update.setMember("y2" (VlCompile.literal((VlJson.numberValue(0.0)))))
+                }
             }
         }
         ; A rectangle given only one pair of positions spans the plot in the

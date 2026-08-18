@@ -59,6 +59,18 @@ class VlAxis {
     def gridWidth:double 1.0
     def gridOpacity:double 1.0
     def titlePadding:double 4.0
+    ; Where the title goes when the chart PLACED it rather than leaving the
+    ; axis to. A space-saving axis puts its name above the plot at the left
+    ; instead of turned down the side, which is a position, an angle and an
+    ; anchoring — and, because the title is then inside the drawing, no room at
+    ; all for the axis to reserve.
+    def titlePlaced:boolean false
+    def titleX:double 0.0
+    def titleY:double 0.0
+    def titleAngleSet:boolean false
+    def titleAngle:double 0.0
+    def titleAlign:string ""
+    def titleBaseline:string ""
     def titleFontSize:double 11.0
     def titleColor:string "#000"
     def titleFontWeight:string "bold"
@@ -197,6 +209,20 @@ class VlAxis {
         labelOffset = (adef.doubleOr("labelOffset" labelOffset))
         labelFontSize = (adef.doubleOr("labelFontSize" labelFontSize))
         titlePadding = (adef.doubleOr("titlePadding" titlePadding))
+        if (adef.has("titleX")) {
+            titleX = (adef.doubleOr("titleX" 0.0))
+            titlePlaced = true
+        }
+        if (adef.has("titleY")) {
+            titleY = (adef.doubleOr("titleY" 0.0))
+            titlePlaced = true
+        }
+        if (adef.has("titleAngle")) {
+            titleAngle = (adef.doubleOr("titleAngle" 0.0))
+            titleAngleSet = true
+        }
+        titleAlign = (adef.stringOr("titleAlign" titleAlign))
+        titleBaseline = (adef.stringOr("titleBaseline" titleBaseline))
         titleFontSize = (adef.doubleOr("titleFontSize" titleFontSize))
         bandPosition = (adef.doubleOr("bandPosition" bandPosition))
         minExtent = (adef.doubleOr("minExtent" minExtent))
@@ -687,7 +713,13 @@ class VlAxis {
         totalExtent = labelExtent
         if ((strlen title) > 0) {
             push group.marks (this.buildTitle(title orient vertical range))
-            totalExtent = ((labelExtent + titlePadding) + titleFontSize)
+            ; A title the CHART placed is not outside the axis, so the axis
+            ; reserves nothing for it: an axis that saves space by printing its
+            ; name over the plot reserved fourteen pixels beside the plot for a
+            ; title that is not there.
+            if (! titlePlaced) {
+                totalExtent = ((labelExtent + titlePadding) + titleFontSize)
+            }
         }
         ; The offset moves the axis away from the plot — every part of it
         ; except the grid, which crosses the plot and never left it — and the
@@ -1213,6 +1245,24 @@ class VlAxis {
                 item.setNumber("y" (0.0 - away))
                 item.setString("baseline" "bottom")
             }
+        }
+        ; …and where the chart placed the title itself, that wins over all of
+        ; it. `auto` says which of the two happened, and the reference records
+        ; it the same way.
+        if titlePlaced {
+            item.setNumber("x" titleX)
+            item.setNumber("y" titleY)
+            item.setValue("auto" (VlJson.boolValue(false)))
+            item.setNumber("angle" 0.0)
+        }
+        if titleAngleSet {
+            item.setNumber("angle" titleAngle)
+        }
+        if ((strlen titleAlign) > 0) {
+            item.setString("align" titleAlign)
+        }
+        if ((strlen titleBaseline) > 0) {
+            item.setString("baseline" titleBaseline)
         }
         return mark
     }

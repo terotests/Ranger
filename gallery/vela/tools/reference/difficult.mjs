@@ -64,7 +64,19 @@ export const DIFFICULT = {
   bar_layered_weather:
     'a dotted field name is a path into the row, a bar\'s end room goes ACROSS '
     + 'the bar, a stated domain suppresses zero, and a label may be written on '
-    + 'several lines'
+    + 'several lines',
+
+  trellis_area_seattle:
+    'a facet states how its strips are labelled AND what order they come in: '
+    + 'the label\'s angle decides the shape of the strip, the order is an '
+    + 'aggregate the partition carries under a name of its own, and an area '
+    + 'whose scale misses zero stands on the near end of its domain instead',
+
+  layer_candlestick:
+    'a bar on a continuous axis is given a band — five pixels, centred — and '
+    + 'the scale five pixels of room at each end; a label turned forty-five '
+    + 'degrees is worth a rotated box; and a padded time domain is truncated '
+    + 'to whole milliseconds, which is worth a pixel on two gridlines'
 };
 
 /** The names, in the order they were won. */
