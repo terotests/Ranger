@@ -1,0 +1,158 @@
+; ==============================================================================
+; EditorTest - validation suite for the EVG text-editor prototype (JS target).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints PASS/FAIL and a final ALL PASS line.
+; ==============================================================================
+
+Import "../src/EditorApp.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class EditorTest {
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== buffer set/get + line split =="
+        def buf:EditorBuffer (new EditorBuffer)
+        buf.setText("one\ntwo\nthree")
+        c.eqInt("lineCount" (buf.lineCount()) 3)
+        c.eqStr("line0" (buf.lineAt(0)) "one")
+        c.eqStr("line2" (buf.lineAt(2)) "three")
+        c.eqStr("roundtrip" (buf.getText()) "one\ntwo\nthree")
+
+        print "== insert + newline =="
+        def p:EditorPos (buf.insertText(0 3 "X"))
+        c.eqStr("insert mid" (buf.lineAt(0)) "oneX")
+        c.eqInt("caret after insert" p.col 4)
+        def p2:EditorPos (buf.insertText(0 4 "\nY"))
+        c.eqInt("lines after nl" (buf.lineCount()) 4)
+        c.eqStr("split line" (buf.lineAt(0)) "oneX")
+        c.eqStr("new line" (buf.lineAt(1)) "Y")
+        c.eqInt("caret line" p2.line 1)
+        c.eqInt("caret col" p2.col 1)
+
+        print "== delete range + selection replace =="
+        buf.setText("abcdef")
+        def p3:EditorPos (buf.deleteRange(0 2 0 4))
+        c.eqStr("delete cd" (buf.getText()) "abef")
+        c.eqInt("caret after del" p3.col 2)
+        def p4:EditorPos (buf.replaceRange(0 1 0 3 "ZZ" true))
+        c.eqStr("replace be->ZZ" (buf.getText()) "aZZf")
+        c.eqInt("caret after replace" p4.col 3)
+
+        print "== undo / redo =="
+        def u:EditorPos (buf.undo())
+        c.eqStr("undo replace" (buf.getText()) "abef")
+        def r:EditorPos (buf.redo())
+        c.eqStr("redo replace" (buf.getText()) "aZZf")
+
+        print "== codepoint caret motion =="
+        def grin:string (EVGCodepoint.toStr(128512))
+        buf.setText(("a" + grin) + "b")
+        def left:EditorPos (buf.moveCodepoint(0 3 -1))
+        ; "a" + surrogate pair => caret before emoji is col 1
+        c.eqInt("left over emoji col" left.col 1)
+        def right:EditorPos (buf.moveCodepoint(0 1 1))
+        c.eqInt("right over emoji col" right.col 3)
+
+        print "== selection selectAll =="
+        def app:EditorApp (new EditorApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.setDocument("L0\nL1\nL2")
+        app.sel.selectAll(app.buf)
+        c.eqInt("sel start line" app.sel.anchor.line 0)
+        c.eqInt("sel end line" app.sel.caret.line 2)
+        c.eqInt("sel end col" app.sel.caret.col 2)
+        c.ok("not collapsed" (app.sel.isCollapsed() == false))
+
+        print "== app typing via UIInput =="
+        def input:UIInput (new UIInput)
+        app.setDocument("")
+        input.newFrame()
+        input.setPointerPos(80 40)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(80 40)
+        input.setPointerDown(false)
+        app.update(input)
+        input.newFrame()
+        input.pushText("Hi")
+        app.update(input)
+        input.newFrame()
+        input.pushKey((UIKey.enter()))
+        app.update(input)
+        input.newFrame()
+        input.pushText("There")
+        app.update(input)
+        c.eqStr("typed doc" (app.documentText()) "Hi\nThere")
+        c.eqInt("caret line after type" app.sel.caret.line 1)
+        c.eqInt("caret col after type" app.sel.caret.col 5)
+
+        print "== backspace across newline =="
+        input.newFrame()
+        input.pushKey((UIKey.home()))
+        app.update(input)
+        input.newFrame()
+        input.pushKey((UIKey.backspace()))
+        app.update(input)
+        c.eqStr("join lines" (app.documentText()) "HiThere")
+
+        print "== scroll + jump =="
+        def big:string ""
+        def li:int 0
+        while (li < 200) {
+            big = (big + ("line-" + (to_string li) + "\n"))
+            li = (li + 1)
+        }
+        app.setDocument(big)
+        app.layout.jumpToLine(app.buf 150)
+        c.ok("scrolled near 150" (app.layout.scrollLine >= 130))
+        app.layout.ensureCaretVisible(app.buf app.sel)
+        app.moveCaret(180 0 false)
+        c.ok("caret visible after jump" (app.sel.caret.line >= app.layout.scrollLine))
+
+        print "== render paints pixels =="
+        app.render()
+        def raw:buffer (app.raw())
+        c.ok("framebuffer non-empty" ((buffer_length raw) > 1000))
+
+        print "== layout hitTest =="
+        app.setDocument("ABCDEFGHIJ")
+        app.layout.scrollLine = 0
+        app.render()
+        def cx:int (app.layout.contentX())
+        def cy:int (app.layout.contentY())
+        def hit:EditorPos (app.layout.hitTest(app.view.ctx.tr app.buf cx (cy + 2)))
+        c.eqInt("hit col near start" hit.col 0)
+        c.eqInt("hit line" hit.line 0)
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

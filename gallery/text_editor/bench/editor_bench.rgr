@@ -1,0 +1,161 @@
+; ==============================================================================
+; editor_bench - EVG text-editor workload benchmark (JS target).
+; ==============================================================================
+;
+; Same corpus sizes and operations intended for comparison against
+; Hufe921/canvas-editor (and later Ace): open, first paint, scroll, insert,
+; backspace, select, replace, jump. Times are wall_clock_ms deltas.
+;
+; Usage:
+;   npm run text_editor:bench
+;   npm run text_editor:bench -- 10000   # override line count
+; ==============================================================================
+
+Import "../src/EditorApp.rgr"
+
+class EditorBench {
+    sfn makeCorpus:string (lines:int) {
+        def out:string ""
+        def i:int 0
+        while (i < lines) {
+            out = (out + ("L" + (to_string i) + " the quick brown fox jumps over the lazy dog " + (to_string i)))
+            if (i < (lines - 1)) {
+                out = (out + "\n")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn report:void (name:string ms:double) {
+        ; one decimal place without printf
+        def whole:int (to_int ms)
+        def frac:int (to_int ((ms - (to_double whole)) * 10.0))
+        if (frac < 0) {
+            frac = 0 - frac
+        }
+        print ("  " + name + ": " + (to_string whole) + "." + (to_string frac) + " ms")
+    }
+
+    sfn main:void () {
+        def lines:int 1000
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if parsed {
+                lines = (unwrap parsed)
+            }
+        }
+
+        print ("== editor_bench lines=" + (to_string lines) + " ==")
+        def app:EditorApp (new EditorApp)
+        def t0:double (wall_clock_ms)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def t1:double (wall_clock_ms)
+        EditorBench.report("init+font" (t1 - t0))
+
+        def corpus:string (EditorBench.makeCorpus(lines))
+        def t2:double (wall_clock_ms)
+        app.setDocument(corpus)
+        def t3:double (wall_clock_ms)
+        EditorBench.report("open document" (t3 - t2))
+        print ("  chars=" + (to_string (app.buf.charCount())) + " lineCount=" + (to_string (app.buf.lineCount())))
+
+        def t4:double (wall_clock_ms)
+        app.render()
+        def t5:double (wall_clock_ms)
+        EditorBench.report("first paint" (t5 - t4))
+
+        def t6:double (wall_clock_ms)
+        def s:int 0
+        while (s < 1000) {
+            app.layout.scrollByLines(app.buf 1)
+            s = (s + 1)
+        }
+        app.render()
+        def t7:double (wall_clock_ms)
+        EditorBench.report("scroll 1000 lines + paint" (t7 - t6))
+
+        app.moveCaret(0 0 false)
+        def t8:double (wall_clock_ms)
+        def input:UIInput (new UIInput)
+        input.newFrame()
+        input.pushText("X")
+        app.update(input)
+        app.render()
+        def t9:double (wall_clock_ms)
+        EditorBench.report("insert char + paint" (t9 - t8))
+
+        def chunk:string ""
+        def ci:int 0
+        while (ci < 1000) {
+            chunk = (chunk + "a")
+            ci = (ci + 1)
+        }
+        def t10:double (wall_clock_ms)
+        input.newFrame()
+        input.pushText(chunk)
+        app.update(input)
+        app.render()
+        def t11:double (wall_clock_ms)
+        EditorBench.report("insert 1000 chars + paint" (t11 - t10))
+
+        def t12:double (wall_clock_ms)
+        input.newFrame()
+        input.pushKey((UIKey.backspace()))
+        app.update(input)
+        app.render()
+        def t13:double (wall_clock_ms)
+        EditorBench.report("backspace + paint" (t13 - t12))
+
+        def t14:double (wall_clock_ms)
+        app.moveCaret(0 0 false)
+        def endLine:int 99
+        if (endLine >= (app.buf.lineCount())) {
+            endLine = ((app.buf.lineCount()) - 1)
+        }
+        app.moveCaret(endLine 0 true)
+        app.render()
+        def t15:double (wall_clock_ms)
+        EditorBench.report("select ~100 lines + paint" (t15 - t14))
+
+        def t16:double (wall_clock_ms)
+        input.newFrame()
+        input.pushText("REPLACED")
+        app.update(input)
+        app.render()
+        def t17:double (wall_clock_ms)
+        EditorBench.report("replace selection + paint" (t17 - t16))
+
+        def t18:double (wall_clock_ms)
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText("a")
+        app.update(input)
+        app.render()
+        def t19:double (wall_clock_ms)
+        EditorBench.report("Ctrl+A + paint" (t19 - t18))
+
+        def t20:double (wall_clock_ms)
+        app.resize(800 600)
+        app.render()
+        def t21:double (wall_clock_ms)
+        EditorBench.report("resize window + paint" (t21 - t20))
+
+        def jumpTo:int 900
+        if (lines < 1000) {
+            jumpTo = (idiv lines 2)
+        }
+        if (jumpTo >= lines) {
+            jumpTo = (lines - 1)
+        }
+        def t22:double (wall_clock_ms)
+        app.moveCaret(jumpTo 0 false)
+        app.render()
+        def t23:double (wall_clock_ms)
+        EditorBench.report(("jump line -> " + (to_string jumpTo) + " + paint") (t23 - t22))
+
+        print ("  total wall=" + (to_string (to_int (t23 - t0))) + " ms")
+        print "BENCH DONE"
+    }
+}

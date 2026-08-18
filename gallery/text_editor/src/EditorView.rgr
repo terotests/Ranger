@@ -1,0 +1,183 @@
+; ==============================================================================
+; EditorView - SoftCanvas / EVG paint for the text-editor prototype.
+; ==============================================================================
+;
+; Draws background, gutter, selection rects, visible text runs, and the caret.
+; Uses UITextRenderer (TrueType + line cache) — the same accelerated text path
+; as the EVG UI layer. SoftCanvas.raw() is what an SDL2 host would present.
+; ==============================================================================
+
+Import "EditorBuffer.rgr"
+Import "EditorSelection.rgr"
+Import "EditorLayout.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class EditorTheme {
+    def bg:EVGColor (EVGColor.rgb(18 20 28))
+    def gutterBg:EVGColor (EVGColor.rgb(14 16 22))
+    def gutterText:EVGColor (EVGColor.rgb(90 100 120))
+    def text:EVGColor (EVGColor.rgb(226 232 245))
+    def caret:EVGColor (EVGColor.rgb(120 200 255))
+    def selection:EVGColor (EVGColor.rgba(60 110 200 0.45))
+    def border:EVGColor (EVGColor.rgb(50 60 85))
+    def statusBg:EVGColor (EVGColor.rgb(12 14 20))
+    def statusText:EVGColor (EVGColor.rgb(150 165 190))
+
+    Constructor () {
+    }
+}
+
+class EditorView {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def theme:EditorTheme (new EditorTheme)
+    def status:string ""
+    def focused:boolean true
+    def frame:int 0
+
+    Constructor () {
+    }
+
+    fn init:void (w:int h:int fontDir:string) {
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.addFontDir(fontDir)
+        def ok:boolean (ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf"))
+        if (ok == false) {
+            status = "bitmap-font fallback"
+        } {
+            status = "ready"
+        }
+    }
+
+    fn resize:void (w:int h:int) {
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.clearCache()
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn drawSelection:void (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
+        if (sel.isCollapsed()) {
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def firstVis:int (layout.firstVisible())
+        def lastVis:int (layout.lastVisible(buf))
+        def line:int a.line
+        while (line <= b.line) {
+            if ((line >= firstVis) && (line <= lastVis)) {
+                def s:string (buf.lineAt(line))
+                def len:int (strlen s)
+                def c0:int 0
+                def c1:int len
+                if (line == a.line) {
+                    c0 = a.col
+                }
+                if (line == b.line) {
+                    c1 = b.col
+                }
+                if (c0 < 0) {
+                    c0 = 0
+                }
+                if (c1 > len) {
+                    c1 = len
+                }
+                if (c1 < c0) {
+                    c1 = c0
+                }
+                def x0:int (layout.caretPixelX(ctx.tr buf line c0))
+                def x1:int (layout.caretPixelX(ctx.tr buf line c1))
+                if (line < b.line) {
+                    ; extend to a comfortable line end for multi-line selection
+                    def full:int (layout.caretPixelX(ctx.tr buf line len))
+                    if (full > x1) {
+                        x1 = (full + 6)
+                    }
+                }
+                def y0:int (layout.caretPixelY(line))
+                def rw:int (x1 - x0)
+                if (rw < 2) {
+                    rw = 2
+                }
+                ctx.fillRect(x0 y0 rw layout.lineHeight theme.selection)
+            }
+            line = (line + 1)
+        }
+    }
+
+    fn drawCaret:void (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
+        if (focused == false) {
+            return
+        }
+        def phase:int (to_int (frame / 30))
+        def on:int (phase - ((to_int (phase / 2)) * 2))
+        if (on != 0) {
+            return
+        }
+        def cl:int sel.caret.line
+        if (cl < (layout.firstVisible())) {
+            return
+        }
+        if (cl > (layout.lastVisible(buf))) {
+            return
+        }
+        def cx:int (layout.caretPixelX(ctx.tr buf cl sel.caret.col))
+        def cy:int (layout.caretPixelY(cl))
+        ctx.fillRect(cx cy 2 layout.lineHeight theme.caret)
+    }
+
+    fn render:void (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
+        ctx.frame = frame
+        layout.syncMetrics(ctx.tr)
+        layout.clampScroll(buf)
+
+        canvas.clear((theme.bg.red()) (theme.bg.green()) (theme.bg.blue()))
+        ctx.fillRect(layout.x layout.y layout.w layout.h theme.bg)
+
+        if layout.showLineNumbers {
+            ctx.fillRect(layout.x layout.y layout.gutterW layout.h theme.gutterBg)
+        }
+
+        this.drawSelection(buf sel layout)
+
+        def first:int (layout.firstVisible())
+        def last:int (layout.lastVisible(buf))
+        def line:int first
+        while (line <= last) {
+            def text:string (buf.lineAt(line))
+            def ty:int (layout.caretPixelY(line))
+            if layout.showLineNumbers {
+                def num:string (to_string (line + 1))
+                def nw:int (to_int (ctx.tr.measureWidth(num (layout.fontSize * 0.85))))
+                def nx:int ((layout.x + layout.gutterW) - nw - 6)
+                ctx.text(num nx (ty + 2) (layout.fontSize * 0.85) theme.gutterText)
+            }
+            if ((strlen text) > 0) {
+                ctx.text(text (layout.contentX()) ty layout.fontSize theme.text)
+            }
+            line = (line + 1)
+        }
+
+        this.drawCaret(buf sel layout)
+        ctx.strokeRect(layout.x layout.y layout.w layout.h 1 theme.border)
+
+        ; status strip under the editor viewport when there is room
+        def sy:int (layout.y + layout.h)
+        if (sy < (canvas.getHeight())) {
+            def sh:int ((canvas.getHeight()) - sy)
+            ctx.fillRect(0 sy (canvas.getWidth()) sh theme.statusBg)
+            def info:string ("L" + (to_string (sel.caret.line + 1)) + ":" + (to_string (sel.caret.col + 1)) + "  lines=" + (to_string (buf.lineCount())) + "  " + status)
+            ctx.text(info 8 (sy + 4) 12.0 theme.statusText)
+        }
+
+        frame = (frame + 1)
+    }
+}
