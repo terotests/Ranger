@@ -8,6 +8,8 @@ Import "../src/WordMlParser.rgr"
 Import "../src/WordNumbering.rgr"
 Import "../src/WordStyleResolver.rgr"
 Import "../src/RichDocument.rgr"
+Import "../src/DocxLayout.rgr"
+Import "../../text_editor/src/TextEditCore.rgr"
 
 class Checker {
     def passed:int 0
@@ -292,6 +294,60 @@ class DocxTest {
         c.ok("enter split paras" ((viewer.document().paragraphCount()) > countBefore))
         ; re-open clean for remaining tests
         c.ok("reopen hello" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(false)
+
+        print "== hit-test table cells (x box, not last-on-row) =="
+        c.ok("open table for hit" (viewer.openFile(fix "05-table-basic.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def hitLayout:DocxLayout viewer.view.layout
+        def hitPage:LaidPage (hitLayout.pageAt(0))
+        def leftLine:LaidLine
+        def rightLine:LaidLine
+        def havePair:boolean false
+        def hi:int 0
+        while (hi < (array_length hitPage.lines)) {
+            def hl:LaidLine (itemAt hitPage.lines hi)
+            if (hl.kind == 0) {
+                if (hl.boxW > 20) {
+                    if ((strlen hl.text) > 0) {
+                        def hj:int (hi + 1)
+                        while (hj < (array_length hitPage.lines)) {
+                            def hr:LaidLine (itemAt hitPage.lines hj)
+                            if (hr.kind == 0) {
+                                if (hr.y == hl.y) {
+                                    if (hr.boxX > (hl.boxX + 10)) {
+                                        if (hr.boxW > 20) {
+                                            if ((strlen hr.text) > 0) {
+                                                leftLine = hl
+                                                rightLine = hr
+                                                havePair = true
+                                                hj = (array_length hitPage.lines)
+                                                hi = (array_length hitPage.lines)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            hj = (hj + 1)
+                        }
+                    }
+                }
+            }
+            hi = (hi + 1)
+        }
+        c.ok("same-row cell pair" havePair)
+        if havePair {
+            def lx:int (leftLine.boxX + (idiv leftLine.boxW 2))
+            def ly:int (leftLine.y + (idiv leftLine.height 2))
+            def rx:int (rightLine.boxX + (idiv rightLine.boxW 2))
+            def ry:int (rightLine.y + (idiv rightLine.height 2))
+            def hitL:DocumentPosition (viewer.edit.hitTest(hitLayout 0 lx ly))
+            def hitR:DocumentPosition (viewer.edit.hitTest(hitLayout 0 rx ry))
+            c.eqInt("click left cell" hitL.paragraphId leftLine.paraIndex)
+            c.eqInt("click right cell" hitR.paragraphId rightLine.paraIndex)
+            c.ok("left != right cell" (hitL.paragraphId != hitR.paragraphId))
+        }
         viewer.setEditMode(false)
 
         print "== render page =="
