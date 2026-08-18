@@ -2661,7 +2661,14 @@ class VlRuntime {
         }
         group.setNumber("angle" angle)
 
-        def styles:[string] (VlConfig.styleNames((titleDef.get("style"))))
+        ; A title with no style of its own is set in `group-title`, which is
+        ; the reference's default for every title a GROUP carries. A facet
+        ; header names `guide-label` instead and keeps it.
+        def styleNames:VlJson (titleDef.get("style"))
+        if (! (styleNames.isDefined())) {
+            styleNames = (VlJson.stringValue("group-title"))
+        }
+        def styles:[string] (VlConfig.styleNames(styleNames))
         def textMark (new VlSceneMark())
         textMark.markType = "text"
         textMark.role = "title-text"

@@ -549,21 +549,8 @@ class VlCompile {
         ; The chart's own title, which Vega draws as a block of its own above
         ; the plot rather than as a mark inside it.
         if (src.has("title")) {
-            def given:VlJson (src.get("title"))
-            def titleBlock (VlJson.objectValue())
-            if (given.isString()) {
-                titleBlock.setMember("text" given)
-            } {
-                if (given.isObject()) {
-                    for given.keys tk:string tki {
-                        titleBlock.setMember(tk (given.get(tk)))
-                    }
-                }
-            }
-            if (titleBlock.has("text")) {
-                if (! (titleBlock.has("frame"))) {
-                    titleBlock.setMember("frame" (VlJson.stringValue("group")))
-                }
+            def titleBlock:VlJson (VlCompile.titleBlockOf((src.get("title"))))
+            if (titleBlock.isObject()) {
                 out.setMember("title" titleBlock)
             }
         }
@@ -1747,6 +1734,28 @@ class VlCompile {
     ; everything the page holds. A title over a single plot is centred on the
     ; plot itself — `frame: "group"` — which is where a trellis title also
     ; ended up: over the first panel, printed across the headers.
+    ; A title stated as a string or as a block, as the block the runtime reads.
+    ; Nothing comes back for a title with no text in it.
+    sfn titleBlockOf:VlJson (given:VlJson) {
+        def block (VlJson.objectValue())
+        if (given.isString()) {
+            block.setMember("text" given)
+        } {
+            if (given.isObject()) {
+                for given.keys tk:string tki {
+                    block.setMember(tk (given.get(tk)))
+                }
+            }
+        }
+        if (! (block.has("text"))) {
+            return (VlJson.nullValue())
+        }
+        if (! (block.has("frame"))) {
+            block.setMember("frame" (VlJson.stringValue("group")))
+        }
+        return block
+    }
+
     sfn anchorComposedTitle:void (out:VlJson) {
         def block:VlJson (out.get("title"))
         if (! (block.isObject())) {
@@ -2064,7 +2073,14 @@ class VlCompile {
                     child.widthSignal = "width"
                 }
             }
-            def piece:VlJson (child.compile((VlCompile.mergeSpec(src (panes.at(index))))))
+            ; A pane does not inherit the CONCATENATION's title: a heading over
+            ; a stack of plots names the stack, not the plot at the top of it.
+            ; A pane that states its own keeps it, and it stays on the pane.
+            def paneSpec:VlJson (VlCompile.mergeSpec(src (panes.at(index))))
+            if (! ((panes.at(index)).has("title"))) {
+                paneSpec.removeMember("title")
+            }
+            def piece:VlJson (child.compile(paneSpec))
             for child.errors e:string ei {
                 this.fail(e)
             }
@@ -2082,8 +2098,12 @@ class VlCompile {
                         if ((((((pk == "data") || (pk == "marks")) || (pk == "scales")) || (pk == "signals")) || (pk == "axes")) || (pk == "legends")) {
                             ; merged below
                         } {
-                            if (pk == "style") {
-                                ; the frame belongs to each pane, not to the page
+                            ; A PANE'S title names the pane and travels with
+                            ; it: read as the page's, a heading over the first
+                            ; plot of a stack was drawn over the whole stack
+                            ; and anchored to its corner.
+                            if ((pk == "style") || (pk == "title")) {
+                                ; the frame and the heading belong to each pane
                             } {
                                 out.setMember(pk (piece.get(pk)))
                             }
@@ -2128,6 +2148,9 @@ class VlCompile {
                 def group (VlJson.objectValue())
                 group.setMember("type" (VlJson.stringValue("group")))
                 group.setMember("name" (VlJson.stringValue((label + "group"))))
+                if ((piece.get("title")).isObject()) {
+                    group.setMember("title" (piece.get("title")))
+                }
                 ; A pane that is ITSELF a concatenation is not a plot: it is a
                 ; second grid, and it carries its own layout rather than a
                 ; frame and a size. Given the plot's treatment its panes lost
@@ -2215,6 +2238,12 @@ class VlCompile {
             layout.setMember("align" (VlJson.stringValue("each")))
         }
         out.setMember("layout" layout)
+        if (src.has("title")) {
+            def ownTitle:VlJson (VlCompile.titleBlockOf((src.get("title"))))
+            if (ownTitle.isObject()) {
+                out.setMember("title" ownTitle)
+            }
+        }
         ; The number the panes agreed on belongs to the PAGE: every pane reads
         ; it from here rather than carrying a copy.
         if (agreed.isNumber()) {
@@ -8404,6 +8433,26 @@ class VlCompile {
         return out
     }
 
+    ; A `style` is one name or a list of them, and either way they are added in
+    ; the order the specification gave them.
+    sfn pushStyleNames:void (style:VlJson stated:VlJson) {
+        if (stated.isString()) {
+            push style.arr stated
+            return
+        }
+        if (! (stated.isArray())) {
+            return
+        }
+        def k:int 0
+        while (k < (stated.count())) {
+            def one:VlJson (stated.at(k))
+            if (one.isString()) {
+                push style.arr one
+            }
+            k = (k + 1)
+        }
+    }
+
     fn buildFlatMarks:VlJson () {
         def out (VlJson.arrayValue())
         def m (VlJson.objectValue())
@@ -8411,6 +8460,11 @@ class VlCompile {
         m.setMember("type" (VlJson.stringValue((this.vegaMarkType()))))
         def style (VlJson.arrayValue())
         push style.arr (VlJson.stringValue(markName))
+        ; A mark may name a style of its own on top of the one its KIND gives
+        ; it: `{"type": "text", "style": "arrow-label"}` picks up whatever the
+        ; configuration says about arrow labels. Dropped here, a label the
+        ; chart sized at nine and a half points came out at eleven.
+        VlCompile.pushStyleNames(style (markDef.get("style")))
         m.setMember("style" style)
         ; A line and an area are one shape through many rows, so the rows have
         ; to be in the order the shape is drawn — by position, not by the order
