@@ -487,10 +487,11 @@ class VlSceneCommands {
         push list.commands end
     }
 
-    ; `cornerRadius` sets all four; a named corner overrides its own. The
-    ; fallback order is the reference's and it is not symmetric: an unstated
-    ; bottom-left follows the top-RIGHT, so a bar rounded at one end by two
-    ; values rounds the diagonal pair.
+    ; `cornerRadius` sets all four; a named corner overrides its own, and one
+    ; nobody named follows `cornerRadius` and nothing else. A bar rounded at
+    ; the end it grows toward names two corners and leaves the other two
+    ; alone — and with the bottom-left following the top-RIGHT it came out
+    ; rounded at three corners, which is not a shape the reference draws.
     sfn applyCorners:void (cmd:VlDrawCommand item:VlSceneItem) {
         def all:double 0.0
         if (item.has("cornerRadius")) {
@@ -508,7 +509,7 @@ class VlSceneCommands {
         if (item.has("cornerRadiusBottomRight")) {
             br = (item.number("cornerRadiusBottomRight"))
         }
-        def bl:double tr
+        def bl:double all
         if (item.has("cornerRadiusBottomLeft")) {
             bl = (item.number("cornerRadiusBottomLeft"))
         }
