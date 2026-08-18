@@ -564,7 +564,11 @@ class VlCompile {
         } {
             out.setMember("background" (VlJson.stringValue("white")))
         }
-        out.setMember("padding" (VlJson.numberValue(5.0)))
+        ; Five pixels round the drawing unless the chart says otherwise. A
+        ; ternary plot sets fifty, to leave room for the corner labels it
+        ; writes outside its own triangle — read as five, the page came out a
+        ; hundred and eighty pixels short of the words in it.
+        out.setMember("padding" (VlJson.numberValue((src.doubleOr("padding" 5.0)))))
 
         ; A discrete axis sizes the plot rather than the other way round: the
         ; chart is as wide as its bands need, which is a signal over the band
@@ -4122,6 +4126,29 @@ class VlCompile {
         return out
     }
 
+    ; Whether a channel actually PUTS the mark somewhere. A channel may be
+    ; declared and say nothing — a layered chart states `"y": {"type":
+    ; "quantitative", "axis": {…}}` once at the top so that every layer shares
+    ; one axis, and the layer that draws a rule across the plot names no y at
+    ; all. Counted as a position, the rule was drawn at nothing instead of
+    ; across everything.
+    fn positions:boolean (name:string) {
+        for channels ch:VlChannel ci {
+            if (ch.name == name) {
+                if ((strlen (ch.outField())) > 0) {
+                    return true
+                }
+                if ch.hasValue {
+                    return true
+                }
+                if ch.hasDatum {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     fn hasChannel:boolean (name:string) {
         for channels ch:VlChannel ci {
             if (ch.name == name) {
@@ -6733,8 +6760,13 @@ class VlCompile {
                     sc.setMember("bins" bins)
                     sc.setMember("zero" (VlJson.boolValue(false)))
                 } {
-                if ch.binnedAlready {
+                if (ch.binnedAlready && (ch.binStep > 0.0)) {
                     ; The edges are a fixed step apart and the data says so.
+                    ; …and where the data does NOT say — a chart that names a
+                    ; pre-binned column and no step — there is nothing to tell
+                    ; the scale, so it is an ordinary continuous one. Told the
+                    ; step was nothing it had a bin list of one edge and drew
+                    ; its whole domain in the first pixel.
                     def known (VlJson.objectValue())
                     known.setMember("step" (VlJson.numberValue(ch.binStep)))
                     sc.setMember("bins" known)
@@ -7086,6 +7118,11 @@ class VlCompile {
     ; bar, and never on a column that is a range already.
     fn barPaddingHere:boolean (ch:VlChannel axis:string) {
         if ch.hasBin {
+            return false
+        }
+        ; …and a bin computed UPSTREAM is a bin too: the bar spans its own two
+        ; edges and needs no room made for a width it does not have.
+        if ch.binnedAlready {
             return false
         }
         if ((strlen ch.timeUnit) > 0) {
@@ -7664,6 +7701,16 @@ class VlCompile {
     ; can sit UNDER the marks while the labelled axis sits over them.
     fn buildAxes:VlJson () {
         def out (VlJson.arrayValue())
+        ; `"axis": {"disable": true}` is a chart saying it wants no axes at
+        ; all — a ternary plot draws its own triangle and its own labels, and
+        ; a pair of Cartesian axes under them is furniture from another chart.
+        ; Drawn anyway they took thirty pixels of margin nothing needs.
+        def disabled:VlJson (this.configFlag("axis" "disable"))
+        if (disabled.isBool()) {
+            if (disabled.b) {
+                return out
+            }
+        }
         def x:VlChannel (this.channel("x"))
         def y:VlChannel (this.channel("y"))
         ; `count` names no field and is still an axis — what matters is
@@ -7824,6 +7871,24 @@ class VlCompile {
         return own
     }
 
+    ; Does the configuration MENTION this guide property? A member written as
+    ; null and a member nobody wrote are the same value and not the same
+    ; statement.
+    fn configStates:boolean (block:string key:string) {
+        def config:VlJson (rootSource.get("config"))
+        if (! (config.isObject())) {
+            config = (source.get("config"))
+        }
+        if (! (config.isObject())) {
+            return false
+        }
+        def inner:VlJson (config.get(block))
+        if (! (inner.isObject())) {
+            return false
+        }
+        return (inner.has(key))
+    }
+
     ; What the whole chart's configuration says about one guide property, or
     ; nothing at all if it does not say.
     fn configFlag:VlJson (block:string key:string) {
@@ -7980,6 +8045,13 @@ class VlCompile {
                         }
                     }
                 }
+            }
+            ; …and where in the stack the axis is drawn, which is the whole
+            ; point of stating it: `"zindex": 1` puts the grid OVER the marks,
+            ; which is how a chart of wheat prices rules white lines across its
+            ; own filled areas.
+            if (stated.has("zindex")) {
+                a.setMember("zindex" (stated.get("zindex")))
             }
         }
         if (! (a.has("values"))) {
@@ -8158,10 +8230,16 @@ class VlCompile {
         ; …and a chart may say it once for every axis it has, which is what a
         ; drawing whose columns are obvious writes. An empty name is no name
         ; either: the reference writes nothing rather than an empty string.
+        ; …and a chart that says nothing has not said `null`. The two look the
+        ; same read as a VALUE — an absent member and a null one are both
+        ; nothing — so the block is asked whether it MENTIONS the title at all.
+        ; Asked the other way, the rule never fired and a chart of wheat and
+        ; wages headed its axes with a list of every column any layer of it
+        ; reads.
         def titledEverywhere:VlJson (this.configFlag("axis" "title"))
-        def refusedEverywhere:boolean (titledEverywhere.isNull())
-        if (! (titledEverywhere.isDefined())) {
-            refusedEverywhere = false
+        def refusedEverywhere:boolean false
+        if (this.configStates("axis" "title")) {
+            refusedEverywhere = (titledEverywhere.isNull())
         }
         if refusedEverywhere {
             ; nothing to call it
@@ -8306,7 +8384,12 @@ class VlCompile {
             }
         }
         this.labelCondition(a ch)
-        a.setMember("zindex" (VlJson.numberValue(0.0)))
+        ; Under the marks unless the chart said otherwise, and the chart may
+        ; have said so already — the pass-through above copies it, so a stated
+        ; one is not written over here.
+        if (! (a.has("zindex"))) {
+            a.setMember("zindex" (VlJson.numberValue(0.0)))
+        }
         return a
     }
 
@@ -9948,16 +10031,16 @@ class VlCompile {
             ; plot rather than filling it. Filled instead, an arrow drawn under
             ; a chart to say which way is better came out as a black rectangle
             ; twenty pixels deep.
-            if (! (this.hasChannel("x"))) {
-                if (this.hasChannel("y2")) {
+            if (! (this.positions("x"))) {
+                if (this.positions("y2")) {
                     update.setMember("x" (this.middleOf("width")))
                 } {
                     update.setMember("x" (VlCompile.groupField("width")))
                     update.setMember("x2" (VlCompile.literal((VlJson.numberValue(0.0)))))
                 }
             }
-            if (! (this.hasChannel("y"))) {
-                if (this.hasChannel("x2")) {
+            if (! (this.positions("y"))) {
+                if (this.positions("x2")) {
                     update.setMember("y" (this.middleOf("height")))
                 } {
                     update.setMember("y" (VlCompile.groupField("height")))

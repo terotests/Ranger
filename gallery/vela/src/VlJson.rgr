@@ -47,6 +47,27 @@ class VlJson {
         return (kind != 0)
     }
 
+    ; Whether this holds a NUMBER, counting one written as text. The reference
+    ; coerces what it measures, so a column of years quoted in the data is a
+    ; column of years — but "north" is not a number however hard it is asked,
+    ; and answering zero for it would put zero in the domain.
+    fn looksNumeric:boolean () {
+        if (kind == 2) {
+            return true
+        }
+        if (kind != 3) {
+            return false
+        }
+        if ((strlen str) == 0) {
+            return false
+        }
+        def d@(optional):double (str2double str)
+        if d {
+            return true
+        }
+        return false
+    }
+
     ; --- scalar access --------------------------------------------------------
     fn asInt:int () {
         return (to_int num)

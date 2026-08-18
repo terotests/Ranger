@@ -614,7 +614,11 @@ class VlSceneCommands {
                 cmd.font = (item.text("font"))
             }
             if (item.has("fontWeight")) {
-                cmd.fontWeight = (item.text("fontWeight"))
+                ; A weight may be a NUMBER — `"fontWeight": 100` is the
+                ; thinnest face a family has — and asked for a string a number
+                ; answers nothing, so the label came out at the ordinary
+                ; weight.
+                cmd.fontWeight = (item.textOf("fontWeight"))
             }
             if (item.has("align")) {
                 cmd.align = (item.text("align"))

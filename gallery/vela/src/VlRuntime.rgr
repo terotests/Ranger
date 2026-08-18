@@ -2713,6 +2713,11 @@ class VlRuntime {
         def text:VlSceneItem (textMark.addItem())
         def noEncoded:[string:int]
         this.applyDefaults(text "text" "title-text" styles noEncoded)
+        ; …and what the TITLE itself said about its type, which beats the style
+        ; it is set in. A chart that heads itself in fifteen point was measured
+        ; at the style's thirteen, and the page came out a hundred pixels short
+        ; of the sentence across the top of it.
+        VlRuntime.copyTitleType(text titleDef)
         text.setNumber("opacity" 1.0)
         ; A header's title names the value its column stands for, which the
         ; expression reads from the group it is inside — `parent`, not `datum`.
@@ -2857,6 +2862,35 @@ class VlRuntime {
         }
         push group.marks textMark
         push item.marks mark
+    }
+
+    ; The type a title states for itself. `color` is the reference's own name
+    ; for a title's paint, which every other text mark calls `fill`.
+    sfn copyTitleType:void (text:VlSceneItem given:VlJson) {
+        if (given.has("fontSize")) {
+            text.setNumber("fontSize" (given.doubleOr("fontSize" 11.0)))
+        }
+        if (given.has("font")) {
+            text.setString("font" (given.stringOr("font" "sans-serif")))
+        }
+        if (given.has("fontStyle")) {
+            text.setString("fontStyle" (given.stringOr("fontStyle" "normal")))
+        }
+        if (given.has("fontWeight")) {
+            text.setValue("fontWeight" (given.get("fontWeight")))
+        }
+        if (given.has("color")) {
+            text.setString("fill" (given.stringOr("color" "#000")))
+        }
+        if (given.has("fill")) {
+            text.setString("fill" (given.stringOr("fill" "#000")))
+        }
+        if (given.has("limit")) {
+            text.setNumber("limit" (given.doubleOr("limit" 0.0)))
+        }
+        if (given.has("lineHeight")) {
+            text.setNumber("lineHeight" (given.doubleOr("lineHeight" 0.0)))
+        }
     }
 
     ; A title's text may be a plain string or a value reference; both reach the
