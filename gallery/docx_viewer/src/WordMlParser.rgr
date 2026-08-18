@@ -6,24 +6,43 @@ Import "RichDocument.rgr"
 Import "DocxPackage.rgr"
 Import "WordXml.rgr"
 Import "WordStyleResolver.rgr"
+Import "WordNumbering.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
 
 class WordMlParser {
     def resolver:WordStyleResolver (new WordStyleResolver)
+    def numbering:WordNumbering (new WordNumbering)
+    def pkg:DocxPackage (new DocxPackage)
 
     Constructor () {
     }
 
-    fn parsePackage:RichDocument (pkg:DocxPackage) {
+    fn parsePackage:RichDocument (docxPkg:DocxPackage) {
+        pkg = docxPkg
         def styles:string (pkg.stylesXml())
         if ((strlen styles) > 0) {
             resolver.parseStylesXml(styles)
         }
-        return (this.parseDocumentXml((pkg.documentXml())))
+        numbering = (new WordNumbering)
+        def numXml:string (pkg.numberingXml())
+        if ((strlen numXml) > 0) {
+            numbering.parse(numXml)
+        }
+        def doc:RichDocument (this.parseDocumentXml((pkg.documentXml())))
+        ; Apply numbering indent / kind after all paras known
+        def i:int 0
+        while (i < (doc.paragraphCount())) {
+            def p:Paragraph (doc.paragraphAt(i))
+            if (p.listNumId > 0) {
+                numbering.applyToParagraph(p)
+            }
+            i = (i + 1)
+        }
+        return doc
     }
 
     fn parseDocumentXml:RichDocument (xml:string) {
         def doc:RichDocument (new RichDocument)
-        ; Section page size / margins
         def sect:int (WordXml.findNext(xml "w:sectPr" 0))
         if (sect >= 0) {
             def sEl:string (WordXml.sliceElement(xml "w:sectPr" sect))
@@ -52,8 +71,6 @@ class WordMlParser {
             if (pStart < 0) {
                 return doc
             }
-            ; Avoid matching w:pgSz / w:pgMar / w:pPr / w:pStyle — findNext
-            ; already requires tag boundary after w:p.
             def pEl:string (WordXml.sliceElement(xml "w:p" pStart))
             if ((strlen pEl) == 0) {
                 return doc
@@ -82,7 +99,6 @@ class WordMlParser {
         }
         resolver.resolveParagraph(p pPrXml)
         def base:ResolvedRunStyle (resolver.baseRunFromParagraph(p))
-        ; Clear template span before appending real text spans.
         clear p.spans
         p.text = ""
 
@@ -96,6 +112,17 @@ class WordMlParser {
             def rEl:string (WordXml.sliceElement(pEl "w:r" rStart))
             if ((strlen rEl) == 0) {
                 return
+            }
+            ; DrawingML picture inside the run?
+            def dr:int (WordXml.findNext(rEl "w:drawing" 0))
+            if (dr < 0) {
+                dr = (WordXml.findNext(rEl "w:pict" 0))
+            }
+            if (dr >= 0) {
+                def img:DocImage (this.parseDrawing(rEl))
+                if ((strlen img.relId) > 0) {
+                    push p.images img
+                }
             }
             def runStyle:ResolvedRunStyle (base.copy())
             def rPr:int (WordXml.findNext(rEl "w:rPr" 0))
@@ -132,6 +159,96 @@ class WordMlParser {
                 return
             }
             ri = rEnd
+        }
+    }
+
+    fn parseDrawing:DocImage (rEl:string) {
+        def empty:DocImage (new DocImage)
+        ; a:blip r:embed="rIdN"
+        def blipAt:int (indexOf rEl "<a:blip")
+        if (blipAt < 0) {
+            blipAt = (indexOf rEl "<v:imagedata")
+        }
+        if (blipAt < 0) {
+            return empty
+        }
+        def n:int (strlen rEl)
+        def gt:int blipAt
+        while (gt < n) {
+            if ((charAt rEl gt) == 62) {
+                def tag:string (substring rEl blipAt (gt + 1))
+                def rid:string (WordXml.attr(tag "r:embed"))
+                if ((strlen rid) == 0) {
+                    rid = (WordXml.attr(tag "r:id"))
+                }
+                if ((strlen rid) == 0) {
+                    return empty
+                }
+                def img:DocImage (new DocImage)
+                img.relId = rid
+                img.partPath = (pkg.resolveRel(rid))
+                def extAt:int (indexOf rEl "<wp:extent")
+                if (extAt < 0) {
+                    extAt = (indexOf rEl "<a:ext")
+                }
+                if (extAt >= 0) {
+                    def eg:int extAt
+                    while (eg < n) {
+                        if ((charAt rEl eg) == 62) {
+                            def eTag:string (substring rEl extAt (eg + 1))
+                            def cx:string (WordXml.attr(eTag "cx"))
+                            def cy:string (WordXml.attr(eTag "cy"))
+                            def cxi@(optional):int (to_int cx)
+                            def cyi@(optional):int (to_int cy)
+                            if (!null? cxi) {
+                                img.widthEmu = (unwrap cxi)
+                            }
+                            if (!null? cyi) {
+                                img.heightEmu = (unwrap cyi)
+                            }
+                            eg = n
+                        } {
+                            eg = (eg + 1)
+                        }
+                    }
+                }
+                img.syncPx()
+                this.decodeImage(img)
+                return img
+            }
+            gt = (gt + 1)
+        }
+        return empty
+    }
+
+    fn decodeImage:void (img:DocImage) {
+        if ((strlen img.partPath) == 0) {
+            return
+        }
+        def bytes:buffer (pkg.readPartBytes(img.partPath))
+        if ((buffer_length bytes) < 8) {
+            return
+        }
+        ; JPEG FF D8 — prefer pdf_writer JPEGDecoder (same ImageBuffer as SoftCanvas).
+        def b0:int (buffer_get bytes 0)
+        def b1:int (buffer_get bytes 1)
+        if ((b0 == 255) && (b1 == 216)) {
+            def jdec:JPEGDecoder (new JPEGDecoder)
+            img.pixels = (jdec.decodeBytes(bytes))
+            if ((img.pixels.width > 0) && (img.pixels.height > 0)) {
+                img.ok = true
+                if (img.widthEmu == 0) {
+                    img.widthPx = img.pixels.width
+                    img.heightPx = img.pixels.height
+                }
+            }
+            return
+        }
+        ; PNG: decode via temporary file is heavy; for now mark placeholder unless
+        ; we add a pdf_writer PNG decoder. Fixtures ship JPEG.
+        if ((b0 == 137) && (b1 == 80)) {
+            ; Leave img.ok=false → placeholder rect in DocxView.
+            return
         }
     }
 }

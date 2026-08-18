@@ -12,6 +12,8 @@
 ; w:r from spans.
 ; ==============================================================================
 
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
 class TextSpan {
     def start:int 0
     def end:int 0
@@ -75,9 +77,12 @@ class Paragraph {
     def listKind:int 0
     def listLevel:int 0
     def listNumId:int 0
+    def listFmt:string ""
+    def listText:string ""
     def spaceBeforePt:double 0.0
     def spaceAfterPt:double 8.0
     def indentLeftPt:double 0.0
+    def images:[DocImage]
 
     Constructor () {
     }
@@ -100,6 +105,37 @@ class Paragraph {
 
     fn plainText:string () {
         return text
+    }
+}
+
+; Inline / floating picture from DrawingML (a:blip → media part).
+class DocImage {
+    def relId:string ""
+    def partPath:string ""
+    def widthEmu:int 0
+    def heightEmu:int 0
+    def widthPx:int 0
+    def heightPx:int 0
+    def pixels:ImageBuffer (new ImageBuffer)
+    def ok:boolean false
+
+    Constructor () {
+    }
+
+    sfn emuToPx:int (emu:int) {
+        ; 914400 EMU = 1 inch; 96 CSS px/inch
+        return (to_int (((to_double emu) * 96.0) / 914400.0))
+    }
+
+    fn syncPx:void () {
+        widthPx = (DocImage.emuToPx(widthEmu))
+        heightPx = (DocImage.emuToPx(heightEmu))
+        if (widthPx < 1) {
+            widthPx = 1
+        }
+        if (heightPx < 1) {
+            heightPx = 1
+        }
     }
 }
 

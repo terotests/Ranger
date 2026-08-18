@@ -1,11 +1,9 @@
 ; ==============================================================================
 ; DocxLayout - flow layout + simple pagination for RichDocument.
 ; ==============================================================================
-;
-; EVG / SoftCanvas measure text; pagination rules live here (not in EVG).
-; ==============================================================================
 
 Import "RichDocument.rgr"
+Import "WordNumbering.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 
 class LaidLine {
@@ -18,6 +16,10 @@ class LaidLine {
     def spanStart:int 0
     def align:int 0
     def listPrefix:string ""
+    ; 0 = text, 1 = image
+    def kind:int 0
+    def imageIndex:int 0
+    def width:int 0
 
     Constructor () {
     }
@@ -37,6 +39,7 @@ class DocxLayout {
     def pages:[LaidPage]
     def tr:UITextRenderer
     def contentW:int 500
+    def numbering:WordNumbering (new WordNumbering)
 
     Constructor () {
     }
@@ -45,8 +48,9 @@ class DocxLayout {
         return ((pt * 96.0) / 72.0)
     }
 
-    fn layout:void (doc:RichDocument textRenderer:UITextRenderer) {
+    fn layout:void (doc:RichDocument textRenderer:UITextRenderer nums:WordNumbering) {
         tr = textRenderer
+        numbering = nums
         clear pages
         def page:LaidPage (new LaidPage)
         page.width = (doc.section.pageWidthPx())
@@ -75,17 +79,10 @@ class DocxLayout {
 
             def prefix:string ""
             def indent:int (to_int (DocxLayout.ptToPx(p.indentLeftPt)))
-            if (p.listKind == 1) {
-                prefix = "• "
-            }
-            if (p.listKind == 2) {
-                def cur@(optional):int (get listCounters p.listNumId)
-                def n:int 1
-                if (!null? cur) {
-                    n = ((unwrap cur) + 1)
-                }
-                set listCounters p.listNumId n
-                prefix = ((to_string n) + ". ")
+            if (p.listNumId > 0) {
+                def lv:NumLevel (numbering.levelFor(p.listNumId p.listLevel))
+                numbering.bumpCounter(listCounters p.listNumId p.listLevel lv.start)
+                prefix = (numbering.formatMarker(p.listNumId p.listLevel listCounters))
             }
 
             def fontPx:double 14.0
@@ -101,50 +98,99 @@ class DocxLayout {
                 lh = 12
             }
 
-            def full:string (prefix + p.text)
-            def wrapW:double (to_double (contentW - indent))
-            if (wrapW < 40.0) {
-                wrapW = 40.0
+            if ((strlen p.text) > 0) {
+                def full:string (prefix + p.text)
+                def wrapW:double (to_double (contentW - indent))
+                if (wrapW < 40.0) {
+                    wrapW = 40.0
+                }
+                def wrapped:[string] (tr.wrap(full fontPx wrapW))
+                if ((array_length wrapped) == 0) {
+                    push wrapped ""
+                }
+                def li:int 0
+                while (li < (array_length wrapped)) {
+                    if ((y + lh) > maxY) {
+                        def np:LaidPage (new LaidPage)
+                        np.width = page.width
+                        np.height = page.height
+                        np.index = (array_length pages)
+                        push pages np
+                        page = np
+                        y = mt
+                    }
+                    def line:LaidLine (new LaidLine)
+                    line.kind = 0
+                    line.paraIndex = pi
+                    line.text = (itemAt wrapped li)
+                    line.height = lh
+                    line.y = y
+                    line.baseline = (y + (to_int (fontPx * 0.8)))
+                    line.align = p.align
+                    line.listPrefix = prefix
+                    def tw:int (to_int (tr.measureWidth(line.text fontPx)))
+                    def x0:int (ml + indent)
+                    if (p.align == 1) {
+                        x0 = (ml + (to_int (((contentW - indent) - tw) / 2)))
+                    }
+                    if (p.align == 2) {
+                        x0 = (ml + ((contentW - indent) - tw))
+                    }
+                    if (x0 < ml) {
+                        x0 = ml
+                    }
+                    line.x = x0
+                    push page.lines line
+                    y = (y + lh)
+                    li = (li + 1)
+                }
+            } {
+                if ((array_length p.images) == 0) {
+                    ; empty paragraph still advances a bit
+                    y = (y + (idiv lh 2))
+                }
             }
-            def wrapped:[string] (tr.wrap(full fontPx wrapW))
-            if ((array_length wrapped) == 0) {
-                push wrapped ""
-            }
-            def li:int 0
-            while (li < (array_length wrapped)) {
-                if ((y + lh) > maxY) {
-                    def np:LaidPage (new LaidPage)
-                    np.width = page.width
-                    np.height = page.height
-                    np.index = (array_length pages)
-                    push pages np
-                    page = np
+
+            ; Images attached to the paragraph (DrawingML)
+            def ii:int 0
+            while (ii < (array_length p.images)) {
+                def dimg:DocImage (itemAt p.images ii)
+                def iw:int dimg.widthPx
+                def ih:int dimg.heightPx
+                if (iw > contentW) {
+                    def scale:double ((to_double contentW) / (to_double iw))
+                    iw = contentW
+                    ih = (to_int ((to_double ih) * scale))
+                }
+                if ((y + ih) > maxY) {
+                    def np2:LaidPage (new LaidPage)
+                    np2.width = page.width
+                    np2.height = page.height
+                    np2.index = (array_length pages)
+                    push pages np2
+                    page = np2
                     y = mt
                 }
-                def line:LaidLine (new LaidLine)
-                line.paraIndex = pi
-                line.text = (itemAt wrapped li)
-                line.height = lh
-                line.y = y
-                line.baseline = (y + (to_int (fontPx * 0.8)))
-                line.align = p.align
-                line.listPrefix = prefix
-                def tw:int (to_int (tr.measureWidth(line.text fontPx)))
-                def x0:int (ml + indent)
+                def iline:LaidLine (new LaidLine)
+                iline.kind = 1
+                iline.paraIndex = pi
+                iline.imageIndex = ii
+                iline.x = ml
+                iline.y = y
+                iline.height = ih
+                iline.width = iw
+                iline.align = p.align
                 if (p.align == 1) {
-                    x0 = (ml + (to_int (((contentW - indent) - tw) / 2)))
+                    iline.x = (ml + (to_int ((contentW - iw) / 2)))
                 }
                 if (p.align == 2) {
-                    x0 = (ml + ((contentW - indent) - tw))
+                    iline.x = (ml + (contentW - iw))
                 }
-                if (x0 < ml) {
-                    x0 = ml
-                }
-                line.x = x0
-                push page.lines line
-                y = (y + lh)
-                li = (li + 1)
+                push page.lines iline
+                y = (y + ih + 8)
+                ii = (ii + 1)
             }
+
             y = (y + after)
             pi = (pi + 1)
         }

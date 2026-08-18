@@ -4,6 +4,7 @@
 
 Import "RichDocument.rgr"
 Import "DocxLayout.rgr"
+Import "WordNumbering.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -30,8 +31,8 @@ class DocxView {
         ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
     }
 
-    fn present:void (doc:RichDocument page:int) {
-        layout.layout(doc ctx.tr)
+    fn present:void (doc:RichDocument page:int nums:WordNumbering) {
+        layout.layout(doc ctx.tr nums)
         if (page < 0) {
             page = 0
         }
@@ -46,7 +47,6 @@ class DocxView {
         canvas.init(pg.width pg.height)
         ctx.attach(canvas)
         canvas.clear((bg.red()) (bg.green()) (bg.blue()))
-        ; Margin guides (subtle)
         def ml:int (doc.section.marginLeftPx())
         def mt:int (doc.section.marginTopPx())
         def mr:int (doc.section.marginRightPx())
@@ -57,34 +57,50 @@ class DocxView {
         while (i < (array_length pg.lines)) {
             def line:LaidLine (itemAt pg.lines i)
             def p:Paragraph (doc.paragraphAt(line.paraIndex))
-            def size:double 14.0
-            def bold:boolean false
-            def col:EVGColor ink
-            if ((array_length p.spans) > 0) {
-                def sp:TextSpan (itemAt p.spans 0)
-                size = (DocxLayout.ptToPx(sp.fontSizePt))
-                bold = sp.bold
-                col = (this.hexColor(sp.colorHex))
-            }
-            if (size < 8.0) {
-                size = 8.0
-            }
-            ; SoftCanvas uses the active face; bold prefers Bold TTF when loaded.
-            if bold {
-                ctx.tr.fontFamily = "Open Sans"
-                def face:TrueTypeFont (ctx.tr.fm.getFont("Open Sans-Bold"))
-                if (face.unitsPerEm > 0) {
-                    ctx.tr.rt.setFont(face)
-                    ctx.tr.clearCache()
+            if (line.kind == 1) {
+                if (line.imageIndex < (array_length p.images)) {
+                    def dimg:DocImage (itemAt p.images line.imageIndex)
+                    if dimg.ok {
+                        if ((dimg.pixels.width == line.width) && (dimg.pixels.height == line.height)) {
+                            canvas.blitImage(dimg.pixels line.x line.y)
+                        } {
+                            canvas.blitImageRectScaled(dimg.pixels 0 0 dimg.pixels.width dimg.pixels.height line.x line.y line.width line.height)
+                        }
+                    } {
+                        ; placeholder
+                        ctx.fillRect(line.x line.y line.width line.height (EVGColor.rgb(200 210 220)))
+                        ctx.text("[image]" line.x (line.y + 4) 12.0 ink)
+                    }
                 }
             } {
-                def face2:TrueTypeFont (ctx.tr.fm.getFont("Open Sans"))
-                if (face2.unitsPerEm > 0) {
-                    ctx.tr.rt.setFont(face2)
-                    ctx.tr.clearCache()
+                def size:double 14.0
+                def bold:boolean false
+                def col:EVGColor ink
+                if ((array_length p.spans) > 0) {
+                    def sp:TextSpan (itemAt p.spans 0)
+                    size = (DocxLayout.ptToPx(sp.fontSizePt))
+                    bold = sp.bold
+                    col = (this.hexColor(sp.colorHex))
                 }
+                if (size < 8.0) {
+                    size = 8.0
+                }
+                if bold {
+                    ctx.tr.fontFamily = "Open Sans"
+                    def face:TrueTypeFont (ctx.tr.fm.getFont("Open Sans-Bold"))
+                    if (face.unitsPerEm > 0) {
+                        ctx.tr.rt.setFont(face)
+                        ctx.tr.clearCache()
+                    }
+                } {
+                    def face2:TrueTypeFont (ctx.tr.fm.getFont("Open Sans"))
+                    if (face2.unitsPerEm > 0) {
+                        ctx.tr.rt.setFont(face2)
+                        ctx.tr.clearCache()
+                    }
+                }
+                ctx.text(line.text line.x line.y size col)
             }
-            ctx.text(line.text line.x line.y size col)
             i = (i + 1)
         }
     }

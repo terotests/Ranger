@@ -22,6 +22,6 @@
 ; EVG measures and paints; pagination rules stay in DocxLayout.
 ;
 ; Deliberately out of scope for this PR:
-;   tables, images/DrawingML, headers/footers, tracked changes, fields,
-;   full numbering.xml abstraction, DOCX round-trip export.
+;   tables, PNG media decode (JPEG works), headers/footers, tracked changes,
+;   fields, DOCX round-trip export, live editing.
 ; ==============================================================================

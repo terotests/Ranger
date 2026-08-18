@@ -26,6 +26,7 @@ class DocxDemo {
         DocxDemo.renderOne(viewer fix "hello.docx" "docx_hello.png")
         DocxDemo.renderOne(viewer fix "styles_demo.docx" "docx_styles.png")
         DocxDemo.renderOne(viewer fix "lists_demo.docx" "docx_lists.png")
+        DocxDemo.renderOne(viewer fix "images_demo.docx" "docx_images.png")
         print "docx_demo done"
     }
 }

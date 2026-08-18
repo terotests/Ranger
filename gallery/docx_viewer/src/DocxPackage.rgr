@@ -10,6 +10,7 @@ class DocxPackage {
     def openOk:boolean false
     def pathDir:string ""
     def pathFile:string ""
+    def relTargets:[string:string]
 
     Constructor () {
     }
@@ -18,6 +19,9 @@ class DocxPackage {
         pathDir = dir
         pathFile = file
         openOk = (zip.open(dir file))
+        if openOk {
+            this.parseRels()
+        }
         return openOk
     }
 
@@ -31,13 +35,17 @@ class DocxPackage {
         return (!null? e)
     }
 
-    fn readPart:string (name:string) {
+    fn readPartBytes:buffer (name:string) {
         def e@(optional):ZipEntry (zip.getEntry(name))
         if (null? e) {
-            return ""
+            return (buffer_alloc 0)
         }
         def entry:ZipEntry (unwrap e)
-        def data:buffer (zip.extract(entry))
+        return (zip.extract(entry))
+    }
+
+    fn readPart:string (name:string) {
+        def data:buffer (this.readPartBytes(name))
         if ((buffer_length data) == 0) {
             return ""
         }
@@ -54,5 +62,74 @@ class DocxPackage {
 
     fn numberingXml:string () {
         return (this.readPart("word/numbering.xml"))
+    }
+
+    fn documentRelsXml:string () {
+        return (this.readPart("word/_rels/document.xml.rels"))
+    }
+
+    fn parseRels:void () {
+        def xml:string (this.documentRelsXml())
+        if ((strlen xml) == 0) {
+            return
+        }
+        def i:int 0
+        def n:int (strlen xml)
+        while (i < n) {
+            def rs:int (indexOf (substring xml i n) "<Relationship")
+            if (rs < 0) {
+                return
+            }
+            rs = (i + rs)
+            def gt:int rs
+            while (gt < n) {
+                if ((charAt xml gt) == 62) {
+                    def tag:string (substring xml rs (gt + 1))
+                    def id:string (this.quotedAttr(tag "Id"))
+                    def target:string (this.quotedAttr(tag "Target"))
+                    if ((strlen id) > 0) {
+                        if ((strlen target) > 0) {
+                            def part:string target
+                            if ((indexOf target "word/") == 0) {
+                                part = target
+                            } {
+                                part = ("word/" + target)
+                            }
+                            set relTargets id part
+                        }
+                    }
+                    i = (gt + 1)
+                    gt = n
+                } {
+                    gt = (gt + 1)
+                }
+            }
+        }
+    }
+
+    fn quotedAttr:string (tag:string name:string) {
+        def key:string (name + "=\"")
+        def at:int (indexOf tag key)
+        if (at < 0) {
+            return ""
+        }
+        def a:int (at + (strlen key))
+        def b:int a
+        def tn:int (strlen tag)
+        while (b < tn) {
+            if ((charAt tag b) == 34) {
+                return (substring tag a b)
+            }
+            b = (b + 1)
+        }
+        return ""
+    }
+
+    fn resolveRel:string (relId:string) {
+        def hit@(optional):string (get relTargets relId)
+        if (null? hit) {
+            return ""
+        }
+        return (unwrap hit)
     }
 }

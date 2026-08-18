@@ -4,6 +4,7 @@
 
 Import "DocxPackage.rgr"
 Import "WordMlParser.rgr"
+Import "WordNumbering.rgr"
 Import "RichDocument.rgr"
 Import "DocxView.rgr"
 
@@ -11,6 +12,7 @@ class DocxViewer {
     def parser:WordMlParser (new WordMlParser)
     def view:DocxView (new DocxView)
     def doc:RichDocument (new RichDocument)
+    def numbering:WordNumbering (new WordNumbering)
     def lastError:string ""
 
     Constructor () {
@@ -33,6 +35,7 @@ class DocxViewer {
             return false
         }
         doc = (parser.parsePackage(pkg))
+        numbering = parser.numbering
         pkg.close()
         if ((strlen doc.title) == 0) {
             doc.title = file
@@ -45,7 +48,7 @@ class DocxViewer {
     }
 
     fn renderPage:void (page:int) {
-        view.present(doc page)
+        view.present(doc page numbering)
     }
 
     fn pageCount:int () {

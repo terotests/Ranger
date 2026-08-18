@@ -313,14 +313,16 @@ class WordStyleResolver {
                     def ni@(optional):int (to_int nv)
                     if (!null? ni) {
                         p.listNumId = (unwrap ni)
-                        ; fixtures: numId 1 = bullet, 2 = decimal
-                        if (p.listNumId == 1) {
-                            p.listKind = 1
-                        }
-                        if (p.listNumId == 2) {
-                            p.listKind = 2
-                        }
-                        p.indentLeftPt = 24.0
+                        p.listKind = 2
+                    }
+                }
+                def il:int (WordXml.findNext(numEl "w:ilvl" 0))
+                if (il >= 0) {
+                    def ilEl:string (WordXml.sliceElement(numEl "w:ilvl" il))
+                    def iv:string (WordXml.attr((WordXml.openTag(ilEl)) "w:val"))
+                    def ii@(optional):int (to_int iv)
+                    if (!null? ii) {
+                        p.listLevel = (unwrap ii)
                     }
                 }
             }

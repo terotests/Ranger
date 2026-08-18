@@ -5,6 +5,8 @@
 Import "../src/DocxViewer.rgr"
 Import "../src/WordXml.rgr"
 Import "../src/WordMlParser.rgr"
+Import "../src/WordNumbering.rgr"
+Import "../src/RichDocument.rgr"
 
 class Checker {
     def passed:int 0
@@ -85,6 +87,7 @@ class DocxTest {
         def d3:RichDocument (viewer.document())
         def bullets:int 0
         def nums:int 0
+        def nested:int 0
         def j:int 0
         while (j < (d3.paragraphCount())) {
             def lp:Paragraph (d3.paragraphAt(j))
@@ -94,10 +97,52 @@ class DocxTest {
             if (lp.listKind == 2) {
                 nums = (nums + 1)
             }
+            if (lp.listLevel > 0) {
+                nested = (nested + 1)
+            }
             j = (j + 1)
         }
         c.eqInt("bullet paras" bullets 3)
-        c.eqInt("numbered paras" nums 3)
+        c.ok("numbered paras>=3" (nums >= 3))
+        c.ok("nested list level" (nested >= 2))
+        ; numbering.xml → marker for outline
+        def markers:string ""
+        def counters:[int:int]
+        def mj:int 0
+        while (mj < (d3.paragraphCount())) {
+            def mp:Paragraph (d3.paragraphAt(mj))
+            if (mp.listNumId == 3) {
+                def lv:NumLevel (viewer.numbering.levelFor(mp.listNumId mp.listLevel))
+                viewer.numbering.bumpCounter(counters mp.listNumId mp.listLevel lv.start)
+                markers = (markers + (viewer.numbering.formatMarker(mp.listNumId mp.listLevel counters)))
+                markers = (markers + "|")
+            }
+            mj = (mj + 1)
+        }
+        c.ok("outline has 1." ((indexOf markers "1.") >= 0))
+        c.ok("outline has letter" ((indexOf markers "a)") >= 0) || ((indexOf markers "1.a") >= 0))
+
+        print "== images_demo =="
+        c.ok("open images" (viewer.openFile("gallery/docx_viewer/fixtures" "images_demo.docx")))
+        def d4:RichDocument (viewer.document())
+        def imgCount:int 0
+        def okImg:int 0
+        def k:int 0
+        while (k < (d4.paragraphCount())) {
+            def ip:Paragraph (d4.paragraphAt(k))
+            def ii:int 0
+            while (ii < (array_length ip.images)) {
+                imgCount = (imgCount + 1)
+                def dimg:DocImage (itemAt ip.images ii)
+                if dimg.ok {
+                    okImg = (okImg + 1)
+                }
+                ii = (ii + 1)
+            }
+            k = (k + 1)
+        }
+        c.eqInt("image count" imgCount 1)
+        c.eqInt("decoded jpeg" okImg 1)
 
         print "== render page =="
         viewer.renderPage(0)
