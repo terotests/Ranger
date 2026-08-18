@@ -1307,6 +1307,14 @@ class VlRuntime {
 
         this.readDomain(sc (sdef.get("domain")) sdef)
         this.readRange(sc (sdef.get("range")))
+        ; `"reverse": true` turns the scale round: the range runs the other
+        ; way, so the biggest value sits at the near end. It is how the left
+        ; half of a population pyramid is drawn — the same bars as the right
+        ; half, growing outward from the middle.
+        if (sdef.boolOr("reverse" false)) {
+            def farEnd:double sc.rangeMax
+            sc.setNumericRange(farEnd sc.rangeMin)
+        }
         ; After the domain, not before it: a bin plan may be nothing but a
         ; STEP — data that arrived already binned says how wide a bin is and
         ; nothing else — and where those bins start and stop is then the

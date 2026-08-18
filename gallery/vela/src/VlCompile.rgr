@@ -6315,6 +6315,15 @@ class VlCompile {
                     if (! (this.domainStated(ch))) {
                         sc.setMember("nice" (VlJson.boolValue(true)))
                     }
+                    ; `"sort": "descending"` on a channel that MEASURES rather
+                    ; than names is not an order to put categories in: there
+                    ; are no categories. It turns the scale round, so the
+                    ; biggest value sits at the near end — which is how the
+                    ; left half of a population pyramid grows outward from the
+                    ; middle instead of inward from the edge.
+                    if ((ch.def0.stringOr("sort" "")) == "descending") {
+                        sc.setMember("reverse" (VlJson.boolValue(true)))
+                    }
                     ; A bar's baseline is zero because its LENGTH is the value;
                     ; a line's is not, because only its height is read.
                     ; A log scale cannot reach zero, so it is never asked to.
