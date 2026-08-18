@@ -1808,7 +1808,8 @@ class VlRuntime {
                     axis.useLabelColors((this.axisPartPaint(adef ticks "labels" "fill")))
                 }
                 def gridEnds:[double] (this.gridEndsFor(adef))
-                push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
+                def axisMark:VlSceneMark (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
+                push rootItem.marks axisMark
                 def orient:string (adef.stringOr("orient" "left"))
                 this.growExtent(orient (axis.totalExtent))
                 if (orient == "top") {
@@ -1817,25 +1818,19 @@ class VlRuntime {
                 if (orient == "bottom") {
                     axisBottom = (VlRuntime.higher(axisBottom (axis.totalExtent)))
                 }
-                ; A vertical axis' labels are centred on their tick, so the
-                ; ones at the ends of the scale hang half a line above and
-                ; below the plot and the drawing has to make room for both. The
-                ; lower half only ever shows on a plot with no bottom axis —
-                ; the row header of a faceted view is exactly that, and it is
-                ; what the row title is centred on.
+                ; A vertical axis' labels are centred on their tick, so one at
+                ; the very end of the scale hangs half a line above or below
+                ; the plot and the drawing has to make room for it. How much is
+                ; MEASURED rather than assumed: a scale whose last tick stops
+                ; short of its own end — three ticks over a sixty pixel plot —
+                ; hangs over nothing at all, and reserving half a line anyway
+                ; put four pixels between two concatenated plots that the
+                ; reference draws touching.
                 if ((orient == "left") || (orient == "right")) {
-                    if (adef.boolOr("labels" true)) {
-                        ; Only a CONTINUOUS scale puts a label at each end of
-                        ; itself. A band scale labels the middle of each band,
-                        ; so its top and bottom labels are half a band inside
-                        ; the plot and nothing overhangs.
-                        if ((sc.scaleType == "band") == false) {
-                            if ((sc.scaleType == "point") == false) {
-                                def overhang:double (axis.labelFontSize / 2.0)
-                                this.growExtent("top" overhang)
-                                this.growExtent("bottom" overhang)
-                            }
-                        }
+                    def cover:VlBounds (VlViewBox.ofMark(axisMark))
+                    if cover.isSet {
+                        this.growExtent("top" (0.0 - cover.y1))
+                        this.growExtent("bottom" (cover.y2 - chartHeight))
                     }
                 }
             }
@@ -3319,9 +3314,14 @@ class VlRuntime {
                 rowsBottom = (VlRuntime.higher(rowsBottom ry2))
             }
         }
+        ; Clear of the headers' far edge, but centred on what the PANELS cover
+        ; between them — not on the headers. A header is as tall as its own
+        ; axis labels hang, which is not the same as the row it labels, and a
+        ; title centred on the labels sat two pixels off the middle of the
+        ; trellis it names.
         for rowTitles rowTitle:VlGroupBox tj {
             rowTitle.item.setNumber("x" (rowTitleX - (offsets.doubleOr("rowTitle" 0.0))))
-            rowTitle.item.setNumber("y" (to_double (floor (((rowsTop + rowsBottom) / 2.0) + 0.5))))
+            rowTitle.item.setNumber("y" (to_double (floor (((top + bottom) / 2.0) + 0.5))))
         }
 
         for colHeaders h3:VlGroupBox hk {
