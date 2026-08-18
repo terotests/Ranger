@@ -1,0 +1,233 @@
+; ==============================================================================
+; FormulaFunctionsTest - unit tests for the pure formula function library.
+; ==============================================================================
+;
+; No workbook / xlsx / AST — only FormulaValue args → FormulaFunctions.invoke.
+; ==============================================================================
+
+Import "../src/FormulaValue.rgr"
+Import "../src/FormulaFunctions.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqNum:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d < 0.0001))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqBool:void (name:string got:boolean want:boolean) {
+        this.ok(name (got == want))
+    }
+}
+
+class FormulaFunctionsTest {
+
+    sfn args1:void (a:FormulaValue out:[FormulaValue]) {
+        clear out
+        push out a
+    }
+
+    sfn args2:void (a:FormulaValue b:FormulaValue out:[FormulaValue]) {
+        clear out
+        push out a
+        push out b
+    }
+
+    sfn args3:void (a:FormulaValue b:FormulaValue c:FormulaValue out:[FormulaValue]) {
+        clear out
+        push out a
+        push out b
+        push out c
+    }
+
+    sfn invokeN:FormulaValue (name:string args:[FormulaValue]) {
+        return (FormulaFunctions.invoke(name args))
+    }
+
+    sfn main:void () {
+        def c:Checker (new Checker)
+        def args:[FormulaValue]
+        def r:FormulaValue
+
+        print "== isKnown =="
+        c.ok("SUM known" (FormulaFunctions.isKnown("sum")))
+        c.ok("PRODUCT known" (FormulaFunctions.isKnown("PRODUCT")))
+        c.ok("MID known" (FormulaFunctions.isKnown("MID")))
+        c.ok("IFERROR known" (FormulaFunctions.isKnown("IFERROR")))
+        c.ok("FOO unknown" (FormulaFunctions.isKnown("FOO") == false))
+
+        print "== aggregates =="
+        FormulaFunctionsTest.args3((FormulaValue.fromNumber(1.0)) (FormulaValue.fromNumber(2.0)) (FormulaValue.fromNumber(3.0)) args)
+        r = (FormulaFunctionsTest.invokeN("SUM" args))
+        c.eqNum("SUM" r.num 6.0)
+        r = (FormulaFunctionsTest.invokeN("AVERAGE" args))
+        c.eqNum("AVERAGE" r.num 2.0)
+        r = (FormulaFunctionsTest.invokeN("MIN" args))
+        c.eqNum("MIN" r.num 1.0)
+        r = (FormulaFunctionsTest.invokeN("MAX" args))
+        c.eqNum("MAX" r.num 3.0)
+        r = (FormulaFunctionsTest.invokeN("COUNT" args))
+        c.eqNum("COUNT" r.num 3.0)
+        r = (FormulaFunctionsTest.invokeN("PRODUCT" args))
+        c.eqNum("PRODUCT" r.num 6.0)
+
+        FormulaFunctionsTest.args2((FormulaValue.fromNumber(1.0)) (FormulaValue.fromString("x")) args)
+        r = (FormulaFunctionsTest.invokeN("COUNTA" args))
+        c.eqNum("COUNTA" r.num 2.0)
+
+        print "== logical =="
+        FormulaFunctionsTest.args3((FormulaValue.fromBool(true)) (FormulaValue.fromNumber(10.0)) (FormulaValue.fromNumber(20.0)) args)
+        r = (FormulaFunctionsTest.invokeN("IF" args))
+        c.eqNum("IF true" r.num 10.0)
+        FormulaFunctionsTest.args3((FormulaValue.fromBool(false)) (FormulaValue.fromNumber(10.0)) (FormulaValue.fromNumber(20.0)) args)
+        r = (FormulaFunctionsTest.invokeN("IF" args))
+        c.eqNum("IF false" r.num 20.0)
+
+        FormulaFunctionsTest.args2((FormulaValue.fromBool(true)) (FormulaValue.fromBool(true)) args)
+        r = (FormulaFunctionsTest.invokeN("AND" args))
+        c.eqBool("AND tt" r.flag true)
+        FormulaFunctionsTest.args2((FormulaValue.fromBool(true)) (FormulaValue.fromBool(false)) args)
+        r = (FormulaFunctionsTest.invokeN("AND" args))
+        c.eqBool("AND tf" r.flag false)
+
+        FormulaFunctionsTest.args2((FormulaValue.fromBool(false)) (FormulaValue.fromBool(true)) args)
+        r = (FormulaFunctionsTest.invokeN("OR" args))
+        c.eqBool("OR ft" r.flag true)
+
+        FormulaFunctionsTest.args1((FormulaValue.fromBool(true)) args)
+        r = (FormulaFunctionsTest.invokeN("NOT" args))
+        c.eqBool("NOT t" r.flag false)
+
+        FormulaFunctionsTest.args2((FormulaValue.fromError("#DIV/0!")) (FormulaValue.fromNumber(9.0)) args)
+        r = (FormulaFunctionsTest.invokeN("IFERROR" args))
+        c.eqNum("IFERROR" r.num 9.0)
+
+        FormulaFunctionsTest.args2((FormulaValue.fromError("#N/A")) (FormulaValue.fromNumber(7.0)) args)
+        r = (FormulaFunctionsTest.invokeN("IFNA" args))
+        c.eqNum("IFNA" r.num 7.0)
+
+        print "== math =="
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(-4.5)) args)
+        r = (FormulaFunctionsTest.invokeN("ABS" args))
+        c.eqNum("ABS" r.num 4.5)
+        FormulaFunctionsTest.args2((FormulaValue.fromNumber(2.56)) (FormulaValue.fromNumber(1.0)) args)
+        r = (FormulaFunctionsTest.invokeN("ROUND" args))
+        c.eqNum("ROUND" r.num 2.6)
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(-1.5)) args)
+        r = (FormulaFunctionsTest.invokeN("INT" args))
+        c.eqNum("INT" r.num -2.0)
+        FormulaFunctionsTest.args2((FormulaValue.fromNumber(10.0)) (FormulaValue.fromNumber(3.0)) args)
+        r = (FormulaFunctionsTest.invokeN("MOD" args))
+        c.eqNum("MOD" r.num 1.0)
+        FormulaFunctionsTest.args2((FormulaValue.fromNumber(2.0)) (FormulaValue.fromNumber(8.0)) args)
+        r = (FormulaFunctionsTest.invokeN("POWER" args))
+        c.eqNum("POWER" r.num 256.0)
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(9.0)) args)
+        r = (FormulaFunctionsTest.invokeN("SQRT" args))
+        c.eqNum("SQRT" r.num 3.0)
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(-5.0)) args)
+        r = (FormulaFunctionsTest.invokeN("SIGN" args))
+        c.eqNum("SIGN" r.num -1.0)
+        r = (FormulaFunctionsTest.invokeN("PI" args))
+        c.ok("PI" ((r.num > 3.14) && (r.num < 3.15)))
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(1.0)) args)
+        r = (FormulaFunctionsTest.invokeN("EXP" args))
+        c.ok("EXP~e" ((r.num > 2.7) && (r.num < 2.8)))
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(2.718281828)) args)
+        r = (FormulaFunctionsTest.invokeN("LN" args))
+        c.eqNum("LN e" r.num 1.0)
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(1000.0)) args)
+        r = (FormulaFunctionsTest.invokeN("LOG10" args))
+        c.eqNum("LOG10" r.num 3.0)
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(3.2)) args)
+        r = (FormulaFunctionsTest.invokeN("FLOOR" args))
+        c.eqNum("FLOOR" r.num 3.0)
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(3.2)) args)
+        r = (FormulaFunctionsTest.invokeN("CEILING" args))
+        c.eqNum("CEILING" r.num 4.0)
+
+        print "== text =="
+        FormulaFunctionsTest.args1((FormulaValue.fromString("Hello")) args)
+        r = (FormulaFunctionsTest.invokeN("LEN" args))
+        c.eqNum("LEN" r.num 5.0)
+        FormulaFunctionsTest.args2((FormulaValue.fromString("Hello")) (FormulaValue.fromNumber(2.0)) args)
+        r = (FormulaFunctionsTest.invokeN("LEFT" args))
+        c.eqStr("LEFT" r.text "He")
+        r = (FormulaFunctionsTest.invokeN("RIGHT" args))
+        c.eqStr("RIGHT" r.text "lo")
+        FormulaFunctionsTest.args3((FormulaValue.fromString("Hello")) (FormulaValue.fromNumber(2.0)) (FormulaValue.fromNumber(3.0)) args)
+        r = (FormulaFunctionsTest.invokeN("MID" args))
+        c.eqStr("MID" r.text "ell")
+        FormulaFunctionsTest.args1((FormulaValue.fromString("Hi")) args)
+        r = (FormulaFunctionsTest.invokeN("UPPER" args))
+        c.eqStr("UPPER" r.text "HI")
+        r = (FormulaFunctionsTest.invokeN("LOWER" args))
+        c.eqStr("LOWER" r.text "hi")
+        FormulaFunctionsTest.args1((FormulaValue.fromString("  a b  ")) args)
+        r = (FormulaFunctionsTest.invokeN("TRIM" args))
+        c.eqStr("TRIM" r.text "a b")
+        FormulaFunctionsTest.args2((FormulaValue.fromString("A")) (FormulaValue.fromString("B")) args)
+        r = (FormulaFunctionsTest.invokeN("CONCAT" args))
+        c.eqStr("CONCAT" r.text "AB")
+        FormulaFunctionsTest.args1((FormulaValue.fromString("12.5")) args)
+        r = (FormulaFunctionsTest.invokeN("VALUE" args))
+        c.eqNum("VALUE" r.num 12.5)
+
+        print "== info =="
+        FormulaFunctionsTest.args1((FormulaValue.blank()) args)
+        r = (FormulaFunctionsTest.invokeN("ISBLANK" args))
+        c.eqBool("ISBLANK" r.flag true)
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(1.0)) args)
+        r = (FormulaFunctionsTest.invokeN("ISNUMBER" args))
+        c.eqBool("ISNUMBER" r.flag true)
+        FormulaFunctionsTest.args1((FormulaValue.fromString("x")) args)
+        r = (FormulaFunctionsTest.invokeN("ISTEXT" args))
+        c.eqBool("ISTEXT" r.flag true)
+        FormulaFunctionsTest.args1((FormulaValue.fromError("#VALUE!")) args)
+        r = (FormulaFunctionsTest.invokeN("ISERROR" args))
+        c.eqBool("ISERROR" r.flag true)
+        r = (FormulaFunctionsTest.invokeN("ISERR" args))
+        c.eqBool("ISERR" r.flag true)
+        FormulaFunctionsTest.args1((FormulaValue.fromError("#N/A")) args)
+        r = (FormulaFunctionsTest.invokeN("ISERR" args))
+        c.eqBool("ISERR N/A false" r.flag false)
+        FormulaFunctionsTest.args1((FormulaValue.fromBool(true)) args)
+        r = (FormulaFunctionsTest.invokeN("N" args))
+        c.eqNum("N true" r.num 1.0)
+        FormulaFunctionsTest.args1((FormulaValue.fromString("z")) args)
+        r = (FormulaFunctionsTest.invokeN("T" args))
+        c.eqStr("T" r.text "z")
+
+        print "== unknown =="
+        FormulaFunctionsTest.args1((FormulaValue.fromNumber(1.0)) args)
+        r = (FormulaFunctionsTest.invokeN("NOPE" args))
+        c.eqStr("NOPE #NAME?" r.err "#NAME?")
+
+        print ("FormulaFunctionsTest: " + (to_string c.passed) + " passed, " + (to_string c.failed) + " failed")
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
+

@@ -1,0 +1,228 @@
+; ==============================================================================
+; FormulaWorkbookTest - coercion, refs, translate/fill, cross-sheet recalc.
+; ==============================================================================
+;
+; Proves FormulaEngine behaves as a workbook calculation engine, not only an
+; expression evaluator. Builds on FormulaValue + FormulaFunctions + FormulaEngine.
+; ==============================================================================
+
+Import "../src/FormulaValue.rgr"
+Import "../src/FormulaEngine.rgr"
+Import "../src/WorkbookModel.rgr"
+Import "../src/SpreadsheetModel.rgr"
+Import "../src/CellStyle.rgr"
+Import "../src/XlsxNumberFormat.rgr"
+Import "../src/xlsx/XlsxLoader.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class FormulaWorkbookTest {
+
+    sfn evalExpr:string (expr:string) {
+        def book:WorkbookModel (new WorkbookModel)
+        def s:SpreadsheetModel (new SpreadsheetModel)
+        s.name = "S"
+        s.resize(5 5)
+        s.setFormula(0 0 expr)
+        book.addSheet(s)
+        def eng:FormulaEngine (new FormulaEngine)
+        eng.attach(book)
+        eng.rebuildAll()
+        return (s.getCell(0 0))
+    }
+
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== FormulaValue coercion =="
+        def n1:FormulaValue (FormulaValue.fromNumber(1.0))
+        def n2:FormulaValue (FormulaValue.fromNumber(2.0))
+        def s1:FormulaValue (FormulaValue.fromString("1"))
+        def blank:FormulaValue (FormulaValue.blank())
+        def t:FormulaValue (FormulaValue.fromBool(true))
+        def bad:FormulaValue (FormulaValue.fromString("abc"))
+        def c1:FormulaValue (n1.coerceNumber())
+        c.eqStr("1 coerce" (c1.asRaw()) "1")
+        def c2:FormulaValue (s1.coerceNumber())
+        c.eqStr("\"1\" coerce" (c2.asRaw()) "1")
+        def c3:FormulaValue (blank.coerceNumber())
+        c.eqStr("blank coerce" (c3.asRaw()) "0")
+        def c4:FormulaValue (t.coerceNumber())
+        c.eqStr("TRUE coerce" (c4.asRaw()) "1")
+        def c5:FormulaValue (bad.coerceNumber())
+        c.eqStr("abc coerce" c5.err "#VALUE!")
+        c.ok("1= \"1\"" (FormulaValue.valuesEqual(n1 s1)))
+        c.ok("blank=0" (FormulaValue.valuesEqual(blank (FormulaValue.fromNumber(0.0)))))
+        c.ok("abc!=1" ((FormulaValue.valuesEqual(bad n1)) == false))
+
+        print "== binary semantics via engine =="
+        c.eqStr("1+2" (FormulaWorkbookTest.evalExpr("1+2")) "3")
+        c.eqStr("\"1\"+2" (FormulaWorkbookTest.evalExpr("\"1\"+2")) "3")
+        c.eqStr("\"\"+2" (FormulaWorkbookTest.evalExpr("\"\"+2")) "2")
+        c.eqStr("TRUE+1" (FormulaWorkbookTest.evalExpr("TRUE+1")) "2")
+        c.eqStr("1/0" (FormulaWorkbookTest.evalExpr("1/0")) "#DIV/0!")
+        c.eqStr("\"abc\"+1" (FormulaWorkbookTest.evalExpr("\"abc\"+1")) "#VALUE!")
+
+        print "== error propagation =="
+        def bookE:WorkbookModel (new WorkbookModel)
+        def se:SpreadsheetModel (new SpreadsheetModel)
+        se.name = "E"
+        se.resize(5 5)
+        se.setFormula(0 0 "1/0")
+        se.setFormula(0 1 "A1+10")
+        bookE.addSheet(se)
+        def engE:FormulaEngine (new FormulaEngine)
+        engE.attach(bookE)
+        engE.rebuildAll()
+        c.eqStr("A1 DIV" (se.getCell(0 0)) "#DIV/0!")
+        c.eqStr("B1 prop" (se.getCell(0 1)) "#DIV/0!")
+
+        print "== absolute / relative parse + translate =="
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse("=$A$2+B2"))
+        c.ok("parse ok" p.ok)
+        def L:FormulaNode (itemAt ast.kids 0)
+        def R:FormulaNode (itemAt ast.kids 1)
+        ; serialize wraps binary in parens
+        c.ok("abs row L" L.absRow)
+        c.ok("abs col L" L.absCol)
+        c.ok("rel row R" (R.absRow == false))
+        c.ok("rel col R" (R.absCol == false))
+        FormulaParser.translateNode(ast 0 1)
+        def ser:string (FormulaParser.serializeNode(ast))
+        c.eqStr("translate dy" ser "($A$2+B3)")
+        c.eqStr("translateFormula" (FormulaParser.translateFormula("A2+B2" 0 1)) "(A3+B3)")
+        c.eqStr("abs stay" (FormulaParser.translateFormula("$A$2+B2" 1 1)) "($A$2+C3)")
+
+        print "== quoted sheet ref =="
+        def bookQ:WorkbookModel (new WorkbookModel)
+        def q1:SpreadsheetModel (new SpreadsheetModel)
+        q1.name = "My Sheet"
+        q1.resize(5 5)
+        q1.setCellRaw(0 0 "7")
+        def q2:SpreadsheetModel (new SpreadsheetModel)
+        q2.name = "Calc"
+        q2.resize(5 5)
+        q2.setFormula(0 0 "'My Sheet'!A1*3")
+        bookQ.addSheet(q1)
+        bookQ.addSheet(q2)
+        def engQ:FormulaEngine (new FormulaEngine)
+        engQ.attach(bookQ)
+        engQ.rebuildAll()
+        c.eqStr("quoted sheet" (q2.getCell(0 0)) "21")
+
+        print "== cross-sheet incremental recalc + stats =="
+        def bookX:WorkbookModel (new WorkbookModel)
+        def sales:SpreadsheetModel (new SpreadsheetModel)
+        sales.name = "Sales"
+        sales.resize(10 5)
+        sales.setCellRaw(1 1 "100")
+        sales.setCellRaw(2 1 "200")
+        def summary:SpreadsheetModel (new SpreadsheetModel)
+        summary.name = "Summary"
+        summary.resize(10 5)
+        summary.setFormula(1 1 "SUM(Sales!B2:B3)")
+        summary.setFormula(2 1 "B2*1.24")
+        bookX.addSheet(sales)
+        bookX.addSheet(summary)
+        def engX:FormulaEngine (new FormulaEngine)
+        engX.attach(bookX)
+        engX.rebuildAll()
+        c.eqStr("SUM cross" (summary.getCell(1 1)) "300")
+        c.eqStr("KPI" (summary.getCell(2 1)) "372")
+        engX.resetStats()
+        sales.setCellRaw(1 1 "150")
+        engX.onCellEdited(0 1 1)
+        c.eqStr("after edit SUM" (summary.getCell(1 1)) "350")
+        c.eqStr("after edit KPI" (summary.getCell(2 1)) "434")
+        c.ok("dirty marked >0" (engX.dirtyMarked > 0))
+        c.ok("recalculated >0" (engX.recalculated > 0))
+        c.ok("recalc small" (engX.recalculated <= 4))
+
+        print "== formula fill translate =="
+        def bookF:WorkbookModel (new WorkbookModel)
+        def sf:SpreadsheetModel (new SpreadsheetModel)
+        sf.name = "F"
+        sf.resize(10 10)
+        sf.setCellRaw(1 0 "10")
+        sf.setCellRaw(1 1 "20")
+        sf.setCellRaw(2 0 "11")
+        sf.setCellRaw(2 1 "21")
+        sf.setFormula(1 2 "A2+B2")
+        bookF.addSheet(sf)
+        def engF:FormulaEngine (new FormulaEngine)
+        engF.attach(bookF)
+        engF.rebuildAll()
+        c.eqStr("C2" (sf.getCell(1 2)) "30")
+        def filled:string (FormulaParser.translateFormula((sf.getFormula(1 2)) 0 1))
+        sf.setFormula(2 2 filled)
+        sf.setCellRaw(2 2 "")
+        engF.registerFormula(0 2 2 filled)
+        engF.onCellEdited(0 2 2)
+        c.eqStr("C3 formula" (sf.getFormula(2 2)) "(A3+B3)")
+        c.eqStr("C3 value" (sf.getCell(2 2)) "32")
+        ; absolute fill
+        sf.setFormula(1 3 "$A$2+B2")
+        engF.registerFormula(0 1 3 "$A$2+B2")
+        engF.recalcAll()
+        def filledAbs:string (FormulaParser.translateFormula((sf.getFormula(1 3)) 0 1))
+        c.eqStr("abs fill expr" filledAbs "($A$2+B3)")
+
+        print "== numFmt on formula result =="
+        def bookN:WorkbookModel (new WorkbookModel)
+        def sn:SpreadsheetModel (new SpreadsheetModel)
+        sn.name = "N"
+        sn.resize(5 5)
+        sn.setFormula(0 0 "11/40")
+        def st:CellStyle (CellStyle.createDefault())
+        st.numFmt = "0.0%"
+        push sn.styles st
+        sn.setCellStyleId(0 0 0)
+        bookN.addSheet(sn)
+        def engN:FormulaEngine (new FormulaEngine)
+        engN.attach(bookN)
+        engN.rebuildAll()
+        c.eqStr("raw calc" (sn.getCell(0 0)) "0.275")
+        c.eqStr("display pct" (sn.getDisplay(0 0)) "27.5%")
+
+        print "== formulas.xlsx integration =="
+        def loader:XlsxLoader (new XlsxLoader)
+        def bookL:WorkbookModel (new WorkbookModel)
+        def okL:boolean (loader.loadPath("gallery/datagrid/fixtures/formulas.xlsx" bookL))
+        c.ok("load formulas.xlsx" okL)
+        if okL {
+            def calc:SpreadsheetModel (bookL.sheetAt(0))
+            c.eqStr("xlsx B1" (calc.getCell(0 1)) "30")
+            c.eqStr("xlsx C1" (calc.getCell(0 2)) "60")
+            c.eqStr("xlsx H1 cross" (calc.getCell(0 7)) "21")
+        }
+
+        print ("FormulaWorkbookTest: " + (to_string c.passed) + " passed, " + (to_string c.failed) + " failed")
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
