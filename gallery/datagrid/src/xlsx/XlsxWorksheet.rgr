@@ -177,6 +177,20 @@ class XlsxWorksheet {
             if ((t.name == "dimension") && (t.isEnd == false)) {
                 this.applyDimension(model (t.attr("ref")))
             }
+            if ((t.name == "pane") && (t.isEnd == false)) {
+                ; FortuneSheet / Excel freeze: xSplit=cols, ySplit=rows
+                def xs:string (t.attr("xSplit"))
+                def ys:string (t.attr("ySplit"))
+                def fc:int 0
+                def fr:int 0
+                if ((strlen xs) > 0) {
+                    fc = (XlsxWorksheet.parseInt0(xs))
+                }
+                if ((strlen ys) > 0) {
+                    fr = (XlsxWorksheet.parseInt0(ys))
+                }
+                model.setFreeze(fr fc)
+            }
             if ((t.name == "col") && (t.isEnd == false)) {
                 def minC:int ((XlsxWorksheet.parseInt0((t.attr("min")))) - 1)
                 def maxC:int ((XlsxWorksheet.parseInt0((t.attr("max")))) - 1)
@@ -253,6 +267,7 @@ class XlsxWorksheet {
         def row:int (itemAt rows 0)
         def col:int (itemAt cols 0)
         def cellType:string (open.attr("t"))
+        def styleAttr:string (open.attr("s"))
         def formula:string ""
         def value:string ""
         def inline:string ""
@@ -312,6 +327,9 @@ class XlsxWorksheet {
         model.setCellRaw(row col display)
         if ((strlen formula) > 0) {
             model.setFormula(row col formula)
+        }
+        if ((strlen styleAttr) > 0) {
+            model.setCellStyleId(row col (XlsxWorksheet.parseInt0(styleAttr)))
         }
     }
 }

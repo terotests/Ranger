@@ -24,8 +24,12 @@
 ;   Luckysheet    = Excel feature ceiling (archived → Univer)
 ;
 ; Milestone 1: DataGrid virtualization + SoftCanvas/WebGL.
-; Milestone 2 (this): .xlsx viewer —
+; Milestone 2: .xlsx viewer —
 ;   ZipReader → workbook/sharedStrings/sheet XML → SpreadsheetModel
 ;   cached formula values, merges, col/row sizes, sheet tabs.
-; Next: styles.xml / numFmt, freeze panes, fill handle, formula engine, writer.
+; Milestone 3 (this): FortuneSheet-aligned ops —
+;   styles.xml / numFmt → CellStyle → EVG paint
+;   freeze panes (4 bands)
+;   Ctrl+C/V TSV clipboard + fill-handle copy fill
+; Next: formula engine, writer, sort/filter, richer formats.
 ; ==============================================================================
