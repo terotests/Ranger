@@ -33,5 +33,8 @@
 ;   FormulaEngine (AST/deps/recalc + cached fallback),
 ;   SheetView sort/filter/hidden, merges hit-test, multi-sheet fidelity,
 ;   business-workbook fixture, openpyxl + LibreOffice oracles, 100k perf fixture.
+; Milestone 5 (formula correctness): Excel coerce/error semantics, absolute
+;   refs + AST translate for fill/copy, quoted sheets, cross-sheet incremental
+;   recalc stats, formula bar edit, numFmt on raw formula results.
 ; Stretch: conditional formatting resolver.
 ; ==============================================================================

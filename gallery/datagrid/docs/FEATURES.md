@@ -29,18 +29,20 @@
 ; Number formats                  | XlsxNumberFormat engine (practical set)   | done
 ; Text wrap / rotation            |                                           | todo
 ; Sort / filter                   | SheetView + programmatic apply            | done
-; Formulas (engine)               | AST + deps + FormulaFunctions library     | partial
+; Formulas (engine)               | AST + deps + FormulaFunctions + coerce    | partial
 ; Conditional formatting          | fixture present; resolver stretch         | partial
 ; Hidden rows / columns           | geometry height/width 0                   | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
 ;
-; Formula stack: FormulaValue + FormulaFunctions (unit-tested) + FormulaEngine
-; (parse/deps/recalc). Ops: + - * / ^ & comparisons, A1/$A$1, ranges, Sheet!A1.
-; Library: SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF AND OR NOT TRUE FALSE
-; IFERROR IFNA ABS ROUND INT MOD POWER SQRT SIGN PI EXP LN LOG10 FLOOR CEILING
-; LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT VALUE ISBLANK ISNUMBER ISTEXT
-; ISERROR ISERR N T. Unsupported XLSX formulas keep cached <v>.
+; Formula stack: FormulaValue (coerce/error) + FormulaFunctions + FormulaEngine
+; (parse/deps/incremental recalc/fill-translate). Ops: + - * / ^ & comparisons.
+; Refs: A1 $A$1 A$1 $A1, Sheet!A1, 'My Sheet'!A1, ranges. Fill/copy translates
+; relative refs via AST. Library: SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF
+; AND OR NOT TRUE FALSE IFERROR IFNA ABS ROUND INT MOD POWER SQRT SIGN PI EXP
+; LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT VALUE
+; ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T. Unsupported keep cached <v>.
+; Display: FormulaValue.asRaw → XlsxNumberFormat → DataGrid.
 ;
 ; Number formats: General, 0, 0.00, #,##0(.00), %, currency, scientific,
 ; dates/times, @, pos;neg;zero sections.
