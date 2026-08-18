@@ -8922,7 +8922,19 @@ class VlCompile {
             ; inside it, so its width is the sub-band's rather than the band's.
             def offset:VlChannel (this.channel("xOffset"))
             if (offset.defined && (axis == "x")) {
-                at.setMember("offset" (this.scaled("xOffset" (offset.outField()))))
+                ; The sub-scale may be read from a column or given as the ONE
+                ; name this layer stands for — `{"datum": …}`, which is how a
+                ; repeated chart tells its copies apart. Written as a field
+                ; read, the name was a column nobody has and every copy was
+                ; drawn in the first sub-band.
+                if offset.hasDatum {
+                    def spot (VlJson.objectValue())
+                    spot.setMember("scale" (VlJson.stringValue((this.sname("xOffset")))))
+                    spot.setMember("value" offset.value)
+                    at.setMember("offset" spot)
+                } {
+                    at.setMember("offset" (this.scaled("xOffset" (offset.outField()))))
+                }
                 band = "xOffset"
             }
             ; A mark may take a FRACTION of its band rather than all of it —

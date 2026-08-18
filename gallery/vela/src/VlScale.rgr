@@ -181,6 +181,15 @@ class VlScale {
         if stepSet {
             step = stepValue
             stop = (start + (step * slots))
+            ; A step does not stay a step. The reference sizes the PLOT from
+            ; the step — `bandspace(...) * step` — and then lays the scale out
+            ; inside the plot it got, dividing that width back by the same
+            ; number of slots. The division does not always give the step back:
+            ; twenty over four fifths is fifty exactly, and six hundred and
+            ; sixty over thirteen point two is a hair under it. Keeping the
+            ; step as stated put every band a hair too far right, and a tick
+            ; that should have rounded down rounded up.
+            step = ((stop - start) / slots)
         } {
             step = ((stop - start) / slots)
         }
