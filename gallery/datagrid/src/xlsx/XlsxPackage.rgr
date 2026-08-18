@@ -1,0 +1,85 @@
+; ==============================================================================
+; XlsxPackage - open .xlsx ZIP and read package parts as UTF-8 text.
+; ==============================================================================
+
+Import "../../../zip/ZipReader.rgr"
+Import "../../../zip/ZipEntry.rgr"
+Import "../../../pdf_writer/src/core/Utf8.rgr"
+
+class XlsxPackage {
+    def zip:ZipReader (new ZipReader)
+    def openOk:boolean false
+    def pathDir:string "."
+    def pathName:string ""
+
+    Constructor () {
+    }
+
+    sfn splitPath:void (fullPath:string dirOut:[string] nameOut:[string]) {
+        def n:int (strlen fullPath)
+        def slash:int -1
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt fullPath i)
+            if ((ch == 47) || (ch == 92)) {
+                slash = i
+            }
+            i = (i + 1)
+        }
+        if (slash < 0) {
+            push dirOut "."
+            push nameOut fullPath
+        } {
+            push dirOut (substring fullPath 0 slash)
+            push nameOut (substring fullPath (slash + 1) n)
+        }
+    }
+
+    fn openPath:boolean (fullPath:string) {
+        def dirs:[string]
+        def names:[string]
+        XlsxPackage.splitPath(fullPath dirs names)
+        pathDir = (itemAt dirs 0)
+        pathName = (itemAt names 0)
+        openOk = (zip.open(pathDir pathName))
+        return openOk
+    }
+
+    fn close:void () {
+        if openOk {
+            zip.close()
+        }
+        openOk = false
+    }
+
+    fn listFiles:[string] () {
+        if (openOk == false) {
+            def empty:[string]
+            return empty
+        }
+        return (zip.listFiles())
+    }
+
+    fn hasEntry:boolean (name:string) {
+        if (openOk == false) {
+            return false
+        }
+        def e@(optional):ZipEntry (zip.getEntry(name))
+        if e {
+            return true
+        }
+        return false
+    }
+
+    fn entryText:string (name:string) {
+        if (openOk == false) {
+            return ""
+        }
+        def e@(optional):ZipEntry (zip.getEntry(name))
+        if (!null? e) {
+            def raw:buffer (zip.extract((unwrap e)))
+            return (Utf8.decode((buffer_to_string raw)))
+        }
+        return ""
+    }
+}

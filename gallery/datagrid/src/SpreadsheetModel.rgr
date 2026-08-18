@@ -48,11 +48,14 @@ class SpreadsheetUndoOp {
 }
 
 class SpreadsheetModel {
+    def name:string ""
     def rowCount:int 1000
     def colCount:int 26
     def defaultRowH:int 22
     def defaultColW:int 100
     def cells:[string:string]
+    def formulas:[string:string]
+    def merges:[string]
     def rowHeights:[int]
     def colWidths:[int]
     def rowOffsets:[int]
@@ -65,6 +68,26 @@ class SpreadsheetModel {
     def version:int 0
 
     Constructor () {
+    }
+
+    fn clearSheet:void () {
+        def emptyCells:[string:string]
+        def emptyFormulas:[string:string]
+        cells = emptyCells
+        formulas = emptyFormulas
+        clear merges
+        clear rowHeights
+        clear colWidths
+        clear rowOffsets
+        clear colOffsets
+        clear undoStack
+        clear redoStack
+        rowCount = 1
+        colCount = 1
+        rowGeomDirty = true
+        colGeomDirty = true
+        version = (version + 1)
+        this.ensureGeometry()
     }
 
     fn cellKey:string (row:int col:int) {
@@ -164,6 +187,89 @@ class SpreadsheetModel {
             return (unwrap (get cells k))
         }
         return ""
+    }
+
+    fn getFormula:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has formulas k) {
+            return (unwrap (get formulas k))
+        }
+        return ""
+    }
+
+    fn setFormula:void (row:int col:int formula:string) {
+        def k:string (this.cellKey(row col))
+        set formulas k formula
+    }
+
+    ; Formula bar text: "=SUM(...)" when present, else display value.
+    fn formulaBarText:string (row:int col:int) {
+        def f:string (this.getFormula(row col))
+        if ((strlen f) > 0) {
+            if ((charAt f 0) == 61) {
+                return f
+            }
+            return ("=" + f)
+        }
+        return (this.getCell(row col))
+    }
+
+    fn addMerge:void (r1:int c1:int r2:int c2:int) {
+        if (r2 < r1) {
+            def t:int r1
+            r1 = r2
+            r2 = t
+        }
+        if (c2 < c1) {
+            def t2:int c1
+            c1 = c2
+            c2 = t2
+        }
+        def key:string ((((to_string r1) + ",") + (to_string c1) + ",") + (to_string r2) + "," + (to_string c2))
+        push merges key
+    }
+
+    ; Returns merge key containing (row,col), or "".
+    fn mergeAt:string (row:int col:int) {
+        def i:int 0
+        def n:int (array_length merges)
+        while (i < n) {
+            def m:string (itemAt merges i)
+            def parts:[string] (strsplit m ",")
+            if ((array_length parts) >= 4) {
+                def r1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                def c1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                def r2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
+                def c2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
+                if ((row >= r1) && (row <= r2) && (col >= c1) && (col <= c2)) {
+                    return m
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn isMergeOrigin:boolean (row:int col:int) {
+        def m:string (this.mergeAt(row col))
+        if ((strlen m) == 0) {
+            return true
+        }
+        def parts:[string] (strsplit m ",")
+        def r1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+        def c1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+        if (row != r1) {
+            return false
+        }
+        return (col == c1)
+    }
+
+    sfn parseInt0:int (s:string) {
+        def parsed@(optional):int (to_int s)
+        if parsed {
+            return (unwrap parsed)
+        }
+        return 0
     }
 
     fn setCellRaw:void (row:int col:int value:string) {
@@ -376,6 +482,8 @@ class SpreadsheetModel {
 
     ; Seed a demo sheet: headers + a few sample rows. Sparse — rest stay empty.
     fn seedDemo:void () {
+        this.clearSheet()
+        this.name = "Demo"
         this.resize(1000 26)
         this.setCellRaw(0 0 "Product")
         this.setCellRaw(0 1 "Qty")

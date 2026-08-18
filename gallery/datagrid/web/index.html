@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Ranger EVG DataGrid (WebGL)</title>
+    <title>Ranger EVG DataGrid / XLSX (WebGL)</title>
     <style>
       @font-face {
         font-family: "Open Sans";
@@ -81,12 +81,12 @@
   </head>
   <body>
     <div class="stage">
-      <h1>Ranger EVG DataGrid</h1>
+      <h1>Ranger EVG DataGrid · XLSX viewer</h1>
       <p class="hint">
-        Specialized layout engine (not CSS Grid) · visible cells only ·
+        Loads <code>fixtures/sales.xlsx</code> via ZIP + SpreadsheetML →
+        <code>SpreadsheetModel</code> → virtualized DataGrid →
         <code>EVGDisplayList</code> → WebGL 2.
-        Click a cell, type, <kbd>Enter</kbd> commits · drag column edges to resize ·
-        <kbd>Ctrl</kbd>+<kbd>A</kbd>
+        Sheet tabs at the bottom · formula bar shows cached <code>=formula</code>.
       </p>
       <div class="frame">
         <canvas id="screen" tabindex="0" width="900" height="560"></canvas>

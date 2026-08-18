@@ -23,9 +23,9 @@
 ;   x-spreadsheet = Canvas render performance peer (MIT)
 ;   Luckysheet    = Excel feature ceiling (archived → Univer)
 ;
-; Milestone 1 (this PR): x-spreadsheet-ish subset —
-;   selection, keyboard nav, inline edit, headers, column resize, scroll,
-;   SoftCanvas + WebGL display-list path, 10k–100k row bench seed.
-;
-; Next: copy/paste, freeze panes, fill handle, formulas, merge, wrapping.
+; Milestone 1: DataGrid virtualization + SoftCanvas/WebGL.
+; Milestone 2 (this): .xlsx viewer —
+;   ZipReader → workbook/sharedStrings/sheet XML → SpreadsheetModel
+;   cached formula values, merges, col/row sizes, sheet tabs.
+; Next: styles.xml / numFmt, freeze panes, fill handle, formula engine, writer.
 ; ==============================================================================

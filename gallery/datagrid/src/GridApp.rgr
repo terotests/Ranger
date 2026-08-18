@@ -1,27 +1,22 @@
 ; ==============================================================================
-; GridApp - UIInput → SpreadsheetModel / DataGrid / selection / single EditView
+; GridApp - UIInput → WorkbookModel / DataGrid / selection / single EditView
 ; ==============================================================================
 ;
 ; Same contract as the text editor: platform fills UIInput; app never touches
-; SDL/DOM. Only ONE inline editor is active (Excel-style), sharing the buffer
-; with the formula bar display in GridView.
-;
-;   UIInput
-;     ↓
-;   GridApp.update
-;     ↓
-;   SpreadsheetModel + GridSelection + DataGrid
-;     ↓
-;   GridView → EVGDisplayList → SoftCanvas / WebGL
+; SDL/DOM. Loads .xlsx via XlsxLoader into WorkbookModel; DataGrid stays format-
+; agnostic.
 ; ==============================================================================
 
 Import "SpreadsheetModel.rgr"
+Import "WorkbookModel.rgr"
 Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "GridView.rgr"
+Import "xlsx/XlsxLoader.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 
 class GridApp {
+    def book:WorkbookModel (new WorkbookModel)
     def model:SpreadsheetModel (new SpreadsheetModel)
     def sel:GridSelection (new GridSelection)
     def grid:DataGrid (new DataGrid)
@@ -33,15 +28,60 @@ class GridApp {
     def editBuf:string ""
     def dragging:boolean false
     def resizing:boolean false
+    def loadError:string ""
 
     Constructor () {
+    }
+
+    fn syncActiveModel:void () {
+        model = (book.activeSheet())
+        grid.scrollX = 0
+        grid.scrollY = 0
+        sel.anchor.row = 0
+        sel.anchor.col = 0
+        sel.active.row = 0
+        sel.active.col = 0
+        grid.updateVisible(model)
     }
 
     fn init:void (fontDir:string) {
         view.init(W H fontDir)
         grid.setBounds(0 0 W (H - statusH))
-        model.seedDemo()
-        grid.updateVisible(model)
+        this.loadDemo()
+    }
+
+    fn loadDemo:void () {
+        book.clear()
+        def sheet:SpreadsheetModel (new SpreadsheetModel)
+        sheet.seedDemo()
+        book.addSheet(sheet)
+        book.sourcePath = ""
+        book.setActive(0)
+        this.syncActiveModel()
+        loadError = ""
+    }
+
+    fn loadXlsx:boolean (fullPath:string) {
+        def loader:XlsxLoader (new XlsxLoader)
+        def ok:boolean (loader.loadPath(fullPath book))
+        if ok {
+            book.sourcePath = fullPath
+            this.syncActiveModel()
+            loadError = ""
+            view.status = ("loaded " + fullPath)
+            return true
+        }
+        loadError = loader.lastError
+        view.status = loadError
+        return false
+    }
+
+    fn setActiveSheet:void (i:int) {
+        if editing {
+            this.commitEdit()
+        }
+        book.setActive(i)
+        this.syncActiveModel()
     }
 
     fn resize:void (nw:int nh:int) {
@@ -71,7 +111,7 @@ class GridApp {
             editBuf = seed
         } {
             if (editing == false) {
-                editBuf = (model.getCell(sel.active.row sel.active.col))
+                editBuf = (model.formulaBarText(sel.active.row sel.active.col))
             }
             if ((strlen seed) > 0) {
                 editBuf = (editBuf + seed)
@@ -167,27 +207,33 @@ class GridApp {
 
     fn update:void (input:UIInput) {
         if input.pointerPressed {
-            def resizeCol:int (grid.hitColResize(model input.pointerX input.pointerY))
-            if (resizeCol >= 0) {
-                if editing {
-                    this.commitEdit()
-                }
-                resizing = true
-                grid.resizingCol = resizeCol
-                grid.resizeStartX = input.pointerX
-                grid.resizeStartW = (model.colWidth(resizeCol))
+            def tab:int (grid.hitSheetTab((book.sheetCount()) input.pointerX input.pointerY))
+            if (tab >= 0) {
+                this.setActiveSheet(tab)
                 view.focused = true
             } {
-                def hit:CellPos (grid.hitTest(model input.pointerX input.pointerY))
-                if ((hit.row >= 0) && (hit.col >= 0)) {
-                    view.focused = true
+                def resizeCol:int (grid.hitColResize(model input.pointerX input.pointerY))
+                if (resizeCol >= 0) {
                     if editing {
-                        if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
-                            this.commitEdit()
-                        }
+                        this.commitEdit()
                     }
-                    this.moveActive(hit.row hit.col input.shiftDown)
-                    dragging = true
+                    resizing = true
+                    grid.resizingCol = resizeCol
+                    grid.resizeStartX = input.pointerX
+                    grid.resizeStartW = (model.colWidth(resizeCol))
+                    view.focused = true
+                } {
+                    def hit:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                    if ((hit.row >= 0) && (hit.col >= 0)) {
+                        view.focused = true
+                        if editing {
+                            if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
+                                this.commitEdit()
+                            }
+                        }
+                        this.moveActive(hit.row hit.col input.shiftDown)
+                        dragging = true
+                    }
                 }
             }
         }
@@ -216,7 +262,6 @@ class GridApp {
         }
 
         if (input.scrollDelta != 0) {
-            ; wheel up → negative row scroll (toward top)
             grid.scrollByRows(model (0 - input.scrollDelta))
         }
 
@@ -247,6 +292,7 @@ class GridApp {
                     def r:CellPos (model.redo())
                     this.moveActive(r.row r.col false)
                 }
+                ; Ctrl+PageUp / we approximate with '[' / ']' for sheet switch? skip
                 ti = (ti + 1)
             }
         } {
@@ -254,7 +300,6 @@ class GridApp {
                 if editing {
                     editBuf = (editBuf + input.textInput)
                 } {
-                    ; typing starts edit and replaces cell contents (Excel-like)
                     this.beginEdit(input.textInput true)
                 }
             }
@@ -270,7 +315,7 @@ class GridApp {
 
     fn render:void () {
         view.status = ("v" + (to_string model.version))
-        view.render(model sel grid editing editBuf)
+        view.render(model sel grid editing editBuf book)
     }
 
     fn raw:buffer () {
@@ -279,7 +324,7 @@ class GridApp {
 
     fn sceneJson:string () {
         view.status = ("v" + (to_string model.version))
-        return (view.sceneJson(model sel grid editing editBuf))
+        return (view.sceneJson(model sel grid editing editBuf book))
     }
 
     fn activeLabel:string () {

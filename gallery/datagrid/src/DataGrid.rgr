@@ -40,6 +40,7 @@ class DataGrid {
     def formulaBarH:int 28
     def colHeaderH:int 24
     def rowHeaderW:int 48
+    def sheetTabH:int 26
     def scrollX:int 0
     def scrollY:int 0
     def firstVisibleRow:int 0
@@ -77,11 +78,15 @@ class DataGrid {
     }
 
     fn viewportH:int () {
-        def vh:int (h - formulaBarH - colHeaderH)
+        def vh:int (h - formulaBarH - colHeaderH - sheetTabH)
         if (vh < 1) {
             return 1
         }
         return vh
+    }
+
+    fn sheetTabY:int () {
+        return ((y + h) - sheetTabH)
     }
 
     fn clampScroll:void (model:SpreadsheetModel) {
@@ -161,7 +166,55 @@ class DataGrid {
     fn cellRect:GridRect (model:SpreadsheetModel row:int col:int) {
         def cx:int (((this.gridOriginX()) + (model.colToX(col))) - scrollX)
         def cy:int (((this.gridOriginY()) + (model.rowToY(row))) - scrollY)
-        return (GridRect.create(cx cy (model.colWidth(col)) (model.rowHeight(row))))
+        def cw:int (model.colWidth(col))
+        def ch:int (model.rowHeight(row))
+        def m:string (model.mergeAt(row col))
+        if ((strlen m) > 0) {
+            def parts:[string] (strsplit m ",")
+            def r1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+            def c1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+            def r2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
+            def c2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
+            if ((row == r1) && (col == c1)) {
+                def ox:int (this.gridOriginX())
+                def oy:int (this.gridOriginY())
+                def x1:int (model.colToX(c1))
+                def y1:int (model.rowToY(r1))
+                def x2:int (model.colToX((c2 + 1)))
+                def y2:int (model.rowToY((r2 + 1)))
+                cx = ((ox + x1) - scrollX)
+                cy = ((oy + y1) - scrollY)
+                cw = (x2 - x1)
+                ch = (y2 - y1)
+            }
+        }
+        return (GridRect.create(cx cy cw ch))
+    }
+
+    ; Sheet tab index under pointer, or -1.
+    fn hitSheetTab:int (sheetCount:int px:int py:int) {
+        def ty:int (this.sheetTabY())
+        if (py < ty) {
+            return -1
+        }
+        if (py >= (y + h)) {
+            return -1
+        }
+        if (px < x) {
+            return -1
+        }
+        if (px >= (x + w)) {
+            return -1
+        }
+        def tabW:int 88
+        def i:int (to_int ((to_double (px - x)) / (to_double tabW)))
+        if (i < 0) {
+            return -1
+        }
+        if (i >= sheetCount) {
+            return -1
+        }
+        return i
     }
 
     fn ensureCellVisible:void (model:SpreadsheetModel row:int col:int) {

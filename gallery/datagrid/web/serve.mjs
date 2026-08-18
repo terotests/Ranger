@@ -46,6 +46,13 @@ const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
 
 const app = new GridApp();
 app.init(fontDir);
+const xlsxPath = path.resolve(__dirname, "../fixtures/sales.xlsx");
+if (fs.existsSync(xlsxPath)) {
+  const ok = app.loadXlsx(xlsxPath);
+  console.log(ok ? "  loaded " + xlsxPath : "  xlsx load failed: " + app.loadError);
+} else {
+  console.log("  (no fixtures/sales.xlsx — using demo sheet)");
+}
 
 const liveInput = new UIInput();
 
@@ -307,7 +314,7 @@ async function headlessSmoke(url) {
 
 server.listen(PORT, "127.0.0.1", async () => {
   const url = `http://127.0.0.1:${PORT}/`;
-  console.log("Ranger EVG DataGrid — input/UIInput + render/WebGL display list");
+  console.log("Ranger EVG DataGrid / XLSX viewer — input/UIInput + render/WebGL");
   console.log("  " + url);
   console.log("  fonts: " + fontDir);
   console.log("  gl:    " + evgGlDir);

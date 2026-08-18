@@ -1,0 +1,45 @@
+; ==============================================================================
+; XlsxSharedStrings - xl/sharedStrings.xml → string table.
+; ==============================================================================
+
+Import "XmlLite.rgr"
+
+class XlsxSharedStrings {
+    def strings:[string]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length strings)
+    }
+
+    fn at:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length strings)) {
+            return ""
+        }
+        return (itemAt strings i)
+    }
+
+    fn parse:void (xml:string) {
+        clear strings
+        if ((strlen xml) == 0) {
+            return
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(xml)
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if ((t.name == "si") && (t.isEnd == false) && (t.selfClose == false)) {
+                def s:string (p.collectTTextUntil("si"))
+                push strings s
+            }
+        }
+    }
+}
