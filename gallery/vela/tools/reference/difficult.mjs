@@ -127,7 +127,15 @@ export const DIFFICULT = {
     + 'divided at the end: the two are different numbers in floating point and '
     + 'an R-squared printed to two places lands either side of a rounding. The '
     + 'line itself is sampled at twenty-five even steps across the range of x, '
-    + 'which is where the reference stops refining a curve that is straight'
+    + 'which is where the reference stops refining a curve that is straight',
+
+  geo_circle:
+    'a projection is a page of constants and a convention about the order the '
+    + 'rotation, the centring and the scaling are applied in — and albersUsa '
+    + 'is not one projection but three, each with a rectangle, so that Alaska '
+    + 'and Hawaii sit in the corner of a map of the mainland. Only the '
+    + 'constants can be read off a formula; the convention had to be measured '
+    + 'against d3 point by point, which is what tools/reference/geo.mjs does'
 };
 
 /** The names, in the order they were won. */

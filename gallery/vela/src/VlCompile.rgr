@@ -9384,7 +9384,11 @@ class VlCompile {
                         ; A FILLED dot's key is a filled dot: painted, with no
                         ; outline at all. Drawn as an outline it was a ring
                         ; where the chart draws a solid wedge.
-                        l2.setMember("encode" (VlCompile.filledSymbolEncode((this.markOpacity((this.dotOpacity()))) (this.legendInk()) (this.markOutline()) (this.opacityStated()))))
+                        def alsoFill:boolean (this.opacityStated())
+                        if (this.legendInkStandsIn()) {
+                            alsoFill = true
+                        }
+                        l2.setMember("encode" (VlCompile.filledSymbolEncode((this.markOpacity((this.dotOpacity()))) (this.legendInk()) (this.markOutline()) alsoFill)))
                     } {
                         def encode:VlJson (this.pointSymbolEncode((! (markDef.boolOr("filled" false)))))
                         def symbols:VlJson (encode.get("symbols"))
@@ -9740,13 +9744,26 @@ class VlCompile {
     ; honest, and the reference draws the key in black rather than implying
     ; one of them.
     fn legendInk:string () {
+        if (this.legendInkStandsIn()) {
+            return "black"
+        }
+        return (this.markColour())
+    }
+
+    ; Whether that black is a STAND-IN rather than a colour the chart chose.
+    ; The reference marks the difference: a key drawn in the mark's own colour
+    ; carries the mark's opacity and nothing more, and one drawn in the
+    ; stand-in carries it on the fill as well, so that a solid black shape
+    ; standing for a hundred coloured ones does not read as the darkest of
+    ; them.
+    fn legendInkStandsIn:boolean () {
         def colour:VlChannel (this.channel("color"))
         if colour.defined {
             if (! colour.hasValue) {
-                return "black"
+                return true
             }
         }
-        return (this.markColour())
+        return false
     }
 
     fn legendSymbol:string () {
