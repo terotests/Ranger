@@ -170,12 +170,12 @@ async function render(spec) {
   const r = await render({
     $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
     data: { values: [{ x: 1, y: 2 }] },
-    transform: [{ regression: 'y', on: 'x' }],
+    transform: [{ sample: 5 }],
     mark: 'line',
     encoding: { x: { field: 'x', type: 'quantitative' }, y: { field: 'y', type: 'quantitative' } }
   });
   const said = r.bad.join(' ');
-  check('an unimplemented transform is refused out loud', said.includes('regression'), said || '(said nothing)');
+  check('an unimplemented transform is refused out loud', said.includes('sample'), said || '(said nothing)');
 }
 
 // 6. The second backend. The point of the WebGL tab is that the chart goes
