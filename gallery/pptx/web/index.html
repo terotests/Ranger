@@ -11,6 +11,7 @@
         --panel: #1a1e2a;
         --text: #e6ebf5;
         --muted: #9aa6bf;
+        --line: #2a3148;
       }
       * { box-sizing: border-box; }
       html, body {
@@ -27,14 +28,27 @@
       }
       header {
         display: flex;
-        gap: 1rem;
-        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        align-items: center;
         padding: 0.85rem 1.25rem;
         background: color-mix(in srgb, var(--panel) 88%, transparent);
-        border-bottom: 1px solid #2a3148;
+        border-bottom: 1px solid var(--line);
       }
       header strong { font-size: 1.05rem; letter-spacing: 0.02em; }
       header span { color: var(--muted); }
+      select {
+        background: #121622;
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 0.35rem 0.55rem;
+        max-width: min(420px, 70vw);
+      }
+      #features {
+        color: var(--muted);
+        font-size: 12px;
+      }
       main {
         display: grid;
         place-items: center;
@@ -55,7 +69,12 @@
   <body>
     <header>
       <strong>Ranger PPTX Lite</strong>
+      <label>
+        Fixture
+        <select id="fixture" aria-label="Fixture"></select>
+      </label>
       <span id="meta">loading…</span>
+      <span id="features"></span>
     </header>
     <main>
       <canvas id="view" width="960" height="720" tabindex="0"></canvas>

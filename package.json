@@ -175,6 +175,8 @@
     "pptx:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxTest.rgr -d=./gallery/pptx/bin -o=PptxTest.js -nodecli && node ./gallery/pptx/bin/PptxTest.js",
     "pptx:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/src/pptx_demo.rgr -d=./gallery/pptx/bin -o=pptx_demo.js -nodecli && node ./gallery/pptx/bin/pptx_demo.js",
     "pptx:module": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/pptx/src/PptxApp.rgr -d=./gallery/pptx/bin -o=pptx_app_module.cjs",
+    "pptx:harness": "npm run pptx:fixtures && npm run pptx:module && node gallery/pptx/harness/run.mjs",
+    "pptx:harness:quick": "node gallery/pptx/harness/run.mjs",
     "pptx:window": "npm run pptx:module && node gallery/pptx/web/serve.mjs --open",
     "pptx:window:smoke": "npm run pptx:module && node gallery/pptx/web/serve.mjs --headless-smoke",
     "engine:ui:wasm-select": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/ui/wasm_ui_select_demo.rgr -d=./gallery/game_engine/ui -o=wasm_ui_select_demo.js -nodecli && node ./gallery/game_engine/ui/wasm_ui_select_demo.js",

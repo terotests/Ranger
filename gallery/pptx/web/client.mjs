@@ -1,12 +1,14 @@
 /**
  * PPTX viewer web client:
- *   INPUT  — keys / clicks → POST /input → PptxApp
+ *   INPUT  — keys / clicks / fixture select → PptxApp
  *   RENDER — GET /scene.json → renderDisplayList (WebGL 2)
  */
 import { renderDisplayList } from "/evg/gl/evg-webgl.js";
 
 const canvas = document.getElementById("view");
 const metaEl = document.getElementById("meta");
+const featuresEl = document.getElementById("features");
+const fixtureSel = document.getElementById("fixture");
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -21,7 +23,7 @@ if (!gl) {
 async function refreshMeta() {
   const r = await fetch("/meta.json", { cache: "no-store" });
   const m = await r.json();
-  metaEl.textContent = `${m.file}  ·  slide ${m.index + 1} / ${m.slides}  ·  ← → or click sides`;
+  metaEl.textContent = `${m.basename || m.file}  ·  slide ${m.index + 1} / ${m.slides}  ·  ← → or click sides`;
 }
 
 async function redraw() {
@@ -56,9 +58,6 @@ async function post(ev) {
 
 function pointerPayload(e, down) {
   const rect = canvas.getBoundingClientRect();
-  const x = Math.round(((e.clientX - rect.left) / rect.width) * (canvas.width / Math.min(2, window.devicePixelRatio || 1)));
-  const y = Math.round(((e.clientY - rect.top) / rect.height) * (canvas.height / Math.min(2, window.devicePixelRatio || 1)));
-  // Use CSS pixel space matching scene width/height
   const cssW = parseFloat(canvas.style.width) || 960;
   const cssH = parseFloat(canvas.style.height) || 720;
   return {
@@ -91,6 +90,45 @@ window.addEventListener("keydown", (e) => {
   post({ type: "key", key });
 });
 
+async function loadFixtures() {
+  const r = await fetch("/fixtures.json", { cache: "no-store" });
+  const data = await r.json();
+  fixtureSel.innerHTML = "";
+  for (const f of data.fixtures || []) {
+    const opt = document.createElement("option");
+    opt.value = f.file;
+    opt.textContent = `${f.file} — ${f.title}`;
+    opt.dataset.features = (f.features || []).join(", ");
+    if (f.file === data.current) opt.selected = true;
+    fixtureSel.appendChild(opt);
+  }
+  const selected = fixtureSel.selectedOptions[0];
+  featuresEl.textContent = selected?.dataset.features
+    ? `features: ${selected.dataset.features}`
+    : "";
+}
+
+fixtureSel.addEventListener("change", async () => {
+  const file = fixtureSel.value;
+  const selected = fixtureSel.selectedOptions[0];
+  featuresEl.textContent = selected?.dataset.features
+    ? `features: ${selected.dataset.features}`
+    : "";
+  metaEl.textContent = `loading ${file}…`;
+  const r = await fetch("/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file }),
+  });
+  const body = await r.json();
+  if (!body.ok) {
+    metaEl.textContent = body.error || "open failed";
+    return;
+  }
+  await redraw();
+});
+
+await loadFixtures();
 redraw().catch((err) => {
   metaEl.textContent = String(err);
   console.error(err);
