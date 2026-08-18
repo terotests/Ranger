@@ -3757,7 +3757,27 @@ class VlCompile {
     ; than standing on the first of it. The transform computes both ends, and
     ; this is the name of the far one — empty when nothing spans it, which is
     ; every mark that is a point on a date rather than a block over one.
-    fn unitEndField:string (ch:VlChannel) {
+    ; A rectangle over a time unit may be told where in the unit its row
+    ; STANDS: `"bandPosition": 0` puts it on the boundary rather than across
+    ; the middle, so the block is drawn half a unit either side of it. The
+    ; reference computes both edges as columns of their own; without them the
+    ; bars sat a half month to the right of the ticks they belong to.
+    fn unitBandStated:boolean (ch:VlChannel) {
+        if ((strlen (this.unitEndFieldPlain(ch))) == 0) {
+            return false
+        }
+        return (ch.def0.has("bandPosition"))
+    }
+
+    fn unitOffsetStart:string (ch:VlChannel) {
+        return ((ch.outField()) + "_offsetted_rect_start")
+    }
+
+    fn unitOffsetEnd:string (ch:VlChannel) {
+        return ((ch.outField()) + "_offsetted_rect_end")
+    }
+
+    fn unitEndFieldPlain:string (ch:VlChannel) {
         if ((strlen ch.timeUnit) == 0) {
             return ""
         }
@@ -4051,6 +4071,7 @@ class VlCompile {
         this.pushSpecTransforms(transforms)
         this.pushDomainOrder(transforms)
         this.pushTimeUnits(transforms)
+        this.pushUnitBandOffsets(transforms)
         ; After the time units, because the column it reads is one of theirs: a
         ; list of day names is looked up by the name the instant formats to.
         this.pushStatedOrder(transforms)
@@ -4754,9 +4775,13 @@ class VlCompile {
                             ; column saying where March ends did not survive
                             ; the aggregate and every bar came out standing on
                             ; the first of the month instead of filling it.
-                            def unitEnd:string (this.unitEndField(ch2))
+                            def unitEnd:string (this.unitEndFieldPlain(ch2))
                             if ((strlen unitEnd) > 0) {
                                 push groupby.arr (VlJson.stringValue(unitEnd))
+                            }
+                            if (this.unitBandStated(ch2)) {
+                                push groupby.arr (VlJson.stringValue((this.unitOffsetStart(ch2))))
+                                push groupby.arr (VlJson.stringValue((this.unitOffsetEnd(ch2))))
                             }
                             ; An aggregate keeps only what it groups by, so a
                             ; field computed purely to order the stack has to be
@@ -6315,7 +6340,7 @@ class VlCompile {
         def spanEnd:string (this.unitEndField(ch))
         if ((strlen spanEnd) > 0) {
             def ends (VlJson.arrayValue())
-            push ends.arr (VlJson.stringValue((ch.outField())))
+            push ends.arr (VlJson.stringValue((this.unitStartField(ch))))
             push ends.arr (VlJson.stringValue(spanEnd))
             out.setMember("fields" ends)
             return out
@@ -7881,6 +7906,56 @@ class VlCompile {
         return false
     }
 
+    ; The two edges of the unit a row's rectangle covers, written as columns.
+    ; `bandPosition` says where in the unit the row STANDS: at 0 it stands on
+    ; the boundary, so the block runs from half a unit before it to half a unit
+    ; after, which is the midpoint of each neighbouring pair.
+    fn pushUnitBandOffsets:void (transforms:VlJson) {
+        for channels ch:VlChannel ci {
+            if (this.unitBandStated(ch)) {
+                ; Always halfway: the edges are the MIDPOINTS of the unit and
+                ; each of its neighbours, whatever `bandPosition` is — the
+                ; position says where in the unit the row stands, and the block
+                ; is drawn round it either way.
+                def where:double 0.5
+                def other:double 0.5
+                def here:string (VlCompile.datumRef((ch.outField())))
+                def far:string (VlCompile.datumRef((this.unitEndFieldPlain(ch))))
+                def unit:string (VlTime.finestUnit(ch.timeUnits))
+                def before:string (((("timeOffset('" + unit) + "', ") + here) + ", -1)")
+                def a (VlJson.objectValue())
+                a.setMember("type" (VlJson.stringValue("formula")))
+                a.setMember("expr" (VlJson.stringValue(((((((VlJson.formatNumber(other 6)) + " * ") + before) + " + ") + (VlJson.formatNumber(where 6))) + " * ") + here)))
+                a.setMember("as" (VlJson.stringValue((this.unitOffsetStart(ch)))))
+                push transforms.arr a
+                def b (VlJson.objectValue())
+                b.setMember("type" (VlJson.stringValue("formula")))
+                b.setMember("expr" (VlJson.stringValue(((((((VlJson.formatNumber(other 6)) + " * ") + here) + " + ") + (VlJson.formatNumber(where 6))) + " * ") + far)))
+                b.setMember("as" (VlJson.stringValue((this.unitOffsetEnd(ch)))))
+                push transforms.arr b
+            }
+        }
+    }
+
+    fn unitEndField:string (ch:VlChannel) {
+        def plain:string (this.unitEndFieldPlain(ch))
+        if ((strlen plain) == 0) {
+            return ""
+        }
+        if (this.unitBandStated(ch)) {
+            return (this.unitOffsetEnd(ch))
+        }
+        return plain
+    }
+
+    ; The near edge, which is the column itself unless the unit was offset.
+    fn unitStartField:string (ch:VlChannel) {
+        if (this.unitBandStated(ch)) {
+            return (this.unitOffsetStart(ch))
+        }
+        return (ch.outField())
+    }
+
     fn buildMarks:VlJson () {
         def series:string (this.seriesField())
         if ((strlen series) > 0) {
@@ -8882,8 +8957,8 @@ class VlCompile {
             def from:VlJson (this.scaled(axis endField))
             from.setMember("offset" (VlCompile.binNudge((ch.outField()) endField axis true (this.binSpacing()))))
             update.setMember(axis from)
-            def to:VlJson (this.scaled(axis (ch.outField())))
-            to.setMember("offset" (VlCompile.binNudge((ch.outField()) endField axis false (this.binSpacing()))))
+            def to:VlJson (this.scaled(axis (this.unitStartField(ch))))
+            to.setMember("offset" (VlCompile.binNudge((this.unitStartField(ch)) endField axis false (this.binSpacing()))))
             update.setMember((axis + "2") to)
             return
         }
