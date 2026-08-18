@@ -39,7 +39,7 @@ npm run text_editor:bench      # Ranger-only SoftCanvas timings (default 1k line
 npm run text_editor:bench -- 10000
 npm run text_editor:compare    # side-by-side vs @hufe921/canvas-editor (Chromium)
 npm run text_editor:compare -- --lines 10000
-npm run text_editor:window     # interactive Chrome window (SoftCanvas present host)
+npm run text_editor:window     # interactive Chrome window (EVGDisplayList → WebGL)
 npm run text_editor:window:smoke
 ```
 
@@ -65,13 +65,14 @@ demo never blits framebuffer bytes — it draws the same display-list seam as
 - UTF-16 / surrogate-aware caret steps via `EVGCodepoint`
 - Scroll, jump-to-line, resize
 - SoftCanvas paint: gutter line numbers, selection rects, blinking caret, TTF text
+- Web demo: `EVGDisplayList` → WebGL 2 (`gallery/evg/gl/evg-webgl.js`)
 - Headless `UIInput` scripting (same contract as the EVG UI layer)
 
 ## Deliberately not in this PR
 
 IME composition (`SDL_TEXTEDITING`), word wrap, syntax highlighting, piece
-table / rope, clipboard, GPU/WebGL present, and a live SDL window loop. Those
-are follow-up PRs on top of this model.
+table / rope, clipboard, and a live SDL/OpenGL window loop. Those are
+follow-up PRs on top of this model. Browser WebGL present is already wired.
 
 ## Benchmark vs canvas-editor
 
