@@ -107,6 +107,18 @@ function sendFile(res, fp) {
 }
 
 const server = http.createServer(async (req, res) => {
+  try {
+    await handleRequest(req, res);
+  } catch (e) {
+    console.error("request error", req.url, e);
+    if (!res.headersSent) {
+      res.writeHead(500, { "content-type": "application/json" });
+    }
+    res.end(JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) }));
+  }
+});
+
+async function handleRequest(req, res) {
   const url = new URL(req.url || "/", "http://127.0.0.1");
 
   if (url.pathname === "/favicon.ico") {
@@ -163,7 +175,7 @@ const server = http.createServer(async (req, res) => {
     currentPage = page;
     viewer.renderPage(page);
     const buf = viewer.pngBytes();
-    const bytes = Buffer.from(buf.byteLength ? buf : buf);
+    const bytes = Buffer.from(buf);
     res.writeHead(200, {
       "content-type": "image/png",
       "content-length": bytes.length,
@@ -187,7 +199,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   sendFile(res, fp);
-});
+}
 
 function findChrome() {
   const env = process.env.CHROME_PATH || process.env.PUPPETEER_EXECUTABLE_PATH;
