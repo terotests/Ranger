@@ -30,14 +30,20 @@ let pointerDown = false;
 let frames = 0;
 let fpsT0 = performance.now();
 let fontsReady = null;
+/** Logical page size in editor/layout pixels (not device framebuffer). */
+let pageW = 720;
+let pageH = 480;
 
 function canvasCoords(ev) {
   const rect = canvas.getBoundingClientRect();
-  const sx = canvas.width / rect.width;
-  const sy = canvas.height / rect.height;
+  // Map CSS box → page space. Do NOT use canvas.width/height here: those are
+  // DPR-scaled WebGL backing-store pixels, while EditorLayout hit-tests in
+  // the same 720×480 page coordinates the display list uses.
+  const x = Math.floor(((ev.clientX - rect.left) / rect.width) * pageW);
+  const y = Math.floor(((ev.clientY - rect.top) / rect.height) * pageH);
   return {
-    x: Math.max(0, Math.min(canvas.width - 1, Math.floor((ev.clientX - rect.left) * sx))),
-    y: Math.max(0, Math.min(canvas.height - 1, Math.floor((ev.clientY - rect.top) * sy))),
+    x: Math.max(0, Math.min(pageW - 1, x)),
+    y: Math.max(0, Math.min(pageH - 1, y)),
   };
 }
 
@@ -167,6 +173,8 @@ async function pullScene() {
   const res = await fetch("/scene.json?" + Date.now(), { cache: "no-store" });
   if (!res.ok) throw new Error("scene " + res.status);
   const doc = await res.json();
+  pageW = doc.width || pageW;
+  pageH = doc.height || pageH;
   if (!fontsReady) {
     fontsReady = ensureFonts(doc);
   }
