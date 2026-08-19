@@ -76,6 +76,13 @@ class DumpArtifacts {
             DumpArtifacts.writePng(app dir "04_styles_showcase.png")
         }
 
+        print "== 04b rotated text =="
+        def okRot:boolean (app.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx"))
+        if okRot {
+            app.moveActive(27 1 false)
+            DumpArtifacts.writePng(app dir "08_text_rotation.png")
+        }
+
         print "== 05 paste special dialog (shared EVG window layer) =="
         def ok4:boolean (app.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx"))
         if ok4 {

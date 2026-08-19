@@ -84,8 +84,9 @@ const KEY_MAP = {
 // Ctrl/Cmd chords the grid handles: A select-all, C copy, X cut, V paste,
 // Z undo, Y redo, Space select column.
 // Ctrl chords the app understands: select-all, copy, cut, paste, undo,
-// redo, row/column select (space) and m for "make a chart of the selection".
-const CTRL_CHORD = /^[acxvzymACXVZYM ]$/;
+// redo, row/column select (space), m for "make a chart of the selection",
+// and f / h for find and replace.
+const CTRL_CHORD = /^[acxvzymfhACXVZYMFH ]$/;
 
 /** Put the selection on the OS clipboard as BOTH flavours a spreadsheet
  *  offers: text/plain TSV and text/html holding a <table>. The HTML flavour is

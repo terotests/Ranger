@@ -64,6 +64,10 @@ class GridView {
     def menuW:int 190
     def menuH:int 270
     def menuCol:int -1
+    ; 0 = the column menu, 1 = the row menu. One popup, two menus: they are
+    ; the same list of actions read down a different axis.
+    def menuKind:int 0
+    def menuRow:int -1
     def menuX:int 0
     def menuY:int 0
 
@@ -381,7 +385,85 @@ class GridView {
         return total
     }
 
+    ; A turned label. The command carries the angle and every backend turns it
+    ; about the command's own box centre, so the anchor is the middle of the
+    ; text rather than a corner — which is also what makes a 90° header label
+    ; sit in its column rather than beside it.
+    fn pushRotatedText:void (dl:EVGDisplayList text:string cx:double cy:double size:double col:EVGColor bold:boolean italic:boolean degrees:double) {
+        if ((strlen text) == 0) {
+            return
+        }
+        this.applyFaceStyled(bold italic)
+        def tw:double (ctx.tr.measureWidth(text size))
+        def th:double (ctx.tr.lineHeight(size))
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = (cx - (tw / 2.0))
+        c.y = (cy - (th / 2.0))
+        c.w = tw
+        c.h = th
+        c.text = text
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        c.rotate = degrees
+        if bold {
+            c.fontWeight = "bold"
+        }
+        if italic {
+            c.textAlign = "italic"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; Vertical text: the letters stay upright and stack downwards, which is a
+    ; different thing from a 90° turn and is how Excel's rotation 255 reads.
+    fn paintStacked:void (dl:EVGDisplayList rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string) {
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        def n:int (strlen txt)
+        def i:int 0
+        def y:int (rect.y + 3)
+        while (i < n) {
+            if ((y + lineH) > (rect.y + rect.h)) {
+                return
+            }
+            def ch:string (substring txt i (i + 1))
+            def cw:int (to_int (ctx.tr.measureWidth(ch cellPx)))
+            def x:int ((rect.x + (idiv rect.w 2)) - (idiv cw 2))
+            this.pushStyledText(dl ch (to_double x) (to_double y) cellPx col st.bold st.italic)
+            y = (y + lineH)
+            i = (i + 1)
+        }
+    }
+
     fn paintSingleLine:void (dl:EVGDisplayList model:SpreadsheetModel rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string r:int c:int) {
+        if (st.isStacked()) {
+            this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
+            this.paintStacked(dl rect st cellPx col txt)
+            this.popClip(dl)
+            return
+        }
+        def turn:double (st.rotationDegrees())
+        if (turn != 0.0) {
+            ; A turned label is not allowed to spill: it is clipped to its own
+            ; cell, because the room it would need is in two directions at once.
+            this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
+            def ccx:double ((to_double rect.x) + ((to_double rect.w) / 2.0))
+            def ccy:double ((to_double rect.y) + ((to_double rect.h) / 2.0))
+            this.pushRotatedText(dl txt ccx ccy cellPx col st.bold st.italic turn)
+            this.popClip(dl)
+            return
+        }
+        this.paintFlatLine(dl model rect st cellPx col txt r c)
+    }
+
+    fn paintFlatLine:void (dl:EVGDisplayList model:SpreadsheetModel rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string r:int c:int) {
         def textW:int (to_int (ctx.tr.measureWidth(txt cellPx)))
         def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
         if (lineH < 8) {
@@ -756,21 +838,36 @@ class GridView {
             def mh:int menuH
             this.pushRect(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) theme.formulaBg)
             this.pushBorder(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) 1.0 theme.activeBorder)
-            def title:string ("Column " + (SpreadsheetModel.colLabel(menuCol)))
-            this.pushText(dl title (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
-            this.pushText(dl "1  Sort ascending" (to_double (menuX + 8)) (to_double (menuY + 30)) 12.0 theme.cellText)
-            this.pushText(dl "2  Sort descending" (to_double (menuX + 8)) (to_double (menuY + 50)) 12.0 theme.cellText)
-            this.pushText(dl "3  Filter unique values" (to_double (menuX + 8)) (to_double (menuY + 70)) 12.0 theme.cellText)
-            this.pushText(dl "4  Clear filter" (to_double (menuX + 8)) (to_double (menuY + 90)) 12.0 theme.cellText)
-            this.pushText(dl "5  Auto-fit width" (to_double (menuX + 8)) (to_double (menuY + 110)) 12.0 theme.cellText)
-            this.pushText(dl "6  Wider  (+20)" (to_double (menuX + 8)) (to_double (menuY + 130)) 12.0 theme.cellText)
-            this.pushText(dl "7  Narrower  (-20)" (to_double (menuX + 8)) (to_double (menuY + 150)) 12.0 theme.cellText)
-            this.pushRect(dl (to_double (menuX + 8)) (to_double (menuY + 168)) (to_double (mw - 16)) 1.0 theme.gridLine)
-            this.pushText(dl "8  Insert column left" (to_double (menuX + 8)) (to_double (menuY + 172)) 12.0 theme.cellText)
-            this.pushText(dl "9  Insert column right" (to_double (menuX + 8)) (to_double (menuY + 192)) 12.0 theme.cellText)
-            this.pushText(dl "10  Delete column" (to_double (menuX + 8)) (to_double (menuY + 212)) 12.0 theme.cellText)
-            this.pushText(dl "11  Move left" (to_double (menuX + 8)) (to_double (menuY + 232)) 12.0 theme.cellText)
-            this.pushText(dl "12  Move right" (to_double (menuX + 8)) (to_double (menuY + 252)) 12.0 theme.cellText)
+            if (menuKind == 1) {
+                def rtitle:string ("Row " + (to_string (menuRow + 1)))
+                this.pushText(dl rtitle (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
+                this.pushText(dl "1  Select row" (to_double (menuX + 8)) (to_double (menuY + 30)) 12.0 theme.cellText)
+                this.pushText(dl "2  Auto-fit height" (to_double (menuX + 8)) (to_double (menuY + 50)) 12.0 theme.cellText)
+                this.pushText(dl "3  Taller  (+10)" (to_double (menuX + 8)) (to_double (menuY + 70)) 12.0 theme.cellText)
+                this.pushText(dl "4  Shorter  (-10)" (to_double (menuX + 8)) (to_double (menuY + 90)) 12.0 theme.cellText)
+                this.pushRect(dl (to_double (menuX + 8)) (to_double (menuY + 108)) (to_double (mw - 16)) 1.0 theme.gridLine)
+                this.pushText(dl "5  Insert row above" (to_double (menuX + 8)) (to_double (menuY + 112)) 12.0 theme.cellText)
+                this.pushText(dl "6  Insert row below" (to_double (menuX + 8)) (to_double (menuY + 132)) 12.0 theme.cellText)
+                this.pushText(dl "7  Delete row" (to_double (menuX + 8)) (to_double (menuY + 152)) 12.0 theme.cellText)
+                this.pushText(dl "8  Move up" (to_double (menuX + 8)) (to_double (menuY + 172)) 12.0 theme.cellText)
+                this.pushText(dl "9  Move down" (to_double (menuX + 8)) (to_double (menuY + 192)) 12.0 theme.cellText)
+            } {
+                def title:string ("Column " + (SpreadsheetModel.colLabel(menuCol)))
+                this.pushText(dl title (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
+                this.pushText(dl "1  Sort ascending" (to_double (menuX + 8)) (to_double (menuY + 30)) 12.0 theme.cellText)
+                this.pushText(dl "2  Sort descending" (to_double (menuX + 8)) (to_double (menuY + 50)) 12.0 theme.cellText)
+                this.pushText(dl "3  Filter unique values" (to_double (menuX + 8)) (to_double (menuY + 70)) 12.0 theme.cellText)
+                this.pushText(dl "4  Clear filter" (to_double (menuX + 8)) (to_double (menuY + 90)) 12.0 theme.cellText)
+                this.pushText(dl "5  Auto-fit width" (to_double (menuX + 8)) (to_double (menuY + 110)) 12.0 theme.cellText)
+                this.pushText(dl "6  Wider  (+20)" (to_double (menuX + 8)) (to_double (menuY + 130)) 12.0 theme.cellText)
+                this.pushText(dl "7  Narrower  (-20)" (to_double (menuX + 8)) (to_double (menuY + 150)) 12.0 theme.cellText)
+                this.pushRect(dl (to_double (menuX + 8)) (to_double (menuY + 168)) (to_double (mw - 16)) 1.0 theme.gridLine)
+                this.pushText(dl "8  Insert column left" (to_double (menuX + 8)) (to_double (menuY + 172)) 12.0 theme.cellText)
+                this.pushText(dl "9  Insert column right" (to_double (menuX + 8)) (to_double (menuY + 192)) 12.0 theme.cellText)
+                this.pushText(dl "10  Delete column" (to_double (menuX + 8)) (to_double (menuY + 212)) 12.0 theme.cellText)
+                this.pushText(dl "11  Move left" (to_double (menuX + 8)) (to_double (menuY + 232)) 12.0 theme.cellText)
+                this.pushText(dl "12  Move right" (to_double (menuX + 8)) (to_double (menuY + 252)) 12.0 theme.cellText)
+            }
         }
 
         ; status bar
@@ -826,7 +923,11 @@ class GridView {
             if (c.kind == 3) {
                 def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
                 this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
-                ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                if (c.rotate == 0.0) {
+                    ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                } {
+                    ctx.textRotated(c.text (to_int c.x) (to_int c.y) c.fontSize col3 c.rotate)
+                }
             }
             ; Vector ink: a chart's bars, wedges and grid lines arrive as
             ; flattened rings, exactly as the WebGL backend gets them. Without

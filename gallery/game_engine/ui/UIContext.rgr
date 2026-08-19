@@ -434,6 +434,88 @@ class UIContext {
         tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))
     }
 
+    ; A line of text turned about the centre of its own box, which is the same
+    ; anchor every EVG backend rotates about — so a label lands in the same
+    ; place here as it does in the browser. Positive degrees turn clockwise, as
+    ; SVG does with y pointing down.
+    ;
+    ; The glyphs are not re-rasterized at an angle: the line is rasterized flat
+    ; (through the same cache every other string goes through) and then sampled
+    ; back through the inverse rotation. Nearest-neighbour is enough for a
+    ; header label and costs nothing to get right.
+    fn textRotated:void (s:string x:int y:int size:double col:EVGColor degrees:double) {
+        if (degrees == 0.0) {
+            this.text(s x y size col)
+            return
+        }
+        if ((strlen s) == 0) {
+            return
+        }
+        def alpha:int (to_int ((col.alpha()) * 255.0))
+        def line:UICachedLine (tr.getCachedLine(s size (col.red()) (col.green()) (col.blue()) alpha))
+        def sw:int line.img.width
+        def sh:int line.img.height
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        def rad:double ((degrees * 3.14159265358979) / 180.0)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        def hw:double ((to_double sw) / 2.0)
+        def hh:double ((to_double sh) / 2.0)
+        def cx:double ((to_double x) + hw)
+        def cy:double ((to_double y) + hh)
+        def acs:double cs
+        if (acs < 0.0) {
+            acs = (0.0 - acs)
+        }
+        def asn:double sn
+        if (asn < 0.0) {
+            asn = (0.0 - asn)
+        }
+        def ex:double ((acs * hw) + (asn * hh))
+        def ey:double ((asn * hw) + (acs * hh))
+        def x0:int (to_int (cx - ex))
+        def x1:int ((to_int (cx + ex)) + 1)
+        def y0:int (to_int (cy - ey))
+        def y1:int ((to_int (cy + ey)) + 1)
+        def dy:int y0
+        while (dy <= y1) {
+            def dx:int x0
+            while (dx <= x1) {
+                def px:double (((to_double dx) + 0.5) - cx)
+                def py:double (((to_double dy) + 0.5) - cy)
+                ; Inverse rotation: the destination pixel asks which source
+                ; pixel landed on it.
+                def su:double (((px * cs) + (py * sn)) + hw)
+                def sv:double ((((0.0 - px) * sn) + (py * cs)) + hh)
+                if (su >= 0.0) {
+                    if (sv >= 0.0) {
+                        def sx:int (to_int su)
+                        def sy:int (to_int sv)
+                        if (sx < sw) {
+                            if (sy < sh) {
+                                def off:int (((sy * sw) + sx) * 4)
+                                def sa:int (buffer_get line.img.pixels (off + 3))
+                                if (sa > 0) {
+                                    def sr:int (buffer_get line.img.pixels off)
+                                    def sg:int (buffer_get line.img.pixels (off + 1))
+                                    def sb:int (buffer_get line.img.pixels (off + 2))
+                                    this.blendPixel(dx dy sr sg sb sa)
+                                }
+                            }
+                        }
+                    }
+                }
+                dx = (dx + 1)
+            }
+            dy = (dy + 1)
+        }
+    }
+
     fn textWrapped:int (s:string x:int y:int size:double maxWidth:double col:EVGColor) {
         return (tr.drawText(canvas s x y size maxWidth (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0))))
     }

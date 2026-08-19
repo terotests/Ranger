@@ -61,6 +61,8 @@ npm run datagrid:window
 - Conditional formatting: colorScale + cellIs paint overlay
 - **Charts from a selection**: eight Vega-Lite chart types through
   [Vela](../vela/README.md), floating in draggable, resizable windows
+- **Find and replace** across values or formulas, one sheet or all
+- **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
 - Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`,
@@ -111,7 +113,23 @@ snapshots every formula in the sheet, and undo restores that text wholesale. A
 delete also keeps the removed column's values, formulas, style ids and width,
 so one Ctrl+Z brings the column back intact.
 
-Rows are not covered yet — the same machinery, transposed, is the next step.
+### Row structure
+
+The same machinery, transposed, and reached from the **row header**: click one
+and its own menu opens.
+
+| Row menu | Does |
+| --- | --- |
+| 1 | Select the row |
+| 2 / 3 / 4 | Auto-fit height, taller (+10), shorter (−10) |
+| 5 / 6 | Insert a row above / below |
+| 7 | Delete the row |
+| 8 / 9 | Move it up / down |
+
+Everything the column ops guarantee holds for rows: heights and hidden flags
+travel with the line, merges follow, formulas across the whole workbook are
+repaired, a reference into a deleted row becomes `#REF!`, and one Ctrl+Z puts
+the row back with its values, formulas, styles and height.
 
 ### Column and row sizing
 
@@ -145,6 +163,8 @@ snapshot — no DOM or SDL below the app.
 | Home / Ctrl+Home | First column of the row / A1 | Caret to start |
 | End / Ctrl+End | Last used column of the row / bottom-right of the used range | Caret to end |
 | Ctrl+Space / Shift+Space | Select the column / the row | — |
+| Ctrl+F / Ctrl+H | Find and replace | — |
+| Ctrl+M | Chart the selection | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
 | ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
 | Delete | Clear the selection | Delete at the caret |
@@ -224,6 +244,24 @@ The host stays in charge: it passes the `UITextRenderer` it already has,
 forwards the pointer and keys it already receives, and appends the window's
 commands to its own display list.
 
+## Find and replace
+
+`Ctrl+F` (or `Ctrl+H`) opens it. The dialog has real text fields — the window
+layer grew a one-line input control for this, with a caret, Tab between fields
+and the keyboard captured while it is up.
+
+| Option | Means |
+| --- | --- |
+| Match case | `Alpha` no longer matches `alpha` |
+| Entire cell | The cell must be exactly the search text, not merely contain it |
+| Search formulas | Look at `=A1+B1` rather than at the `5` it shows |
+| All sheets | Carry on into the next sheet, and switch to it on a hit |
+
+*Find next* walks row-major from the active cell and wraps. *Replace* changes
+the cell it is on and moves to the next; *Replace all* runs the whole scan
+inside one transaction, so the batch is a single Ctrl+Z. A hit inside a formula
+is written back to the formula and recalculates.
+
 ## Charts
 
 Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
@@ -302,13 +340,13 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   27.0 / 41   65.9%     done 23   partial 8   todo 10
+TOTAL   30.0 / 41   73.2%     done 27   partial 6   todo 8
 ```
 
 `-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
 the score can gate CI once it is where you want it. The biggest gaps left are
-xlsx **export**, insert / delete for **rows**, rich text inside a cell, images,
-comments and find-and-replace.
+xlsx **export**, rich text inside a cell, images, comments and data
+verification.
 
 ## Architecture invariant
 

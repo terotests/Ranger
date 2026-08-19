@@ -63,6 +63,20 @@ class GridApp {
     ; themselves live on the view's ChartLayer, because that is what paints
     ; them; this side only decides what they are.
     def chartDialog:EVGWindow (new EVGWindow)
+    ; Find and replace. The strings live here rather than in the dialog so a
+    ; search survives closing it, and so the whole thing can be driven without
+    ; one — which is how it is tested.
+    def findDialog:EVGWindow (new EVGWindow)
+    def findQuery:string ""
+    def replaceWith:string ""
+    def findMatchCase:boolean false
+    def findWholeCell:boolean false
+    ; Excel's "look in": formulas or values. A cell holding =A1+B1 shows 5 and
+    ; contains "A1+B1", and which of those you meant to search is a real
+    ; question rather than an implementation detail.
+    def findInFormulas:boolean true
+    def findAllSheets:boolean false
+    def findStatus:string ""
     def pendingChart:GridChart (new GridChart)
     ; The chart the picker is editing, or 0 when it is making a new one.
     def chartEditId:int 0
@@ -289,6 +303,16 @@ class GridApp {
     ; into the edited sheet — including cross-sheet references naming it — and
     ; rebuilding the dependency graph afterwards.
     fn adjustFormulasForColumns:void (at:int delta:int) {
+        this.adjustFormulasFor(true at delta)
+    }
+
+    ; Rows and columns repair the same way — the only difference is which
+    ; coordinate of a reference moves — so they share one walk.
+    fn adjustFormulasForRows:void (at:int delta:int) {
+        this.adjustFormulasFor(false at delta)
+    }
+
+    fn adjustFormulasFor:void (columns:boolean at:int delta:int) {
         def sheetName:string model.name
         def si:int 0
         def sn:int (book.sheetCount())
@@ -307,7 +331,12 @@ class GridApp {
                 if (sameSheet == false) {
                     nameForMatch = sheetName
                 }
-                def rewritten:string (FormulaParser.adjustColumns(expr nameForMatch at delta))
+                def rewritten:string ""
+                if columns {
+                    rewritten = (FormulaParser.adjustColumns(expr nameForMatch at delta))
+                } {
+                    rewritten = (FormulaParser.adjustRows(expr nameForMatch at delta))
+                }
                 if ((strlen rewritten) > 0) {
                     if (rewritten != expr) {
                         set sheet.formulas key rewritten
@@ -432,6 +461,110 @@ class GridApp {
     ; --- format painter -------------------------------------------------------
     ; Ctrl+Shift+C picks up the active cell's formatting; the next selection it
     ; is applied to gets it, and the brush disarms — like every office app.
+    ; --- row structure --------------------------------------------------------
+    ; The column actions, transposed. Same transaction, same workbook-wide
+    ; formula repair, same one-step undo.
+    fn insertRow:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(4 at 0)
+        model.insertRowRaw(at)
+        model.endTx()
+        this.adjustFormulasForRows(at 1)
+        this.afterStructuralChange()
+    }
+
+    fn deleteRow:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at >= model.rowCount) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(5 at 0)
+        model.deleteRowRaw(at)
+        model.endTx()
+        this.adjustFormulasForRows(at -1)
+        this.afterStructuralChange()
+    }
+
+    fn moveRow:void (from:int to:int) {
+        if (from == to) {
+            return
+        }
+        if (from < 0) {
+            return
+        }
+        if (from >= model.rowCount) {
+            return
+        }
+        if (to < 0) {
+            return
+        }
+        if (to >= model.rowCount) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(6 from to)
+        model.moveRowRaw(from to)
+        model.endTx()
+        this.adjustFormulasForRows(from -1)
+        this.adjustFormulasForRows(to 1)
+        this.afterStructuralChange()
+    }
+
+    fn insertRowAboveSelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        this.insertRow(a.row)
+    }
+
+    fn insertRowBelowSelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        this.insertRow((b.row + 1))
+    }
+
+    fn deleteSelectedRows:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def count:int ((b.row - a.row) + 1)
+        def i:int 0
+        while (i < count) {
+            this.deleteRow(a.row)
+            i = (i + 1)
+        }
+        sel.anchor.row = a.row
+        sel.active.row = a.row
+        def p:CellPos (CellPos.create(sel.active.row sel.active.col))
+        model.clampPos(p)
+        sel.setActive(p.row p.col)
+        sel.collapseToActive()
+    }
+
+    fn moveSelectedRow:void (delta:int) {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def from:int a.row
+        def to:int (from + delta)
+        if (to < 0) {
+            return
+        }
+        if (to >= model.rowCount) {
+            return
+        }
+        this.moveRow(from to)
+        sel.anchor.row = to
+        sel.active.row = to
+    }
+
     fn copyFormat:void () {
         def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
         formatBrush = (st.copy())
@@ -524,7 +657,23 @@ class GridApp {
 
     fn openHeaderMenu:void (col:int px:int py:int) {
         view.menuOpen = true
+        view.menuKind = 0
         view.menuCol = col
+        view.menuRow = -1
+        view.menuH = 270
+        view.menuX = px
+        view.menuY = py
+    }
+
+    ; The row header's own menu. Rows have no sort or filter — those belong to
+    ; a column — so its first item is the selection a click on the header would
+    ; have made, and the rest are the structural actions.
+    fn openRowMenu:void (row:int px:int py:int) {
+        view.menuOpen = true
+        view.menuKind = 1
+        view.menuRow = row
+        view.menuCol = -1
+        view.menuH = 212
         view.menuX = px
         view.menuY = py
     }
@@ -532,6 +681,16 @@ class GridApp {
     fn closeHeaderMenu:void () {
         view.menuOpen = false
         view.menuCol = -1
+        view.menuRow = -1
+        view.menuKind = 0
+        view.menuH = 270
+    }
+
+    fn menuItemCount:int () {
+        if (view.menuKind == 1) {
+            return 9
+        }
+        return 12
     }
 
     fn hitHeaderMenu:int (px:int py:int) {
@@ -550,47 +709,25 @@ class GridApp {
         if (py >= (view.menuY + view.menuH)) {
             return -1
         }
+        ; Rows are 20px on a 26px title, which is what both menus are painted
+        ; at. 0 means "inside the popup but not on an item", which still counts
+        ; as a hit — it must not fall through to the sheet.
         def ly:int (py - view.menuY)
-        if ((ly >= 26) && (ly < 46)) {
-            return 1
+        if (ly < 26) {
+            return 0
         }
-        if ((ly >= 46) && (ly < 66)) {
-            return 2
+        def idx:int ((idiv (ly - 26) 20) + 1)
+        if (idx > (this.menuItemCount())) {
+            return 0
         }
-        if ((ly >= 66) && (ly < 86)) {
-            return 3
-        }
-        if ((ly >= 86) && (ly < 106)) {
-            return 4
-        }
-        if ((ly >= 106) && (ly < 126)) {
-            return 5
-        }
-        if ((ly >= 126) && (ly < 146)) {
-            return 6
-        }
-        if ((ly >= 146) && (ly < 166)) {
-            return 7
-        }
-        if ((ly >= 166) && (ly < 186)) {
-            return 8
-        }
-        if ((ly >= 186) && (ly < 206)) {
-            return 9
-        }
-        if ((ly >= 206) && (ly < 226)) {
-            return 10
-        }
-        if ((ly >= 226) && (ly < 246)) {
-            return 11
-        }
-        if ((ly >= 246) && (ly < 270)) {
-            return 12
-        }
-        return 0
+        return idx
     }
 
     fn runHeaderMenu:void (action:int) {
+        if (view.menuKind == 1) {
+            this.runRowMenu(action)
+            return
+        }
         def col:int view.menuCol
         if (action == 1) {
             this.applySort(col true)
@@ -640,6 +777,44 @@ class GridApp {
         this.closeHeaderMenu()
     }
 
+    fn runRowMenu:void (action:int) {
+        def row:int view.menuRow
+        if (row < 0) {
+            this.closeHeaderMenu()
+            return
+        }
+        if (action == 1) {
+            this.selectRow(row)
+        }
+        if (action == 2) {
+            this.autoFitRow(row)
+        }
+        if (action == 3) {
+            model.setRowHeight(row ((model.rowHeight(row)) + 10))
+            this.afterStructuralChange()
+        }
+        if (action == 4) {
+            model.setRowHeight(row ((model.rowHeight(row)) - 10))
+            this.afterStructuralChange()
+        }
+        if (action == 5) {
+            this.insertRow(row)
+        }
+        if (action == 6) {
+            this.insertRow((row + 1))
+        }
+        if (action == 7) {
+            this.deleteRow(row)
+        }
+        if (action == 8) {
+            this.moveRow(row (row - 1))
+        }
+        if (action == 9) {
+            this.moveRow(row (row + 1))
+        }
+        this.closeHeaderMenu()
+    }
+
     ; --- dialogs --------------------------------------------------------------
     ; Paste Special, built on the shared EVGWindow layer. Control ids:
     ;   1..4 the mode radios, 10 OK, 11 Cancel.
@@ -671,6 +846,9 @@ class GridApp {
         chartDialog.w = 300
         chartDialog.title = "Chart"
         windows.add(chartDialog)
+        findDialog.w = 340
+        findDialog.title = "Find and replace"
+        windows.add(findDialog)
         dialogsReady = true
     }
 
@@ -931,6 +1109,289 @@ class GridApp {
         return (py < (by + bh))
     }
 
+    ; --- find and replace -----------------------------------------------------
+    ; What a search sees in a cell: the formula it was written as, or the value
+    ; it shows.
+    fn searchTextAt:string (m:SpreadsheetModel r:int c:int) {
+        if findInFormulas {
+            def f:string (m.getFormula(r c))
+            if ((strlen f) > 0) {
+                return f
+            }
+        }
+        return (m.getCell(r c))
+    }
+
+    fn matchesText:boolean (hay:string) {
+        if ((strlen findQuery) == 0) {
+            return false
+        }
+        def a:string hay
+        def b:string findQuery
+        if (findMatchCase == false) {
+            a = (FormulaFunctions.lower(a))
+            b = (FormulaFunctions.lower(b))
+        }
+        if findWholeCell {
+            return (a == b)
+        }
+        return (GridApp.indexOfSub(a b) >= 0)
+    }
+
+    sfn indexOfSub:int (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n == 0) {
+            return -1
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring hay i (i + n)) == needle) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Every occurrence in one string, replaced. Case-insensitively when the
+    ; search is: the text that was there decides the case of what is left, so
+    ; only the matched span is swapped.
+    fn replacedText:string (hay:string) {
+        def out:string ""
+        def rest:string hay
+        def needle:string findQuery
+        def n:int (strlen needle)
+        if (n == 0) {
+            return hay
+        }
+        def guard:int 0
+        while (guard < 4096) {
+            def look:string rest
+            def find:string needle
+            if (findMatchCase == false) {
+                look = (FormulaFunctions.lower(look))
+                find = (FormulaFunctions.lower(find))
+            }
+            def at:int (GridApp.indexOfSub(look find))
+            if (at < 0) {
+                return (out + rest)
+            }
+            out = ((out + (substring rest 0 at)) + replaceWith)
+            rest = (substring rest (at + n) (strlen rest))
+            guard = (guard + 1)
+        }
+        return (out + rest)
+    }
+
+    ; The sheets a search covers, in order, starting with the active one.
+    fn searchSheetCount:int () {
+        if findAllSheets {
+            return (book.sheetCount())
+        }
+        return 1
+    }
+
+    fn searchSheetAt:SpreadsheetModel (i:int) {
+        if (findAllSheets == false) {
+            return model
+        }
+        def n:int (book.sheetCount())
+        def idx:int ((book.activeIndex + i) % n)
+        return (book.sheetAt(idx))
+    }
+
+    fn searchSheetIndex:int (i:int) {
+        if (findAllSheets == false) {
+            return book.activeIndex
+        }
+        def n:int (book.sheetCount())
+        return ((book.activeIndex + i) % n)
+    }
+
+    ; Walk from just after the active cell to the end, then wrap. Returns true
+    ; when the selection landed on a match.
+    fn findNext:boolean () {
+        if ((strlen findQuery) == 0) {
+            findStatus = "nothing to find"
+            return false
+        }
+        def sheets:int (this.searchSheetCount())
+        def si:int 0
+        while (si < sheets) {
+            def sheet:SpreadsheetModel (this.searchSheetAt(si))
+            def startR:int 0
+            def startC:int 0
+            def skipFirst:boolean false
+            if (si == 0) {
+                startR = sel.active.row
+                startC = sel.active.col
+                skipFirst = true
+            }
+            def lastR:int (sheet.usedRow())
+            def lastC:int (sheet.usedCol())
+            def total:int ((lastR + 1) * (lastC + 1))
+            if (total > 0) {
+                def begin:int ((startR * (lastC + 1)) + startC)
+                if skipFirst {
+                    begin = (begin + 1)
+                }
+                def step:int 0
+                while (step < total) {
+                    def at:int ((begin + step) % total)
+                    def r:int (idiv at (lastC + 1))
+                    def c:int (at % (lastC + 1))
+                    if (this.matchesText((this.searchTextAt(sheet r c)))) {
+                        def target:int (this.searchSheetIndex(si))
+                        if (target != book.activeIndex) {
+                            this.setActiveSheet(target)
+                        }
+                        this.moveActive(r c false)
+                        findStatus = ("found " + (SpreadsheetModel.cellLabel(r c)))
+                        return true
+                    }
+                    step = (step + 1)
+                }
+            }
+            si = (si + 1)
+        }
+        findStatus = ("no match for '" + findQuery + "'")
+        return false
+    }
+
+    ; Replace in the active cell if it matches, then move on — Excel's Replace.
+    fn replaceCurrent:boolean () {
+        def r:int sel.active.row
+        def c:int sel.active.col
+        def before:string (this.searchTextAt(model r c))
+        if ((this.matchesText(before)) == false) {
+            return (this.findNext())
+        }
+        def after:string (this.replacedText(before))
+        model.beginTx()
+        this.writeSearchResult(model r c after)
+        model.endTx()
+        this.syncTouched()
+        findStatus = ("replaced in " + (SpreadsheetModel.cellLabel(r c)))
+        this.findNext()
+        return true
+    }
+
+    ; A search hit is written back the way it was read: into the formula when
+    ; the formula is what matched, into the value otherwise.
+    fn writeSearchResult:void (m:SpreadsheetModel r:int c:int after:string) {
+        def wasFormula:boolean false
+        if findInFormulas {
+            wasFormula = ((strlen (m.getFormula(r c))) > 0)
+        }
+        if wasFormula {
+            m.applyEdit(r c (m.getCell(r c)) after)
+        } {
+            m.applyEdit(r c after "")
+        }
+    }
+
+    fn replaceAll:int () {
+        if ((strlen findQuery) == 0) {
+            findStatus = "nothing to find"
+            return 0
+        }
+        def count:int 0
+        def sheets:int (this.searchSheetCount())
+        def si:int 0
+        model.beginTx()
+        while (si < sheets) {
+            def sheet:SpreadsheetModel (this.searchSheetAt(si))
+            def lastR:int (sheet.usedRow())
+            def lastC:int (sheet.usedCol())
+            def r:int 0
+            while (r <= lastR) {
+                def c:int 0
+                while (c <= lastC) {
+                    def before:string (this.searchTextAt(sheet r c))
+                    if (this.matchesText(before)) {
+                        this.writeSearchResult(sheet r c (this.replacedText(before)))
+                        count = (count + 1)
+                    }
+                    c = (c + 1)
+                }
+                r = (r + 1)
+            }
+            si = (si + 1)
+        }
+        model.endTx()
+        this.syncTouched()
+        engine.rebuildAll()
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+        findStatus = ((("replaced " + (to_string count)) + " of '") + findQuery + "'")
+        return count
+    }
+
+    ; Ids: 501 find, 502 replace, 503..506 the options, 511..514 the buttons.
+    fn openFindDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        findDialog.title = "Find and replace"
+        findDialog.w = 340
+        findDialog.labelW = 92
+        findDialog.reset()
+        findDialog.addInput(501 "Find" findQuery)
+        findDialog.addInput(502 "Replace with" replaceWith)
+        findDialog.addSeparator()
+        findDialog.beginColumns(2)
+        findDialog.addCheckbox(503 "Match case" findMatchCase)
+        findDialog.addCheckbox(504 "Entire cell" findWholeCell)
+        findDialog.addCheckbox(505 "Search formulas" findInFormulas)
+        findDialog.addCheckbox(506 "All sheets" findAllSheets)
+        findDialog.endColumns()
+        if ((strlen findStatus) > 0) {
+            findDialog.addLabel(findStatus)
+        }
+        def ids:[int]
+        def labels:[string]
+        push ids 511
+        push labels "Close"
+        push ids 512
+        push labels "Replace all"
+        push ids 513
+        push labels "Replace"
+        push ids 514
+        push labels "Find next"
+        findDialog.addButtonRow(ids labels 514)
+        findDialog.finish()
+        def px:int (grid.x + (idiv (W - findDialog.w) 2))
+        def py:int (grid.y + 60)
+        findDialog.openWithin(px py W H)
+        windows.raise(findDialog)
+        findDialog.focusedId = 501
+        view.focused = true
+    }
+
+    ; Read the fields back, then rebuild the dialog so its status line shows
+    ; what happened.
+    fn syncFindDialog:void () {
+        findQuery = (findDialog.inputValue(501))
+        replaceWith = (findDialog.inputValue(502))
+        findMatchCase = (findDialog.isChecked(503))
+        findWholeCell = (findDialog.isChecked(504))
+        findInFormulas = (findDialog.isChecked(505))
+        findAllSheets = (findDialog.isChecked(506))
+    }
+
+    fn refreshFindDialog:void () {
+        def keepX:int findDialog.x
+        def keepY:int findDialog.y
+        def keepFocus:int findDialog.focusedId
+        this.openFindDialog()
+        findDialog.x = keepX
+        findDialog.y = keepY
+        findDialog.focusedId = keepFocus
+    }
+
     fn openPasteSpecial:void () {
         this.buildDialogs()
         ; Reflect the current default so the dialog opens on "All".
@@ -971,6 +1432,15 @@ class GridApp {
             windows.handleKey((input.keyAt(ki)) (UIKey.escape()) (UIKey.enter()))
             ki = (ki + 1)
         }
+        ; While a modal dialog is up the keyboard is its own: typing goes into
+        ; whatever field has focus, not into the sheet behind it.
+        if blocking {
+            if (input.ctrlDown == false) {
+                if (input.hasText()) {
+                    windows.handleText(input.textInput)
+                }
+            }
+        }
         if (pasteDialog.activated == 10) {
             def chosen:int (pasteDialog.selectedInGroup(1))
             def mode:int 0
@@ -1005,6 +1475,24 @@ class GridApp {
             }
             chartDialog.close()
             chartEditId = 0
+        }
+        if (findDialog.activated > 0) {
+            this.syncFindDialog()
+            if (findDialog.activated == 514) {
+                this.findNext()
+                this.refreshFindDialog()
+            }
+            if (findDialog.activated == 513) {
+                this.replaceCurrent()
+                this.refreshFindDialog()
+            }
+            if (findDialog.activated == 512) {
+                this.replaceAll()
+                this.refreshFindDialog()
+            }
+            if (findDialog.activated == 511) {
+                findDialog.close()
+            }
         }
         this.pollChartWindows()
         ; Dragging and resizing happened inside the window layer; the charts
@@ -1840,6 +2328,21 @@ class GridApp {
                     }
                     this.openHeaderMenu(hit.col input.pointerX (grid.y + grid.formulaBarH + grid.colHeaderH))
                 } {
+                if ((hit.col == -2) && (hit.row >= 0)) {
+                    ; Row header → the row's own popup.
+                    view.focused = true
+                    if editing {
+                        this.commitEdit()
+                    }
+                    def menuTop:int input.pointerY
+                    if ((menuTop + view.menuH) > H) {
+                        menuTop = (H - (view.menuH + 6))
+                    }
+                    if (menuTop < grid.y) {
+                        menuTop = grid.y
+                    }
+                    this.openRowMenu(hit.row (grid.x + grid.rowHeaderW) menuTop)
+                } {
                     if view.menuOpen {
                         this.closeHeaderMenu()
                     }
@@ -1858,6 +2361,7 @@ class GridApp {
                             dragging = true
                         }
                     }
+                }
                 }
             }
         }
@@ -2033,6 +2537,18 @@ class GridApp {
                     } {
                         this.pasteClipboard()
                     }
+                }
+                if ((ch == 102) || (ch == 70)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openFindDialog()
+                }
+                if ((ch == 104) || (ch == 72)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openFindDialog()
                 }
                 ; Ctrl+M makes a chart of the selection. Excel's own chart
                 ; keys (F11, Alt+F1) are not keys this input layer carries, and

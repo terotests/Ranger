@@ -73,7 +73,10 @@ class SpreadsheetUndoOp {
     def beforeStyle:int -1
     def afterStyle:int -1
     def touchStyle:boolean false
-    ; Structural op: 0 none, 1 insert column, 2 delete column, 3 move column.
+    ; Structural op: 0 none, 1 insert column, 2 delete column, 3 move column,
+    ; 4 insert row, 5 delete row, 6 move row. Rows and columns share the
+    ; snapshot fields below: what they hold is "the line that was lifted out",
+    ; and which direction it ran is what `structKind` says.
     def structKind:int 0
     def structAt:int 0
     def structTo:int 0
@@ -613,6 +616,202 @@ class SpreadsheetModel {
             set_at colHidden to hidden
         }
         colGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
+    fn snapshotRow:void (row:int outValues:[string] outFormulas:[string] outStyles:[int]) {
+        clear outValues
+        clear outFormulas
+        clear outStyles
+        def last:int (this.usedCol())
+        def c:int 0
+        while (c <= last) {
+            push outValues (this.getCell(row c))
+            push outFormulas (this.getFormula(row c))
+            push outStyles (this.getCellStyleId(row c))
+            c = (c + 1)
+        }
+    }
+
+    fn restoreRow:void (row:int values:[string] formulas:[string] styles:[int]) {
+        def n:int (array_length values)
+        def c:int 0
+        while (c < n) {
+            this.setCellRaw(row c (itemAt values c))
+            this.setFormulaText(row c (itemAt formulas c))
+            def k:string (this.cellKey(row c))
+            set cellStyleIds k (itemAt styles c)
+            c = (c + 1)
+        }
+    }
+
+    fn remapMergesForRow:void (at:int delta:int) {
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length merges)) {
+            def m:string (itemAt merges i)
+            def parts:[string] (strsplit m ",")
+            if ((array_length parts) >= 4) {
+                def r1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                def c1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                def r2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
+                def c2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
+                def drop:boolean false
+                if (delta < 0) {
+                    if ((r1 == at) && (r2 == at)) {
+                        drop = true
+                    }
+                }
+                if (r1 >= at) {
+                    r1 = (r1 + delta)
+                }
+                if (r2 >= at) {
+                    r2 = (r2 + delta)
+                }
+                if (r2 < r1) {
+                    drop = true
+                }
+                if (drop == false) {
+                    push kept ((((to_string r1) + ",") + (to_string c1) + ",") + (to_string r2) + "," + (to_string c2))
+                }
+            }
+            i = (i + 1)
+        }
+        clear merges
+        def j:int 0
+        while (j < (array_length kept)) {
+            push merges (itemAt kept j)
+            j = (j + 1)
+        }
+    }
+
+    ; The column ops, transposed. Every remark on those applies here for the
+    ; same reason: bottom to top so a destination is never read afterwards,
+    ; geometry spliced BEFORE the count changes so `ensureGeometry` does not
+    ; decide the arrays are stale and reset every height, and the vacated line
+    ; cleared only when the shift actually reached it.
+    fn insertRowRaw:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at > rowCount) {
+            return
+        }
+        def lastR:int (this.usedRow())
+        def lastC:int (this.usedCol())
+        def r:int lastR
+        while (r >= at) {
+            def c:int 0
+            while (c <= lastC) {
+                this.moveCellRaw(r c (r + 1) c)
+                c = (c + 1)
+            }
+            r = (r - 1)
+        }
+        def c2:int 0
+        while (c2 <= lastC) {
+            this.clearCellAt(at c2)
+            c2 = (c2 + 1)
+        }
+        if (at < (array_length rowHeights)) {
+            insert rowHeights at defaultRowH
+        } {
+            push rowHeights defaultRowH
+        }
+        if (at < (array_length rowHidden)) {
+            insert rowHidden at false
+        } {
+            push rowHidden false
+        }
+        rowCount = (rowCount + 1)
+        if (usedMaxRow >= at) {
+            usedMaxRow = (usedMaxRow + 1)
+        }
+        this.remapMergesForRow(at 1)
+        rowGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
+    fn deleteRowRaw:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at >= rowCount) {
+            return
+        }
+        if (rowCount <= 1) {
+            return
+        }
+        def lastR:int (this.usedRow())
+        def lastC:int (this.usedCol())
+        def r:int at
+        while (r < lastR) {
+            def c:int 0
+            while (c <= lastC) {
+                this.moveCellRaw((r + 1) c r c)
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        if (at <= lastR) {
+            def c3:int 0
+            while (c3 <= lastC) {
+                this.clearCellAt(lastR c3)
+                c3 = (c3 + 1)
+            }
+        }
+        if (at < (array_length rowHeights)) {
+            remove_index rowHeights at
+        }
+        if (at < (array_length rowHidden)) {
+            remove_index rowHidden at
+        }
+        rowCount = (rowCount - 1)
+        if (usedMaxRow >= at) {
+            if (usedMaxRow > 0) {
+                usedMaxRow = (usedMaxRow - 1)
+            }
+        }
+        this.remapMergesForRow(at -1)
+        rowGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
+    fn moveRowRaw:void (from:int to:int) {
+        if (from == to) {
+            return
+        }
+        if (from < 0) {
+            return
+        }
+        if (from >= rowCount) {
+            return
+        }
+        if (to < 0) {
+            return
+        }
+        if (to >= rowCount) {
+            return
+        }
+        def vals:[string]
+        def fmls:[string]
+        def sids:[int]
+        this.snapshotRow(from vals fmls sids)
+        def height:int (this.rowHeight(from))
+        def hidden:boolean (this.isRowHidden(from))
+        this.deleteRowRaw(from)
+        this.insertRowRaw(to)
+        this.restoreRow(to vals fmls sids)
+        if (to < (array_length rowHeights)) {
+            set_at rowHeights to height
+        }
+        if (to < (array_length rowHidden)) {
+            set_at rowHidden to hidden
+        }
+        rowGeomDirty = true
         this.ensureGeometry()
         version = (version + 1)
     }
@@ -1163,9 +1362,16 @@ class SpreadsheetModel {
         op.structAt = at
         op.structTo = to
         op.txId = curTx
-        op.colWidthSaved = (this.colWidth(at))
+        if (kind < 4) {
+            op.colWidthSaved = (this.colWidth(at))
+        } {
+            op.colWidthSaved = (this.rowHeight(at))
+        }
         if (kind == 2) {
             this.snapshotColumn(at op.colValues op.colFormulas op.colStyles)
+        }
+        if (kind == 5) {
+            this.snapshotRow(at op.colValues op.colFormulas op.colStyles)
         }
         this.snapshotFormulas(op.savedKeys op.savedTexts)
         push undoStack op
@@ -1186,6 +1392,15 @@ class SpreadsheetModel {
             if (op.structKind == 3) {
                 this.moveColumnRaw(op.structAt op.structTo)
             }
+            if (op.structKind == 4) {
+                this.insertRowRaw(op.structAt)
+            }
+            if (op.structKind == 5) {
+                this.deleteRowRaw(op.structAt)
+            }
+            if (op.structKind == 6) {
+                this.moveRowRaw(op.structAt op.structTo)
+            }
             return
         }
         if (op.structKind == 1) {
@@ -1198,6 +1413,17 @@ class SpreadsheetModel {
         }
         if (op.structKind == 3) {
             this.moveColumnRaw(op.structTo op.structAt)
+        }
+        if (op.structKind == 4) {
+            this.deleteRowRaw(op.structAt)
+        }
+        if (op.structKind == 5) {
+            this.insertRowRaw(op.structAt)
+            this.restoreRow(op.structAt op.colValues op.colFormulas op.colStyles)
+            this.setRowHeight(op.structAt op.colWidthSaved)
+        }
+        if (op.structKind == 6) {
+            this.moveRowRaw(op.structTo op.structAt)
         }
         ; Formula text is restored wholesale — see savedKeys.
         this.restoreFormulas(op.savedKeys op.savedTexts)

@@ -550,21 +550,32 @@ class EVGDisplayList {
 
     ; Two decimals is plenty for a pixel and keeps the payload small.
     sfn num:string (v:double) {
-        def scaled:int (to_int ((v * 100.0) + 0.5))
-        if (v < 0.0) {
-            scaled = (to_int ((v * 100.0) - 0.5))
+        ; Sign first, magnitude second. `to_int` FLOORS rather than truncating
+        ; here, so the old two-branch rounding turned -45 into "-46.99": the
+        ; scaled value floored to -4501 and then the integer divide floored
+        ; again. Every negative coordinate in every scene was off by one and a
+        ; bit — invisible until a rotation angle was written through it.
+        def neg:boolean (v < 0.0)
+        def av:double v
+        if neg {
+            av = (0.0 - v)
         }
-        def whole:int (to_int (scaled / 100))
+        def scaled:int (to_int ((av * 100.0) + 0.5))
+        def whole:int (idiv scaled 100)
         def frac:int (scaled - (whole * 100))
-        if (frac < 0) {
-            frac = (0 - frac)
-        }
         def fs:string (to_string frac)
         if (frac < 10) {
             fs = "0" + fs
         }
-        return ((to_string whole) + "." + fs)
+        def out:string ((to_string whole) + "." + fs)
+        if neg {
+            if (scaled > 0) {
+                out = ("-" + out)
+            }
+        }
+        return out
     }
+
 
     sfn jsonString:string (v:string) {
         def out:string "\""

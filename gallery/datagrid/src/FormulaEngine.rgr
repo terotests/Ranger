@@ -817,6 +817,76 @@ class FormulaParser {
         return broke
     }
 
+    ; The column walk, transposed. Same rules: a reference AT a deleted line
+    ; breaks, a reference past it shifts, and a range breaks only when its
+    ; whole span goes.
+    sfn adjustRowsNode:boolean (n:FormulaNode sheetName:string at:int delta:int) {
+        def broke:boolean false
+        if ((n.kind == 3) || (n.kind == 4)) {
+            def applies:boolean false
+            if ((strlen n.sheet) == 0) {
+                applies = true
+            } {
+                if (n.sheet == sheetName) {
+                    applies = true
+                }
+            }
+            if applies {
+                if (delta < 0) {
+                    if (n.kind == 3) {
+                        if (n.row == at) {
+                            broke = true
+                        }
+                    } {
+                        if ((n.row == at) && (n.row2 == at)) {
+                            broke = true
+                        }
+                    }
+                }
+                if (broke == false) {
+                    if (n.row >= at) {
+                        def nr:int (n.row + delta)
+                        if (nr < 0) {
+                            nr = 0
+                        }
+                        n.row = nr
+                    }
+                    if (n.kind == 4) {
+                        if (n.row2 >= at) {
+                            def nr2:int (n.row2 + delta)
+                            if (nr2 < 0) {
+                                nr2 = 0
+                            }
+                            n.row2 = nr2
+                        }
+                    }
+                }
+            }
+        }
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            if (FormulaParser.adjustRowsNode((itemAt n.kids i) sheetName at delta)) {
+                broke = true
+            }
+            i = (i + 1)
+        }
+        return broke
+    }
+
+    sfn adjustRows:string (expr:string sheetName:string at:int delta:int) {
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(expr))
+        if (p.ok == false) {
+            return ""
+        }
+        def broke:boolean (FormulaParser.adjustRowsNode(ast sheetName at delta))
+        if broke {
+            return "#REF!"
+        }
+        return (FormulaParser.serializeNode(ast))
+    }
+
     ; Returns the rewritten formula, or "#REF!" when a reference was destroyed.
     ; "" means the expression could not be parsed and should be left alone.
     sfn adjustColumns:string (expr:string sheetName:string at:int delta:int) {

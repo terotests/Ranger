@@ -127,7 +127,7 @@ XF = {"plain": 0}
 
 
 def add_xf(name, *, font=0, fill=0, border=0, numfmt=0, align=None,
-           valign=None, wrap=False):
+           valign=None, wrap=False, rotation=None):
     attrs = (f'numFmtId="{numfmt}" fontId="{font}" fillId="{fill}" '
              f'borderId="{border}" xfId="0" applyFont="1" applyFill="1" '
              f'applyBorder="1" applyNumberFormat="1"')
@@ -138,6 +138,9 @@ def add_xf(name, *, font=0, fill=0, border=0, numfmt=0, align=None,
         parts.append(f'vertical="{valign}"')
     if wrap:
         parts.append('wrapText="1"')
+    if rotation is not None:
+        # OOXML: 0..90 anticlockwise, 91..180 = 1..90 clockwise, 255 stacked.
+        parts.append(f'textRotation="{rotation}"')
     if parts:
         XFS.append(f'<xf {attrs} applyAlignment="1"><alignment {" ".join(parts)}/></xf>')
     else:
@@ -155,6 +158,10 @@ add_xf("b_bottomThick", border=len(BORDER_STYLES) + 1)
 add_xf("b_leftMedium", border=len(BORDER_STYLES) + 2)
 add_xf("b_topDashed", border=len(BORDER_STYLES) + 3)
 add_xf("b_default", border=len(BORDER_STYLES) + 4)
+add_xf("r_45", rotation=45, align="center")
+add_xf("r_90", rotation=90, align="center")
+add_xf("r_down45", rotation=135, align="center")
+add_xf("r_stacked", rotation=255, align="center")
 add_xf("f_bold", font=1)
 add_xf("f_italic", font=2)
 add_xf("f_underline", font=3)
@@ -248,6 +255,12 @@ put("A25", "Truncate", "f_bold")
 put("B25", "This long text is cut because the next cell is occupied")
 put("C25", "blocked")
 
+put("A27", "Rotation", "f_bold")
+put("B27", "45 up", "r_45")
+put("C27", "90 up", "r_90")
+put("D27", "45 down", "r_down45")
+put("B28", "stacked", "r_stacked")
+
 put("A19", "Format", "f_bold")
 put("B19", "0.25", "n_2dp", numeric=True)
 put("C19", "0.25", "n_pct", numeric=True)
@@ -260,7 +273,7 @@ for rnum in sorted(rows):
 
 SHEET = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <dimension ref="A1:D25"/>
+  <dimension ref="A1:D28"/>
   <cols>
     <col min="1" max="1" width="16" customWidth="1"/>
     <col min="2" max="4" width="18" customWidth="1"/>

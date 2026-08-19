@@ -32,6 +32,22 @@ class Checker {
 }
 
 class XlsxTest {
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn main:void () {
         def c:Checker (new Checker)
 
@@ -210,6 +226,32 @@ class XlsxTest {
         c.ok("italic differs from regular" (wItal != wReg))
         sApp.view.applyFaceStyled(false false)
         c.ok("renders the showcase" ((strlen (sApp.sceneJson())) > 500))
+
+        print "== text rotation =="
+        def rotApp:GridApp (new GridApp)
+        rotApp.init("gallery/pdf_writer/assets/fonts")
+        def rotOk:boolean (rotApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx"))
+        c.ok("styles showcase loaded" rotOk)
+        if rotOk {
+            def s45:CellStyle (rotApp.model.getCellStyle(26 1))
+            c.eqInt("45 up read from the file" s45.textRotation 45)
+            c.eqStr("which is 45 degrees anticlockwise" (to_string (s45.rotationDegrees())) "-45")
+            def s90:CellStyle (rotApp.model.getCellStyle(26 2))
+            c.eqInt("90 up read" s90.textRotation 90)
+            def sDown:CellStyle (rotApp.model.getCellStyle(26 3))
+            c.eqInt("135 read" sDown.textRotation 135)
+            c.eqStr("which is 45 degrees clockwise" (to_string (sDown.rotationDegrees())) "45")
+            def sStack:CellStyle (rotApp.model.getCellStyle(27 1))
+            c.ok("255 is stacked, not turned" (sStack.isStacked()))
+            c.eqStr("and so has no angle" (to_string (sStack.rotationDegrees())) "0")
+            ; The scene has to carry the angle, or only this test knows about
+            ; it. Scroll the turned cells into view first — the display list is
+            ; virtualized, so what is off screen is genuinely not in it.
+            rotApp.moveActive(27 1 false)
+            def scene:string (rotApp.sceneJson())
+            c.ok("a rotated run reaches the display list" (XlsxTest.hasSub(scene "\"rot\":-45")))
+            c.ok("and the clockwise one too" (XlsxTest.hasSub(scene "\"rot\":45")))
+        }
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

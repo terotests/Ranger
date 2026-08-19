@@ -31,6 +31,7 @@
 Import "EVGColor.rgr"
 Import "EVGDisplayList.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
+Import "../game_engine/ui/UIInput.rgr"
 
 class EVGControlKind {
     sfn label:int ()     { return 0 }
@@ -41,6 +42,9 @@ class EVGControlKind {
     ; A region the window reserves but does not paint: the owner draws into it
     ; once the frame is down. A chart is the reason it exists.
     sfn content:int ()   { return 5 }
+    ; A one-line text field. Find and replace is the reason it exists: a dialog
+    ; that cannot be typed into can only ask yes-or-no questions.
+    sfn input:int ()     { return 6 }
 }
 
 class EVGControl {
@@ -54,6 +58,9 @@ class EVGControl {
     def group:int 0
     def checked:boolean false
     def enabled:boolean true
+    ; Text fields only: what has been typed, and where the caret sits in it.
+    def value:string ""
+    def caret:int 0
     ; A default button also fires on Enter.
     def isDefault:boolean false
 
@@ -126,6 +133,12 @@ class EVGWindow {
     def colIndex:int 0
     def colTop:int 0
     def colRowH:int 0
+    ; Which text field has the keyboard, or -1. Clicking one focuses it; Tab
+    ; walks them in the order they were added.
+    def focusedId:int -1
+    ; How wide the label in front of a text field is. One number rather than a
+    ; per-field measurement, so the fields line up.
+    def labelW:int 96
 
     ; --- sticky panel ---------------------------------------------------------
     ; A close box in the title bar. `closeId` is what `activated` reports when
@@ -161,6 +174,7 @@ class EVGWindow {
         hot = -1
         columns = 1
         colIndex = 0
+        focusedId = -1
     }
 
     fn addControl:EVGControl (id:int kind:int text:string height:int) {
@@ -308,6 +322,64 @@ class EVGWindow {
             }
             i = (i + 1)
         }
+    }
+
+    ; A one-line text field with a label in front of it.
+    fn addInput:void (id:int label:string value:string) {
+        def c:EVGControl (this.addControl(id (EVGControlKind.input()) label (rowH + 4)))
+        c.value = value
+        c.caret = (strlen value)
+        if (focusedId < 0) {
+            focusedId = id
+        }
+    }
+
+    fn inputValue:string (id:int) {
+        def c:EVGControl (this.controlById(id))
+        return c.value
+    }
+
+    fn setInputValue:void (id:int value:string) {
+        def c:EVGControl (this.controlById(id))
+        c.value = value
+        c.caret = (strlen value)
+    }
+
+    fn focusedControl:EVGControl () {
+        return (this.controlById(focusedId))
+    }
+
+    ; Tab walks the text fields, wrapping. A dialog with one field has nowhere
+    ; to go, which is the same as staying put.
+    fn focusNext:void () {
+        def ids:[int]
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if (c.kind == (EVGControlKind.input())) {
+                if c.enabled {
+                    push ids c.id
+                }
+            }
+            i = (i + 1)
+        }
+        def n:int (array_length ids)
+        if (n == 0) {
+            return
+        }
+        def at:int -1
+        def k:int 0
+        while (k < n) {
+            if ((itemAt ids k) == focusedId) {
+                at = k
+            }
+            k = (k + 1)
+        }
+        def next:int (at + 1)
+        if (next >= n) {
+            next = 0
+        }
+        focusedId = (itemAt ids next)
     }
 
     ; Buttons sit on one row at the bottom, laid out right to left.
@@ -540,6 +612,9 @@ class EVGWindow {
             if (c.kind == (EVGControlKind.checkbox())) {
                 interactive = true
             }
+            if (c.kind == (EVGControlKind.input())) {
+                interactive = true
+            }
             if (interactive && c.enabled) {
                 if (c.contains(lx ly)) {
                     return c.id
@@ -608,6 +683,10 @@ class EVGWindow {
                 if (c.kind == (EVGControlKind.button())) {
                     activated = id
                 }
+                if (c.kind == (EVGControlKind.input())) {
+                    focusedId = id
+                    c.caret = (strlen c.value)
+                }
                 return true
             }
             if (this.containsPoint(px py)) {
@@ -647,7 +726,73 @@ class EVGWindow {
             }
             return true
         }
+        if (key == (UIKey.tab())) {
+            this.focusNext()
+            return true
+        }
+        def f:EVGControl (this.focusedControl())
+        if (f.kind == (EVGControlKind.input())) {
+            def n:int (strlen f.value)
+            if (f.caret > n) {
+                f.caret = n
+            }
+            if (key == (UIKey.backspace())) {
+                if (f.caret > 0) {
+                    f.value = ((substring f.value 0 (f.caret - 1)) + (substring f.value f.caret n))
+                    f.caret = (f.caret - 1)
+                }
+                return true
+            }
+            if (key == (UIKey.del())) {
+                if (f.caret < n) {
+                    f.value = ((substring f.value 0 f.caret) + (substring f.value (f.caret + 1) n))
+                }
+                return true
+            }
+            if (key == (UIKey.left())) {
+                if (f.caret > 0) {
+                    f.caret = (f.caret - 1)
+                }
+                return true
+            }
+            if (key == (UIKey.right())) {
+                if (f.caret < n) {
+                    f.caret = (f.caret + 1)
+                }
+                return true
+            }
+            if (key == (UIKey.home())) {
+                f.caret = 0
+                return true
+            }
+            if (key == (UIKey.end())) {
+                f.caret = n
+                return true
+            }
+        }
         return modal
+    }
+
+    ; Characters typed this frame. The host forwards what it would otherwise
+    ; have given the document.
+    fn handleText:boolean (s:string) {
+        if (visible == false) {
+            return false
+        }
+        if ((strlen s) == 0) {
+            return modal
+        }
+        def f:EVGControl (this.focusedControl())
+        if (f.kind != (EVGControlKind.input())) {
+            return modal
+        }
+        def n:int (strlen f.value)
+        if (f.caret > n) {
+            f.caret = n
+        }
+        f.value = (((substring f.value 0 f.caret) + s) + (substring f.value f.caret n))
+        f.caret = (f.caret + (strlen s))
+        return true
     }
 
     ; --- painting -------------------------------------------------------------
@@ -768,6 +913,29 @@ class EVGWindow {
                     this.rect(dl (cx + 3) (by2 + 3) (br - 6) (br - 6) theme.accent)
                 }
                 this.text(dl c.text (cx + br + 8) (cy + 4) fontSize theme.text tr false)
+            }
+            if (c.kind == (EVGControlKind.input())) {
+                def lw:int labelW
+                if ((strlen c.text) == 0) {
+                    lw = 0
+                }
+                if (lw > 0) {
+                    this.text(dl c.text cx (cy + 5) fontSize theme.text tr false)
+                }
+                def fx:int (cx + lw)
+                def fw:int (c.w - lw)
+                this.rect(dl fx cy fw c.h (EVGColor.rgb(255 255 255)))
+                def edge2:EVGColor theme.border
+                if (focusedId != c.id) {
+                    edge2 = theme.muted
+                }
+                this.frame(dl fx cy fw c.h 1.0 edge2)
+                this.text(dl c.value (fx + 5) (cy + 4) fontSize theme.text tr false)
+                if (focusedId == c.id) {
+                    def upto:string (substring c.value 0 c.caret)
+                    def caretX:int (to_int (tr.measureWidth(upto fontSize)))
+                    this.rect(dl ((fx + 5) + caretX) (cy + 3) 1 (c.h - 6) theme.text)
+                }
             }
             if (c.kind == (EVGControlKind.button())) {
                 def bg:EVGColor theme.buttonBg
@@ -928,6 +1096,20 @@ class EVGWindowManager {
             def wnd:EVGWindow (itemAt windows i)
             if wnd.visible {
                 if (wnd.handleKey(key escapeKey enterKey)) {
+                    return true
+                }
+            }
+            i = (i - 1)
+        }
+        return false
+    }
+
+    fn handleText:boolean (s:string) {
+        def i:int ((array_length windows) - 1)
+        while (i >= 0) {
+            def wnd:EVGWindow (itemAt windows i)
+            if wnd.visible {
+                if (wnd.handleText(s)) {
                     return true
                 }
             }

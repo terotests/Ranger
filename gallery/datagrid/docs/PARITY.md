@@ -19,7 +19,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | --- | --- | --- |
 | Style (fill, font) | done | styles.xml → CellStyle; bold/italic/underline/strike/size/colour, real faces |
 | Text alignment | done | horizontal left/center/right, vertical top/center/bottom |
-| Text rotation | todo | no rotated text |
+| Text rotation | done | OOXML textRotation, turned in the display list; 255 stacks |
 | Text truncation | done | clipped at the cell once a neighbour is occupied |
 | Overflow | done | spills into empty neighbours only, as Excel does |
 | Automatic line wrapping | done | wrapText → multi-line paint + row auto-fit |
@@ -40,8 +40,8 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Insert rows / columns | partial | columns: insert left/right with ref repair; rows not yet |
-| Delete rows / columns | partial | columns: delete with #REF! semantics; rows not yet |
+| Insert rows / columns | done | both axes: insert with workbook-wide ref repair, one-step undo |
+| Delete rows / columns | done | both axes: #REF! semantics, the deleted line restored by undo |
 | Hide rows / columns | done | geometry height/width 0 |
 | Sort | done | SheetView order + header menu |
 | Filter | done | unique-value filter + header menu |
@@ -58,7 +58,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Undo / redo | done | transactional: one step per action |
 | Fill handle | done | tiles the source, translating relative refs |
 | Format painter | done | Ctrl+Shift+C arms a brush, next selection takes the style |
-| Find and replace | todo | no search |
+| Find and replace | done | values or formulas, whole cell / case, all sheets, replace all in one undo |
 | Drag and drop | partial | columns reorder via move left/right; no cell-range drag |
 
 ## Formulas
@@ -87,7 +87,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Custom tools / API | partial | GridApp is the API; no plugin surface |
 | Cooperative editing | todo | single document, no transport |
 | Mobile adaptation | todo | pointer only, no touch gestures |
-| Testing | done | 600+ checks across seven suites plus oracles |
+| Testing | done | 700+ checks across seven suites plus oracles |
 
 ## Beyond the benchmark
 

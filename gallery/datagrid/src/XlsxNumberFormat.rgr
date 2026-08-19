@@ -190,6 +190,69 @@ class XlsxNumberFormat {
         return c
     }
 
+    ; Is the WHOLE string a number? Leading and trailing spaces are allowed,
+    ; because a spreadsheet's own writers pad; anything else is text.
+    sfn wholeNumber:boolean (text:string) {
+        def n:int (strlen text)
+        def start:int 0
+        while (start < n) {
+            if ((charAt text start) != 32) {
+                break
+            }
+            start = (start + 1)
+        }
+        def stop:int n
+        while (stop > start) {
+            if ((charAt text (stop - 1)) != 32) {
+                break
+            }
+            stop = (stop - 1)
+        }
+        if (start >= stop) {
+            return false
+        }
+        def digits:int 0
+        def dots:int 0
+        def exps:int 0
+        def i:int start
+        while (i < stop) {
+            def ch:int (charAt text i)
+            if ((ch >= 48) && (ch <= 57)) {
+                digits = (digits + 1)
+            } {
+                if (ch == 46) {
+                    dots = (dots + 1)
+                    if (dots > 1) {
+                        return false
+                    }
+                } {
+                    if ((ch == 43) || (ch == 45)) {
+                        if (i > start) {
+                            def prev:int (charAt text (i - 1))
+                            if ((prev != 101) && (prev != 69)) {
+                                return false
+                            }
+                        }
+                    } {
+                        if ((ch == 101) || (ch == 69)) {
+                            exps = (exps + 1)
+                            if (exps > 1) {
+                                return false
+                            }
+                            if (digits == 0) {
+                                return false
+                            }
+                        } {
+                            return false
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
     sfn format:string (raw:string numFmt:string) {
         def c:CompiledNumberFormat (XlsxNumberFormat.compile(numFmt))
         return (XlsxNumberFormat.formatCompiled(raw c))
@@ -205,8 +268,14 @@ class XlsxNumberFormat {
         if (c.rawCode == "@") {
             return raw
         }
+        ; `to_double` is a FRONT parser: it reads "45 up" as 45 and
+        ; "2024-01-01" as 2024. A cell holding text that merely starts with
+        ; digits is not a number, and formatting it as one silently ate the
+        ; rest of the string on screen. So the whole string has to look like a
+        ; number before it is treated as one.
+        def numeric:boolean (XlsxNumberFormat.wholeNumber(raw))
         def d@(optional):double (to_double raw)
-        if d {
+        if (numeric && d) {
             def v:double (unwrap d)
             def pat:string c.pos
             if ((v < 0.0) && ((strlen c.neg) > 0)) {
