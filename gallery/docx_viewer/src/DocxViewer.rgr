@@ -8,6 +8,7 @@ Import "WordNumbering.rgr"
 Import "RichDocument.rgr"
 Import "DocxView.rgr"
 Import "DocxEditController.rgr"
+Import "ClipboardTable.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 
 class DocxViewer {
@@ -65,13 +66,17 @@ class DocxViewer {
         return (edit.isEnabled())
     }
 
+    ; present() silently clamps an out-of-range page to the last one. Adopting
+    ; the page it actually drew keeps currentPage from ever naming a page that
+    ; does not exist — otherwise page N and a phantom page N+1 both report
+    ; success while showing the same content.
     fn renderPage:void (page:int) {
-        currentPage = page
         if (edit.isEnabled()) {
             view.presentWithEdit(doc page numbering edit)
         } {
             view.present(doc page numbering)
         }
+        currentPage = view.pageIndex
     }
 
     fn renderAll:void (maxPages:int) {
@@ -156,6 +161,100 @@ class DocxViewer {
         this.renderPage(currentPage)
     }
 
+    ; --- caret movement -------------------------------------------------------
+    ; Layout lives in the view, so every movement re-lays out first (cheap:
+    ; renderPage already does it) and then follows the caret onto its page, so
+    ; Up / Down / PageUp / PageDown walk across page boundaries.
+    fn pageOfCaret:int () {
+        def cur:[int]
+        edit.caretLine(view.layout cur)
+        def cp:int (itemAt cur 0)
+        if (cp < 0) {
+            return currentPage
+        }
+        return cp
+    }
+
+    fn followCaret:void () {
+        def target:int (this.pageOfCaret())
+        if (target != currentPage) {
+            currentPage = target
+        }
+        this.renderPage(currentPage)
+    }
+
+    fn keyLeft:void (extend:boolean) {
+        edit.moveLeft(extend)
+        this.followCaret()
+    }
+
+    fn keyRight:void (extend:boolean) {
+        edit.moveRight(extend)
+        this.followCaret()
+    }
+
+    fn keyUp:void (extend:boolean) {
+        edit.moveUp(view.layout extend)
+        this.followCaret()
+    }
+
+    fn keyDown:void (extend:boolean) {
+        edit.moveDown(view.layout extend)
+        this.followCaret()
+    }
+
+    fn keyPageUp:void (extend:boolean) {
+        edit.pageUp(view.layout extend)
+        this.followCaret()
+    }
+
+    fn keyPageDown:void (extend:boolean) {
+        edit.pageDown(view.layout extend)
+        this.followCaret()
+    }
+
+    fn keyHome:void (extend:boolean ctrl:boolean) {
+        if ctrl {
+            edit.moveDocEdge(false extend)
+        } {
+            edit.moveLineEdge(view.layout false extend)
+        }
+        this.followCaret()
+    }
+
+    fn keyEnd:void (extend:boolean ctrl:boolean) {
+        if ctrl {
+            edit.moveDocEdge(true extend)
+        } {
+            edit.moveLineEdge(view.layout true extend)
+        }
+        this.followCaret()
+    }
+
+    fn keySelectAll:void () {
+        edit.selectAll()
+        this.renderPage(currentPage)
+    }
+
+    ; --- clipboard out --------------------------------------------------------
+    fn copySelection:string () {
+        return (edit.selectedText())
+    }
+
+    fn cutSelection:string () {
+        def text:string (edit.selectedText())
+        if ((strlen text) > 0) {
+            edit.deleteSelection()
+            this.followCaret()
+        }
+        return text
+    }
+
+    fn setPage:int (page:int) {
+        this.renderPage(page)
+        return currentPage
+    }
+
     fn keyUndo:void () {
         edit.undo()
         this.renderPage(currentPage)
@@ -164,6 +263,36 @@ class DocxViewer {
     fn keyRedo:void () {
         edit.redo()
         this.renderPage(currentPage)
+    }
+
+    ; Clipboard paste from the host. `html` is the text/html flavour (what a
+    ; spreadsheet copy puts next to the TSV) and lands as a real table; `text`
+    ; is the text/plain fallback. Returns true when something was inserted.
+    fn pasteClipboard:boolean (html:string text:string) {
+        if ((edit.isEnabled()) == false) {
+            return false
+        }
+        if ((edit.isActive()) == false) {
+            return false
+        }
+        def tbl:ClipboardTable (new ClipboardTable)
+        def got:boolean false
+        if ((strlen html) > 0) {
+            got = (tbl.parseHtml(html))
+        }
+        if (got == false) {
+            if (ClipboardTable.looksTabular(text)) {
+                got = (tbl.parseTsv(text))
+            }
+        }
+        if got {
+            def done:boolean (edit.pasteTable(tbl))
+            this.renderPage(currentPage)
+            return done
+        }
+        def typed:boolean (edit.pasteText(text))
+        this.renderPage(currentPage)
+        return typed
     }
 
     fn toggleBold:void () {

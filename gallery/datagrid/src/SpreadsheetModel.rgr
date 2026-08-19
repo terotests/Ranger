@@ -60,13 +60,29 @@ class CellPos {
     }
 }
 
+; One tracked cell edit. Both the display value and the formula text are
+; captured so undo of "=A1+B1" restores the formula, not just the number.
+; Ops sharing a non-zero txId undo/redo together (paste, fill, delete range).
 class SpreadsheetUndoOp {
     def row:int 0
     def col:int 0
     def before:string ""
     def after:string ""
+    def beforeF:string ""
+    def afterF:string ""
+    def txId:int 0
 
     Constructor () {
+    }
+
+    fn copyFrom:void (o:SpreadsheetUndoOp) {
+        row = o.row
+        col = o.col
+        before = o.before
+        after = o.after
+        beforeF = o.beforeF
+        afterF = o.afterF
+        txId = o.txId
     }
 }
 
@@ -104,6 +120,12 @@ class SpreadsheetModel {
     def colGeomDirty:boolean true
     def undoStack:[SpreadsheetUndoOp]
     def redoStack:[SpreadsheetUndoOp]
+    def touched:[CellPos]
+    def usedMaxRow:int 0
+    def usedMaxCol:int 0
+    def txCounter:int 0
+    def txDepth:int 0
+    def curTx:int 0
     def maxUndo:int 200
     def version:int 0
 
@@ -138,6 +160,8 @@ class SpreadsheetModel {
         sortCol = -1
         sortAsc = true
         sheetHidden = false
+        usedMaxRow = 0
+        usedMaxCol = 0
         rowCount = 1
         colCount = 1
         rowGeomDirty = true
@@ -369,6 +393,20 @@ class SpreadsheetModel {
         }
     }
 
+    ; setFormula that never creates a key for an empty formula.
+    fn setFormulaText:void (row:int col:int formula:string) {
+        def k:string (this.cellKey(row col))
+        if (has formulas k) {
+            set formulas k formula
+            return
+        }
+        if ((strlen formula) == 0) {
+            return
+        }
+        push formulaKeys k
+        set formulas k formula
+    }
+
     fn hasFormula:boolean (row:int col:int) {
         def k:string (this.cellKey(row col))
         if (has formulas k) {
@@ -380,12 +418,20 @@ class SpreadsheetModel {
         return false
     }
 
+    ; Cleared cells keep a "" entry in `formulas`; skip them so the recalc
+    ; scan does not grow with every deleted formula.
     fn collectFormulaKeys:void (sheetIdx:int out:[string]) {
         def i:int 0
         def n:int (array_length formulaKeys)
         while (i < n) {
             def k:string (itemAt formulaKeys i)
-            push out (((to_string sheetIdx) + "!") + k)
+            def f:string ""
+            if (has formulas k) {
+                f = (unwrap (get formulas k))
+            }
+            if ((strlen f) > 0) {
+                push out (((to_string sheetIdx) + "!") + k)
+            }
             i = (i + 1)
         }
     }
@@ -555,54 +601,220 @@ class SpreadsheetModel {
         ; Keep empty strings as present keys so clear is a normal set (map
         ; remove is target-fragile); getCell still returns "".
         set cells k value
+        ; Used range, for Ctrl+End. Like Excel it only grows: clearing cells
+        ; does not shrink it, and it stays O(1) instead of rescanning a sheet
+        ; that may declare 100k rows.
+        if ((strlen value) > 0) {
+            if (row > usedMaxRow) {
+                usedMaxRow = row
+            }
+            if (col > usedMaxCol) {
+                usedMaxCol = col
+            }
+        }
         version = (version + 1)
     }
 
-    fn setCell:void (row:int col:int value:string) {
-        def before:string (this.getCell(row col))
-        if (before == value) {
-            return
+    ; Bottom-right of the used range, clamped to the sheet.
+    fn usedRow:int () {
+        def r:int usedMaxRow
+        if (r >= rowCount) {
+            r = (rowCount - 1)
         }
+        if (r < 0) {
+            r = 0
+        }
+        return r
+    }
+
+    fn usedCol:int () {
+        def c:int usedMaxCol
+        if (c >= colCount) {
+            c = (colCount - 1)
+        }
+        if (c < 0) {
+            c = 0
+        }
+        return c
+    }
+
+    ; --- transactions -------------------------------------------------------
+    ; Ops recorded between beginTx / endTx undo as one Excel-style action.
+    ; Nesting is counted so a paste inside a larger op stays one transaction.
+    fn beginTx:void () {
+        if (txDepth == 0) {
+            txCounter = (txCounter + 1)
+            curTx = txCounter
+        }
+        txDepth = (txDepth + 1)
+    }
+
+    fn endTx:void () {
+        if (txDepth > 0) {
+            txDepth = (txDepth - 1)
+        }
+        if (txDepth == 0) {
+            curTx = 0
+            this.trimUndo()
+        }
+    }
+
+    ; Drop oldest history over the cap, whole transactions at a time, so a
+    ; surviving op can never be half of an action.
+    fn trimUndo:void () {
+        while ((array_length undoStack) > maxUndo) {
+            def first:SpreadsheetUndoOp (itemAt undoStack 0)
+            def tx:int first.txId
+            remove_index undoStack 0
+            if (tx > 0) {
+                def more:boolean true
+                while more {
+                    if ((array_length undoStack) == 0) {
+                        more = false
+                    } {
+                        def nx:SpreadsheetUndoOp (itemAt undoStack 0)
+                        if (nx.txId == tx) {
+                            remove_index undoStack 0
+                        } {
+                            more = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn pushUndoOp:void (row:int col:int before:string after:string beforeF:string afterF:string) {
         def op:SpreadsheetUndoOp (new SpreadsheetUndoOp)
         op.row = row
         op.col = col
         op.before = before
-        op.after = value
+        op.after = after
+        op.beforeF = beforeF
+        op.afterF = afterF
+        op.txId = curTx
         push undoStack op
-        while ((array_length undoStack) > maxUndo) {
-            remove_index undoStack 0
+        ; Never trim mid-transaction: that would split one action in half.
+        if (txDepth == 0) {
+            this.trimUndo()
         }
         clear redoStack
-        this.setCellRaw(row col value)
     }
 
+    ; Tracked edit of value + formula together. formula "" means "no formula",
+    ; so a plain value overwrites any prior formula (Excel behaviour).
+    fn applyEdit:void (row:int col:int value:string formula:string) {
+        def before:string (this.getCell(row col))
+        def beforeF:string (this.getFormula(row col))
+        if ((before == value) && (beforeF == formula)) {
+            return
+        }
+        this.pushUndoOp(row col before value beforeF formula)
+        this.setCellRaw(row col value)
+        this.setFormulaText(row col formula)
+    }
+
+    fn setCell:void (row:int col:int value:string) {
+        this.applyEdit(row col value "")
+    }
+
+    fn applyOp:void (op:SpreadsheetUndoOp toAfter:boolean) {
+        if toAfter {
+            this.setCellRaw(op.row op.col op.after)
+            this.setFormulaText(op.row op.col op.afterF)
+        } {
+            this.setCellRaw(op.row op.col op.before)
+            this.setFormulaText(op.row op.col op.beforeF)
+        }
+        push touched (CellPos.create(op.row op.col))
+    }
+
+    ; Undo the whole last transaction (or the single last op). Cells restored
+    ; are reported in `touched` so the caller can resync the formula engine.
     fn undo:CellPos () {
+        clear touched
         def n:int (array_length undoStack)
         if (n <= 0) {
             return (CellPos.create(0 0))
         }
-        def op:SpreadsheetUndoOp (itemAt undoStack (n - 1))
-        removeLast undoStack
-        this.setCellRaw(op.row op.col op.before)
-        push redoStack op
-        return (CellPos.create(op.row op.col))
+        def top:SpreadsheetUndoOp (itemAt undoStack (n - 1))
+        def tx:int top.txId
+        def lastRow:int top.row
+        def lastCol:int top.col
+        def more:boolean true
+        while more {
+            def cnt:int (array_length undoStack)
+            if (cnt <= 0) {
+                more = false
+            } {
+                def op:SpreadsheetUndoOp (itemAt undoStack (cnt - 1))
+                def take:boolean false
+                if (cnt == n) {
+                    take = true
+                } {
+                    if (tx > 0) {
+                        if (op.txId == tx) {
+                            take = true
+                        }
+                    }
+                }
+                if take {
+                    removeLast undoStack
+                    this.applyOp(op false)
+                    lastRow = op.row
+                    lastCol = op.col
+                    def keep:SpreadsheetUndoOp (new SpreadsheetUndoOp)
+                    keep.copyFrom(op)
+                    push redoStack keep
+                } {
+                    more = false
+                }
+            }
+        }
+        return (CellPos.create(lastRow lastCol))
     }
 
     fn redo:CellPos () {
+        clear touched
         def n:int (array_length redoStack)
         if (n <= 0) {
             return (CellPos.create(0 0))
         }
-        def op:SpreadsheetUndoOp (itemAt redoStack (n - 1))
-        removeLast redoStack
-        this.setCellRaw(op.row op.col op.after)
-        def u:SpreadsheetUndoOp (new SpreadsheetUndoOp)
-        u.row = op.row
-        u.col = op.col
-        u.before = op.before
-        u.after = op.after
-        push undoStack u
-        return (CellPos.create(op.row op.col))
+        def top:SpreadsheetUndoOp (itemAt redoStack (n - 1))
+        def tx:int top.txId
+        def lastRow:int top.row
+        def lastCol:int top.col
+        def more:boolean true
+        while more {
+            def cnt:int (array_length redoStack)
+            if (cnt <= 0) {
+                more = false
+            } {
+                def op:SpreadsheetUndoOp (itemAt redoStack (cnt - 1))
+                def take:boolean false
+                if (cnt == n) {
+                    take = true
+                } {
+                    if (tx > 0) {
+                        if (op.txId == tx) {
+                            take = true
+                        }
+                    }
+                }
+                if take {
+                    removeLast redoStack
+                    this.applyOp(op true)
+                    lastRow = op.row
+                    lastCol = op.col
+                    def keep:SpreadsheetUndoOp (new SpreadsheetUndoOp)
+                    keep.copyFrom(op)
+                    push undoStack keep
+                } {
+                    more = false
+                }
+            }
+        }
+        return (CellPos.create(lastRow lastCol))
     }
 
     fn rowHeight:int (row:int) {
@@ -782,7 +994,7 @@ class SpreadsheetModel {
         this.setCellRaw(5 0 "Ranger EVG DataGrid")
         this.setCellRaw(5 1 "virtualized")
         this.setCellRaw(5 2 "batched")
-        this.setCellRaw(6 0 "Click a cell, type, Enter to commit.")
+        this.setCellRaw(6 0 "Type to replace, F2 to edit, Enter/Tab to step.")
         this.setColWidth(0 160)
         this.setColWidth(3 110)
         this.setRowHeight(0 28)

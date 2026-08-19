@@ -1,0 +1,466 @@
+; ==============================================================================
+; GridEditTest - editing semantics for the DataGrid workbook editor.
+;
+; Covers what the viewer tests do not: formula-aware undo/redo, transactional
+; (one Ctrl+Z per action) paste / fill / delete, Excel-style copy that carries
+; formulas, cut, caret editing inside the cell buffer, and row resize.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class EditChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class GridEditTest {
+    sfn select:void (app:GridApp r:int c:int) {
+        app.sel.anchor.row = r
+        app.sel.anchor.col = c
+        app.sel.active.row = r
+        app.sel.active.col = c
+    }
+
+    sfn selectRange:void (app:GridApp r0:int c0:int r1:int c1:int) {
+        app.sel.anchor.row = r0
+        app.sel.anchor.col = c0
+        app.sel.active.row = r1
+        app.sel.active.col = c1
+    }
+
+    ; One key press through the real UIInput path, with modifiers.
+    sfn pressKey:void (app:GridApp input:UIInput key:int shift:boolean ctrl:boolean) {
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushKey(key)
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+    }
+
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen hay)
+        def m:int (strlen needle)
+        if (m == 0) {
+            return true
+        }
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring hay i (i + m)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn countOf:int (hay:string needle:string) {
+        def n:int (strlen hay)
+        def m:int (strlen needle)
+        if (m == 0) {
+            return 0
+        }
+        def count:int 0
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring hay i (i + m)) == needle) {
+                count = (count + 1)
+                i = (i + m)
+            } {
+                i = (i + 1)
+            }
+        }
+        return count
+    }
+
+    sfn beginsWith:boolean (hay:string prefix:string) {
+        def m:int (strlen prefix)
+        if ((strlen hay) < m) {
+            return false
+        }
+        return ((substring hay 0 m) == prefix)
+    }
+
+    sfn finishesWith:boolean (hay:string suffix:string) {
+        def n:int (strlen hay)
+        def m:int (strlen suffix)
+        if (n < m) {
+            return false
+        }
+        return ((substring hay (n - m) n) == suffix)
+    }
+
+    sfn typeInto:void (app:GridApp r:int c:int text:string) {
+        GridEditTest.select(app r c)
+        app.beginEdit(text true)
+        app.commitEdit()
+    }
+
+    sfn main:void () {
+        def c:EditChecker (new EditChecker)
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+
+        print "== formula edit keeps working after the first edit =="
+        GridEditTest.typeInto(app 20 0 "10")
+        GridEditTest.typeInto(app 20 1 "=A21*2")
+        c.eqStr("B21 formula" (app.model.getFormula(20 1)) "A21*2")
+        c.eqStr("B21 value" (app.model.getCell(20 1)) "20")
+        ; The dependency graph must survive an edit: re-attaching the engine per
+        ; edit used to wipe usedBy, so this second edit silently stopped
+        ; propagating to B21.
+        GridEditTest.typeInto(app 20 0 "30")
+        c.eqStr("B21 recalculated" (app.model.getCell(20 1)) "60")
+
+        print "== undo / redo restores the formula, not just the value =="
+        GridEditTest.typeInto(app 20 1 "99")
+        c.eqStr("B21 overwritten" (app.model.getCell(20 1)) "99")
+        c.ok("formula gone" ((app.model.hasFormula(20 1)) == false))
+        app.undoEdit()
+        c.eqStr("undo brings formula back" (app.model.getFormula(20 1)) "A21*2")
+        c.eqStr("undo recalculates" (app.model.getCell(20 1)) "60")
+        app.redoEdit()
+        c.eqStr("redo re-applies value" (app.model.getCell(20 1)) "99")
+        c.ok("redo drops formula" ((app.model.hasFormula(20 1)) == false))
+        app.undoEdit()
+        c.eqStr("undo again" (app.model.getFormula(20 1)) "A21*2")
+
+        print "== delete clears the formula and recalculates dependents =="
+        GridEditTest.typeInto(app 22 0 "4")
+        GridEditTest.typeInto(app 22 1 "=A23+1")
+        c.eqStr("B23 value" (app.model.getCell(22 1)) "5")
+        GridEditTest.select(app 22 1)
+        app.clearSelection()
+        c.ok("B23 formula cleared" ((app.model.hasFormula(22 1)) == false))
+        c.eqStr("B23 value cleared" (app.model.getCell(22 1)) "")
+        app.undoEdit()
+        c.eqStr("delete undone" (app.model.getFormula(22 1)) "A23+1")
+        c.eqStr("delete undo recalcs" (app.model.getCell(22 1)) "5")
+
+        print "== copy / paste translates relative refs =="
+        GridEditTest.typeInto(app 29 0 "5")
+        GridEditTest.typeInto(app 30 0 "7")
+        GridEditTest.typeInto(app 29 1 "=A30*3")
+        c.eqStr("B30 value" (app.model.getCell(29 1)) "15")
+        GridEditTest.select(app 29 1)
+        app.copySelection()
+        GridEditTest.select(app 30 1)
+        app.pasteClipboard()
+        c.eqStr("pasted formula translated" (app.model.getFormula(30 1)) "A31*3")
+        c.eqStr("pasted formula value" (app.model.getCell(30 1)) "21")
+
+        print "== paste is one undoable action =="
+        GridEditTest.typeInto(app 35 0 "a")
+        GridEditTest.typeInto(app 35 1 "b")
+        GridEditTest.typeInto(app 36 0 "c")
+        GridEditTest.typeInto(app 36 1 "d")
+        GridEditTest.selectRange(app 35 0 36 1)
+        app.copySelection()
+        c.eqInt("clip rows" app.clipRows 2)
+        c.eqInt("clip cols" app.clipCols 2)
+        GridEditTest.select(app 40 0)
+        app.pasteClipboard()
+        c.eqStr("paste A41" (app.model.getCell(40 0)) "a")
+        c.eqStr("paste B42" (app.model.getCell(41 1)) "d")
+        app.undoEdit()
+        c.eqStr("one undo clears A41" (app.model.getCell(40 0)) "")
+        c.eqStr("one undo clears B41" (app.model.getCell(40 1)) "")
+        c.eqStr("one undo clears A42" (app.model.getCell(41 0)) "")
+        c.eqStr("one undo clears B42" (app.model.getCell(41 1)) "")
+        app.redoEdit()
+        c.eqStr("one redo restores A41" (app.model.getCell(40 0)) "a")
+        c.eqStr("one redo restores B42" (app.model.getCell(41 1)) "d")
+
+        print "== cut =="
+        GridEditTest.selectRange(app 35 0 36 1)
+        app.cutSelection()
+        c.ok("cut kept clipboard" ((strlen app.clipboardTsv) > 0))
+        c.eqStr("cut cleared A36" (app.model.getCell(35 0)) "")
+        c.eqStr("cut cleared B37" (app.model.getCell(36 1)) "")
+        app.undoEdit()
+        c.eqStr("cut undone A36" (app.model.getCell(35 0)) "a")
+        c.eqStr("cut undone B37" (app.model.getCell(36 1)) "d")
+
+        print "== cut moves formulas without translating refs =="
+        GridEditTest.typeInto(app 55 0 "6")
+        GridEditTest.typeInto(app 55 1 "=A56*2")
+        c.eqStr("B56 value" (app.model.getCell(55 1)) "12")
+        GridEditTest.select(app 55 1)
+        app.cutSelection()
+        GridEditTest.select(app 56 1)
+        app.pasteClipboard()
+        c.eqStr("cut keeps refs" (app.model.getFormula(56 1)) "A56*2")
+        c.eqStr("cut paste value" (app.model.getCell(56 1)) "12")
+
+        print "== fill is one undoable action =="
+        GridEditTest.typeInto(app 45 0 "1")
+        GridEditTest.typeInto(app 45 1 "=A46+1")
+        GridEditTest.selectRange(app 45 1 47 1)
+        app.fillR0 = 45
+        app.fillC0 = 1
+        app.fillR1 = 45
+        app.fillC1 = 1
+        app.fillFromSource()
+        c.eqStr("fill B47 formula" (app.model.getFormula(46 1)) "A47+1")
+        c.eqStr("fill B48 formula" (app.model.getFormula(47 1)) "A48+1")
+        app.undoEdit()
+        c.ok("one undo clears B47" ((app.model.hasFormula(46 1)) == false))
+        c.ok("one undo clears B48" ((app.model.hasFormula(47 1)) == false))
+
+        print "== caret editing inside the cell buffer =="
+        GridEditTest.select(app 50 0)
+        app.beginEdit("hello" true)
+        c.eqInt("caret at end" app.editCaret 5)
+        app.moveCaret(-2)
+        c.eqInt("caret moved" app.editCaret 3)
+        app.insertAtCaret("X")
+        c.eqStr("insert mid" app.editBuf "helXlo")
+        c.eqInt("caret after insert" app.editCaret 4)
+        app.backspaceAtCaret()
+        c.eqStr("backspace mid" app.editBuf "hello")
+        c.eqInt("caret after backspace" app.editCaret 3)
+        app.deleteAtCaret()
+        c.eqStr("delete forward" app.editBuf "helo")
+        c.eqInt("caret stays" app.editCaret 3)
+        app.moveCaret(-99)
+        c.eqInt("caret clamps low" app.editCaret 0)
+        app.moveCaret(99)
+        c.eqInt("caret clamps high" app.editCaret 4)
+        app.cancelEdit()
+
+        print "== caret keys through UIInput =="
+        def input:UIInput (new UIInput)
+        GridEditTest.select(app 51 0)
+        input.newFrame()
+        input.pushText("abc")
+        app.update(input)
+        c.eqStr("typed" app.editBuf "abc")
+        c.eqInt("caret 3" app.editCaret 3)
+        input.newFrame()
+        input.pushKey((UIKey.left()))
+        app.update(input)
+        c.eqInt("left key" app.editCaret 2)
+        input.newFrame()
+        input.pushText("Z")
+        app.update(input)
+        c.eqStr("insert via key path" app.editBuf "abZc")
+        input.newFrame()
+        input.pushKey((UIKey.home()))
+        app.update(input)
+        c.eqInt("home key" app.editCaret 0)
+        input.newFrame()
+        input.pushKey((UIKey.del()))
+        app.update(input)
+        c.eqStr("forward delete" app.editBuf "bZc")
+        input.newFrame()
+        input.pushKey((UIKey.end()))
+        app.update(input)
+        c.eqInt("end key" app.editCaret 3)
+        input.newFrame()
+        input.pushKey((UIKey.escape()))
+        app.update(input)
+        c.ok("escape cancels" (app.editing == false))
+        c.eqStr("cell untouched" (app.model.getCell(51 0)) "")
+
+        print "== row resize by dragging the row header edge =="
+        ; Earlier edits scrolled the viewport; bring row 0 back on screen.
+        app.moveActive(0 0 false)
+        def beforeH:int (app.model.rowHeight(0))
+        def oy:int (app.grid.gridOriginY())
+        def edgeY:int (((oy + beforeH) - 1))
+        def headerX:int (app.grid.x + 8)
+        c.eqInt("row resize hit" (app.grid.hitRowResize(app.model headerX edgeY)) 0)
+        input.newFrame()
+        input.setPointerPos(headerX edgeY)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(headerX (edgeY + 24))
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(headerX (edgeY + 24))
+        input.setPointerDown(false)
+        app.update(input)
+        c.ok("row taller" ((app.model.rowHeight(0)) > beforeH))
+
+        print "== Ctrl+Arrow jumps to the data edge =="
+        ; Fresh sheet so the demo seed does not interfere with the block scan.
+        def nav:GridApp (new GridApp)
+        nav.init("gallery/pdf_writer/assets/fonts")
+        nav.model.clearSheet()
+        nav.model.resize(60 12)
+        def bi:int 2
+        while (bi <= 6) {
+            nav.model.setCellRaw(bi 1 "x")
+            nav.model.setCellRaw(bi 2 "y")
+            bi = (bi + 1)
+        }
+        nav.model.setCellRaw(20 1 "far")
+        def input2:UIInput (new UIInput)
+        GridEditTest.select(nav 2 1)
+        ; inside a run → last filled cell of the run
+        GridEditTest.pressKey(nav input2 (UIKey.down()) false true)
+        c.eqInt("ctrl down to block end" nav.sel.active.row 6)
+        ; on the last filled cell, next is blank → next filled cell below
+        GridEditTest.pressKey(nav input2 (UIKey.down()) false true)
+        c.eqInt("ctrl down to next block" nav.sel.active.row 20)
+        ; nothing below → sheet edge
+        GridEditTest.pressKey(nav input2 (UIKey.down()) false true)
+        c.eqInt("ctrl down to sheet edge" nav.sel.active.row 59)
+        GridEditTest.pressKey(nav input2 (UIKey.up()) false true)
+        c.eqInt("ctrl up back to data" nav.sel.active.row 20)
+        GridEditTest.select(nav 2 1)
+        GridEditTest.pressKey(nav input2 (UIKey.right()) false true)
+        c.eqInt("ctrl right to run end" nav.sel.active.col 2)
+
+        print "== Ctrl+Shift+Arrow extends to the data edge =="
+        GridEditTest.select(nav 2 1)
+        GridEditTest.pressKey(nav input2 (UIKey.down()) true true)
+        c.eqInt("extended active" nav.sel.active.row 6)
+        c.eqInt("anchor held" nav.sel.anchor.row 2)
+        c.ok("range selected" (nav.sel.isSingle() == false))
+        nav.copySelection()
+        c.eqInt("copied rows" nav.clipRows 5)
+        c.eqStr("copied tsv" nav.clipboardTsv "x\nx\nx\nx\nx")
+
+        print "== PageDown / PageUp =="
+        GridEditTest.select(nav 0 0)
+        nav.grid.scrollY = 0
+        nav.grid.updateVisible(nav.model)
+        def page:int (nav.pageRows())
+        c.ok("page span > 1" (page > 1))
+        GridEditTest.pressKey(nav input2 (UIKey.pageDown()) false false)
+        c.eqInt("page down" nav.sel.active.row page)
+        GridEditTest.pressKey(nav input2 (UIKey.pageUp()) false false)
+        c.eqInt("page up" nav.sel.active.row 0)
+        GridEditTest.pressKey(nav input2 (UIKey.pageDown()) true false)
+        c.ok("shift page extends" (nav.sel.isSingle() == false))
+        c.eqInt("shift page anchor" nav.sel.anchor.row 0)
+
+        print "== Ctrl+Home / Ctrl+End / Home / End =="
+        GridEditTest.select(nav 12 5)
+        GridEditTest.pressKey(nav input2 (UIKey.home()) false false)
+        c.eqInt("home to col 0" nav.sel.active.col 0)
+        c.eqInt("home keeps row" nav.sel.active.row 12)
+        GridEditTest.pressKey(nav input2 (UIKey.home()) false true)
+        c.eqInt("ctrl home row" nav.sel.active.row 0)
+        c.eqInt("ctrl home col" nav.sel.active.col 0)
+        GridEditTest.pressKey(nav input2 (UIKey.end()) false true)
+        c.eqInt("ctrl end row" nav.sel.active.row 20)
+        c.eqInt("ctrl end col" nav.sel.active.col 2)
+        GridEditTest.select(nav 2 0)
+        GridEditTest.pressKey(nav input2 (UIKey.end()) false false)
+        c.eqInt("end to last used col in row" nav.sel.active.col 2)
+
+        print "== Enter / Shift+Enter / Tab / Shift+Tab step between cells =="
+        GridEditTest.select(nav 4 4)
+        GridEditTest.pressKey(nav input2 (UIKey.enter()) false false)
+        c.eqInt("enter steps down" nav.sel.active.row 5)
+        GridEditTest.pressKey(nav input2 (UIKey.enter()) true false)
+        c.eqInt("shift enter steps up" nav.sel.active.row 4)
+        GridEditTest.pressKey(nav input2 (UIKey.tab()) false false)
+        c.eqInt("tab steps right" nav.sel.active.col 5)
+        GridEditTest.pressKey(nav input2 (UIKey.tab()) true false)
+        c.eqInt("shift tab steps left" nav.sel.active.col 4)
+        c.ok("stepping does not edit" (nav.editing == false))
+
+        print "== F2 opens the cell for edit =="
+        nav.model.setCellRaw(4 4 "keep")
+        GridEditTest.select(nav 4 4)
+        GridEditTest.pressKey(nav input2 (UIKey.f2()) false false)
+        c.ok("f2 editing" nav.editing)
+        c.eqStr("f2 keeps content" nav.editBuf "keep")
+        c.eqInt("f2 caret at end" nav.editCaret 4)
+        input2.newFrame()
+        input2.pushKey((UIKey.escape()))
+        nav.update(input2)
+
+        print "== Ctrl+Space column, Shift+Space row =="
+        GridEditTest.select(nav 3 2)
+        input2.newFrame()
+        input2.setModifiers(false true)
+        input2.pushText(" ")
+        nav.update(input2)
+        input2.newFrame()
+        input2.setModifiers(false false)
+        c.ok("column covers first row" (nav.sel.contains(0 2)))
+        c.ok("column covers last row" (nav.sel.contains((nav.model.rowCount - 1) 2)))
+        c.ok("column excludes other cols" ((nav.sel.contains(0 3)) == false))
+        c.eqInt("column active at top" nav.sel.active.row 0)
+        c.eqInt("column pinned" nav.sel.active.col 2)
+        GridEditTest.select(nav 3 2)
+        input2.newFrame()
+        input2.setModifiers(true false)
+        input2.pushText(" ")
+        nav.update(input2)
+        input2.newFrame()
+        input2.setModifiers(false false)
+        c.ok("row covers first col" (nav.sel.contains(3 0)))
+        c.ok("row covers last col" (nav.sel.contains(3 (nav.model.colCount - 1))))
+        c.ok("row excludes other rows" ((nav.sel.contains(4 0)) == false))
+        c.eqInt("row active at left" nav.sel.active.col 0)
+        c.eqInt("row pinned" nav.sel.active.row 3)
+        c.ok("shift+space did not type" (nav.editing == false))
+
+        print "== Ctrl+C over a multi-cell selection =="
+        GridEditTest.selectRange(nav 2 1 3 2)
+        input2.newFrame()
+        input2.setModifiers(false true)
+        input2.pushText("c")
+        nav.update(input2)
+        input2.newFrame()
+        input2.setModifiers(false false)
+        nav.update(input2)
+        c.eqStr("tsv block" nav.clipboardTsv "x\ty\nx\ty")
+
+        print "== copy also produces an HTML table for Word =="
+        nav.model.setCellRaw(30 0 "Region")
+        nav.model.setCellRaw(30 1 "Q1 <b>")
+        nav.model.setCellRaw(31 0 "North & South")
+        nav.model.setCellRaw(31 1 "120")
+        GridEditTest.selectRange(nav 30 0 31 1)
+        nav.copySelection()
+        c.ok("html non-empty" ((strlen nav.clipboardHtml) > 0))
+        c.ok("html opens a table" (GridEditTest.beginsWith(nav.clipboardHtml "<table")))
+        c.ok("html closes the table" (GridEditTest.finishesWith(nav.clipboardHtml "</table>")))
+        c.eqInt("html rows" (GridEditTest.countOf(nav.clipboardHtml "<tr>")) 2)
+        c.eqInt("html cells" (GridEditTest.countOf(nav.clipboardHtml "<td")) 4)
+        c.ok("html escapes &" (GridEditTest.hasSub(nav.clipboardHtml "North &amp; South")))
+        c.ok("html escapes <" (GridEditTest.hasSub(nav.clipboardHtml "Q1 &lt;b&gt;")))
+        c.ok("tsv still plain" (GridEditTest.hasSub(nav.clipboardTsv "North & South")))
+        ; styles.xml colours arrive as "#RRGGBB"; the CSS must not double the #.
+        c.ok("no doubled hash" ((GridEditTest.hasSub(nav.clipboardHtml "##")) == false))
+        c.eqStr("hash form kept" (GridApp.cssColor("#1F4E79")) "#1F4E79")
+        c.eqStr("bare form gets hash" (GridApp.cssColor("1F4E79")) "#1F4E79")
+        c.eqStr("junk colour dropped" (GridApp.cssColor("red")) "")
+        ; A host-supplied clipboard has no table flavour to offer.
+        nav.setClipboardText("a\tb")
+        c.eqStr("external clears html" nav.clipboardHtml "")
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

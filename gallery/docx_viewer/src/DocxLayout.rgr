@@ -6,6 +6,7 @@
 ; ==============================================================================
 
 Import "RichDocument.rgr"
+Import "DocxTextMetrics.rgr"
 Import "WordNumbering.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 
@@ -413,6 +414,10 @@ class DocxLayout {
         if (fontPx < 8.0) {
             fontPx = 8.0
         }
+        ; Wrapping and line widths must use the same face the painter will use
+        ; for this paragraph's primary run, or a bold paragraph wraps as if it
+        ; were regular and every line measures short.
+        DocxTextMetrics.applyFace((unwrap tr) bold)
         def lh:int (to_int ((tr.lineHeight(fontPx)) * p.lineSpacing))
         if (lh < 12) {
             lh = 12

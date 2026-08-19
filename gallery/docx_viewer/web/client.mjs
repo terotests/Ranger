@@ -33,7 +33,7 @@ async function loadList() {
   }
   if (data.current) docSelect.value = data.current;
   page = data.page | 0;
-  pageCount = Math.max(1, data.pageCount | 1);
+  pageCount = Math.max(1, data.pageCount | 0);
 }
 
 async function openDoc(name) {
@@ -46,7 +46,7 @@ async function openDoc(name) {
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "open failed");
   page = 0;
-  pageCount = Math.max(1, data.pageCount | 1);
+  pageCount = Math.max(1, data.pageCount | 0);
   editMode = false;
   syncEditBtn();
   await refreshPage();
@@ -78,7 +78,9 @@ async function sendInput(payload) {
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (data.pageCount) pageCount = Math.max(1, data.pageCount | 1);
+  if (data.pageCount) pageCount = Math.max(1, data.pageCount | 0);
+  if (typeof data.page === "number") page = data.page;
+  clampPage();
   if (data.caret && caretEl) {
     caretEl.textContent = data.caret.active
       ? `p${data.caret.paragraphId}@${data.caret.offset}${data.caret.selEnd != null && data.caret.selEnd !== data.caret.offset ? "…" + data.caret.selEnd : ""}`
@@ -105,7 +107,16 @@ function imgLocalXY(ev) {
   return { x, y };
 }
 
+/** Keep `page` inside the document. Editing can shrink the page count under a
+ *  caret that was on a later page. */
+function clampPage() {
+  if (!Number.isFinite(page) || page < 0) page = 0;
+  if (page > pageCount - 1) page = pageCount - 1;
+  if (page < 0) page = 0;
+}
+
 async function refreshPage() {
+  clampPage();
   statusEl.textContent = "rendering…";
   pageLabel.textContent = `page ${page + 1} / ${pageCount}`;
   const url = `/page.png?page=${page}&t=${Date.now()}`;
@@ -122,7 +133,11 @@ async function refreshPage() {
     pageImg.src = url;
   });
   const st = await (await api("/api/state")).json();
-  pageCount = Math.max(1, st.pageCount | 1);
+  pageCount = Math.max(1, st.pageCount | 0);
+  // The host reports the page it actually drew; an out-of-range request is
+  // clamped there, so adopt it rather than keeping a phantom index.
+  if (typeof st.page === "number") page = st.page;
+  clampPage();
   pageLabel.textContent = `page ${page + 1} / ${pageCount}`;
   editMode = !!st.editMode;
   syncEditBtn();
@@ -204,10 +219,81 @@ pageImg.addEventListener("mousemove", (ev) => {
   scheduleDragFlush();
 });
 
+// Caret navigation keys → one "move" event each. Shift extends the selection,
+// Ctrl turns Home/End into document start/end.
+const MOVE_KEYS = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  PageUp: "pageUp",
+  PageDown: "pageDown",
+  Home: "home",
+  End: "end",
+};
+
+/** Put text on the OS clipboard, falling back to execCommand when the async
+ *  Clipboard API is unavailable or denied (e.g. a non-secure origin). */
+async function writeClipboard(text) {
+  if (!text) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    pageImg.focus?.();
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
 window.addEventListener("keydown", async (ev) => {
   if (!editMode) return;
   const tag = (ev.target && ev.target.tagName) || "";
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+
+  const move = MOVE_KEYS[ev.key];
+  if (move) {
+    ev.preventDefault();
+    const data = await sendInput({
+      type: "move",
+      dir: move,
+      shift: ev.shiftKey,
+      ctrl: ev.ctrlKey || ev.metaKey,
+    });
+    // The caret may have walked onto another page; follow it.
+    if (data && typeof data.page === "number" && data.page !== page) {
+      page = data.page;
+      await refreshPage();
+    }
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a") {
+    ev.preventDefault();
+    await sendInput({ type: "selectAll" });
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key.toLowerCase() === "c" || ev.key.toLowerCase() === "x")) {
+    ev.preventDefault();
+    const data = await sendInput({ type: ev.key.toLowerCase() === "c" ? "copy" : "cut" });
+    if (data && data.clipboard) await writeClipboard(data.clipboard);
+    return;
+  }
+  // Ctrl+V is served by the native "paste" event below.
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "v") return;
 
   if (ev.key === "Backspace") {
     ev.preventDefault();
@@ -243,6 +329,20 @@ window.addEventListener("keydown", async (ev) => {
     ev.preventDefault();
     await sendInput({ type: "text", text: ev.key });
   }
+});
+
+// Paste from the OS clipboard. A spreadsheet selection carries a text/html
+// <table> next to the TSV; the server turns that into a real Word table.
+window.addEventListener("paste", async (ev) => {
+  if (!editMode) return;
+  const tag = (ev.target && ev.target.tagName) || "";
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  ev.preventDefault();
+  const cd = ev.clipboardData;
+  const html = cd ? cd.getData("text/html") : "";
+  const text = cd ? cd.getData("text/plain") : "";
+  if (!html && !text) return;
+  await sendInput({ type: "paste", html, text });
 });
 
 document.getElementById("btnBold")?.addEventListener("click", () => sendInput({ type: "bold" }));

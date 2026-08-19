@@ -30,14 +30,24 @@ class GridApp {
     def statusH:int 22
     def editing:boolean false
     def editBuf:string ""
+    def editCaret:int 0
     def dragging:boolean false
     def resizing:boolean false
+    def resizingRows:boolean false
     def filling:boolean false
     def fillR0:int 0
     def fillC0:int 0
     def fillR1:int 0
     def fillC1:int 0
     def clipboardTsv:string ""
+    def clipboardHtml:string ""
+    def clipR0:int 0
+    def clipC0:int 0
+    def clipRows:int 0
+    def clipCols:int 0
+    def clipValues:[string]
+    def clipFormulas:[string]
+    def clipCut:boolean false
     def loadError:string ""
 
     Constructor () {
@@ -74,6 +84,7 @@ class GridApp {
         book.sourcePath = ""
         book.setActive(0)
         engine.attach(book)
+        engine.rebuildAll()
         this.syncActiveModel()
         loadError = ""
     }
@@ -246,44 +257,76 @@ class GridApp {
         grid.updateVisible(model)
     }
 
+    ; The engine is bound once at load. Per-edit code must NEVER call
+    ; engine.attach() — attach clears depsOf / usedBy, which would silently stop
+    ; every existing formula from tracking its inputs after the first edit.
+    ; Instead: applyEdit → engine.syncCell(...) per cell → one recalcDirty().
+
+    ; Re-register the formulas of every cell an undo / redo restored, then
+    ; recalculate once.
+    fn syncTouched:void () {
+        engine.resetStats()
+        def i:int 0
+        def n:int (array_length model.touched)
+        while (i < n) {
+            def p:CellPos (itemAt model.touched i)
+            engine.syncCell(book.activeIndex p.row p.col)
+            i = (i + 1)
+        }
+        engine.recalcDirty()
+    }
+
+    ; Ctrl+Z / Ctrl+Y: undo or redo one whole action (paste and fill count as
+    ; one), re-register the restored formulas, then recalculate.
+    fn undoEdit:void () {
+        if editing {
+            this.cancelEdit()
+        }
+        def u:CellPos (model.undo())
+        this.syncTouched()
+        this.moveActive(u.row u.col false)
+    }
+
+    fn redoEdit:void () {
+        if editing {
+            this.cancelEdit()
+        }
+        def r:CellPos (model.redo())
+        this.syncTouched()
+        this.moveActive(r.row r.col false)
+    }
+
     fn commitEdit:void () {
         if (editing == false) {
             return
         }
-        engine.attach(book)
+        def r:int sel.active.row
+        def c:int sel.active.col
+        model.beginTx()
         if ((strlen editBuf) > 0) {
             if ((charAt editBuf 0) == 61) {
                 def expr:string (substring editBuf 1 (strlen editBuf))
-                model.setFormula(sel.active.row sel.active.col expr)
-                model.setCell(sel.active.row sel.active.col "")
-                engine.registerFormula(book.activeIndex sel.active.row sel.active.col expr)
-                engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+                model.applyEdit(r c "" expr)
             } {
                 ; Plain value overwrites any prior formula.
-                def had:boolean (model.hasFormula(sel.active.row sel.active.col))
-                if had {
-                    model.clearFormula(sel.active.row sel.active.col)
-                    engine.clearFormula(book.activeIndex sel.active.row sel.active.col)
-                }
-                model.setCell(sel.active.row sel.active.col editBuf)
-                engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+                model.applyEdit(r c editBuf "")
             }
         } {
-            def had2:boolean (model.hasFormula(sel.active.row sel.active.col))
-            if had2 {
-                model.clearFormula(sel.active.row sel.active.col)
-                engine.clearFormula(book.activeIndex sel.active.row sel.active.col)
-            }
-            model.setCell(sel.active.row sel.active.col "")
-            engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+            model.applyEdit(r c "" "")
         }
+        model.endTx()
+        engine.resetStats()
+        engine.syncCell(book.activeIndex r c)
+        engine.recalcDirty()
         editing = false
         editBuf = ""
+        editCaret = 0
     }
 
     fn cancelEdit:void () {
         editing = false
         editBuf = ""
+        editCaret = 0
     }
 
     fn beginEdit:void (seed:string clearFirst:boolean) {
@@ -298,6 +341,149 @@ class GridApp {
             }
         }
         editing = true
+        editCaret = (strlen editBuf)
+    }
+
+    ; --- in-cell edit buffer: caret-relative editing --------------------------
+    fn clampCaret:void () {
+        def n:int (strlen editBuf)
+        if (editCaret < 0) {
+            editCaret = 0
+        }
+        if (editCaret > n) {
+            editCaret = n
+        }
+    }
+
+    fn insertAtCaret:void (text:string) {
+        this.clampCaret()
+        def n:int (strlen editBuf)
+        def head:string (substring editBuf 0 editCaret)
+        def tail:string (substring editBuf editCaret n)
+        editBuf = ((head + text) + tail)
+        editCaret = (editCaret + (strlen text))
+    }
+
+    fn backspaceAtCaret:void () {
+        this.clampCaret()
+        if (editCaret <= 0) {
+            return
+        }
+        def n:int (strlen editBuf)
+        def head:string (substring editBuf 0 (editCaret - 1))
+        def tail:string (substring editBuf editCaret n)
+        editBuf = (head + tail)
+        editCaret = (editCaret - 1)
+    }
+
+    fn deleteAtCaret:void () {
+        this.clampCaret()
+        def n:int (strlen editBuf)
+        if (editCaret >= n) {
+            return
+        }
+        def head:string (substring editBuf 0 editCaret)
+        def tail:string (substring editBuf (editCaret + 1) n)
+        editBuf = (head + tail)
+    }
+
+    fn moveCaret:void (delta:int) {
+        editCaret = (editCaret + delta)
+        this.clampCaret()
+    }
+
+    ; --- used range ----------------------------------------------------------
+    ; Excel bounds Ctrl+End / End at the last cell that holds data, not at the
+    ; declared sheet size. SpreadsheetModel tracks that corner as cells are
+    ; written, so this stays O(1) even on the 100k-row fixture.
+    fn lastUsedColInRow:int (row:int) {
+        def c:int (model.usedCol())
+        while (c >= 0) {
+            if ((strlen (model.getCell(row c))) > 0) {
+                return c
+            }
+            c = (c - 1)
+        }
+        return 0
+    }
+
+    ; Ctrl+Arrow: jump to the edge of the current data block.
+    ;   in data, neighbour filled  → last filled cell of the run
+    ;   in data, neighbour empty   → next filled cell, else the sheet edge
+    ;   on a blank cell            → next filled cell, else the sheet edge
+    fn edgeJump:CellPos (row:int col:int dr:int dc:int) {
+        def maxR:int (model.rowCount - 1)
+        def maxC:int (model.colCount - 1)
+        def r:int row
+        def c:int col
+        def nr:int (r + dr)
+        def nc:int (c + dc)
+        if ((nr < 0) || (nr > maxR) || (nc < 0) || (nc > maxC)) {
+            return (CellPos.create(r c))
+        }
+        def hereFilled:boolean ((strlen (model.getCell(r c))) > 0)
+        def nextFilled:boolean ((strlen (model.getCell(nr nc))) > 0)
+        def runMode:boolean false
+        if (hereFilled && nextFilled) {
+            runMode = true
+        }
+        def more:boolean true
+        while more {
+            def tr:int (r + dr)
+            def tc:int (c + dc)
+            if ((tr < 0) || (tr > maxR) || (tc < 0) || (tc > maxC)) {
+                more = false
+            } {
+                def filled:boolean ((strlen (model.getCell(tr tc))) > 0)
+                if runMode {
+                    if filled {
+                        r = tr
+                        c = tc
+                    } {
+                        more = false
+                    }
+                } {
+                    r = tr
+                    c = tc
+                    if filled {
+                        more = false
+                    }
+                }
+            }
+        }
+        return (CellPos.create(r c))
+    }
+
+    ; Band selection. The far end is the anchor so the active cell stays at the
+    ; top / left of the band — otherwise the next arrow key would resume from
+    ; the last row of the sheet.
+    fn selectColumn:void (col:int) {
+        sel.anchor.row = (model.rowCount - 1)
+        sel.anchor.col = col
+        sel.active.row = 0
+        sel.active.col = col
+        grid.ensureCellVisible(model 0 col)
+    }
+
+    fn selectRow:void (row:int) {
+        sel.anchor.row = row
+        sel.anchor.col = (model.colCount - 1)
+        sel.active.row = row
+        sel.active.col = 0
+        grid.ensureCellVisible(model row 0)
+    }
+
+    ; Rows a PageUp / PageDown step covers: one viewport minus one row of
+    ; overlap, so the cell you were reading stays on screen.
+    fn pageRows:int () {
+        def n:int ((grid.lastScrollRow - grid.firstScrollRow) + 1)
+        if (n < 1) {
+            n = 1
+        }
+        if (n > 1) {
+            n = (n - 1)
+        }
+        return n
     }
 
     fn moveActive:void (row:int col:int extend:boolean) {
@@ -318,12 +504,20 @@ class GridApp {
         if editing {
             if (key == (UIKey.enter())) {
                 this.commitEdit()
-                this.moveActive((sel.active.row + 1) sel.active.col false)
+                if extend {
+                    this.moveActive((sel.active.row - 1) sel.active.col false)
+                } {
+                    this.moveActive((sel.active.row + 1) sel.active.col false)
+                }
                 return
             }
             if (key == (UIKey.tab())) {
                 this.commitEdit()
-                this.moveActive(sel.active.row (sel.active.col + 1) false)
+                if extend {
+                    this.moveActive(sel.active.row (sel.active.col - 1) false)
+                } {
+                    this.moveActive(sel.active.row (sel.active.col + 1) false)
+                }
                 return
             }
             if (key == (UIKey.escape())) {
@@ -331,36 +525,75 @@ class GridApp {
                 return
             }
             if (key == (UIKey.backspace())) {
-                def n:int (strlen editBuf)
-                if (n > 0) {
-                    editBuf = (substring editBuf 0 (n - 1))
-                }
+                this.backspaceAtCaret()
+                return
+            }
+            if (key == (UIKey.del())) {
+                this.deleteAtCaret()
+                return
+            }
+            if (key == (UIKey.left())) {
+                this.moveCaret(-1)
+                return
+            }
+            if (key == (UIKey.right())) {
+                this.moveCaret(1)
+                return
+            }
+            if (key == (UIKey.home())) {
+                editCaret = 0
+                return
+            }
+            if (key == (UIKey.end())) {
+                editCaret = (strlen editBuf)
                 return
             }
             return
         }
+        def ctrl:boolean input.ctrlDown
         if (key == (UIKey.left())) {
-            this.moveActive(sel.active.row (sel.active.col - 1) extend)
+            this.arrowKey(0 -1 ctrl extend)
             return
         }
         if (key == (UIKey.right())) {
-            this.moveActive(sel.active.row (sel.active.col + 1) extend)
+            this.arrowKey(0 1 ctrl extend)
             return
         }
         if (key == (UIKey.up())) {
-            this.moveActive((sel.active.row - 1) sel.active.col extend)
+            this.arrowKey(-1 0 ctrl extend)
             return
         }
         if (key == (UIKey.down())) {
-            this.moveActive((sel.active.row + 1) sel.active.col extend)
+            this.arrowKey(1 0 ctrl extend)
             return
         }
+        if (key == (UIKey.pageUp())) {
+            this.moveActive((sel.active.row - (this.pageRows())) sel.active.col extend)
+            return
+        }
+        if (key == (UIKey.pageDown())) {
+            this.moveActive((sel.active.row + (this.pageRows())) sel.active.col extend)
+            return
+        }
+        ; Excel: Enter steps down (Shift+Enter up); F2 opens the cell for edit.
         if (key == (UIKey.enter())) {
+            if extend {
+                this.moveActive((sel.active.row - 1) sel.active.col false)
+            } {
+                this.moveActive((sel.active.row + 1) sel.active.col false)
+            }
+            return
+        }
+        if (key == (UIKey.f2())) {
             this.beginEdit("" false)
             return
         }
         if (key == (UIKey.tab())) {
-            this.moveActive(sel.active.row (sel.active.col + 1) false)
+            if extend {
+                this.moveActive(sel.active.row (sel.active.col - 1) false)
+            } {
+                this.moveActive(sel.active.row (sel.active.col + 1) false)
+            }
             return
         }
         if (key == (UIKey.del())) {
@@ -372,11 +605,19 @@ class GridApp {
             return
         }
         if (key == (UIKey.home())) {
-            this.moveActive(sel.active.row 0 extend)
+            if ctrl {
+                this.moveActive(0 0 extend)
+            } {
+                this.moveActive(sel.active.row 0 extend)
+            }
             return
         }
         if (key == (UIKey.end())) {
-            this.moveActive(sel.active.row (model.colCount - 1) extend)
+            if ctrl {
+                this.moveActive((model.usedRow()) (model.usedCol()) extend)
+            } {
+                this.moveActive(sel.active.row (this.lastUsedColInRow(sel.active.row)) extend)
+            }
             return
         }
         if (key == (UIKey.escape())) {
@@ -385,42 +626,242 @@ class GridApp {
         }
     }
 
-    ; FortuneSheet clipboard: TSV of cell edit values over the selection.
+    ; Arrow navigation. Ctrl jumps to the edge of the data block, Shift extends
+    ; the selection, Ctrl+Shift does both.
+    fn arrowKey:void (dr:int dc:int ctrl:boolean extend:boolean) {
+        if ctrl {
+            def p:CellPos (this.edgeJump(sel.active.row sel.active.col dr dc))
+            this.moveActive(p.row p.col extend)
+            return
+        }
+        this.moveActive((sel.active.row + dr) (sel.active.col + dc) extend)
+    }
+
+    sfn htmlEscape:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 38) {
+                out = (out + "&amp;")
+            } {
+                if (c == 60) {
+                    out = (out + "&lt;")
+                } {
+                    if (c == 62) {
+                        out = (out + "&gt;")
+                    } {
+                        if (c == 34) {
+                            out = (out + "&quot;")
+                        } {
+                            out = (out + (strfromcode c))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; CellStyle colours already carry a leading "#" when they come from
+    ; styles.xml; normalize either form to a CSS colour, or "" if unusable.
+    sfn cssColor:string (v:string) {
+        def s:string v
+        if ((strlen s) == 0) {
+            return ""
+        }
+        if ((charAt s 0) == 35) {
+            s = (substring s 1 (strlen s))
+        }
+        if ((strlen s) != 6) {
+            return ""
+        }
+        return ("#" + s)
+    }
+
+    ; One <td>, carrying the bits of cell style a word processor can honour.
+    fn cellHtml:string (r:int c:int) {
+        def st:CellStyle (model.getCellStyle(r c))
+        def style:string ""
+        if st.hasFill {
+            def bg:string (GridApp.cssColor(st.fillRgb))
+            if ((strlen bg) > 0) {
+                style = (style + "background-color:" + bg + ";")
+            }
+        }
+        def fg:string (GridApp.cssColor(st.textRgb))
+        if ((strlen fg) > 0) {
+            style = (style + "color:" + fg + ";")
+        }
+        if st.bold {
+            style = (style + "font-weight:bold;")
+        }
+        if (st.align != "left") {
+            style = (style + "text-align:" + st.align + ";")
+        }
+        def open:string "<td"
+        if ((strlen style) > 0) {
+            open = (open + " style=\"" + style + "\"")
+        }
+        open = (open + ">")
+        def body:string (GridApp.htmlEscape((model.getCell(r c))))
+        if ((strlen body) == 0) {
+            body = "&nbsp;"
+        }
+        return ((open + body) + "</td>")
+    }
+
+    ; Excel-style clipboard. Three representations are kept:
+    ;   * clipboardTsv     — flat text, what a host would put on the OS clipboard
+    ;   * clipboardHtml    — an HTML <table>, the flavour Word/Excel paste as a
+    ;     real table (Excel puts the same two flavours on the clipboard)
+    ;   * clipValues/Formulas + clipR0/clipC0 — structured block, so paste can
+    ;     translate relative refs the way Excel copy/paste does.
     fn copySelection:void () {
         def a:CellPos (new CellPos)
         def b:CellPos (new CellPos)
         sel.normalized(a b)
+        clipR0 = a.row
+        clipC0 = a.col
+        clipRows = ((b.row - a.row) + 1)
+        clipCols = ((b.col - a.col) + 1)
+        clipCut = false
+        clear clipValues
+        clear clipFormulas
         def out:string ""
+        def html:string "<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\">"
         def r:int a.row
         while (r <= b.row) {
             if (r > a.row) {
                 out = (out + "\n")
             }
+            html = (html + "<tr>")
             def c:int a.col
             while (c <= b.col) {
                 if (c > a.col) {
                     out = (out + "\t")
                 }
-                out = (out + (model.getCell(r c)))
+                def v:string (model.getCell(r c))
+                out = (out + v)
+                html = (html + (this.cellHtml(r c)))
+                push clipValues v
+                push clipFormulas (model.getFormula(r c))
                 c = (c + 1)
             }
+            html = (html + "</tr>")
             r = (r + 1)
         }
         clipboardTsv = out
+        clipboardHtml = (html + "</table>")
+    }
+
+    ; Ctrl+X: copy, then clear the source range as one undoable action. A cut
+    ; block pastes without ref translation (Excel moves formulas as written).
+    ; Formulas elsewhere that pointed at the moved cells are not rewritten.
+    fn cutSelection:void () {
+        this.copySelection()
+        this.clearSelection()
+        clipCut = true
+    }
+
+    ; Host-supplied clipboard text (OS paste): drops the structured block so the
+    ; TSV path is used and no stale formulas leak in.
+    fn setClipboardText:void (text:string) {
+        clipboardTsv = text
+        clipboardHtml = ""
+        clipCut = false
+        clear clipValues
+        clear clipFormulas
+        clipRows = 0
+        clipCols = 0
     }
 
     fn pasteClipboard:void () {
-        if ((strlen clipboardTsv) == 0) {
-            return
-        }
         if editing {
             this.commitEdit()
+        }
+        if ((array_length clipValues) > 0) {
+            this.pasteBlock()
+            return
+        }
+        this.pasteTsv()
+    }
+
+    ; Structured paste: a copied formula is re-based by the paste offset, so
+    ; =A1+B1 copied one row down becomes =A2+B2 (absolute refs stay put).
+    fn pasteBlock:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def startR:int a.row
+        def startC:int a.col
+        def dy:int (startR - clipR0)
+        def dx:int (startC - clipC0)
+        if clipCut {
+            dy = 0
+            dx = 0
+        }
+        def maxR:int startR
+        def maxC:int startC
+        model.beginTx()
+        engine.resetStats()
+        def idx:int 0
+        def ri:int 0
+        while (ri < clipRows) {
+            def ci:int 0
+            while (ci < clipCols) {
+                def tr:int (startR + ri)
+                def tc:int (startC + ci)
+                if ((tr < model.rowCount) && (tc < model.colCount)) {
+                    def f:string (itemAt clipFormulas idx)
+                    def wrote:boolean false
+                    if ((strlen f) > 0) {
+                        def translated:string (FormulaParser.translateFormula(f dx dy))
+                        if ((strlen translated) > 0) {
+                            model.applyEdit(tr tc "" translated)
+                            wrote = true
+                        }
+                    }
+                    if (wrote == false) {
+                        model.applyEdit(tr tc (itemAt clipValues idx) "")
+                    }
+                    engine.syncCell(book.activeIndex tr tc)
+                    if (tr > maxR) {
+                        maxR = tr
+                    }
+                    if (tc > maxC) {
+                        maxC = tc
+                    }
+                }
+                idx = (idx + 1)
+                ci = (ci + 1)
+            }
+            ri = (ri + 1)
+        }
+        model.endTx()
+        engine.recalcDirty()
+        clipCut = false
+        sel.anchor.row = startR
+        sel.anchor.col = startC
+        sel.active.row = maxR
+        sel.active.col = maxC
+        grid.ensureCellVisible(model sel.active.row sel.active.col)
+    }
+
+    ; Plain-text fallback (external clipboard): values only, no formulas.
+    fn pasteTsv:void () {
+        if ((strlen clipboardTsv) == 0) {
+            return
         }
         def lines:[string] (strsplit clipboardTsv "\n")
         def startR:int sel.active.row
         def startC:int sel.active.col
         def maxR:int startR
         def maxC:int startC
+        model.beginTx()
+        engine.resetStats()
         def ri:int 0
         def nLines:int (array_length lines)
         while (ri < nLines) {
@@ -432,7 +873,8 @@ class GridApp {
                 def tr:int (startR + ri)
                 def tc:int (startC + ci)
                 if ((tr < model.rowCount) && (tc < model.colCount)) {
-                    model.setCell(tr tc (itemAt cols ci))
+                    model.applyEdit(tr tc (itemAt cols ci) "")
+                    engine.syncCell(book.activeIndex tr tc)
                     if (tr > maxR) {
                         maxR = tr
                     }
@@ -444,6 +886,8 @@ class GridApp {
             }
             ri = (ri + 1)
         }
+        model.endTx()
+        engine.recalcDirty()
         sel.anchor.row = startR
         sel.anchor.col = startC
         sel.active.row = maxR
@@ -451,19 +895,30 @@ class GridApp {
         grid.ensureCellVisible(model sel.active.row sel.active.col)
     }
 
-    fn clearSelection:void () {
-        def a:CellPos (new CellPos)
-        def b:CellPos (new CellPos)
-        sel.normalized(a b)
-        def r:int a.row
-        while (r <= b.row) {
-            def c:int a.col
-            while (c <= b.col) {
-                model.setCell(r c "")
+    ; Delete: clear values AND formulas over a range, as one undoable action,
+    ; then recalculate everything that depended on those cells.
+    fn clearRange:void (r0:int c0:int r1:int c1:int) {
+        model.beginTx()
+        engine.resetStats()
+        def r:int r0
+        while (r <= r1) {
+            def c:int c0
+            while (c <= c1) {
+                model.applyEdit(r c "" "")
+                engine.syncCell(book.activeIndex r c)
                 c = (c + 1)
             }
             r = (r + 1)
         }
+        model.endTx()
+        engine.recalcDirty()
+    }
+
+    fn clearSelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        this.clearRange(a.row a.col b.row b.col)
     }
 
     ; FortuneSheet fill handle: tile source rect; translate relative formula refs.
@@ -479,7 +934,8 @@ class GridApp {
         if (srcW < 1) {
             return
         }
-        engine.attach(book)
+        model.beginTx()
+        engine.resetStats()
         def r:int a.row
         while (r <= b.row) {
             def c:int a.col
@@ -494,33 +950,131 @@ class GridApp {
                     def sr:int (fillR0 + (dr - ((to_int (dr / srcH)) * srcH)))
                     def sc:int (fillC0 + (dc - ((to_int (dc / srcW)) * srcW)))
                     def srcF:string (model.getFormula(sr sc))
+                    def wrote:boolean false
                     if ((strlen srcF) > 0) {
                         def dx:int (c - sc)
                         def dy:int (r - sr)
                         def translated:string (FormulaParser.translateFormula(srcF dx dy))
                         if ((strlen translated) > 0) {
-                            model.setFormula(r c translated)
-                            model.setCellRaw(r c "")
-                            engine.registerFormula(book.activeIndex r c translated)
-                        } {
-                            model.setCell(r c (model.getCell(sr sc)))
+                            model.applyEdit(r c "" translated)
+                            wrote = true
                         }
-                    } {
-                        def had:boolean (model.hasFormula(r c))
-                        if had {
-                            model.clearFormula(r c)
-                            engine.clearFormula(book.activeIndex r c)
-                        }
-                        model.setCell(r c (model.getCell(sr sc)))
                     }
+                    if (wrote == false) {
+                        model.applyEdit(r c (model.getCell(sr sc)) "")
+                    }
+                    engine.syncCell(book.activeIndex r c)
                 }
                 c = (c + 1)
             }
             r = (r + 1)
         }
+        model.endTx()
         ; Recalc newly registered / dependent formulas once.
-        engine.resetStats()
         engine.recalcDirty()
+    }
+
+    ; Pointer press that is neither a sheet tab nor a header resize: fill
+    ; handle, header menu, formula bar, or cell selection.
+    fn handlePress:void (input:UIInput) {
+        def onFill:boolean false
+        if (editing == false) {
+            onFill = (grid.hitFillHandle(model sel input.pointerX input.pointerY))
+        }
+        if onFill {
+            ; FortuneSheet fill-handle drag starts from current selection
+            view.focused = true
+            def a0:CellPos (new CellPos)
+            def b0:CellPos (new CellPos)
+            sel.normalized(a0 b0)
+            fillR0 = a0.row
+            fillC0 = a0.col
+            fillR1 = b0.row
+            fillC1 = b0.col
+            filling = true
+            dragging = false
+        } {
+            def hit:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+            def menuHit:int (this.hitHeaderMenu(input.pointerX input.pointerY))
+            if (menuHit >= 0) {
+                view.focused = true
+                if (menuHit >= 1) {
+                    this.runHeaderMenu(menuHit)
+                }
+            } {
+                if ((hit.row == -2) && (hit.col >= 0)) {
+                    ; Column header → sort/filter popup
+                    view.focused = true
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openHeaderMenu(hit.col input.pointerX (grid.y + grid.formulaBarH + grid.colHeaderH))
+                } {
+                    if view.menuOpen {
+                        this.closeHeaderMenu()
+                    }
+                    if ((hit.row == -3) && (hit.col == -3)) {
+                        view.focused = true
+                        this.beginEdit("" false)
+                    } {
+                        if ((hit.row >= 0) && (hit.col >= 0)) {
+                            view.focused = true
+                            if editing {
+                                if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
+                                    this.commitEdit()
+                                }
+                            }
+                            this.moveActive(hit.row hit.col input.shiftDown)
+                            dragging = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ; Pointer drag that is not a resize: fill-handle rubber band or range select.
+    fn handleDrag:void (input:UIInput) {
+        if filling {
+            if (input.pointerPressed == false) {
+                def hitF:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                if ((hitF.row >= 0) && (hitF.col >= 0)) {
+                    sel.anchor.row = fillR0
+                    sel.anchor.col = fillC0
+                    sel.active.row = hitF.row
+                    sel.active.col = hitF.col
+                    ; keep source corner as the other end of the range
+                    def a1:CellPos (new CellPos)
+                    def b1:CellPos (new CellPos)
+                    sel.normalized(a1 b1)
+                    if (a1.row > fillR0) {
+                        a1.row = fillR0
+                    }
+                    if (a1.col > fillC0) {
+                        a1.col = fillC0
+                    }
+                    if (b1.row < fillR1) {
+                        b1.row = fillR1
+                    }
+                    if (b1.col < fillC1) {
+                        b1.col = fillC1
+                    }
+                    sel.anchor.row = a1.row
+                    sel.anchor.col = a1.col
+                    sel.active.row = b1.row
+                    sel.active.col = b1.col
+                }
+            }
+        } {
+            if dragging {
+                if (input.pointerPressed == false) {
+                    def hit2:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                    if ((hit2.row >= 0) && (hit2.col >= 0)) {
+                        this.moveActive(hit2.row hit2.col true)
+                    }
+                }
+            }
+        }
     }
 
     fn update:void (input:UIInput) {
@@ -531,6 +1085,10 @@ class GridApp {
                 view.focused = true
             } {
                 def resizeCol:int (grid.hitColResize(model input.pointerX input.pointerY))
+                def resizeRow:int -1
+                if (resizeCol < 0) {
+                    resizeRow = (grid.hitRowResize(model input.pointerX input.pointerY))
+                }
                 if (resizeCol >= 0) {
                     if editing {
                         this.commitEdit()
@@ -541,59 +1099,17 @@ class GridApp {
                     grid.resizeStartW = (model.colWidth(resizeCol))
                     view.focused = true
                 } {
-                    def onFill:boolean false
-                    if (editing == false) {
-                        onFill = (grid.hitFillHandle(model sel input.pointerX input.pointerY))
-                    }
-                    if onFill {
-                        ; FortuneSheet fill-handle drag starts from current selection
-                        view.focused = true
-                        def a0:CellPos (new CellPos)
-                        def b0:CellPos (new CellPos)
-                        sel.normalized(a0 b0)
-                        fillR0 = a0.row
-                        fillC0 = a0.col
-                        fillR1 = b0.row
-                        fillC1 = b0.col
-                        filling = true
-                        dragging = false
-                    } {
-                        def hit:CellPos (grid.hitTest(model input.pointerX input.pointerY))
-                        def menuHit:int (this.hitHeaderMenu(input.pointerX input.pointerY))
-                        if (menuHit >= 0) {
-                            view.focused = true
-                            if (menuHit >= 1) {
-                                this.runHeaderMenu(menuHit)
-                            }
-                        } {
-                            if ((hit.row == -2) && (hit.col >= 0)) {
-                                ; Column header → sort/filter popup
-                                view.focused = true
-                                if editing {
-                                    this.commitEdit()
-                                }
-                                this.openHeaderMenu(hit.col input.pointerX (grid.y + grid.formulaBarH + grid.colHeaderH))
-                            } {
-                                if view.menuOpen {
-                                    this.closeHeaderMenu()
-                                }
-                                if ((hit.row == -3) && (hit.col == -3)) {
-                                    view.focused = true
-                                    this.beginEdit("" false)
-                                } {
-                                    if ((hit.row >= 0) && (hit.col >= 0)) {
-                                        view.focused = true
-                                        if editing {
-                                            if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
-                                                this.commitEdit()
-                                            }
-                                        }
-                                        this.moveActive(hit.row hit.col input.shiftDown)
-                                        dragging = true
-                                    }
-                                }
-                            }
+                    if (resizeRow >= 0) {
+                        if editing {
+                            this.commitEdit()
                         }
+                        resizingRows = true
+                        grid.resizingRow = resizeRow
+                        grid.resizeStartY = input.pointerY
+                        grid.resizeStartH = (model.rowHeight(resizeRow))
+                        view.focused = true
+                    } {
+                        this.handlePress(input)
                     }
                 }
             }
@@ -605,45 +1121,14 @@ class GridApp {
                 model.setColWidth(grid.resizingCol (grid.resizeStartW + dx))
                 grid.updateVisible(model)
             } {
-                if filling {
-                    if (input.pointerPressed == false) {
-                        def hitF:CellPos (grid.hitTest(model input.pointerX input.pointerY))
-                        if ((hitF.row >= 0) && (hitF.col >= 0)) {
-                            sel.anchor.row = fillR0
-                            sel.anchor.col = fillC0
-                            sel.active.row = hitF.row
-                            sel.active.col = hitF.col
-                            ; keep source corner as the other end of the range
-                            def a1:CellPos (new CellPos)
-                            def b1:CellPos (new CellPos)
-                            sel.normalized(a1 b1)
-                            if (a1.row > fillR0) {
-                                a1.row = fillR0
-                            }
-                            if (a1.col > fillC0) {
-                                a1.col = fillC0
-                            }
-                            if (b1.row < fillR1) {
-                                b1.row = fillR1
-                            }
-                            if (b1.col < fillC1) {
-                                b1.col = fillC1
-                            }
-                            sel.anchor.row = a1.row
-                            sel.anchor.col = a1.col
-                            sel.active.row = b1.row
-                            sel.active.col = b1.col
-                        }
-                    }
+                if resizingRows {
+                    def dy:int (input.pointerY - grid.resizeStartY)
+                    model.setRowHeight(grid.resizingRow (grid.resizeStartH + dy))
+                    sheetView.markDirty()
+                    sheetView.rebuild()
+                    grid.updateVisible(model)
                 } {
-                    if dragging {
-                        if (input.pointerPressed == false) {
-                            def hit2:CellPos (grid.hitTest(model input.pointerX input.pointerY))
-                            if ((hit2.row >= 0) && (hit2.col >= 0)) {
-                                this.moveActive(hit2.row hit2.col true)
-                            }
-                        }
-                    }
+                    this.handleDrag(input)
                 }
             }
         }
@@ -655,7 +1140,9 @@ class GridApp {
             filling = false
             dragging = false
             resizing = false
+            resizingRows = false
             grid.resizingCol = -1
+            grid.resizingRow = -1
         }
 
         if (input.scrollDelta != 0) {
@@ -681,31 +1168,45 @@ class GridApp {
                     }
                     this.copySelection()
                 }
+                if ((ch == 120) || (ch == 88)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.cutSelection()
+                }
                 if ((ch == 118) || (ch == 86)) {
                     this.pasteClipboard()
                 }
                 if ((ch == 122) || (ch == 90)) {
-                    if editing {
-                        this.cancelEdit()
-                    }
-                    def u:CellPos (model.undo())
-                    this.moveActive(u.row u.col false)
+                    this.undoEdit()
                 }
                 if ((ch == 121) || (ch == 89)) {
+                    this.redoEdit()
+                }
+                ; Excel: Ctrl+Space selects the column, Shift+Space the row.
+                if (ch == 32) {
                     if editing {
-                        this.cancelEdit()
+                        this.commitEdit()
                     }
-                    def r:CellPos (model.redo())
-                    this.moveActive(r.row r.col false)
+                    if input.shiftDown {
+                        sel.selectAll(model)
+                    } {
+                        this.selectColumn(sel.active.col)
+                    }
                 }
                 ti = (ti + 1)
             }
         } {
             if (input.hasText()) {
                 if editing {
-                    editBuf = (editBuf + input.textInput)
+                    this.insertAtCaret(input.textInput)
                 } {
-                    this.beginEdit(input.textInput true)
+                    ; Shift+Space selects the whole row rather than typing one.
+                    if (input.shiftDown && (input.textInput == " ")) {
+                        this.selectRow(sel.active.row)
+                    } {
+                        this.beginEdit(input.textInput true)
+                    }
                 }
             }
         }
@@ -720,6 +1221,7 @@ class GridApp {
 
     fn render:void () {
         view.status = ("v" + (to_string model.version))
+        view.editCaret = editCaret
         view.render(model sel grid editing editBuf book)
     }
 
@@ -729,6 +1231,7 @@ class GridApp {
 
     fn sceneJson:string () {
         view.status = ("v" + (to_string model.version))
+        view.editCaret = editCaret
         return (view.sceneJson(model sel grid editing editBuf book))
     }
 

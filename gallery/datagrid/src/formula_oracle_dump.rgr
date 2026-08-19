@@ -6,6 +6,44 @@ Import "GridApp.rgr"
 Import "xlsx/XlsxLoader.rgr"
 
 class FormulaOracleDump {
+    ; Formulas and values can contain quotes (IF(A1>5,"large","small")) — emit
+    ; them as properly escaped JSON strings or the oracle cannot parse the dump.
+    sfn jsonStr:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        def n:int (strlen v)
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 34) {
+                out = (out + "\\\"")
+            } {
+                if (c == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (c == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (c == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (c == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (c < 32) {
+                                    out = (out + " ")
+                                } {
+                                    out = (out + (strfromcode c))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
     sfn main:void () {
         def path:string "gallery/datagrid/fixtures/formulas.xlsx"
         def book:WorkbookModel (new WorkbookModel)
@@ -16,7 +54,7 @@ class FormulaOracleDump {
             return
         }
         print "---FORMULA_VALUES---"
-        print ("{\"active\":\"" + (book.activeName()) + "\",\"cells\":[")
+        print ("{\"active\":" + (FormulaOracleDump.jsonStr((book.activeName()))) + ",\"cells\":[")
         def first:boolean true
         def si:int 0
         while (si < (book.sheetCount())) {
@@ -32,7 +70,7 @@ class FormulaOracleDump {
                         }
                         first = false
                         def addr:string (SpreadsheetModel.cellLabel(r c))
-                        def line:string ("{\"sheet\":\"" + s.name + "\",\"sheetIndex\":" + (to_string si) + ",\"row\":" + (to_string r) + ",\"col\":" + (to_string c) + ",\"addr\":\"" + addr + "\",\"formula\":\"" + f + "\",\"value\":\"" + (s.getCell(r c)) + "\"}")
+                        def line:string ("{\"sheet\":" + (FormulaOracleDump.jsonStr(s.name)) + ",\"sheetIndex\":" + (to_string si) + ",\"row\":" + (to_string r) + ",\"col\":" + (to_string c) + ",\"addr\":" + (FormulaOracleDump.jsonStr(addr)) + ",\"formula\":" + (FormulaOracleDump.jsonStr(f)) + ",\"value\":" + (FormulaOracleDump.jsonStr((s.getCell(r c)))) + "}")
                         print line
                     }
                     c = (c + 1)

@@ -88,7 +88,14 @@ npm run docx_viewer:window        # http://127.0.0.1:8770/
 ## Known limitations
 
 - Not a full Word clone; no lossless DOCX round-trip / edit export yet
+- Paste builds a plain table: no column widths from the source, cell borders,
+  merged rows, or images
 - SoftCanvas glyph metrics can clip the last letter(s) of long lines
+- Per-span font *size* still paints at the visual line's size (layout wraps the
+  paragraph at one size); only the face varies per run
+- Selection is a single range: no multi-select, no column selection
+- Requesting a page past the end renders the last page (clamped); the host
+  reports the page it actually drew so the UI cannot offer a phantom one
 - Justify is flagged but not full glyph-distributed justification
 - Table row vertical merge, nested tables, floating images: out of scope
 - Header/footer: default only (no different first / odd-even yet)
@@ -104,9 +111,77 @@ npm run docx_viewer:window        # http://127.0.0.1:8770/
 ```text
 DocxEditController → RichDocumentEdit → RichDocument (paragraph + spans)
                  ↘ DocxLayout hit-test / caret geometry
+                 ↘ ClipboardTable (clipboard HTML / TSV → table)
 ```
 
-Window host: toggle **Edit**, click a body paragraph, type / Backspace / Delete /
-Enter / Ctrl+B / Ctrl+Z. Same SoftCanvas layout drives caret placement.
+Window host: toggle **Edit**, click a body paragraph, then use the keyboard
+below. The same SoftCanvas layout drives caret placement.
 
 v1 scope: body paragraphs only (not tables/headers yet).
+
+## Keyboard
+
+| Key | Does |
+| --- | --- |
+| ← → | One character; crosses into the previous / next paragraph at the ends |
+| ↑ ↓ | One visual line, keeping the column; crosses page boundaries |
+| PageUp / PageDown | One page of lines, with a line of overlap |
+| Home / End | Start / end of the **visual** line (a wrapped paragraph behaves as it looks) |
+| Ctrl+Home / Ctrl+End | Start / end of the document |
+| Shift + any of the above | Extends the selection instead of moving |
+| Ctrl+A | Select the whole body |
+| Ctrl+C / Ctrl+X | Copy / cut the selection to the OS clipboard |
+| Ctrl+V | Paste (see [Paste](#paste)) |
+| Ctrl+B | Bold the selection |
+| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Enter / Backspace / Delete | Split, delete back, delete forward |
+
+A bare arrow with a selection collapses it to the matching edge, as in Word.
+Movement follows the caret onto its page, so ↓ off the bottom of page 1 turns
+the view to page 2.
+
+### Selection across paragraphs
+
+`DocumentRange` is anchor→focus in drag order; `orderedEnds` puts it in
+document order using the paragraph's position among top-level body blocks, so a
+backwards or multi-paragraph drag behaves like a forward one. Multi-paragraph
+selections paint per visual line, copy with `\n` between paragraphs, delete by
+trimming the ends and merging what is left, and take Ctrl+B across every
+paragraph they touch.
+
+### Measurement
+
+`DocxTextMetrics` is the single authority for "how far along the line is offset
+N?". The painter draws a line run by run, switching face per `TextSpan`, so the
+caret, click hit-test and selection rectangles all measure the same way —
+otherwise a click inside a bold run lands on the wrong character.
+
+Face selection goes through `UITextRenderer.fontFamily`, not `rt.setFont`:
+`measureWidth` / `wrap` / `getCachedLine` each call `applyFace()` first, which
+resets the rasterizer from `fontFamily`, so poking `rt` directly is undone by
+the very next call. Layout picks the face before wrapping too, so a bold
+paragraph no longer wraps as if it were regular.
+
+## Paste
+
+`Ctrl+V` in edit mode reads the OS clipboard through the browser's native
+`paste` event and inserts at the caret:
+
+| Clipboard flavour | Result |
+| --- | --- |
+| `text/html` containing a `<table>` | a real `DocumentTable` block |
+| `text/plain` with tabs | same, parsed as TSV |
+| `text/plain` without tabs | text, newlines becoming paragraph splits |
+
+That is the spreadsheet interop path: select a range in the
+[DataGrid](../datagrid/README.md#clipboard) (or in Excel), press `Ctrl+C`, and
+paste here to get a table. Per-cell background fill, bold, `colspan` and
+horizontal alignment survive the trip; the table is sized to the section's text
+column. Like Word, the paragraph is split at the caret and the table lands
+between the halves, with the caret on the paragraph that follows it. One
+`Ctrl+Z` removes the table and rejoins the paragraph.
+
+`ClipboardTable` reads the HTML with a tolerant tag scanner rather than an XML
+parser, because real clipboard markup is not well-formed XML — Excel ships a
+`<style>` block, `<!--StartFragment-->` comments, unquoted and single-quoted
+attributes and void `<col>` tags.

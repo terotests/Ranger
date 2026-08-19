@@ -5,6 +5,7 @@
 Import "RichDocument.rgr"
 Import "DocxLayout.rgr"
 Import "DocxEditController.rgr"
+Import "DocxTextMetrics.rgr"
 Import "WordNumbering.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
@@ -110,13 +111,16 @@ class DocxView {
         if (sel.isCollapsed()) {
             return
         }
-        if ((sel.sameParagraph()) == false) {
-            return
-        }
-        def pid:int sel.anchor.paragraphId
-        def a:int (sel.startOffset())
-        def b:int (sel.endOffset())
-        if (a >= b) {
+        def a:[int]
+        def b:[int]
+        edit.orderedEnds(a b)
+        def sPid:int (itemAt a 0)
+        def sOff:int (itemAt a 1)
+        def ePid:int (itemAt b 0)
+        def eOff:int (itemAt b 1)
+        def sOrder:int (edit.adapter.bodyOrderOf(sPid))
+        def eOrder:int (edit.adapter.bodyOrderOf(ePid))
+        if ((sOrder < 0) || (eOrder < 0)) {
             return
         }
         def pg:LaidPage (layout.pageAt(pageIndex))
@@ -124,55 +128,72 @@ class DocxView {
         while (i < (array_length pg.lines)) {
             def line:LaidLine (itemAt pg.lines i)
             if (line.kind == 0) {
-                if (line.paraIndex == pid) {
-                    def ls:int line.docStart
-                    def le:int line.docEnd
-                    ; Inclusive end for caret-at-docEnd on this visual line.
-                    if ((le == ls) && ((strlen line.text) == 0)) {
-                        le = ls
-                    }
-                    def s:int a
-                    def e:int b
-                    if (s < ls) {
-                        s = ls
-                    }
-                    if (e > le) {
-                        e = le
-                    }
-                    if (s < e) {
-                        def fontPx:double line.fontSizePx
-                        def prefixLen:int 0
-                        def display:string line.text
-                        def x0:int line.x
-                        if ((strlen line.listPrefix) > 0) {
-                            if ((indexOf display line.listPrefix) == 0) {
-                                prefixLen = (strlen line.listPrefix)
-                                x0 = (x0 + (to_int (ctx.tr.measureWidth((substring display 0 prefixLen) fontPx))))
-                                display = (substring display prefixLen (strlen display))
+                if (line.paraIndex > 0) {
+                    def order:int (edit.adapter.bodyOrderOf(line.paraIndex))
+                    if ((order >= sOrder) && (order <= eOrder)) {
+                        ; Clip the selection to what this visual line covers.
+                        def ls:int line.docStart
+                        def le:int line.docEnd
+                        def s:int ls
+                        def e:int le
+                        if (order == sOrder) {
+                            if (sOff > s) {
+                                s = sOff
                             }
                         }
-                        def into0:int (s - ls)
-                        def into1:int (e - ls)
-                        if (into0 < 0) {
-                            into0 = 0
+                        if (order == eOrder) {
+                            if (eOff < e) {
+                                e = eOff
+                            }
                         }
-                        if (into1 > (strlen display)) {
-                            into1 = (strlen display)
+                        if (s < ls) {
+                            s = ls
                         }
-                        if (into0 < into1) {
-                            def x1:int (x0 + (to_int (ctx.tr.measureWidth((substring display 0 into0) fontPx))))
-                            def x2:int (x0 + (to_int (ctx.tr.measureWidth((substring display 0 into1) fontPx))))
+                        if (e > le) {
+                            e = le
+                        }
+                        def p:Paragraph (unwrap line.paragraphRef)
+                        def fontPx:double line.fontSizePx
+                        def x0:int line.x
+                        if ((strlen line.listPrefix) > 0) {
+                            if ((indexOf line.text line.listPrefix) == 0) {
+                                x0 = (x0 + (DocxTextMetrics.measurePlain(ctx.tr line.listPrefix fontPx line.bold)))
+                            }
+                        }
+                        if (s < e) {
+                            def x1:int (x0 + (DocxTextMetrics.measureRange(ctx.tr p fontPx ls s)))
+                            def x2:int (x0 + (DocxTextMetrics.measureRange(ctx.tr p fontPx ls e)))
                             def w:int (x2 - x1)
                             if (w < 2) {
                                 w = 2
                             }
+                            ; A paragraph swallowed whole shows its newline too.
+                            if (order < eOrder) {
+                                if (e == (strlen p.text)) {
+                                    w = (w + 6)
+                                }
+                            }
                             ctx.fillRect(x1 line.y w line.height selColor)
-                        }
-                    } {
-                        ; Selection ends exactly at line start of next chunk — skip.
-                        ; If selection covers an empty line at caret, show a thin bar.
-                        if ((ls == le) && (a <= ls) && (b >= ls) && ((strlen line.text) == 0)) {
-                            ctx.fillRect(line.x line.y 4 line.height selColor)
+                        } {
+                            ; Empty paragraph inside the selection still shows.
+                            def emptyInside:boolean false
+                            if ((ls == le) && ((strlen line.text) == 0)) {
+                                if ((order > sOrder) && (order < eOrder)) {
+                                    emptyInside = true
+                                }
+                                if ((order == sOrder) && (order != eOrder)) {
+                                    emptyInside = true
+                                }
+                                if ((order == eOrder) && (order != sOrder)) {
+                                    emptyInside = false
+                                }
+                                if ((sPid == ePid) && (sOff <= ls) && (eOff >= ls)) {
+                                    emptyInside = true
+                                }
+                            }
+                            if emptyInside {
+                                ctx.fillRect(line.x line.y 6 line.height selColor)
+                            }
                         }
                     }
                 }
@@ -181,7 +202,6 @@ class DocxView {
         }
     }
 
-    ; Multi-page strip with gap (for window host / overview).
     fn presentAll:void (doc:RichDocument nums:WordNumbering maxPages:int) {
         docRef = doc
         layout.layout(doc ctx.tr nums)
@@ -353,20 +373,10 @@ class DocxView {
         }
     }
 
+    ; Single face policy, shared with DocxTextMetrics so what is painted and
+    ; what the caret / selection measure can never disagree.
     fn setPaintFace:void (bold:boolean) {
-        if bold {
-            def face:TrueTypeFont (ctx.tr.fm.getFont("Open Sans-Bold"))
-            if (face.unitsPerEm > 0) {
-                ctx.tr.rt.setFont(face)
-                ctx.tr.clearCache()
-            }
-        } {
-            def face2:TrueTypeFont (ctx.tr.fm.getFont("Open Sans"))
-            if (face2.unitsPerEm > 0) {
-                ctx.tr.rt.setFont(face2)
-                ctx.tr.clearCache()
-            }
-        }
+        DocxTextMetrics.applyFace(ctx.tr bold)
     }
 
     fn paintTextRun:int (chunk:string x:int y:int size:double sp:TextSpan muteChrome:boolean) {
@@ -380,7 +390,7 @@ class DocxView {
         }
         this.setPaintFace(sp.bold)
         ctx.text(chunk x y runSize col)
-        def w:int (to_int (ctx.tr.measureWidth(chunk runSize)))
+        def w:int (DocxTextMetrics.measurePlain(ctx.tr chunk runSize sp.bold))
         if sp.underline {
             def uy:int ((y + (to_int runSize)) + 1)
             ctx.fillRect(x uy w 1 col)
