@@ -410,7 +410,9 @@ class SvgParser {
 
     fn warn:void (key:string msg:string) {
         def seen@(optional):boolean (get warnedKeys key)
-        if seen {
+        ; Optional booleans are plain `bool` on C++; a bare `if seen` becomes
+        ; `seen != NULL` and warns. Treat true as already-warned.
+        if (seen == true) {
             return
         }
         set warnedKeys key true
@@ -743,7 +745,9 @@ class SvgParser {
         def id:string (substring href 1 (strlen href))
         def target@(optional):string (get spans id)
         def fragment:string ""
-        if target {
+        ; Prefer `!null?`: optional strings are plain std::string on C++, so a
+        ; bare `if target` becomes `target != NULL` and does not compile.
+        if (!null? target) {
             fragment = (unwrap target)
         } {
             this.warn(("use-missing-" + id) ("<use href=\"#" + id + "\"> refers to an id that is not in this document"))

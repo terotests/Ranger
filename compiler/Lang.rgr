@@ -6052,7 +6052,9 @@ inline std::string r_double_to_string(double v) {
         to_string  _:string       ( value:boolean ) { 
             templates {
                 ranger ( "(to_string " (e 1) ")")
-                cpp ( "(" (e 1) " ? \"true\" : \"false\")" )
+                ; std::string so `(to_string a) + (to_string b)` concatenates;
+                ; a bare ternary is const char* and C++ rejects char* + char*.
+                cpp ( "std::string(" (e 1) " ? \"true\" : \"false\")" (imp "<string>") )
                 java7 ( "String.valueOf(" (e 1) " )") 
                 php ( "(" (e 1) " ? \"true\" : \"false\")") 
                 scala ( "(" (e 1) ".toString)")

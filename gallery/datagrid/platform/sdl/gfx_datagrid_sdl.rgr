@@ -1,0 +1,448 @@
+; ==============================================================================
+; gfx_datagrid_sdl — SDL2 + OpenGL present + UI input for the DataGrid host.
+; ==============================================================================
+;
+; Thin platform boundary for gallery/datagrid/platform/sdl/. SoftCanvas paints
+; the spreadsheet on the CPU; each frame the RGBA buffer is uploaded as an
+; OpenGL texture and drawn as a full-window quad.
+;
+; Operators are prefixed dgfx_* so this file never collides with the game
+; engine's gfx_* shim if both are ever linked in one binary.
+;
+; The C++ shim is emitted once via (polyfill "after_imports" …) nested in the
+; first operator's cpp template — same pattern as gallery/game_engine/gfx_sdl.rgr.
+; ==============================================================================
+
+operators {
+
+    ; True once the window received a quit / close request.
+    ; Carries the after_imports polyfill (must live inside a cpp template).
+    dgfx_should_close _:boolean () {
+        templates {
+            cpp ( "(dgfx_should_close() != 0)"
+                  (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>")
+                  (imp "<cstdio>") (imp "<cstdlib>") (imp "<cstring>")
+                  (imp "<vector>")
+(polyfill "after_imports" "
+#if defined(__APPLE__)
+#include <OpenGL/gl3.h>
+#elif defined(__arm__) || defined(__aarch64__)
+#include <GLES2/gl2.h>
+#else
+#define GL_GLEXT_PROTOTYPES 1
+#include <GL/gl.h>
+#include <GL/glext.h>
+#endif
+
+static SDL_Window* g_dgfx_win = nullptr;
+static SDL_GLContext g_dgfx_glctx = nullptr;
+static int g_dgfx_should_close_flag = 0;
+static int g_dgfx_fb_w = 0;
+static int g_dgfx_fb_h = 0;
+
+static int g_dgfx_mouse_x = 0;
+static int g_dgfx_mouse_y = 0;
+static int g_dgfx_mouse_btn = 0;
+static int g_dgfx_wheel_y = 0;
+static int g_dgfx_wheel_x = 0;
+
+static GLuint g_dgfx_program = 0;
+static GLint g_dgfx_pos_attr = -1;
+static GLint g_dgfx_uv_attr = -1;
+static GLint g_dgfx_tex_uniform = -1;
+static GLuint g_dgfx_vbo = 0;
+static GLuint g_dgfx_tex = 0;
+static int g_dgfx_tex_w = 0;
+static int g_dgfx_tex_h = 0;
+
+enum {
+    DGFX_KEY_NONE = 0,
+    DGFX_KEY_BACKSPACE = 1,
+    DGFX_KEY_ENTER = 2,
+    DGFX_KEY_TAB = 3,
+    DGFX_KEY_ESCAPE = 4,
+    DGFX_KEY_LEFT = 5,
+    DGFX_KEY_RIGHT = 6,
+    DGFX_KEY_UP = 7,
+    DGFX_KEY_DOWN = 8,
+    DGFX_KEY_DEL = 9,
+    DGFX_KEY_HOME = 10,
+    DGFX_KEY_END = 11,
+    DGFX_KEY_PAGEUP = 12,
+    DGFX_KEY_PAGEDOWN = 13,
+    DGFX_KEY_F2 = 14
+};
+
+static std::vector<int> g_dgfx_keys;
+static std::string g_dgfx_text;
+
+static GLuint dgfx_compile(GLenum type, const char* src) {
+    GLuint s = glCreateShader(type);
+    glShaderSource(s, 1, &src, nullptr);
+    glCompileShader(s);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (ok != GL_TRUE) {
+        char log[512];
+        GLsizei len = 0;
+        glGetShaderInfoLog(s, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[dgfx] shader compile failed: %.*s\", (int) len, log);
+        glDeleteShader(s);
+        return 0;
+    }
+    return s;
+}
+
+static int dgfx_gl_init() {
+    if (g_dgfx_program != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec2 aPos;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUv = aUv; }\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec2 aPos;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUv = aUv; }\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+#endif
+    GLuint vsId = dgfx_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = dgfx_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) {
+        if (vsId) glDeleteShader(vsId);
+        if (fsId) glDeleteShader(fsId);
+        return 0;
+    }
+    g_dgfx_program = glCreateProgram();
+    glAttachShader(g_dgfx_program, vsId);
+    glAttachShader(g_dgfx_program, fsId);
+    glLinkProgram(g_dgfx_program);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_dgfx_program, GL_LINK_STATUS, &linked);
+    if (linked != GL_TRUE) {
+        SDL_Log(\"[dgfx] program link failed\");
+        glDeleteProgram(g_dgfx_program);
+        g_dgfx_program = 0;
+        return 0;
+    }
+    g_dgfx_pos_attr = glGetAttribLocation(g_dgfx_program, \"aPos\");
+    g_dgfx_uv_attr = glGetAttribLocation(g_dgfx_program, \"aUv\");
+    g_dgfx_tex_uniform = glGetUniformLocation(g_dgfx_program, \"uTex\");
+    glGenBuffers(1, &g_dgfx_vbo);
+    glGenTextures(1, &g_dgfx_tex);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    return 1;
+}
+
+static int dgfx_map_key(SDL_Keycode k) {
+    switch (k) {
+        case SDLK_BACKSPACE: return DGFX_KEY_BACKSPACE;
+        case SDLK_RETURN: case SDLK_KP_ENTER: return DGFX_KEY_ENTER;
+        case SDLK_TAB: return DGFX_KEY_TAB;
+        case SDLK_ESCAPE: return DGFX_KEY_ESCAPE;
+        case SDLK_LEFT: return DGFX_KEY_LEFT;
+        case SDLK_RIGHT: return DGFX_KEY_RIGHT;
+        case SDLK_UP: return DGFX_KEY_UP;
+        case SDLK_DOWN: return DGFX_KEY_DOWN;
+        case SDLK_DELETE: return DGFX_KEY_DEL;
+        case SDLK_HOME: return DGFX_KEY_HOME;
+        case SDLK_END: return DGFX_KEY_END;
+        case SDLK_PAGEUP: return DGFX_KEY_PAGEUP;
+        case SDLK_PAGEDOWN: return DGFX_KEY_PAGEDOWN;
+        case SDLK_F2: return DGFX_KEY_F2;
+        default: return DGFX_KEY_NONE;
+    }
+}
+
+static void dgfx_pump() {
+    SDL_Event ev;
+    while (SDL_PollEvent(&ev)) {
+        if (ev.type == SDL_QUIT) { g_dgfx_should_close_flag = 1; }
+        if (ev.type == SDL_MOUSEMOTION) {
+            g_dgfx_mouse_x = ev.motion.x;
+            g_dgfx_mouse_y = ev.motion.y;
+        }
+        if (ev.type == SDL_MOUSEBUTTONDOWN) {
+            g_dgfx_mouse_x = ev.button.x;
+            g_dgfx_mouse_y = ev.button.y;
+            if (ev.button.button == SDL_BUTTON_LEFT) { g_dgfx_mouse_btn |= 1; }
+            if (ev.button.button == SDL_BUTTON_RIGHT) { g_dgfx_mouse_btn |= 2; }
+            if (ev.button.button == SDL_BUTTON_MIDDLE) { g_dgfx_mouse_btn |= 4; }
+        }
+        if (ev.type == SDL_MOUSEBUTTONUP) {
+            if (ev.button.button == SDL_BUTTON_LEFT) { g_dgfx_mouse_btn &= ~1; }
+            if (ev.button.button == SDL_BUTTON_RIGHT) { g_dgfx_mouse_btn &= ~2; }
+            if (ev.button.button == SDL_BUTTON_MIDDLE) { g_dgfx_mouse_btn &= ~4; }
+        }
+        if (ev.type == SDL_MOUSEWHEEL) {
+            int wy = ev.wheel.y;
+            int wx = ev.wheel.x;
+            if (ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+                wy = -wy;
+                wx = -wx;
+            }
+            g_dgfx_wheel_y += wy;
+            g_dgfx_wheel_x += wx;
+        }
+        if (ev.type == SDL_KEYDOWN && ev.key.repeat == 0) {
+            int mapped = dgfx_map_key(ev.key.keysym.sym);
+            if (mapped != DGFX_KEY_NONE) {
+                g_dgfx_keys.push_back(mapped);
+            }
+            SDL_Keymod mod = (SDL_Keymod) ev.key.keysym.mod;
+            if ((mod & (KMOD_CTRL | KMOD_GUI)) != 0) {
+                SDL_Keycode sym = ev.key.keysym.sym;
+                if (sym >= SDLK_a && sym <= SDLK_z) {
+                    char ch = (char) ('a' + (sym - SDLK_a));
+                    g_dgfx_text.push_back(ch);
+                }
+            }
+        }
+        if (ev.type == SDL_TEXTINPUT) {
+            g_dgfx_text += ev.text.text;
+        }
+    }
+}
+
+static int dgfx_open(const std::string& title, int w, int h) {
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        SDL_Log(\"[dgfx] SDL_Init failed: %s\", SDL_GetError());
+        return 0;
+    }
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    g_dgfx_win = SDL_CreateWindow(title.c_str(),
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h,
+        SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    if (g_dgfx_win == nullptr) {
+        SDL_Log(\"[dgfx] CreateWindow failed: %s\", SDL_GetError());
+        return 0;
+    }
+    g_dgfx_glctx = SDL_GL_CreateContext(g_dgfx_win);
+    if (g_dgfx_glctx == nullptr) {
+        SDL_Log(\"[dgfx] GL context failed: %s\", SDL_GetError());
+        SDL_DestroyWindow(g_dgfx_win);
+        g_dgfx_win = nullptr;
+        return 0;
+    }
+    SDL_GL_SetSwapInterval(1);
+    SDL_StartTextInput();
+    g_dgfx_fb_w = w;
+    g_dgfx_fb_h = h;
+    if (!dgfx_gl_init()) {
+        SDL_GL_DeleteContext(g_dgfx_glctx);
+        g_dgfx_glctx = nullptr;
+        SDL_DestroyWindow(g_dgfx_win);
+        g_dgfx_win = nullptr;
+        return 0;
+    }
+    return 1;
+}
+
+static void dgfx_present(const uint8_t* pixels, int w, int h) {
+    if (g_dgfx_win == nullptr || g_dgfx_glctx == nullptr || pixels == nullptr) { return; }
+    SDL_GL_MakeCurrent(g_dgfx_win, g_dgfx_glctx);
+    int drawW = w;
+    int drawH = h;
+    SDL_GL_GetDrawableSize(g_dgfx_win, &drawW, &drawH);
+    g_dgfx_fb_w = drawW;
+    g_dgfx_fb_h = drawH;
+    glViewport(0, 0, drawW, drawH);
+    glClearColor(0.92f, 0.93f, 0.95f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glBindTexture(GL_TEXTURE_2D, g_dgfx_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    if (g_dgfx_tex_w == w && g_dgfx_tex_h == h) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    } else {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        g_dgfx_tex_w = w;
+        g_dgfx_tex_h = h;
+    }
+
+    const float verts[24] = {
+        -1.f, -1.f, 0.f, 1.f,
+         1.f, -1.f, 1.f, 1.f,
+         1.f,  1.f, 1.f, 0.f,
+        -1.f, -1.f, 0.f, 1.f,
+         1.f,  1.f, 1.f, 0.f,
+        -1.f,  1.f, 0.f, 0.f
+    };
+    glUseProgram(g_dgfx_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_dgfx_tex);
+    glUniform1i(g_dgfx_tex_uniform, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, g_dgfx_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+    glEnableVertexAttribArray((GLuint) g_dgfx_pos_attr);
+    glVertexAttribPointer((GLuint) g_dgfx_pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei) sizeof(float), (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_dgfx_uv_attr);
+    glVertexAttribPointer((GLuint) g_dgfx_uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei) sizeof(float), (void*) (2 * sizeof(float)));
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    SDL_GL_SwapWindow(g_dgfx_win);
+}
+
+static void dgfx_poll() {
+    g_dgfx_keys.clear();
+    g_dgfx_text.clear();
+    dgfx_pump();
+}
+
+static int dgfx_should_close() { return g_dgfx_should_close_flag; }
+
+static int dgfx_shift_down() {
+    SDL_Keymod m = SDL_GetModState();
+    return ((m & (KMOD_SHIFT)) != 0) ? 1 : 0;
+}
+
+static int dgfx_ctrl_down() {
+    SDL_Keymod m = SDL_GetModState();
+    return ((m & (KMOD_CTRL | KMOD_GUI)) != 0) ? 1 : 0;
+}
+
+static int dgfx_pop_key() {
+    if (g_dgfx_keys.empty()) { return DGFX_KEY_NONE; }
+    int k = g_dgfx_keys.front();
+    g_dgfx_keys.erase(g_dgfx_keys.begin());
+    return k;
+}
+
+static std::string dgfx_take_text() {
+    std::string t = g_dgfx_text;
+    g_dgfx_text.clear();
+    return t;
+}
+
+static void dgfx_close() {
+    if (g_dgfx_tex) { glDeleteTextures(1, &g_dgfx_tex); g_dgfx_tex = 0; }
+    if (g_dgfx_vbo) { glDeleteBuffers(1, &g_dgfx_vbo); g_dgfx_vbo = 0; }
+    if (g_dgfx_program) { glDeleteProgram(g_dgfx_program); g_dgfx_program = 0; }
+    if (g_dgfx_glctx) { SDL_GL_DeleteContext(g_dgfx_glctx); g_dgfx_glctx = nullptr; }
+    if (g_dgfx_win) { SDL_DestroyWindow(g_dgfx_win); g_dgfx_win = nullptr; }
+    SDL_Quit();
+}
+") )
+            es6 ( "false" )
+        }
+    }
+
+    dgfx_open _:int (title:string w:int h:int) {
+        templates {
+            cpp ( "dgfx_open(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    dgfx_present _:void (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "dgfx_present(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    dgfx_poll _:void () {
+        templates {
+            cpp ( "dgfx_poll()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    dgfx_close _:void () {
+        templates {
+            cpp ( "dgfx_close()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    dgfx_mouse_x _:int () {
+        templates {
+            cpp ( "g_dgfx_mouse_x" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    dgfx_mouse_y _:int () {
+        templates {
+            cpp ( "g_dgfx_mouse_y" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    dgfx_mouse_buttons _:int () {
+        templates {
+            cpp ( "g_dgfx_mouse_btn" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    dgfx_wheel _:int () {
+        templates {
+            cpp ( "([]{ int w = g_dgfx_wheel_y; g_dgfx_wheel_y = 0; return w; }())" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    dgfx_wheel_x _:int () {
+        templates {
+            cpp ( "([]{ int w = g_dgfx_wheel_x; g_dgfx_wheel_x = 0; return w; }())" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    dgfx_shift_down _:boolean () {
+        templates {
+            cpp ( "(dgfx_shift_down() != 0)" (imp "<SDL2/SDL.h>") )
+            es6 ( "false" )
+        }
+    }
+
+    dgfx_ctrl_down _:boolean () {
+        templates {
+            cpp ( "(dgfx_ctrl_down() != 0)" (imp "<SDL2/SDL.h>") )
+            es6 ( "false" )
+        }
+    }
+
+    dgfx_pop_key _:int () {
+        templates {
+            cpp ( "dgfx_pop_key()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    dgfx_take_text _:string () {
+        templates {
+            cpp ( "dgfx_take_text()" (imp "<SDL2/SDL.h>") (imp "<string>") )
+            es6 ( "\"\"" )
+        }
+    }
+
+    dgfx_delay _:void (ms:int) {
+        templates {
+            cpp ( "SDL_Delay((Uint32)(" (e 1) "))" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+}

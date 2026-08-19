@@ -275,7 +275,11 @@ class XlsxNumberFormat {
         ; number before it is treated as one.
         def numeric:boolean (XlsxNumberFormat.wholeNumber(raw))
         def d@(optional):double (to_double raw)
-        if (numeric && d) {
+        ; Nested `if` (not `&& d`): C++ optional doubles are value types, so a
+        ; truthiness check in an expression becomes `d != NULL` and fails to
+        ; compile. `!null?` / a bare `if d` emit `.has_value` instead.
+        if numeric {
+        if (!null? d) {
             def v:double (unwrap d)
             def pat:string c.pos
             if ((v < 0.0) && ((strlen c.neg) > 0)) {
@@ -297,6 +301,7 @@ class XlsxNumberFormat {
                 return (XlsxNumberFormat.applyPattern((0.0 - v) pat true))
             }
             return (XlsxNumberFormat.applyPattern(v pat false))
+        }
         }
         ; non-numeric
         if ((strlen c.text) > 0) {
