@@ -1245,12 +1245,12 @@ class GridView {
             cellPx = 6.0
         }
         this.applyFaceStyled(st.bold st.italic)
-        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
-        if (lineH < 8) {
-            lineH = 8
-        }
+        ; One line is as tall as the TYPE needs, by Excel's rule — not as tall
+        ; as the face's line box, which is a fifth taller than the letters in
+        ; it and would grow every row in the sheet on the first edit.
+        def one:int (CellStyle.rowHeightForPt(st.fontSizePt))
         if (st.wrapText == false) {
-            return (lineH + 6)
+            return one
         }
         def avail:int (colW - 8)
         if (avail < 12) {
@@ -1261,7 +1261,13 @@ class GridView {
         if (n < 1) {
             n = 1
         }
-        return ((lineH * n) + 6)
+        ; Further lines are spaced by the face, which is what actually decides
+        ; whether two lines of text collide.
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        return (one + (lineH * (n - 1)))
     }
 
     ; A label cut to fit a width, with an ellipsis when it had to be cut. The

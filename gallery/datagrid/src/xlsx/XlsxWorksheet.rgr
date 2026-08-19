@@ -720,13 +720,7 @@ class XlsxWorksheet {
             if (stated == false) {
                 def pt:double (this.tallestIn(model i))
                 if (pt > 0.0) {
-                    ; Rounded up, the way Excel does: its own table of row
-                    ; heights is the point size times 1.275 taken to the next
-                    ; whole pixel, which is how 10pt type gives the familiar
-                    ; 12.75pt row exactly.
-                    def wantPt:double (pt * 1.275)
-                    def wantPx:double ((wantPt * 96.0) / 72.0)
-                    def px:int (to_int (wantPx + 0.999))
+                    def px:int (CellStyle.rowHeightForPt(pt))
                     def have:int (model.rowHeight(i))
                     if (px > have) {
                         model.setRowHeight(i px)

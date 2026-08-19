@@ -1612,9 +1612,32 @@ class GridEditTest {
         c.ok("borders" (tb.runCommand("format.border" "all")))
         def bSt:CellStyle (tb.model.getCellStyle(4 1))
         c.ok("a border was set" bSt.hasBorder)
+        print "-- the row makes room when the type grows --"
+        ; A spreadsheet grows the row when the type in it gets bigger; Sheets
+        ; and Excel both do, and text that no longer fits its row is text that
+        ; climbs into the row above.
+        def rowBefore:int (tb.model.rowHeight(4))
         c.ok("bigger" (tb.runCommand("format.size.up" "")))
         def sizeSt:CellStyle (tb.model.getCellStyle(4 1))
         c.ok("the text grew" (sizeSt.fontSizePt > 11.0))
+        def bigTimes:int 0
+        while (bigTimes < 6) {
+            tb.runCommand("format.size.up" "")
+            bigTimes = (bigTimes + 1)
+        }
+        def rowBig:int (tb.model.rowHeight(4))
+        c.ok("and the row grew with it" (rowBig > rowBefore))
+        def bigSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("enough for the line" (rowBig >= (CellStyle.rowHeightForPt(bigSt.fontSizePt))))
+        ; …and does not take the room back, because by then the height might be
+        ; one the user dragged out and there is no telling the two apart.
+        def smallTimes:int 0
+        while (smallTimes < 7) {
+            tb.runCommand("format.size.down" "")
+            smallTimes = (smallTimes + 1)
+        }
+        c.eqInt("smaller type leaves the row alone" (tb.model.rowHeight(4)) rowBig)
+        tb.model.setRowHeight(4 rowBefore)
         c.ok("fill" (tb.runCommand("format.fill" "#FFF2CC")))
         def fillSt:CellStyle (tb.model.getCellStyle(4 1))
         c.ok("the fill took" fillSt.hasFill)
