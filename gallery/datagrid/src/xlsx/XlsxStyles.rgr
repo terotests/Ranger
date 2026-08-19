@@ -161,14 +161,30 @@ class XlsxStyles {
                     set numFmtMap id code
                 }
             }
-            if ((t.name == "font") && (t.isEnd == false) && (t.selfClose == false)) {
+            ; `<font/>` — no weight, no size, no colour — is a legal entry and
+            ; a common one: it means "the workbook default". Skipping it, as
+            ; the self-close guard here used to, did not merely lose one font;
+            ; it shifted every font AFTER it down an index, so cells came out
+            ; wearing their neighbour's weight and colour. A font element
+            ; always takes its place in the list, empty or not.
+            if ((t.name == "font") && (t.isEnd == false)) {
                 def bold:boolean false
                 def italic:boolean false
                 def underline:boolean false
                 def strike:boolean false
+                ; Absent <sz> means the workbook default, which is font 0 —
+                ; 10pt Arial in a sheet written by Google, 11pt Calibri in one
+                ; written by Excel. Assuming 11 made a 10pt sheet a tenth too
+                ; large everywhere the size was left unsaid.
                 def sizePt:double 11.0
+                if ((array_length fontsSize) > 0) {
+                    sizePt = (itemAt fontsSize 0)
+                }
                 def color:string ""
                 def depth:int 1
+                if t.selfClose {
+                    depth = 0
+                }
                 while ((p.pos < p.len) && (depth > 0)) {
                     def ft:XmlTag (p.nextTag())
                     if (ft.valid == false) {
@@ -298,10 +314,14 @@ class XlsxStyles {
                 push bLeftStyle lS
                 push bLeftRgb lC
             }
-            if ((t.name == "fill") && (t.isEnd == false) && (t.selfClose == false)) {
+            ; Same reasoning as fonts: an empty <fill/> still holds its index.
+            if ((t.name == "fill") && (t.isEnd == false)) {
                 def frgb:string ""
                 def fhas:boolean false
                 def depth2:int 1
+                if t.selfClose {
+                    depth2 = 0
+                }
                 while ((p.pos < p.len) && (depth2 > 0)) {
                     def ft2:XmlTag (p.nextTag())
                     if (ft2.valid == false) {

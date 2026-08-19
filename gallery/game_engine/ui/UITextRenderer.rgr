@@ -112,6 +112,20 @@ class UITextRenderer {
         return ((to_double (strlen text)) * step)
     }
 
+    ; Where the baseline sits inside the line box. Callers that must place
+    ; text against an edge — a spreadsheet cell, a table row — need this
+    ; rather than the box height: a web face's box is a good deal taller than
+    ; the letters in it, nearly all of that empty space sitting above the
+    ; capitals, and aligning boxes pushes the letters out of any row sized for
+    ; the type rather than for the face.
+    fn ascent:double (size:double) {
+        this.applyFace()
+        if hasFont {
+            return (fm.getAscender(fontFamily size))
+        }
+        return (size * 0.8)
+    }
+
     fn lineHeight:double (size:double) {
         this.applyFace()
         if hasFont {

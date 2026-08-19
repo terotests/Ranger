@@ -797,10 +797,68 @@ half a column too much grid around it, which reads as everything being zoomed
 in. The defaults are Excel's now, and `XlsxWriter.pxToColWidth` is the true
 inverse so a width that came from a file goes back out as itself.
 
-> The other half of that impression is the face: this repository draws with
-> Open Sans, whose x-height is larger than Calibri's at the same point size, so
-> the same number is a slightly bigger picture. That is a font we do not ship,
-> not a bug we can fix.
+> Some of that impression is the face: this repository draws with Open Sans,
+> whose x-height is larger than Calibri's at the same point size, so the same
+> number is a slightly bigger picture. That is a font we do not ship, not a bug
+> we can fix — but the taller line box that comes with it *was* a bug, and it
+> is the subject of "Bottom alignment means the baseline" below.
+
+## What other programs leave out
+
+Our own writer produces a tidy file: every formula written out, every font
+present, every row and column sized. Real files are not like that, and a reader
+that only understands the tidy version reads most of a real sheet wrong without
+ever failing.
+
+**Shared formulas.** A run of cells with the same formula is written once — the
+text on the first cell, and a bare `<f t="shared" si="0"/>` on every other one:
+
+```xml
+<c r="O10"><f t="shared" ref="O10:O17" si="3">SUM(C10:N10)</f><v>1296</v></c>
+<c r="O11"><f t="shared" si="3"/><v>976</v></c>
+```
+
+Taking only the tags that carry text left those cells holding the number the
+file happened to cache and no formula at all. Nothing looked broken — the
+numbers were right, because they were the right numbers when the file was
+saved — but a change to an input moved nothing downstream of it, which is what
+"the sums stop delegating" is from the outside. In one real workbook this was
+110 of 163 formulas. A member of a run is now its anchor's formula translated
+by its offset, through the same `FormulaParser.translateFormula` that fill and
+paste use.
+
+**An empty `<font/>`.** Legal, common, and it means "the workbook default". It
+was skipped, and skipping it did not lose one font: it shifted every font after
+it down an index, so cells wore their neighbour's weight, size and colour. In
+the same workbook that was 916 of 1012 styled cells — nearly all of them a
+weight heavier than the document says. `tools/check_styles.py` walks the
+cell → xf → font indirection in Python, independently of the loader, and
+reports every cell where the two disagree.
+
+**`<sheetFormatPr>`.** Most columns in a real sheet have no `<col>` element and
+most rows no height; the defaults are stated once, here, and were ignored. A
+sheet designed at 12.75pt rows and 12.63-character columns was being drawn at
+20px and 64px — a fifth taller and a third narrower than it was meant to be.
+`XlsxWriter` states them on the way out too, so a round trip keeps the shape.
+
+**Rows that size themselves.** A file states a row's height only when it is
+*not* the automatic one, so a row it says nothing about is as tall as its
+tallest text needs. 12-point type in a sheet whose rows default to 12.75 points
+was clipped and overlapping; it now gets Excel's own answer, the point size
+times 1.275 taken up to the next whole pixel — which is exactly how 10-point
+type yields the familiar 12.75pt row.
+
+## Bottom alignment means the baseline, not the box
+
+Excel aligns cell text to the bottom by default, and "bottom" means the
+**baseline** sits just above the cell's floor. Aligning the line *box* is not
+the same thing and, with this repository's face, not even close: Open Sans
+declares a box 1.36 times the type size where Arial's is 1.15, and nearly all
+of that surplus is empty space above the capitals. A row is sized for the type,
+not for the face — so box alignment pushed the letters through the floor of an
+ordinary row and the cell clip then cut them off. `GridView.textTopFor` places
+the baseline and lets the empty space fall outside the cell, where there is
+nothing to see.
 
 ## Recalculation: dependencies first, not sweeps
 
@@ -819,7 +877,8 @@ is still being computed — which is what a cycle is, rather than what is left
 over when patience runs out.
 
 ```bash
-python3 gallery/datagrid/tools/check_calc.py yourfile.xlsx
+python3 gallery/datagrid/tools/check_calc.py yourfile.xlsx     # do the numbers agree?
+python3 gallery/datagrid/tools/check_styles.py yourfile.xlsx   # does the formatting?
 ```
 
 Every `.xlsx` stores, beside each formula, the value the program that wrote it
@@ -830,6 +889,11 @@ reports every cell where our answer differs, **grouped by the functions the
 formula uses**, because a whole column going wrong is nearly always one
 unimplemented function at the top of it. Point it at a file that looks wrong and
 it will name the culprit.
+
+`check_styles.py` is the same idea for how a cell looks: it walks the
+cell → `xf` → `font` indirection in Python and reports every cell whose weight,
+size or colour we resolve differently from the file. Both take any workbook, so
+the first thing to do with a file that renders wrong is to point them at it.
 
 `fixtures/calc-chain.xlsx` is that oracle turned into a test: 950 formulas —
 400-long chains in both directions, ladders of SUMs, subtotals of subtotals and

@@ -41,9 +41,23 @@ def stored_values(path):
         sheets.sort(key=lambda n: int(re.search(r"(\d+)\.xml$", n).group(1)))
         for idx, part in enumerate(sheets):
             root = ET.fromstring(z.read(part))
+            shared = {}
             for c in root.iter(NS + "c"):
                 f = c.find(NS + "f")
-                if f is None or not (f.text or "").strip():
+                if f is None:
+                    continue
+                text = (f.text or "").strip()
+                si = f.get("si")
+                if text and f.get("t") == "shared" and si is not None:
+                    shared[si] = text
+                if not text and f.get("t") == "shared" and si in shared:
+                    # A member of a shared run. Its own text is the anchor's,
+                    # translated — which is the loader's job, not this
+                    # oracle's; for grouping by function the anchor's text is
+                    # exactly as informative, and the cached value below is
+                    # this cell's own.
+                    text = shared[si]
+                if not text:
                     continue
                 v = c.find(NS + "v")
                 ref = c.get("r") or ""
@@ -54,7 +68,7 @@ def stored_values(path):
                 for ch in m.group(1):
                     col = col * 26 + (ord(ch) - 64)
                 out[(idx, int(m.group(2)) - 1, col - 1)] = (
-                    f.text.strip(),
+                    text,
                     (v.text or "").strip() if v is not None else "",
                     names[idx] if idx < len(names) else part,
                 )
