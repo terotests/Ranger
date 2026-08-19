@@ -66,13 +66,17 @@ class DocxViewer {
         return (edit.isEnabled())
     }
 
+    ; present() silently clamps an out-of-range page to the last one. Adopting
+    ; the page it actually drew keeps currentPage from ever naming a page that
+    ; does not exist — otherwise page N and a phantom page N+1 both report
+    ; success while showing the same content.
     fn renderPage:void (page:int) {
-        currentPage = page
         if (edit.isEnabled()) {
             view.presentWithEdit(doc page numbering edit)
         } {
             view.present(doc page numbering)
         }
+        currentPage = view.pageIndex
     }
 
     fn renderAll:void (maxPages:int) {
@@ -247,17 +251,7 @@ class DocxViewer {
     }
 
     fn setPage:int (page:int) {
-        def n:int (view.layout.pageCount())
-        if (page < 0) {
-            page = 0
-        }
-        if (n > 0) {
-            if (page >= n) {
-                page = (n - 1)
-            }
-        }
-        currentPage = page
-        this.renderPage(currentPage)
+        this.renderPage(page)
         return currentPage
     }
 

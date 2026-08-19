@@ -94,6 +94,8 @@ npm run docx_viewer:window        # http://127.0.0.1:8770/
 - Per-span font *size* still paints at the visual line's size (layout wraps the
   paragraph at one size); only the face varies per run
 - Selection is a single range: no multi-select, no column selection
+- Requesting a page past the end renders the last page (clamped); the host
+  reports the page it actually drew so the UI cannot offer a phantom one
 - Justify is flagged but not full glyph-distributed justification
 - Table row vertical merge, nested tables, floating images: out of scope
 - Header/footer: default only (no different first / odd-even yet)

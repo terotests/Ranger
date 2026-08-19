@@ -33,7 +33,7 @@ async function loadList() {
   }
   if (data.current) docSelect.value = data.current;
   page = data.page | 0;
-  pageCount = Math.max(1, data.pageCount | 1);
+  pageCount = Math.max(1, data.pageCount | 0);
 }
 
 async function openDoc(name) {
@@ -46,7 +46,7 @@ async function openDoc(name) {
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "open failed");
   page = 0;
-  pageCount = Math.max(1, data.pageCount | 1);
+  pageCount = Math.max(1, data.pageCount | 0);
   editMode = false;
   syncEditBtn();
   await refreshPage();
@@ -78,8 +78,9 @@ async function sendInput(payload) {
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (data.pageCount) pageCount = Math.max(1, data.pageCount | 1);
+  if (data.pageCount) pageCount = Math.max(1, data.pageCount | 0);
   if (typeof data.page === "number") page = data.page;
+  clampPage();
   if (data.caret && caretEl) {
     caretEl.textContent = data.caret.active
       ? `p${data.caret.paragraphId}@${data.caret.offset}${data.caret.selEnd != null && data.caret.selEnd !== data.caret.offset ? "…" + data.caret.selEnd : ""}`
@@ -106,7 +107,16 @@ function imgLocalXY(ev) {
   return { x, y };
 }
 
+/** Keep `page` inside the document. Editing can shrink the page count under a
+ *  caret that was on a later page. */
+function clampPage() {
+  if (!Number.isFinite(page) || page < 0) page = 0;
+  if (page > pageCount - 1) page = pageCount - 1;
+  if (page < 0) page = 0;
+}
+
 async function refreshPage() {
+  clampPage();
   statusEl.textContent = "rendering…";
   pageLabel.textContent = `page ${page + 1} / ${pageCount}`;
   const url = `/page.png?page=${page}&t=${Date.now()}`;
@@ -123,7 +133,11 @@ async function refreshPage() {
     pageImg.src = url;
   });
   const st = await (await api("/api/state")).json();
-  pageCount = Math.max(1, st.pageCount | 1);
+  pageCount = Math.max(1, st.pageCount | 0);
+  // The host reports the page it actually drew; an out-of-range request is
+  // clamped there, so adopt it rather than keeping a phantom index.
+  if (typeof st.page === "number") page = st.page;
+  clampPage();
   pageLabel.textContent = `page ${page + 1} / ${pageCount}`;
   editMode = !!st.editMode;
   syncEditBtn();

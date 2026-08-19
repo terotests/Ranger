@@ -623,6 +623,96 @@ class DocxTest {
         c.ok("undo restores after cut" ((strlen ((viewer.edit.adapter.findParagraph(cp0.id)).text)) > 0))
         viewer.setEditMode(false)
 
+        print "== page index never names a page that does not exist =="
+        c.ok("open pages for clamp" (viewer.openFile(fix "08-pages.docx")))
+        viewer.renderPage(0)
+        def pc:int (viewer.pageCount())
+        c.ok("fixture is multipage" (pc > 1))
+        viewer.renderPage((pc - 1))
+        c.eqInt("last page renders as itself" viewer.currentPage (pc - 1))
+        ; present() clamps an out-of-range page to the last one. If currentPage
+        ; kept the requested index the host would advertise a page that renders
+        ; as a copy of the last one — the duplicated-page report.
+        viewer.renderPage((pc + 3))
+        c.eqInt("past the end reports the last page" viewer.currentPage (pc - 1))
+        viewer.renderPage(-5)
+        c.eqInt("before the start reports page 0" viewer.currentPage 0)
+        c.eqInt("setPage returns what it drew" (viewer.setPage(999)) (pc - 1))
+        c.eqInt("pageOfCaret stays in range" (viewer.pageOfCaret()) viewer.currentPage)
+
+        print "== adding rows paginates without duplicating content =="
+        c.ok("reopen hello for growth" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def gdoc:RichDocument (viewer.document())
+        def lastIdx:int ((gdoc.paragraphCount()) - 1)
+        def growPara:Paragraph (gdoc.paragraphAt(lastIdx))
+        viewer.edit.setCaret(growPara.id (strlen growPara.text))
+        c.eqInt("starts on one page" (viewer.pageCount()) 1)
+        def added:int 0
+        while (added < 90) {
+            viewer.keyEnter()
+            viewer.typeText(("appended row " + (to_string added) + " with enough text to fill out the line"))
+            added = (added + 1)
+        }
+        c.ok("grew past one page" ((viewer.pageCount()) > 1))
+        ; Every laid body line is a slice (paragraph, docStart, docEnd). The same
+        ; slice appearing twice is literally the same text on two pages.
+        def seen:[string]
+        def dups:int 0
+        def gp:int 0
+        while (gp < (viewer.view.layout.pageCount())) {
+            def gpage:LaidPage (viewer.view.layout.pageAt(gp))
+            def gl:int 0
+            while (gl < (array_length gpage.lines)) {
+                def gln:LaidLine (itemAt gpage.lines gl)
+                if (gln.kind == 0) {
+                    if (gln.paraIndex > 0) {
+                        def key:string ((((to_string gln.paraIndex) + ":") + (to_string gln.docStart)) + "-" + (to_string gln.docEnd))
+                        def si2:int 0
+                        def found2:boolean false
+                        while (si2 < (array_length seen)) {
+                            if ((itemAt seen si2) == key) {
+                                found2 = true
+                            }
+                            si2 = (si2 + 1)
+                        }
+                        if found2 {
+                            dups = (dups + 1)
+                        } {
+                            push seen key
+                        }
+                    }
+                }
+                gl = (gl + 1)
+            }
+            gp = (gp + 1)
+        }
+        c.eqInt("no line laid on two pages" dups 0)
+        ; Each page must also hold something of its own.
+        def emptyPages:int 0
+        def ep:int 0
+        while (ep < (viewer.view.layout.pageCount())) {
+            def epage:LaidPage (viewer.view.layout.pageAt(ep))
+            def bodyLines:int 0
+            def el:int 0
+            while (el < (array_length epage.lines)) {
+                def eln:LaidLine (itemAt epage.lines el)
+                if (eln.kind == 0) {
+                    if (eln.paraIndex > 0) {
+                        bodyLines = (bodyLines + 1)
+                    }
+                }
+                el = (el + 1)
+            }
+            if (bodyLines == 0) {
+                emptyPages = (emptyPages + 1)
+            }
+            ep = (ep + 1)
+        }
+        c.eqInt("no blank page" emptyPages 0)
+        viewer.setEditMode(false)
+
         print "== clipboard HTML → ClipboardTable =="
         ; Exactly what gallery/datagrid GridApp.copySelection puts on the
         ; text/html flavour of the clipboard.
