@@ -85,9 +85,19 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Freeze panes | done | freezeRows/Cols + fixed bands |
 | Screenshots | done | tracked artifacts under `artifacts/` |
 | Custom tools / API | done | a named-command table a host enumerates, drives and extends — over HTTP too |
-| Cooperative editing | todo | single document, no transport |
-| Mobile adaptation | todo | pointer only, no touch gestures |
+| Cooperative editing | todo | single document, no transport — an I/O shape, deliberately not claimed |
+| Mobile adaptation | todo | pointer only — needs a touch event source, deliberately not claimed |
 | Testing | done | 700+ checks across seven suites plus oracles |
+
+## What is left, and why
+
+The two remaining rows are both **I/O shapes** rather than spreadsheet
+behaviour: cooperative editing needs a transport and a conflict policy, mobile
+adaptation needs a touch event source. Both are writable as abstractions; what
+cannot be written is the proof, because neither can be tested the way
+everything above is — by driving the model and reading the answer back. They
+are therefore left at `todo` rather than claimed on the strength of an
+interface nobody exercised.
 
 ## Beyond the benchmark
 
