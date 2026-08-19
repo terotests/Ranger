@@ -91,7 +91,32 @@
         <label>open a .xlsx <input id="file" type="file" accept=".xlsx" /></label>
       </div>
     </div>
-    <script src="./datagrid_web.js"></script>
+    <!-- The compiled engine. A missing file here is silent — the tag 404s and
+         the module below runs anyway — so it says so out loud. -->
+    <script src="./datagrid_web.js" onerror="window.__engineMissing = 'datagrid_web.js'"></script>
+    <!-- And if the MODULE never runs at all — its first line imports
+         ./gl/evg-webgl.js, which is not in the source directory either — the
+         page just sits there with nothing in the console but a 404. This
+         notices the silence. -->
+    <script>
+      addEventListener("load", function () {
+        setTimeout(function () {
+          if (window.__pageStarted) return;
+          var box = document.createElement("pre");
+          box.style.cssText =
+            "margin:14px 0;padding:14px;background:#2b1d1d;color:#ffd9d9;border:1px solid #a33;" +
+            "white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace";
+          box.textContent =
+            "standalone.mjs never ran \u2014 something it imports did not load.\n\n" +
+            "This page needs its built form:\n\n    npm run datagrid:web\n\n" +
+            "Then serve the dist/ directory it writes \u2014 not the source directory " +
+            "this file lives in.";
+          document.body.prepend(box);
+          var s = document.getElementById("status");
+          if (s) s.textContent = "nothing ran \u2014 see below";
+        }, 1200);
+      });
+    </script>
     <script type="module" src="./standalone.mjs"></script>
   </body>
 </html>

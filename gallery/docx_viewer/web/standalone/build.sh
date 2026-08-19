@@ -30,6 +30,9 @@ done
 export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
 mkdir -p "$OUT"
 
+# A previous build's bundle must not survive this one: the checks below ask
+# whether a bundle is present and loadable, and a stale file answers yes.
+rm -f "$OUT/docx_web.js"
 log=$(node bin/output.js -es6 gallery/docx_viewer/web/docx_web.rgr -d="$OUT" -o=docx_web.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
