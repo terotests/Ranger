@@ -70,11 +70,25 @@ formula together** in one undo op, and every batch runs inside
 | Delete | Clears value *and* formula over the range, then recalculates dependents |
 | Fill handle | Tiles the source rect, translating relative refs |
 | Ctrl+Z / Ctrl+Y | One step per action — a 3×3 paste, a fill, or a range delete is a single undo |
-| Row / column resize | Drag the header edge (`hitRowResize` / `hitColResize`) |
+| Row / column resize | Drag the header edge (9px grab zone), double-click it to auto-fit |
 
 After any edit the app re-registers just the touched cells
 (`FormulaEngine.syncCell`) and calls `recalcDirty()` **once**; it never
 re-`attach`es the engine, which would drop the whole dependency graph.
+
+### Column and row sizing
+
+| Gesture | Does |
+| --- | --- |
+| Drag a header edge | Resizes that column / row (grab zone is 9px wide) |
+| Drag an edge inside a multi-column selection | Sizes **every** selected column to the same width, as Excel does |
+| Double-click a column header or its edge | Auto-fits the width to the widest painted value |
+| Header menu → 5 / 6 / 7 | Auto-fit, wider (+20), narrower (−20) — no pixel-precise dragging needed |
+
+Auto-fit measures through `GridView.measureText`, the same renderer that paints
+the cells, and scans the used range capped at 5000 rows so a 100k-row sheet
+stays instant. Widths are clamped to 24–600px. A guide line follows the edge
+while you drag.
 
 ## Keyboard
 

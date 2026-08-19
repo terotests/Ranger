@@ -18,7 +18,7 @@
 ; Keyboard navigation             | Excel arrows/Ctrl/Shift, page, home/end   | done
 ; Inline edit + formula bar       | address + formula/value bar               | done
 ; Row / column headers            | painted chrome                            | done
-; Resize columns                  | header edge drag                          | done
+; Resize columns                  | edge drag / dbl-click auto-fit / menu     | done
 ; Resize rows                     | row header edge drag (hitRowResize)       | done
 ; Copy / paste / cut              | Ctrl+C/X/V, formula-aware block clipboard | done
 ; Fill handle                     | drag active-cell handle (copy fill)       | done

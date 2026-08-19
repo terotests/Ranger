@@ -500,6 +500,89 @@ class GridEditTest {
         c.eqStr("first pasted cell" (pasteGrow.model.getCell(3 2)) "a")
         c.eqStr("cell past the old edge" (pasteGrow.model.getCell(4 3)) "d")
 
+        print "== column resize: auto-fit, block resize, menu =="
+        def rz:GridApp (new GridApp)
+        rz.init("gallery/pdf_writer/assets/fonts")
+        rz.model.clearSheet()
+        rz.model.resize(10 6)
+        rz.model.setCellRaw(0 0 "x")
+        rz.model.setCellRaw(1 0 "a much longer piece of text in this column")
+        rz.model.setCellRaw(2 0 "mid")
+        rz.sheetView.markDirty()
+        rz.sheetView.rebuild()
+        def narrow:int 40
+        rz.model.setColWidth(0 narrow)
+        GridEditTest.select(rz 0 0)
+        rz.autoFitColumn(0)
+        def fitted:int (rz.model.colWidth(0))
+        c.ok("auto-fit widened the column" (fitted > narrow))
+        c.ok("auto-fit covers the longest cell" (fitted > (rz.view.measureText("a much longer piece of text in this column"))))
+        c.ok("auto-fit stays sane" (fitted <= 600))
+        ; An empty column falls back to a usable minimum, not zero.
+        rz.autoFitColumn(5)
+        c.ok("empty column keeps a minimum width" ((rz.model.colWidth(5)) >= 32))
+
+        print "== resizing one of several selected columns sizes them all =="
+        rz.model.setColWidth(1 100)
+        rz.model.setColWidth(2 100)
+        rz.model.setColWidth(3 100)
+        GridEditTest.selectRange(rz 0 1 0 3)
+        rz.setColumnWidths(2 155)
+        c.eqInt("dragged column" (rz.model.colWidth(2)) 155)
+        c.eqInt("its neighbour in the selection" (rz.model.colWidth(1)) 155)
+        c.eqInt("and the other one" (rz.model.colWidth(3)) 155)
+        c.eqInt("a column outside the selection is untouched" (rz.model.colWidth(4)) rz.model.defaultColW)
+        ; Sizing a column outside the selection only affects that one.
+        GridEditTest.selectRange(rz 0 1 0 3)
+        rz.setColumnWidths(4 77)
+        c.eqInt("outside column sized alone" (rz.model.colWidth(4)) 77)
+        c.eqInt("selection untouched" (rz.model.colWidth(1)) 155)
+
+        print "== header menu width actions =="
+        rz.model.setColWidth(0 100)
+        rz.sel.anchor.col = 0
+        rz.sel.active.col = 0
+        rz.openHeaderMenu(0 10 10)
+        rz.runHeaderMenu(6)
+        c.eqInt("menu widened" (rz.model.colWidth(0)) 120)
+        rz.openHeaderMenu(0 10 10)
+        rz.runHeaderMenu(7)
+        c.eqInt("menu narrowed" (rz.model.colWidth(0)) 100)
+        rz.openHeaderMenu(0 10 10)
+        rz.runHeaderMenu(5)
+        c.ok("menu auto-fit" ((rz.model.colWidth(0)) != 100))
+        c.ok("menu closes after an action" (rz.view.menuOpen == false))
+        ; Width never collapses to nothing.
+        def sh:int 0
+        while (sh < 20) {
+            rz.nudgeColumnWidth(0 -20)
+            sh = (sh + 1)
+        }
+        c.ok("narrowing has a floor" ((rz.model.colWidth(0)) >= 24))
+
+        print "== double-click a header auto-fits =="
+        def dz:GridApp (new GridApp)
+        dz.init("gallery/pdf_writer/assets/fonts")
+        dz.model.clearSheet()
+        dz.model.resize(6 4)
+        dz.model.setCellRaw(0 0 "a very wide heading value here")
+        dz.sheetView.markDirty()
+        dz.sheetView.rebuild()
+        dz.model.setColWidth(0 45)
+        dz.grid.updateVisible(dz.model)
+        def hdrY:int (dz.grid.y + dz.grid.formulaBarH + 8)
+        def hdrX:int ((dz.grid.gridOriginX()) + 10)
+        c.ok("double-click on the header hits" (dz.autoFitAt(hdrX hdrY)))
+        c.ok("and widened it" ((dz.model.colWidth(0)) > 45))
+        c.ok("double-click off the header does nothing" ((dz.autoFitAt(2 2)) == false))
+        ; Also on the edge itself.
+        dz.model.setColWidth(0 45)
+        dz.grid.updateVisible(dz.model)
+        def edge2:int (((dz.grid.gridOriginX()) + (dz.model.colToX(0)) + 45) - 1)
+        c.ok("double-click on the edge hits" (dz.autoFitAt(edge2 hdrY)))
+        c.ok("edge auto-fit widened it" ((dz.model.colWidth(0)) > 45))
+        c.ok("still renders" ((strlen (dz.sceneJson())) > 50))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

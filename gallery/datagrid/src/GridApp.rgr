@@ -34,6 +34,8 @@ class GridApp {
     def dragging:boolean false
     def resizing:boolean false
     def resizingRows:boolean false
+    def resizeCol0:int -1
+    def resizeCol1:int -1
     def filling:boolean false
     def fillR0:int 0
     def fillC0:int 0
@@ -136,6 +138,95 @@ class GridApp {
         this.syncActiveModel()
     }
 
+    ; --- column sizing --------------------------------------------------------
+    ; Auto-fit: widest painted cell in the column, plus the cell padding. The
+    ; scan is capped so a 100k-row sheet stays instant — Excel samples too.
+    fn autoFitColumn:void (col:int) {
+        if (col < 0) {
+            return
+        }
+        if (col >= model.colCount) {
+            return
+        }
+        def best:int (view.measureText((SpreadsheetModel.colLabel(col))))
+        def last:int (model.usedRow())
+        if (last > 4999) {
+            last = 4999
+        }
+        def r:int 0
+        while (r <= last) {
+            def txt:string (model.getDisplay(r col))
+            if ((strlen txt) > 0) {
+                def w:int (view.measureText(txt))
+                if (w > best) {
+                    best = w
+                }
+            }
+            r = (r + 1)
+        }
+        def target:int (best + 16)
+        if (target < 32) {
+            target = 32
+        }
+        if (target > 600) {
+            target = 600
+        }
+        this.setColumnWidths(col target)
+    }
+
+    ; Set a width on `col`, and on every other selected column when the one
+    ; being sized is part of the selection — the way Excel resizes a block.
+    fn setColumnWidths:void (col:int width:int) {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def lo:int col
+        def hi:int col
+        if ((col >= a.col) && (col <= b.col)) {
+            if (a.col != b.col) {
+                lo = a.col
+                hi = b.col
+            }
+        }
+        def c:int lo
+        while (c <= hi) {
+            model.setColWidth(c width)
+            c = (c + 1)
+        }
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    ; Double-click on a header edge (or anywhere in a header) auto-fits it.
+    fn autoFitAt:boolean (px:int py:int) {
+        def edgeCol:int (grid.hitColResize(model px py))
+        if (edgeCol >= 0) {
+            this.autoFitColumn(edgeCol)
+            return true
+        }
+        def hit:CellPos (grid.hitTest(model px py))
+        if ((hit.row == -2) && (hit.col >= 0)) {
+            this.autoFitColumn(hit.col)
+            return true
+        }
+        return false
+    }
+
+    fn nudgeColumnWidth:void (col:int delta:int) {
+        if (col < 0) {
+            return
+        }
+        def w:int ((model.colWidth(col)) + delta)
+        if (w < 24) {
+            w = 24
+        }
+        if (w > 600) {
+            w = 600
+        }
+        this.setColumnWidths(col w)
+    }
+
     fn applySort:void (col:int ascending:boolean) {
         model.setSort(col ascending)
         sheetView.markDirty()
@@ -201,10 +292,10 @@ class GridApp {
         if (py < view.menuY) {
             return -1
         }
-        if (px >= (view.menuX + 168)) {
+        if (px >= (view.menuX + view.menuW)) {
             return -1
         }
-        if (py >= (view.menuY + 118)) {
+        if (py >= (view.menuY + view.menuH)) {
             return -1
         }
         def ly:int (py - view.menuY)
@@ -217,8 +308,17 @@ class GridApp {
         if ((ly >= 66) && (ly < 86)) {
             return 3
         }
-        if ((ly >= 86) && (ly < 110)) {
+        if ((ly >= 86) && (ly < 106)) {
             return 4
+        }
+        if ((ly >= 106) && (ly < 126)) {
+            return 5
+        }
+        if ((ly >= 126) && (ly < 146)) {
+            return 6
+        }
+        if ((ly >= 146) && (ly < 170)) {
+            return 7
         }
         return 0
     }
@@ -245,6 +345,15 @@ class GridApp {
         }
         if (action == 4) {
             this.clearFilter()
+        }
+        if (action == 5) {
+            this.autoFitColumn(col)
+        }
+        if (action == 6) {
+            this.nudgeColumnWidth(col 20)
+        }
+        if (action == 7) {
+            this.nudgeColumnWidth(col -20)
         }
         this.closeHeaderMenu()
     }
@@ -1148,8 +1257,12 @@ class GridApp {
         if input.pointerDown {
             if resizing {
                 def dx:int (input.pointerX - grid.resizeStartX)
-                model.setColWidth(grid.resizingCol (grid.resizeStartW + dx))
-                grid.updateVisible(model)
+                def w:int (grid.resizeStartW + dx)
+                if (w < 24) {
+                    w = 24
+                }
+                ; Dragging one edge of a multi-column selection sizes them all.
+                this.setColumnWidths(grid.resizingCol w)
             } {
                 if resizingRows {
                     def dy:int (input.pointerY - grid.resizeStartY)

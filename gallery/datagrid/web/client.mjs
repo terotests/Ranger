@@ -170,6 +170,14 @@ function endPointer(ev) {
   });
 }
 
+// Double-click a column header edge (or the header) to auto-fit its width —
+// no pixel-precise dragging needed.
+canvas.addEventListener("dblclick", (ev) => {
+  ev.preventDefault();
+  const { x, y } = canvasCoords(ev);
+  postInput({ type: "dblclick", x, y });
+});
+
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 
