@@ -39,6 +39,7 @@ Import "../CellStyle.rgr"
 Import "../DataValidation.rgr"
 Import "../RichText.rgr"
 Import "../../zip/ZipWriter.rgr"
+Import "../../../pdf_writer/src/core/Utf8.rgr"
 
 class XlsxWriter {
     def lastError:string ""
@@ -60,6 +61,12 @@ class XlsxWriter {
     ; corrupts everything else — and a spreadsheet full of names is exactly
     ; where "everything else" turns up.
     sfn utf8Length:int (s:string) {
+        ; Where a string is already bytes it is already UTF-8, and its length
+        ; in bytes is its length. Encoding it a second time would write "ä" as
+        ; the four bytes of "Ã¤" into the file.
+        if (Utf8.stringIsBytes()) {
+            return (strlen s)
+        }
         def n:int (strlen s)
         def total:int 0
         def i:int 0
@@ -90,6 +97,9 @@ class XlsxWriter {
     }
 
     sfn utf8Buffer:buffer (s:string) {
+        if (Utf8.stringIsBytes()) {
+            return (buffer_from_string s)
+        }
         def size:int (XlsxWriter.utf8Length(s))
         def out:buffer (buffer_alloc size)
         def n:int (strlen s)
@@ -159,7 +169,12 @@ class XlsxWriter {
                                     out = (out + " ")
                                 }
                             } {
-                                out = (out + (strfromcode ch))
+                                ; Copied, not rebuilt: `(strfromcode (charAt
+                                ; s i))` is an identity only where a string is
+                                ; code units. Where it is bytes, strfromcode
+                                ; encodes each byte as a character and the
+                                ; file comes out with every accent doubled.
+                                out = (out + (substring s i (i + 1)))
                             }
                         }
                     }

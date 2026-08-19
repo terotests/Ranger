@@ -1,0 +1,172 @@
+; ==============================================================================
+; TextModelTest — text that survives the trip, on every target
+; ==============================================================================
+;
+; Ranger's `string` does not mean the same thing everywhere it compiles to. In
+; JavaScript it is UTF-16 code units, so "ä" is ONE of them and `charAt` hands
+; back 228. In C++ it is a `std::string` of BYTES, so "ä" is the two bytes UTF-8
+; spells it with and `charAt` hands back 195.
+;
+; That makes `(strfromcode (charAt s i))` a trap. It reads as "the character at
+; i", it IS the identity in JavaScript, and in C++ it hands a BYTE to a function
+; whose job is to turn a code POINT into text — which dutifully encodes 195 as
+; two more bytes. Every accented letter comes out encoded twice, and a
+; spreadsheet full of Finnish place names loads as "HÃ¤meenlinna".
+;
+; Nothing in a JavaScript test can see this. So this file is compiled and run
+; TWICE — once to JavaScript and once to C++ — and asserts the things that have
+; to be true of both. `npm run datagrid:text:test` does both; the C++ half is
+; skipped, out loud, where there is no compiler.
+; ==============================================================================
+
+Import "../src/xlsx/XlsxLoader.rgr"
+Import "../src/xlsx/XlsxWriter.rgr"
+Import "../src/xlsx/XmlLite.rgr"
+Import "../src/FormulaFunctions.rgr"
+Import "../src/XlsxNumberFormat.rgr"
+
+class TextCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class TextModelTest {
+    ; A name with three letters ASCII does not have, written out rather than
+    ; pasted, so the file this test lives in stays legible in any editor.
+    sfn finnish:string () {
+        def a:string (strfromcode 228)
+        return (("H" + a) + "meenlinna " + (strfromcode 246) + (strfromcode 197))
+    }
+
+    sfn main:void () {
+        def c (new TextCheck)
+
+        print "== which kind of string is this =="
+        def bytes:boolean (Utf8.stringIsBytes())
+        if bytes {
+            print "  (a string is BYTES here — the C++ model)"
+        } {
+            print "  (a string is CODE UNITS here — the JavaScript model)"
+        }
+        ; Whatever the answer, it has to agree with what the language does.
+        def one:string (strfromcode 228)
+        if bytes {
+            c.eqInt("one accented letter is two bytes" (strlen one) 2)
+        } {
+            c.eqInt("one accented letter is one code unit" (strlen one) 1)
+        }
+
+        print "== the trap itself =="
+        ; This is the shape that broke: it looks like a copy and is one only
+        ; where a string is code units.
+        def naive:string ""
+        def i:int 0
+        while (i < (strlen one)) {
+            naive = (naive + (strfromcode (charAt one i)))
+            i = (i + 1)
+        }
+        def copied:string (substring one 0 (strlen one))
+        c.eqStr("substring copies the letter unchanged" copied one)
+        if bytes {
+            c.ok("…while rebuilding it from charAt does not" (naive != one))
+        } {
+            c.ok("(rebuilding happens to work in this model)" (naive == one))
+        }
+
+        print "== XML: text through the entity decoder =="
+        def name:string (TextModelTest.finnish())
+        c.eqStr("plain text is returned unchanged" (XmlLite.decodeEntities(name)) name)
+        def wrapped:string (("&lt;" + name) + "&gt;")
+        c.eqStr("with entities around it, the text still survives"
+                (XmlLite.decodeEntities(wrapped)) (("<" + name) + ">"))
+        c.eqStr("&amp; is one ampersand" (XmlLite.decodeEntities("a&amp;b")) "a&b")
+        c.eqStr("a quote and an apostrophe" (XmlLite.decodeEntities("&quot;&apos;")) "\"'")
+        ; Numeric entities are a code POINT, which is what strfromcode is for —
+        ; so it is the right tool there and the wrong one above.
+        c.eqStr("a decimal entity is the letter it names"
+                (XmlLite.decodeEntities("&#228;")) (strfromcode 228))
+        c.eqStr("and a hexadecimal one" (XmlLite.decodeEntities("&#xE4;")) (strfromcode 228))
+        c.eqStr("a newline inside a cell" (XmlLite.decodeEntities("a&#10;b")) ("a" + (strfromcode 10) + "b"))
+        c.eqStr("something nobody here knows is left as written"
+                (XmlLite.decodeEntities("&nosuch;")) "&nosuch;")
+
+        print "== the text functions leave letters they cannot case alone =="
+        def mixed:string (("m" + (strfromcode 228)) + "ki")
+        c.eqStr("UPPER raises the ASCII and keeps the rest"
+                (FormulaFunctions.upper(mixed)) (("M" + (strfromcode 228)) + "KI"))
+        c.eqStr("LOWER lowers the ASCII and keeps the rest"
+                (FormulaFunctions.lower((("M" + (strfromcode 228)) + "KI"))) mixed)
+
+        print "== a number format's own words =="
+        ; A format can carry literal text — a currency name, a unit — and it is
+        ; copied through the formatter the same way.
+        def fmt:string (("0.00 \"" + (strfromcode 228)) + "\"")
+        def shown:string (XlsxNumberFormat.format("12" fmt))
+        c.ok("the literal in a format survives it" ((TextModelTest.holds(shown (strfromcode 228)))))
+
+        print "== a workbook out and back in =="
+        def book:WorkbookModel (new WorkbookModel)
+        def sheet:SpreadsheetModel (new SpreadsheetModel)
+        sheet.name = "Text"
+        sheet.resize(4 3)
+        sheet.setCell(0 0 name)
+        sheet.setCell(1 0 mixed)
+        sheet.setCell(2 0 "plain ascii")
+        book.addSheet(sheet)
+        def w:XlsxWriter (new XlsxWriter)
+        def wrote:boolean (w.write(book "tmp" "text-model-roundtrip.xlsx"))
+        c.ok("the workbook was written" wrote)
+        if wrote {
+            def loader:XlsxLoader (new XlsxLoader)
+            def back:WorkbookModel (new WorkbookModel)
+            def read:boolean (loader.loadPath("tmp/text-model-roundtrip.xlsx" back))
+            c.ok("and read back" read)
+            if read {
+                def got:SpreadsheetModel (back.sheetAt(0))
+                c.eqStr("the name came back as it went out" (got.getCell(0 0)) name)
+                c.eqStr("and so did the second one" (got.getCell(1 0)) mixed)
+                c.eqStr("ASCII was never in doubt" (got.getCell(2 0)) "plain ascii")
+            }
+        }
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    sfn holds:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= (strlen hay)) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

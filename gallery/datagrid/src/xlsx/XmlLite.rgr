@@ -76,52 +76,119 @@ class XmlLite {
         len = (strlen s)
     }
 
+    ; `&lt;` and friends back into the characters they stand for.
+    ;
+    ; Everything that is NOT an entity is copied with `substring`, in runs, and
+    ; that is the point of the shape below rather than a character at a time.
+    ; `(strfromcode (charAt s i))` looks like an identity and is one in
+    ; JavaScript, where a string is code units and `charAt` hands one back. In
+    ; C++ a string is BYTES: `charAt` gives 0xC3, and `strfromcode` — whose job
+    ; is to turn a code POINT into text — dutifully encodes 195 as UTF-8, two
+    ; bytes. So every non-ASCII character came out of here encoded twice, and
+    ; "Hämeenlinna" was loaded as "HÃ¤meenlinna". `substring` is byte-exact in
+    ; both, and copying a run of text is what this loop is doing anyway.
     sfn decodeEntities:string (s:string) {
         def out:string ""
-        def i:int 0
         def n:int (strlen s)
+        ; Start of the run that needs no change, and where the scan is.
+        def keep:int 0
+        def i:int 0
         while (i < n) {
-            def ch:int (charAt s i)
-            if (ch == 38) {
-                ; &
+            if ((charAt s i) == 38) {
                 def j:int (i + 1)
                 while ((j < n) && ((charAt s j) != 59)) {
                     j = (j + 1)
                 }
                 if (j < n) {
                     def ent:string (substring s (i + 1) j)
-                    if (ent == "lt") {
-                        out = (out + "<")
-                    } {
-                        if (ent == "gt") {
-                            out = (out + ">")
-                        } {
-                            if (ent == "amp") {
-                                out = (out + "&")
-                            } {
-                                if (ent == "quot") {
-                                    out = (out + "\"")
-                                } {
-                                    if (ent == "apos") {
-                                        out = (out + "'")
-                                    } {
-                                        out = (out + (substring s i (j + 1)))
-                                    }
-                                }
-                            }
-                        }
+                    def rep:string (XmlLite.entityText(ent))
+                    if ((strlen rep) > 0) {
+                        out = ((out + (substring s keep i)) + rep)
+                        i = (j + 1)
+                        keep = i
+                        continue
                     }
-                    i = (j + 1)
-                } {
-                    out = (out + (strfromcode ch))
-                    i = (i + 1)
                 }
-            } {
-                out = (out + (strfromcode ch))
-                i = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + (substring s keep n))
+    }
+
+    ; What one entity stands for, or "" when this reader does not know it — in
+    ; which case the text is left exactly as the file wrote it, which is the
+    ; only honest thing to do with markup nobody here understands.
+    sfn entityText:string (ent:string) {
+        if (ent == "lt") {
+            return "<"
+        }
+        if (ent == "gt") {
+            return ">"
+        }
+        if (ent == "amp") {
+            return "&"
+        }
+        if (ent == "quot") {
+            return "\""
+        }
+        if (ent == "apos") {
+            return "'"
+        }
+        ; Numeric: &#10; for the line break inside a cell, &#233; for a letter
+        ; a writer chose to escape. Here `strfromcode` is doing the job it is
+        ; for — a code POINT into text — so it is right in both targets.
+        if ((strlen ent) > 1) {
+            if ((charAt ent 0) == 35) {
+                def cp:int (XmlLite.entityNumber(ent))
+                if (cp > 0) {
+                    return (strfromcode cp)
+                }
             }
         }
-        return out
+        return ""
+    }
+
+    ; The number in `#233` or `#xE9`, or 0 if it is not one.
+    sfn entityNumber:int (ent:string) {
+        def i:int 1
+        def base:int 10
+        if ((strlen ent) > 2) {
+            def c1:int (charAt ent 1)
+            if ((c1 == 120) || (c1 == 88)) {
+                base = 16
+                i = 2
+            }
+        }
+        def value:int 0
+        def digits:int 0
+        while (i < (strlen ent)) {
+            def c:int (charAt ent i)
+            def d:int -1
+            if ((c >= 48) && (c <= 57)) {
+                d = (c - 48)
+            }
+            if (base == 16) {
+                if ((c >= 97) && (c <= 102)) {
+                    d = ((c - 97) + 10)
+                }
+                if ((c >= 65) && (c <= 70)) {
+                    d = ((c - 65) + 10)
+                }
+            }
+            if (d < 0) {
+                return 0
+            }
+            value = ((value * base) + d)
+            digits = (digits + 1)
+            i = (i + 1)
+        }
+        if (digits == 0) {
+            return 0
+        }
+        if (value > 1114111) {
+            return 0
+        }
+        return value
     }
 
     fn skipWs:void () {

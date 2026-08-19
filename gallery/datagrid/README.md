@@ -904,6 +904,48 @@ again leaves the room where it is. `CellStyle.rowHeightForPt` is the single
 rule, asked by the loader and by the app alike, so a row is the same height
 whether it arrived in a file or was typed here.
 
+## A string is not the same thing on every target
+
+Ranger's `string` means UTF-16 code units when this compiles to JavaScript and
+BYTES when it compiles to C++. So `"ä"` is one unit in the browser and two in
+the native window, and `charAt` hands back 228 in the first and 195 in the
+second.
+
+That makes one shape a trap:
+
+```
+out = (out + (strfromcode (charAt s i)))     ; NOT a copy
+```
+
+It reads as "the character at i", it *is* the identity in JavaScript, and in C++
+it hands a BYTE to a function whose job is to turn a code POINT into text —
+which dutifully encodes 195 as two more bytes. Every accented letter comes out
+encoded twice, and a spreadsheet full of Finnish place names loads as
+"HÃ¤meenlinna". Nothing complains, in either target.
+
+Copying a character is `(substring s i (i + 1))`, which is exact in both. Every
+loop that walks a string and passes most of it through unchanged now does that,
+and `strfromcode` is left for what it is actually for — a code point, as in
+`&#228;`. The one place that has to KNOW which model it is standing in asks the
+language rather than the build:
+
+```
+sfn stringIsBytes:boolean () {
+    return ((strlen "ä") > 1)
+}
+```
+
+```bash
+npm run datagrid:text:test
+```
+
+That compiles one test **twice**, to JavaScript and to C++, and runs both: no
+amount of testing in one target can see a bug of this kind. It checks the entity
+decoder, UPPER / LOWER, a number format's literal text, and a whole workbook
+written out and read back, and it asserts the trap itself — that rebuilding a
+letter from `charAt` changes it where a string is bytes. The C++ half needs only
+a C++17 compiler and says so out loud when there is none.
+
 ## Recalculation: dependencies first, not sweeps
 
 `FormulaEngine.recalcDirty` used to sweep: walk every formula, evaluate the ones

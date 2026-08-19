@@ -117,7 +117,7 @@ class ChartDocCodec {
                             if (ch == 13) {
                                 out = (out + "\\r")
                             } {
-                                out = (out + (strfromcode ch))
+                                out = (out + (substring s i (i + 1)))
                             }
                         }
                     }
@@ -305,7 +305,7 @@ class ChartDocCodec {
                         if (ch == 62) {
                             out = (out + "&gt;")
                         } {
-                            out = (out + (strfromcode ch))
+                            out = (out + (substring s i (i + 1)))
                         }
                     }
                 }
@@ -349,7 +349,7 @@ class ChartDocCodec {
                     }
                 }
             }
-            out = (out + (strfromcode ch))
+            out = (out + (substring s i (i + 1)))
             i = (i + 1)
         }
         return out

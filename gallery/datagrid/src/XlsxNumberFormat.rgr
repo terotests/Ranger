@@ -66,14 +66,14 @@ class XlsxNumberFormat {
                         i = (i + 1)
                         break
                     }
-                    out = (out + (strfromcode q))
+                    out = (out + (substring pat i (i + 1)))
                     i = (i + 1)
                 }
             } {
                 if (ch == 92) {
                     i = (i + 1)
                     if (i < n) {
-                        out = (out + (strfromcode (charAt pat i)))
+                        out = (out + (substring pat i (i + 1)))
                         i = (i + 1)
                     }
                 } {
@@ -111,7 +111,7 @@ class XlsxNumberFormat {
                                 }
                                 i = (close + 1)
                             } {
-                                out = (out + (strfromcode ch))
+                                out = (out + (substring pat i (i + 1)))
                                 i = (i + 1)
                             }
                         }
@@ -141,21 +141,21 @@ class XlsxNumberFormat {
             def ch:int (charAt code i)
             if (ch == 34) {
                 inQuote = (inQuote == false)
-                cur = (cur + (strfromcode ch))
+                cur = (cur + (substring code i (i + 1)))
             } {
                 if (ch == 91) {
                     inBracket = true
-                    cur = (cur + (strfromcode ch))
+                    cur = (cur + (substring code i (i + 1)))
                 } {
                     if (ch == 93) {
                         inBracket = false
-                        cur = (cur + (strfromcode ch))
+                        cur = (cur + (substring code i (i + 1)))
                     } {
                         if ((ch == 59) && (inQuote == false) && (inBracket == false)) {
                             push parts cur
                             cur = ""
                         } {
-                            cur = (cur + (strfromcode ch))
+                            cur = (cur + (substring code i (i + 1)))
                         }
                     }
                 }
@@ -389,7 +389,7 @@ class XlsxNumberFormat {
                     if ((pc == 35) || (pc == 48) || (pc == 46) || (pc == 44)) {
                         break
                     }
-                    prefix = (prefix + (strfromcode pc))
+                    prefix = (prefix + (substring core pi (pi + 1)))
                     pi = (pi + 1)
                 }
                 core = (substring core pi pn)
@@ -450,7 +450,7 @@ class XlsxNumberFormat {
         def n:int (strlen p)
         while (i < n) {
             if ((charAt p i) != 37) {
-                out = (out + (strfromcode (charAt p i)))
+                out = (out + (substring p i (i + 1)))
             }
             i = (i + 1)
         }
@@ -671,7 +671,7 @@ class XlsxNumberFormat {
             if ((k > 0) && ((((len - k) - ((to_int ((len - k) / 3)) * 3)) == 0))) {
                 out = (out + ",")
             }
-            out = (out + (strfromcode (charAt whole k)))
+            out = (out + (substring whole k (k + 1)))
             k = (k + 1)
         }
         return (out + frac)
@@ -719,7 +719,7 @@ class XlsxNumberFormat {
             if ((ch >= 65) && (ch <= 90)) {
                 out = (out + (strfromcode (ch + 32)))
             } {
-                out = (out + (strfromcode ch))
+                out = (out + (substring s i (i + 1)))
             }
             i = (i + 1)
         }

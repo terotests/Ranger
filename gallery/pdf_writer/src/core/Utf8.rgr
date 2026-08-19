@@ -26,16 +26,39 @@ Import "../../../evg/EVGCodepoint.rgr"
 
 class Utf8 {
 
+    ; Is a string BYTES here, or characters?
+    ;
+    ; Ranger's `string` does not mean the same thing on every target it
+    ; compiles to. In JavaScript it is UTF-16 code units, so "ä" is one of
+    ; them and `charAt` hands back 228. In C++ it is a `std::string` of bytes,
+    ; so "ä" is the two bytes UTF-8 spells it with and `charAt` hands back 195.
+    ; Everything in this file converts between those two ideas, so it has to
+    ; know which one it is standing in — and the language will say, if asked.
+    ; Asking it is cheaper and more honest than asking which compiler ran.
+    sfn stringIsBytes:boolean () {
+        return ((strlen "ä") > 1)
+    }
+
     ; Encoding back out. Delegates to EVGCodepoint so that astral codepoints
     ; become the proper four-byte form; this used to emit CESU-8, which is not
     ; valid UTF-8 and broke every emoji that reached a file.
     sfn encode:string (s:string) {
+        ; Where a string is already bytes, it is already UTF-8: encoding it
+        ; again would spell each byte as a character and double every accent.
+        if (Utf8.stringIsBytes()) {
+            return s
+        }
         return (EVGCodepoint.encodeUtf8(s))
     }
 
     ; Reinterpret a Latin-1-decoded string (what buffer_to_string produces) as
     ; UTF-8, returning real codepoints.
     sfn decode:string (raw:string) {
+        ; …and the same the other way: bytes read out of a file are already
+        ; what a string is made of here, so there is nothing to decode.
+        if (Utf8.stringIsBytes()) {
+            return raw
+        }
         def out:string ""
         def len:int (strlen raw)
         def i:int 0

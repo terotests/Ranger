@@ -83,6 +83,20 @@ class FormulaParser {
         return ch
     }
 
+    ; The character `next` just consumed, as text.
+    ;
+    ; Not `(strfromcode (this.next()))`: that pair looks like an identity and
+    ; is one in JavaScript, where a string is code units. In C++ a string is
+    ; BYTES, so `charAt` hands back 0xC3 and `strfromcode` — whose job is a
+    ; code POINT — encodes 195 as two bytes of UTF-8, and every accented
+    ; letter inside a quoted formula string would be encoded twice.
+    fn lastAsText:string () {
+        if (pos < 1) {
+            return ""
+        }
+        return (substring src (pos - 1) pos)
+    }
+
     fn skipWs:void () {
         while (pos < len) {
             def ch:int (charAt src pos)
@@ -355,7 +369,7 @@ class FormulaParser {
                     break
                 }
             } {
-                out = (out + (strfromcode ch))
+                out = (out + (this.lastAsText()))
             }
         }
         def n:FormulaNode (new FormulaNode)
@@ -491,7 +505,7 @@ class FormulaParser {
                     break
                 }
             } {
-                sheet = (sheet + (strfromcode ch))
+                sheet = (sheet + (this.lastAsText()))
             }
         }
         this.skipWs()
@@ -563,7 +577,8 @@ class FormulaParser {
             if ((ch >= 97) && (ch <= 122)) {
                 out = (out + (strfromcode (ch - 32)))
             } {
-                out = (out + (strfromcode ch))
+                ; Copied, not rebuilt — see `lastAsText`.
+                out = (out + (substring s i (i + 1)))
             }
             i = (i + 1)
         }
@@ -693,7 +708,7 @@ class FormulaParser {
                 if (ch == 39) {
                     esc = (esc + "''")
                 } {
-                    esc = (esc + (strfromcode ch))
+                    esc = (esc + (substring sheet i (i + 1)))
                 }
                 i = (i + 1)
             }
@@ -1228,7 +1243,7 @@ class FormulaEngine {
                 }
                 cur = ""
             } {
-                cur = (cur + (strfromcode ch))
+                cur = (cur + (substring joined i (i + 1)))
             }
             i = (i + 1)
         }

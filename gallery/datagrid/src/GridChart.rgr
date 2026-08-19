@@ -640,7 +640,7 @@ class ChartData {
                     if (ch < 32) {
                         out = (out + " ")
                     } {
-                        out = (out + (strfromcode ch))
+                        out = (out + (substring s i (i + 1)))
                     }
                 }
             }
