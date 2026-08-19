@@ -404,6 +404,28 @@ class DocxEditController {
         }
         def pid:int sel.focus.paragraphId
         def off:int sel.focus.textOffset
+        ; Word: Enter on an empty list item ends the list instead of adding
+        ; another empty bullet, so there is a way out of a list from the keyboard.
+        def cur:Paragraph (adapter.findParagraph(pid))
+        if (cur.listNumId > 0) {
+            if ((strlen cur.text) == 0) {
+                def op0:DocEditOp (new DocEditOp)
+                op0.kind = 7
+                op0.paragraphId = pid
+                op0.start = cur.listNumId
+                op0.end = cur.listLevel
+                op0.newText = cur.listFmt
+                op0.oldText = cur.listText
+                op0.secondId = cur.listKind
+                this.pushUndo(op0)
+                cur.listNumId = 0
+                cur.listKind = 0
+                cur.listLevel = 0
+                cur.listFmt = ""
+                cur.listText = ""
+                return
+            }
+        }
         def newId:int (adapter.splitParagraph(pid off))
         def op:DocEditOp (new DocEditOp)
         op.kind = 1
@@ -781,6 +803,25 @@ class DocxEditController {
 
     ; Body lines in document order, flattened across pages. Returns the flat
     ; index of the caret's line, or -1.
+    ; Lines the caret can occupy, in document order across pages. Picture lines
+    ; count when their paragraph holds nothing else, so ↑ / ↓ can step onto a
+    ; standalone image and Enter can add a line next to it.
+    fn caretStopLine:boolean (line:LaidLine) {
+        if (line.paraIndex <= 0) {
+            return false
+        }
+        if (line.kind == 0) {
+            return true
+        }
+        if (line.kind == 1) {
+            def p:Paragraph (unwrap line.paragraphRef)
+            if ((strlen p.text) == 0) {
+                return true
+            }
+        }
+        return false
+    }
+
     fn flatBodyLines:void (layout:DocxLayout outPage:[int] outLine:[int]) {
         clear outPage
         clear outLine
@@ -790,8 +831,24 @@ class DocxEditController {
             def li:int 0
             while (li < (array_length page.lines)) {
                 def line:LaidLine (itemAt page.lines li)
-                if (line.kind == 0) {
-                    if (line.paraIndex > 0) {
+                if (this.caretStopLine(line)) {
+                    ; An image-only paragraph also emits an empty text line;
+                    ; keep just one stop for it.
+                    def dup:boolean false
+                    if (line.kind == 1) {
+                        def k:int 0
+                        while (k < (array_length outPage)) {
+                            if ((itemAt outPage k) == pi) {
+                                def prevPage:LaidPage (layout.pageAt(pi))
+                                def prevLine:LaidLine (itemAt prevPage.lines (itemAt outLine k))
+                                if (prevLine.paraIndex == line.paraIndex) {
+                                    dup = true
+                                }
+                            }
+                            k = (k + 1)
+                        }
+                    }
+                    if (dup == false) {
                         push outPage pi
                         push outLine li
                     }
@@ -1122,6 +1179,16 @@ class DocxEditController {
             adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
             this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
         }
+        if (op.kind == 7) {
+            ; Restore the list membership that "Enter on an empty item" cleared.
+            def lp:Paragraph (adapter.findParagraph(op.paragraphId))
+            lp.listNumId = op.start
+            lp.listLevel = op.end
+            lp.listFmt = op.newText
+            lp.listText = op.oldText
+            lp.listKind = op.secondId
+            this.setCaret(op.paragraphId 0)
+        }
         if (op.kind == 6) {
             ; Undo the row Tab appended, and step back into the last cell.
             def blkIdx:int op.start
@@ -1205,6 +1272,31 @@ class DocxEditController {
                 }
             }
             i = (i + 1)
+        }
+        ; Clicking the picture itself puts the caret in the paragraph that owns
+        ; it — before it on the left half, after it on the right — so there is a
+        ; way to land next to an image and press Enter. Only when no text line
+        ; already claimed the point.
+        if (found == false) {
+            def ii:int 0
+            while (ii < (array_length page.lines)) {
+                def imgLine:LaidLine (itemAt page.lines ii)
+                if (imgLine.kind == 1) {
+                    if ((y >= imgLine.y) && (y < (imgLine.y + imgLine.height))) {
+                        if ((x >= imgLine.x) && (x < (imgLine.x + imgLine.width))) {
+                            def ip:Paragraph (unwrap imgLine.paragraphRef)
+                            if (ip.id > 0) {
+                                def half:int (imgLine.x + (idiv imgLine.width 2))
+                                if (x < half) {
+                                    return (DocumentPosition.create(ip.id 0))
+                                }
+                                return (DocumentPosition.create(ip.id (strlen ip.text)))
+                            }
+                        }
+                    }
+                }
+                ii = (ii + 1)
+            }
         }
         if (found == false) {
             ; Nearest body line by distance to its content box (2D).
