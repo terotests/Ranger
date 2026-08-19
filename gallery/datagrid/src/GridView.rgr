@@ -17,6 +17,9 @@ Import "CellStyle.rgr"
 Import "ConditionalFormat.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChartView.rgr"
+Import "GridImages.rgr"
+Import "GridCommands.rgr"
+Import "SoftPainter.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -32,6 +35,9 @@ class GridTheme {
     def formulaBg:EVGColor (EVGColor.rgb(255 255 255))
     def formulaText:EVGColor (EVGColor.rgb(30 36 48))
     def selection:EVGColor (EVGColor.rgba(50 120 220 0.22))
+    def linkText:EVGColor (EVGColor.rgb(21 78 172))
+    def noteMark:EVGColor (EVGColor.rgb(214 69 65))
+    def noteBg:EVGColor (EVGColor.rgb(255 252 228))
     def activeBorder:EVGColor (EVGColor.rgb(40 100 210))
     def editBg:EVGColor (EVGColor.rgb(255 252 230))
     def statusBg:EVGColor (EVGColor.rgb(236 240 246))
@@ -45,6 +51,9 @@ class GridTheme {
 class GridView {
     def canvas:SoftCanvas (new SoftCanvas)
     def ctx:UIContext (new UIContext)
+    ; The display-list → canvas loop, which is shared with the clipboard: a
+    ; copied chart is painted by this same code onto an off-screen surface.
+    def painter:SoftPainter (new SoftPainter)
     def theme:GridTheme (new GridTheme)
     def status:string ""
     def editCaret:int 0
@@ -54,6 +63,23 @@ class GridView {
     ; window layer, because their content is the document's and the frame is
     ; not.
     def chartLayer:ChartLayer (new ChartLayer)
+    ; Where a dragged block would land. Painted as an outline, so the cells it
+    ; would cover are still readable underneath it.
+    ; The pictures anchored to the sheet, decoded once and drawn where their
+    ; anchors land. The host fills the byte source; the view only draws.
+    def images:GridImages (new GridImages)
+    ; The host's custom tools, drawn as buttons on the status bar. The view
+    ; only paints them; what they mean is the host's business.
+    def commands:GridCommandTable (new GridCommandTable)
+    ; The chart the picker is previewing, and which window to draw it in. Set
+    ; by the host every frame the picker is up; zero means nothing to preview.
+    def previewChart:GridChart (new GridChart)
+    def previewWid:int 0
+    def ghostVisible:boolean false
+    def ghostR0:int 0
+    def ghostC0:int 0
+    def ghostR1:int 0
+    def ghostC1:int 0
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -64,6 +90,10 @@ class GridView {
     def menuW:int 190
     def menuH:int 270
     def menuCol:int -1
+    ; 0 = the column menu, 1 = the row menu. One popup, two menus: they are
+    ; the same list of actions read down a different axis.
+    def menuKind:int 0
+    def menuRow:int -1
     def menuX:int 0
     def menuY:int 0
 
@@ -381,7 +411,148 @@ class GridView {
         return total
     }
 
+    ; A turned label. The command carries the angle and every backend turns it
+    ; about the command's own box centre, so the anchor is the middle of the
+    ; text rather than a corner — which is also what makes a 90° header label
+    ; sit in its column rather than beside it.
+    fn pushRotatedText:void (dl:EVGDisplayList text:string cx:double cy:double size:double col:EVGColor bold:boolean italic:boolean degrees:double) {
+        if ((strlen text) == 0) {
+            return
+        }
+        this.applyFaceStyled(bold italic)
+        def tw:double (ctx.tr.measureWidth(text size))
+        def th:double (ctx.tr.lineHeight(size))
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = (cx - (tw / 2.0))
+        c.y = (cy - (th / 2.0))
+        c.w = tw
+        c.h = th
+        c.text = text
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        c.rotate = degrees
+        if bold {
+            c.fontWeight = "bold"
+        }
+        if italic {
+            c.textAlign = "italic"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; Vertical text: the letters stay upright and stack downwards, which is a
+    ; different thing from a 90° turn and is how Excel's rotation 255 reads.
+    fn paintStacked:void (dl:EVGDisplayList rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string) {
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        def n:int (strlen txt)
+        def i:int 0
+        def y:int (rect.y + 3)
+        while (i < n) {
+            if ((y + lineH) > (rect.y + rect.h)) {
+                return
+            }
+            def ch:string (substring txt i (i + 1))
+            def cw:int (to_int (ctx.tr.measureWidth(ch cellPx)))
+            def x:int ((rect.x + (idiv rect.w 2)) - (idiv cw 2))
+            this.pushStyledText(dl ch (to_double x) (to_double y) cellPx col st.bold st.italic)
+            y = (y + lineH)
+            i = (i + 1)
+        }
+    }
+
+    ; Text drawn in pieces. Each run is laid down at the x the one before it
+    ; ended at, in its own face — which is why `styleOver` hands back a whole
+    ; CellStyle: a run is painted exactly as a cell is, and only the walk is
+    ; new. The whole string is aligned as one, so a centred cell of rich text
+    ; is centred rather than each piece being centred separately.
+    fn paintRuns:void (dl:EVGDisplayList rect:GridRect base:CellStyle cellPx:double baseCol:EVGColor rt:RichText) {
+        def total:int 0
+        def i:int 0
+        while (i < (rt.count())) {
+            def run:CellRun (itemAt rt.runs i)
+            def rs:CellStyle (run.styleOver(base))
+            def px:double (this.sizeOf(rs cellPx))
+            this.applyFaceStyled(rs.bold rs.italic)
+            total = (total + (to_int (ctx.tr.measureWidth(run.text px))))
+            i = (i + 1)
+        }
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        def top:int (this.textTopFor(rect base lineH 1))
+        def x:double (this.alignedX(rect base total))
+        def k:int 0
+        while (k < (rt.count())) {
+            def run2:CellRun (itemAt rt.runs k)
+            def rs2:CellStyle (run2.styleOver(base))
+            def px2:double (this.sizeOf(rs2 cellPx))
+            def runCol:EVGColor baseCol
+            if ((strlen rs2.textRgb) >= 4) {
+                runCol = (EVGColor.parse(rs2.textRgb))
+            }
+            this.applyFaceStyled(rs2.bold rs2.italic)
+            def w:int (to_int (ctx.tr.measureWidth(run2.text px2)))
+            ; Runs of different sizes sit on one baseline rather than one top,
+            ; which is what makes a smaller suffix look attached to the word
+            ; before it instead of floating above it.
+            def runTop:int (top + (to_int (ctx.tr.lineHeight(cellPx))) - (to_int (ctx.tr.lineHeight(px2))))
+            this.pushStyledText(dl run2.text x (to_double runTop) px2 runCol rs2.bold rs2.italic)
+            this.paintDecoration(dl rs2 x runTop w px2 runCol)
+            x = (x + (to_double w))
+            k = (k + 1)
+        }
+    }
+
+    ; A run's point size in pixels, falling back to the cell's.
+    fn sizeOf:double (st:CellStyle fallback:double) {
+        if (st.fontSizePt > 0.0) {
+            def px:double ((st.fontSizePt * 96.0) / 72.0)
+            if (px < 6.0) {
+                return 6.0
+            }
+            return px
+        }
+        return fallback
+    }
+
     fn paintSingleLine:void (dl:EVGDisplayList model:SpreadsheetModel rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string r:int c:int) {
+        if (model.hasRichText(r c)) {
+            def rt:RichText (model.richTextAt(r c))
+            this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
+            this.paintRuns(dl rect st cellPx col rt)
+            this.popClip(dl)
+            return
+        }
+        if (st.isStacked()) {
+            this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
+            this.paintStacked(dl rect st cellPx col txt)
+            this.popClip(dl)
+            return
+        }
+        def turn:double (st.rotationDegrees())
+        if (turn != 0.0) {
+            ; A turned label is not allowed to spill: it is clipped to its own
+            ; cell, because the room it would need is in two directions at once.
+            this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
+            def ccx:double ((to_double rect.x) + ((to_double rect.w) / 2.0))
+            def ccy:double ((to_double rect.y) + ((to_double rect.h) / 2.0))
+            this.pushRotatedText(dl txt ccx ccy cellPx col st.bold st.italic turn)
+            this.popClip(dl)
+            return
+        }
+        this.paintFlatLine(dl model rect st cellPx col txt r c)
+    }
+
+    fn paintFlatLine:void (dl:EVGDisplayList model:SpreadsheetModel rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string r:int c:int) {
         def textW:int (to_int (ctx.tr.measureWidth(txt cellPx)))
         def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
         if (lineH < 8) {
@@ -452,10 +623,17 @@ class GridView {
                 txt = editBuf
             }
         }
+        ; A cell that links somewhere says so the way every document does: in
+        ; the link colour, underlined. The style's own colour is overridden,
+        ; because a link that looks like text is not a link.
+        def linked:boolean (model.hasHyperlink(r c))
         if ((strlen txt) > 0) {
             def col:EVGColor theme.cellText
             if ((strlen st.textRgb) >= 4) {
                 col = (EVGColor.parse(st.textRgb))
+            }
+            if linked {
+                col = theme.linkText
             }
             ; Cell font size comes from the style (pt → px), bold / italic ride
             ; on the draw command so both backends can honour them.
@@ -467,10 +645,28 @@ class GridView {
                 cellPx = 6.0
             }
             this.applyFaceStyled(st.bold st.italic)
+            def paintStyle:CellStyle st
+            if linked {
+                paintStyle = (st.copy())
+                paintStyle.underline = true
+            }
             if st.wrapText {
-                this.paintWrapped(dl txt rect st cellPx col)
+                this.paintWrapped(dl txt rect paintStyle cellPx col)
             } {
-                this.paintSingleLine(dl model rect st cellPx col txt r c)
+                this.paintSingleLine(dl model rect paintStyle cellPx col txt r c)
+            }
+        }
+        ; A note is marked rather than shown: the text would cover the numbers
+        ; it is about. The corner triangle is the mark every spreadsheet uses.
+        if (model.hasNote(r c)) {
+            def mk:int 6
+            def mx:int ((rect.x + rect.w) - (mk + 1))
+            def my:int (rect.y + 1)
+            def step:int 0
+            while (step < mk) {
+                this.pushRect(dl (to_double (mx + step)) (to_double my) (to_double (mk - step)) 1.0 theme.noteMark)
+                my = (my + 1)
+                step = (step + 1)
             }
         }
         this.paintCellBorders(dl st rect)
@@ -510,6 +706,17 @@ class GridView {
     sfn chartButtonX:int (pageW:int) {
         def bw:int (GridView.chartButtonW())
         return (pageW - (bw + 8))
+    }
+
+    ; Custom tool buttons, laid out leftwards from the chart button.
+    sfn toolButtonW:int () {
+        return 84
+    }
+
+    sfn toolButtonX:int (pageW:int index:int) {
+        def bw:int (GridView.toolButtonW())
+        def base:int (GridView.chartButtonX(pageW))
+        return ((base - ((index + 1) * (bw + 6))))
     }
 
     sfn chartButtonY:int (statusTop:int) {
@@ -644,33 +851,150 @@ class GridView {
             this.pushRect(dl (to_double bodyLeft) (to_double fy) (to_double vw) 2.0 theme.activeBorder)
         }
 
-        ; selection overlay (cheap rect, not per-cell styles) — clipped to viewport
-        def a:CellPos (new CellPos)
-        def b:CellPos (new CellPos)
-        sel.normalized(a b)
-        def tl:GridRect (grid.cellRect(model a.row a.col))
-        def br:GridRect (grid.cellRect(model b.row b.col))
-        def sx:int tl.x
-        def sy:int tl.y
-        def sw:int ((br.x + br.w) - tl.x)
-        def sh:int ((br.y + br.h) - tl.y)
-        if (sx < bodyLeft) {
-            sw = (sw - (bodyLeft - sx))
-            sx = bodyLeft
+        ; Pictures sit over the cells and under the selection: they are part of
+        ; the document, not of the chrome. Clipped to the body so one anchored
+        ; near the edge does not paint over the headers.
+        def imgI:int 0
+        while (imgI < (model.imageCount())) {
+            def si:SheetImage (model.imageAt(imgI))
+            def ir:GridRect (GridImages.rectFor(model grid si))
+            def visible:boolean true
+            if ((ir.x + ir.w) < bodyLeft) {
+                visible = false
+            }
+            if ((ir.y + ir.h) < bodyTop) {
+                visible = false
+            }
+            if (ir.x > (bodyLeft + vw)) {
+                visible = false
+            }
+            if (ir.y > (bodyTop + vh)) {
+                visible = false
+            }
+            if visible {
+                ; Decoded on first sight and cached by part name, so scrolling
+                ; past a picture costs a blit rather than a PNG decode.
+                images.decode(si.src (si.kind()) si.bytes)
+                this.pushClip(dl (to_double bodyLeft) (to_double bodyTop) (to_double vw) (to_double vh))
+                GridImages.pushImageCmd(dl ir si.src)
+                this.popClip(dl)
+            }
+            imgI = (imgI + 1)
         }
-        if (sy < bodyTop) {
-            sh = (sh - (bodyTop - sy))
-            sy = bodyTop
+
+        ; Selection overlay: one cheap rect per rectangle, clipped to the
+        ; viewport. A Ctrl+click selection is several rectangles, and each is
+        ; painted the same way — there is no per-cell pass.
+        def selIdx:int 0
+        while (selIdx < (sel.rangeCount())) {
+            def g:GridRange (sel.rangeAt(selIdx))
+            def live:boolean (selIdx == ((sel.rangeCount()) - 1))
+            def skip:boolean false
+            if live {
+                if (sel.isSingle()) {
+                    if ((sel.isDisjoint()) == false) {
+                        skip = true
+                    }
+                }
+            }
+            if (skip == false) {
+                def tl:GridRect (grid.cellRect(model g.r0 g.c0))
+                def br:GridRect (grid.cellRect(model g.r1 g.c1))
+                def sx:int tl.x
+                def sy:int tl.y
+                def sw:int ((br.x + br.w) - tl.x)
+                def sh:int ((br.y + br.h) - tl.y)
+                if (sx < bodyLeft) {
+                    sw = (sw - (bodyLeft - sx))
+                    sx = bodyLeft
+                }
+                if (sy < bodyTop) {
+                    sh = (sh - (bodyTop - sy))
+                    sy = bodyTop
+                }
+                if ((sx + sw) > (bodyLeft + vw)) {
+                    sw = ((bodyLeft + vw) - sx)
+                }
+                if ((sy + sh) > (bodyTop + vh)) {
+                    sh = ((bodyTop + vh) - sy)
+                }
+                if ((sw > 0) && (sh > 0)) {
+                    this.pushRect(dl (to_double sx) (to_double sy) (to_double sw) (to_double sh) theme.selection)
+                }
+            }
+            selIdx = (selIdx + 1)
         }
-        if ((sx + sw) > (bodyLeft + vw)) {
-            sw = ((bodyLeft + vw) - sx)
+
+        ; The active cell's note, shown beside it. A marker alone tells you a
+        ; note exists and not what it says; a hover tooltip needs a hover state
+        ; this input layer does not have. The selected cell is the one you are
+        ; asking about, so that is the one whose note is opened.
+        if (model.hasNote(sel.active.row sel.active.col)) {
+            def noteText:string (model.noteAt(sel.active.row sel.active.col))
+            def nr:GridRect (grid.cellRect(model sel.active.row sel.active.col))
+            def boxW:int 210
+            def nx:int (nr.x + nr.w + 6)
+            if ((nx + boxW) > (bodyLeft + vw)) {
+                nx = ((nr.x - boxW) - 6)
+            }
+            if (nx < bodyLeft) {
+                nx = bodyLeft
+            }
+            def lines:[string] (ctx.tr.wrap(noteText 12.0 (to_double (boxW - 16))))
+            def lineH:int (to_int (ctx.tr.lineHeight(12.0)))
+            def boxH:int (((array_length lines) * lineH) + 12)
+            def ny:int nr.y
+            if ((ny + boxH) > (bodyTop + vh)) {
+                ny = ((bodyTop + vh) - boxH)
+            }
+            if (ny < bodyTop) {
+                ny = bodyTop
+            }
+            this.pushRect(dl (to_double nx) (to_double ny) (to_double boxW) (to_double boxH) theme.noteBg)
+            this.pushBorder(dl (to_double nx) (to_double ny) (to_double boxW) (to_double boxH) 1.0 theme.noteMark)
+            def li:int 0
+            while (li < (array_length lines)) {
+                this.pushText(dl (itemAt lines li) (to_double (nx + 8)) (to_double ((ny + 6) + (li * lineH))) 12.0 theme.cellText)
+                li = (li + 1)
+            }
         }
-        if ((sy + sh) > (bodyTop + vh)) {
-            sh = ((bodyTop + vh) - sy)
+
+        ; A list-validated active cell offers its choices.
+        if (model.hasValidation(sel.active.row sel.active.col)) {
+            def dv:DataValidation (model.validationAt(sel.active.row sel.active.col))
+            if (dv.isList()) {
+                def arr:GridRect (grid.listArrowRect(model sel))
+                if (arr.w > 4) {
+                    this.pushRect(dl (to_double arr.x) (to_double arr.y) (to_double arr.w) (to_double arr.h) theme.headerBg)
+                    this.pushBorder(dl (to_double arr.x) (to_double arr.y) (to_double arr.w) (to_double arr.h) 1.0 theme.gridLine)
+                    ; A downward triangle, drawn as narrowing rows.
+                    def tw:int (arr.w - 6)
+                    def tx:int (arr.x + 3)
+                    def ty:int (arr.y + (idiv arr.h 2) - 2)
+                    def k:int 0
+                    while (k < 4) {
+                        if (tw > 0) {
+                            this.pushRect(dl (to_double (tx + k)) (to_double (ty + k)) (to_double tw) 1.0 theme.cellText)
+                        }
+                        tw = (tw - 2)
+                        k = (k + 1)
+                    }
+                }
+            }
         }
-        if (sel.isSingle() == false) {
-            if ((sw > 0) && (sh > 0)) {
-                this.pushRect(dl (to_double sx) (to_double sy) (to_double sw) (to_double sh) theme.selection)
+
+        ; drop target for a dragged range
+        if ghostVisible {
+            def gtl:GridRect (grid.cellRect(model ghostR0 ghostC0))
+            def gbr:GridRect (grid.cellRect(model ghostR1 ghostC1))
+            def gx:int gtl.x
+            def gy:int gtl.y
+            def gw:int ((gbr.x + gbr.w) - gtl.x)
+            def gh:int ((gbr.y + gbr.h) - gtl.y)
+            if (gw > 0) {
+                if (gh > 0) {
+                    this.pushBorder(dl (to_double gx) (to_double gy) (to_double gw) (to_double gh) 2.0 theme.activeBorder)
+                }
             }
         }
 
@@ -756,21 +1080,36 @@ class GridView {
             def mh:int menuH
             this.pushRect(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) theme.formulaBg)
             this.pushBorder(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) 1.0 theme.activeBorder)
-            def title:string ("Column " + (SpreadsheetModel.colLabel(menuCol)))
-            this.pushText(dl title (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
-            this.pushText(dl "1  Sort ascending" (to_double (menuX + 8)) (to_double (menuY + 30)) 12.0 theme.cellText)
-            this.pushText(dl "2  Sort descending" (to_double (menuX + 8)) (to_double (menuY + 50)) 12.0 theme.cellText)
-            this.pushText(dl "3  Filter unique values" (to_double (menuX + 8)) (to_double (menuY + 70)) 12.0 theme.cellText)
-            this.pushText(dl "4  Clear filter" (to_double (menuX + 8)) (to_double (menuY + 90)) 12.0 theme.cellText)
-            this.pushText(dl "5  Auto-fit width" (to_double (menuX + 8)) (to_double (menuY + 110)) 12.0 theme.cellText)
-            this.pushText(dl "6  Wider  (+20)" (to_double (menuX + 8)) (to_double (menuY + 130)) 12.0 theme.cellText)
-            this.pushText(dl "7  Narrower  (-20)" (to_double (menuX + 8)) (to_double (menuY + 150)) 12.0 theme.cellText)
-            this.pushRect(dl (to_double (menuX + 8)) (to_double (menuY + 168)) (to_double (mw - 16)) 1.0 theme.gridLine)
-            this.pushText(dl "8  Insert column left" (to_double (menuX + 8)) (to_double (menuY + 172)) 12.0 theme.cellText)
-            this.pushText(dl "9  Insert column right" (to_double (menuX + 8)) (to_double (menuY + 192)) 12.0 theme.cellText)
-            this.pushText(dl "10  Delete column" (to_double (menuX + 8)) (to_double (menuY + 212)) 12.0 theme.cellText)
-            this.pushText(dl "11  Move left" (to_double (menuX + 8)) (to_double (menuY + 232)) 12.0 theme.cellText)
-            this.pushText(dl "12  Move right" (to_double (menuX + 8)) (to_double (menuY + 252)) 12.0 theme.cellText)
+            if (menuKind == 1) {
+                def rtitle:string ("Row " + (to_string (menuRow + 1)))
+                this.pushText(dl rtitle (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
+                this.pushText(dl "1  Select row" (to_double (menuX + 8)) (to_double (menuY + 30)) 12.0 theme.cellText)
+                this.pushText(dl "2  Auto-fit height" (to_double (menuX + 8)) (to_double (menuY + 50)) 12.0 theme.cellText)
+                this.pushText(dl "3  Taller  (+10)" (to_double (menuX + 8)) (to_double (menuY + 70)) 12.0 theme.cellText)
+                this.pushText(dl "4  Shorter  (-10)" (to_double (menuX + 8)) (to_double (menuY + 90)) 12.0 theme.cellText)
+                this.pushRect(dl (to_double (menuX + 8)) (to_double (menuY + 108)) (to_double (mw - 16)) 1.0 theme.gridLine)
+                this.pushText(dl "5  Insert row above" (to_double (menuX + 8)) (to_double (menuY + 112)) 12.0 theme.cellText)
+                this.pushText(dl "6  Insert row below" (to_double (menuX + 8)) (to_double (menuY + 132)) 12.0 theme.cellText)
+                this.pushText(dl "7  Delete row" (to_double (menuX + 8)) (to_double (menuY + 152)) 12.0 theme.cellText)
+                this.pushText(dl "8  Move up" (to_double (menuX + 8)) (to_double (menuY + 172)) 12.0 theme.cellText)
+                this.pushText(dl "9  Move down" (to_double (menuX + 8)) (to_double (menuY + 192)) 12.0 theme.cellText)
+            } {
+                def title:string ("Column " + (SpreadsheetModel.colLabel(menuCol)))
+                this.pushText(dl title (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
+                this.pushText(dl "1  Sort ascending" (to_double (menuX + 8)) (to_double (menuY + 30)) 12.0 theme.cellText)
+                this.pushText(dl "2  Sort descending" (to_double (menuX + 8)) (to_double (menuY + 50)) 12.0 theme.cellText)
+                this.pushText(dl "3  Filter unique values" (to_double (menuX + 8)) (to_double (menuY + 70)) 12.0 theme.cellText)
+                this.pushText(dl "4  Clear filter" (to_double (menuX + 8)) (to_double (menuY + 90)) 12.0 theme.cellText)
+                this.pushText(dl "5  Auto-fit width" (to_double (menuX + 8)) (to_double (menuY + 110)) 12.0 theme.cellText)
+                this.pushText(dl "6  Wider  (+20)" (to_double (menuX + 8)) (to_double (menuY + 130)) 12.0 theme.cellText)
+                this.pushText(dl "7  Narrower  (-20)" (to_double (menuX + 8)) (to_double (menuY + 150)) 12.0 theme.cellText)
+                this.pushRect(dl (to_double (menuX + 8)) (to_double (menuY + 168)) (to_double (mw - 16)) 1.0 theme.gridLine)
+                this.pushText(dl "8  Insert column left" (to_double (menuX + 8)) (to_double (menuY + 172)) 12.0 theme.cellText)
+                this.pushText(dl "9  Insert column right" (to_double (menuX + 8)) (to_double (menuY + 192)) 12.0 theme.cellText)
+                this.pushText(dl "10  Delete column" (to_double (menuX + 8)) (to_double (menuY + 212)) 12.0 theme.cellText)
+                this.pushText(dl "11  Move left" (to_double (menuX + 8)) (to_double (menuY + 232)) 12.0 theme.cellText)
+                this.pushText(dl "12  Move right" (to_double (menuX + 8)) (to_double (menuY + 252)) 12.0 theme.cellText)
+            }
         }
 
         ; status bar
@@ -786,6 +1125,19 @@ class GridView {
             this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.statusText)
             ; The one control on the status bar: making a chart out of what is
             ; selected. A shortcut alone would be a feature nobody finds.
+            ; The host's own tools sit to the left of the built-in button, in
+            ; the order they were registered.
+            def toolI:int 0
+            while (toolI < (commands.customCount())) {
+                def tool:GridCommand (commands.customAt(toolI))
+                def tx:int (GridView.toolButtonX(pageW toolI))
+                def ty:int (GridView.chartButtonY(sy2))
+                def tw:int (GridView.toolButtonW())
+                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) theme.headerBg)
+                this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) 1.0 theme.gridLine)
+                this.pushText(dl tool.label (to_double (tx + 6)) (to_double (ty + 1)) 12.0 theme.statusText)
+                toolI = (toolI + 1)
+            }
             def cbx:int (GridView.chartButtonX(pageW))
             def cby:int (GridView.chartButtonY(sy2))
             this.pushRect(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) theme.headerBg)
@@ -803,6 +1155,17 @@ class GridView {
             def wnd:EVGWindow (itemAt windows.windows wi)
             wnd.paint(dl ctx.tr pageW pageH)
             chartLayer.paintContent(dl model ctx.tr wnd)
+            ; The picker's own preview, drawn into the region it left for it.
+            ; Same renderer, same cache, same everything as a chart on the
+            ; sheet — which is the point: what you see is what you will get.
+            if (previewWid > 0) {
+                if ((wnd.wid == previewWid) && wnd.visible) {
+                    if (wnd.hasContent) {
+                        def pc:EVGControl (wnd.contentControl())
+                        chartLayer.view.paint(dl model previewChart ctx.tr ((wnd.x + pc.x) + 1) ((wnd.y + pc.y) + 1) (pc.w - 2) (pc.h - 2))
+                    }
+                }
+            }
             wi = (wi + 1)
         }
 
@@ -811,109 +1174,9 @@ class GridView {
 
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
         canvas.clear((theme.bg.red()) (theme.bg.green()) (theme.bg.blue()))
-        def i:int 0
-        def n:int (dl.count())
-        while (i < n) {
-            def c:EVGDrawCmd (dl.at(i))
-            if (c.kind == 0) {
-                def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
-            }
-            if (c.kind == 1) {
-                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
-            }
-            if (c.kind == 3) {
-                def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
-                ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
-            }
-            ; Vector ink: a chart's bars, wedges and grid lines arrive as
-            ; flattened rings, exactly as the WebGL backend gets them. Without
-            ; these two the browser would show a chart and the PNG would show
-            ; an empty box, which is the disagreement the display list exists
-            ; to prevent.
-            if (c.kind == 6) {
-                this.fillRings(c)
-            }
-            if (c.kind == 7) {
-                this.strokeRings(c)
-            }
-            i = (i + 1)
-        }
-    }
-
-    ; One ring of a path command, as a flat point list.
-    fn ringAt:[double] (c:EVGDrawCmd index:int) {
-        def out:[double]
-        def start:int 0
-        if (index > 0) {
-            start = (itemAt c.ringEnds (index - 1))
-        }
-        def stop:int (itemAt c.ringEnds index)
-        def k:int start
-        while (k < stop) {
-            push out (itemAt c.pts k)
-            k = (k + 1)
-        }
-        return out
-    }
-
-    fn fillRings:void (c:EVGDrawCmd) {
-        def alpha:int (to_int (c.a * 255.0))
-        if (alpha <= 0) {
-            return
-        }
-        def i:int 0
-        while (i < (array_length c.ringEnds)) {
-            def ring:[double] (this.ringAt(c i))
-            ctx.fillPolygon(ring c.r c.g c.b alpha)
-            i = (i + 1)
-        }
-    }
-
-    ; A stroke becomes a quad per segment — the same expansion the WebGL
-    ; backend does, so the two agree on what a one-pixel grid line looks like.
-    fn strokeRings:void (c:EVGDrawCmd) {
-        def alpha:int (to_int (c.a * 255.0))
-        if (alpha <= 0) {
-            return
-        }
-        def half:double (c.thickness / 2.0)
-        if (half < 0.375) {
-            half = 0.375
-        }
-        def i:int 0
-        while (i < (array_length c.ringEnds)) {
-            def ring:[double] (this.ringAt(c i))
-            def n:int (array_length ring)
-            def k:int 0
-            while ((k + 3) < n) {
-                def x1:double (itemAt ring k)
-                def y1:double (itemAt ring (k + 1))
-                def x2:double (itemAt ring (k + 2))
-                def y2:double (itemAt ring (k + 3))
-                def dx:double (x2 - x1)
-                def dy:double (y2 - y1)
-                def len:double (sqrt ((dx * dx) + (dy * dy)))
-                if (len > 0.0001) {
-                    def nx:double (((0.0 - dy) / len) * half)
-                    def ny:double ((dx / len) * half)
-                    def quad:[double]
-                    push quad (x1 + nx)
-                    push quad (y1 + ny)
-                    push quad (x2 + nx)
-                    push quad (y2 + ny)
-                    push quad (x2 - nx)
-                    push quad (y2 - ny)
-                    push quad (x1 - nx)
-                    push quad (y1 - ny)
-                    ctx.fillPolygon(quad c.r c.g c.b alpha)
-                }
-                k = (k + 2)
-            }
-            i = (i + 1)
-        }
+        painter.attach(canvas ctx images pageW pageH)
+        painter.fontFamily = fontFamily
+        painter.draw(dl)
     }
 
     ; Height the wrapped text needs in a column of `colW`, for row auto-fit.

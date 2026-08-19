@@ -1,0 +1,246 @@
+; ==============================================================================
+; DataValidation.rgr — what a cell will accept.
+; ==============================================================================
+;
+; A validation is a rule attached to a RANGE, not to a cell: "A3:A6 is one of
+; north / south / east / west", "B3:B6 is a whole number between 1 and 100".
+; That is how OOXML writes it and how a spreadsheet thinks about it — you set
+; the rule once and it holds for everything you type into the block afterwards.
+;
+; The rule answers one question — `accepts(text)` — and the editor asks it
+; before writing. Everything else here is what it takes to answer that:
+; parsing the list form, coercing the bounds, and knowing which comparison the
+; operator meant.
+;
+; A list rule also has a second job: it knows what the choices ARE, so the grid
+; can offer them rather than making you remember them.
+; ==============================================================================
+
+
+
+class DataValidation {
+    ; "list" | "whole" | "decimal" | "textLength" — anything else accepts
+    ; everything, which is what OOXML's `type="none"` means too.
+    def kind:string ""
+    ; between | notBetween | equal | notEqual | greaterThan | lessThan |
+    ; greaterThanOrEqual | lessThanOrEqual
+    def op:string "between"
+    def r0:int 0
+    def c0:int 0
+    def r1:int 0
+    def c1:int 0
+    def f1:string ""
+    def f2:string ""
+    def allowBlank:boolean true
+    def errorTitle:string ""
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    fn covers:boolean (row:int col:int) {
+        if (row < r0) {
+            return false
+        }
+        if (row > r1) {
+            return false
+        }
+        if (col < c0) {
+            return false
+        }
+        return (col <= c1)
+    }
+
+    fn isList:boolean () {
+        return (kind == "list")
+    }
+
+    ; The choices of a list rule. OOXML writes them as one quoted, comma
+    ; separated string — `"north,south,east,west"` — and the quotes are part of
+    ; the encoding rather than part of the first and last value.
+    fn listValues:[string] () {
+        def out:[string]
+        def src:string f1
+        def n:int (strlen src)
+        if (n == 0) {
+            return out
+        }
+        def start:int 0
+        def stop:int n
+        if ((charAt src 0) == 34) {
+            start = 1
+        }
+        if (stop > start) {
+            if ((charAt src (stop - 1)) == 34) {
+                stop = (stop - 1)
+            }
+        }
+        def cur:string ""
+        def i:int start
+        while (i < stop) {
+            def ch:int (charAt src i)
+            if (ch == 44) {
+                push out (DataValidation.trimWs(cur))
+                cur = ""
+            } {
+                cur = (cur + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        push out (DataValidation.trimWs(cur))
+        return out
+    }
+
+    sfn trimWs:string (s:string) {
+        def n:int (strlen s)
+        def a:int 0
+        while (a < n) {
+            if ((charAt s a) != 32) {
+                break
+            }
+            a = (a + 1)
+        }
+        def b:int n
+        while (b > a) {
+            if ((charAt s (b - 1)) != 32) {
+                break
+            }
+            b = (b - 1)
+        }
+        return (substring s a b)
+    }
+
+    sfn numberOf:double (text:string out:[boolean]) {
+        clear out
+        def p@(optional):double (to_double text)
+        if p {
+            push out true
+            return (unwrap p)
+        }
+        push out false
+        return 0.0
+    }
+
+    ; Would this cell take that text?
+    fn accepts:boolean (text:string) {
+        if ((strlen text) == 0) {
+            return allowBlank
+        }
+        if (kind == "list") {
+            def vals:[string] (this.listValues())
+            def i:int 0
+            while (i < (array_length vals)) {
+                if ((itemAt vals i) == text) {
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        def numeric:boolean false
+        if (kind == "whole") {
+            numeric = true
+        }
+        if (kind == "decimal") {
+            numeric = true
+        }
+        if numeric {
+            def flag:[boolean]
+            def v:double (DataValidation.numberOf(text flag))
+            def ok:boolean false
+            if ((array_length flag) > 0) {
+                ok = (itemAt flag 0)
+            }
+            if (ok == false) {
+                return false
+            }
+            if (kind == "whole") {
+                def rounded:double (to_double (to_int v))
+                if (rounded != v) {
+                    return false
+                }
+            }
+            return (this.compare(v))
+        }
+        if (kind == "textLength") {
+            return (this.compare((to_double (strlen text))))
+        }
+        return true
+    }
+
+    fn compare:boolean (v:double) {
+        def flag:[boolean]
+        def a:double (DataValidation.numberOf(f1 flag))
+        def haveA:boolean false
+        if ((array_length flag) > 0) {
+            haveA = (itemAt flag 0)
+        }
+        def b:double (DataValidation.numberOf(f2 flag))
+        def haveB:boolean false
+        if ((array_length flag) > 0) {
+            haveB = (itemAt flag 0)
+        }
+        if (haveA == false) {
+            return true
+        }
+        if (op == "between") {
+            if (haveB == false) {
+                return (v >= a)
+            }
+            return ((v >= a) && (v <= b))
+        }
+        if (op == "notBetween") {
+            if (haveB == false) {
+                return (v < a)
+            }
+            return ((v < a) || (v > b))
+        }
+        if (op == "equal") {
+            return (v == a)
+        }
+        if (op == "notEqual") {
+            return (v != a)
+        }
+        if (op == "greaterThan") {
+            return (v > a)
+        }
+        if (op == "lessThan") {
+            return (v < a)
+        }
+        if (op == "greaterThanOrEqual") {
+            return (v >= a)
+        }
+        if (op == "lessThanOrEqual") {
+            return (v <= a)
+        }
+        return true
+    }
+
+    ; What to tell someone whose entry was refused. The file's own message wins
+    ; — it is the one whoever built the sheet wanted them to read.
+    fn message:string () {
+        if ((strlen errorText) > 0) {
+            return errorText
+        }
+        if (kind == "list") {
+            return "not one of the allowed values"
+        }
+        if (kind == "whole") {
+            return ("not a whole number " + op + " " + f1 + " " + f2)
+        }
+        if (kind == "decimal") {
+            return ("not a number " + op + " " + f1 + " " + f2)
+        }
+        if (kind == "textLength") {
+            return ("text length must be " + op + " " + f1 + " " + f2)
+        }
+        return "not allowed here"
+    }
+
+    fn describe:string () {
+        if (kind == "list") {
+            return ("list: " + f1)
+        }
+        return ((kind + " " + op + " " + f1) + " " + f2)
+    }
+}

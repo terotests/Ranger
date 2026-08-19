@@ -15,6 +15,7 @@
 Import "../src/GridChart.rgr"
 Import "../src/GridChartView.rgr"
 Import "../src/GridApp.rgr"
+Import "../../game_engine/lpc/src/png_decoder.rgr"
 
 class ChartTest {
     def passed:int 0
@@ -89,6 +90,181 @@ class ChartTest {
         return ch
     }
 
+    ; Six rows and three value columns: enough for every kind the picker
+    ; offers, including the ones that want a third column for a bubble's size
+    ; or a box plot's spread.
+    sfn wideModel:SpreadsheetModel () {
+        def m (new SpreadsheetModel)
+        m.setCell(0 0 "Month")
+        m.setCell(0 1 "North")
+        m.setCell(0 2 "South")
+        m.setCell(0 3 "East")
+        def names:[string]
+        push names "Jan"
+        push names "Feb"
+        push names "Mar"
+        push names "Apr"
+        push names "May"
+        push names "Jun"
+        def a:[string]
+        push a "120"
+        push a "150"
+        push a "90"
+        push a "175"
+        push a "140"
+        push a "165"
+        def b:[string]
+        push b "80"
+        push b "95"
+        push b "130"
+        push b "110"
+        push b "125"
+        push b "85"
+        def c:[string]
+        push c "20"
+        push c "45"
+        push c "31"
+        push c "52"
+        push c "38"
+        push c "27"
+        def i:int 0
+        while (i < (array_length names)) {
+            m.setCell((i + 1) 0 (itemAt names i))
+            m.setCell((i + 1) 1 (itemAt a i))
+            m.setCell((i + 1) 2 (itemAt b i))
+            m.setCell((i + 1) 3 (itemAt c i))
+            i = (i + 1)
+        }
+        return m
+    }
+
+    ; The PNG signature, as bytes. A test that checked the base64 started with
+    ; "iVBOR" would pass on a truncated file.
+    sfn isPng:boolean (b:buffer) {
+        if ((buffer_length b) < 24) {
+            return false
+        }
+        if ((buffer_get b 0) != 137) {
+            return false
+        }
+        if ((buffer_get b 1) != 80) {
+            return false
+        }
+        if ((buffer_get b 2) != 78) {
+            return false
+        }
+        return ((buffer_get b 3) == 71)
+    }
+
+    ; IHDR carries the size big-endian at byte 16.
+    sfn beInt:int (b:buffer at:int) {
+        def v:int (buffer_get b at)
+        v = ((v * 256) + (buffer_get b (at + 1)))
+        v = ((v * 256) + (buffer_get b (at + 2)))
+        return ((v * 256) + (buffer_get b (at + 3)))
+    }
+
+    sfn pngWidth:int (b:buffer) {
+        if ((buffer_length b) < 24) {
+            return 0
+        }
+        return (ChartTest.beInt(b 16))
+    }
+
+    sfn pngHeight:int (b:buffer) {
+        if ((buffer_length b) < 24) {
+            return 0
+        }
+        return (ChartTest.beInt(b 20))
+    }
+
+    ; How many pixels of a decoded image differ from the RGBA surface it came
+    ; from. Alpha is not compared: the PNG is written opaque.
+    sfn pixelDiff:int (img:ImageBuffer src:buffer) {
+        def n:int (img.width * img.height)
+        def bad:int 0
+        def i:int 0
+        while (i < n) {
+            def off:int (i * 4)
+            if ((buffer_get img.pixels off) != (buffer_get src off)) {
+                bad = (bad + 1)
+            } {
+                if ((buffer_get img.pixels (off + 1)) != (buffer_get src (off + 1))) {
+                    bad = (bad + 1)
+                } {
+                    if ((buffer_get img.pixels (off + 2)) != (buffer_get src (off + 2))) {
+                        bad = (bad + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return bad
+    }
+
+    ; base64 is four characters per three bytes, padded up.
+    sfn base64Len:int (bytes:int) {
+        def groups:int (idiv (bytes + 2) 3)
+        return (groups * 4)
+    }
+
+    ; Pixels that are not the white the chart was cleared to. A blank surface
+    ; encodes to a perfectly valid PNG of nothing, which is the failure a
+    ; header check cannot see.
+    sfn inkCount:int (px:buffer) {
+        def n:int (buffer_length px)
+        def marked:int 0
+        def i:int 0
+        while ((i + 3) < n) {
+            def r:int (buffer_get px i)
+            def g:int (buffer_get px (i + 1))
+            def b:int (buffer_get px (i + 2))
+            if (((r < 250) || (g < 250)) || (b < 250)) {
+                marked = (marked + 1)
+            }
+            i = (i + 4)
+        }
+        return marked
+    }
+
+    ; How much drawn GEOMETRY a display list carries — the filled rings and
+    ; strokes a chart is made of, as opposed to the boxes and text a window is.
+    sfn geometryIn:int (dl:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 6) {
+                n = (n + 1)
+            }
+            if (c.kind == 7) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The text a failed render leaves in the display list, or "" when the
+    ; chart drew. Checking for the apology is how a test tells a picture from
+    ; a polite message about not having one.
+    sfn complaint:string (dl:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 3) {
+                if (ChartTest.hasSub(c.text "could not")) {
+                    return c.text
+                }
+                if (ChartTest.hasSub(c.text "did not parse")) {
+                    return c.text
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     fn run:void () {
         print "== chart data =="
         def m:SpreadsheetModel (ChartTest.salesModel())
@@ -107,7 +283,12 @@ class ChartTest {
         this.checkTrue("stacked suits two series" (data.suits((ChartKind.stacked()))))
         this.checkTrue("line suits three rows" (data.suits((ChartKind.line()))))
         this.checkFalse("pie does not suit two series" (data.suits((ChartKind.pie()))))
-        this.checkFalse("scatter needs a numeric x" (data.suits((ChartKind.scatter()))))
+        ; A scatter plots one numeric COLUMN against another, so two value
+        ; columns are what it needs — not a numeric category.
+        this.checkTrue("scatter suits two value columns" (data.suits((ChartKind.scatter()))))
+        this.checkFalse("bubble wants a third for the size" (data.suits((ChartKind.bubble()))))
+        this.checkTrue("heatmap suits a grid" (data.suits((ChartKind.heatmap()))))
+        this.checkTrue("100% stacked suits two series" (data.suits((ChartKind.normalized()))))
         this.checkInt("suggests a column" (data.suggestedKind()) (ChartKind.column()))
 
         def one:GridChart (ChartTest.chartOver(0 0 3 1))
@@ -131,7 +312,8 @@ class ChartTest {
         def ndata (new ChartData)
         ndata.extract(nm nch)
         this.checkTrue("numeric first column" ndata.catNumeric)
-        this.checkTrue("scatter suits it" (ndata.suits((ChartKind.scatter()))))
+        this.checkFalse("one value column cannot be a scatter" (ndata.suits((ChartKind.scatter()))))
+        this.checkTrue("but it can be a line" (ndata.suits((ChartKind.line()))))
         this.checkInt("suggests a line" (ndata.suggestedKind()) (ChartKind.line()))
 
         print "== the specification =="
@@ -185,24 +367,70 @@ class ChartTest {
         cv.paint(dl3 m ch tr 0 0 360 240)
         this.checkInt("an edit recompiles" cv.compiles 2)
 
-        def kinds:[int]
-        push kinds (ChartKind.column())
-        push kinds (ChartKind.bar())
-        push kinds (ChartKind.stacked())
-        push kinds (ChartKind.line())
-        push kinds (ChartKind.area())
-        def ki:int 0
-        while (ki < (array_length kinds)) {
-            def k:int (itemAt kinds ki)
-            def kc:GridChart (ChartTest.chartOver(0 0 3 2))
-            kc.id = (100 + k)
-            kc.kind = k
-            def kdl (new EVGDisplayList)
-            def kview (new GridChartView)
-            kview.paint(kdl m kc tr 0 0 360 240)
-            this.checkTrue(((ChartKind.label(k)) + " draws") ((array_length kdl.cmds) > 10))
-            ki = (ki + 1)
+        ; EVERY kind the picker offers, drawn. Each is given the widest range
+        ; it suits — three value columns for a bubble, one for a pie — and has
+        ; to produce a picture rather than the apology text a failed render
+        ; leaves behind. A kind nothing suits is a kind the picker offers and
+        ; cannot draw, which is the failure this catches.
+        def wide:SpreadsheetModel (ChartTest.wideModel())
+        def k:int (ChartKind.lowest())
+        while (k <= (ChartKind.highest())) {
+            def cols:int 3
+            def fits:boolean false
+            while ((cols >= 1) && (fits == false)) {
+                def probe (new ChartData)
+                def pc:GridChart (ChartTest.chartOver(0 0 6 cols))
+                if (probe.extract(wide pc)) {
+                    if (probe.suits(k)) {
+                        fits = true
+                    }
+                }
+                if (fits == false) {
+                    cols = (cols - 1)
+                }
+            }
+            this.checkTrue(((ChartKind.label(k)) + " suits some range") fits)
+            if fits {
+                def kc:GridChart (ChartTest.chartOver(0 0 6 cols))
+                kc.id = (100 + k)
+                kc.kind = k
+                def kdl (new EVGDisplayList)
+                def kview (new GridChartView)
+                kview.paint(kdl wide kc tr 0 0 360 240)
+                this.checkTrue(((ChartKind.label(k)) + " draws") ((array_length kdl.cmds) > 10))
+                this.check(((ChartKind.label(k)) + " drew without complaint") (ChartTest.complaint(kdl)) "")
+            }
+            k = (k + 1)
         }
+
+        ; A style is not a label: two styles of the same chart have to produce
+        ; DIFFERENT pictures. Mono turns the grid off, so it draws strictly
+        ; fewer strokes — and when the config block stopped reaching Vega
+        ; (compiled with `compile` rather than `compileSpec`) these were equal.
+        def styled:GridChart (ChartTest.chartOver(0 0 6 2))
+        styled.id = 300
+        styled.kind = (ChartKind.column())
+        styled.style = (ChartStyle.vela())
+        def sdl (new EVGDisplayList)
+        def sview (new GridChartView)
+        sview.paint(sdl wide styled tr 0 0 360 240)
+        def styled2:GridChart (ChartTest.chartOver(0 0 6 2))
+        styled2.id = 301
+        styled2.kind = (ChartKind.column())
+        styled2.style = (ChartStyle.mono())
+        def sdl2 (new EVGDisplayList)
+        def sview2 (new GridChartView)
+        sview2.paint(sdl2 wide styled2 tr 0 0 360 240)
+        this.checkTrue("a style changes the picture" ((array_length sdl2.cmds) < (array_length sdl.cmds)))
+
+        ; Categories keep the order the sheet put them in rather than being
+        ; sorted alphabetically — Jan, Feb, Mar, not Feb, Jan, Mar.
+        def orderData (new ChartData)
+        orderData.extract(wide (ChartTest.chartOver(0 0 6 2)))
+        def orderSpec:string (orderData.specJson((ChartTest.chartOver(0 0 6 2)) 300 200))
+        this.checkTrue("the spec pins the category order" (ChartTest.hasSub(orderSpec "\"sort\":null")))
+        this.check("first category is the first row" (itemAt orderData.cats 0) "Jan")
+
         def pieChart:GridChart (ChartTest.chartOver(0 0 3 1))
         pieChart.id = 200
         pieChart.kind = (ChartKind.pie())
@@ -265,9 +493,58 @@ class ChartTest {
         def colCtl:EVGControl (app.chartDialog.controlById(100 + (ChartKind.column())))
         this.checkTrue("column offered" colCtl.enabled)
 
+        ; --- the live preview -------------------------------------------------
+        ; The picker draws the chart it is describing, in the region it left
+        ; for it, and updates as the parameters change — no closing, no
+        ; creating, no undo. What proves it is that the preview follows the
+        ; radios: the view's preview chart is the pending one, frame by frame.
+        def prev (new UIInput)
+        prev.newFrame()
+        app.update(prev)
+        this.checkInt("the preview is aimed at the picker" app.view.previewWid app.chartDialog.wid)
+        this.checkTrue("the picker left a region for it" app.chartDialog.hasContent)
+        def region:EVGControl (app.chartDialog.contentControl())
+        this.checkTrue("the region has room" ((region.w > 200) && (region.h > 140)))
+        this.checkTrue("and stays inside the panel" (((region.x + region.w) <= app.chartDialog.w) && ((region.y + region.h) <= app.chartDialog.h)))
+
+        app.chartDialog.selectRadio(100 + (ChartKind.area()))
+        prev.newFrame()
+        app.update(prev)
+        this.checkInt("changing the type changes the preview" app.view.previewChart.kind (ChartKind.area()))
+        app.chartDialog.selectRadio(200 + (ChartStyle.ocean()))
+        prev.newFrame()
+        app.update(prev)
+        this.checkInt("and so does changing the style" app.view.previewChart.style (ChartStyle.ocean()))
+        app.chartDialog.setInputValue(311 "Live one")
+        prev.newFrame()
+        app.update(prev)
+        this.check("the title is previewed too" app.view.previewChart.title "Live one")
+        this.checkInt("nothing has been created yet" (app.view.chartLayer.count()) 0)
+        ; It is drawn where the region is, not where a chart window would be.
+        def pdl2:EVGDisplayList (app.view.buildDisplayList(app.model app.sel app.grid app.editing app.editBuf app.book))
+        this.checkTrue("the preview reaches the frame" ((ChartTest.geometryIn(pdl2)) > 4))
+
+        ; Unchecking a header box changes what the data IS, so the offered
+        ; kinds are rebuilt — and the preview follows that too.
+        def headerCtl:EVGControl (app.chartDialog.controlById(301))
+        headerCtl.checked = false
+        prev.newFrame()
+        app.update(prev)
+        this.checkFalse("the header box took" app.pendingChart.useHeaderRow)
+        this.checkTrue("the picker still has its preview region" app.chartDialog.hasContent)
+
+        app.chartDialog.selectRadio(301)
+        prev.newFrame()
+        app.update(prev)
+        app.chartDialog.setInputValue(311 "")
         app.chartDialog.selectRadio(100 + (ChartKind.line()))
         app.chartDialog.selectRadio(200 + (ChartStyle.mono()))
         app.applyChartDialog()
+        this.checkInt("closing the picker stops the preview" app.view.previewWid app.chartDialog.wid)
+        def after (new UIInput)
+        after.newFrame()
+        app.update(after)
+        this.checkInt("the preview is switched off" app.view.previewWid 0)
         this.checkInt("one chart on the sheet" (app.view.chartLayer.count()) 1)
         this.checkFalse("picker closed" app.chartDialog.visible)
         def panel:ChartPanel (app.view.chartLayer.panelAt(0))
@@ -291,7 +568,7 @@ class ChartTest {
             }
             di = (di + 1)
         }
-        this.checkTrue("the sheet's own frame carries chart geometry" (inside > 10))
+        this.checkTrue("the sheet's own frame carries chart geometry" (inside > 4))
 
         ; Drag the title bar: the window moves and the chart remembers.
         def input (new UIInput)
@@ -461,6 +738,98 @@ class ChartTest {
         app.update(input)
         this.checkTrue("clicking it opens the picker" app.chartDialog.visible)
         app.chartDialog.close()
+
+        print "== the clipboard: what Excel and Word are handed =="
+        def clipApp (new GridApp)
+        clipApp.init("gallery/pdf_writer/assets/fonts")
+        clipApp.model.growTo(8 4)
+        clipApp.model.setCell(0 0 "Month")
+        clipApp.model.setCell(0 1 "North")
+        clipApp.model.setCell(1 0 "Jan")
+        clipApp.model.setCell(1 1 "120")
+        clipApp.model.setCell(2 0 "Feb")
+        clipApp.model.setCell(2 1 "150")
+        clipApp.model.setCell(3 0 "Mar")
+        clipApp.model.setCell(3 1 "90")
+        clipApp.sheetView.markDirty()
+        clipApp.sheetView.rebuild()
+        clipApp.grid.updateVisible(clipApp.model)
+        clipApp.sel.anchor.row = 0
+        clipApp.sel.anchor.col = 0
+        clipApp.sel.active.row = 3
+        clipApp.sel.active.col = 1
+        clipApp.openChartDialog(0)
+        clipApp.chartDialog.selectRadio(100 + (ChartKind.column()))
+        clipApp.chartDialog.setInputValue(311 "Sales Q1 (units)")
+        clipApp.applyChartDialog()
+        this.checkInt("a chart to copy" (clipApp.view.chartLayer.count()) 1)
+        def cpanel:ChartPanel (clipApp.view.chartLayer.panelAt(0))
+        def copied:int (clipApp.copyChart(cpanel.chart.id))
+        this.checkTrue("the copy produced a bitmap" (copied > 0))
+        this.check("the clipboard says what it holds" clipApp.clipboardKind "chart")
+        this.check("nothing went wrong" clipApp.clipboardNote "")
+
+        ; text/plain — the numbers, so a paste into cells is useful.
+        this.checkTrue("the text flavour carries the range" (ChartTest.hasSub(clipApp.clipboardTsv "Jan\t120")))
+        this.checkTrue("including its header" (ChartTest.hasSub(clipApp.clipboardTsv "Month\tNorth")))
+
+        ; text/html — the flavour Word and Excel reach for first.
+        this.checkTrue("the html flavour is an image" (ChartTest.hasSub(clipApp.clipboardHtml "<img ")))
+        this.checkTrue("carried inline, not by reference" (ChartTest.hasSub(clipApp.clipboardHtml "src=\"data:image/png;base64,")))
+        this.checkTrue("with the chart's own name on it" (ChartTest.hasSub(clipApp.clipboardHtml "Sales Q1 (units)")))
+        this.checkFalse("and no external URL to go missing" (ChartTest.hasSub(clipApp.clipboardHtml "http")))
+
+        ; image/png — a real PNG, checked as bytes rather than as a string that
+        ; starts with the right letters.
+        def clipDirect:ChartClip (clipApp.clipper.build(clipApp.model cpanel.chart clipApp.view.ctx.tr 320 220))
+        this.checkTrue("the png flavour has bytes" ((buffer_length clipDirect.png) > 1000))
+        this.checkTrue("and they are a PNG" (ChartTest.isPng(clipDirect.png)))
+        this.checkInt("whose header says how big it is" (ChartTest.pngWidth(clipDirect.png)) clipDirect.w)
+        this.checkInt("and how tall" (ChartTest.pngHeight(clipDirect.png)) clipDirect.h)
+        ; Drawn larger than the window it lives in: a 320-pixel chart dropped
+        ; into a Word page is a thumbnail.
+        this.checkTrue("bigger than the on-screen box" (clipDirect.w > 320))
+        this.checkInt("the base64 is exactly those bytes" (strlen clipDirect.pngBase64) (ChartTest.base64Len((buffer_length clipDirect.png))))
+        ; …and the bitmap is a picture rather than a blank rectangle: the
+        ; surface it was encoded from has ink on it.
+        this.checkTrue("there is ink on it" ((ChartTest.inkCount((clipApp.clipper.painter.raw()))) > 2000))
+
+        ; image/svg+xml — the same render as vector, not traced from the bitmap.
+        this.checkTrue("the svg flavour is a document" (ChartTest.hasSub(clipDirect.svg "<svg ")))
+        this.checkTrue("and closes" (ChartTest.hasSub(clipDirect.svg "</svg>")))
+        this.checkTrue("with the bars in it" (ChartTest.hasSub(clipDirect.svg "<path")))
+        this.checkTrue("and the axis labels" (ChartTest.hasSub(clipDirect.svg "Jan")))
+
+        this.check("named after the chart" clipDirect.name "Sales-Q1-units")
+
+        ; The compressed PNG read back by this repository's own decoder, pixel
+        ; for pixel against the surface it was encoded from. The writer emits
+        ; real deflate now rather than stored blocks, and "it looks right in a
+        ; viewer" is not a test of that.
+        def dec (new PNGDecoder)
+        def back:ImageBuffer (dec.decodeBytes(clipDirect.png))
+        this.checkInt("the png decodes to the same width" back.width clipDirect.w)
+        this.checkInt("and the same height" back.height clipDirect.h)
+        this.checkInt("with every pixel intact" (ChartTest.pixelDiff(back (clipApp.clipper.painter.raw()))) 0)
+
+        ; Ctrl+C over a chart copies the chart; over the sheet it still copies
+        ; cells, and copying cells clears the chart flavours.
+        def chartOnTop:int (clipApp.focusedChartId())
+        this.checkInt("the chart window is what Ctrl+C means" chartOnTop cpanel.chart.id)
+        clipApp.copySelection()
+        this.check("copying cells goes back to cells" clipApp.clipboardKind "cells")
+        this.check("and drops the picture" clipApp.clipboardPng "")
+        this.checkTrue("the command surface offers the chart copy" (clipApp.commands.has("chart.copy")))
+        this.checkTrue("and running it copies one" (clipApp.runCommand("chart.copy" "")))
+        this.check("which is a chart again" clipApp.clipboardKind "chart")
+
+        ; A chart of nothing says so instead of putting an empty picture on the
+        ; clipboard.
+        def emptyChart:GridChart (ChartTest.chartOver(40 0 42 0))
+        emptyChart.id = 900
+        def emptyClip:ChartClip (clipApp.clipper.build(clipApp.model emptyChart clipApp.view.ctx.tr 300 200))
+        this.checkFalse("an empty range does not copy" emptyClip.ok)
+        this.checkTrue("and says why" ((strlen emptyClip.note) > 0))
 
         print ""
         print (("passed=" + (to_string passed)) + " failed=" + (to_string failed))

@@ -22,6 +22,47 @@ class DumpArtifacts {
         print ("wrote " + dir + "/" + file)
     }
 
+    ; A small table with two numeric columns, so every kind in the gallery has
+    ; something it can be made of — including the ones that plot one column
+    ; against the other rather than against the categories.
+    sfn gallerySheet:void (app:GridApp) {
+        app.model.growTo(8 4)
+        app.model.setCell(0 0 "Month")
+        app.model.setCell(0 1 "Widgets")
+        app.model.setCell(0 2 "Gadgets")
+        def names:[string]
+        push names "Jan"
+        push names "Feb"
+        push names "Mar"
+        push names "Apr"
+        push names "May"
+        push names "Jun"
+        def widgets:[string]
+        push widgets "120"
+        push widgets "150"
+        push widgets "90"
+        push widgets "175"
+        push widgets "140"
+        push widgets "165"
+        def gadgets:[string]
+        push gadgets "80"
+        push gadgets "95"
+        push gadgets "130"
+        push gadgets "110"
+        push gadgets "125"
+        push gadgets "85"
+        def ri:int 0
+        while (ri < (array_length names)) {
+            app.model.setCell((ri + 1) 0 (itemAt names ri))
+            app.model.setCell((ri + 1) 1 (itemAt widgets ri))
+            app.model.setCell((ri + 1) 2 (itemAt gadgets ri))
+            ri = (ri + 1)
+        }
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.grid.updateVisible(app.model)
+    }
+
     sfn main:void () {
         def dir:string "gallery/datagrid/artifacts"
         def app:GridApp (new GridApp)
@@ -74,6 +115,13 @@ class DumpArtifacts {
             app.sel.active.row = 0
             app.sel.active.col = 0
             DumpArtifacts.writePng(app dir "04_styles_showcase.png")
+        }
+
+        print "== 04b rotated text =="
+        def okRot:boolean (app.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx"))
+        if okRot {
+            app.moveActive(27 1 false)
+            DumpArtifacts.writePng(app dir "08_text_rotation.png")
         }
 
         print "== 05 paste special dialog (shared EVG window layer) =="
@@ -131,6 +179,12 @@ class DumpArtifacts {
             app.sel.active.row = 4
             app.sel.active.col = 2
             app.openChartDialog(0)
+            app.chartDialog.selectRadio(100 + (ChartKind.column()))
+            app.chartDialog.setInputValue(311 "Quarterly units")
+            app.syncChartDialog()
+            app.view.previewChart.copyFrom(app.pendingChart)
+            app.view.previewChart.id = -1
+            app.view.previewWid = app.chartDialog.wid
             DumpArtifacts.writePng(app dir "06_chart_picker.png")
 
             print "== 07 charts floating over the sheet =="
@@ -153,6 +207,189 @@ class DumpArtifacts {
             p2.win.y = 70
             app.view.chartLayer.syncGeometry()
             DumpArtifacts.writePng(app dir "07_charts_floating.png")
+        }
+
+        print "== 09 find and replace =="
+        def ok9:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok9 {
+            def s9:int 0
+            while (s9 < (app.book.sheetCount())) {
+                def sh9:SpreadsheetModel (app.book.sheetAt(s9))
+                if (sh9.name == "Sales") {
+                    app.setActiveSheet(s9)
+                }
+                s9 = (s9 + 1)
+            }
+            app.moveActive(0 0 false)
+            app.findQuery = "Widget"
+            app.replaceWith = "Gizmo"
+            app.openFindDialog()
+            app.findNext()
+            app.refreshFindDialog()
+            DumpArtifacts.writePng(app dir "09_find_replace.png")
+            app.findDialog.close()
+
+            print "== 10 conditional formatting rule editor =="
+            app.sel.anchor.row = 1
+            app.sel.anchor.col = 5
+            app.sel.active.row = 12
+            app.sel.active.col = 5
+            app.openCfDialog()
+            app.cfDialog.selectRadio(601)
+            app.cfDialog.setInputValue(611 "200")
+            app.cfDialog.selectRadio(623)
+            app.addCfRuleFromDialog()
+            DumpArtifacts.writePng(app dir "10_cf_rule_editor.png")
+            app.cfDialog.close()
+
+            print "== 11 disjoint selection =="
+            app.sel.anchor.row = 1
+            app.sel.anchor.col = 1
+            app.sel.active.row = 4
+            app.sel.active.col = 2
+            app.sel.keepCurrent()
+            app.sel.anchor.row = 7
+            app.sel.anchor.col = 4
+            app.sel.active.row = 10
+            app.sel.active.col = 5
+            DumpArtifacts.writePng(app dir "11_disjoint_selection.png")
+        }
+
+        print "== 12 links, notes and a validation list =="
+        def ok12:boolean (app.loadXlsx("gallery/datagrid/fixtures/annotations.xlsx"))
+        if ok12 {
+            app.moveActive(0 2 false)
+            DumpArtifacts.writePng(app dir "12_links_notes.png")
+            app.moveActive(2 0 false)
+            app.openListPicker(2 0)
+            DumpArtifacts.writePng(app dir "13_validation_list.png")
+            app.listDialog.close()
+            app.moveActive(4 2 false)
+            app.model.setColWidth(0 190)
+            app.sheetView.markDirty()
+            app.sheetView.rebuild()
+            app.grid.updateVisible(app.model)
+            DumpArtifacts.writePng(app dir "14_rich_text.png")
+        }
+
+        print "== 15 anchored pictures =="
+        def ok15:boolean (app.loadXlsx("gallery/datagrid/fixtures/images.xlsx"))
+        if ok15 {
+            app.moveActive(0 0 false)
+            DumpArtifacts.writePng(app dir "15_images.png")
+        }
+
+        print "== 16 a host's own tools on the status bar =="
+        def ok16:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok16 {
+            app.addCustomCommand("acme.report" "Report" "Tools")
+            app.addCustomCommand("acme.sync" "Sync" "Tools")
+            app.runCommand("nav.goto" "C4")
+            DumpArtifacts.writePng(app dir "16_custom_tools.png")
+        }
+
+        print "== 17 the range of chart types, side by side =="
+        def ok17:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok17 {
+            def s17:int 0
+            while (s17 < (app.book.sheetCount())) {
+                def sh17:SpreadsheetModel (app.book.sheetAt(s17))
+                if (sh17.name == "Scratch") {
+                    app.setActiveSheet(s17)
+                }
+                s17 = (s17 + 1)
+            }
+            DumpArtifacts.gallerySheet(app)
+            ; Six kinds in six styles, tiled: what the picker offers, drawn from
+            ; one table so the differences are the CHART rather than the data.
+            def kinds:[int]
+            def styles:[int]
+            def cols:[int]
+            push kinds (ChartKind.stacked())
+            push styles (ChartStyle.vela())
+            push cols 2
+            push kinds (ChartKind.smooth())
+            push styles (ChartStyle.slate())
+            push cols 2
+            push kinds (ChartKind.stackedArea())
+            push styles (ChartStyle.ocean())
+            push cols 2
+            push kinds (ChartKind.scatter())
+            push styles (ChartStyle.mono())
+            push cols 2
+            push kinds (ChartKind.pie())
+            push styles (ChartStyle.sunset())
+            push cols 1
+            push kinds (ChartKind.heatmap())
+            push styles (ChartStyle.bold())
+            push cols 2
+            def gi:int 0
+            while (gi < (array_length kinds)) {
+                def spec:GridChart (new GridChart)
+                spec.sheet = app.book.activeIndex
+                spec.r0 = 0
+                spec.c0 = 0
+                spec.r1 = 6
+                spec.c1 = (itemAt cols gi)
+                spec.kind = (itemAt kinds gi)
+                spec.style = (itemAt styles gi)
+                ; A pie with no key is a coloured circle, so that one keeps
+                ; its legend; the rest are here for their shape.
+                spec.showLegend = ((itemAt kinds gi) == (ChartKind.pie()))
+                spec.title = (ChartKind.label((itemAt kinds gi)))
+                spec.w = 296
+                spec.h = 268
+                spec.x = (2 + ((gi % 3) * 299))
+                spec.y = (6 + ((idiv gi 3) * 272))
+                app.view.chartLayer.add(app.windows spec)
+                gi = (gi + 1)
+            }
+            app.view.chartLayer.syncGeometry()
+            DumpArtifacts.writePng(app dir "17_chart_gallery.png")
+        }
+
+        print "== 18 the clipboard payload: the very bytes a paste receives =="
+        def ok18:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok18 {
+            def s18:int 0
+            while (s18 < (app.book.sheetCount())) {
+                def sh18:SpreadsheetModel (app.book.sheetAt(s18))
+                if (sh18.name == "Scratch") {
+                    app.setActiveSheet(s18)
+                }
+                s18 = (s18 + 1)
+            }
+            DumpArtifacts.gallerySheet(app)
+            def spec18:GridChart (new GridChart)
+            spec18.sheet = app.book.activeIndex
+            spec18.r0 = 0
+            spec18.c0 = 0
+            spec18.r1 = 6
+            spec18.c1 = 2
+            spec18.kind = (ChartKind.column())
+            spec18.style = (ChartStyle.vela())
+            spec18.title = "Units by month"
+            spec18.w = 380
+            spec18.h = 270
+            spec18.x = 60
+            spec18.y = 70
+            def made:GridChart (app.view.chartLayer.add(app.windows spec18))
+            app.view.chartLayer.syncGeometry()
+            ; The screenshot shows the window with its Copy button…
+            DumpArtifacts.writePng(app dir "18_chart_copy.png")
+            ; …and these two files are exactly what the copy put on the
+            ; clipboard, written out so another program can open them and say
+            ; whether they are real. tools/check_clipboard.py does.
+            def n18:int (app.copyChart(made.id))
+            if (n18 > 0) {
+                def clip18:ChartClip (app.clipper.build(app.model made app.view.ctx.tr 380 270))
+                buffer_write_file dir "18_clipboard_flavour.png" clip18.png
+                write_file dir "18_clipboard_flavour.svg" clip18.svg
+                write_file dir "18_clipboard_flavour.html" clip18.html
+                print ("wrote " + dir + "/18_clipboard_flavour.png|svg|html")
+            } {
+                print ("FAIL chart copy: " + app.clipboardNote)
+            }
         }
 
         print "DumpArtifacts DONE"

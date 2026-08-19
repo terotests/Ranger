@@ -32,6 +32,36 @@ class EditChecker {
 }
 
 class GridEditTest {
+    ; Every control has to be INSIDE its own panel. This is the invariant a
+    ; fixed 92-pixel button row broke: four buttons in a 340-wide dialog were
+    ; laid out from the right edge until the first one landed at x = -66,
+    ; hanging off the panel and over the sheet behind it. Checking the geometry
+    ; rather than the picture is what makes that a test.
+    sfn firstEscapee:string (wnd:EVGWindow) {
+        def i:int 0
+        while (i < (array_length wnd.controls)) {
+            def c:EVGControl (itemAt wnd.controls i)
+            def why:string ""
+            if (c.x < 0) {
+                why = "x < 0"
+            }
+            if (c.y < 0) {
+                why = "y < 0"
+            }
+            if ((c.x + c.w) > wnd.w) {
+                why = "runs past the right edge"
+            }
+            if ((c.y + c.h) > wnd.h) {
+                why = "runs past the bottom"
+            }
+            if ((strlen why) > 0) {
+                return ((("'" + c.text) + "' ") + why + " (x=" + (to_string c.x) + " w=" + (to_string c.w) + " y=" + (to_string c.y) + " h=" + (to_string c.h) + " panel " + (to_string wnd.w) + "x" + (to_string wnd.h) + ")")
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     sfn select:void (app:GridApp r:int c:int) {
         app.sel.anchor.row = r
         app.sel.anchor.col = c
@@ -1025,6 +1055,585 @@ class GridEditTest {
         sApp2.undoEdit()
         c.eqStr("menu delete undone" (sApp2.model.getCell(0 1)) "two")
         c.ok("still renders" ((strlen (sApp2.sceneJson())) > 500))
+
+        print "== row structure: insert / delete / move =="
+        def rowApp:GridApp (new GridApp)
+        rowApp.init("gallery/pdf_writer/assets/fonts")
+        rowApp.model.clearSheet()
+        rowApp.model.resize(5 4)
+        rowApp.model.setCellRaw(0 0 "one")
+        rowApp.model.setCellRaw(1 0 "two")
+        rowApp.model.setCellRaw(2 0 "three")
+        rowApp.model.setCellRaw(3 0 "four")
+        rowApp.model.setRowHeight(1 41)
+        rowApp.sheetView.markDirty()
+        rowApp.sheetView.rebuild()
+        rowApp.engine.rebuildAll()
+
+        print "-- insert --"
+        rowApp.insertRow(1)
+        c.eqInt("rowCount grew" rowApp.model.rowCount 6)
+        c.eqStr("one stayed" (rowApp.model.getCell(0 0)) "one")
+        c.eqStr("the new row is empty" (rowApp.model.getCell(1 0)) "")
+        c.eqStr("two moved down" (rowApp.model.getCell(2 0)) "two")
+        c.eqStr("three moved down" (rowApp.model.getCell(3 0)) "three")
+        c.eqInt("the height moved with the row" (rowApp.model.rowHeight(2)) 41)
+        c.eqInt("the new row is the default height" (rowApp.model.rowHeight(1)) rowApp.model.defaultRowH)
+        rowApp.undoEdit()
+        c.eqInt("rowCount back" rowApp.model.rowCount 5)
+        c.eqStr("two back in place" (rowApp.model.getCell(1 0)) "two")
+        c.eqInt("height back" (rowApp.model.rowHeight(1)) 41)
+        rowApp.redoEdit()
+        c.eqStr("redo moved two again" (rowApp.model.getCell(2 0)) "two")
+        rowApp.undoEdit()
+
+        print "-- delete --"
+        rowApp.deleteRow(1)
+        c.eqInt("rowCount shrank" rowApp.model.rowCount 4)
+        c.eqStr("one stayed" (rowApp.model.getCell(0 0)) "one")
+        c.eqStr("three shifted up" (rowApp.model.getCell(1 0)) "three")
+        c.eqStr("four shifted up" (rowApp.model.getCell(2 0)) "four")
+        rowApp.undoEdit()
+        c.eqInt("delete undone" rowApp.model.rowCount 5)
+        c.eqStr("two restored" (rowApp.model.getCell(1 0)) "two")
+        c.eqInt("its height restored" (rowApp.model.rowHeight(1)) 41)
+
+        print "-- delete past the used range keeps the data --"
+        rowApp.deleteRow(4)
+        c.eqStr("four still there" (rowApp.model.getCell(3 0)) "four")
+        rowApp.undoEdit()
+
+        print "-- move --"
+        rowApp.moveRow(0 2)
+        c.eqStr("one moved to index 2" (rowApp.model.getCell(2 0)) "one")
+        c.eqStr("two shifted up" (rowApp.model.getCell(0 0)) "two")
+        c.eqStr("three shifted up" (rowApp.model.getCell(1 0)) "three")
+        c.eqStr("four untouched" (rowApp.model.getCell(3 0)) "four")
+        rowApp.undoEdit()
+        c.eqStr("move undone" (rowApp.model.getCell(0 0)) "one")
+        c.eqStr("and two is back" (rowApp.model.getCell(1 0)) "two")
+
+        print "== formulas follow the rows =="
+        def frApp:GridApp (new GridApp)
+        frApp.init("gallery/pdf_writer/assets/fonts")
+        frApp.model.clearSheet()
+        frApp.model.name = "Calc"
+        frApp.model.resize(8 6)
+        frApp.model.setCellRaw(0 0 "2")
+        frApp.model.setCellRaw(1 0 "3")
+        frApp.model.setFormula(3 0 "A1+A2")
+        frApp.model.setFormula(3 1 "SUM(A1:A2)")
+        frApp.model.setFormula(3 2 "$A$1*10")
+        frApp.sheetView.markDirty()
+        frApp.sheetView.rebuild()
+        frApp.engine.rebuildAll()
+        c.eqStr("baseline sum" (frApp.model.getCell(3 0)) "5")
+        frApp.insertRow(1)
+        c.eqStr("relative ref shifted down" (frApp.model.getFormula(4 0)) "A1+A3")
+        c.eqStr("range end shifted" (frApp.model.getFormula(4 1)) "SUM(A1:A3)")
+        c.eqStr("absolute ref above the insert is untouched" (frApp.model.getFormula(4 2)) "$A$1*10")
+        c.eqStr("value still right" (frApp.model.getCell(4 0)) "5")
+        frApp.undoEdit()
+        c.eqStr("undo restored the formula text" (frApp.model.getFormula(3 0)) "A1+A2")
+        c.eqStr("and it still calculates" (frApp.model.getCell(3 0)) "5")
+
+        print "-- deleting a referenced row gives #REF! --"
+        frApp.deleteRow(1)
+        c.eqStr("reference into the deleted row breaks" (frApp.model.getFormula(2 0)) "#REF!")
+        frApp.undoEdit()
+        c.eqStr("undo restores the broken formula" (frApp.model.getFormula(3 0)) "A1+A2")
+        c.eqStr("and its value" (frApp.model.getCell(3 0)) "5")
+
+        print "== merges follow the rows =="
+        def mrApp:GridApp (new GridApp)
+        mrApp.init("gallery/pdf_writer/assets/fonts")
+        mrApp.model.clearSheet()
+        mrApp.model.resize(6 6)
+        mrApp.model.addMerge(2 0 3 0)
+        mrApp.sheetView.markDirty()
+        mrApp.sheetView.rebuild()
+        mrApp.engine.rebuildAll()
+        c.ok("merge is at A3:A4" ((strlen (mrApp.model.mergeAt(2 0))) > 0))
+        mrApp.insertRow(0)
+        c.ok("merge shifted down" ((strlen (mrApp.model.mergeAt(3 0))) > 0))
+        c.ok("and left its old place" ((strlen (mrApp.model.mergeAt(2 0))) == 0))
+        mrApp.undoEdit()
+        c.ok("merge shifted back" ((strlen (mrApp.model.mergeAt(2 0))) > 0))
+
+        print "== row selection helpers and the row menu =="
+        def rsApp:GridApp (new GridApp)
+        rsApp.init("gallery/pdf_writer/assets/fonts")
+        rsApp.model.clearSheet()
+        rsApp.model.resize(5 4)
+        rsApp.model.setCellRaw(0 0 "one")
+        rsApp.model.setCellRaw(1 0 "two")
+        rsApp.model.setCellRaw(2 0 "three")
+        rsApp.sheetView.markDirty()
+        rsApp.sheetView.rebuild()
+        rsApp.engine.rebuildAll()
+        GridEditTest.select(rsApp 1 0)
+        rsApp.insertRowAboveSelection()
+        c.eqStr("insert above pushed two down" (rsApp.model.getCell(2 0)) "two")
+        rsApp.undoEdit()
+        GridEditTest.select(rsApp 1 0)
+        rsApp.insertRowBelowSelection()
+        c.eqStr("insert below kept two in place" (rsApp.model.getCell(1 0)) "two")
+        c.eqStr("and pushed three down" (rsApp.model.getCell(3 0)) "three")
+        rsApp.undoEdit()
+        GridEditTest.selectRange(rsApp 0 0 1 0)
+        rsApp.deleteSelectedRows()
+        c.eqStr("both rows gone" (rsApp.model.getCell(0 0)) "three")
+        rsApp.undoEdit()
+        rsApp.undoEdit()
+        c.eqStr("both undos restored them" (rsApp.model.getCell(0 0)) "one")
+        GridEditTest.select(rsApp 0 0)
+        rsApp.moveSelectedRow(1)
+        c.eqStr("moved down" (rsApp.model.getCell(1 0)) "one")
+        c.eqInt("selection followed" rsApp.sel.active.row 1)
+        rsApp.undoEdit()
+        ; The row menu maps to the same operations, and its hit test knows it
+        ; is nine items long rather than twelve.
+        rsApp.openRowMenu(1 10 10)
+        c.eqInt("row menu item 1" (rsApp.hitHeaderMenu(20 (10 + 26))) 1)
+        c.eqInt("row menu item 5" (rsApp.hitHeaderMenu(20 (10 + 26 + (4 * 20)))) 5)
+        c.eqInt("row menu item 9" (rsApp.hitHeaderMenu(20 (10 + 26 + (8 * 20)))) 9)
+        c.eqInt("nothing past the last item" (rsApp.hitHeaderMenu(20 (10 + 26 + (9 * 20)))) 0)
+        rsApp.runHeaderMenu(5)
+        c.eqStr("menu insert above" (rsApp.model.getCell(2 0)) "two")
+        rsApp.undoEdit()
+        rsApp.openRowMenu(1 10 10)
+        rsApp.runHeaderMenu(7)
+        c.eqStr("menu delete" (rsApp.model.getCell(1 0)) "three")
+        rsApp.undoEdit()
+        c.eqStr("menu delete undone" (rsApp.model.getCell(1 0)) "two")
+        rsApp.openRowMenu(1 10 10)
+        rsApp.runHeaderMenu(1)
+        c.eqInt("menu select row spans to the last column" rsApp.sel.anchor.col (rsApp.model.colCount - 1))
+        c.eqInt("and its active cell is column A" rsApp.sel.active.col 0)
+        c.ok("row menu closed after acting" (rsApp.view.menuOpen == false))
+        c.ok("still renders with the row menu" ((strlen (rsApp.sceneJson())) > 500))
+
+        print "== find and replace =="
+        def fr:GridApp (new GridApp)
+        fr.init("gallery/pdf_writer/assets/fonts")
+        fr.model.clearSheet()
+        fr.model.name = "Calc"
+        fr.model.resize(6 4)
+        fr.model.setCellRaw(0 0 "alpha")
+        fr.model.setCellRaw(1 0 "Alpha beta")
+        fr.model.setCellRaw(2 0 "gamma")
+        fr.model.setCellRaw(3 0 "2")
+        fr.model.setCellRaw(3 1 "3")
+        fr.model.setFormula(4 0 "A4+B4")
+        fr.sheetView.markDirty()
+        fr.sheetView.rebuild()
+        fr.engine.rebuildAll()
+
+        GridEditTest.select(fr 0 0)
+        fr.findQuery = "alpha"
+        fr.findMatchCase = false
+        c.ok("finds the next one, not the one it is on" (fr.findNext()))
+        c.eqInt("landed on row 1" fr.sel.active.row 1)
+        c.ok("wraps around" (fr.findNext()))
+        c.eqInt("back to row 0" fr.sel.active.row 0)
+
+        fr.findMatchCase = true
+        GridEditTest.select(fr 2 0)
+        c.ok("case-sensitive still finds the exact one" (fr.findNext()))
+        c.eqInt("which is row 0" fr.sel.active.row 0)
+        fr.findQuery = "ALPHA"
+        c.ok("and misses the wrong case" ((fr.findNext()) == false))
+        c.ok("saying so" (GridEditTest.hasSub(fr.findStatus "no match")))
+        fr.findMatchCase = false
+
+        fr.findWholeCell = true
+        fr.findQuery = "alpha"
+        GridEditTest.select(fr 2 0)
+        c.ok("entire-cell match finds the cell that is only that" (fr.findNext()))
+        c.eqInt("row 0, not the one that merely contains it" fr.sel.active.row 0)
+        fr.findWholeCell = false
+
+        print "-- replace --"
+        fr.findQuery = "alpha"
+        fr.replaceWith = "omega"
+        GridEditTest.select(fr 0 0)
+        fr.replaceCurrent()
+        c.eqStr("the cell it was on changed" (fr.model.getCell(0 0)) "omega")
+        c.eqStr("the other one has not yet" (fr.model.getCell(1 0)) "Alpha beta")
+        c.eqInt("and it moved to that one" fr.sel.active.row 1)
+        fr.undoEdit()
+        c.eqStr("one undo puts it back" (fr.model.getCell(0 0)) "alpha")
+
+        def n:int (fr.replaceAll())
+        c.eqInt("replace all found both" n 2)
+        c.eqStr("first replaced" (fr.model.getCell(0 0)) "omega")
+        c.eqStr("second replaced, keeping the rest of the text" (fr.model.getCell(1 0)) "omega beta")
+        fr.undoEdit()
+        c.eqStr("and the whole batch is one undo" (fr.model.getCell(0 0)) "alpha")
+        c.eqStr("for every cell in it" (fr.model.getCell(1 0)) "Alpha beta")
+
+        print "-- searching formulas rather than values --"
+        c.eqStr("the formula cell shows its value" (fr.model.getCell(4 0)) "5")
+        fr.findInFormulas = true
+        fr.findQuery = "A4"
+        fr.replaceWith = "A4"
+        GridEditTest.select(fr 0 0)
+        c.ok("a formula is searchable" (fr.findNext()))
+        c.eqInt("found in the formula row" fr.sel.active.row 4)
+        fr.findQuery = "B4"
+        fr.replaceWith = "B4*2"
+        fr.replaceAll()
+        c.eqStr("the formula text was rewritten" (fr.model.getFormula(4 0)) "A4+B4*2")
+        c.eqStr("and it recalculated" (fr.model.getCell(4 0)) "8")
+        fr.undoEdit()
+        c.eqStr("undone" (fr.model.getFormula(4 0)) "A4+B4")
+        c.eqStr("and recalculated back" (fr.model.getCell(4 0)) "5")
+
+        print "-- the dialog, typed into --"
+        def fd:GridApp (new GridApp)
+        fd.init("gallery/pdf_writer/assets/fonts")
+        fd.model.clearSheet()
+        fd.model.resize(4 3)
+        fd.model.setCellRaw(0 0 "needle")
+        fd.model.setCellRaw(2 0 "needle")
+        fd.sheetView.markDirty()
+        fd.sheetView.rebuild()
+        fd.engine.rebuildAll()
+        def fdi:UIInput (new UIInput)
+        fdi.newFrame()
+        fdi.setModifiers(false true)
+        fdi.pushText("f")
+        fd.update(fdi)
+        c.ok("Ctrl+F opens the dialog" fd.findDialog.visible)
+        c.eqInt("with the find field focused" fd.findDialog.focusedId 501)
+        fdi.newFrame()
+        fdi.setModifiers(false false)
+        fdi.pushText("need")
+        fd.update(fdi)
+        c.eqStr("typing lands in the field" (fd.findDialog.inputValue(501)) "need")
+        c.eqStr("and not in a cell" (fd.model.getCell(0 1)) "")
+        fdi.newFrame()
+        fdi.pushKey((UIKey.backspace()))
+        fd.update(fdi)
+        c.eqStr("backspace edits the field" (fd.findDialog.inputValue(501)) "nee")
+        fdi.newFrame()
+        fdi.pushKey((UIKey.tab()))
+        fd.update(fdi)
+        c.eqInt("tab moves to the replace field" fd.findDialog.focusedId 502)
+        fdi.newFrame()
+        fdi.pushText("pin")
+        fd.update(fdi)
+        c.eqStr("which takes the typing now" (fd.findDialog.inputValue(502)) "pin")
+        ; Press "Replace all" by hand.
+        def raBtn:EVGControl (fd.findDialog.controlById(512))
+        def rax:int ((fd.findDialog.x + raBtn.x) + 8)
+        def ray:int ((fd.findDialog.y + raBtn.y) + 8)
+        fdi.newFrame()
+        fdi.setPointerPos(rax ray)
+        fdi.setPointerDown(true)
+        fd.update(fdi)
+        fdi.newFrame()
+        fdi.setPointerPos(rax ray)
+        fdi.setPointerDown(false)
+        fd.update(fdi)
+        c.eqStr("the button replaced through the dialog" (fd.model.getCell(0 0)) "pindle")
+        c.eqStr("everywhere" (fd.model.getCell(2 0)) "pindle")
+        c.ok("and the dialog says what it did" (GridEditTest.hasSub(fd.findStatus "replaced 2")))
+        c.ok("still renders with the dialog up" ((strlen (fd.sceneJson())) > 500))
+
+        print "== disjoint selection =="
+        def ms:GridApp (new GridApp)
+        ms.init("gallery/pdf_writer/assets/fonts")
+        ms.model.clearSheet()
+        ms.model.resize(8 6)
+        def mr:int 0
+        while (mr < 6) {
+            def mc:int 0
+            while (mc < 4) {
+                ms.model.setCellRaw(mr mc ((to_string mr) + "," + (to_string mc)))
+                mc = (mc + 1)
+            }
+            mr = (mr + 1)
+        }
+        ms.sheetView.markDirty()
+        ms.sheetView.rebuild()
+        ms.engine.rebuildAll()
+
+        GridEditTest.selectRange(ms 0 0 1 1)
+        c.eqInt("one rectangle to start" (ms.sel.rangeCount()) 1)
+        c.eqInt("four cells" (ms.sel.selectedCount()) 4)
+        ms.sel.keepCurrent()
+        GridEditTest.selectRange(ms 3 2 4 3)
+        c.eqInt("two rectangles now" (ms.sel.rangeCount()) 2)
+        c.eqInt("eight cells" (ms.sel.selectedCount()) 8)
+        c.ok("the first is still covered" (ms.sel.coversAny(0 0)))
+        c.ok("and the second" (ms.sel.coversAny(4 3)))
+        c.ok("but not the gap between them" ((ms.sel.coversAny(2 2)) == false))
+        c.ok("it knows it is disjoint" (ms.sel.isDisjoint()))
+        def liveG:GridRange (ms.sel.liveRange())
+        c.eqInt("the live rectangle is the newest" liveG.r0 3)
+
+        ; Delete clears every rectangle, in one transaction.
+        ms.clearSelection()
+        c.eqStr("first rectangle cleared" (ms.model.getCell(0 0)) "")
+        c.eqStr("second rectangle cleared" (ms.model.getCell(4 3)) "")
+        c.eqStr("the gap untouched" (ms.model.getCell(2 2)) "2,2")
+        ms.undoEdit()
+        c.eqStr("one undo restores both" (ms.model.getCell(0 0)) "0,0")
+        c.eqStr("really both" (ms.model.getCell(4 3)) "4,3")
+
+        ; Ctrl+click through the real input path adds a rectangle.
+        def msi:UIInput (new UIInput)
+        GridEditTest.select(ms 0 0)
+        c.eqInt("collapsed back to one" (ms.sel.rangeCount()) 1)
+        def cellRect:GridRect (ms.grid.cellRect(ms.model 3 1))
+        msi.newFrame()
+        msi.setModifiers(false true)
+        msi.setPointerPos((cellRect.x + 4) (cellRect.y + 4))
+        msi.setPointerDown(true)
+        ms.update(msi)
+        msi.newFrame()
+        msi.setModifiers(false false)
+        msi.setPointerPos((cellRect.x + 4) (cellRect.y + 4))
+        msi.setPointerDown(false)
+        ms.update(msi)
+        c.eqInt("ctrl+click kept the old rectangle" (ms.sel.rangeCount()) 2)
+        c.eqInt("and moved the active cell" ms.sel.active.row 3)
+        c.ok("the scene still builds" ((strlen (ms.sceneJson())) > 500))
+        ms.sel.collapseToActive()
+        c.eqInt("collapsing drops the extras" (ms.sel.rangeCount()) 1)
+
+        print "== dragging a range to move it =="
+        def dm:GridApp (new GridApp)
+        dm.init("gallery/pdf_writer/assets/fonts")
+        dm.model.clearSheet()
+        dm.model.resize(10 6)
+        dm.model.setCellRaw(0 0 "a")
+        dm.model.setCellRaw(0 1 "b")
+        dm.model.setCellRaw(1 0 "c")
+        dm.model.setFormula(1 1 "A1")
+        dm.sheetView.markDirty()
+        dm.sheetView.rebuild()
+        dm.engine.rebuildAll()
+        GridEditTest.selectRange(dm 0 0 1 1)
+
+        def edgeRect:GridRect (dm.grid.selectionRect(dm.model dm.sel))
+        c.ok("the selection has a box" (edgeRect.w > 0))
+        c.ok("its edge is grabbable" (dm.grid.hitSelectionEdge(dm.model dm.sel (edgeRect.x + 2) (edgeRect.y + 2))))
+        c.ok("its middle is not" ((dm.grid.hitSelectionEdge(dm.model dm.sel (edgeRect.x + (idiv edgeRect.w 2)) (edgeRect.y + (idiv edgeRect.h 2)))) == false))
+
+        def dmi:UIInput (new UIInput)
+        def dstRect:GridRect (dm.grid.cellRect(dm.model 4 2))
+        dmi.newFrame()
+        dmi.setPointerPos((edgeRect.x + 2) (edgeRect.y + 2))
+        dmi.setPointerDown(true)
+        dm.update(dmi)
+        c.ok("the drag started" dm.movingRange)
+        dmi.newFrame()
+        dmi.setPointerPos((dstRect.x + 4) (dstRect.y + 4))
+        dmi.setPointerDown(true)
+        dm.update(dmi)
+        c.ok("a drop target is shown" dm.view.ghostVisible)
+        c.eqInt("at the dragged-to row" dm.view.ghostR0 4)
+        dmi.newFrame()
+        dmi.setPointerPos((dstRect.x + 4) (dstRect.y + 4))
+        dmi.setPointerDown(false)
+        dm.update(dmi)
+        c.eqStr("the block moved" (dm.model.getCell(4 2)) "a")
+        c.eqStr("all of it" (dm.model.getCell(5 2)) "c")
+        c.eqStr("the source is empty" (dm.model.getCell(0 0)) "")
+        c.eqStr("a moved formula is not re-based" (dm.model.getFormula(5 3)) "A1")
+        c.eqInt("the selection followed" dm.sel.anchor.row 4)
+        c.ok("and the ghost is gone" (dm.view.ghostVisible == false))
+        dm.undoEdit()
+        c.eqStr("one undo puts the block back" (dm.model.getCell(0 0)) "a")
+        c.eqStr("and empties the target" (dm.model.getCell(4 2)) "")
+
+        print "== conditional formatting rules, written rather than only read =="
+        def cf:GridApp (new GridApp)
+        cf.init("gallery/pdf_writer/assets/fonts")
+        cf.model.clearSheet()
+        cf.model.resize(6 4)
+        cf.model.setCellRaw(0 0 "10")
+        cf.model.setCellRaw(1 0 "80")
+        cf.model.setCellRaw(2 0 "50")
+        cf.sheetView.markDirty()
+        cf.sheetView.rebuild()
+        cf.engine.rebuildAll()
+        c.eqInt("no rules to begin with" (cf.model.cfRuleCount()) 0)
+        c.eqStr("so nothing is filled" (ConditionalFormat.resolveFill(cf.model 1 0)) "")
+
+        GridEditTest.selectRange(cf 0 0 2 0)
+        cf.openCfDialog()
+        c.ok("the editor opened" cf.cfDialog.visible)
+        cf.cfDialog.selectRadio(601)
+        cf.cfDialog.setInputValue(611 "60")
+        cf.cfDialog.selectRadio(623)
+        cf.addCfRuleFromDialog()
+        c.eqInt("a rule was added" (cf.model.cfRuleCount()) 1)
+        c.eqStr("the cell over the threshold is filled" (ConditionalFormat.resolveFill(cf.model 1 0)) "#C6EFCE")
+        c.eqStr("the ones under it are not" (ConditionalFormat.resolveFill(cf.model 0 0)) "")
+        c.ok("the dialog stays open for the next rule" cf.cfDialog.visible)
+        c.ok("and says what it did" (GridEditTest.hasSub(cf.cfStatus "added")))
+
+        cf.cfDialog.selectRadio(602)
+        cf.cfDialog.setInputValue(611 "20")
+        cf.cfDialog.selectRadio(621)
+        cf.addCfRuleFromDialog()
+        c.eqInt("two rules" (cf.model.cfRuleCount()) 2)
+        c.eqStr("the low cell picked up the second" (ConditionalFormat.resolveFill(cf.model 0 0)) "#FFC7CE")
+        c.eqStr("the high one kept the first" (ConditionalFormat.resolveFill(cf.model 1 0)) "#C6EFCE")
+        c.eqStr("the middle one matches neither" (ConditionalFormat.resolveFill(cf.model 2 0)) "")
+
+        cf.clearCfRulesFromDialog()
+        c.eqInt("clearing the selection's rules removes both" (cf.model.cfRuleCount()) 0)
+        c.eqStr("and the fill with them" (ConditionalFormat.resolveFill(cf.model 1 0)) "")
+
+        ; Between, and a colour scale, through the same dialog.
+        cf.cfDialog.selectRadio(604)
+        cf.cfDialog.setInputValue(611 "40")
+        cf.cfDialog.setInputValue(612 "60")
+        cf.cfDialog.selectRadio(624)
+        cf.addCfRuleFromDialog()
+        c.eqStr("between catches the middle value" (ConditionalFormat.resolveFill(cf.model 2 0)) "#BDD7EE")
+        c.eqStr("and not the ends" (ConditionalFormat.resolveFill(cf.model 1 0)) "")
+        cf.clearCfRulesFromDialog()
+        cf.cfDialog.selectRadio(605)
+        cf.addCfRuleFromDialog()
+        c.eqInt("a colour scale is a rule too" (cf.model.cfRuleCount()) 1)
+        c.ok("and it paints the range" ((strlen (ConditionalFormat.resolveFill(cf.model 1 0))) > 0))
+        c.ok("scene builds with the editor up" ((strlen (cf.sceneJson())) > 500))
+
+        print "== every dialog keeps its controls inside itself =="
+        def dlg:GridApp (new GridApp)
+        dlg.init("gallery/pdf_writer/assets/fonts")
+        dlg.findQuery = "Widget"
+        dlg.replaceWith = "Gizmo"
+        dlg.findStatus = "found C2"
+        GridEditTest.selectRange(dlg 0 0 3 2)
+
+        dlg.openFindDialog()
+        c.eqStr("find and replace" (GridEditTest.firstEscapee(dlg.findDialog)) "")
+        dlg.findDialog.close()
+        dlg.openPasteSpecial()
+        c.eqStr("paste special" (GridEditTest.firstEscapee(dlg.pasteDialog)) "")
+        dlg.pasteDialog.close()
+        dlg.openChartDialog(0)
+        c.eqStr("chart picker" (GridEditTest.firstEscapee(dlg.chartDialog)) "")
+        dlg.chartDialog.close()
+        dlg.openCfDialog()
+        c.eqStr("conditional formatting" (GridEditTest.firstEscapee(dlg.cfDialog)) "")
+        dlg.cfDialog.close()
+        dlg.openValidationDialog()
+        c.eqStr("data validation" (GridEditTest.firstEscapee(dlg.dvDialog)) "")
+        dlg.dvDialog.close()
+        dlg.openLinkDialog()
+        c.eqStr("hyperlink" (GridEditTest.firstEscapee(dlg.linkDialog)) "")
+        dlg.linkDialog.close()
+
+        ; A narrow panel is the case that broke: the row has to shrink, and
+        ; then wrap, rather than run off the edge.
+        def narrow:EVGWindow (new EVGWindow)
+        narrow.w = 200
+        narrow.reset()
+        narrow.addLabel("four buttons in a narrow panel")
+        def nIds:[int]
+        def nLabels:[string]
+        push nIds 1
+        push nLabels "Close"
+        push nIds 2
+        push nLabels "Replace all"
+        push nIds 3
+        push nLabels "Replace"
+        push nIds 4
+        push nLabels "Find next"
+        narrow.addButtonRow(nIds nLabels 4)
+        narrow.finish()
+        c.eqStr("a narrow row stays inside" (GridEditTest.firstEscapee(narrow)) "")
+        def firstBtn:EVGControl (narrow.controlById(1))
+        def lastBtn:EVGControl (narrow.controlById(4))
+        c.ok("it wrapped onto two rows" (lastBtn.y > firstBtn.y))
+        c.ok("the default button is on the last row, at the right" (((lastBtn.x + lastBtn.w) + narrow.padX) >= narrow.w))
+
+        ; And an absurdly narrow one still produces something drawable.
+        def tiny:EVGWindow (new EVGWindow)
+        tiny.w = 90
+        tiny.reset()
+        def tIds:[int]
+        def tLabels:[string]
+        push tIds 1
+        push tLabels "Cancel"
+        push tIds 2
+        push tLabels "OK"
+        tiny.addButtonRow(tIds tLabels 2)
+        tiny.finish()
+        c.eqStr("even a tiny panel keeps them in" (GridEditTest.firstEscapee(tiny)) "")
+
+        print "== the command surface =="
+        def api:GridApp (new GridApp)
+        api.init("gallery/pdf_writer/assets/fonts")
+        api.model.clearSheet()
+        api.model.resize(12 6)
+        api.model.setCellRaw(0 0 "one")
+        api.model.setCellRaw(1 0 "two")
+        api.model.setCellRaw(2 0 "three")
+        api.sheetView.markDirty()
+        api.sheetView.rebuild()
+        api.engine.rebuildAll()
+
+        c.ok("the table is not empty" ((api.commands.count()) > 20))
+        c.ok("and can be looked up by name" (api.commands.has("edit.copy")))
+        c.ok("an unknown name is not in it" ((api.commands.has("edit.nonsense")) == false))
+        def copyCmd:GridCommand (api.commands.find("edit.copy"))
+        c.eqStr("commands describe themselves" copyCmd.label "Copy")
+        c.eqStr("and say where they belong" copyCmd.group "Edit")
+        c.eqStr("and which key already runs them" copyCmd.key "Ctrl+C")
+        def gotoCmd:GridCommand (api.commands.find("nav.goto"))
+        c.ok("a command that needs an argument says so" gotoCmd.takesArg)
+        c.ok("the table serialises for a host over a socket" (GridEditTest.hasSub((api.commands.toJson()) "\"id\":\"edit.copy\"")))
+
+        print "-- running them by name --"
+        c.ok("an unknown command is refused" ((api.runCommand("edit.nonsense" "")) == false))
+        c.ok("goto moves the selection" (api.runCommand("nav.goto" "B7")))
+        c.eqInt("to that row" api.sel.active.row 6)
+        c.eqInt("and column" api.sel.active.col 1)
+        GridEditTest.select(api 0 0)
+        c.ok("insert row runs" (api.runCommand("insert.row.below" "")))
+        c.eqStr("and did what it says" (api.model.getCell(2 0)) "two")
+        c.ok("undo runs" (api.runCommand("edit.undo" "")))
+        c.eqStr("and undid it" (api.model.getCell(1 0)) "two")
+        GridEditTest.selectRange(api 0 0 2 0)
+        c.ok("copy runs" (api.runCommand("edit.copy" "")))
+        c.ok("putting something on the clipboard" ((strlen api.clipboardTsv) > 0))
+        c.ok("a dialog command opens its dialog" (api.runCommand("edit.find" "")))
+        c.ok("which is up" api.findDialog.visible)
+        api.findDialog.close()
+
+        print "-- a host's own tool --"
+        api.addCustomCommand("acme.report" "Report" "Tools")
+        c.ok("it joins the table" (api.commands.has("acme.report")))
+        c.eqInt("and is counted as custom" (api.commands.customCount()) 1)
+        def tool:GridCommand (api.commands.customAt(0))
+        c.eqStr("with the host's label" tool.label "Report")
+        c.ok("running it succeeds" (api.runCommand("acme.report" "q3")))
+        c.eqStr("the app did not invent a meaning for it" (api.takeCustomCommand()) "acme.report")
+        c.eqStr("and kept the argument" (api.takeCustomArg()) "q3")
+        c.eqStr("the mailbox is empty once collected" (api.takeCustomCommand()) "")
+        c.ok("registering the same id twice is a no-op" ((api.commands.customCount()) == 1))
+        api.addCustomCommand("acme.report" "Report" "Tools")
+        c.eqInt("still one" (api.commands.customCount()) 1)
+
+        ; The tool is reachable with the pointer, not only by name.
+        def ti:UIInput (new UIInput)
+        def bx:int ((GridView.toolButtonX(api.W 0)) + 8)
+        def by:int ((GridView.chartButtonY((api.grid.y + api.grid.h))) + 6)
+        c.eqInt("the button is where it is painted" (api.toolButtonHit(bx by)) 0)
+        ti.newFrame()
+        ti.setPointerPos(bx by)
+        ti.setPointerDown(true)
+        api.update(ti)
+        c.eqStr("clicking it posts the same id" (api.takeCustomCommand()) "acme.report")
+        c.ok("and the grid still renders with a tool on the bar" ((strlen (api.sceneJson())) > 500))
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

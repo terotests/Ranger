@@ -94,11 +94,31 @@ const KEY = {
 // paste we know nothing external changed it, so the formula-aware block paste
 // (which translates relative refs) is still the right one to run.
 let lastExportedTsv = "";
+let lastClipboardSeq = 0;
 
 let lastX = 80;
 let lastY = 80;
 
 /** Returns a JSON-able reply, or null for "nothing to send back". */
+/** The bytes of one media part, from whichever sheet carries it.
+ *  A Ranger `buffer` arrives here as an ArrayBuffer, which has byteLength
+ *  rather than length — asking for the wrong one silently reads undefined and
+ *  turns every picture into a 404. */
+function mediaBytes(part) {
+  for (let si = 0; si < app.book.sheetCount(); si++) {
+    const sheet = app.book.sheetAt(si);
+    for (let i = 0; i < sheet.imageCount(); i++) {
+      const img = sheet.imageAt(i);
+      if (img.src !== part || !img.bytes) continue;
+      const view = img.bytes instanceof ArrayBuffer
+        ? new Uint8Array(img.bytes)
+        : img.bytes;
+      if (view.length || view.byteLength) return Buffer.from(view);
+    }
+  }
+  return null;
+}
+
 function applyEvent(ev) {
   if (ev.type === "paste") {
     // OS clipboard → grid. Text we exported ourselves keeps the structured
@@ -139,14 +159,33 @@ function applyEvent(ev) {
     return null;
   }
   app.update(liveInput);
-  // Ctrl+C / Ctrl+X: hand the TSV back so the browser can put it on the OS
-  // clipboard (a Node process cannot reach it directly).
-  if (ev.type === "text" && ev.ctrl && /^[cxCX]$/.test(String(ev.text || ""))) {
-    lastExportedTsv = app.clipboardTsv || "";
-    // The HTML flavour is what a word processor pastes as a table.
-    return { clipboard: lastExportedTsv, clipboardHtml: app.clipboardHtml || "" };
+  // Anything at all may have copied: Ctrl+C, Ctrl+X, or the Copy button on a
+  // chart window, which arrives as an ordinary pointer click. The app counts
+  // copies, so noticing one is a comparison rather than a guess about which
+  // events can cause it.
+  return takeClipboard();
+}
+
+// The payload the browser puts on the OS clipboard, or null when nothing new
+// was copied. A Node process cannot reach the clipboard itself.
+function takeClipboard() {
+  const seq = app.clipboardSeq | 0;
+  if (seq === lastClipboardSeq) return null;
+  lastClipboardSeq = seq;
+  lastExportedTsv = app.clipboardTsv || "";
+  const out = {
+    clipboard: lastExportedTsv,
+    clipboardHtml: app.clipboardHtml || "",
+    clipboardKind: app.clipboardKind || "cells",
+  };
+  // A chart also travels as a picture: the PNG is what Excel and Word paste,
+  // the SVG is there for a host that can take vector.
+  if (out.clipboardKind === "chart") {
+    out.clipboardPng = app.clipboardPng || "";
+    out.clipboardSvg = app.clipboardSvg || "";
+    out.clipboardName = app.clipboardName || "chart";
   }
-  return null;
+  return out;
 }
 
 function sceneBody() {
@@ -236,6 +275,79 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(400, { "content-type": "text/plain" });
       res.end(String(e && e.message ? e.message : e));
     }
+    return;
+  }
+
+  // The command surface, over HTTP: what the grid can do, and doing it. This
+  // is the same table the app itself dispatches through — a host driving the
+  // grid from outside runs exactly the paths the keyboard does.
+  if (url.pathname === "/commands") {
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    res.end(app.commands.toJson());
+    return;
+  }
+
+  if (url.pathname === "/command" && req.method === "POST") {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    let payload = {};
+    try {
+      payload = JSON.parse(body || "{}");
+    } catch {
+      res.writeHead(400, { "content-type": "text/plain" });
+      res.end("bad json");
+      return;
+    }
+    const ran = app.runCommand(String(payload.id || ""), String(payload.arg || ""));
+    // A custom tool leaves its id in the app's mailbox; the host is the only
+    // thing that knows what its own tool means, so it is handed back here.
+    const custom = app.takeCustomCommand();
+    const customArg = custom ? app.takeCustomArg() : "";
+    // `chart.copy` (and `edit.copy`) leave something on the clipboard; a host
+    // driving over HTTP gets it in the same reply rather than having to know
+    // which commands copy.
+    const clip = takeClipboard();
+    res.writeHead(ran ? 200 : 404, {
+      "content-type": "application/json; charset=utf-8",
+    });
+    res.end(JSON.stringify({ ran, custom, customArg, active: app.activeLabel(), clip }));
+    return;
+  }
+
+  // What is on the clipboard now, in every flavour — including the SVG, which
+  // a browser will not put on the system clipboard but a host may want to save
+  // or send somewhere. Reading does not consume it.
+  if (url.pathname === "/clipboard") {
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({
+      kind: app.clipboardKind || "cells",
+      name: app.clipboardName || "",
+      text: app.clipboardTsv || "",
+      html: app.clipboardHtml || "",
+      png: app.clipboardPng || "",
+      svg: app.clipboardSvg || "",
+      note: app.clipboardNote || "",
+      seq: app.clipboardSeq | 0,
+    }));
+    return;
+  }
+
+  // A sheet's pictures. They came out of the .xlsx while it was open and now
+  // live on the model; the browser asks for them by package part name, which
+  // is exactly what the IMAGE commands in the scene carry.
+  if (url.pathname.startsWith("/media/")) {
+    const part = decodeURIComponent(url.pathname.slice("/media/".length));
+    const bytes = mediaBytes(part);
+    if (!bytes) {
+      res.writeHead(404);
+      res.end("no such part");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": part.endsWith(".png") ? "image/png" : "image/jpeg",
+      "cache-control": "no-store",
+    });
+    res.end(bytes);
     return;
   }
 

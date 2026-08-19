@@ -3,7 +3,7 @@
 ; ==============================================================================
 ;
 ; Shared by FormulaFunctions (pure library) and FormulaEngine (workbook eval).
-; kind: 0 blank | 1 number | 2 string | 3 bool | 4 error
+; kind: 0 blank | 1 number | 2 string | 3 bool | 4 error | 5 array
 ;
 ; Arithmetic uses coerceNumber() → blank/"" /bool → 0/1, non-numeric → #VALUE!.
 ; Equality prefers numeric compare when both sides coerce; else toText().
@@ -15,6 +15,18 @@ class FormulaValue {
     def text:string ""
     def flag:boolean false
     def err:string ""
+    ; --- arrays ---------------------------------------------------------------
+    ; A range is a RECTANGLE, and some functions need to know that: VLOOKUP
+    ; reads down a column and across a row, MATCH returns a position, INDEX
+    ; picks one out. Flattening a range into a list of arguments — which is all
+    ; the engine could do before — throws that shape away.
+    ;
+    ; So a range evaluates to one value of kind 5 carrying its own dimensions.
+    ; Functions that only ever wanted numbers keep working because the helpers
+    ; that walk arguments expand arrays on the way past.
+    def rows:int 0
+    def cols:int 0
+    def items:[FormulaValue]
 
     Constructor () {
     }
@@ -51,6 +63,70 @@ class FormulaValue {
         return o
     }
 
+    sfn fromArray:FormulaValue (rows:int cols:int items:[FormulaValue]) {
+        def o:FormulaValue (new FormulaValue)
+        o.kind = 5
+        o.rows = rows
+        o.cols = cols
+        def i:int 0
+        while (i < (array_length items)) {
+            push o.items (itemAt items i)
+            i = (i + 1)
+        }
+        return o
+    }
+
+    fn isArray:boolean () {
+        return (kind == 5)
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    ; Row-major, and out of range is blank rather than an error: a jagged read
+    ; is a gap in the data, not a broken formula.
+    fn at:FormulaValue (r:int c:int) {
+        if (kind != 5) {
+            if (r == 0) {
+                if (c == 0) {
+                    return this
+                }
+            }
+            return (FormulaValue.blank())
+        }
+        if (r < 0) {
+            return (FormulaValue.blank())
+        }
+        if (c < 0) {
+            return (FormulaValue.blank())
+        }
+        if (r >= rows) {
+            return (FormulaValue.blank())
+        }
+        if (c >= cols) {
+            return (FormulaValue.blank())
+        }
+        def at:int ((r * cols) + c)
+        if (at >= (array_length items)) {
+            return (FormulaValue.blank())
+        }
+        return (itemAt items at)
+    }
+
+    ; The one value an array stands for when a single value is wanted. Excel
+    ; calls this implicit intersection; the top-left is what it comes to for a
+    ; formula that is not array-entered.
+    fn single:FormulaValue () {
+        if (kind != 5) {
+            return this
+        }
+        if ((array_length items) == 0) {
+            return (FormulaValue.blank())
+        }
+        return (itemAt items 0)
+    }
+
     sfn fromError:FormulaValue (e:string) {
         def o:FormulaValue (new FormulaValue)
         o.kind = 4
@@ -60,7 +136,37 @@ class FormulaValue {
     }
 
     fn isError:boolean () {
+        if (kind == 5) {
+            def i:int 0
+            while (i < (array_length items)) {
+                def it:FormulaValue (itemAt items i)
+                if (it.kind == 4) {
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
         return (kind == 4)
+    }
+
+    ; The first error inside an array, or a blank when there is none. What a
+    ; function returns when its input carries one.
+    fn errorInside:FormulaValue () {
+        if (kind == 4) {
+            return this
+        }
+        if (kind == 5) {
+            def i:int 0
+            while (i < (array_length items)) {
+                def it:FormulaValue (itemAt items i)
+                if (it.kind == 4) {
+                    return it
+                }
+                i = (i + 1)
+            }
+        }
+        return (FormulaValue.blank())
     }
 
     fn isBlank:boolean () {
@@ -102,6 +208,10 @@ class FormulaValue {
 
     fn tryNumber:boolean (out:[double]) {
         clear out
+        if (kind == 5) {
+            def one:FormulaValue (this.single())
+            return (one.tryNumber(out))
+        }
         if (kind == 1) {
             push out num
             return true
@@ -122,6 +232,10 @@ class FormulaValue {
     ; Arithmetic coerce: blank / "" / bool → 0/1; non-numeric string → #VALUE!.
     fn tryCoerceNumber:boolean (out:[double]) {
         clear out
+        if (kind == 5) {
+            def one:FormulaValue (this.single())
+            return (one.tryCoerceNumber(out))
+        }
         def ee:boolean (this.isError())
         if ee {
             return false
@@ -170,6 +284,10 @@ class FormulaValue {
     }
 
     fn toText:string () {
+        if (kind == 5) {
+            def one:FormulaValue (this.single())
+            return (one.toText())
+        }
         if (kind == 0) {
             return ""
         }

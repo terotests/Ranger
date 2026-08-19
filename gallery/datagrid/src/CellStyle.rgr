@@ -104,6 +104,12 @@ class CellStyle {
     def align:string "left"
     def valign:string "bottom"
     def wrapText:boolean false
+    ; Excel's textRotation, as OOXML writes it: 0..90 turns the text
+    ; anticlockwise, 91..180 means 1..90 clockwise, and 255 is the stacked
+    ; "vertical text" that reads downwards one letter at a time. Stored raw so
+    ; a round trip keeps what the file said; `rotationDegrees` is what a
+    ; painter wants.
+    def textRotation:int 0
     def numFmt:string "General"
     def hasFill:boolean false
     def hasBorder:boolean false
@@ -131,6 +137,7 @@ class CellStyle {
         o.align = align
         o.valign = valign
         o.wrapText = wrapText
+        o.textRotation = textRotation
         o.numFmt = numFmt
         o.hasFill = hasFill
         o.hasBorder = hasBorder
@@ -172,6 +179,9 @@ class CellStyle {
         if (wrapText != o.wrapText) {
             return false
         }
+        if (textRotation != o.textRotation) {
+            return false
+        }
         if (numFmt != o.numFmt) {
             return false
         }
@@ -197,6 +207,30 @@ class CellStyle {
     }
 
     ; True when nothing is set — a default style needs no table entry.
+    ; What a painter turns the text by: degrees CLOCKWISE, the direction every
+    ; EVG backend rotates in. Excel counts anticlockwise up to 90 and then
+    ; encodes clockwise as 91..180, so both halves fold onto one signed number.
+    ; 255 (stacked) is not a rotation and stays 0.
+    fn rotationDegrees:double () {
+        if (textRotation == 255) {
+            return 0.0
+        }
+        if (textRotation > 90) {
+            if (textRotation <= 180) {
+                return (to_double (textRotation - 90))
+            }
+            return 0.0
+        }
+        if (textRotation < 0) {
+            return 0.0
+        }
+        return (to_double (0 - textRotation))
+    }
+
+    fn isStacked:boolean () {
+        return (textRotation == 255)
+    }
+
     fn isPlain:boolean () {
         def d:CellStyle (new CellStyle)
         return (this.sameAs(d))

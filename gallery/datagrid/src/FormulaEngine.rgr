@@ -817,6 +817,76 @@ class FormulaParser {
         return broke
     }
 
+    ; The column walk, transposed. Same rules: a reference AT a deleted line
+    ; breaks, a reference past it shifts, and a range breaks only when its
+    ; whole span goes.
+    sfn adjustRowsNode:boolean (n:FormulaNode sheetName:string at:int delta:int) {
+        def broke:boolean false
+        if ((n.kind == 3) || (n.kind == 4)) {
+            def applies:boolean false
+            if ((strlen n.sheet) == 0) {
+                applies = true
+            } {
+                if (n.sheet == sheetName) {
+                    applies = true
+                }
+            }
+            if applies {
+                if (delta < 0) {
+                    if (n.kind == 3) {
+                        if (n.row == at) {
+                            broke = true
+                        }
+                    } {
+                        if ((n.row == at) && (n.row2 == at)) {
+                            broke = true
+                        }
+                    }
+                }
+                if (broke == false) {
+                    if (n.row >= at) {
+                        def nr:int (n.row + delta)
+                        if (nr < 0) {
+                            nr = 0
+                        }
+                        n.row = nr
+                    }
+                    if (n.kind == 4) {
+                        if (n.row2 >= at) {
+                            def nr2:int (n.row2 + delta)
+                            if (nr2 < 0) {
+                                nr2 = 0
+                            }
+                            n.row2 = nr2
+                        }
+                    }
+                }
+            }
+        }
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            if (FormulaParser.adjustRowsNode((itemAt n.kids i) sheetName at delta)) {
+                broke = true
+            }
+            i = (i + 1)
+        }
+        return broke
+    }
+
+    sfn adjustRows:string (expr:string sheetName:string at:int delta:int) {
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(expr))
+        if (p.ok == false) {
+            return ""
+        }
+        def broke:boolean (FormulaParser.adjustRowsNode(ast sheetName at delta))
+        if broke {
+            return "#REF!"
+        }
+        return (FormulaParser.serializeNode(ast))
+    }
+
     ; Returns the rewritten formula, or "#REF!" when a reference was destroyed.
     ; "" means the expression could not be parsed and should be left alone.
     sfn adjustColumns:string (expr:string sheetName:string at:int delta:int) {
@@ -926,6 +996,11 @@ class FormulaEngine {
     def calcValues:[string:string]
     def calcStatus:[string:string]
     def lastError:string ""
+    ; What TODAY() and NOW() answer, as a serial. Zero means the host has not
+    ; said, and those two functions then return #N/A rather than inventing a
+    ; date — a spreadsheet that quietly disagrees with the calendar is worse
+    ; than one that admits it does not know.
+    def todaySerial:double 0.0
     ; Instrumentation for workbook-scale recalc demos / benches.
     def dirtyMarked:int 0
     def recalculated:int 0
@@ -1363,8 +1438,66 @@ class FormulaEngine {
         def row:int (SpreadsheetModel.parseInt0((itemAt rc 0)))
         def col:int (SpreadsheetModel.parseInt0((itemAt rc 1)))
         def sheet:SpreadsheetModel (book.sheetAt(si))
+        ; A formula that came out as a RECTANGLE spills: the top-left lands in
+        ; the cell that holds the formula and the rest fills the block below and
+        ; to the right of it, which is what a modern spreadsheet does with an
+        ; array result. Whatever the last spill covered is cleared first, so a
+        ; formula that shrinks does not leave a tail behind.
+        sheet.clearSpillFrom(row col)
+        if (v.isArray()) {
+            if ((v.count()) > 1) {
+                this.spillArray(sheet row col v)
+                return
+            }
+            sheet.setCellRaw(row col ((v.single()).asRaw()))
+            return
+        }
         ; Store raw calculated value; XlsxNumberFormat formats on display.
         sheet.setCellRaw(row col (v.asRaw()))
+    }
+
+    ; Lay an array out from its anchor. Cells that already hold something of
+    ; their own are not overwritten — the spill stops rather than eating a
+    ; value someone typed, and the block that WAS written is remembered so the
+    ; next recalculation can take it back.
+    fn spillArray:void (sheet:SpreadsheetModel row:int col:int v:FormulaValue) {
+        def blocked:boolean false
+        def r:int 0
+        while (r < v.rows) {
+            def c:int 0
+            while (c < v.cols) {
+                if ((r + c) > 0) {
+                    def tr:int (row + r)
+                    def tc:int (col + c)
+                    if ((strlen (sheet.getFormula(tr tc))) > 0) {
+                        blocked = true
+                    } {
+                        if ((strlen (sheet.getCell(tr tc))) > 0) {
+                            if ((sheet.isSpilled(tr tc)) == false) {
+                                blocked = true
+                            }
+                        }
+                    }
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        if blocked {
+            sheet.setCellRaw(row col "#SPILL!")
+            return
+        }
+        sheet.setSpill(row col v.rows v.cols)
+        def rr:int 0
+        while (rr < v.rows) {
+            def cc:int 0
+            while (cc < v.cols) {
+                def item:FormulaValue (v.at(rr cc))
+                sheet.setCellRaw((row + rr) (col + cc) (item.asRaw()))
+                cc = (cc + 1)
+            }
+            rr = (rr + 1)
+        }
     }
 
     fn evalNode:FormulaValue (n:FormulaNode sheetIdx:int) {
@@ -1384,8 +1517,11 @@ class FormulaEngine {
             return (this.readCell(n.sheet sheetIdx n.row n.col))
         }
         if (n.kind == 4) {
-            ; range as value only valid inside functions — treat as #VALUE!
-            return (FormulaValue.fromError("#VALUE!"))
+            ; A range IS a value now: a rectangle of them. What it comes to
+            ; depends on where it is used — a function that wants a table gets
+            ; the rectangle, arithmetic works on it element by element, and a
+            ; formula that just wants one number takes the top-left.
+            return (this.rangeArray(n sheetIdx))
         }
         if (n.kind == 5) {
             def a:FormulaValue (this.evalNode((itemAt n.kids 0) sheetIdx))
@@ -1450,6 +1586,16 @@ class FormulaEngine {
     fn evalBinary:FormulaValue (n:FormulaNode sheetIdx:int) {
         def L:FormulaValue (this.evalNode((itemAt n.kids 0) sheetIdx))
         def R:FormulaValue (this.evalNode((itemAt n.kids 1) sheetIdx))
+        ; An operand that is a rectangle makes the whole operation a rectangle:
+        ; A1:A3*B1:B3 is three products, not one. The result is an array, and
+        ; what happens to it then is the caller's business — a plain cell keeps
+        ; the top-left, a spilling one lays the lot out.
+        if (L.isArray()) {
+            return (this.binaryOverArrays(n L R sheetIdx))
+        }
+        if (R.isArray()) {
+            return (this.binaryOverArrays(n L R sheetIdx))
+        }
         def _eL:boolean (L.isError())
         if _eL {
             return L
@@ -1529,6 +1675,135 @@ class FormulaEngine {
         return (FormulaValue.fromError("#VALUE!"))
     }
 
+    ; Element by element, broadcasting a single value against a rectangle the
+    ; way every spreadsheet does: A1:A3*2 multiplies each of the three.
+    fn binaryOverArrays:FormulaValue (n:FormulaNode L:FormulaValue R:FormulaValue sheetIdx:int) {
+        def rows:int 1
+        def cols:int 1
+        if (L.isArray()) {
+            rows = L.rows
+            cols = L.cols
+        }
+        if (R.isArray()) {
+            if (R.rows > rows) {
+                rows = R.rows
+            }
+            if (R.cols > cols) {
+                cols = R.cols
+            }
+        }
+        def items:[FormulaValue]
+        def r:int 0
+        while (r < rows) {
+            def c:int 0
+            while (c < cols) {
+                def lv:FormulaValue L
+                if (L.isArray()) {
+                    lv = (L.at(r c))
+                    if (L.rows == 1) {
+                        lv = (L.at(0 c))
+                    }
+                    if (L.cols == 1) {
+                        lv = (L.at(r 0))
+                    }
+                }
+                def rv:FormulaValue R
+                if (R.isArray()) {
+                    rv = (R.at(r c))
+                    if (R.rows == 1) {
+                        rv = (R.at(0 c))
+                    }
+                    if (R.cols == 1) {
+                        rv = (R.at(r 0))
+                    }
+                }
+                push items (this.binaryOfValues(n.op lv rv))
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        return (FormulaValue.fromArray(rows cols items))
+    }
+
+    ; One operation on two scalars. Split out of evalBinary so the array walk
+    ; can reuse exactly the semantics a plain formula gets.
+    fn binaryOfValues:FormulaValue (op:string L:FormulaValue R:FormulaValue) {
+        def _eL:boolean (L.isError())
+        if _eL {
+            return L
+        }
+        def _eR:boolean (R.isError())
+        if _eR {
+            return R
+        }
+        if (op == "&") {
+            return (FormulaValue.fromString(((L.toText()) + (R.toText()))))
+        }
+        if (op == "=") {
+            return (FormulaValue.fromBool((FormulaValue.valuesEqual(L R))))
+        }
+        if (op == "<>") {
+            def eq:boolean (FormulaValue.valuesEqual(L R))
+            if eq {
+                return (FormulaValue.fromBool(false))
+            }
+            return (FormulaValue.fromBool(true))
+        }
+        def aV:FormulaValue (L.coerceNumber())
+        def ae:boolean (aV.isError())
+        if ae {
+            return aV
+        }
+        def bV:FormulaValue (R.coerceNumber())
+        def be:boolean (bV.isError())
+        if be {
+            return bV
+        }
+        def a:double aV.num
+        def b:double bV.num
+        if (op == "+") {
+            return (FormulaValue.fromNumber((a + b)))
+        }
+        if (op == "-") {
+            return (FormulaValue.fromNumber((a - b)))
+        }
+        if (op == "*") {
+            return (FormulaValue.fromNumber((a * b)))
+        }
+        if (op == "/") {
+            if (b == 0.0) {
+                return (FormulaValue.fromError("#DIV/0!"))
+            }
+            return (FormulaValue.fromNumber((a / b)))
+        }
+        if (op == "^") {
+            def p:int (to_int b)
+            if (p < 0) {
+                return (FormulaValue.fromError("#VALUE!"))
+            }
+            def acc:double 1.0
+            def i:int 0
+            while (i < p) {
+                acc = (acc * a)
+                i = (i + 1)
+            }
+            return (FormulaValue.fromNumber(acc))
+        }
+        if (op == "<") {
+            return (FormulaValue.fromBool((a < b)))
+        }
+        if (op == ">") {
+            return (FormulaValue.fromBool((a > b)))
+        }
+        if (op == "<=") {
+            return (FormulaValue.fromBool((a <= b)))
+        }
+        if (op == ">=") {
+            return (FormulaValue.fromBool((a >= b)))
+        }
+        return (FormulaValue.fromError("#VALUE!"))
+    }
+
     fn evalCall:FormulaValue (n:FormulaNode sheetIdx:int) {
         def name:string n.fnName
         def args:[FormulaValue]
@@ -1536,18 +1811,72 @@ class FormulaEngine {
         def kn:int (array_length n.kids)
         while (i < kn) {
             def arg:FormulaNode (itemAt n.kids i)
-            if (arg.kind == 4) {
-                this.expandRangeArgs(arg sheetIdx args)
-            } {
-                push args (this.evalNode(arg sheetIdx))
-            }
+            push args (this.evalNode(arg sheetIdx))
             i = (i + 1)
+        }
+        ; TODAY and NOW are not pure functions: they read a clock, and this
+        ; layer has none. The HOST sets one — `setToday` — which also makes
+        ; them testable, since a test can say what today is instead of hoping
+        ; the suite does not run over midnight. Unset, they answer #N/A rather
+        ; than a made-up date.
+        def upper:string (FormulaFunctions.upper(name))
+        if (upper == "TODAY") {
+            if (todaySerial <= 0.0) {
+                return (FormulaValue.fromError("#N/A"))
+            }
+            return (FormulaValue.fromNumber((to_double (to_int todaySerial))))
+        }
+        if (upper == "NOW") {
+            if (todaySerial <= 0.0) {
+                return (FormulaValue.fromError("#N/A"))
+            }
+            return (FormulaValue.fromNumber(todaySerial))
         }
         ; Unknown names → #NAME? (caller may keep XLSX cached <v>)
         if (FormulaFunctions.isKnown(name) == false) {
             return (FormulaValue.fromError("#NAME?"))
         }
         return (FormulaFunctions.invoke(name args))
+    }
+
+    ; A range, read into an array value that remembers its shape. VLOOKUP
+    ; reads down a column and across a row; INDEX picks by row and column;
+    ; TRANSPOSE turns one into the other. None of that is possible once the
+    ; rectangle has been flattened into a list of arguments, which is all the
+    ; engine could hand over before.
+    fn rangeArray:FormulaValue (n:FormulaNode sheetIdx:int) {
+        def si:int sheetIdx
+        if ((strlen n.sheet) > 0) {
+            si = (this.sheetByName(n.sheet))
+            if (si < 0) {
+                return (FormulaValue.fromError("#REF!"))
+            }
+        }
+        def r0:int n.row
+        def r1:int n.row2
+        def c0:int n.col
+        def c1:int n.col2
+        if (r0 > r1) {
+            def t:int r0
+            r0 = r1
+            r1 = t
+        }
+        if (c0 > c1) {
+            def t2:int c0
+            c0 = c1
+            c1 = t2
+        }
+        def items:[FormulaValue]
+        def r:int r0
+        while (r <= r1) {
+            def c:int c0
+            while (c <= c1) {
+                push items (this.readCell("" si r c))
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        return (FormulaValue.fromArray(((r1 - r0) + 1) ((c1 - c0) + 1) items))
     }
 
     ; Expand A1:B2 into individual FormulaValue args for the function library.

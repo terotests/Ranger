@@ -1,0 +1,209 @@
+; ==============================================================================
+; XlsxDrawing.rgr — where the pictures are, and which file each one is.
+; ==============================================================================
+;
+; A worksheet does not hold its images. It points at a DRAWING part, the drawing
+; part describes anchors, and each anchor names a relationship whose target is
+; the actual media file. Three hops, and every one of them can be missing, so
+; each is checked rather than assumed.
+;
+; Two anchor shapes matter:
+;
+;   twoCellAnchor  from cell + offset, to cell + offset — the picture stretches
+;                  with the columns and rows between them
+;   oneCellAnchor  from cell + offset, plus its own extent in EMUs
+;
+; A third, absoluteAnchor, positions in EMUs from the sheet's corner and moves
+; with nothing; it is read as a one-cell anchor at A1 so that it appears rather
+; than being silently dropped.
+; ==============================================================================
+
+Import "XmlLite.rgr"
+Import "../SheetImage.rgr"
+
+class XlsxDrawing {
+    ; Every image the drawing described, in document order.
+    def images:[SheetImage]
+
+    Constructor () {
+    }
+
+    sfn intOf:int (s:string) {
+        if ((strlen s) == 0) {
+            return 0
+        }
+        def v@(optional):int (to_int s)
+        if v {
+            return (unwrap v)
+        }
+        return 0
+    }
+
+    ; The text of the next <col>/<row>/<colOff>/<rowOff> style element.
+    sfn readInt:int (p:XmlLite name:string) {
+        return (XlsxDrawing.intOf((p.readTextUntilEnd(name))))
+    }
+
+    ; One anchor, up to its closing tag. `endName` is the anchor's own element
+    ; name, which is also what tells this walk where to stop.
+    fn parseAnchor:void (p:XmlLite endName:string rels:string) {
+        def img:SheetImage (new SheetImage)
+        def inFrom:boolean false
+        def inTo:boolean false
+        def sawTo:boolean false
+        def depth:int 1
+        while ((p.pos < p.len) && (depth > 0)) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            def local:string (p.localName(t.name))
+            if (local == endName) {
+                if t.isEnd {
+                    depth = (depth - 1)
+                } {
+                    if (t.selfClose == false) {
+                        depth = (depth + 1)
+                    }
+                }
+            } {
+                if (local == "from") {
+                    inFrom = (t.isEnd == false)
+                }
+                if (local == "to") {
+                    inTo = (t.isEnd == false)
+                    if (t.isEnd == false) {
+                        sawTo = true
+                    }
+                }
+                if (t.isEnd == false) {
+                    if (local == "col") {
+                        def cv:int (XlsxDrawing.readInt(p t.name))
+                        if inFrom {
+                            img.fromCol = cv
+                        }
+                        if inTo {
+                            img.toCol = cv
+                        }
+                    }
+                    if (local == "row") {
+                        def rv:int (XlsxDrawing.readInt(p t.name))
+                        if inFrom {
+                            img.fromRow = rv
+                        }
+                        if inTo {
+                            img.toRow = rv
+                        }
+                    }
+                    if (local == "colOff") {
+                        def co:int (SheetImage.emuToPx((XlsxDrawing.readInt(p t.name))))
+                        if inFrom {
+                            img.offX = co
+                        }
+                        if inTo {
+                            img.toOffX = co
+                        }
+                    }
+                    if (local == "rowOff") {
+                        def ro:int (SheetImage.emuToPx((XlsxDrawing.readInt(p t.name))))
+                        if inFrom {
+                            img.offY = ro
+                        }
+                        if inTo {
+                            img.toOffY = ro
+                        }
+                    }
+                    ; <xdr:ext cx=".." cy=".."> is the size a one-cell anchor
+                    ; carries instead of a second corner.
+                    if (local == "ext") {
+                        def cx:string (t.attr("cx"))
+                        if ((strlen cx) > 0) {
+                            img.widthPx = (SheetImage.emuToPx((XlsxDrawing.intOf(cx))))
+                            img.heightPx = (SheetImage.emuToPx((XlsxDrawing.intOf((t.attr("cy"))))))
+                        }
+                    }
+                    if (local == "cNvPr") {
+                        img.name = (t.attr("name"))
+                    }
+                    ; The relationship id of the media part.
+                    if (local == "blip") {
+                        def rid:string (t.attrAny("r:embed" "embed"))
+                        if ((strlen rid) > 0) {
+                            img.src = (XlsxDrawing.relTarget(rels rid))
+                        }
+                    }
+                }
+            }
+        }
+        img.stretched = sawTo
+        if ((strlen img.src) > 0) {
+            push images img
+        }
+    }
+
+    ; rId → target, resolved against xl/drawings/ — the media path a drawing
+    ; names is written relative to the drawing, as "../media/image1.png".
+    sfn relTarget:string (rels:string id:string) {
+        if ((strlen rels) == 0) {
+            return ""
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(rels)
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if ((t.name == "Relationship") && (t.isEnd == false)) {
+                if ((t.attr("Id")) == id) {
+                    def target:string (t.attr("Target"))
+                    if ((strlen target) == 0) {
+                        return ""
+                    }
+                    if ((charAt target 0) == 47) {
+                        return (substring target 1 (strlen target))
+                    }
+                    def rest:string target
+                    def dir:string "xl/drawings/"
+                    while ((strlen rest) > 3) {
+                        if ((substring rest 0 3) == "../") {
+                            rest = (substring rest 3 (strlen rest))
+                            dir = "xl/"
+                        } {
+                            break
+                        }
+                    }
+                    return (dir + rest)
+                }
+            }
+        }
+        return ""
+    }
+
+    fn parse:void (xml:string rels:string) {
+        clear images
+        if ((strlen xml) == 0) {
+            return
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(xml)
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if (t.isEnd == false) {
+                def local:string (p.localName(t.name))
+                if (local == "twoCellAnchor") {
+                    this.parseAnchor(p local rels)
+                }
+                if (local == "oneCellAnchor") {
+                    this.parseAnchor(p local rels)
+                }
+                if (local == "absoluteAnchor") {
+                    this.parseAnchor(p local rels)
+                }
+            }
+        }
+    }
+}

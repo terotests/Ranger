@@ -1,4 +1,5 @@
 Import "RasterBuffer.rgr"
+Import "Deflate.rgr"
 Import "../core/Buffer.rgr"
 
 ; PNG Encoder - Lossless image output
@@ -8,6 +9,9 @@ class PNGEncoder {
     def output:GrowableBuffer
     def crcTable:[int]
     def crcTableInit:boolean false
+    ; Emit uncompressed deflate blocks instead of compressing. What this file
+    ; used to do always.
+    def stored:boolean false
     
     Constructor () {
         output = (new GrowableBuffer())
@@ -157,7 +161,23 @@ class PNGEncoder {
     }
     
     ; Create uncompressed DEFLATE blocks (store mode)
+    ; Compressed with fixed-Huffman deflate. Stored blocks are the fallback,
+    ; kept because they are the one encoding that cannot be wrong — a bug here
+    ; would be a file nothing opens, and `stored` is one flag away.
     fn createDeflateData:void (rawData:GrowableBuffer compressed:GrowableBuffer) {
+        if (stored == false) {
+            def dz (new Deflate)
+            def w (new DeflateWriter)
+            dz.compress((rawData.toBuffer()) (rawData.size()) w)
+            def packed:buffer (w.out.toBuffer())
+            def pi:int 0
+            def pn:int (w.out.size())
+            while (pi < pn) {
+                compressed.writeByte((buffer_get packed pi))
+                pi = (pi + 1)
+            }
+            return
+        }
         def rawBuf:buffer (rawData.toBuffer())
         def dataLen:int (rawData.size())
         def blockSize:int 65535  ; Max block size
@@ -215,11 +235,20 @@ class PNGEncoder {
                 def g:int (buffer_get buf.pixels (idx + 1))
                 def b:int (buffer_get buf.pixels (idx + 2))
                 def a:int (buffer_get buf.pixels (idx + 3))
+                ; A three-channel PNG cannot carry alpha, so a translucent
+                ; pixel has to be composited against something. White: this is
+                ; the format a picture is pasted into a document as, and a
+                ; document's page is white. It used to premultiply against
+                ; black with `>> 8`, which is a divide by 256 rather than 255 —
+                ; so a pixel the text renderer left at alpha 254, which every
+                ; antialiased glyph edge is, came out two levels darker than it
+                ; was drawn, and a round trip through our own decoder could not
+                ; get back what was painted.
                 if (a < 255) {
                     def inv:int (255 - a)
-                    r = (bit_shr (r * a) 8)
-                    g = (bit_shr (g * a) 8)
-                    b = (bit_shr (b * a) 8)
+                    r = (idiv (((r * a) + (255 * inv)) + 127) 255)
+                    g = (idiv (((g * a) + (255 * inv)) + 127) 255)
+                    b = (idiv (((b * a) + (255 * inv)) + 127) 255)
                 }
                 rawData.writeByte(r)
                 rawData.writeByte(g)
@@ -284,6 +313,18 @@ class PNGEncoder {
         this.writeChunk("IEND" data)
     }
     
+    ; The same, without the running commentary. A chart copied to the clipboard
+    ; encodes a PNG on every Ctrl+C, and three lines of log per keystroke is
+    ; noise in a server that is otherwise quiet.
+    fn encodeQuiet:buffer (buf:RasterBuffer) {
+        output = (new GrowableBuffer())
+        this.writeSignature()
+        this.writeIHDR(buf.width buf.height)
+        this.writeIDAT(buf)
+        this.writeIEND()
+        return (output.toBuffer())
+    }
+
     ; Encode buffer to PNG and return as buffer (for HTTP responses)
     fn encodeToBuffer:buffer (buf:RasterBuffer) {
         print ("Encoding PNG to buffer")

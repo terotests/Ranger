@@ -1,0 +1,85 @@
+; ==============================================================================
+; SheetImage.rgr — a picture anchored to the grid.
+; ==============================================================================
+;
+; An image in a spreadsheet is not in a cell; it FLOATS over one, anchored by a
+; cell plus an offset inside it, and either sized absolutely or stretched to a
+; second anchor. That is the whole of OOXML's drawing model that a viewer needs,
+; and it is why the geometry here is (cell, offset) rather than (x, y): the
+; picture has to move when the column above it is widened, which a pixel
+; position could not do.
+;
+; Offsets and extents arrive in EMUs — English Metric Units, 914400 to the inch,
+; which is 9525 to a pixel at 96 DPI. Everything is converted on the way in so
+; nothing downstream has to know the word.
+; ==============================================================================
+
+class SheetImage {
+    ; Where the top-left corner sits: a cell, plus an offset in pixels inside it.
+    def fromRow:int 0
+    def fromCol:int 0
+    def offX:int 0
+    def offY:int 0
+    ; A twoCellAnchor stretches to a second cell; a oneCellAnchor carries its
+    ; own size instead. `stretched` says which of the two this is.
+    def stretched:boolean false
+    def toRow:int 0
+    def toCol:int 0
+    def toOffX:int 0
+    def toOffY:int 0
+    def widthPx:int 0
+    def heightPx:int 0
+    ; The package part the pixels are in, e.g. "xl/media/image1.png".
+    def src:string ""
+    def name:string ""
+    ; The media file's own bytes, taken out of the package while it was open.
+    ; They stay compressed-format here — a PNG is a PNG — and are decoded on
+    ; first paint, once, by GridImages.
+    def bytes:buffer (buffer_alloc 0)
+
+    Constructor () {
+    }
+
+    sfn emuToPx:int (emu:int) {
+        return (idiv emu 9525)
+    }
+
+    fn copyFrom:void (o:SheetImage) {
+        fromRow = o.fromRow
+        fromCol = o.fromCol
+        offX = o.offX
+        offY = o.offY
+        stretched = o.stretched
+        toRow = o.toRow
+        toCol = o.toCol
+        toOffX = o.toOffX
+        toOffY = o.toOffY
+        widthPx = o.widthPx
+        heightPx = o.heightPx
+        src = o.src
+        name = o.name
+        bytes = o.bytes
+    }
+
+    ; What kind of file the pixels are in, from the part name — the package
+    ; does not say, and the decoder has to be told.
+    fn kind:string () {
+        def n:int (strlen src)
+        if (n < 4) {
+            return ""
+        }
+        def tail:string (substring src (n - 4) n)
+        if (tail == ".png") {
+            return "png"
+        }
+        if (tail == ".jpg") {
+            return "jpeg"
+        }
+        if (n >= 5) {
+            if ((substring src (n - 5) n) == ".jpeg") {
+                return "jpeg"
+            }
+        }
+        return ""
+    }
+}

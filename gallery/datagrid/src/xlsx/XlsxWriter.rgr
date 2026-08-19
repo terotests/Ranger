@@ -1,0 +1,771 @@
+; ==============================================================================
+; XlsxWriter.rgr — a WorkbookModel becomes an .xlsx package.
+; ==============================================================================
+;
+; The loader has always been the whole story: read a workbook, show it, edit it,
+; and then have nowhere to put it. This is the other direction, and it is
+; deliberately the SAME MODEL both ways — what the loader puts into a
+; `SpreadsheetModel` is what this writes back out, so a round trip is a test
+; rather than a hope.
+;
+; Three decisions worth stating.
+;
+; INLINE STRINGS, NOT A SHARED TABLE. A shared-string table is a size
+; optimisation: it pays for itself when the same text repeats, and costs an
+; extra part and an extra indirection when it does not. Excel, LibreOffice and
+; openpyxl all read `t="inlineStr"` without complaint, and a writer that emits
+; it cannot produce the one bug a shared table invites — an index pointing at
+; the wrong string.
+;
+; STYLE INDEX IS THE MODEL'S STYLE INDEX. The model already holds a deduplicated
+; `styles` list and stores an index per cell; `cellXfs` is written in exactly
+; that order, so `s="7"` on the way out means what `s="7"` meant on the way in.
+; The font, fill and border tables are built underneath it, deduplicated by the
+; text they generate.
+;
+; STORED, NOT DEFLATED. `ZipWriter` writes uncompressed entries, which the OPC
+; specification allows and every reader accepts. The file is larger; nothing
+; else about it differs.
+;
+; What is NOT written yet, and is therefore not silently lost — it is simply
+; absent from the output: cell comments, conditional formatting rules, charts
+; and images. Values, formulas, styles, widths, heights, hidden flags, merges,
+; freeze panes, hyperlinks and data validations all survive.
+; ==============================================================================
+
+Import "../SpreadsheetModel.rgr"
+Import "../WorkbookModel.rgr"
+Import "../CellStyle.rgr"
+Import "../DataValidation.rgr"
+Import "../RichText.rgr"
+Import "../../zip/ZipWriter.rgr"
+
+class XlsxWriter {
+    def lastError:string ""
+    ; Font / fill / border tables, as the XML fragments they will be written
+    ; as. Deduplicating on the fragment is the same thing as deduplicating on
+    ; the properties, and it needs no comparison function.
+    def fontXml:[string]
+    def fillXml:[string]
+    def borderXml:[string]
+    def fmtCode:[string]
+    def fmtId:[int]
+
+    Constructor () {
+    }
+
+    ; --- text -----------------------------------------------------------------
+    ; UTF-8, encoded here rather than in the zip layer. `ZipWriter.addString`
+    ; writes one byte per code unit, which is fine for ASCII and quietly
+    ; corrupts everything else — and a spreadsheet full of names is exactly
+    ; where "everything else" turns up.
+    sfn utf8Length:int (s:string) {
+        def n:int (strlen s)
+        def total:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c >= 55296) && (c <= 56319)) {
+                if ((i + 1) < n) {
+                    def lo:int (charAt s (i + 1))
+                    if ((lo >= 56320) && (lo <= 57343)) {
+                        total = (total + 4)
+                        i = (i + 2)
+                        continue
+                    }
+                }
+            }
+            if (c < 128) {
+                total = (total + 1)
+            } {
+                if (c < 2048) {
+                    total = (total + 2)
+                } {
+                    total = (total + 3)
+                }
+            }
+            i = (i + 1)
+        }
+        return total
+    }
+
+    sfn utf8Buffer:buffer (s:string) {
+        def size:int (XlsxWriter.utf8Length(s))
+        def out:buffer (buffer_alloc size)
+        def n:int (strlen s)
+        def at:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def step:int 1
+            if ((c >= 55296) && (c <= 56319)) {
+                if ((i + 1) < n) {
+                    def lo:int (charAt s (i + 1))
+                    if ((lo >= 56320) && (lo <= 57343)) {
+                        c = ((65536 + ((c - 55296) * 1024)) + (lo - 56320))
+                        step = 2
+                    }
+                }
+            }
+            if (c < 128) {
+                buffer_set out at c
+                at = (at + 1)
+            } {
+                if (c < 2048) {
+                    buffer_set out at (192 + (idiv c 64))
+                    buffer_set out (at + 1) (128 + (c % 64))
+                    at = (at + 2)
+                } {
+                    if (c < 65536) {
+                        buffer_set out at (224 + (idiv c 4096))
+                        buffer_set out (at + 1) (128 + ((idiv c 64) % 64))
+                        buffer_set out (at + 2) (128 + (c % 64))
+                        at = (at + 3)
+                    } {
+                        buffer_set out at (240 + (idiv c 262144))
+                        buffer_set out (at + 1) (128 + ((idiv c 4096) % 64))
+                        buffer_set out (at + 2) (128 + ((idiv c 64) % 64))
+                        buffer_set out (at + 3) (128 + (c % 64))
+                        at = (at + 4)
+                    }
+                }
+            }
+            i = (i + step)
+        }
+        return out
+    }
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if (ch == 38) {
+                out = (out + "&amp;")
+            } {
+                if (ch == 60) {
+                    out = (out + "&lt;")
+                } {
+                    if (ch == 62) {
+                        out = (out + "&gt;")
+                    } {
+                        if (ch == 34) {
+                            out = (out + "&quot;")
+                        } {
+                            if (ch < 32) {
+                                if (ch == 10) {
+                                    out = (out + "&#10;")
+                                } {
+                                    out = (out + " ")
+                                }
+                            } {
+                                out = (out + (strfromcode ch))
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A colour as OOXML writes it: ARGB, eight hex digits. The model keeps CSS
+    ; "#rrggbb", which is the same six digits with a different hat on.
+    sfn argb:string (css:string) {
+        def s:string css
+        if ((strlen s) == 0) {
+            return ""
+        }
+        if ((charAt s 0) == 35) {
+            s = (substring s 1 (strlen s))
+        }
+        if ((strlen s) == 8) {
+            return s
+        }
+        if ((strlen s) == 6) {
+            return ("FF" + s)
+        }
+        return ""
+    }
+
+    sfn numText:string (v:double) {
+        def iv:int (to_int v)
+        if ((to_double iv) == v) {
+            return (to_string iv)
+        }
+        return (to_string v)
+    }
+
+    ; --- style tables ---------------------------------------------------------
+    fn indexOfOrAdd:int (list:[string] item:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == item) {
+                return i
+            }
+            i = (i + 1)
+        }
+        push list item
+        return ((array_length list) - 1)
+    }
+
+    fn fontFor:int (st:CellStyle) {
+        def x:string "<font>"
+        def sz:double st.fontSizePt
+        if (sz <= 0.0) {
+            sz = 11.0
+        }
+        x = (x + "<sz val=\"" + (XlsxWriter.numText(sz)) + "\"/>")
+        if st.bold {
+            x = (x + "<b/>")
+        }
+        if st.italic {
+            x = (x + "<i/>")
+        }
+        if st.underline {
+            x = (x + "<u/>")
+        }
+        if st.strike {
+            x = (x + "<strike/>")
+        }
+        def col:string (XlsxWriter.argb(st.textRgb))
+        if ((strlen col) > 0) {
+            x = (x + "<color rgb=\"" + col + "\"/>")
+        }
+        x = (x + "<name val=\"Calibri\"/></font>")
+        return (this.indexOfOrAdd(fontXml x))
+    }
+
+    fn fillFor:int (st:CellStyle) {
+        if (st.hasFill == false) {
+            return 0
+        }
+        def col:string (XlsxWriter.argb(st.fillRgb))
+        if ((strlen col) == 0) {
+            return 0
+        }
+        def x:string ("<fill><patternFill patternType=\"solid\"><fgColor rgb=\"" + col + "\"/><bgColor indexed=\"64\"/></patternFill></fill>")
+        return (this.indexOfOrAdd(fillXml x))
+    }
+
+    sfn edgeXml:string (name:string b:CellBorder) {
+        if ((b.has()) == false) {
+            return ("<" + name + "/>")
+        }
+        def x:string ("<" + name + " style=\"" + b.style + "\">")
+        def col:string (XlsxWriter.argb(b.rgb))
+        if ((strlen col) > 0) {
+            x = (x + "<color rgb=\"" + col + "\"/>")
+        }
+        return (x + "</" + name + ">")
+    }
+
+    fn borderFor:int (st:CellStyle) {
+        if (st.hasBorder == false) {
+            return 0
+        }
+        def x:string "<border>"
+        x = (x + (XlsxWriter.edgeXml("left" st.borderLeft)))
+        x = (x + (XlsxWriter.edgeXml("right" st.borderRight)))
+        x = (x + (XlsxWriter.edgeXml("top" st.borderTop)))
+        x = (x + (XlsxWriter.edgeXml("bottom" st.borderBottom)))
+        x = (x + "<diagonal/></border>")
+        return (this.indexOfOrAdd(borderXml x))
+    }
+
+    ; Custom number formats start at 164, which is where OOXML says a file's
+    ; own codes begin — below that the ids are Excel's built-ins.
+    fn numFmtFor:int (st:CellStyle) {
+        def code:string st.numFmt
+        if ((strlen code) == 0) {
+            return 0
+        }
+        if (code == "General") {
+            return 0
+        }
+        def i:int 0
+        while (i < (array_length fmtCode)) {
+            if ((itemAt fmtCode i) == code) {
+                return (itemAt fmtId i)
+            }
+            i = (i + 1)
+        }
+        def id:int (164 + (array_length fmtCode))
+        push fmtCode code
+        push fmtId id
+        return id
+    }
+
+    fn stylesXml:string (styles:[CellStyle]) {
+        clear fontXml
+        clear fillXml
+        clear borderXml
+        clear fmtCode
+        clear fmtId
+        ; Fill 0 and fill 1 are reserved: every file has to declare `none` and
+        ; `gray125` first, whether or not it uses them.
+        push fillXml "<fill><patternFill patternType=\"none\"/></fill>"
+        push fillXml "<fill><patternFill patternType=\"gray125\"/></fill>"
+        push borderXml "<border><left/><right/><top/><bottom/><diagonal/></border>"
+
+        def xfs:[string]
+        ; xf 0 is the Normal style. A cell with no style of its own writes no
+        ; `s` attribute at all and lands here; the model's own style indexes
+        ; are therefore written one higher, which is also what keeps index 0
+        ; from meaning two different things.
+        push xfs "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/>"
+        this.fontFor((CellStyle.createDefault()))
+        def i:int 0
+        while (i < (array_length styles)) {
+            def st:CellStyle (itemAt styles i)
+            def fid:int (this.fontFor(st))
+            def flid:int (this.fillFor(st))
+            def bid:int (this.borderFor(st))
+            def nid:int (this.numFmtFor(st))
+            def xf:string ("<xf numFmtId=\"" + (to_string nid) + "\" fontId=\"" + (to_string fid) + "\" fillId=\"" + (to_string flid) + "\" borderId=\"" + (to_string bid) + "\" xfId=\"0\" applyFont=\"1\" applyFill=\"1\" applyBorder=\"1\" applyNumberFormat=\"1\"")
+            def align:string ""
+            if (st.align != "left") {
+                align = (align + " horizontal=\"" + st.align + "\"")
+            }
+            if (st.valign != "bottom") {
+                align = (align + " vertical=\"" + st.valign + "\"")
+            }
+            if st.wrapText {
+                align = (align + " wrapText=\"1\"")
+            }
+            if (st.textRotation != 0) {
+                align = (align + " textRotation=\"" + (to_string st.textRotation) + "\"")
+            }
+            if ((strlen align) > 0) {
+                xf = (xf + " applyAlignment=\"1\"><alignment" + align + "/></xf>")
+            } {
+                xf = (xf + "/>")
+            }
+            push xfs xf
+            i = (i + 1)
+        }
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        out = (out + "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">")
+        if ((array_length fmtCode) > 0) {
+            out = (out + "<numFmts count=\"" + (to_string (array_length fmtCode)) + "\">")
+            def f:int 0
+            while (f < (array_length fmtCode)) {
+                out = (out + "<numFmt numFmtId=\"" + (to_string (itemAt fmtId f)) + "\" formatCode=\"" + (XlsxWriter.esc((itemAt fmtCode f))) + "\"/>")
+                f = (f + 1)
+            }
+            out = (out + "</numFmts>")
+        }
+        out = (out + "<fonts count=\"" + (to_string (array_length fontXml)) + "\">")
+        def a:int 0
+        while (a < (array_length fontXml)) {
+            out = (out + (itemAt fontXml a))
+            a = (a + 1)
+        }
+        out = (out + "</fonts><fills count=\"" + (to_string (array_length fillXml)) + "\">")
+        def b:int 0
+        while (b < (array_length fillXml)) {
+            out = (out + (itemAt fillXml b))
+            b = (b + 1)
+        }
+        out = (out + "</fills><borders count=\"" + (to_string (array_length borderXml)) + "\">")
+        def c:int 0
+        while (c < (array_length borderXml)) {
+            out = (out + (itemAt borderXml c))
+            c = (c + 1)
+        }
+        out = (out + "</borders>")
+        out = (out + "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>")
+        out = (out + "<cellXfs count=\"" + (to_string (array_length xfs)) + "\">")
+        def d:int 0
+        while (d < (array_length xfs)) {
+            out = (out + (itemAt xfs d))
+            d = (d + 1)
+        }
+        out = (out + "</cellXfs>")
+        out = (out + "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>")
+        return (out + "</styleSheet>")
+    }
+
+    ; One <r> per run, with only the properties the run actually overrides —
+    ; an empty <rPr> is legal and pointless, so it is left out.
+    sfn runsXml:string (rt:RichText) {
+        def out:string ""
+        def i:int 0
+        while (i < (rt.count())) {
+            def run:CellRun (itemAt rt.runs i)
+            def props:string ""
+            if run.bold {
+                props = (props + "<b/>")
+            }
+            if run.italic {
+                props = (props + "<i/>")
+            }
+            if run.underline {
+                props = (props + "<u/>")
+            }
+            if run.strike {
+                props = (props + "<strike/>")
+            }
+            if (run.sizePt > 0.0) {
+                props = (props + "<sz val=\"" + (XlsxWriter.numText(run.sizePt)) + "\"/>")
+            }
+            def col:string (XlsxWriter.argb(run.rgb))
+            if ((strlen col) > 0) {
+                props = (props + "<color rgb=\"" + col + "\"/>")
+            }
+            out = (out + "<r>")
+            if ((strlen props) > 0) {
+                out = (out + "<rPr>" + props + "</rPr>")
+            }
+            out = (out + "<t xml:space=\"preserve\">" + (XlsxWriter.esc(run.text)) + "</t></r>")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- a sheet --------------------------------------------------------------
+    sfn cellRef:string (row:int col:int) {
+        return ((SpreadsheetModel.colLabel(col)) + (to_string (row + 1)))
+    }
+
+    ; Pixels back to Excel's character units — the inverse of what the loader
+    ; does, so a width that came from a file goes back out as itself.
+    sfn pxToColWidth:double (px:int) {
+        return (((to_double px) - 5.0) / 8.0)
+    }
+
+    sfn pxToRowPoints:double (px:int) {
+        return (((to_double px) * 72.0) / 96.0)
+    }
+
+    fn sheetXml:string (m:SpreadsheetModel) {
+        def lastR:int (m.usedRow())
+        def lastC:int (m.usedCol())
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        out = (out + "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">")
+        out = (out + "<dimension ref=\"A1:" + (XlsxWriter.cellRef(lastR lastC)) + "\"/>")
+
+        ; Freeze panes, as a pane element on the sheet view.
+        out = (out + "<sheetViews><sheetView workbookViewId=\"0\">")
+        if ((m.freezeRows + m.freezeCols) > 0) {
+            def topLeft:string (XlsxWriter.cellRef(m.freezeRows m.freezeCols))
+            out = (out + "<pane")
+            if (m.freezeCols > 0) {
+                out = (out + " xSplit=\"" + (to_string m.freezeCols) + "\"")
+            }
+            if (m.freezeRows > 0) {
+                out = (out + " ySplit=\"" + (to_string m.freezeRows) + "\"")
+            }
+            out = (out + " topLeftCell=\"" + topLeft + "\" activePane=\"bottomRight\" state=\"frozen\"/>")
+        }
+        out = (out + "</sheetView></sheetViews>")
+
+        ; Column widths and hidden flags, one <col> per column that differs
+        ; from the default — a file that repeated the default for every column
+        ; would be correct and enormous.
+        def cols:string ""
+        def lastGeomC:int (m.colCount - 1)
+        def c:int 0
+        while (c <= lastGeomC) {
+            def w:int (m.colWidth(c))
+            def hidden:boolean (m.isColHidden(c))
+            if ((w != m.defaultColW) || hidden) {
+                cols = (cols + "<col min=\"" + (to_string (c + 1)) + "\" max=\"" + (to_string (c + 1)) + "\" width=\"" + (XlsxWriter.numText((XlsxWriter.pxToColWidth(w)))) + "\" customWidth=\"1\"")
+                if hidden {
+                    cols = (cols + " hidden=\"1\"")
+                }
+                cols = (cols + "/>")
+            }
+            c = (c + 1)
+        }
+        if ((strlen cols) > 0) {
+            out = (out + "<cols>" + cols + "</cols>")
+        }
+
+        out = (out + "<sheetData>")
+        ; Rows are walked past the used range too: a hidden row or a custom
+        ; height below the last value is still part of the sheet.
+        def lastGeomR:int (m.rowCount - 1)
+        if (lastGeomR < lastR) {
+            lastGeomR = lastR
+        }
+        def r:int 0
+        while (r <= lastGeomR) {
+            def cells:string ""
+            def cc:int 0
+            while (cc <= lastC) {
+                def raw:string (m.getCell(r cc))
+                def formula:string (m.getFormula(r cc))
+                ; -1 means the cell has no style of its own, which is not the
+                ; same as having style 0.
+                def sid:int (m.getCellStyleId(r cc))
+                def any:boolean false
+                if ((strlen raw) > 0) {
+                    any = true
+                }
+                if ((strlen formula) > 0) {
+                    any = true
+                }
+                if (sid >= 0) {
+                    any = true
+                }
+                if any {
+                    def ref:string (XlsxWriter.cellRef(r cc))
+                    def tag:string ("<c r=\"" + ref + "\"")
+                    if (sid >= 0) {
+                        tag = (tag + " s=\"" + (to_string (sid + 1)) + "\"")
+                    }
+                    def numeric:boolean (XlsxNumberFormat.wholeNumber(raw))
+                    if ((strlen formula) > 0) {
+                        ; A formula cell carries the expression and the cached
+                        ; value, which is what lets a reader show something
+                        ; before it has an engine.
+                        if (numeric == false) {
+                            tag = (tag + " t=\"str\"")
+                        }
+                        tag = (tag + "><f>" + (XlsxWriter.esc(formula)) + "</f>")
+                        if ((strlen raw) > 0) {
+                            tag = (tag + "<v>" + (XlsxWriter.esc(raw)) + "</v>")
+                        }
+                        tag = (tag + "</c>")
+                    } {
+                        if ((strlen raw) == 0) {
+                            tag = (tag + "/>")
+                        } {
+                            if numeric {
+                                tag = (tag + "><v>" + raw + "</v></c>")
+                            } {
+                                ; Text drawn in pieces goes out in pieces. An
+                                ; inline string can hold runs just as a shared
+                                ; one can, so nothing extra has to be written
+                                ; to another part of the package.
+                                if (m.hasRichText(r cc)) {
+                                    tag = (tag + " t=\"inlineStr\"><is>" + (XlsxWriter.runsXml((m.richTextAt(r cc)))) + "</is></c>")
+                                } {
+                                    tag = (tag + " t=\"inlineStr\"><is><t xml:space=\"preserve\">" + (XlsxWriter.esc(raw)) + "</t></is></c>")
+                                }
+                            }
+                        }
+                    }
+                    cells = (cells + tag)
+                }
+                cc = (cc + 1)
+            }
+            def rowAttrs:string ""
+            def h:int (m.rowHeight(r))
+            if (h != m.defaultRowH) {
+                rowAttrs = (rowAttrs + " ht=\"" + (XlsxWriter.numText((XlsxWriter.pxToRowPoints(h)))) + "\" customHeight=\"1\"")
+            }
+            if (m.isRowHidden(r)) {
+                rowAttrs = (rowAttrs + " hidden=\"1\"")
+            }
+            if ((strlen cells) > 0) {
+                out = (out + "<row r=\"" + (to_string (r + 1)) + "\"" + rowAttrs + ">" + cells + "</row>")
+            } {
+                if ((strlen rowAttrs) > 0) {
+                    out = (out + "<row r=\"" + (to_string (r + 1)) + "\"" + rowAttrs + "/>")
+                }
+            }
+            r = (r + 1)
+        }
+        out = (out + "</sheetData>")
+
+        if ((array_length m.merges) > 0) {
+            out = (out + "<mergeCells count=\"" + (to_string (array_length m.merges)) + "\">")
+            def mi:int 0
+            while (mi < (array_length m.merges)) {
+                def parts:[string] (strsplit (itemAt m.merges mi) ",")
+                if ((array_length parts) >= 4) {
+                    def mr1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                    def mc1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                    def mr2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
+                    def mc2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
+                    out = (out + "<mergeCell ref=\"" + (XlsxWriter.cellRef(mr1 mc1)) + ":" + (XlsxWriter.cellRef(mr2 mc2)) + "\"/>")
+                }
+                mi = (mi + 1)
+            }
+            out = (out + "</mergeCells>")
+        }
+
+        ; Validations come before hyperlinks in the schema's order, and a
+        ; reader that checks the order will reject them the other way round.
+        if ((m.validationCount()) > 0) {
+            out = (out + "<dataValidations count=\"" + (to_string (m.validationCount())) + "\">")
+            def vi:int 0
+            while (vi < (array_length m.validations)) {
+                def v:DataValidation (itemAt m.validations vi)
+                out = (out + "<dataValidation type=\"" + v.kind + "\" operator=\"" + v.op + "\"")
+                if v.allowBlank {
+                    out = (out + " allowBlank=\"1\"")
+                }
+                if ((strlen v.errorTitle) > 0) {
+                    out = (out + " errorTitle=\"" + (XlsxWriter.esc(v.errorTitle)) + "\"")
+                }
+                if ((strlen v.errorText) > 0) {
+                    out = (out + " error=\"" + (XlsxWriter.esc(v.errorText)) + "\" showErrorMessage=\"1\"")
+                }
+                out = (out + " sqref=\"" + (XlsxWriter.cellRef(v.r0 v.c0)) + ":" + (XlsxWriter.cellRef(v.r1 v.c1)) + "\">")
+                if ((strlen v.f1) > 0) {
+                    out = (out + "<formula1>" + (XlsxWriter.esc(v.f1)) + "</formula1>")
+                }
+                if ((strlen v.f2) > 0) {
+                    out = (out + "<formula2>" + (XlsxWriter.esc(v.f2)) + "</formula2>")
+                }
+                out = (out + "</dataValidation>")
+                vi = (vi + 1)
+            }
+            out = (out + "</dataValidations>")
+        }
+
+        def links:string (this.hyperlinksXml(m))
+        if ((strlen links) > 0) {
+            out = (out + links)
+        }
+        return (out + "</worksheet>")
+    }
+
+    ; External targets go through the sheet's relationship part; a target that
+    ; starts with "#" names a place in this workbook and needs no relationship
+    ; at all.
+    fn hyperlinksXml:string (m:SpreadsheetModel) {
+        def out:string ""
+        def rid:int 0
+        def i:int 0
+        while (i < (array_length m.linkKeys)) {
+            def key:string (itemAt m.linkKeys i)
+            def target:string ""
+            if (has m.links key) {
+                target = (unwrap (get m.links key))
+            }
+            if ((strlen target) > 0) {
+                def parts:[string] (strsplit key ",")
+                if ((array_length parts) >= 2) {
+                    def lr:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                    def lc:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                    def ref:string (XlsxWriter.cellRef(lr lc))
+                    if ((charAt target 0) == 35) {
+                        out = (out + "<hyperlink ref=\"" + ref + "\" location=\"" + (XlsxWriter.esc((substring target 1 (strlen target)))) + "\"/>")
+                    } {
+                        rid = (rid + 1)
+                        out = (out + "<hyperlink ref=\"" + ref + "\" r:id=\"rId" + (to_string rid) + "\"/>")
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return ""
+        }
+        return ("<hyperlinks>" + out + "</hyperlinks>")
+    }
+
+    fn sheetRelsXml:string (m:SpreadsheetModel) {
+        def body:string ""
+        def rid:int 0
+        def i:int 0
+        while (i < (array_length m.linkKeys)) {
+            def key:string (itemAt m.linkKeys i)
+            def target:string ""
+            if (has m.links key) {
+                target = (unwrap (get m.links key))
+            }
+            if ((strlen target) > 0) {
+                if ((charAt target 0) != 35) {
+                    rid = (rid + 1)
+                    body = (body + "<Relationship Id=\"rId" + (to_string rid) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"" + (XlsxWriter.esc(target)) + "\" TargetMode=\"External\"/>")
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen body) == 0) {
+            return ""
+        }
+        return ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" + body + "</Relationships>")
+    }
+
+    ; --- package --------------------------------------------------------------
+    fn contentTypesXml:string (book:WorkbookModel) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        out = (out + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
+        out = (out + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
+        out = (out + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
+        out = (out + "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>")
+        def i:int 0
+        while (i < (book.sheetCount())) {
+            out = (out + "<Override PartName=\"/xl/worksheets/sheet" + (to_string (i + 1)) + ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
+            i = (i + 1)
+        }
+        out = (out + "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>")
+        return (out + "</Types>")
+    }
+
+    fn workbookXml:string (book:WorkbookModel) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        out = (out + "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>")
+        def i:int 0
+        while (i < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            def nm:string sh.name
+            if ((strlen nm) == 0) {
+                nm = ("Sheet" + (to_string (i + 1)))
+            }
+            out = (out + "<sheet name=\"" + (XlsxWriter.esc(nm)) + "\" sheetId=\"" + (to_string (i + 1)) + "\" r:id=\"rId" + (to_string (i + 1)) + "\"")
+            if sh.sheetHidden {
+                out = (out + " state=\"hidden\"")
+            }
+            out = (out + "/>")
+            i = (i + 1)
+        }
+        return (out + "</sheets></workbook>")
+    }
+
+    fn workbookRelsXml:string (book:WorkbookModel) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        out = (out + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+        def i:int 0
+        while (i < (book.sheetCount())) {
+            out = (out + "<Relationship Id=\"rId" + (to_string (i + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet" + (to_string (i + 1)) + ".xml\"/>")
+            i = (i + 1)
+        }
+        def styleId:int ((book.sheetCount()) + 1)
+        out = (out + "<Relationship Id=\"rId" + (to_string styleId) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
+        return (out + "</Relationships>")
+    }
+
+    sfn addPart:void (z:ZipWriter name:string text:string) {
+        z.addFile(name (XlsxWriter.utf8Buffer(text)))
+    }
+
+    ; Write the whole workbook. `dir` and `name` are what ZipWriter's own save
+    ; takes: a directory and a file name.
+    fn write:boolean (book:WorkbookModel dir:string name:string) {
+        lastError = ""
+        if ((book.sheetCount()) == 0) {
+            lastError = "workbook has no sheets"
+            return false
+        }
+        def z:ZipWriter (new ZipWriter)
+        z.create()
+        XlsxWriter.addPart(z "[Content_Types].xml" (this.contentTypesXml(book)))
+        XlsxWriter.addPart(z "_rels/.rels" "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>")
+        XlsxWriter.addPart(z "xl/workbook.xml" (this.workbookXml(book)))
+        XlsxWriter.addPart(z "xl/_rels/workbook.xml.rels" (this.workbookRelsXml(book)))
+        ; Every sheet shares the first sheet's style table, which is how the
+        ; loader builds them: one styles.xml for the package.
+        def first:SpreadsheetModel (book.sheetAt(0))
+        XlsxWriter.addPart(z "xl/styles.xml" (this.stylesXml(first.styles)))
+        def i:int 0
+        while (i < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            XlsxWriter.addPart(z ("xl/worksheets/sheet" + (to_string (i + 1)) + ".xml") (this.sheetXml(sh)))
+            def rels:string (this.sheetRelsXml(sh))
+            if ((strlen rels) > 0) {
+                XlsxWriter.addPart(z ("xl/worksheets/_rels/sheet" + (to_string (i + 1)) + ".xml.rels") rels)
+            }
+            i = (i + 1)
+        }
+        z.save(dir name)
+        return true
+    }
+}

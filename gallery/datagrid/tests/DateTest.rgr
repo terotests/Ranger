@@ -1,0 +1,183 @@
+; ==============================================================================
+; DateTest — dates, which a spreadsheet keeps as numbers with a format.
+; ==============================================================================
+;
+; Three seams: the calendar arithmetic itself, the functions built on it, and
+; what happens when someone types a date into a cell. The epoch's 1900 quirk is
+; checked explicitly, because it is the one thing here that cannot be worked
+; out from first principles — it has to be remembered.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+Import "../src/DateSerial.rgr"
+
+class DateChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.eqStr(name (to_string got) (to_string want))
+    }
+}
+
+class DateTest {
+    sfn serialOf:int (y:int m:int d:int) {
+        return (to_int (DateSerial.fromYMD(y m d)))
+    }
+
+    sfn ymd:string (serial:double) {
+        def out:[int]
+        DateSerial.toYMD(serial out)
+        return (((to_string (itemAt out 0)) + "-") + (to_string (itemAt out 1)) + "-" + (to_string (itemAt out 2)))
+    }
+
+    sfn main:void () {
+        def c:DateChecker (new DateChecker)
+
+        print "== the epoch, including the day that never happened =="
+        ; Excel's own numbers, which any spreadsheet will confirm.
+        c.eqInt("1900-01-01 is day 1" (DateTest.serialOf(1900 1 1)) 1)
+        c.eqInt("1900-02-28 is day 59" (DateTest.serialOf(1900 2 28)) 59)
+        c.eqInt("1900-03-01 is day 61, not 60" (DateTest.serialOf(1900 3 1)) 61)
+        c.eqInt("1970-01-01 is day 25569" (DateTest.serialOf(1970 1 1)) 25569)
+        c.eqInt("2024-03-15 is day 45366" (DateTest.serialOf(2024 3 15)) 45366)
+        c.eqStr("and back again" (DateTest.ymd(45366.0)) "2024-3-15")
+        c.eqStr("day 1 comes back as itself" (DateTest.ymd(1.0)) "1900-1-1")
+        c.eqStr("so does day 61" (DateTest.ymd(61.0)) "1900-3-1")
+
+        print "== leap years =="
+        c.ok("2024 is a leap year" (DateSerial.isLeap(2024)))
+        c.ok("1900 is not, whatever the epoch pretends" ((DateSerial.isLeap(1900)) == false))
+        c.ok("2000 is" (DateSerial.isLeap(2000)))
+        c.eqInt("February 2024 has 29 days" (DateSerial.daysInMonth(2024 2)) 29)
+        c.eqInt("February 2023 has 28" (DateSerial.daysInMonth(2023 2)) 28)
+
+        print "== reading what someone typed =="
+        def ok:[boolean]
+        def iso:double (DateSerial.parseDate("2024-03-15" ok))
+        c.ok("ISO parses" (itemAt ok 0))
+        c.eqInt("to the right day" (to_int iso) 45366)
+        def euro:double (DateSerial.parseDate("15.3.2024" ok))
+        c.ok("dotted day-first parses" (itemAt ok 0))
+        c.eqInt("to the same day" (to_int euro) 45366)
+        def us:double (DateSerial.parseDate("3/15/2024" ok))
+        c.ok("slashed month-first parses" (itemAt ok 0))
+        c.eqInt("to the same day again" (to_int us) 45366)
+        DateSerial.parseDate("2024 was a good year" ok)
+        c.ok("prose is not a date" ((itemAt ok 0) == false))
+        DateSerial.parseDate("45366" ok)
+        c.ok("a bare number is not a date either" ((itemAt ok 0) == false))
+        DateSerial.parseDate("2024-13-01" ok)
+        c.ok("month 13 is refused" ((itemAt ok 0) == false))
+        DateSerial.parseDate("2023-02-29" ok)
+        c.ok("the 29th of a non-leap February is refused" ((itemAt ok 0) == false))
+        c.eqStr("the format follows how it was typed" (DateSerial.formatForTyped("15.3.2024")) "dd.mm.yyyy")
+        c.eqStr("and for ISO" (DateSerial.formatForTyped("2024-03-15")) "yyyy-mm-dd")
+
+        print "== the functions =="
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.name = "Calc"
+        app.model.resize(20 6)
+        app.model.setCellRaw(0 0 "45366")
+        app.model.setFormula(1 0 "YEAR(A1)")
+        app.model.setFormula(1 1 "MONTH(A1)")
+        app.model.setFormula(1 2 "DAY(A1)")
+        app.model.setFormula(2 0 "DATE(2024,3,15)")
+        app.model.setFormula(2 1 "DATE(2024,13,1)")
+        app.model.setFormula(3 0 "WEEKDAY(A1)")
+        app.model.setFormula(3 1 "WEEKDAY(A1,2)")
+        app.model.setFormula(4 0 "EDATE(A1,1)")
+        app.model.setFormula(4 1 "EOMONTH(A1,0)")
+        app.model.setFormula(5 0 "DAYS(DATE(2024,3,20),A1)")
+        app.model.setFormula(5 1 "DATEVALUE(\"2024-03-15\")")
+        app.model.setFormula(6 0 "TEXT(A1,\"yyyy-mm-dd\")")
+        app.model.setFormula(7 0 "EDATE(DATE(2024,1,31),1)")
+        app.engine.rebuildAll()
+
+        c.eqStr("YEAR" (app.model.getCell(1 0)) "2024")
+        c.eqStr("MONTH" (app.model.getCell(1 1)) "3")
+        c.eqStr("DAY" (app.model.getCell(1 2)) "15")
+        c.eqStr("DATE builds a serial" (app.model.getCell(2 0)) "45366")
+        c.eqStr("DATE rolls month 13 into next year" (app.model.getCell(2 1)) "45658")
+        ; 2024-03-15 was a Friday.
+        c.eqStr("WEEKDAY counts Sunday as 1" (app.model.getCell(3 0)) "6")
+        c.eqStr("WEEKDAY type 2 counts Monday as 1" (app.model.getCell(3 1)) "5")
+        c.eqStr("EDATE adds a month" (app.model.getCell(4 0)) "45397")
+        c.eqStr("EOMONTH finds the end of it" (app.model.getCell(4 1)) "45382")
+        c.eqStr("DAYS subtracts" (app.model.getCell(5 0)) "5")
+        c.eqStr("DATEVALUE reads text" (app.model.getCell(5 1)) "45366")
+        c.eqStr("TEXT formats" (app.model.getCell(6 0)) "2024-03-15")
+        ; 31 January plus a month is 29 February in a leap year, not 2 March.
+        c.eqStr("EDATE clamps to the end of a short month" (DateTest.ymd((to_double (SpreadsheetModel.parseInt0((app.model.getCell(7 0))))))) "2024-2-29")
+
+        print "== TODAY answers the host's clock, or admits it cannot =="
+        app.model.setFormula(9 0 "TODAY()")
+        app.engine.rebuildAll()
+        c.eqStr("unset, TODAY is #N/A rather than a guess" (app.model.getCell(9 0)) "#N/A")
+        app.setToday(2024 3 15)
+        app.engine.rebuildAll()
+        c.eqStr("set, TODAY is that day" (app.model.getCell(9 0)) "45366")
+        app.model.setFormula(9 1 "YEAR(TODAY())")
+        app.engine.rebuildAll()
+        c.eqStr("and composes" (app.model.getCell(9 1)) "2024")
+
+        print "== typing a date into a cell =="
+        def typed:GridApp (new GridApp)
+        typed.init("gallery/pdf_writer/assets/fonts")
+        typed.model.clearSheet()
+        typed.model.resize(10 4)
+        typed.moveActive(0 0 false)
+        typed.beginEdit("2024-03-15" true)
+        typed.commitEdit()
+        c.eqStr("the cell holds the day count" (typed.model.getCell(0 0)) "45366")
+        c.eqStr("and shows the date" (typed.model.getDisplay(0 0)) "2024-03-15")
+        def st:CellStyle (typed.model.getCellStyle(0 0))
+        c.eqStr("wearing a date format" st.numFmt "yyyy-mm-dd")
+
+        typed.moveActive(1 0 false)
+        typed.beginEdit("15.3.2024" true)
+        typed.commitEdit()
+        c.eqStr("the other order is the same day" (typed.model.getCell(1 0)) "45366")
+        c.eqStr("drawn the way it was typed" (typed.model.getDisplay(1 0)) "15.03.2024")
+
+        typed.moveActive(2 0 false)
+        typed.beginEdit("not a date" true)
+        typed.commitEdit()
+        c.eqStr("text stays text" (typed.model.getCell(2 0)) "not a date")
+
+        typed.moveActive(3 0 false)
+        typed.beginEdit("45366" true)
+        typed.commitEdit()
+        c.eqStr("a bare number stays a number" (typed.model.getCell(3 0)) "45366")
+        def plain:CellStyle (typed.model.getCellStyle(3 0))
+        c.eqStr("with no date format put on it" plain.numFmt "General")
+
+        ; A date is a number, so date arithmetic is arithmetic.
+        typed.model.setFormula(4 0 "A1+7")
+        typed.engine.rebuildAll()
+        c.eqStr("a week later" (typed.model.getCell(4 0)) "45373")
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

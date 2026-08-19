@@ -1,0 +1,337 @@
+; ==============================================================================
+; Deflate.rgr — DEFLATE, fixed Huffman, for the PNG writer.
+; ==============================================================================
+;
+; Every PNG this repository has ever written was STORED — deflate block type 0,
+; which is deflate's way of saying "here are the bytes again". A 900x560
+; screenshot came out at 1.5 MB, and a chart copied to the clipboard carried a
+; megabyte of base64 into whatever document it was pasted into. The files were
+; correct and every decoder read them; they were just as large as the raw
+; pixels.
+;
+; This is the smallest thing that fixes that honestly: LZ77 matching against a
+; hash of the last three bytes, emitted with the FIXED Huffman code (block type
+; 1). No dynamic code tables — those buy another 10-20% on top and need a
+; second pass and a code-length tree, which is a lot of machinery for a
+; screenshot. What this gets on flat, repetitive images — which charts and
+; spreadsheets are — is roughly a tenth of the stored size.
+;
+; The output is ordinary deflate, so the check is not "does our decoder like
+; it": `tools/check_png.py` hands every PNG we write to Python's zlib.
+;
+; Bit order, which is where a deflate implementation usually goes wrong:
+;   * Huffman codes are packed most-significant bit FIRST
+;   * everything else — headers, extra bits — is packed least-significant first
+; ==============================================================================
+
+Import "../core/Buffer.rgr"
+
+class DeflateWriter {
+    def out:GrowableBuffer (new GrowableBuffer)
+    def acc:int 0
+    def nbits:int 0
+
+    Constructor () {
+    }
+
+    fn putBit:void (b:int) {
+        if (b != 0) {
+            acc = (bit_or acc (bit_shl 1 nbits))
+        }
+        nbits = (nbits + 1)
+        if (nbits == 8) {
+            out.writeByte(acc)
+            acc = 0
+            nbits = 0
+        }
+    }
+
+    ; Header fields and extra bits: least significant bit first.
+    fn bits:void (value:int count:int) {
+        def i:int 0
+        while (i < count) {
+            this.putBit((bit_and (bit_shr value i) 1))
+            i = (i + 1)
+        }
+    }
+
+    ; A Huffman code: most significant bit first.
+    fn huff:void (code:int count:int) {
+        def i:int (count - 1)
+        while (i >= 0) {
+            this.putBit((bit_and (bit_shr code i) 1))
+            i = (i - 1)
+        }
+    }
+
+    fn align:void () {
+        while (nbits != 0) {
+            this.putBit(0)
+        }
+    }
+}
+
+class Deflate {
+    ; Length codes 257..285 and distance codes 0..29, as the RFC tabulates
+    ; them. Built once per compressor rather than written out as literals in
+    ; the emit loop, where a typo would be a corrupt stream nobody could read.
+    def lenBase:[int]
+    def lenExtra:[int]
+    def distBase:[int]
+    def distExtra:[int]
+    ; Where the last occurrence of each three-byte sequence was seen. One slot
+    ; per hash, no chains: the most recent match is the one a run of identical
+    ; pixels wants anyway, and walking a chain to find a better one costs more
+    ; than it saves on the images this writes.
+    def head:[int]
+    def hashBits:int 15
+    def hashSize:int 32768
+
+    Constructor () {
+        push lenBase 3
+        push lenBase 4
+        push lenBase 5
+        push lenBase 6
+        push lenBase 7
+        push lenBase 8
+        push lenBase 9
+        push lenBase 10
+        push lenBase 11
+        push lenBase 13
+        push lenBase 15
+        push lenBase 17
+        push lenBase 19
+        push lenBase 23
+        push lenBase 27
+        push lenBase 31
+        push lenBase 35
+        push lenBase 43
+        push lenBase 51
+        push lenBase 59
+        push lenBase 67
+        push lenBase 83
+        push lenBase 99
+        push lenBase 115
+        push lenBase 131
+        push lenBase 163
+        push lenBase 195
+        push lenBase 227
+        push lenBase 258
+        push lenExtra 0
+        push lenExtra 0
+        push lenExtra 0
+        push lenExtra 0
+        push lenExtra 0
+        push lenExtra 0
+        push lenExtra 0
+        push lenExtra 0
+        push lenExtra 1
+        push lenExtra 1
+        push lenExtra 1
+        push lenExtra 1
+        push lenExtra 2
+        push lenExtra 2
+        push lenExtra 2
+        push lenExtra 2
+        push lenExtra 3
+        push lenExtra 3
+        push lenExtra 3
+        push lenExtra 3
+        push lenExtra 4
+        push lenExtra 4
+        push lenExtra 4
+        push lenExtra 4
+        push lenExtra 5
+        push lenExtra 5
+        push lenExtra 5
+        push lenExtra 5
+        push lenExtra 0
+        push distBase 1
+        push distBase 2
+        push distBase 3
+        push distBase 4
+        push distBase 5
+        push distBase 7
+        push distBase 9
+        push distBase 13
+        push distBase 17
+        push distBase 25
+        push distBase 33
+        push distBase 49
+        push distBase 65
+        push distBase 97
+        push distBase 129
+        push distBase 193
+        push distBase 257
+        push distBase 385
+        push distBase 513
+        push distBase 769
+        push distBase 1025
+        push distBase 1537
+        push distBase 2049
+        push distBase 3073
+        push distBase 4097
+        push distBase 6145
+        push distBase 8193
+        push distBase 12289
+        push distBase 16385
+        push distBase 24577
+        push distExtra 0
+        push distExtra 0
+        push distExtra 0
+        push distExtra 0
+        push distExtra 1
+        push distExtra 1
+        push distExtra 2
+        push distExtra 2
+        push distExtra 3
+        push distExtra 3
+        push distExtra 4
+        push distExtra 4
+        push distExtra 5
+        push distExtra 5
+        push distExtra 6
+        push distExtra 6
+        push distExtra 7
+        push distExtra 7
+        push distExtra 8
+        push distExtra 8
+        push distExtra 9
+        push distExtra 9
+        push distExtra 10
+        push distExtra 10
+        push distExtra 11
+        push distExtra 11
+        push distExtra 12
+        push distExtra 12
+        push distExtra 13
+        push distExtra 13
+    }
+
+    ; The fixed literal/length code for one symbol, written straight out.
+    fn literal:void (w:DeflateWriter sym:int) {
+        if (sym < 144) {
+            w.huff((48 + sym) 8)
+            return
+        }
+        if (sym < 256) {
+            w.huff((400 + (sym - 144)) 9)
+            return
+        }
+        if (sym < 280) {
+            w.huff((sym - 256) 7)
+            return
+        }
+        w.huff((192 + (sym - 280)) 8)
+    }
+
+    fn lengthSlot:int (len:int) {
+        def i:int 28
+        while (i > 0) {
+            def base:int (itemAt lenBase i)
+            if (len >= base) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return 0
+    }
+
+    fn distSlot:int (dist:int) {
+        def i:int 29
+        while (i > 0) {
+            def base:int (itemAt distBase i)
+            if (dist >= base) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return 0
+    }
+
+    fn emitMatch:void (w:DeflateWriter len:int dist:int) {
+        def ls:int (this.lengthSlot(len))
+        this.literal(w (257 + ls))
+        def lx:int (itemAt lenExtra ls)
+        if (lx > 0) {
+            w.bits((len - (itemAt lenBase ls)) lx)
+        }
+        def ds:int (this.distSlot(dist))
+        ; Distance codes are five bits, fixed width, most significant first.
+        w.huff(ds 5)
+        def dx:int (itemAt distExtra ds)
+        if (dx > 0) {
+            w.bits((dist - (itemAt distBase ds)) dx)
+        }
+    }
+
+    sfn hash3:int (a:int b:int c:int) {
+        def h:int (bit_and (((a * 7853) + (b * 271)) + c) 32767)
+        return h
+    }
+
+    ; One fixed-Huffman block over the whole input. `w` is left byte-aligned.
+    fn compress:void (src:buffer n:int w:DeflateWriter) {
+        clear head
+        def i:int 0
+        while (i < hashSize) {
+            push head -1
+            i = (i + 1)
+        }
+        ; BFINAL = 1, BTYPE = 01 (fixed Huffman)
+        w.bits(1 1)
+        w.bits(1 2)
+
+        def pos:int 0
+        while (pos < n) {
+            def bestLen:int 0
+            def bestDist:int 0
+            if ((pos + 3) <= n) {
+                def h:int (Deflate.hash3((buffer_get src pos) (buffer_get src (pos + 1)) (buffer_get src (pos + 2))))
+                def cand:int (itemAt head h)
+                set head h pos
+                if (cand >= 0) {
+                    def dist:int (pos - cand)
+                    if ((dist > 0) && (dist <= 32768)) {
+                        def maxLen:int (n - pos)
+                        if (maxLen > 258) {
+                            maxLen = 258
+                        }
+                        def k:int 0
+                        while (k < maxLen) {
+                            if ((buffer_get src (cand + k)) != (buffer_get src (pos + k))) {
+                                break
+                            }
+                            k = (k + 1)
+                        }
+                        if (k >= 3) {
+                            bestLen = k
+                            bestDist = dist
+                        }
+                    }
+                }
+            }
+            if (bestLen >= 3) {
+                this.emitMatch(w bestLen bestDist)
+                ; Every position inside the match still wants to be findable
+                ; later, or the next run starts from nothing.
+                def j:int 1
+                while (j < bestLen) {
+                    def at:int (pos + j)
+                    if ((at + 3) <= n) {
+                        def h2:int (Deflate.hash3((buffer_get src at) (buffer_get src (at + 1)) (buffer_get src (at + 2))))
+                        set head h2 at
+                    }
+                    j = (j + 1)
+                }
+                pos = (pos + bestLen)
+            } {
+                this.literal(w (buffer_get src pos))
+                pos = (pos + 1)
+            }
+        }
+        ; End of block, then pad to a byte so the adler can follow.
+        this.literal(w 256)
+        w.align()
+    }
+}

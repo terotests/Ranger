@@ -9,23 +9,33 @@ class CRC32 {
         this.buildTable()
     }
     
+    ; A 32-bit value, kept NON-NEGATIVE. Ranger's bitwise operators are JavaScript's
+    ; on this target, and those return a SIGNED 32-bit result: 0xEDB88320 comes
+    ; back as a negative number, and everything downstream — the shift, the
+    ; table lookup, the little-endian write — then works on the wrong value.
+    ; Normalizing after every xor is what keeps the arithmetic unsigned, which
+    ; is what CRC-32 is defined in.
+    sfn u32:int (v:int) {
+        if (v < 0) {
+            return (v + 4294967296)
+        }
+        return v
+    }
+
     fn buildTable:void () {
-        ; Build 256-entry CRC lookup table
-        ; Polynomial: 0xEDB88320 (reflected form of 0x04C11DB7)
+        ; Build the 256-entry lookup table for polynomial 0xEDB88320, the
+        ; reflected form of 0x04C11DB7.
         def i 0
         while (i < 256) {
             def crc:int i
             def j 0
             while (j < 8) {
-                if ((crc % 2) == 1) {
-                    ; crc = (crc >> 1) ^ 0xEDB88320
-                    def shifted:double ((to_double crc) / 2.0)
-                    def shiftedInt:int (to_int shifted)
-                    ; XOR with polynomial 0xEDB88320 = 3988292384
-                    crc = (bit_xor shiftedInt 3988292384)
+                def low:int (crc % 2)
+                def shifted:int (idiv crc 2)
+                if (low == 1) {
+                    crc = (CRC32.u32((bit_xor shifted 3988292384)))
                 } {
-                    def shifted:double ((to_double crc) / 2.0)
-                    crc = (to_int shifted)
+                    crc = shifted
                 }
                 j = j + 1
             }
@@ -34,29 +44,21 @@ class CRC32 {
         }
         tableBuilt = true
     }
-    
+
     fn update:int (crc:int data:buffer offset:int length:int) {
-        ; Update CRC with data bytes
-        ; crc should be initialized to 0xFFFFFFFF
+        ; `crc` comes in as an unsigned 32-bit value and leaves as one.
         def i 0
         while (i < length) {
             def b:int (buffer_get data (offset + i))
-            def index:int ((bit_xor crc b) % 256)
-            ; Ensure index is positive
-            if (index < 0) {
-                index = index + 256
-            }
+            def index:int ((CRC32.u32((bit_xor crc b))) % 256)
             def tableValue:int (itemAt table index)
-            def shiftedD:double ((to_double crc) / 256.0)
-            def shifted:int (to_int shiftedD)
-            ; Mask to 24 bits (>> 8 means divide by 256, which gives us upper 24 bits)
-            def masked:int (bit_and shifted 16777215)
-            crc = (bit_xor masked tableValue)
+            def shifted:int (idiv crc 256)
+            crc = (CRC32.u32((bit_xor shifted tableValue)))
             i = i + 1
         }
         return crc
     }
-    
+
     fn compute:int (data:buffer) {
         ; Compute CRC-32 of entire buffer
         ; Returns the final CRC value (inverted)
@@ -65,7 +67,7 @@ class CRC32 {
         def crc:int 4294967295
         crc = (this.update(crc data 0 len))
         ; Invert final value (XOR with 0xFFFFFFFF)
-        return (bit_xor crc 4294967295)
+        return (CRC32.u32((bit_xor crc 4294967295)))
     }
     
     fn computeString:int (s:string) {

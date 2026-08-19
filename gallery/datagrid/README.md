@@ -25,8 +25,11 @@ npm run datagrid:test
 npm run datagrid:edit:test
 npm run datagrid:xlsx:test
 npm run datagrid:chart:test
+npm run datagrid:export:test
 npm run datagrid:workbook:test
 npm run datagrid:formula:test
+npm run datagrid:formula:array:test
+npm run datagrid:date:test
 npm run datagrid:formula:workbook:test
 npm run datagrid:formula:bench
 npm run datagrid:artifacts
@@ -59,8 +62,20 @@ npm run datagrid:window
   incremental recalc) + FormulaFunctions; cached `<v>` fallback
 - SheetView drives paint order; header popup for sort/filter
 - Conditional formatting: colorScale + cellIs paint overlay
-- **Charts from a selection**: eight Vega-Lite chart types through
+- **Charts from a selection**: twenty Vega-Lite chart types, previewed live in the picker, through
   [Vela](../vela/README.md), floating in draggable, resizable windows
+- **Find and replace** across values or formulas, one sheet or all
+- **Disjoint selection** (Ctrl+click) and **drag-to-move** a range
+- **Conditional formatting** read from the file *and* authored in a rule editor
+- **Hyperlinks, notes and data validation**: read from the package, painted,
+  enforced, and editable
+- **.xlsx export**: `Ctrl+S`, round-tripped by our own loader and by openpyxl
+- **~80 formula functions**, lookups over real rectangles, spilling array
+  results, and dates as Excel stores them
+- **Rich text**: several styles inside one cell, on one baseline
+- **Images**: drawing anchors and media, painted on both backends
+- **A named-command API** a host can enumerate, drive and extend — over HTTP too
+- **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
 - Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`,
@@ -83,6 +98,8 @@ formula together** in one undo op, and every batch runs inside
 | Ctrl+X | Cut + paste moves formulas **as written** (no ref translation) |
 | Delete | Clears value *and* formula over the range, then recalculates dependents |
 | Fill handle | Tiles the source rect, translating relative refs |
+| Ctrl+click | Adds another rectangle to the selection; Delete and the format painter cover them all |
+| Drag the selection's edge | Moves the block — a cut and a paste, so formulas move as written |
 | Ctrl+Z / Ctrl+Y | One step per action — a 3×3 paste, a fill, or a range delete is a single undo |
 | Row / column resize | Drag the header edge (9px grab zone), double-click it to auto-fit |
 
@@ -111,7 +128,23 @@ snapshots every formula in the sheet, and undo restores that text wholesale. A
 delete also keeps the removed column's values, formulas, style ids and width,
 so one Ctrl+Z brings the column back intact.
 
-Rows are not covered yet — the same machinery, transposed, is the next step.
+### Row structure
+
+The same machinery, transposed, and reached from the **row header**: click one
+and its own menu opens.
+
+| Row menu | Does |
+| --- | --- |
+| 1 | Select the row |
+| 2 / 3 / 4 | Auto-fit height, taller (+10), shorter (−10) |
+| 5 / 6 | Insert a row above / below |
+| 7 | Delete the row |
+| 8 / 9 | Move it up / down |
+
+Everything the column ops guarantee holds for rows: heights and hidden flags
+travel with the line, merges follow, formulas across the whole workbook are
+repaired, a reference into a deleted row becomes `#REF!`, and one Ctrl+Z puts
+the row back with its values, formulas, styles and height.
 
 ### Column and row sizing
 
@@ -145,6 +178,14 @@ snapshot — no DOM or SDL below the app.
 | Home / Ctrl+Home | First column of the row / A1 | Caret to start |
 | End / Ctrl+End | Last used column of the row / bottom-right of the used range | Caret to end |
 | Ctrl+Space / Shift+Space | Select the column / the row | — |
+| Ctrl+F / Ctrl+H | Find and replace | — |
+| Ctrl+L | Conditional-formatting rule editor | — |
+| Ctrl+K | Hyperlink on the active cell | — |
+| Ctrl+E | Data-validation rule for the selection | — |
+| Ctrl+S | Save the workbook as .xlsx | — |
+| Ctrl+click a link | Follows it — the host is told the target | — |
+| Ctrl+M | Chart the selection (live preview in the picker) | — |
+| Ctrl+C over a chart | Copies it as a picture — pastes into Excel and Word | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
 | ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
 | Delete | Clear the selection | Delete at the caret |
@@ -224,6 +265,188 @@ The host stays in charge: it passes the `UITextRenderer` it already has,
 forwards the pointer and keys it already receives, and appends the window's
 commands to its own display list.
 
+**A button row is fitted to the panel, not assumed to fit it.** Buttons prefer
+92 pixels, shrink towards a legible minimum when there are more of them than
+there is room for, and wrap onto another row rather than overflow — four
+buttons in a 340-wide dialog used to lay the first one out at `x = -66`,
+hanging off the panel and over the sheet behind it. `GridEditTest` now asserts
+the invariant that broke: every control of every dialog is inside its own
+panel.
+
+## Find and replace
+
+`Ctrl+F` (or `Ctrl+H`) opens it. The dialog has real text fields — the window
+layer grew a one-line input control for this, with a caret, Tab between fields
+and the keyboard captured while it is up.
+
+| Option | Means |
+| --- | --- |
+| Match case | `Alpha` no longer matches `alpha` |
+| Entire cell | The cell must be exactly the search text, not merely contain it |
+| Search formulas | Look at `=A1+B1` rather than at the `5` it shows |
+| All sheets | Carry on into the next sheet, and switch to it on a hit |
+
+*Find next* walks row-major from the active cell and wraps. *Replace* changes
+the cell it is on and moves to the next; *Replace all* runs the whole scan
+inside one transaction, so the batch is a single Ctrl+Z. A hit inside a formula
+is written back to the formula and recalculates.
+
+## Conditional formatting
+
+Rules read from a workbook are painted — colour scales and `cellIs` — and
+`Ctrl+L` now writes them too: pick a test (greater than, less than, equal to,
+between, or a colour scale over the range), a number, and a fill, and the rule
+applies to the selection. *Clear* drops the rules that start inside it.
+
+Rules are sheet metadata rather than cell contents, so they are deliberately
+**not** on the undo stack: undoing a paste must not silently drop a rule the
+paste never touched.
+
+## Images
+
+A picture in a spreadsheet is not *in* a cell; it floats over one, anchored by a
+cell plus an offset, and either stretched to a second cell or pinned at its own
+size. That is why the geometry is stored as `(cell, offset)` rather than as
+pixels — widen a column the picture spans and the picture widens with it.
+
+Finding one takes three hops, each of which can be missing: the sheet points at
+a **drawing** part, the drawing names a **relationship**, the relationship names
+the **media** file. The bytes are taken while the package is open, because it is
+closed before the first paint.
+
+| Backend | How it draws them |
+| --- | --- |
+| SoftCanvas | decoded once per part (PNG or JPEG) and blitted, scaled nearest-neighbour, alpha respected |
+| WebGL | an `IMAGE` command names the part; the host serves it at `/media/<part>` and the renderer textures it |
+
+Nearest neighbour is deliberate: a spreadsheet's pictures are logos and diagrams
+shown near their own size, and a blur would be worse than a stairstep. A picture
+that cannot be decoded is drawn as its own outline with the reason in it, rather
+than as nothing at all.
+
+## Rich text
+
+A cell's style says how the cell is drawn; **rich text** says how parts of it
+are — `Total:` in bold red, the number plain, the unit smaller and italic.
+OOXML calls the pieces *runs*, and they are read, painted and written back.
+
+The runs live beside the cell's value, not inside it, for the same reason notes
+and links do: the value is what formulas read and what a paste carries, so it
+stays a plain string that everything already understands. Runs of different
+sizes sit on **one baseline**, which is what makes a smaller suffix look
+attached to the word before it rather than floating above it.
+
+Retyping a cell drops its runs — a spreadsheet does the same, because there is
+no answer to which run the new text belongs to.
+
+## Links, notes and validation
+
+Three things a cell can carry that are not its value. All three come out of the
+package — a hyperlink's target from the sheet's *relationships*, a note from the
+*comments* part the relationships point at, a rule from `dataValidation` — and
+all three are editable here.
+
+| | Read from | Shown as | Edited with |
+| --- | --- | --- | --- |
+| Hyperlink | `<hyperlinks>` + `_rels` | link colour, underlined | `Ctrl+K` |
+| Note | `xl/comments1.xml` | corner mark; opened for the active cell | — |
+| Validation | `<dataValidation>` | list arrow on the active cell | `Ctrl+E` |
+
+**A rule is asked before the value is written**, not after: a refusal has to
+leave the cell as it was, and writing then rolling back would let a dependent
+formula see the bad value first. List rules also know their choices, so the
+cell offers a picker rather than making you remember them.
+
+All three are **metadata, not cell content**, so they are deliberately off the
+undo stack — undoing a paste must not drop the note that was pinned to the cell
+before it.
+
+## Formulas
+
+~80 functions, an AST with a dependency graph, and incremental recalculation.
+Beyond the arithmetic, string and logic families, the notable ones are:
+
+| Family | Functions |
+| --- | --- |
+| Lookup | `VLOOKUP` `HLOOKUP` `INDEX` `MATCH` `TRANSPOSE` `SUMPRODUCT` |
+| Conditional | `COUNTIF` `SUMIF` `AVERAGEIF` `COUNTBLANK` |
+| Dates | `DATE` `YEAR` `MONTH` `DAY` `WEEKDAY` `EDATE` `EOMONTH` `DAYS` `DATEVALUE` `TODAY` `NOW` |
+| Statistics | `MEDIAN` `LARGE` `SMALL` `ROUNDUP` `ROUNDDOWN` `TRUNC` |
+| Text | `SUBSTITUTE` `FIND` `SEARCH` `REPT` `PROPER` `EXACT` `CHAR` `CODE` `TEXT` |
+
+### A range keeps its shape
+
+A range used to be flattened into a list of arguments the moment it reached a
+function, which is why the lookups could not exist: `VLOOKUP` reads *down* a
+column and *across* a row, and a list has neither. A range now evaluates to a
+**rectangle** — a `FormulaValue` that knows its own rows and columns — and three
+things follow:
+
+1. **Lookups work**, because they can ask where they are.
+2. **Arithmetic spreads over it**: `=B1:B3*C1:C3` is three products, and a
+   single operand broadcasts (`=B1:B3*2`).
+3. **An array answer spills.** The top-left lands in the cell holding the
+   formula and the rest fills the block below and to the right, as a modern
+   spreadsheet does. The block is remembered, so a formula that shrinks takes
+   its old tail back; a spill that would land on someone's data refuses with
+   `#SPILL!` instead of eating it.
+
+Functions that only ever wanted values keep working: the helpers that walk
+arguments open a rectangle out on the way past.
+
+### Dates
+
+A spreadsheet has no date type — it has **numbers with a format**, and every
+date feature is arithmetic on a day count. Type `2024-03-15`, `15.3.2024` or
+`3/15/2024` and the cell stores `45366` wearing the format that draws it back
+the way you typed it.
+
+The epoch is Excel's, including the 29th of February 1900 — a date that never
+happened, which Lotus 1-2-3 got wrong and Excel copied for compatibility.
+`DateTest` checks day 1, day 59 and day 61 against Excel's own answers, because
+getting that backwards shifts every date before March 1900 by one and nothing
+else.
+
+`TODAY()` and `NOW()` are not pure functions: they read a clock this layer does
+not have. The **host sets one** (`GridApp.setToday`), which is also what makes
+them testable — a test says what today is instead of hoping the suite does not
+run over midnight. Unset, they answer `#N/A` rather than inventing a date.
+
+## Saving
+
+`Ctrl+S` writes the workbook back out as **.xlsx**, beside the file it came
+from and under a name that cannot overwrite it (`sales.xlsx` →
+`sales-export.xlsx`). `GridApp.saveXlsx(dir name)` puts it wherever you like.
+
+The writer and the loader share one model, so a round trip is a test rather
+than a hope — and `npm run datagrid:export:test` runs both halves of it:
+
+1. **Ours**: build a workbook, write it, load it back with the ordinary loader,
+   compare everything (48 checks).
+2. **Theirs**: `tools/check_export.py` reads the same file with **openpyxl**,
+   a library that has never seen our model (29 checks). Two halves of one
+   codebase can share a misunderstanding; an outside reader cannot join in.
+
+| Survives the trip | Not written yet |
+| --- | --- |
+| values, formulas (with cached results), styles — font, fill, borders, alignment, wrap, rotation, number formats | cell comments |
+| column widths, row heights, hidden rows and columns | conditional-formatting rules |
+| merges, freeze panes, sheet names and hidden sheets | charts and images |
+| hyperlinks (external via relationships, internal by location), data validation rules | |
+
+Two decisions worth knowing: strings go out **inline** rather than through a
+shared-string table (a shared table is a size optimisation whose only failure
+mode is an index pointing at the wrong string), and entries are **stored**
+rather than deflated, which the OPC specification allows and every reader
+accepts.
+
+Fixing this turned up a bug in the shared zip writer: `CRC32` masked its
+running value to 24 bits and let JavaScript's signed bitwise operators keep the
+result negative, so **every archive the repository has ever written had wrong
+CRCs**. Our own reader ignores CRCs and never noticed; Python's `zipfile`
+refuses the file outright. The same bug lived in a second copy of `CRC32.rgr`
+under `game_engine`, and both are fixed.
+
 ## Charts
 
 Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
@@ -249,19 +472,61 @@ the bar the reference draws.
 
 ### What the picker offers
 
-Eight types — column, bar, stacked column, line, area, scatter, pie, donut — and
-four styles (Vela light, Slate dark, Mono, Bold), which are `config` blocks: the
-same marks, painted differently.
+**Twenty types**, grouped by what they are made of, and **six styles**:
+
+| Group | Types |
+| --- | --- |
+| Bars | Column, Bar, Stacked, 100% stacked, Histogram |
+| Lines | Line, Line + points, Step, Smooth |
+| Areas | Area, Stacked area, Stream |
+| Points | Scatter, Bubble, Strip |
+| Parts of a whole | Pie, Donut, Radial |
+| Matrices | Heatmap, Box plot |
+
+Styles — Vela light, Slate dark, Mono, Bold, Ocean, Sunset — are `config`
+blocks: the same marks, painted differently. What makes them look like charts
+rather than diagrams is mostly what they leave out: no border around the plot, a
+grid light enough to read past, ticks that do not compete with the data.
+
+> The config block only reaches Vega through `VlCompile.compileSpec`; `compile`
+> alone drops it. Compiled the short way every chart came out in Vega's
+> defaults — `#ddd` gridlines, a tableau palette — whatever the style said, and
+> the styles looked identical for exactly as long as nobody compared two of
+> them. `ChartTest` now renders the same chart in two styles and requires the
+> pictures to differ.
+
+Categories keep the order the **sheet** put them in (`"sort": null`). Vega-Lite
+sorts a nominal domain alphabetically, which turns Jan…Jun into
+Apr, Feb, Jan, Jun, Mar, May — right for a chart of names, wrong for every
+table a spreadsheet draws.
 
 **A type that would not work is greyed out rather than hidden**, because
 "a pie is possible, but not of two series" is worth more than a shorter list:
 
 | Type | Needs |
 | --- | --- |
-| Stacked column | two or more series |
-| Line, area | two or more categories |
-| Scatter | a numeric first column |
-| Pie, donut | exactly one series, two or more categories |
+| Stacked, 100% stacked, stacked area, stream | two or more series |
+| Line, area, step, smooth | two or more categories |
+| Scatter, strip | two numeric value columns |
+| Bubble | three — x, y and the size |
+| Pie, donut, radial | exactly one series, two or more categories |
+| Box plot | several values per series |
+
+### The live preview
+
+The picker draws **the chart it is describing**, beside the options, and
+redraws it as they change — click a type, switch a style, type a title, and the
+picture follows on the next frame. Nothing is created and nothing has to be
+undone to try the next one.
+
+It is the same renderer, the same cache and the same specification as a chart on
+the sheet, drawn into a content region the window reserves
+(`EVGWindow.addContentAt`) rather than a preview mode of its own — so what you
+see is what you get, by construction rather than by care.
+
+The options are bounded to the left column (`EVGWindow.flowW`); laid out across
+the full panel they were placed *underneath* the picture, and a third of the
+types could not be clicked.
 
 The picker opens on the type the data suggests, with the headers already
 guessed: a top row of words over a column of numbers is a header row, not data.
@@ -278,11 +543,67 @@ A column of dates charted as six equal values of 2024 is how that was found.
 | --- | --- |
 | Drag the title bar | Moves the chart; the chart remembers where it was left |
 | Drag the bottom-right grip | Resizes it, and the chart redraws to fit |
+| **Copy** | Puts the chart on the clipboard — see below |
 | **Edit…** | Reopens the picker on that chart — change type, style or headers |
 | The box in the title bar | Removes the chart |
 
 Charts belong to a sheet: switch sheets and the ones reading another sheet hide
 rather than draw over the wrong numbers.
+
+### Copying a chart into Excel and Word
+
+**Copy** on a chart window — or Ctrl+C while one is on top, or the `chart.copy`
+command — puts the chart on the system clipboard. Not in one format: the
+clipboard carries several representations of the same thing at once and the
+receiving program picks the richest one it understands, so the question is not
+which format to use but which set to offer.
+
+| Flavour | What Excel does with it | What Word does with it |
+| --- | --- | --- |
+| `text/html` | pastes the picture | pastes the picture — and this is the one it reaches for first |
+| `image/png` | pastes the picture, floating over the cells | pastes the picture, in the text flow |
+| `image/svg+xml` | Office 2016+ pastes vector that stays sharp when resized | same |
+| `text/plain` | the chart's own numbers, as TSV, straight into cells | a tab-separated block |
+
+The HTML flavour is a single `<img>` whose source is the PNG as a **data URI**:
+nothing external to fetch, nothing to go missing when the document is mailed on.
+A host that puts CF_HTML on a Windows clipboard wraps that fragment in the
+CF_HTML header; a browser hands `text/html` to `navigator.clipboard` and the
+wrapping is the browser's problem.
+
+All of them are built from **one render** ([`GridClip.rgr`](src/GridClip.rgr)) —
+the same display list the sheet draws, painted onto an off-screen surface by the
+same [`SoftPainter`](src/SoftPainter.rgr). The picture in the document is the
+picture that was on screen rather than a second drawing that agrees by
+inspection. The bitmap is drawn at twice the on-screen box, because a
+380-pixel chart dropped into a Word page is a thumbnail; the HTML states the
+on-screen size, so it arrives the size it looked and carries twice the detail
+for print.
+
+For a host: `GridApp.clipboardKind` says `"cells"` or `"chart"`, the flavours
+are `clipboardTsv` / `clipboardHtml` / `clipboardPng` (base64) / `clipboardSvg`,
+and `clipboardSeq` counts copies — poll it rather than guessing which events
+copy, because a chart is copied by a *button* as well as by a key. Over HTTP,
+`POST /input` and `POST /command` return the payload in their reply and
+`GET /clipboard` reads it back without consuming it. `npm run
+datagrid:clipboard:smoke` drives that whole path — start, click Create, click
+Copy, inflate the PNG that comes back — with no browser involved.
+
+> Two things came out of writing it. **Every PNG this repository has ever
+> written was uncompressed**: the encoder emitted deflate *stored* blocks, so a
+> 900x560 screenshot was 1.5 MB and a copied chart carried a megabyte of base64
+> into whatever document it was pasted into. [`Deflate.rgr`](../pdf_writer/src/raster/Deflate.rgr)
+> is the fix — LZ77 against a three-byte hash, fixed Huffman — and the
+> artifacts here went from 1.5 MB each to 30-130 KB.
+> `tools/check_png.py` hands every one of them to Python's `zlib`, because our
+> own decoder agreeing with our own encoder proves nothing.
+>
+> And the round trip through that decoder came back **two levels off** on every
+> antialiased pixel. The blitter's alpha mix divided by 256 rather than 255, so
+> compositing a glyph onto an *opaque* canvas left alpha at 254 — invisible on
+> screen, where nothing composites again, and plainly wrong the moment those
+> pixels were flattened into an RGB file. Fixed in all three copies of
+> `rgba_fast_blit.rgr`.
 
 ### Fitting
 
@@ -294,6 +615,31 @@ is crisp rather than resampled. Compiling is cached by specification text and
 box size, which is why dragging a chart costs nothing and editing a cell it
 reads costs one recompute.
 
+## The command surface
+
+"`GridApp` is the API" was true and not much use: a host had to know the method
+names, their arguments, and which were meant to be called from outside.
+`GridCommands` is the answer — a table of **named commands** a host can
+enumerate, describe, and invoke by string.
+
+```bash
+curl localhost:8766/commands                                    # what it can do
+curl -X POST localhost:8766/command -d '{"id":"nav.goto","arg":"C5"}'
+```
+
+Ids are dotted and stable (`edit.copy`, `insert.row.above`, `file.save`); each
+carries a label, a group, the key that already runs it, and whether it takes an
+argument. The HTTP routes dispatch through the same table the keyboard does, so
+driving the grid from outside runs exactly the paths a user does.
+
+**Custom tools.** A host registers one with `addCustomCommand(id label group)`.
+It joins the table and appears on the status bar — and running it does *nothing
+here*: it leaves the id in a mailbox the host collects with
+`takeCustomCommand()`. Ranger has no closures to hand a host, so a callback was
+never on the table; a mailbox is the honest shape, and it is also the only one
+that survives the app being driven over a socket, where a callback could not
+have gone anyway.
+
 ## Parity score
 
 `npm run datagrid:parity` scores [`docs/PARITY.md`](docs/PARITY.md) — one row per
@@ -302,13 +648,18 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   27.0 / 41   65.9%     done 23   partial 8   todo 10
+TOTAL   39.0 / 41   95.1%     done 39   partial 0   todo 2
 ```
 
-`-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
-the score can gate CI once it is where you want it. The biggest gaps left are
-xlsx **export**, insert / delete for **rows**, rich text inside a cell, images,
-comments and find-and-replace.
+`-- --todo` lists what is missing; `-- --check 90` fails below a threshold, so
+the score can gate CI. Six of the seven sections are at 100%.
+
+What is left is deliberately left: **cooperative editing** and **mobile
+adaptation**. Both are I/O shapes rather than spreadsheet behaviour — one needs
+a transport and a conflict policy, the other a touch event source — and neither
+can be tested the way everything above is, by driving the model and reading the
+answer back. The abstractions are writable; the proof is not, so they are not
+claimed.
 
 ## Architecture invariant
 

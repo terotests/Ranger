@@ -11,6 +11,9 @@
 ; ==============================================================================
 
 Import "CellStyle.rgr"
+Import "DataValidation.rgr"
+Import "RichText.rgr"
+Import "SheetImage.rgr"
 Import "XlsxNumberFormat.rgr"
 
 ; Conditional formatting rule (parsed from xlsx cfRule).
@@ -73,7 +76,10 @@ class SpreadsheetUndoOp {
     def beforeStyle:int -1
     def afterStyle:int -1
     def touchStyle:boolean false
-    ; Structural op: 0 none, 1 insert column, 2 delete column, 3 move column.
+    ; Structural op: 0 none, 1 insert column, 2 delete column, 3 move column,
+    ; 4 insert row, 5 delete row, 6 move row. Rows and columns share the
+    ; snapshot fields below: what they hold is "the line that was lifted out",
+    ; and which direction it ran is what `structKind` says.
     def structKind:int 0
     def structAt:int 0
     def structTo:int 0
@@ -168,6 +174,28 @@ class SpreadsheetModel {
     def sortCol:int -1
     def sortAsc:boolean true
     def cfRules:[CfRule]
+    ; Cell annotations that are not the cell's value: a link to somewhere, a
+    ; note about it, and a rule about what may be typed into it. All three are
+    ; keyed the same way as a cell, and all three are METADATA — they survive
+    ; an edit of the value and are not on the undo stack, which is also why
+    ; they are not in `cells`.
+    def validations:[DataValidation]
+    ; Where an array formula's result was laid out. The anchor's key maps to
+    ; "rows,cols"; every cell it covers maps back to the anchor, so a paint or
+    ; an edit can ask "is this mine?" without searching.
+    def spillSize:[string:string]
+    def spillOwner:[string:string]
+    def spillKeys:[string]
+    ; Cells whose text is drawn in pieces. Keyed like everything else, and kept
+    ; beside the value rather than inside it — see RichText.
+    ; Pictures floating over this sheet, in the order the drawing listed them.
+    def images:[SheetImage]
+    def richCells:[string:RichText]
+    def richKeys:[string]
+    def links:[string:string]
+    def linkKeys:[string]
+    def notes:[string:string]
+    def noteKeys:[string]
     def sheetHidden:boolean false
     def scrollXSaved:int 0
     def scrollYSaved:int 0
@@ -617,6 +645,202 @@ class SpreadsheetModel {
         version = (version + 1)
     }
 
+    fn snapshotRow:void (row:int outValues:[string] outFormulas:[string] outStyles:[int]) {
+        clear outValues
+        clear outFormulas
+        clear outStyles
+        def last:int (this.usedCol())
+        def c:int 0
+        while (c <= last) {
+            push outValues (this.getCell(row c))
+            push outFormulas (this.getFormula(row c))
+            push outStyles (this.getCellStyleId(row c))
+            c = (c + 1)
+        }
+    }
+
+    fn restoreRow:void (row:int values:[string] formulas:[string] styles:[int]) {
+        def n:int (array_length values)
+        def c:int 0
+        while (c < n) {
+            this.setCellRaw(row c (itemAt values c))
+            this.setFormulaText(row c (itemAt formulas c))
+            def k:string (this.cellKey(row c))
+            set cellStyleIds k (itemAt styles c)
+            c = (c + 1)
+        }
+    }
+
+    fn remapMergesForRow:void (at:int delta:int) {
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length merges)) {
+            def m:string (itemAt merges i)
+            def parts:[string] (strsplit m ",")
+            if ((array_length parts) >= 4) {
+                def r1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                def c1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                def r2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
+                def c2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
+                def drop:boolean false
+                if (delta < 0) {
+                    if ((r1 == at) && (r2 == at)) {
+                        drop = true
+                    }
+                }
+                if (r1 >= at) {
+                    r1 = (r1 + delta)
+                }
+                if (r2 >= at) {
+                    r2 = (r2 + delta)
+                }
+                if (r2 < r1) {
+                    drop = true
+                }
+                if (drop == false) {
+                    push kept ((((to_string r1) + ",") + (to_string c1) + ",") + (to_string r2) + "," + (to_string c2))
+                }
+            }
+            i = (i + 1)
+        }
+        clear merges
+        def j:int 0
+        while (j < (array_length kept)) {
+            push merges (itemAt kept j)
+            j = (j + 1)
+        }
+    }
+
+    ; The column ops, transposed. Every remark on those applies here for the
+    ; same reason: bottom to top so a destination is never read afterwards,
+    ; geometry spliced BEFORE the count changes so `ensureGeometry` does not
+    ; decide the arrays are stale and reset every height, and the vacated line
+    ; cleared only when the shift actually reached it.
+    fn insertRowRaw:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at > rowCount) {
+            return
+        }
+        def lastR:int (this.usedRow())
+        def lastC:int (this.usedCol())
+        def r:int lastR
+        while (r >= at) {
+            def c:int 0
+            while (c <= lastC) {
+                this.moveCellRaw(r c (r + 1) c)
+                c = (c + 1)
+            }
+            r = (r - 1)
+        }
+        def c2:int 0
+        while (c2 <= lastC) {
+            this.clearCellAt(at c2)
+            c2 = (c2 + 1)
+        }
+        if (at < (array_length rowHeights)) {
+            insert rowHeights at defaultRowH
+        } {
+            push rowHeights defaultRowH
+        }
+        if (at < (array_length rowHidden)) {
+            insert rowHidden at false
+        } {
+            push rowHidden false
+        }
+        rowCount = (rowCount + 1)
+        if (usedMaxRow >= at) {
+            usedMaxRow = (usedMaxRow + 1)
+        }
+        this.remapMergesForRow(at 1)
+        rowGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
+    fn deleteRowRaw:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at >= rowCount) {
+            return
+        }
+        if (rowCount <= 1) {
+            return
+        }
+        def lastR:int (this.usedRow())
+        def lastC:int (this.usedCol())
+        def r:int at
+        while (r < lastR) {
+            def c:int 0
+            while (c <= lastC) {
+                this.moveCellRaw((r + 1) c r c)
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        if (at <= lastR) {
+            def c3:int 0
+            while (c3 <= lastC) {
+                this.clearCellAt(lastR c3)
+                c3 = (c3 + 1)
+            }
+        }
+        if (at < (array_length rowHeights)) {
+            remove_index rowHeights at
+        }
+        if (at < (array_length rowHidden)) {
+            remove_index rowHidden at
+        }
+        rowCount = (rowCount - 1)
+        if (usedMaxRow >= at) {
+            if (usedMaxRow > 0) {
+                usedMaxRow = (usedMaxRow - 1)
+            }
+        }
+        this.remapMergesForRow(at -1)
+        rowGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
+    fn moveRowRaw:void (from:int to:int) {
+        if (from == to) {
+            return
+        }
+        if (from < 0) {
+            return
+        }
+        if (from >= rowCount) {
+            return
+        }
+        if (to < 0) {
+            return
+        }
+        if (to >= rowCount) {
+            return
+        }
+        def vals:[string]
+        def fmls:[string]
+        def sids:[int]
+        this.snapshotRow(from vals fmls sids)
+        def height:int (this.rowHeight(from))
+        def hidden:boolean (this.isRowHidden(from))
+        this.deleteRowRaw(from)
+        this.insertRowRaw(to)
+        this.restoreRow(to vals fmls sids)
+        if (to < (array_length rowHeights)) {
+            set_at rowHeights to height
+        }
+        if (to < (array_length rowHidden)) {
+            set_at rowHidden to hidden
+        }
+        rowGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
     fn growTo:void (rows:int cols:int) {
         def changed:boolean false
         if (rows > rowCount) {
@@ -738,6 +962,354 @@ class SpreadsheetModel {
         def raw:string (this.getCell(row col))
         def st:CellStyle (this.getCellStyle(row col))
         return (XlsxNumberFormat.format(raw st.numFmt))
+    }
+
+    ; --- images ---------------------------------------------------------------
+    fn addImage:void (img:SheetImage) {
+        push images img
+        version = (version + 1)
+    }
+
+    fn imageCount:int () {
+        return (array_length images)
+    }
+
+    fn imageAt:SheetImage (i:int) {
+        if (i < 0) {
+            return (new SheetImage)
+        }
+        if (i >= (array_length images)) {
+            return (new SheetImage)
+        }
+        return (itemAt images i)
+    }
+
+    ; --- rich text ------------------------------------------------------------
+    ; Setting runs also sets the cell's value to what they spell, so a formula
+    ; reading the cell and a paste copying it see the plain string.
+    fn setRichText:void (row:int col:int rt:RichText) {
+        def k:string (this.cellKey(row col))
+        if ((has richCells k) == false) {
+            push richKeys k
+        }
+        set richCells k rt
+        version = (version + 1)
+    }
+
+    fn richTextAt:RichText (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has richCells k) {
+            return (unwrap (get richCells k))
+        }
+        return (new RichText)
+    }
+
+    fn hasRichText:boolean (row:int col:int) {
+        def rt:RichText (this.richTextAt(row col))
+        return (rt.isRich())
+    }
+
+    fn clearRichText:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has richCells k) {
+            set richCells k (new RichText)
+        }
+    }
+
+    fn richCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length richKeys)) {
+            def k:string (itemAt richKeys i)
+            if (has richCells k) {
+                def rt:RichText (unwrap (get richCells k))
+                if (rt.isRich()) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- spilled array results ------------------------------------------------
+    fn setSpill:void (row:int col:int rows:int cols:int) {
+        def k:string (this.cellKey(row col))
+        if ((has spillSize k) == false) {
+            push spillKeys k
+        }
+        set spillSize k ((to_string rows) + "," + (to_string cols))
+        def r:int 0
+        while (r < rows) {
+            def c:int 0
+            while (c < cols) {
+                def ck:string (this.cellKey((row + r) (col + c)))
+                if ((has spillOwner ck) == false) {
+                    push spillKeys ck
+                }
+                set spillOwner ck k
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn isSpilled:boolean (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has spillOwner k) {
+            return ((strlen (unwrap (get spillOwner k))) > 0)
+        }
+        return false
+    }
+
+    ; The anchor a spilled cell belongs to, or "" — what an editor asks before
+    ; letting someone type into a cell a formula is filling.
+    fn spillAnchor:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has spillOwner k) {
+            return (unwrap (get spillOwner k))
+        }
+        return ""
+    }
+
+    ; Take back everything the anchor at (row, col) last laid out.
+    fn clearSpillFrom:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if ((has spillSize k) == false) {
+            return
+        }
+        def dims:string (unwrap (get spillSize k))
+        if ((strlen dims) == 0) {
+            return
+        }
+        def parts:[string] (strsplit dims ",")
+        if ((array_length parts) < 2) {
+            return
+        }
+        def rows:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+        def cols:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+        def r:int 0
+        while (r < rows) {
+            def c:int 0
+            while (c < cols) {
+                def ck:string (this.cellKey((row + r) (col + c)))
+                if (has spillOwner ck) {
+                    set spillOwner ck ""
+                }
+                if ((r + c) > 0) {
+                    this.setCellRaw((row + r) (col + c) "")
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        set spillSize k ""
+    }
+
+    ; --- hyperlinks -----------------------------------------------------------
+    fn setHyperlink:void (row:int col:int target:string) {
+        def k:string (this.cellKey(row col))
+        if ((strlen target) == 0) {
+            this.clearHyperlink(row col)
+            return
+        }
+        if ((has links k) == false) {
+            push linkKeys k
+        }
+        set links k target
+        version = (version + 1)
+    }
+
+    fn hyperlinkAt:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has links k) {
+            return (unwrap (get links k))
+        }
+        return ""
+    }
+
+    fn hasHyperlink:boolean (row:int col:int) {
+        return ((strlen (this.hyperlinkAt(row col))) > 0)
+    }
+
+    fn clearHyperlink:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has links k) {
+            set links k ""
+        }
+        version = (version + 1)
+    }
+
+    fn hyperlinkCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length linkKeys)) {
+            def k:string (itemAt linkKeys i)
+            if (has links k) {
+                if ((strlen (unwrap (get links k))) > 0) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- notes ----------------------------------------------------------------
+    fn setNote:void (row:int col:int text:string) {
+        def k:string (this.cellKey(row col))
+        if ((strlen text) == 0) {
+            this.clearNote(row col)
+            return
+        }
+        if ((has notes k) == false) {
+            push noteKeys k
+        }
+        set notes k text
+        version = (version + 1)
+    }
+
+    fn noteAt:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has notes k) {
+            return (unwrap (get notes k))
+        }
+        return ""
+    }
+
+    fn hasNote:boolean (row:int col:int) {
+        return ((strlen (this.noteAt(row col))) > 0)
+    }
+
+    fn clearNote:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has notes k) {
+            set notes k ""
+        }
+        version = (version + 1)
+    }
+
+    fn noteCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length noteKeys)) {
+            def k:string (itemAt noteKeys i)
+            if (has notes k) {
+                if ((strlen (unwrap (get notes k))) > 0) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- data validation ------------------------------------------------------
+    ; Rules are attached to ranges, so the last one that covers a cell wins —
+    ; the same order Excel resolves overlapping rules in.
+    fn addValidation:void (v:DataValidation) {
+        push validations v
+        version = (version + 1)
+    }
+
+    fn validationAt:DataValidation (row:int col:int) {
+        def i:int ((array_length validations) - 1)
+        while (i >= 0) {
+            def v:DataValidation (itemAt validations i)
+            if (v.covers(row col)) {
+                return v
+            }
+            i = (i - 1)
+        }
+        return (new DataValidation)
+    }
+
+    fn hasValidation:boolean (row:int col:int) {
+        def v:DataValidation (this.validationAt(row col))
+        return ((strlen v.kind) > 0)
+    }
+
+    fn validationCount:int () {
+        return (array_length validations)
+    }
+
+    fn clearValidationsIn:void (r0:int c0:int r1:int c1:int) {
+        def keep:[DataValidation]
+        def i:int 0
+        while (i < (array_length validations)) {
+            def v:DataValidation (itemAt validations i)
+            def inside:boolean true
+            if (v.r0 < r0) {
+                inside = false
+            }
+            if (v.c0 < c0) {
+                inside = false
+            }
+            if (v.r0 > r1) {
+                inside = false
+            }
+            if (v.c0 > c1) {
+                inside = false
+            }
+            if (inside == false) {
+                push keep v
+            }
+            i = (i + 1)
+        }
+        clear validations
+        def k:int 0
+        while (k < (array_length keep)) {
+            push validations (itemAt keep k)
+            k = (k + 1)
+        }
+        version = (version + 1)
+    }
+
+    ; --- conditional formatting rules -----------------------------------------
+    ; Rules are sheet metadata rather than cell contents, so they live beside
+    ; the cells and not on the undo stack: undoing a paste must not silently
+    ; drop a rule the paste never touched.
+    fn addCfRule:void (rule:CfRule) {
+        push cfRules rule
+        version = (version + 1)
+    }
+
+    fn cfRuleCount:int () {
+        return (array_length cfRules)
+    }
+
+    ; Drop every rule whose range starts inside the given rectangle — what
+    ; "clear the rules on this selection" means.
+    fn clearCfRulesIn:void (r0:int c0:int r1:int c1:int) {
+        def keep:[CfRule]
+        def i:int 0
+        while (i < (array_length cfRules)) {
+            def rule:CfRule (itemAt cfRules i)
+            def inside:boolean true
+            if (rule.r0 < r0) {
+                inside = false
+            }
+            if (rule.c0 < c0) {
+                inside = false
+            }
+            if (rule.r0 > r1) {
+                inside = false
+            }
+            if (rule.c0 > c1) {
+                inside = false
+            }
+            if (inside == false) {
+                push keep rule
+            }
+            i = (i + 1)
+        }
+        clear cfRules
+        def k:int 0
+        while (k < (array_length keep)) {
+            push cfRules (itemAt keep k)
+            k = (k + 1)
+        }
+        version = (version + 1)
     }
 
     fn setStylesFrom:void (list:[CellStyle]) {
@@ -1156,6 +1728,14 @@ class SpreadsheetModel {
         this.applyEdit(row col value "")
     }
 
+    ; Retyping a cell drops the pieces its text was drawn in — a spreadsheet
+    ; does the same, because there is no answer to which run new text belongs
+    ; to.
+    fn applyEditPlain:void (row:int col:int value:string formula:string) {
+        this.clearRichText(row col)
+        this.applyEdit(row col value formula)
+    }
+
     ; Record a structural column op so it can be undone as one action.
     fn pushStructOp:void (kind:int at:int to:int) {
         def op:SpreadsheetUndoOp (new SpreadsheetUndoOp)
@@ -1163,9 +1743,16 @@ class SpreadsheetModel {
         op.structAt = at
         op.structTo = to
         op.txId = curTx
-        op.colWidthSaved = (this.colWidth(at))
+        if (kind < 4) {
+            op.colWidthSaved = (this.colWidth(at))
+        } {
+            op.colWidthSaved = (this.rowHeight(at))
+        }
         if (kind == 2) {
             this.snapshotColumn(at op.colValues op.colFormulas op.colStyles)
+        }
+        if (kind == 5) {
+            this.snapshotRow(at op.colValues op.colFormulas op.colStyles)
         }
         this.snapshotFormulas(op.savedKeys op.savedTexts)
         push undoStack op
@@ -1186,6 +1773,15 @@ class SpreadsheetModel {
             if (op.structKind == 3) {
                 this.moveColumnRaw(op.structAt op.structTo)
             }
+            if (op.structKind == 4) {
+                this.insertRowRaw(op.structAt)
+            }
+            if (op.structKind == 5) {
+                this.deleteRowRaw(op.structAt)
+            }
+            if (op.structKind == 6) {
+                this.moveRowRaw(op.structAt op.structTo)
+            }
             return
         }
         if (op.structKind == 1) {
@@ -1198,6 +1794,17 @@ class SpreadsheetModel {
         }
         if (op.structKind == 3) {
             this.moveColumnRaw(op.structTo op.structAt)
+        }
+        if (op.structKind == 4) {
+            this.deleteRowRaw(op.structAt)
+        }
+        if (op.structKind == 5) {
+            this.insertRowRaw(op.structAt)
+            this.restoreRow(op.structAt op.colValues op.colFormulas op.colStyles)
+            this.setRowHeight(op.structAt op.colWidthSaved)
+        }
+        if (op.structKind == 6) {
+            this.moveRowRaw(op.structTo op.structAt)
         }
         ; Formula text is restored wholesale — see savedKeys.
         this.restoreFormulas(op.savedKeys op.savedTexts)

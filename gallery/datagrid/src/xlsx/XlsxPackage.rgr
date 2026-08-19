@@ -71,6 +71,19 @@ class XlsxPackage {
         return false
     }
 
+    ; The raw bytes of a part. Text parts go through `entryText`; a PNG does
+    ; not survive being decoded as UTF-8, so an image has to come out as bytes.
+    fn entryBytes:buffer (name:string) {
+        if (openOk == false) {
+            return (buffer_alloc 0)
+        }
+        def e@(optional):ZipEntry (zip.getEntry(name))
+        if (!null? e) {
+            return (zip.extract((unwrap e)))
+        }
+        return (buffer_alloc 0)
+    }
+
     fn entryText:string (name:string) {
         if (openOk == false) {
             return ""

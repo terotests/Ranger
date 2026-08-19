@@ -421,6 +421,10 @@ class XlsxStyles {
                                     if ((wt == "1") || (wt == "true")) {
                                         st.wrapText = true
                                     }
+                                    def rot:string (at.attr("textRotation"))
+                                    if ((strlen rot) > 0) {
+                                        st.textRotation = (XlsxStyles.parseInt0(rot))
+                                    }
                                 }
                             }
                         }

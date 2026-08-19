@@ -1,0 +1,230 @@
+; ==============================================================================
+; XlsxWriteTest — the workbook goes out and comes back the same.
+; ==============================================================================
+;
+; A writer is only worth having if what it writes can be read, so the test is a
+; ROUND TRIP: build a workbook in memory, write it, load the file back with the
+; ordinary loader, and compare. Anything the writer drops or mangles shows up
+; as a difference rather than as a file that merely opens.
+;
+; `tools/check_export.py` then reads the same file with openpyxl, which is the
+; independent half: our loader and our writer agreeing proves they agree, not
+; that the file is .xlsx.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+Import "../src/xlsx/XlsxWriter.rgr"
+
+class WriteChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class XlsxWriteTest {
+    sfn main:void () {
+        def c:WriteChecker (new WriteChecker)
+        def dir:string "gallery/datagrid/harness/out/export"
+        def name:string "roundtrip.xlsx"
+
+        print "== build a workbook worth writing =="
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.name = "Data"
+        app.model.resize(12 6)
+        app.model.setCellRaw(0 0 "Region")
+        app.model.setCellRaw(0 1 "Units")
+        app.model.setCellRaw(0 2 "Price")
+        app.model.setCellRaw(1 0 "North")
+        app.model.setCellRaw(1 1 "120")
+        app.model.setCellRaw(1 2 "9.5")
+        app.model.setCellRaw(2 0 "South & West")
+        app.model.setCellRaw(2 1 "80")
+        app.model.setCellRaw(2 2 "12.25")
+        app.model.setFormula(1 3 "B2*C2")
+        app.model.setFormula(2 3 "B3*C3")
+        app.model.setFormula(3 3 "SUM(D2:D3)")
+
+        ; A style with everything the writer has to carry.
+        def head:CellStyle (new CellStyle)
+        head.bold = true
+        head.italic = false
+        head.fontSizePt = 12.0
+        head.textRgb = "#1F4E79"
+        head.hasFill = true
+        head.fillRgb = "#DDEBF7"
+        head.align = "center"
+        head.valign = "center"
+        head.wrapText = true
+        head.numFmt = "General"
+        head.hasBorder = true
+        head.borderBottom.style = "thin"
+        head.borderBottom.rgb = "#333333"
+        app.model.setCellStyleResolved(0 0 head)
+        app.model.setCellStyleResolved(0 1 head)
+        app.model.setCellStyleResolved(0 2 head)
+
+        def money:CellStyle (new CellStyle)
+        money.numFmt = "$#,##0.00"
+        app.model.setCellStyleResolved(1 2 money)
+        app.model.setCellStyleResolved(2 2 money)
+
+        def turned:CellStyle (new CellStyle)
+        turned.textRotation = 45
+        app.model.setCellStyleResolved(4 0 turned)
+        app.model.setCellRaw(4 0 "sideways")
+
+        app.model.setColWidth(0 160)
+        app.model.setRowHeight(0 34)
+        app.model.setColHidden(4 true)
+        app.model.addMerge(6 0 6 2)
+        app.model.setCellRaw(6 0 "merged title")
+        app.model.setFreeze(1 1)
+        app.model.setHyperlink(1 0 "https://example.com/north")
+        app.model.setHyperlink(2 0 "#Notes!A1")
+
+        def dv:DataValidation (new DataValidation)
+        dv.kind = "list"
+        dv.f1 = "\"north,south,east,west\""
+        dv.r0 = 8
+        dv.c0 = 0
+        dv.r1 = 11
+        dv.c1 = 0
+        app.model.addValidation(dv)
+
+        def dv2:DataValidation (new DataValidation)
+        dv2.kind = "whole"
+        dv2.op = "between"
+        dv2.f1 = "1"
+        dv2.f2 = "100"
+        dv2.errorText = "Enter 1 to 100"
+        dv2.r0 = 8
+        dv2.c0 = 1
+        dv2.r1 = 11
+        dv2.c1 = 1
+        app.model.addValidation(dv2)
+
+        def second:SpreadsheetModel (new SpreadsheetModel)
+        second.name = "Notes"
+        second.resize(4 3)
+        second.setCellRaw(0 0 "second sheet")
+        app.book.addSheet(second)
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.engine.rebuildAll()
+
+        print "== write it =="
+        def w:XlsxWriter (new XlsxWriter)
+        def wrote:boolean (w.write(app.book dir name))
+        c.ok("the writer reported success" wrote)
+
+        print "== read it back with the ordinary loader =="
+        def back:GridApp (new GridApp)
+        back.init("gallery/pdf_writer/assets/fonts")
+        def read:boolean (back.loadXlsx((dir + "/" + name)))
+        c.ok("the file loads" read)
+        if (read == false) {
+            print ("  loader said: " + back.loadError)
+        }
+        if read {
+            c.eqInt("both sheets came back" (back.book.sheetCount()) 2)
+            c.eqStr("the sheet kept its name" back.model.name "Data")
+            c.eqStr("text survived" (back.model.getCell(0 0)) "Region")
+            c.eqStr("and so did the ampersand" (back.model.getCell(2 0)) "South & West")
+            c.eqStr("numbers survived" (back.model.getCell(1 1)) "120")
+            c.eqStr("decimals survived" (back.model.getCell(1 2)) "9.5")
+            c.eqStr("formulas survived as formulas" (back.model.getFormula(1 3)) "B2*C2")
+            c.eqStr("and recalculated to the same answer" (back.model.getCell(1 3)) "1140")
+            c.eqStr("a range formula too" (back.model.getFormula(3 3)) "SUM(D2:D3)")
+            c.eqStr("summing what it should" (back.model.getCell(3 3)) "2120")
+
+            def h:CellStyle (back.model.getCellStyle(0 0))
+            c.ok("bold survived" h.bold)
+            c.eqStr("the font colour survived" h.textRgb "#1F4E79")
+            c.ok("the fill survived" h.hasFill)
+            c.eqStr("with its colour" h.fillRgb "#DDEBF7")
+            c.eqStr("alignment survived" h.align "center")
+            c.ok("wrap survived" h.wrapText)
+            c.ok("the border survived" (h.borderBottom.has()))
+            def m2:CellStyle (back.model.getCellStyle(1 2))
+            c.eqStr("the number format survived" m2.numFmt "$#,##0.00")
+            c.eqStr("and formats the value" (back.model.getDisplay(1 2)) "$9.50")
+            def t2:CellStyle (back.model.getCellStyle(4 0))
+            c.eqInt("text rotation survived" t2.textRotation 45)
+
+            c.eqInt("the column width survived" (back.model.colWidth(0)) 160)
+            c.eqInt("the row height survived" (back.model.rowHeight(0)) 34)
+            c.ok("the hidden column survived" (back.model.isColHidden(4)))
+            c.ok("the merge survived" ((strlen (back.model.mergeAt(6 0))) > 0))
+            c.eqInt("freeze rows survived" back.model.freezeRows 1)
+            c.eqInt("freeze cols survived" back.model.freezeCols 1)
+
+            c.eqStr("the external link survived" (back.model.hyperlinkAt(1 0)) "https://example.com/north")
+            c.eqStr("the internal one too" (back.model.hyperlinkAt(2 0)) "#Notes!A1")
+
+            c.eqInt("both validations survived" (back.model.validationCount()) 2)
+            def lv:DataValidation (back.model.validationAt(8 0))
+            c.eqStr("the list rule survived" lv.kind "list")
+            c.ok("with its choices" (lv.accepts("east")))
+            def nv:DataValidation (back.model.validationAt(8 1))
+            c.eqStr("the numeric rule survived" nv.kind "whole")
+            c.eqStr("with its message" (nv.message()) "Enter 1 to 100")
+            c.ok("and its bounds" ((nv.accepts("500")) == false))
+
+            def sheet2:SpreadsheetModel (back.book.sheetAt(1))
+            c.eqStr("the second sheet is there" sheet2.name "Notes")
+            c.eqStr("with its content" (sheet2.getCell(0 0)) "second sheet")
+
+            print "== and it renders =="
+            c.ok("the reloaded book paints" ((strlen (back.sceneJson())) > 500))
+        }
+
+        print "== saving through the app =="
+        def saver:GridApp (new GridApp)
+        saver.init("gallery/pdf_writer/assets/fonts")
+        def loadedFixture:boolean (saver.loadXlsx("gallery/datagrid/fixtures/annotations.xlsx"))
+        c.ok("a real workbook loaded" loadedFixture)
+        if loadedFixture {
+            def savedOk:boolean (saver.saveXlsx(dir "annotations-out.xlsx"))
+            c.ok("the app saved it" savedOk)
+            c.eqStr("and says where" saver.savedPath (dir + "/annotations-out.xlsx"))
+            def again:GridApp (new GridApp)
+            again.init("gallery/pdf_writer/assets/fonts")
+            def reread:boolean (again.loadXlsx((dir + "/annotations-out.xlsx")))
+            c.ok("the saved copy loads" reread)
+            if reread {
+                c.eqStr("its links survived the trip" (again.model.hyperlinkAt(0 0)) "https://example.com/report")
+                c.eqInt("its validations too" (again.model.validationCount()) 2)
+                c.eqStr("and its values" (again.model.getCell(2 1)) "42")
+            }
+            ; The default name is derived from where the workbook came from.
+            c.eqStr("default export name" (GridApp.exportName("gallery/datagrid/fixtures/sales.xlsx")) "sales-export.xlsx")
+            c.eqStr("default export directory" (GridApp.exportDir("gallery/datagrid/fixtures/sales.xlsx")) "gallery/datagrid/fixtures")
+        }
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

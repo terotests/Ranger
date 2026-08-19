@@ -11,7 +11,108 @@ Import "XlsxSharedStrings.rgr"
 Import "../SpreadsheetModel.rgr"
 
 class XlsxWorksheet {
+    ; The sheet's own relationship part, and the comments part it points at.
+    ; Both are optional and both are set by the loader before `parse`, because
+    ; a hyperlink's target and a note's text live outside the sheet XML.
+    def relsXml:string ""
+    def commentsXml:string ""
+
     Constructor () {
+    }
+
+    ; rId → Target, out of `xl/worksheets/_rels/sheetN.xml.rels`. A relationship
+    ; part is a flat list of self-closing tags, so this needs no nesting.
+    sfn relTarget:string (rels:string id:string) {
+        if ((strlen rels) == 0) {
+            return ""
+        }
+        if ((strlen id) == 0) {
+            return ""
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(rels)
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if ((t.name == "Relationship") && (t.isEnd == false)) {
+                if ((t.attr("Id")) == id) {
+                    return (t.attr("Target"))
+                }
+            }
+        }
+        return ""
+    }
+
+    ; The first relationship of a given type — how the comments part is found.
+    sfn relTargetOfType:string (rels:string typeSuffix:string) {
+        if ((strlen rels) == 0) {
+            return ""
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(rels)
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if ((t.name == "Relationship") && (t.isEnd == false)) {
+                def ty:string (t.attr("Type"))
+                def n:int (strlen ty)
+                def m:int (strlen typeSuffix)
+                if (n >= m) {
+                    if ((substring ty (n - m) n) == typeSuffix) {
+                        return (t.attr("Target"))
+                    }
+                }
+            }
+        }
+        return ""
+    }
+
+    ; Notes, out of `xl/comments1.xml`. The author list is skipped: what a
+    ; spreadsheet shows in the little box is the text, and our note is one
+    ; string rather than a run list.
+    fn parseComments:void (model:SpreadsheetModel xml:string) {
+        if ((strlen xml) == 0) {
+            return
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(xml)
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if ((t.name == "comment") && (t.isEnd == false)) {
+                def ref:string (t.attr("ref"))
+                def rOut:[int]
+                def cOut:[int]
+                XlsxWorksheet.parseCellRef(ref rOut cOut)
+                def body:string (p.collectTTextUntil("comment"))
+                if ((array_length rOut) > 0) {
+                    if ((strlen body) > 0) {
+                        model.setNote((itemAt rOut 0) (itemAt cOut 0) body)
+                    }
+                }
+            }
+        }
+    }
+
+    ; The first whitespace-separated token of a reference list. `sqref` may
+    ; name several ranges — "A1:A5 C1:C5" — and one rule per first range is
+    ; what the model stores.
+    sfn firstToken:string (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            if ((charAt s i) == 32) {
+                return (substring s 0 i)
+            }
+            i = (i + 1)
+        }
+        return s
     }
 
     ; A1 / AA17 → 0-based row/col via out arrays (length-1).
@@ -158,7 +259,12 @@ class XlsxWorksheet {
             cols = (col + 1)
         }
         if ((rows != model.rowCount) || (cols != model.colCount)) {
-            model.resize(rows cols)
+            ; growTo, NOT resize: `resize` rebuilds the width and height arrays
+            ; from the defaults, and this runs in the middle of parsing — after
+            ; <cols> has already said how wide column A is. A file that widens
+            ; an early column and then mentions a later one lost the first
+            ; width entirely.
+            model.growTo(rows cols)
         }
     }
 
@@ -266,6 +372,78 @@ class XlsxWorksheet {
                         if ((ct.name == "c") && (ct.isEnd == false)) {
                             this.parseCell(p ct model sst rowIdx)
                         }
+                    }
+                }
+            }
+            if ((t.name == "dataValidation") && (t.isEnd == false)) {
+                def dv:DataValidation (new DataValidation)
+                dv.kind = (t.attr("type"))
+                def dop:string (t.attr("operator"))
+                if ((strlen dop) > 0) {
+                    dv.op = dop
+                }
+                def ab:string (t.attr("allowBlank"))
+                if ((ab == "0") || (ab == "false")) {
+                    dv.allowBlank = false
+                }
+                dv.errorTitle = (t.attr("errorTitle"))
+                dv.errorText = (t.attr("error"))
+                ; `sqref` may name several ranges; the first is taken, which is
+                ; what a single rule almost always is.
+                def sq:string (t.attr("sqref"))
+                def vr1:[int]
+                def vc1:[int]
+                def vr2:[int]
+                def vc2:[int]
+                XlsxWorksheet.parseMergeRef((XlsxWorksheet.firstToken(sq)) vr1 vc1 vr2 vc2)
+                if ((array_length vr1) > 0) {
+                    dv.r0 = (itemAt vr1 0)
+                    dv.c0 = (itemAt vc1 0)
+                    dv.r1 = (itemAt vr2 0)
+                    dv.c1 = (itemAt vc2 0)
+                }
+                if (t.selfClose == false) {
+                    ; formula1 / formula2 are elements rather than attributes.
+                    def depthV:int 1
+                    while ((p.pos < p.len) && (depthV > 0)) {
+                        def vt:XmlTag (p.nextTag())
+                        if (vt.valid == false) {
+                            break
+                        }
+                        if (vt.name == "dataValidation") {
+                            if vt.isEnd {
+                                depthV = (depthV - 1)
+                            }
+                        }
+                        if ((vt.name == "formula1") && (vt.isEnd == false)) {
+                            dv.f1 = (p.readTextUntilEnd("formula1"))
+                        }
+                        if ((vt.name == "formula2") && (vt.isEnd == false)) {
+                            dv.f2 = (p.readTextUntilEnd("formula2"))
+                        }
+                    }
+                }
+                if ((strlen dv.kind) > 0) {
+                    model.addValidation(dv)
+                }
+            }
+            if ((t.name == "hyperlink") && (t.isEnd == false)) {
+                def href:string (t.attr("ref"))
+                def hr:[int]
+                def hc:[int]
+                XlsxWorksheet.parseCellRef(href hr hc)
+                if ((array_length hr) > 0) {
+                    ; An external link is a relationship; an internal one names
+                    ; a place in this workbook and has no target at all.
+                    def target:string (XlsxWorksheet.relTarget(relsXml (t.attr("r:id"))))
+                    if ((strlen target) == 0) {
+                        def loc:string (t.attr("location"))
+                        if ((strlen loc) > 0) {
+                            target = ("#" + loc)
+                        }
+                    }
+                    if ((strlen target) > 0) {
+                        model.setHyperlink((itemAt hr 0) (itemAt hc 0) target)
                     }
                 }
             }
@@ -417,6 +595,7 @@ class XlsxWorksheet {
         def formula:string ""
         def value:string ""
         def inline:string ""
+        def inlineRich:RichText (new RichText)
         if open.selfClose {
             ; An empty but FORMATTED cell is written self-closing, e.g.
             ; <c r="B3" s="2"/>. Returning here dropped its fill and borders —
@@ -449,7 +628,10 @@ class XlsxWorksheet {
                     value = (p.readTextUntilEnd("v"))
                 }
                 if ((t.name == "is") && (t.isEnd == false) && (t.selfClose == false)) {
-                    inline = (p.collectTTextUntil("is"))
+                    ; An inline string can be written in styled pieces too, so
+                    ; it is read the same way a shared one is.
+                    inlineRich = (XlsxSharedStrings.parseRuns(p "is"))
+                    inline = (inlineRich.text())
                 }
             }
         }
@@ -458,9 +640,18 @@ class XlsxWorksheet {
         if (cellType == "s") {
             def idx:int (XlsxWorksheet.parseInt0(value))
             display = (sst.at(idx))
+            ; Several styles inside one string: keep the pieces, not only what
+            ; they spell.
+            def shared:RichText (sst.richAt(idx))
+            if (shared.isRich()) {
+                model.setRichText(row col (shared.copy()))
+            }
         } {
             if (cellType == "inlineStr") {
                 display = inline
+                if (inlineRich.isRich()) {
+                    model.setRichText(row col inlineRich)
+                }
             } {
                 if (cellType == "b") {
                     if ((value == "1") || (value == "true")) {

@@ -32,6 +32,22 @@ class Checker {
 }
 
 class XlsxTest {
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn main:void () {
         def c:Checker (new Checker)
 
@@ -210,6 +226,191 @@ class XlsxTest {
         c.ok("italic differs from regular" (wItal != wReg))
         sApp.view.applyFaceStyled(false false)
         c.ok("renders the showcase" ((strlen (sApp.sceneJson())) > 500))
+
+        print "== text rotation =="
+        def rotApp:GridApp (new GridApp)
+        rotApp.init("gallery/pdf_writer/assets/fonts")
+        def rotOk:boolean (rotApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx"))
+        c.ok("styles showcase loaded" rotOk)
+        if rotOk {
+            def s45:CellStyle (rotApp.model.getCellStyle(26 1))
+            c.eqInt("45 up read from the file" s45.textRotation 45)
+            c.eqStr("which is 45 degrees anticlockwise" (to_string (s45.rotationDegrees())) "-45")
+            def s90:CellStyle (rotApp.model.getCellStyle(26 2))
+            c.eqInt("90 up read" s90.textRotation 90)
+            def sDown:CellStyle (rotApp.model.getCellStyle(26 3))
+            c.eqInt("135 read" sDown.textRotation 135)
+            c.eqStr("which is 45 degrees clockwise" (to_string (sDown.rotationDegrees())) "45")
+            def sStack:CellStyle (rotApp.model.getCellStyle(27 1))
+            c.ok("255 is stacked, not turned" (sStack.isStacked()))
+            c.eqStr("and so has no angle" (to_string (sStack.rotationDegrees())) "0")
+            ; The scene has to carry the angle, or only this test knows about
+            ; it. Scroll the turned cells into view first — the display list is
+            ; virtualized, so what is off screen is genuinely not in it.
+            rotApp.moveActive(27 1 false)
+            def scene:string (rotApp.sceneJson())
+            c.ok("a rotated run reaches the display list" (XlsxTest.hasSub(scene "\"rot\":-45")))
+            c.ok("and the clockwise one too" (XlsxTest.hasSub(scene "\"rot\":45")))
+        }
+
+        print "== hyperlinks, notes and validation, read from the file =="
+        def anApp:GridApp (new GridApp)
+        anApp.init("gallery/pdf_writer/assets/fonts")
+        def anOk:boolean (anApp.loadXlsx("gallery/datagrid/fixtures/annotations.xlsx"))
+        c.ok("annotations fixture loaded" anOk)
+        if anOk {
+            c.eqStr("external link resolved through the relationship" (anApp.model.hyperlinkAt(0 0)) "https://example.com/report")
+            c.eqStr("internal link kept as a location" (anApp.model.hyperlinkAt(0 1)) "#Lists!A1")
+            c.eqStr("a cell with no link has none" (anApp.model.hyperlinkAt(2 2)) "")
+            c.eqInt("two links" (anApp.model.hyperlinkCount()) 2)
+
+            c.eqStr("a note read out of the comments part" (anApp.model.noteAt(0 2)) "Reviewer: check this number")
+            c.eqStr("and the second one" (anApp.model.noteAt(2 1)) "Must stay under a hundred")
+            c.eqInt("two notes" (anApp.model.noteCount()) 2)
+
+            c.eqInt("two validation rules" (anApp.model.validationCount()) 2)
+            def listRule:DataValidation (anApp.model.validationAt(2 0))
+            c.eqStr("A3 has the list rule" listRule.kind "list")
+            def choices:[string] (listRule.listValues())
+            c.eqInt("four choices" (array_length choices) 4)
+            c.eqStr("unquoted" (itemAt choices 0) "north")
+            c.eqStr("and split" (itemAt choices 3) "west")
+            c.ok("a listed value is accepted" (listRule.accepts("south")))
+            c.ok("an unlisted one is not" ((listRule.accepts("middle")) == false))
+
+            def numRule:DataValidation (anApp.model.validationAt(2 1))
+            c.eqStr("B3 has the whole-number rule" numRule.kind "whole")
+            c.eqStr("with the file's own message" (numRule.message()) "Enter 1 to 100")
+            c.ok("50 is fine" (numRule.accepts("50")))
+            c.ok("200 is not" ((numRule.accepts("200")) == false))
+            c.ok("nor is 2.5" ((numRule.accepts("2.5")) == false))
+            c.ok("nor is text" ((numRule.accepts("lots")) == false))
+
+            print "-- and enforced when typing --"
+            anApp.moveActive(2 1 false)
+            anApp.beginEdit("200" true)
+            anApp.commitEdit()
+            c.eqStr("the refused value was not written" (anApp.model.getCell(2 1)) "42")
+            c.ok("and the refusal says why" (XlsxTest.hasSub(anApp.validationError "Enter 1 to 100")))
+            anApp.beginEdit("55" true)
+            anApp.commitEdit()
+            c.eqStr("an allowed value goes in" (anApp.model.getCell(2 1)) "55")
+            c.eqStr("with no complaint" anApp.validationError "")
+
+            print "-- the list picker --"
+            anApp.moveActive(2 0 false)
+            anApp.openListPicker(2 0)
+            c.ok("the picker opened" anApp.listDialog.visible)
+            c.eqInt("offering every choice" (array_length anApp.listValues) 4)
+            anApp.listDialog.selectRadio(902)
+            anApp.applyListPicker()
+            c.eqStr("choosing writes the value" (anApp.model.getCell(2 0)) "south")
+            c.ok("and closes" (anApp.listDialog.visible == false))
+
+            print "-- following a link --"
+            c.ok("following reports the target" (anApp.followLink(0 0)))
+            c.eqStr("which the host can open" anApp.activatedLink "https://example.com/report")
+            c.ok("a cell with no link is not followed" ((anApp.followLink(1 1)) == false))
+
+            print "-- link and note painting --"
+            anApp.moveActive(0 0 false)
+            def anScene:string (anApp.sceneJson())
+            c.ok("the scene still builds" ((strlen anScene) > 500))
+        }
+
+        print "== rich text: several styles inside one cell =="
+        def rtApp:GridApp (new GridApp)
+        rtApp.init("gallery/pdf_writer/assets/fonts")
+        def rtOk:boolean (rtApp.loadXlsx("gallery/datagrid/fixtures/annotations.xlsx"))
+        c.ok("fixture loaded" rtOk)
+        if rtOk {
+            c.eqStr("the cell's value is what the runs spell" (rtApp.model.getCell(4 0)) "Total: 1234 kg")
+            c.ok("and it knows it is rich" (rtApp.model.hasRichText(4 0)))
+            def rt:RichText (rtApp.model.richTextAt(4 0))
+            c.eqInt("three runs" (rt.count()) 3)
+            def r0:CellRun (itemAt rt.runs 0)
+            c.eqStr("the first says Total" r0.text "Total: ")
+            c.ok("in bold" r0.bold)
+            c.eqStr("and in red" r0.rgb "#CC0000")
+            def r1:CellRun (itemAt rt.runs 1)
+            c.eqStr("the second is the number" r1.text "1234")
+            c.ok("with nothing of its own" ((r1.isStyled()) == false))
+            def r2:CellRun (itemAt rt.runs 2)
+            c.eqStr("the third is the unit" r2.text " kg")
+            c.ok("in italic" r2.italic)
+            c.eqStr("and smaller" (to_string (to_int r2.sizePt)) "8")
+
+            c.ok("an inline string carries runs too" (rtApp.model.hasRichText(4 1)))
+            c.eqStr("spelling what it should" (rtApp.model.getCell(4 1)) "inline runs")
+            c.ok("a plain cell is not rich" ((rtApp.model.hasRichText(0 0)) == false))
+            c.eqInt("two rich cells on the sheet" (rtApp.model.richCount()) 2)
+
+            ; The paint has to actually use them: a bold run means a bold
+            ; command in the display list for that cell's text.
+            rtApp.moveActive(4 0 false)
+            def rtScene:string (rtApp.sceneJson())
+            c.ok("the scene carries a bold run" (XlsxTest.hasSub(rtScene "\"text\":\"Total: \",\"font\":\"Open Sans\",\"size\":14.67,\"weight\":\"bold\"")))
+            c.ok("and the plain piece beside it" (XlsxTest.hasSub(rtScene "\"text\":\"1234\"")))
+
+            ; Retyping the cell drops the pieces, because new text cannot
+            ; belong to the old ones.
+            ; A5 sits inside the list rule, so the replacement has to be one
+            ; of its values — which is the rule doing its job, not a problem.
+            rtApp.beginEdit("east" true)
+            rtApp.commitEdit()
+            c.eqStr("the new text is there" (rtApp.model.getCell(4 0)) "east")
+            c.ok("and the runs are gone" ((rtApp.model.hasRichText(4 0)) == false))
+        }
+
+        print "== images, three hops from the sheet =="
+        def imApp:GridApp (new GridApp)
+        imApp.init("gallery/pdf_writer/assets/fonts")
+        def imOk:boolean (imApp.loadXlsx("gallery/datagrid/fixtures/images.xlsx"))
+        c.ok("images fixture loaded" imOk)
+        if imOk {
+            c.eqInt("two pictures" (imApp.model.imageCount()) 2)
+            def one:SheetImage (imApp.model.imageAt(0))
+            c.eqStr("the media part was resolved through two relationships" one.src "xl/media/image1.png")
+            c.eqStr("and named" one.name "Stretched")
+            c.eqInt("anchored at column B" one.fromCol 1)
+            c.eqInt("row 3" one.fromRow 2)
+            c.eqInt("offset inside the cell, in pixels not EMUs" one.offX 2)
+            c.eqInt("and vertically" one.offY 3)
+            c.ok("it stretches to a second cell" one.stretched)
+            c.eqInt("which is column D" one.toCol 3)
+            c.ok("its bytes came out of the package" ((buffer_length one.bytes) > 0))
+            c.eqStr("and it knows what kind they are" (one.kind()) "png")
+
+            def two:SheetImage (imApp.model.imageAt(1))
+            c.eqStr("the second picture" two.src "xl/media/image2.png")
+            c.ok("is pinned rather than stretched" (two.stretched == false))
+            c.eqInt("with its own width in pixels" two.widthPx 64)
+            c.eqInt("and height" two.heightPx 48)
+
+            print "-- geometry follows the cells --"
+            def r1:GridRect (GridImages.rectFor(imApp.model imApp.grid one))
+            def beforeW:int r1.w
+            imApp.model.setColWidth(1 ((imApp.model.colWidth(1)) + 60))
+            imApp.sheetView.markDirty()
+            imApp.sheetView.rebuild()
+            imApp.grid.updateVisible(imApp.model)
+            def r2:GridRect (GridImages.rectFor(imApp.model imApp.grid one))
+            c.ok("widening a column it spans widens the picture" (r2.w > beforeW))
+            def p1:GridRect (GridImages.rectFor(imApp.model imApp.grid two))
+            c.eqInt("a pinned picture keeps its size" p1.w 64)
+
+            print "-- decoding --"
+            def scene:string (imApp.sceneJson())
+            c.ok("the scene names the part so a browser can fetch it" (XlsxTest.hasSub(scene "xl/media/image1.png")))
+            def dec:DecodedImage (imApp.view.images.cached("xl/media/image1.png"))
+            c.ok("the PNG decoded" dec.ok)
+            c.eqInt("to its real width" dec.img.width 16)
+            c.eqInt("and height" dec.img.height 12)
+            def decodesAfterFirst:int imApp.view.images.decodes
+            imApp.sceneJson()
+            c.eqInt("a second paint decodes nothing again" imApp.view.images.decodes decodesAfterFirst)
+            c.ok("and it renders" ((strlen scene) > 500))
+        }
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

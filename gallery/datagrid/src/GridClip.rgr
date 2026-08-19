@@ -1,0 +1,260 @@
+; ==============================================================================
+; GridClip.rgr — a chart, in the formats other programs paste.
+; ==============================================================================
+;
+; "Copy the chart" is not one thing. The system clipboard carries SEVERAL
+; representations of the same object at once and the receiving program picks the
+; richest one it understands, so the question is not what format to use but
+; which set to offer. What Excel and Word actually take:
+;
+;   flavour            Excel                      Word
+;   ---------------------------------------------------------------------------
+;   image/png          a picture, floating        a picture, in the text flow
+;   text/html          a picture (the <img>)      a picture, and it wins over
+;                                                 image/png when both are there
+;   image/svg+xml      Office 2016+ as a picture that stays sharp when resized
+;   text/plain         the numbers, as TSV — paste into cells and chart it there
+;
+; All four describe the same chart, and all four are built here from the same
+; render, which is the point: the picture in the document is the picture that
+; was on screen, not a second drawing that agrees by inspection.
+;
+; THE HTML FLAVOUR IS THE ONE THAT MATTERS, because it is what Word and Excel
+; reach for first. It is a single <img> whose source is the PNG as a data URI —
+; no external file, nothing to serve, nothing to go missing when the document is
+; mailed. A host that puts CF_HTML on a Windows clipboard wraps this fragment in
+; the CF_HTML header; a browser hands `text/html` to `navigator.clipboard` and
+; the wrapping is the browser's business.
+;
+; The bitmap is drawn at a size worth pasting (twice the on-screen box by
+; default) rather than at the size of the little window it lives in: a 380-pixel
+; chart dropped into a Word page is a thumbnail.
+; ==============================================================================
+
+Import "GridChart.rgr"
+Import "GridChartView.rgr"
+Import "SoftPainter.rgr"
+Import "SpreadsheetModel.rgr"
+Import "../../evg/EVGWindow.rgr"
+Import "../../vela/src/VlSvg.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+; One chart, in every flavour the clipboard will carry.
+class ChartClip {
+    def ok:boolean false
+    ; Why not, when not. Painted nowhere — the host reports it.
+    def note:string ""
+    ; A file name a host can offer if it saves rather than copies, without an
+    ; extension: the flavours differ, the name does not.
+    def name:string "chart"
+    def w:int 0
+    def h:int 0
+    def png:buffer (buffer_alloc 0)
+    def pngBase64:string ""
+    def svg:string ""
+    def html:string ""
+    def tsv:string ""
+
+    Constructor () {
+    }
+
+    fn dataUri:string () {
+        if ((strlen pngBase64) == 0) {
+            return ""
+        }
+        return ("data:image/png;base64," + pngBase64)
+    }
+}
+
+class ChartClipboard {
+    ; How much bigger than the on-screen box to draw the bitmap. Not a
+    ; resample: the chart is LAID OUT at this size, so the axis has room for
+    ; more ticks and the text is drawn at its own resolution rather than
+    ; stretched.
+    def enlarge:int 2
+    def maxW:int 1600
+    def maxH:int 1200
+    ; Its own renderer and cache, so copying a chart cannot evict the render
+    ; the screen is using — the two ask for different sizes.
+    def view:GridChartView (new GridChartView)
+    def painter:SoftPainter (new SoftPainter)
+
+    Constructor () {
+        ; More margin than the on-screen window keeps. A chart in a window sits
+        ; inside a frame that already separates it from what is behind it; a
+        ; chart pasted into a document is up against the text, and its title
+        ; came within a pixel or two of the top edge.
+        view.pad = 16
+    }
+
+    ; The chart's own cells, tab separated. This is the flavour that makes a
+    ; copied chart useful in a spreadsheet rather than only decorative: paste
+    ; it into Excel and the numbers land in cells.
+    sfn rangeTsv:string (model:SpreadsheetModel ch:GridChart) {
+        def out:string ""
+        def r:int ch.r0
+        while (r <= ch.r1) {
+            if (r > ch.r0) {
+                out = (out + "\n")
+            }
+            def c:int ch.c0
+            while (c <= ch.c1) {
+                if (c > ch.c0) {
+                    out = (out + "\t")
+                }
+                out = (out + (model.getCell(r c)))
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+
+    ; A file name from the chart's own title, with everything a file system
+    ; would object to replaced. An untitled chart is named by its range, which
+    ; is at least unique on the sheet.
+    sfn safeName:string (ch:GridChart) {
+        def src:string ch.title
+        if ((strlen src) == 0) {
+            src = ((ChartKind.label(ch.kind)) + " " + (ch.rangeLabel()))
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (strlen src)) {
+            def code:int (charAt src i)
+            def keep:boolean false
+            if ((code >= 48) && (code <= 57)) {
+                keep = true
+            }
+            if ((code >= 65) && (code <= 90)) {
+                keep = true
+            }
+            if ((code >= 97) && (code <= 122)) {
+                keep = true
+            }
+            if (code == 45) {
+                keep = true
+            }
+            if keep {
+                out = (out + (strfromcode code))
+            } {
+                ; Runs of anything else collapse to one dash rather than a row
+                ; of them, so "Q1 — Q4 (units)" is not "Q1----Q4--units-".
+                if ((strlen out) > 0) {
+                    def prev:int (charAt out ((strlen out) - 1))
+                    if (prev != 45) {
+                        out = (out + "-")
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        while ((strlen out) > 0) {
+            def endc:int (charAt out ((strlen out) - 1))
+            if (endc == 45) {
+                out = (substring out 0 ((strlen out) - 1))
+            } {
+                break
+            }
+        }
+        if ((strlen out) == 0) {
+            return "chart"
+        }
+        return out
+    }
+
+    sfn attrEscape:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def code:int (charAt s i)
+            if (code == 34) {
+                out = (out + "&quot;")
+            } {
+                if (code == 38) {
+                    out = (out + "&amp;")
+                } {
+                    if (code == 60) {
+                        out = (out + "&lt;")
+                    } {
+                        if (code == 62) {
+                            out = (out + "&gt;")
+                        } {
+                            out = (out + (strfromcode code))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Everything, from one render.
+    fn build:ChartClip (model:SpreadsheetModel ch:GridChart tr:UITextRenderer boxW:int boxH:int) {
+        def clip (new ChartClip)
+        clip.name = (ChartClipboard.safeName(ch))
+        clip.tsv = (ChartClipboard.rangeTsv(model ch))
+
+        def w:int (boxW * enlarge)
+        def h:int (boxH * enlarge)
+        if (w < 240) {
+            w = 240
+        }
+        if (h < 160) {
+            h = 160
+        }
+        if (w > maxW) {
+            w = maxW
+        }
+        if (h > maxH) {
+            h = maxH
+        }
+        clip.w = w
+        clip.h = h
+
+        ; The picture, as draw commands — the same call the sheet makes.
+        def dl (new EVGDisplayList)
+        view.paint(dl model ch tr 0 0 w h)
+        def render:ChartRender (view.renderFor(model ch w h))
+        if (render.ok == false) {
+            clip.note = render.note
+            if ((strlen clip.note) == 0) {
+                clip.note = "chart could not be drawn"
+            }
+            return clip
+        }
+
+        ; …rasterised onto a surface of its own.
+        def back:EVGColor (EVGColor.parse((ChartStyle.background(ch.style))))
+        painter.begin(w h tr)
+        painter.clear(back)
+        painter.draw(dl)
+
+        def rb (new RasterBuffer)
+        rb.width = w
+        rb.height = h
+        rb.pixels = (painter.raw())
+        def enc (new PNGEncoder)
+        clip.png = (enc.encodeQuiet(rb))
+        clip.pngBase64 = (buffer_to_base64 clip.png)
+
+        ; …and as vector, straight from the same command list. Nothing is
+        ; traced back out of the bitmap: the SVG is what the renderer drew.
+        def writer (new VlSvgWriter)
+        clip.svg = (writer.writeDocument(render.list render.viewW render.viewH render.originX render.originY (ChartStyle.background(ch.style))))
+
+        def alt:string ch.title
+        if ((strlen alt) == 0) {
+            alt = ((ChartKind.label(ch.kind)) + " of " + (ch.rangeLabel()))
+        }
+        ; The flavour Word and Excel take. Width and height are stated in
+        ; pixels at the ON-SCREEN size rather than the bitmap's, so the picture
+        ; arrives the size it looked on the sheet and carries twice the detail
+        ; for when it is printed or enlarged.
+        clip.html = ("<meta charset=\"utf-8\"><img alt=\"" + (ChartClipboard.attrEscape(alt)) + "\" width=\"" + (to_string boxW) + "\" height=\"" + (to_string boxH) + "\" src=\"" + (clip.dataUri()) + "\">")
+        clip.ok = true
+        return clip
+    }
+}
