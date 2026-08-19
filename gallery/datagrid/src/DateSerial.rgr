@@ -1,0 +1,311 @@
+; ==============================================================================
+; DateSerial.rgr — the calendar, as a spreadsheet counts it.
+; ==============================================================================
+;
+; A spreadsheet does not have a date type. It has NUMBERS WITH A FORMAT: 45000
+; is a number, and it is the 15th of April 2023 because the cell says to draw
+; it that way. Every date feature — typing one, adding a month to one, asking
+; which weekday it is — is therefore arithmetic on a day count, and this is
+; where that arithmetic lives.
+;
+; The epoch is Excel's: day 1 is 1900-01-01, and day 60 is the 29th of February
+; 1900, a date that never happened. Lotus 1-2-3 had the bug, Excel copied it for
+; compatibility, and every file written since encodes it. The offset used here
+; (day 25569 is 1970-01-01) already contains that phantom day, so it is the
+; dates BEFORE it that need correcting — they come out one too high otherwise.
+; Getting this backwards shifts every date before March 1900 by one and nothing
+; else, which is exactly the kind of bug that survives for years; the test
+; checks day 1, day 59 and day 61 against Excel's own answers for that reason.
+; ==============================================================================
+
+class DateSerial {
+    sfn isLeap:boolean (y:int) {
+        if ((y % 4) != 0) {
+            return false
+        }
+        if ((y % 100) != 0) {
+            return true
+        }
+        return ((y % 400) == 0)
+    }
+
+    sfn daysInMonth:int (y:int m:int) {
+        if (m == 2) {
+            if (DateSerial.isLeap(y)) {
+                return 29
+            }
+            return 28
+        }
+        if (m == 4) {
+            return 30
+        }
+        if (m == 6) {
+            return 30
+        }
+        if (m == 9) {
+            return 30
+        }
+        if (m == 11) {
+            return 30
+        }
+        return 31
+    }
+
+    ; Days since 1899-12-30, by the civil-from-days algorithm — the same one
+    ; the number formatter inverts when it draws a date.
+    sfn daysFromCivil:int (y:int m:int d:int) {
+        def yy:int y
+        if (m <= 2) {
+            yy = (yy - 1)
+        }
+        def era:int (idiv yy 400)
+        if (yy < 0) {
+            era = (idiv (yy - 399) 400)
+        }
+        def yoe:int (yy - (era * 400))
+        def mp:int (m + 9)
+        if (m > 2) {
+            mp = (m - 3)
+        }
+        def doy:int ((idiv (((153 * mp) + 2)) 5) + (d - 1))
+        def doe:int ((((yoe * 365) + (idiv yoe 4)) - (idiv yoe 100)) + doy)
+        return (((era * 146097) + doe) - 719468)
+    }
+
+    ; A calendar date as a spreadsheet serial.
+    sfn fromYMD:double (y:int m:int d:int) {
+        ; Day 25569 is the Unix epoch, 1970-01-01: the offset between the civil
+        ; day count and the spreadsheet's. That offset already contains the
+        ; phantom day, so it is dates BEFORE the phantom that need correcting —
+        ; they are one lower than the straight-line count says.
+        def days:int (DateSerial.daysFromCivil(y m d))
+        def serial:int (days + 25569)
+        if (serial < 61) {
+            serial = (serial - 1)
+        }
+        return (to_double serial)
+    }
+
+    ; The inverse: fills out[0]=year, out[1]=month, out[2]=day.
+    sfn toYMD:void (serial:double out:[int]) {
+        clear out
+        def s:int (to_int serial)
+        if (s < 1) {
+            s = 1
+        }
+        if (s < 61) {
+            s = (s + 1)
+        }
+        def days:int (s - 25569)
+        def z:int (days + 719468)
+        def era:int (idiv z 146097)
+        if (z < 0) {
+            era = (idiv (z - 146096) 146097)
+        }
+        def doe:int (z - (era * 146097))
+        def yoe:int (idiv (((doe - (idiv doe 1460)) + (idiv doe 36524)) - (idiv doe 146096)) 365)
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - (((365 * yoe) + (idiv yoe 4)) - (idiv yoe 100)))
+        def mp:int (idiv ((5 * doy) + 2) 153)
+        def d:int ((doy - (idiv ((153 * mp) + 2) 5)) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        push out y
+        push out m
+        push out d
+    }
+
+    ; Day of the week, Excel's WEEKDAY with return type 1: Sunday = 1.
+    sfn weekday:int (serial:double) {
+        def s:int (to_int serial)
+        if (s < 61) {
+            s = (s + 1)
+        }
+        def days:int (s - 25569)
+        ; 1970-01-01 was a Thursday, which is 5 in this numbering.
+        def w:int ((days + 4) % 7)
+        if (w < 0) {
+            w = (w + 7)
+        }
+        return (w + 1)
+    }
+
+    ; Whole months added, clamping the day to the end of the target month —
+    ; the 31st of January plus one month is the 28th of February, not the 3rd
+    ; of March.
+    sfn addMonths:double (serial:double months:int) {
+        def parts:[int]
+        DateSerial.toYMD(serial parts)
+        def y:int (itemAt parts 0)
+        def m:int (itemAt parts 1)
+        def d:int (itemAt parts 2)
+        def total:int (((y * 12) + (m - 1)) + months)
+        def ny:int (idiv total 12)
+        def nm:int ((total - (ny * 12)) + 1)
+        if (nm < 1) {
+            nm = (nm + 12)
+            ny = (ny - 1)
+        }
+        def maxD:int (DateSerial.daysInMonth(ny nm))
+        if (d > maxD) {
+            d = maxD
+        }
+        return (DateSerial.fromYMD(ny nm d))
+    }
+
+    sfn endOfMonth:double (serial:double months:int) {
+        def moved:double (DateSerial.addMonths(serial months))
+        def parts:[int]
+        DateSerial.toYMD(moved parts)
+        def y:int (itemAt parts 0)
+        def m:int (itemAt parts 1)
+        return (DateSerial.fromYMD(y m (DateSerial.daysInMonth(y m))))
+    }
+
+    ; --- reading a typed date -------------------------------------------------
+    sfn isDigit:boolean (ch:int) {
+        return ((ch >= 48) && (ch <= 57))
+    }
+
+    ; Three numbers separated by one repeated punctuation mark. Returns false
+    ; for anything else, INCLUDING text that merely starts with a number:
+    ; "2024 was a good year" is not a date.
+    sfn splitParts:boolean (text:string nums:[int] sep:[int]) {
+        clear nums
+        clear sep
+        def n:int (strlen text)
+        def cur:int 0
+        def digits:int 0
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt text i)
+            if (DateSerial.isDigit(ch)) {
+                cur = ((cur * 10) + (ch - 48))
+                digits = (digits + 1)
+                if (digits > 4) {
+                    return false
+                }
+            } {
+                if (digits == 0) {
+                    return false
+                }
+                push nums cur
+                push sep ch
+                cur = 0
+                digits = 0
+            }
+            i = (i + 1)
+        }
+        if (digits == 0) {
+            return false
+        }
+        push nums cur
+        if ((array_length nums) != 3) {
+            return false
+        }
+        if ((array_length sep) != 2) {
+            return false
+        }
+        return ((itemAt sep 0) == (itemAt sep 1))
+    }
+
+    ; Is this text a date, and if so which one? Three orders are accepted, told
+    ; apart by the separator and by which part is four digits:
+    ;   2024-03-15   ISO, dash
+    ;   15.3.2024    day first, dot — how most of Europe writes it
+    ;   3/15/2024    month first, slash — how the US writes it
+    ; An ambiguous "03/04/2024" is read as the separator says, not guessed at.
+    sfn parseDate:double (text:string ok:[boolean]) {
+        clear ok
+        def nums:[int]
+        def sep:[int]
+        if ((DateSerial.splitParts(text nums sep)) == false) {
+            push ok false
+            return 0.0
+        }
+        def a:int (itemAt nums 0)
+        def b:int (itemAt nums 1)
+        def c:int (itemAt nums 2)
+        def s:int (itemAt sep 0)
+        def y:int 0
+        def m:int 0
+        def d:int 0
+        if (s == 45) {
+            y = a
+            m = b
+            d = c
+        } {
+            if (s == 46) {
+                d = a
+                m = b
+                y = c
+            } {
+                if (s == 47) {
+                    m = a
+                    d = b
+                    y = c
+                } {
+                    push ok false
+                    return 0.0
+                }
+            }
+        }
+        if (y < 100) {
+            ; Two-digit years, the way every spreadsheet resolves them.
+            if (y < 30) {
+                y = (y + 2000)
+            } {
+                y = (y + 1900)
+            }
+        }
+        if (y < 1900) {
+            push ok false
+            return 0.0
+        }
+        if (y > 9999) {
+            push ok false
+            return 0.0
+        }
+        if (m < 1) {
+            push ok false
+            return 0.0
+        }
+        if (m > 12) {
+            push ok false
+            return 0.0
+        }
+        if (d < 1) {
+            push ok false
+            return 0.0
+        }
+        if (d > (DateSerial.daysInMonth(y m))) {
+            push ok false
+            return 0.0
+        }
+        push ok true
+        return (DateSerial.fromYMD(y m d))
+    }
+
+    ; The number format a typed date should wear, chosen to match how it was
+    ; typed — someone who writes 15.3.2024 does not want to see 2024-03-15.
+    sfn formatForTyped:string (text:string) {
+        def nums:[int]
+        def sep:[int]
+        if ((DateSerial.splitParts(text nums sep)) == false) {
+            return "yyyy-mm-dd"
+        }
+        def s:int (itemAt sep 0)
+        if (s == 46) {
+            return "dd.mm.yyyy"
+        }
+        if (s == 47) {
+            return "mm/dd/yyyy"
+        }
+        return "yyyy-mm-dd"
+    }
+}

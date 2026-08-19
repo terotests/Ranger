@@ -28,6 +28,8 @@ npm run datagrid:chart:test
 npm run datagrid:export:test
 npm run datagrid:workbook:test
 npm run datagrid:formula:test
+npm run datagrid:formula:array:test
+npm run datagrid:date:test
 npm run datagrid:formula:workbook:test
 npm run datagrid:formula:bench
 npm run datagrid:artifacts
@@ -68,6 +70,8 @@ npm run datagrid:window
 - **Hyperlinks, notes and data validation**: read from the package, painted,
   enforced, and editable
 - **.xlsx export**: `Ctrl+S`, round-tripped by our own loader and by openpyxl
+- **~80 formula functions**, lookups over real rectangles, spilling array
+  results, and dates as Excel stores them
 - **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
@@ -316,6 +320,57 @@ All three are **metadata, not cell content**, so they are deliberately off the
 undo stack — undoing a paste must not drop the note that was pinned to the cell
 before it.
 
+## Formulas
+
+~80 functions, an AST with a dependency graph, and incremental recalculation.
+Beyond the arithmetic, string and logic families, the notable ones are:
+
+| Family | Functions |
+| --- | --- |
+| Lookup | `VLOOKUP` `HLOOKUP` `INDEX` `MATCH` `TRANSPOSE` `SUMPRODUCT` |
+| Conditional | `COUNTIF` `SUMIF` `AVERAGEIF` `COUNTBLANK` |
+| Dates | `DATE` `YEAR` `MONTH` `DAY` `WEEKDAY` `EDATE` `EOMONTH` `DAYS` `DATEVALUE` `TODAY` `NOW` |
+| Statistics | `MEDIAN` `LARGE` `SMALL` `ROUNDUP` `ROUNDDOWN` `TRUNC` |
+| Text | `SUBSTITUTE` `FIND` `SEARCH` `REPT` `PROPER` `EXACT` `CHAR` `CODE` `TEXT` |
+
+### A range keeps its shape
+
+A range used to be flattened into a list of arguments the moment it reached a
+function, which is why the lookups could not exist: `VLOOKUP` reads *down* a
+column and *across* a row, and a list has neither. A range now evaluates to a
+**rectangle** — a `FormulaValue` that knows its own rows and columns — and three
+things follow:
+
+1. **Lookups work**, because they can ask where they are.
+2. **Arithmetic spreads over it**: `=B1:B3*C1:C3` is three products, and a
+   single operand broadcasts (`=B1:B3*2`).
+3. **An array answer spills.** The top-left lands in the cell holding the
+   formula and the rest fills the block below and to the right, as a modern
+   spreadsheet does. The block is remembered, so a formula that shrinks takes
+   its old tail back; a spill that would land on someone's data refuses with
+   `#SPILL!` instead of eating it.
+
+Functions that only ever wanted values keep working: the helpers that walk
+arguments open a rectangle out on the way past.
+
+### Dates
+
+A spreadsheet has no date type — it has **numbers with a format**, and every
+date feature is arithmetic on a day count. Type `2024-03-15`, `15.3.2024` or
+`3/15/2024` and the cell stores `45366` wearing the format that draws it back
+the way you typed it.
+
+The epoch is Excel's, including the 29th of February 1900 — a date that never
+happened, which Lotus 1-2-3 got wrong and Excel copied for compatibility.
+`DateTest` checks day 1, day 59 and day 61 against Excel's own answers, because
+getting that backwards shifts every date before March 1900 by one and nothing
+else.
+
+`TODAY()` and `NOW()` are not pure functions: they read a clock this layer does
+not have. The **host sets one** (`GridApp.setToday`), which is also what makes
+them testable — a test says what today is instead of hoping the suite does not
+run over midnight. Unset, they answer `#N/A` rather than inventing a date.
+
 ## Saving
 
 `Ctrl+S` writes the workbook back out as **.xlsx**, beside the file it came
@@ -429,7 +484,7 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   35.5 / 41   86.6%     done 34   partial 3   todo 4
+TOTAL   36.5 / 41   89.0%     done 36   partial 1   todo 4
 ```
 
 `-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so

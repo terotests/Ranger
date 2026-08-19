@@ -178,6 +178,12 @@ class SpreadsheetModel {
     ; an edit of the value and are not on the undo stack, which is also why
     ; they are not in `cells`.
     def validations:[DataValidation]
+    ; Where an array formula's result was laid out. The anchor's key maps to
+    ; "rows,cols"; every cell it covers maps back to the anchor, so a paint or
+    ; an edit can ask "is this mine?" without searching.
+    def spillSize:[string:string]
+    def spillOwner:[string:string]
+    def spillKeys:[string]
     def links:[string:string]
     def linkKeys:[string]
     def notes:[string:string]
@@ -948,6 +954,80 @@ class SpreadsheetModel {
         def raw:string (this.getCell(row col))
         def st:CellStyle (this.getCellStyle(row col))
         return (XlsxNumberFormat.format(raw st.numFmt))
+    }
+
+    ; --- spilled array results ------------------------------------------------
+    fn setSpill:void (row:int col:int rows:int cols:int) {
+        def k:string (this.cellKey(row col))
+        if ((has spillSize k) == false) {
+            push spillKeys k
+        }
+        set spillSize k ((to_string rows) + "," + (to_string cols))
+        def r:int 0
+        while (r < rows) {
+            def c:int 0
+            while (c < cols) {
+                def ck:string (this.cellKey((row + r) (col + c)))
+                if ((has spillOwner ck) == false) {
+                    push spillKeys ck
+                }
+                set spillOwner ck k
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn isSpilled:boolean (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has spillOwner k) {
+            return ((strlen (unwrap (get spillOwner k))) > 0)
+        }
+        return false
+    }
+
+    ; The anchor a spilled cell belongs to, or "" — what an editor asks before
+    ; letting someone type into a cell a formula is filling.
+    fn spillAnchor:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has spillOwner k) {
+            return (unwrap (get spillOwner k))
+        }
+        return ""
+    }
+
+    ; Take back everything the anchor at (row, col) last laid out.
+    fn clearSpillFrom:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if ((has spillSize k) == false) {
+            return
+        }
+        def dims:string (unwrap (get spillSize k))
+        if ((strlen dims) == 0) {
+            return
+        }
+        def parts:[string] (strsplit dims ",")
+        if ((array_length parts) < 2) {
+            return
+        }
+        def rows:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+        def cols:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+        def r:int 0
+        while (r < rows) {
+            def c:int 0
+            while (c < cols) {
+                def ck:string (this.cellKey((row + r) (col + c)))
+                if (has spillOwner ck) {
+                    set spillOwner ck ""
+                }
+                if ((r + c) > 0) {
+                    this.setCellRaw((row + r) (col + c) "")
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        set spillSize k ""
     }
 
     ; --- hyperlinks -----------------------------------------------------------

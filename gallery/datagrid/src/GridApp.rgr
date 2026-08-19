@@ -16,6 +16,7 @@ Import "SheetView.rgr"
 Import "FormulaEngine.rgr"
 Import "xlsx/XlsxLoader.rgr"
 Import "xlsx/XlsxWriter.rgr"
+Import "DateSerial.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChart.rgr"
@@ -183,6 +184,13 @@ class GridApp {
         loadError = loader.lastError
         view.status = loadError
         return false
+    }
+
+    ; The host's clock, in the only form the engine cares about. A platform
+    ; that has a calendar calls this once at start-up; a test calls it with the
+    ; date it wants to reason about.
+    fn setToday:void (y:int m:int d:int) {
+        engine.todaySerial = (DateSerial.fromYMD(y m d))
     }
 
     ; --- saving ---------------------------------------------------------------
@@ -2171,8 +2179,23 @@ class GridApp {
                 def expr:string (substring editBuf 1 (strlen editBuf))
                 model.applyEdit(r c "" expr)
             } {
-                ; Plain value overwrites any prior formula.
-                model.applyEdit(r c editBuf "")
+                ; A typed date becomes what a spreadsheet stores for one: the
+                ; day count, wearing a format that draws it back the way it was
+                ; typed. Nothing else in the app has to know about dates.
+                def dateOk:[boolean]
+                def serial:double (DateSerial.parseDate(editBuf dateOk))
+                def isDate:boolean false
+                if ((array_length dateOk) > 0) {
+                    isDate = (itemAt dateOk 0)
+                }
+                if isDate {
+                    def st:CellStyle ((model.getCellStyle(r c)).copy())
+                    st.numFmt = (DateSerial.formatForTyped(editBuf))
+                    model.applyEditStyled(r c (to_string (to_int serial)) "" st)
+                } {
+                    ; Plain value overwrites any prior formula.
+                    model.applyEdit(r c editBuf "")
+                }
             }
         } {
             model.applyEdit(r c "" "")

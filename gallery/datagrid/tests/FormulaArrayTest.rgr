@@ -1,0 +1,151 @@
+; ==============================================================================
+; FormulaArrayTest — ranges that keep their shape, and formulas that spill.
+; ==============================================================================
+;
+; A range used to be flattened into a list of arguments the moment it reached a
+; function, which is why the lookups could not exist: VLOOKUP has to read down
+; a column and across a row, and a list has neither. A range now evaluates to a
+; rectangle, so this covers the three things that follow from that:
+;
+;   1. functions that need the shape — VLOOKUP, HLOOKUP, INDEX, MATCH, TRANSPOSE
+;   2. arithmetic over a rectangle, element by element
+;   3. a formula whose answer is a rectangle, laid out across the sheet
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class ArrayChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class FormulaArrayTest {
+    sfn cell:string (app:GridApp r:int c:int) {
+        return (app.model.getCell(r c))
+    }
+
+    sfn put:void (app:GridApp r:int c:int v:string) {
+        app.model.setCellRaw(r c v)
+    }
+
+    sfn formula:void (app:GridApp r:int c:int f:string) {
+        app.model.setFormula(r c f)
+    }
+
+    sfn main:void () {
+        def c:ArrayChecker (new ArrayChecker)
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.name = "Calc"
+        app.model.resize(30 10)
+
+        ; A little table: region, units, price.
+        FormulaArrayTest.put(app 0 0 "north")
+        FormulaArrayTest.put(app 0 1 "10")
+        FormulaArrayTest.put(app 0 2 "3")
+        FormulaArrayTest.put(app 1 0 "south")
+        FormulaArrayTest.put(app 1 1 "20")
+        FormulaArrayTest.put(app 1 2 "4")
+        FormulaArrayTest.put(app 2 0 "east")
+        FormulaArrayTest.put(app 2 1 "30")
+        FormulaArrayTest.put(app 2 2 "5")
+
+        print "== lookups, which need the shape a range used to lose =="
+        FormulaArrayTest.formula(app 5 0 "VLOOKUP(\"south\",A1:C3,2)")
+        FormulaArrayTest.formula(app 5 1 "VLOOKUP(\"east\",A1:C3,3)")
+        FormulaArrayTest.formula(app 5 2 "VLOOKUP(\"west\",A1:C3,2)")
+        FormulaArrayTest.formula(app 6 0 "INDEX(A1:C3,2,3)")
+        FormulaArrayTest.formula(app 6 1 "INDEX(B1:B3,3)")
+        FormulaArrayTest.formula(app 6 2 "MATCH(\"east\",A1:A3,0)")
+        ; The first ROW is what HLOOKUP searches: B1=10, C1=3.
+        FormulaArrayTest.formula(app 7 0 "HLOOKUP(3,B1:C3,2)")
+        app.engine.rebuildAll()
+        c.eqStr("VLOOKUP down a column" (FormulaArrayTest.cell(app 5 0)) "20")
+        c.eqStr("VLOOKUP a third column" (FormulaArrayTest.cell(app 5 1)) "5")
+        c.eqStr("VLOOKUP that misses" (FormulaArrayTest.cell(app 5 2)) "#N/A")
+        c.eqStr("INDEX by row and column" (FormulaArrayTest.cell(app 6 0)) "4")
+        c.eqStr("INDEX down one column" (FormulaArrayTest.cell(app 6 1)) "30")
+        c.eqStr("MATCH returns a position" (FormulaArrayTest.cell(app 6 2)) "3")
+        c.eqStr("HLOOKUP across a row" (FormulaArrayTest.cell(app 7 0)) "4")
+        c.eqStr("HLOOKUP that misses" (FormulaArrayTest.cell(app 7 1)) "")
+
+        print "== conditions over a range =="
+        FormulaArrayTest.formula(app 9 0 "COUNTIF(B1:B3,\">15\")")
+        FormulaArrayTest.formula(app 9 1 "SUMIF(A1:A3,\"south\",B1:B3)")
+        FormulaArrayTest.formula(app 9 2 "SUMIF(B1:B3,\">=20\")")
+        FormulaArrayTest.formula(app 9 3 "AVERAGEIF(B1:B3,\">5\")")
+        FormulaArrayTest.formula(app 9 4 "COUNTBLANK(A1:C4)")
+        app.engine.rebuildAll()
+        c.eqStr("COUNTIF with a comparison" (FormulaArrayTest.cell(app 9 0)) "2")
+        c.eqStr("SUMIF with a separate sum range" (FormulaArrayTest.cell(app 9 1)) "20")
+        c.eqStr("SUMIF over its own range" (FormulaArrayTest.cell(app 9 2)) "50")
+        c.eqStr("AVERAGEIF" (FormulaArrayTest.cell(app 9 3)) "20")
+        c.eqStr("COUNTBLANK sees the empty row" (FormulaArrayTest.cell(app 9 4)) "3")
+
+        print "== arithmetic over a rectangle =="
+        ; One cell asking for a rectangle keeps the top-left, as a spreadsheet
+        ; does when a formula is not laid out.
+        FormulaArrayTest.formula(app 11 0 "SUMPRODUCT(B1:B3,C1:C3)")
+        app.engine.rebuildAll()
+        c.eqStr("SUMPRODUCT pairs them up" (FormulaArrayTest.cell(app 11 0)) "260")
+
+        print "== a formula whose answer is a rectangle spills =="
+        FormulaArrayTest.formula(app 14 0 "B1:B3*C1:C3")
+        app.engine.rebuildAll()
+        c.eqStr("the anchor holds the first product" (FormulaArrayTest.cell(app 14 0)) "30")
+        c.eqStr("the second landed below it" (FormulaArrayTest.cell(app 15 0)) "80")
+        c.eqStr("and the third" (FormulaArrayTest.cell(app 16 0)) "150")
+        c.ok("the spilled cells know who owns them" (app.model.isSpilled(15 0)))
+        c.ok("the anchor is not a spilled cell of someone else" ((app.model.spillAnchor(14 0)) == "14,0"))
+        c.ok("nothing below the block was touched" ((FormulaArrayTest.cell(app 17 0)) == ""))
+
+        ; Shrink the formula: the tail has to be taken back.
+        FormulaArrayTest.formula(app 14 0 "B1:B2*C1:C2")
+        app.engine.rebuildAll()
+        c.eqStr("still spills what it now covers" (FormulaArrayTest.cell(app 15 0)) "80")
+        c.eqStr("and the old tail is gone" (FormulaArrayTest.cell(app 16 0)) "")
+
+        ; Broadcasting a single value across a rectangle.
+        FormulaArrayTest.formula(app 19 0 "B1:B3*2")
+        app.engine.rebuildAll()
+        c.eqStr("broadcast row 1" (FormulaArrayTest.cell(app 19 0)) "20")
+        c.eqStr("broadcast row 2" (FormulaArrayTest.cell(app 20 0)) "40")
+        c.eqStr("broadcast row 3" (FormulaArrayTest.cell(app 21 0)) "60")
+
+        ; A spill that would land on someone's data refuses instead.
+        FormulaArrayTest.put(app 24 0 "in the way")
+        FormulaArrayTest.formula(app 23 0 "B1:B3*2")
+        app.engine.rebuildAll()
+        c.eqStr("a blocked spill says so" (FormulaArrayTest.cell(app 23 0)) "#SPILL!")
+        c.eqStr("and leaves the obstacle alone" (FormulaArrayTest.cell(app 24 0)) "in the way")
+
+        print "== TRANSPOSE turns a column into a row =="
+        FormulaArrayTest.formula(app 27 0 "TRANSPOSE(B1:B3)")
+        app.engine.rebuildAll()
+        c.eqStr("first" (FormulaArrayTest.cell(app 27 0)) "10")
+        c.eqStr("second, to the right" (FormulaArrayTest.cell(app 27 1)) "20")
+        c.eqStr("third" (FormulaArrayTest.cell(app 27 2)) "30")
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -23,7 +23,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Text truncation | done | clipped at the cell once a neighbour is occupied |
 | Overflow | done | spills into empty neighbours only, as Excel does |
 | Automatic line wrapping | done | wrapText → multi-line paint + row auto-fit |
-| Multiple data types | partial | number / string / bool / formula; no rich date type |
+| Multiple data types | done | number / string / bool / formula / date — typed, stored as a serial, formatted back |
 | Cell segmentation style | todo | one style per cell, no rich-text runs inside a cell |
 | Hyperlink | done | rel-resolved external + internal targets, painted as links, Ctrl+click follows |
 
@@ -65,7 +65,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Built-in formulas | partial | ~40 functions, AST + dependency recalc; no array formulas |
+| Built-in formulas | done | ~80 functions incl. lookups and dates; ranges keep their shape; array results spill |
 | Conditional formatting | done | colorScale + cellIs, read from the file and authored in a rule editor |
 | Data verification | done | list / whole / decimal / length rules, enforced on entry, with a picker and an editor |
 
