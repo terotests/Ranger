@@ -258,6 +258,38 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // The command surface, over HTTP: what the grid can do, and doing it. This
+  // is the same table the app itself dispatches through — a host driving the
+  // grid from outside runs exactly the paths the keyboard does.
+  if (url.pathname === "/commands") {
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    res.end(app.commands.toJson());
+    return;
+  }
+
+  if (url.pathname === "/command" && req.method === "POST") {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    let payload = {};
+    try {
+      payload = JSON.parse(body || "{}");
+    } catch {
+      res.writeHead(400, { "content-type": "text/plain" });
+      res.end("bad json");
+      return;
+    }
+    const ran = app.runCommand(String(payload.id || ""), String(payload.arg || ""));
+    // A custom tool leaves its id in the app's mailbox; the host is the only
+    // thing that knows what its own tool means, so it is handed back here.
+    const custom = app.takeCustomCommand();
+    const customArg = custom ? app.takeCustomArg() : "";
+    res.writeHead(ran ? 200 : 404, {
+      "content-type": "application/json; charset=utf-8",
+    });
+    res.end(JSON.stringify({ ran, custom, customArg, active: app.activeLabel() }));
+    return;
+  }
+
   // A sheet's pictures. They came out of the .xlsx while it was open and now
   // live on the model; the browser asks for them by package part name, which
   // is exactly what the IMAGE commands in the scene carry.

@@ -232,6 +232,15 @@ class DumpArtifacts {
             DumpArtifacts.writePng(app dir "15_images.png")
         }
 
+        print "== 16 a host's own tools on the status bar =="
+        def ok16:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok16 {
+            app.addCustomCommand("acme.report" "Report" "Tools")
+            app.addCustomCommand("acme.sync" "Sync" "Tools")
+            app.runCommand("nav.goto" "C4")
+            DumpArtifacts.writePng(app dir "16_custom_tools.png")
+        }
+
         print "DumpArtifacts DONE"
     }
 }

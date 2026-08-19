@@ -74,6 +74,7 @@ npm run datagrid:window
   results, and dates as Excel stores them
 - **Rich text**: several styles inside one cell, on one baseline
 - **Images**: drawing anchors and media, painted on both backends
+- **A named-command API** a host can enumerate, drive and extend — over HTTP too
 - **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
@@ -515,6 +516,31 @@ is crisp rather than resampled. Compiling is cached by specification text and
 box size, which is why dragging a chart costs nothing and editing a cell it
 reads costs one recompute.
 
+## The command surface
+
+"`GridApp` is the API" was true and not much use: a host had to know the method
+names, their arguments, and which were meant to be called from outside.
+`GridCommands` is the answer — a table of **named commands** a host can
+enumerate, describe, and invoke by string.
+
+```bash
+curl localhost:8766/commands                                    # what it can do
+curl -X POST localhost:8766/command -d '{"id":"nav.goto","arg":"C5"}'
+```
+
+Ids are dotted and stable (`edit.copy`, `insert.row.above`, `file.save`); each
+carries a label, a group, the key that already runs it, and whether it takes an
+argument. The HTTP routes dispatch through the same table the keyboard does, so
+driving the grid from outside runs exactly the paths a user does.
+
+**Custom tools.** A host registers one with `addCustomCommand(id label group)`.
+It joins the table and appears on the status bar — and running it does *nothing
+here*: it leaves the id in a mailbox the host collects with
+`takeCustomCommand()`. Ranger has no closures to hand a host, so a callback was
+never on the table; a mailbox is the honest shape, and it is also the only one
+that survives the app being driven over a socket, where a callback could not
+have gone anyway.
+
 ## Parity score
 
 `npm run datagrid:parity` scores [`docs/PARITY.md`](docs/PARITY.md) — one row per
@@ -523,13 +549,18 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   38.5 / 41   93.9%     done 38   partial 1   todo 2
+TOTAL   39.0 / 41   95.1%     done 39   partial 0   todo 2
 ```
 
-`-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
-the score can gate CI once it is where you want it. What is left is rich text
-inside a cell, images, and the collaborative features — cooperative editing and
-mobile adaptation — plus array formulas and a plugin surface.
+`-- --todo` lists what is missing; `-- --check 90` fails below a threshold, so
+the score can gate CI. Six of the seven sections are at 100%.
+
+What is left is deliberately left: **cooperative editing** and **mobile
+adaptation**. Both are I/O shapes rather than spreadsheet behaviour — one needs
+a transport and a conflict policy, the other a touch event source — and neither
+can be tested the way everything above is, by driving the model and reading the
+answer back. The abstractions are writable; the proof is not, so they are not
+claimed.
 
 ## Architecture invariant
 

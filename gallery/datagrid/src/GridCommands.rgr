@@ -1,0 +1,170 @@
+; ==============================================================================
+; GridCommands.rgr — everything the grid can do, by name.
+; ==============================================================================
+;
+; "GridApp is the API" was true and not much use: a host had to know the method
+; names, their argument lists, and which of them were meant to be called from
+; outside. This is the surface that answers those questions — a table of named
+; commands a host can ENUMERATE, describe to a user, and invoke by string.
+;
+; That table is also what makes custom tools possible. Ranger has no closures to
+; hand a host, so a registered tool does not carry code: it carries a NAME, and
+; running it records the invocation for the host to collect. The host polls
+; `takeCustomCommand` in the loop it already runs, and does whatever it likes.
+; It is a mailbox rather than a callback, which is the honest shape for a
+; language without function values, and it survives the app being driven over a
+; socket — where a callback could not have gone anyway.
+;
+; Ids are dotted and stable: `edit.copy`, `insert.row.above`. The label and the
+; group are for the host's own menus; the key is documentation of what the app
+; already binds, not a binding this table owns.
+; ==============================================================================
+
+class GridCommand {
+    def id:string ""
+    def label:string ""
+    def group:string ""
+    def key:string ""
+    ; Commands that read an argument — `nav.goto` takes "B7" — so a host can
+    ; tell which of them need to ask for something first.
+    def takesArg:boolean false
+    ; Registered by the host rather than built in. Running one records it
+    ; instead of doing anything.
+    def custom:boolean false
+
+    Constructor () {
+    }
+}
+
+class GridCommandTable {
+    def commands:[GridCommand]
+
+    Constructor () {
+    }
+
+    fn add:GridCommand (id:string label:string group:string key:string) {
+        def c:GridCommand (new GridCommand)
+        c.id = id
+        c.label = label
+        c.group = group
+        c.key = key
+        push commands c
+        return c
+    }
+
+    fn addArg:GridCommand (id:string label:string group:string key:string) {
+        def c:GridCommand (this.add(id label group key))
+        c.takesArg = true
+        return c
+    }
+
+    fn addCustom:GridCommand (id:string label:string group:string) {
+        def c:GridCommand (this.add(id label group ""))
+        c.custom = true
+        return c
+    }
+
+    fn count:int () {
+        return (array_length commands)
+    }
+
+    fn at:GridCommand (i:int) {
+        if (i < 0) {
+            return (new GridCommand)
+        }
+        if (i >= (array_length commands)) {
+            return (new GridCommand)
+        }
+        return (itemAt commands i)
+    }
+
+    fn find:GridCommand (id:string) {
+        def i:int 0
+        while (i < (array_length commands)) {
+            def c:GridCommand (itemAt commands i)
+            if (c.id == id) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new GridCommand)
+    }
+
+    fn has:boolean (id:string) {
+        def c:GridCommand (this.find(id))
+        return ((strlen c.id) > 0)
+    }
+
+    fn customCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length commands)) {
+            def c:GridCommand (itemAt commands i)
+            if c.custom {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn customAt:GridCommand (idx:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length commands)) {
+            def c:GridCommand (itemAt commands i)
+            if c.custom {
+                if (n == idx) {
+                    return c
+                }
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return (new GridCommand)
+    }
+
+    ; The whole table as JSON — what a host over a socket asks for first.
+    fn toJson:string () {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length commands)) {
+            def c:GridCommand (itemAt commands i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"id\":\"" + c.id + "\",\"label\":\"" + (GridCommandTable.esc(c.label)) + "\",\"group\":\"" + c.group + "\"")
+            if ((strlen c.key) > 0) {
+                out = (out + ",\"key\":\"" + c.key + "\"")
+            }
+            if c.takesArg {
+                out = (out + ",\"takesArg\":true")
+            }
+            if c.custom {
+                out = (out + ",\"custom\":true")
+            }
+            out = (out + "}")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if (ch == 34) {
+                out = (out + "\\\"")
+            } {
+                if (ch == 92) {
+                    out = (out + "\\\\")
+                } {
+                    out = (out + (strfromcode ch))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

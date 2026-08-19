@@ -18,6 +18,7 @@ Import "ConditionalFormat.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChartView.rgr"
 Import "GridImages.rgr"
+Import "GridCommands.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -63,6 +64,9 @@ class GridView {
     ; The pictures anchored to the sheet, decoded once and drawn where their
     ; anchors land. The host fills the byte source; the view only draws.
     def images:GridImages (new GridImages)
+    ; The host's custom tools, drawn as buttons on the status bar. The view
+    ; only paints them; what they mean is the host's business.
+    def commands:GridCommandTable (new GridCommandTable)
     def ghostVisible:boolean false
     def ghostR0:int 0
     def ghostC0:int 0
@@ -696,6 +700,17 @@ class GridView {
         return (pageW - (bw + 8))
     }
 
+    ; Custom tool buttons, laid out leftwards from the chart button.
+    sfn toolButtonW:int () {
+        return 84
+    }
+
+    sfn toolButtonX:int (pageW:int index:int) {
+        def bw:int (GridView.toolButtonW())
+        def base:int (GridView.chartButtonX(pageW))
+        return ((base - ((index + 1) * (bw + 6))))
+    }
+
     sfn chartButtonY:int (statusTop:int) {
         return (statusTop + 2)
     }
@@ -1102,6 +1117,19 @@ class GridView {
             this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.statusText)
             ; The one control on the status bar: making a chart out of what is
             ; selected. A shortcut alone would be a feature nobody finds.
+            ; The host's own tools sit to the left of the built-in button, in
+            ; the order they were registered.
+            def toolI:int 0
+            while (toolI < (commands.customCount())) {
+                def tool:GridCommand (commands.customAt(toolI))
+                def tx:int (GridView.toolButtonX(pageW toolI))
+                def ty:int (GridView.chartButtonY(sy2))
+                def tw:int (GridView.toolButtonW())
+                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) theme.headerBg)
+                this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) 1.0 theme.gridLine)
+                this.pushText(dl tool.label (to_double (tx + 6)) (to_double (ty + 1)) 12.0 theme.statusText)
+                toolI = (toolI + 1)
+            }
             def cbx:int (GridView.chartButtonX(pageW))
             def cby:int (GridView.chartButtonY(sy2))
             this.pushRect(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) theme.headerBg)

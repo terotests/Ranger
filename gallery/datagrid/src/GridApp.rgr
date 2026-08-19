@@ -17,6 +17,7 @@ Import "FormulaEngine.rgr"
 Import "xlsx/XlsxLoader.rgr"
 Import "xlsx/XlsxWriter.rgr"
 Import "DateSerial.rgr"
+Import "GridCommands.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChart.rgr"
@@ -126,6 +127,15 @@ class GridApp {
     ; Where the last save went, so a host can tell the user — and so a test
     ; can check that it went anywhere at all.
     def savedPath:string ""
+    ; Everything the grid can do, by name — see GridCommands. Built once, so a
+    ; host can enumerate it before the first frame.
+    def commands:GridCommandTable (new GridCommandTable)
+    def commandsReady:boolean false
+    ; The last custom tool that was run, waiting to be collected. Ranger has no
+    ; closures to hand a host, so a registered tool is a mailbox: running it
+    ; leaves the id here and the host takes it.
+    def pendingCustom:string ""
+    def pendingCustomArg:string ""
 
     Constructor () {
     }
@@ -153,6 +163,8 @@ class GridApp {
         ; here rather than on every frame — anything that builds a display list
         ; directly (a test, a dump) then sees the same scene the app does.
         view.windows = windows
+        this.buildCommands()
+        view.commands = commands
         grid.setBounds(0 0 W (H - statusH))
         this.loadDemo()
     }
@@ -191,6 +203,255 @@ class GridApp {
     ; date it wants to reason about.
     fn setToday:void (y:int m:int d:int) {
         engine.todaySerial = (DateSerial.fromYMD(y m d))
+    }
+
+    ; --- the command surface ---------------------------------------------------
+    fn buildCommands:void () {
+        if commandsReady {
+            return
+        }
+        commandsReady = true
+        commands.add("file.save" "Save as .xlsx" "File" "Ctrl+S")
+        commands.add("edit.undo" "Undo" "Edit" "Ctrl+Z")
+        commands.add("edit.redo" "Redo" "Edit" "Ctrl+Y")
+        commands.add("edit.copy" "Copy" "Edit" "Ctrl+C")
+        commands.add("edit.cut" "Cut" "Edit" "Ctrl+X")
+        commands.add("edit.paste" "Paste" "Edit" "Ctrl+V")
+        commands.add("edit.pasteSpecial" "Paste special…" "Edit" "Ctrl+Shift+V")
+        commands.add("edit.clear" "Clear contents" "Edit" "Delete")
+        commands.add("edit.formatPainter" "Copy formatting" "Edit" "Ctrl+Shift+C")
+        commands.add("edit.find" "Find and replace…" "Edit" "Ctrl+F")
+        commands.add("insert.row.above" "Insert row above" "Insert" "")
+        commands.add("insert.row.below" "Insert row below" "Insert" "")
+        commands.add("insert.column.left" "Insert column left" "Insert" "")
+        commands.add("insert.column.right" "Insert column right" "Insert" "")
+        commands.add("insert.chart" "Chart from selection…" "Insert" "Ctrl+M")
+        commands.add("insert.link" "Hyperlink…" "Insert" "Ctrl+K")
+        commands.add("delete.rows" "Delete rows" "Insert" "")
+        commands.add("delete.columns" "Delete columns" "Insert" "")
+        commands.add("move.row.up" "Move row up" "Insert" "")
+        commands.add("move.row.down" "Move row down" "Insert" "")
+        commands.add("move.column.left" "Move column left" "Insert" "")
+        commands.add("move.column.right" "Move column right" "Insert" "")
+        commands.add("format.autofit.column" "Auto-fit column width" "Format" "")
+        commands.add("format.autofit.row" "Auto-fit row height" "Format" "")
+        commands.add("format.conditional" "Conditional formatting…" "Format" "Ctrl+L")
+        commands.add("data.sort.asc" "Sort ascending" "Data" "")
+        commands.add("data.sort.desc" "Sort descending" "Data" "")
+        commands.add("data.filter.clear" "Clear filter" "Data" "")
+        commands.add("data.validation" "Data validation…" "Data" "Ctrl+E")
+        commands.add("select.all" "Select all" "Select" "Ctrl+A")
+        commands.add("select.column" "Select column" "Select" "Ctrl+Space")
+        commands.add("select.row" "Select row" "Select" "Shift+Space")
+        commands.addArg("nav.goto" "Go to cell" "Select" "")
+        commands.add("view.sheet.next" "Next sheet" "View" "")
+        commands.add("view.sheet.prev" "Previous sheet" "View" "")
+    }
+
+    ; A tool the host adds. It appears in the table, and on the status bar, and
+    ; running it puts its id in the mailbox rather than doing anything here —
+    ; the host is the only thing that knows what its own tool means.
+    fn addCustomCommand:void (id:string label:string group:string) {
+        this.buildCommands()
+        if (commands.has(id)) {
+            return
+        }
+        commands.addCustom(id label group)
+    }
+
+    ; Collect the pending custom invocation, if any, and clear it. Returns ""
+    ; when nothing is waiting.
+    fn takeCustomCommand:string () {
+        def id:string pendingCustom
+        pendingCustom = ""
+        return id
+    }
+
+    fn takeCustomArg:string () {
+        def a:string pendingCustomArg
+        pendingCustomArg = ""
+        return a
+    }
+
+    ; A1 → move there. Anything unparseable leaves the selection alone.
+    fn gotoCell:boolean (ref:string) {
+        def rows:[int]
+        def cols:[int]
+        XlsxWorksheet.parseCellRef(ref rows cols)
+        if ((array_length rows) == 0) {
+            return false
+        }
+        def r:int (itemAt rows 0)
+        def c:int (itemAt cols 0)
+        if (r < 0) {
+            return false
+        }
+        if (c < 0) {
+            return false
+        }
+        this.ensureExtent(r c)
+        this.moveActive(r c false)
+        return true
+    }
+
+    ; Run one command by name. Returns false for a name the table does not
+    ; have, so a host can tell a typo from a no-op.
+    fn runCommand:boolean (id:string arg:string) {
+        this.buildCommands()
+        def cmd:GridCommand (commands.find(id))
+        if ((strlen cmd.id) == 0) {
+            return false
+        }
+        if cmd.custom {
+            pendingCustom = id
+            pendingCustomArg = arg
+            view.status = ("tool: " + cmd.label)
+            return true
+        }
+        if editing {
+            this.commitEdit()
+        }
+        if (id == "file.save") {
+            return (this.saveXlsxDefault())
+        }
+        if (id == "edit.undo") {
+            this.undoEdit()
+            return true
+        }
+        if (id == "edit.redo") {
+            this.redoEdit()
+            return true
+        }
+        if (id == "edit.copy") {
+            this.copySelection()
+            return true
+        }
+        if (id == "edit.cut") {
+            this.cutSelection()
+            return true
+        }
+        if (id == "edit.paste") {
+            this.pasteClipboard()
+            return true
+        }
+        if (id == "edit.pasteSpecial") {
+            this.openPasteSpecial()
+            return true
+        }
+        if (id == "edit.clear") {
+            this.clearSelection()
+            return true
+        }
+        if (id == "edit.formatPainter") {
+            this.copyFormat()
+            return true
+        }
+        if (id == "edit.find") {
+            this.openFindDialog()
+            return true
+        }
+        if (id == "insert.row.above") {
+            this.insertRowAboveSelection()
+            return true
+        }
+        if (id == "insert.row.below") {
+            this.insertRowBelowSelection()
+            return true
+        }
+        if (id == "insert.column.left") {
+            this.insertColumnLeftOfSelection()
+            return true
+        }
+        if (id == "insert.column.right") {
+            this.insertColumnRightOfSelection()
+            return true
+        }
+        if (id == "insert.chart") {
+            this.openChartDialog(0)
+            return true
+        }
+        if (id == "insert.link") {
+            this.openLinkDialog()
+            return true
+        }
+        if (id == "delete.rows") {
+            this.deleteSelectedRows()
+            return true
+        }
+        if (id == "delete.columns") {
+            this.deleteSelectedColumns()
+            return true
+        }
+        if (id == "move.row.up") {
+            this.moveSelectedRow(-1)
+            return true
+        }
+        if (id == "move.row.down") {
+            this.moveSelectedRow(1)
+            return true
+        }
+        if (id == "move.column.left") {
+            this.moveSelectedColumn(-1)
+            return true
+        }
+        if (id == "move.column.right") {
+            this.moveSelectedColumn(1)
+            return true
+        }
+        if (id == "format.autofit.column") {
+            this.autoFitColumn(sel.active.col)
+            return true
+        }
+        if (id == "format.autofit.row") {
+            this.autoFitRow(sel.active.row)
+            return true
+        }
+        if (id == "format.conditional") {
+            cfStatus = ""
+            this.openCfDialog()
+            return true
+        }
+        if (id == "data.sort.asc") {
+            this.applySort(sel.active.col true)
+            return true
+        }
+        if (id == "data.sort.desc") {
+            this.applySort(sel.active.col false)
+            return true
+        }
+        if (id == "data.filter.clear") {
+            this.clearFilter()
+            return true
+        }
+        if (id == "data.validation") {
+            dvStatus = ""
+            this.openValidationDialog()
+            return true
+        }
+        if (id == "select.all") {
+            sel.selectAll(model)
+            return true
+        }
+        if (id == "select.column") {
+            this.selectColumn(sel.active.col)
+            return true
+        }
+        if (id == "select.row") {
+            this.selectRow(sel.active.row)
+            return true
+        }
+        if (id == "nav.goto") {
+            return (this.gotoCell(arg))
+        }
+        if (id == "view.sheet.next") {
+            this.setActiveSheet((book.activeIndex + 1))
+            return true
+        }
+        if (id == "view.sheet.prev") {
+            this.setActiveSheet((book.activeIndex - 1))
+            return true
+        }
+        return false
     }
 
     ; --- saving ---------------------------------------------------------------
@@ -1624,6 +1885,31 @@ class GridApp {
         if (openEdit > 0) {
             this.openChartDialog(openEdit)
         }
+    }
+
+    ; Which custom tool button is under the pointer, or -1.
+    fn toolButtonHit:int (px:int py:int) {
+        def statusTop:int (grid.y + grid.h)
+        def by:int (GridView.chartButtonY(statusTop))
+        def bh:int (GridView.chartButtonH())
+        if (py < by) {
+            return -1
+        }
+        if (py >= (by + bh)) {
+            return -1
+        }
+        def bw:int (GridView.toolButtonW())
+        def i:int 0
+        while (i < (commands.customCount())) {
+            def bx:int (GridView.toolButtonX(W i))
+            if (px >= bx) {
+                if (px < (bx + bw)) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
     }
 
     ; The status bar's "+ Chart" button.
@@ -3210,6 +3496,13 @@ class GridApp {
         if input.pointerPressed {
             if (this.chartButtonHit(input.pointerX input.pointerY)) {
                 this.openChartDialog(0)
+                return
+            }
+            def toolIdx:int (this.toolButtonHit(input.pointerX input.pointerY))
+            if (toolIdx >= 0) {
+                def tool:GridCommand (commands.customAt(toolIdx))
+                view.focused = true
+                this.runCommand(tool.id "")
                 return
             }
             def tab:int (grid.hitSheetTab((book.sheetCount()) input.pointerX input.pointerY))

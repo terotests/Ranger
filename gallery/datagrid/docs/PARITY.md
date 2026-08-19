@@ -84,7 +84,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Comments | done | comments part → per-cell notes, marked in the corner and shown for the active cell |
 | Freeze panes | done | freezeRows/Cols + fixed bands |
 | Screenshots | done | tracked artifacts under `artifacts/` |
-| Custom tools / API | partial | GridApp is the API; no plugin surface |
+| Custom tools / API | done | a named-command table a host enumerates, drives and extends — over HTTP too |
 | Cooperative editing | todo | single document, no transport |
 | Mobile adaptation | todo | pointer only, no touch gestures |
 | Testing | done | 700+ checks across seven suites plus oracles |
