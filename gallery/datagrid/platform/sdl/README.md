@@ -1,18 +1,24 @@
 # DataGrid — native SDL2 + OpenGL host (C++)
 
 Desktop host for the EVG spreadsheet under `gallery/datagrid/`. Same portable
-`GridApp` as the WebGL page; this folder only owns the window, input, and
-present path.
+`GridApp` as the WebGL page; this folder owns the window, input, and **EVG →
+OpenGL** present path (same seam as `gallery/evg/gl/evg-webgl.js`).
 
 ```text
 .xlsx on disk
    ↓
 GridApp (loadXlsx / saveXlsx / UIInput)
    ↓
-SoftCanvas RGBA
+EVGDisplayList
    ↓
-OpenGL texture blit (gfx_datagrid_sdl.rgr) → SDL2 window
+EvgGlPainter + evg_gl_native.cpp  →  OpenGL (SDF rects, text atlas, paths)
+   ↓
+SDL2 window (HiDPI-aware viewport)
 ```
+
+SoftCanvas is used only to rasterize **text runs into an atlas** (the WebGL host
+uses Canvas2D for that). The page itself is not blitted as a bitmap — that was
+what distorted on Retina.
 
 ## Requirements (macOS)
 
@@ -21,7 +27,7 @@ brew install sdl2
 # Xcode / Command Line Tools for clang++ and OpenGL.framework
 ```
 
-Linux: `libsdl2-dev` and `libGL` (mesa).
+Linux: `libsdl2-dev` and `libGL` (mesa). Needs OpenGL 3.2+ core for the EVG shaders.
 
 ## Build & run
 
@@ -37,7 +43,7 @@ Or via npm:
 ```bash
 npm run datagrid:sdl
 npm run datagrid:sdl:run
-npm run datagrid:sdl:smoke   # headless dummy driver, 20 frames
+npm run datagrid:sdl:smoke
 ```
 
 ### CLI
@@ -58,13 +64,16 @@ SDL_VIDEODRIVER=dummy ./tmp/datagrid-sdl/datagrid_sdl \
   gallery/datagrid/fixtures/sales.xlsx 20
 ```
 
+(No GL window under `dummy` — SoftCanvas paints the list so load/save still run.)
+
 ## Layout
 
 | File | Role |
 | --- | --- |
 | `datagrid_sdl.rgr` | Host: argv → `GridApp` → frame loop |
-| `gfx_datagrid_sdl.rgr` | SDL2 window + OpenGL present + mouse/keys/text |
-| `build.sh` | Ranger `-l=cpp` → `clang++`/`g++` + SDL2 + OpenGL |
+| `EvgGlPainter.rgr` | Walk display list → `dgfx_evg_*` |
+| `evg_gl_native.cpp` | OpenGL batcher (shaders ≈ `evg-webgl.js`) |
+| `gfx_datagrid_sdl.rgr` | SDL2 window + input + operator glue |
+| `build.sh` | Ranger `-l=cpp` → link SDL2 + OpenGL |
 
-The spreadsheet core stays under `gallery/datagrid/src/`; do not put app logic
-in this platform folder.
+The spreadsheet core stays under `gallery/datagrid/src/`.
