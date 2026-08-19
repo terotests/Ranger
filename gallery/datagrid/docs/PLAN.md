@@ -36,5 +36,11 @@
 ; Milestone 5 (formula correctness): Excel coerce/error semantics, absolute
 ;   refs + AST translate for fill/copy, quoted sheets, cross-sheet incremental
 ;   recalc stats, formula bar edit, numFmt on raw formula results.
+; Milestone 6 (editor semantics): SpreadsheetModel.applyEdit as the single
+;   tracked mutation (value + formula per undo op), beginTx/endTx transactions
+;   so paste / fill / range delete are one Ctrl+Z, formula-aware copy/cut/paste
+;   with AST ref translation, caret editing in the cell buffer, interactive row
+;   resize, precedence-aware formula serialization, and per-cell engine
+;   resync (never re-attach, which drops the dependency graph).
 ; Stretch: conditional formatting resolver.
 ; ==============================================================================

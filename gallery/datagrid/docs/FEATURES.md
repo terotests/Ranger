@@ -19,12 +19,13 @@
 ; Inline edit + formula bar       | address + formula/value bar               | done
 ; Row / column headers            | painted chrome                            | done
 ; Resize columns                  | header edge drag                          | done
-; Resize rows                     | (row ht from xlsx; interactive todo)      | partial
-; Copy / paste / cut              | Ctrl+C / Ctrl+V TSV clipboard             | done
+; Resize rows                     | row header edge drag (hitRowResize)       | done
+; Copy / paste / cut              | Ctrl+C/X/V, formula-aware block clipboard | done
 ; Fill handle                     | drag active-cell handle (copy fill)       | done
 ; Merge cells                     | paint origin + hit-test → origin          | done
 ; Multiple sheets                 | tabs + hidden metadata + scroll save      | done
 ; Freeze panes                    | freezeRows/Cols + fixed bands             | done
+; Undo / redo                     | transactional, value + formula per op     | done
 ; Cell formatting (fill/font/…)   | styles.xml → CellStyle → EVG              | done
 ; Number formats                  | XlsxNumberFormat engine (practical set)   | done
 ; Text wrap / rotation            |                                           | todo
@@ -35,10 +36,23 @@
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
 ;
+; Editing stack: SpreadsheetModel.applyEdit(row col value formula) is the only
+; tracked mutation — it records value AND formula in one undo op. beginTx/endTx
+; group a paste / fill / range delete into a single Ctrl+Z step (history is
+; trimmed whole transactions at a time). After a batch the app calls
+; FormulaEngine.syncCell per touched cell, then recalcDirty() once. GridApp must
+; never call engine.attach() per edit: attach clears depsOf/usedBy, which used to
+; silently stop propagation after the first edit. Inline editing is caret-based
+; (insertAtCaret / backspaceAtCaret / deleteAtCaret + ← → Home End).
+; Clipboard: copy keeps formulas and the source anchor, so paste re-bases
+; relative refs via the AST; cut pastes without translation.
+;
 ; Formula stack: FormulaValue (coerce/error) + FormulaFunctions + FormulaEngine
 ; (parse/deps/incremental recalc/fill-translate). Ops: + - * / ^ & comparisons.
 ; Refs: A1 $A$1 A$1 $A1, Sheet!A1, 'My Sheet'!A1, ranges. Fill/copy translates
-; relative refs via AST. Library: SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF
+; relative refs via AST; serialization is precedence-aware, so a filled
+; "=A2+B2" stays "=A3+B3" instead of growing "( )" around every operator.
+; Library: SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF
 ; AND OR NOT TRUE FALSE IFERROR IFNA ABS ROUND INT MOD POWER SQRT SIGN PI EXP
 ; LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT VALUE
 ; ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T. Unsupported keep cached <v>.

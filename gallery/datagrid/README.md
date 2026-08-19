@@ -22,6 +22,7 @@ EVGDisplayList → SoftCanvas / WebGL
 
 ```bash
 npm run datagrid:test
+npm run datagrid:edit:test
 npm run datagrid:xlsx:test
 npm run datagrid:workbook:test
 npm run datagrid:formula:test
@@ -49,10 +50,34 @@ npm run datagrid:window
 - Conditional formatting: colorScale + cellIs paint overlay
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
-- Ctrl+C/V TSV, fill-handle copy-fill (formula-aware translate)
 - Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`, `sparse100k`
 - Oracles: openpyxl semantic; LibreOffice visual + formula CSV when available
 - Bench: `datagrid:bench`, `datagrid:formula:bench`
+
+## Editing
+
+The grid is an editor, not just a viewer. Every mutation goes through
+`SpreadsheetModel.applyEdit(row col value formula)`, which records **value and
+formula together** in one undo op, and every batch runs inside
+`beginTx` / `endTx` so it undoes as one Excel-style action.
+
+| Action | Behaviour |
+| --- | --- |
+| Type / Enter / Esc | Inline edit + formula bar share one buffer |
+| Caret | ← → Home End, Backspace and Delete edit at the caret, not just the tail |
+| Ctrl+C / Ctrl+V | Copy carries formulas; paste re-bases relative refs (`=A1+B1` → `=A2+B2`), absolute refs stay |
+| Ctrl+X | Cut + paste moves formulas **as written** (no ref translation) |
+| Delete | Clears value *and* formula over the range, then recalculates dependents |
+| Fill handle | Tiles the source rect, translating relative refs |
+| Ctrl+Z / Ctrl+Y | One step per action — a 3×3 paste, a fill, or a range delete is a single undo |
+| Row / column resize | Drag the header edge (`hitRowResize` / `hitColResize`) |
+
+After any edit the app re-registers just the touched cells
+(`FormulaEngine.syncCell`) and calls `recalcDirty()` **once**; it never
+re-`attach`es the engine, which would drop the whole dependency graph.
+
+Known gaps: cut does not rewrite formulas elsewhere that referenced the moved
+cells; paste does not tile into a larger target range; no cell-style clipboard.
 
 ## Architecture invariant
 

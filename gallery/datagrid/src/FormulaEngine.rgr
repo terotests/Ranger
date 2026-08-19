@@ -728,6 +728,34 @@ class FormulaParser {
         }
     }
 
+    ; Operator precedence, mirroring the parse ladder below:
+    ;   compare < concat < add < mul < pow < unary
+    sfn opPrec:int (op:string) {
+        if (op == "^") {
+            return 5
+        }
+        if ((op == "*") || (op == "/")) {
+            return 4
+        }
+        if ((op == "+") || (op == "-")) {
+            return 3
+        }
+        if (op == "&") {
+            return 2
+        }
+        return 1
+    }
+
+    sfn nodePrec:int (n:FormulaNode) {
+        if (n.kind == 6) {
+            return (FormulaParser.opPrec(n.op))
+        }
+        if (n.kind == 5) {
+            return 6
+        }
+        return 100
+    }
+
     sfn serializeNode:string (n:FormulaNode) {
         if (n.kind == 8) {
             return n.text
@@ -759,12 +787,28 @@ class FormulaParser {
             return s
         }
         if (n.kind == 5) {
-            return ((n.op + (FormulaParser.serializeNode((itemAt n.kids 0)))))
+            def k0:FormulaNode (itemAt n.kids 0)
+            def s0:string (FormulaParser.serializeNode(k0))
+            if ((FormulaParser.nodePrec(k0)) < 6) {
+                s0 = (("(" + s0) + ")")
+            }
+            return (n.op + s0)
         }
+        ; Parenthesize only where precedence (or left-associativity on the right
+        ; operand) requires it, so a filled "=A2+B2" stays "=A3+B3".
         if (n.kind == 6) {
-            def L:string (FormulaParser.serializeNode((itemAt n.kids 0)))
-            def R:string (FormulaParser.serializeNode((itemAt n.kids 1)))
-            return (((("(" + L) + n.op) + R) + ")")
+            def lk:FormulaNode (itemAt n.kids 0)
+            def rk:FormulaNode (itemAt n.kids 1)
+            def p:int (FormulaParser.opPrec(n.op))
+            def L:string (FormulaParser.serializeNode(lk))
+            def R:string (FormulaParser.serializeNode(rk))
+            if ((FormulaParser.nodePrec(lk)) < p) {
+                L = (("(" + L) + ")")
+            }
+            if ((FormulaParser.nodePrec(rk)) <= p) {
+                R = (("(" + R) + ")")
+            }
+            return ((L + n.op) + R)
         }
         if (n.kind == 7) {
             def out:string (n.fnName + "(")
@@ -1061,8 +1105,10 @@ class FormulaEngine {
         }
     }
 
-    fn onCellEdited:void (sheetIdx:int row:int col:int) {
-        this.resetStats()
+    ; Mark everything that reads this cell dirty, without recalculating yet.
+    ; Batch editors (paste / fill / delete range / undo) call this per cell and
+    ; then recalcDirty() once, instead of recalculating N times.
+    fn markEdited:void (sheetIdx:int row:int col:int) {
         def key:string (this.cellKey(sheetIdx row col))
         def visited:[string:boolean]
         ; Mark dependents dirty (not the edited value cell itself — it is already current).
@@ -1076,6 +1122,25 @@ class FormulaEngine {
                 i = (i + 1)
             }
         }
+    }
+
+    ; Re-read the cell's formula from the sheet and register or clear it in the
+    ; dependency graph. Used after undo/redo and paste, where the model changed
+    ; underneath the engine.
+    fn syncCell:void (sheetIdx:int row:int col:int) {
+        def sheet:SpreadsheetModel (book.sheetAt(sheetIdx))
+        def f:string (sheet.getFormula(row col))
+        if ((strlen f) > 0) {
+            this.registerFormula(sheetIdx row col f)
+        } {
+            this.clearFormula(sheetIdx row col)
+        }
+        this.markEdited(sheetIdx row col)
+    }
+
+    fn onCellEdited:void (sheetIdx:int row:int col:int) {
+        this.resetStats()
+        this.markEdited(sheetIdx row col)
         this.recalcDirty()
     }
 

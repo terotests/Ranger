@@ -104,16 +104,24 @@ class FormulaWorkbookTest {
         c.ok("parse ok" p.ok)
         def L:FormulaNode (itemAt ast.kids 0)
         def R:FormulaNode (itemAt ast.kids 1)
-        ; serialize wraps binary in parens
         c.ok("abs row L" L.absRow)
         c.ok("abs col L" L.absCol)
         c.ok("rel row R" (R.absRow == false))
         c.ok("rel col R" (R.absCol == false))
         FormulaParser.translateNode(ast 0 1)
         def ser:string (FormulaParser.serializeNode(ast))
-        c.eqStr("translate dy" ser "($A$2+B3)")
-        c.eqStr("translateFormula" (FormulaParser.translateFormula("A2+B2" 0 1)) "(A3+B3)")
-        c.eqStr("abs stay" (FormulaParser.translateFormula("$A$2+B2" 1 1)) "($A$2+C3)")
+        c.eqStr("translate dy" ser "$A$2+B3")
+        c.eqStr("translateFormula" (FormulaParser.translateFormula("A2+B2" 0 1)) "A3+B3")
+        c.eqStr("abs stay" (FormulaParser.translateFormula("$A$2+B2" 1 1)) "$A$2+C3")
+        ; Round-trip: parens only where precedence / associativity needs them.
+        c.eqStr("keeps needed parens" (FormulaParser.translateFormula("A1*(B1+C1)" 0 0)) "A1*(B1+C1)")
+        c.eqStr("right assoc parens" (FormulaParser.translateFormula("A1-(B1-C1)" 0 0)) "A1-(B1-C1)")
+        c.eqStr("drops needless parens" (FormulaParser.translateFormula("A1+B1*C1" 0 0)) "A1+B1*C1")
+        c.eqStr("unary over sum" (FormulaParser.translateFormula("-(A1+B1)" 0 0)) "-(A1+B1)")
+        c.eqStr("call operand" (FormulaParser.translateFormula("SUM(A1:A2)*2" 0 1)) "SUM(A2:A3)*2")
+        c.eqStr("compare lowest" (FormulaParser.translateFormula("A1+1>B1*2" 0 0)) "A1+1>B1*2")
+        c.eqStr("concat" (FormulaParser.translateFormula("A1&\"x\"&B1" 0 0)) "A1&\"x\"&B1")
+        c.eqStr("power" (FormulaParser.translateFormula("A1^2*3" 0 0)) "A1^2*3")
 
         print "== quoted sheet ref =="
         def bookQ:WorkbookModel (new WorkbookModel)
@@ -180,14 +188,14 @@ class FormulaWorkbookTest {
         sf.setCellRaw(2 2 "")
         engF.registerFormula(0 2 2 filled)
         engF.onCellEdited(0 2 2)
-        c.eqStr("C3 formula" (sf.getFormula(2 2)) "(A3+B3)")
+        c.eqStr("C3 formula" (sf.getFormula(2 2)) "A3+B3")
         c.eqStr("C3 value" (sf.getCell(2 2)) "32")
         ; absolute fill
         sf.setFormula(1 3 "$A$2+B2")
         engF.registerFormula(0 1 3 "$A$2+B2")
         engF.recalcAll()
         def filledAbs:string (FormulaParser.translateFormula((sf.getFormula(1 3)) 0 1))
-        c.eqStr("abs fill expr" filledAbs "($A$2+B3)")
+        c.eqStr("abs fill expr" filledAbs "$A$2+B3")
 
         print "== numFmt on formula result =="
         def bookN:WorkbookModel (new WorkbookModel)

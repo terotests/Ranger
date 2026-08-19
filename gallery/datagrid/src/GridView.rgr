@@ -45,6 +45,7 @@ class GridView {
     def ctx:UIContext (new UIContext)
     def theme:GridTheme (new GridTheme)
     def status:string ""
+    def editCaret:int 0
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -400,7 +401,16 @@ class GridView {
                 def phase:int (to_int (frame / 30))
                 def on:int (phase - ((to_int (phase / 2)) * 2))
                 if (on == 0) {
-                    def ew:int (to_int (ctx.tr.measureWidth(editBuf fontSize)))
+                    def upTo:string editBuf
+                    def cn:int (strlen editBuf)
+                    if (editCaret < cn) {
+                        def cc:int editCaret
+                        if (cc < 0) {
+                            cc = 0
+                        }
+                        upTo = (substring editBuf 0 cc)
+                    }
+                    def ew:int (to_int (ctx.tr.measureWidth(upTo fontSize)))
                     this.pushRect(dl (to_double (ar.x + 4 + ew)) (to_double (ar.y + 3)) 2.0 (to_double (ar.h - 6)) theme.activeBorder)
                 }
             }
