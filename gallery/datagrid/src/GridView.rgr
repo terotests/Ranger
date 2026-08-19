@@ -19,6 +19,7 @@ Import "../../evg/EVGWindow.rgr"
 Import "GridChartView.rgr"
 Import "GridImages.rgr"
 Import "GridCommands.rgr"
+Import "SoftPainter.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -50,6 +51,9 @@ class GridTheme {
 class GridView {
     def canvas:SoftCanvas (new SoftCanvas)
     def ctx:UIContext (new UIContext)
+    ; The display-list → canvas loop, which is shared with the clipboard: a
+    ; copied chart is painted by this same code onto an off-screen surface.
+    def painter:SoftPainter (new SoftPainter)
     def theme:GridTheme (new GridTheme)
     def status:string ""
     def editCaret:int 0
@@ -1170,129 +1174,9 @@ class GridView {
 
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
         canvas.clear((theme.bg.red()) (theme.bg.green()) (theme.bg.blue()))
-        def i:int 0
-        def n:int (dl.count())
-        while (i < n) {
-            def c:EVGDrawCmd (dl.at(i))
-            if (c.kind == 0) {
-                def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
-            }
-            if (c.kind == 1) {
-                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
-            }
-            if (c.kind == 3) {
-                def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
-                if (c.rotate == 0.0) {
-                    ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
-                } {
-                    ctx.textRotated(c.text (to_int c.x) (to_int c.y) c.fontSize col3 c.rotate)
-                }
-            }
-            if (c.kind == 2) {
-                def entry:DecodedImage (images.cached(c.src))
-                if entry.ok {
-                    images.blitScaled(canvas entry.img (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 0 0 pageW pageH)
-                } {
-                    ; A picture that could not be decoded is drawn as its own
-                    ; outline with the reason in it, rather than as nothing.
-                    ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 1 theme.statusText)
-                    def why:string entry.note
-                    if ((strlen why) == 0) {
-                        why = "image"
-                    }
-                    this.applyFaceStyled(false false)
-                    ctx.text(why ((to_int c.x) + 4) ((to_int c.y) + 4) 11.0 theme.statusText)
-                }
-            }
-            ; Vector ink: a chart's bars, wedges and grid lines arrive as
-            ; flattened rings, exactly as the WebGL backend gets them. Without
-            ; these two the browser would show a chart and the PNG would show
-            ; an empty box, which is the disagreement the display list exists
-            ; to prevent.
-            if (c.kind == 6) {
-                this.fillRings(c)
-            }
-            if (c.kind == 7) {
-                this.strokeRings(c)
-            }
-            i = (i + 1)
-        }
-    }
-
-    ; One ring of a path command, as a flat point list.
-    fn ringAt:[double] (c:EVGDrawCmd index:int) {
-        def out:[double]
-        def start:int 0
-        if (index > 0) {
-            start = (itemAt c.ringEnds (index - 1))
-        }
-        def stop:int (itemAt c.ringEnds index)
-        def k:int start
-        while (k < stop) {
-            push out (itemAt c.pts k)
-            k = (k + 1)
-        }
-        return out
-    }
-
-    fn fillRings:void (c:EVGDrawCmd) {
-        def alpha:int (to_int (c.a * 255.0))
-        if (alpha <= 0) {
-            return
-        }
-        def i:int 0
-        while (i < (array_length c.ringEnds)) {
-            def ring:[double] (this.ringAt(c i))
-            ctx.fillPolygon(ring c.r c.g c.b alpha)
-            i = (i + 1)
-        }
-    }
-
-    ; A stroke becomes a quad per segment — the same expansion the WebGL
-    ; backend does, so the two agree on what a one-pixel grid line looks like.
-    fn strokeRings:void (c:EVGDrawCmd) {
-        def alpha:int (to_int (c.a * 255.0))
-        if (alpha <= 0) {
-            return
-        }
-        def half:double (c.thickness / 2.0)
-        if (half < 0.375) {
-            half = 0.375
-        }
-        def i:int 0
-        while (i < (array_length c.ringEnds)) {
-            def ring:[double] (this.ringAt(c i))
-            def n:int (array_length ring)
-            def k:int 0
-            while ((k + 3) < n) {
-                def x1:double (itemAt ring k)
-                def y1:double (itemAt ring (k + 1))
-                def x2:double (itemAt ring (k + 2))
-                def y2:double (itemAt ring (k + 3))
-                def dx:double (x2 - x1)
-                def dy:double (y2 - y1)
-                def len:double (sqrt ((dx * dx) + (dy * dy)))
-                if (len > 0.0001) {
-                    def nx:double (((0.0 - dy) / len) * half)
-                    def ny:double ((dx / len) * half)
-                    def quad:[double]
-                    push quad (x1 + nx)
-                    push quad (y1 + ny)
-                    push quad (x2 + nx)
-                    push quad (y2 + ny)
-                    push quad (x2 - nx)
-                    push quad (y2 - ny)
-                    push quad (x1 - nx)
-                    push quad (y1 - ny)
-                    ctx.fillPolygon(quad c.r c.g c.b alpha)
-                }
-                k = (k + 2)
-            }
-            i = (i + 1)
-        }
+        painter.attach(canvas ctx images pageW pageH)
+        painter.fontFamily = fontFamily
+        painter.draw(dl)
     }
 
     ; Height the wrapped text needs in a column of `colW`, for row auto-fit.

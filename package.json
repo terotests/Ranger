@@ -187,6 +187,7 @@
     "datagrid:module": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/datagrid/src/GridApp.rgr -d=./gallery/datagrid/bin -o=grid_app_module.cjs",
     "datagrid:window": "npm run datagrid:module && node gallery/datagrid/web/serve.mjs --open",
     "datagrid:window:sales": "npm run datagrid:module && node gallery/datagrid/web/serve.mjs --open --xlsx gallery/datagrid/fixtures/sales.xlsx",
+    "datagrid:clipboard:smoke": "npm run datagrid:module && node gallery/datagrid/web/clipboard_smoke.mjs",
     "datagrid:window:smoke": "npm run datagrid:module && node gallery/datagrid/web/serve.mjs --headless-smoke",
     "datagrid:edit:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridEditTest.rgr -d=./gallery/datagrid/bin -o=GridEditTest.js -nodecli && node ./gallery/datagrid/bin/GridEditTest.js",
     "datagrid:export:test": "mkdir -p gallery/datagrid/harness/out/export && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/XlsxWriteTest.rgr -d=./gallery/datagrid/bin -o=XlsxWriteTest.js -nodecli && node ./gallery/datagrid/bin/XlsxWriteTest.js && python3 gallery/datagrid/tools/check_export.py",

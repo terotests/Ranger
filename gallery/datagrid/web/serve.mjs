@@ -94,6 +94,7 @@ const KEY = {
 // paste we know nothing external changed it, so the formula-aware block paste
 // (which translates relative refs) is still the right one to run.
 let lastExportedTsv = "";
+let lastClipboardSeq = 0;
 
 let lastX = 80;
 let lastY = 80;
@@ -158,14 +159,33 @@ function applyEvent(ev) {
     return null;
   }
   app.update(liveInput);
-  // Ctrl+C / Ctrl+X: hand the TSV back so the browser can put it on the OS
-  // clipboard (a Node process cannot reach it directly).
-  if (ev.type === "text" && ev.ctrl && /^[cxCX]$/.test(String(ev.text || ""))) {
-    lastExportedTsv = app.clipboardTsv || "";
-    // The HTML flavour is what a word processor pastes as a table.
-    return { clipboard: lastExportedTsv, clipboardHtml: app.clipboardHtml || "" };
+  // Anything at all may have copied: Ctrl+C, Ctrl+X, or the Copy button on a
+  // chart window, which arrives as an ordinary pointer click. The app counts
+  // copies, so noticing one is a comparison rather than a guess about which
+  // events can cause it.
+  return takeClipboard();
+}
+
+// The payload the browser puts on the OS clipboard, or null when nothing new
+// was copied. A Node process cannot reach the clipboard itself.
+function takeClipboard() {
+  const seq = app.clipboardSeq | 0;
+  if (seq === lastClipboardSeq) return null;
+  lastClipboardSeq = seq;
+  lastExportedTsv = app.clipboardTsv || "";
+  const out = {
+    clipboard: lastExportedTsv,
+    clipboardHtml: app.clipboardHtml || "",
+    clipboardKind: app.clipboardKind || "cells",
+  };
+  // A chart also travels as a picture: the PNG is what Excel and Word paste,
+  // the SVG is there for a host that can take vector.
+  if (out.clipboardKind === "chart") {
+    out.clipboardPng = app.clipboardPng || "";
+    out.clipboardSvg = app.clipboardSvg || "";
+    out.clipboardName = app.clipboardName || "chart";
   }
-  return null;
+  return out;
 }
 
 function sceneBody() {
@@ -283,10 +303,32 @@ const server = http.createServer(async (req, res) => {
     // thing that knows what its own tool means, so it is handed back here.
     const custom = app.takeCustomCommand();
     const customArg = custom ? app.takeCustomArg() : "";
+    // `chart.copy` (and `edit.copy`) leave something on the clipboard; a host
+    // driving over HTTP gets it in the same reply rather than having to know
+    // which commands copy.
+    const clip = takeClipboard();
     res.writeHead(ran ? 200 : 404, {
       "content-type": "application/json; charset=utf-8",
     });
-    res.end(JSON.stringify({ ran, custom, customArg, active: app.activeLabel() }));
+    res.end(JSON.stringify({ ran, custom, customArg, active: app.activeLabel(), clip }));
+    return;
+  }
+
+  // What is on the clipboard now, in every flavour — including the SVG, which
+  // a browser will not put on the system clipboard but a host may want to save
+  // or send somewhere. Reading does not consume it.
+  if (url.pathname === "/clipboard") {
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({
+      kind: app.clipboardKind || "cells",
+      name: app.clipboardName || "",
+      text: app.clipboardTsv || "",
+      html: app.clipboardHtml || "",
+      png: app.clipboardPng || "",
+      svg: app.clipboardSvg || "",
+      note: app.clipboardNote || "",
+      seq: app.clipboardSeq | 0,
+    }));
     return;
   }
 

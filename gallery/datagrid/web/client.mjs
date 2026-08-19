@@ -57,11 +57,19 @@ async function postInput(payload) {
     body: JSON.stringify(payload),
   });
   if (res.status === 204) return null;
+  let reply = null;
   try {
-    return await res.json();
+    reply = await res.json();
   } catch (_) {
     return null;
   }
+  // A copy can come from a key OR from a button — the Copy on a chart window
+  // is an ordinary click — so the reply is what says one happened, not the
+  // kind of event that was sent.
+  if (reply && typeof reply.clipboard === "string") {
+    await writeClipboard(reply);
+  }
+  return reply;
 }
 
 const KEY_MAP = {
@@ -89,20 +97,34 @@ const KEY_MAP = {
 // k for a hyperlink, e for a validation rule, and s to save the workbook.
 const CTRL_CHORD = /^[acxvzymfhlkesACXVZYMFHLKES ]$/;
 
-/** Put the selection on the OS clipboard as BOTH flavours a spreadsheet
- *  offers: text/plain TSV and text/html holding a <table>. The HTML flavour is
- *  what Word — and the Ranger DOCX editor — paste as a real table.
+/** Put whatever was just copied on the OS clipboard.
+ *
+ *  A copy is not always text. Cells go as `text/plain` (TSV) and `text/html`
+ *  (a <table>); a CHART goes as `image/png` and as `text/html` holding that
+ *  same picture as a data URI, which is the flavour Word and Excel reach for
+ *  first — paste into either and the chart arrives as a picture, no file, no
+ *  link to go missing. The TSV of a chart is its own numbers, so pasting into
+ *  cells is useful too.
+ *
  *  Falls back to plain text when ClipboardItem is unavailable, then to
  *  execCommand on non-secure origins. */
-async function writeClipboard(text, html) {
-  if (html && typeof ClipboardItem === "function" && navigator.clipboard?.write) {
+function pngBlob(base64) {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: "image/png" });
+}
+
+async function writeClipboard(payload) {
+  const text = payload.clipboard || "";
+  const html = payload.clipboardHtml || "";
+  const png = payload.clipboardPng || "";
+  if ((html || png) && typeof ClipboardItem === "function" && navigator.clipboard?.write) {
+    const flavours = { "text/plain": new Blob([text], { type: "text/plain" }) };
+    if (html) flavours["text/html"] = new Blob([html], { type: "text/html" });
+    if (png) flavours["image/png"] = pngBlob(png);
     try {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "text/plain": new Blob([text], { type: "text/plain" }),
-          "text/html": new Blob([html], { type: "text/html" }),
-        }),
-      ]);
+      await navigator.clipboard.write([new ClipboardItem(flavours)]);
       return true;
     } catch (_) {
       /* fall through to plain text */
@@ -212,15 +234,12 @@ canvas.addEventListener("keydown", async (ev) => {
     if (ev.key === "v" || ev.key === "V") return;
     if (CTRL_CHORD.test(ev.key)) {
       ev.preventDefault();
-      const reply = await postInput({
+      await postInput({
         type: "text",
         text: ev.key,
         shift: ev.shiftKey,
         ctrl: true,
       });
-      if (reply && typeof reply.clipboard === "string" && reply.clipboard) {
-        await writeClipboard(reply.clipboard, reply.clipboardHtml || "");
-      }
     }
     return;
   }

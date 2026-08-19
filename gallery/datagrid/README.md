@@ -185,6 +185,7 @@ snapshot — no DOM or SDL below the app.
 | Ctrl+S | Save the workbook as .xlsx | — |
 | Ctrl+click a link | Follows it — the host is told the target | — |
 | Ctrl+M | Chart the selection (live preview in the picker) | — |
+| Ctrl+C over a chart | Copies it as a picture — pastes into Excel and Word | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
 | ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
 | Delete | Clear the selection | Delete at the caret |
@@ -542,11 +543,67 @@ A column of dates charted as six equal values of 2024 is how that was found.
 | --- | --- |
 | Drag the title bar | Moves the chart; the chart remembers where it was left |
 | Drag the bottom-right grip | Resizes it, and the chart redraws to fit |
+| **Copy** | Puts the chart on the clipboard — see below |
 | **Edit…** | Reopens the picker on that chart — change type, style or headers |
 | The box in the title bar | Removes the chart |
 
 Charts belong to a sheet: switch sheets and the ones reading another sheet hide
 rather than draw over the wrong numbers.
+
+### Copying a chart into Excel and Word
+
+**Copy** on a chart window — or Ctrl+C while one is on top, or the `chart.copy`
+command — puts the chart on the system clipboard. Not in one format: the
+clipboard carries several representations of the same thing at once and the
+receiving program picks the richest one it understands, so the question is not
+which format to use but which set to offer.
+
+| Flavour | What Excel does with it | What Word does with it |
+| --- | --- | --- |
+| `text/html` | pastes the picture | pastes the picture — and this is the one it reaches for first |
+| `image/png` | pastes the picture, floating over the cells | pastes the picture, in the text flow |
+| `image/svg+xml` | Office 2016+ pastes vector that stays sharp when resized | same |
+| `text/plain` | the chart's own numbers, as TSV, straight into cells | a tab-separated block |
+
+The HTML flavour is a single `<img>` whose source is the PNG as a **data URI**:
+nothing external to fetch, nothing to go missing when the document is mailed on.
+A host that puts CF_HTML on a Windows clipboard wraps that fragment in the
+CF_HTML header; a browser hands `text/html` to `navigator.clipboard` and the
+wrapping is the browser's problem.
+
+All of them are built from **one render** ([`GridClip.rgr`](src/GridClip.rgr)) —
+the same display list the sheet draws, painted onto an off-screen surface by the
+same [`SoftPainter`](src/SoftPainter.rgr). The picture in the document is the
+picture that was on screen rather than a second drawing that agrees by
+inspection. The bitmap is drawn at twice the on-screen box, because a
+380-pixel chart dropped into a Word page is a thumbnail; the HTML states the
+on-screen size, so it arrives the size it looked and carries twice the detail
+for print.
+
+For a host: `GridApp.clipboardKind` says `"cells"` or `"chart"`, the flavours
+are `clipboardTsv` / `clipboardHtml` / `clipboardPng` (base64) / `clipboardSvg`,
+and `clipboardSeq` counts copies — poll it rather than guessing which events
+copy, because a chart is copied by a *button* as well as by a key. Over HTTP,
+`POST /input` and `POST /command` return the payload in their reply and
+`GET /clipboard` reads it back without consuming it. `npm run
+datagrid:clipboard:smoke` drives that whole path — start, click Create, click
+Copy, inflate the PNG that comes back — with no browser involved.
+
+> Two things came out of writing it. **Every PNG this repository has ever
+> written was uncompressed**: the encoder emitted deflate *stored* blocks, so a
+> 900x560 screenshot was 1.5 MB and a copied chart carried a megabyte of base64
+> into whatever document it was pasted into. [`Deflate.rgr`](../pdf_writer/src/raster/Deflate.rgr)
+> is the fix — LZ77 against a three-byte hash, fixed Huffman — and the
+> artifacts here went from 1.5 MB each to 30-130 KB.
+> `tools/check_png.py` hands every one of them to Python's `zlib`, because our
+> own decoder agreeing with our own encoder proves nothing.
+>
+> And the round trip through that decoder came back **two levels off** on every
+> antialiased pixel. The blitter's alpha mix divided by 256 rather than 255, so
+> compositing a glyph onto an *opaque* canvas left alpha at 254 — invisible on
+> screen, where nothing composites again, and plainly wrong the moment those
+> pixels were flattened into an RGB file. Fixed in all three copies of
+> `rgba_fast_blit.rgr`.
 
 ### Fitting
 

@@ -777,6 +777,10 @@ class ChartData {
     ; apart, and a legend of one entry is furniture.
     fn colourJson:string (ch:GridChart field:string title:string) {
         def out:string ("\"color\":{\"field\":\"" + field + "\",\"type\":\"nominal\"" + (ChartData.titleMember(title)))
+        ; Same reason as the category axis: the colour scale's domain is what
+        ; orders a pie's wedges and its key, and sorted alphabetically the key
+        ; read Apr, Feb, Jan while the wedges ran Jan, Feb, Mar.
+        out = (out + ",\"sort\":null")
         if (ch.showLegend == false) {
             out = (out + ",\"legend\":null")
         }

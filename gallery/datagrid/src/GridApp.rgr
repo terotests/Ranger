@@ -22,6 +22,7 @@ Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChart.rgr"
 Import "GridChartView.rgr"
+Import "GridClip.rgr"
 
 class GridApp {
     def book:WorkbookModel (new WorkbookModel)
@@ -58,6 +59,19 @@ class GridApp {
     def fillC1:int 0
     def clipboardTsv:string ""
     def clipboardHtml:string ""
+    ; The chart flavours, empty unless a chart was the last thing copied.
+    ; `clipboardKind` says which — a host that only speaks text can read it and
+    ; not bother asking for the rest.
+    def clipboardKind:string "cells"
+    def clipboardPng:string ""
+    def clipboardSvg:string ""
+    def clipboardName:string ""
+    def clipboardNote:string ""
+    ; Bumped by every copy. A host polls this to notice that something new is
+    ; on the clipboard — a chart is copied by a BUTTON as well as by Ctrl+C,
+    ; and a pointer click tells the host nothing on its own.
+    def clipboardSeq:int 0
+    def clipper:ChartClipboard (new ChartClipboard)
     def clipR0:int 0
     def clipC0:int 0
     def clipRows:int 0
@@ -186,6 +200,9 @@ class GridApp {
         def loader:XlsxLoader (new XlsxLoader)
         def ok:boolean (loader.loadPath(fullPath book))
         if ok {
+            ; The charts belonged to the workbook that was open. Left up, they
+            ; would go on drawing ranges of a document nobody has any more.
+            view.chartLayer.removeAll(windows)
             book.sourcePath = fullPath
             engine = loader.engine
             this.syncActiveModel()
@@ -215,6 +232,7 @@ class GridApp {
         commands.add("edit.undo" "Undo" "Edit" "Ctrl+Z")
         commands.add("edit.redo" "Redo" "Edit" "Ctrl+Y")
         commands.add("edit.copy" "Copy" "Edit" "Ctrl+C")
+        commands.add("chart.copy" "Copy chart (picture + data)" "Chart" "Ctrl+C")
         commands.add("edit.cut" "Cut" "Edit" "Ctrl+X")
         commands.add("edit.paste" "Paste" "Edit" "Ctrl+V")
         commands.add("edit.pasteSpecial" "Paste special…" "Edit" "Ctrl+Shift+V")
@@ -325,6 +343,20 @@ class GridApp {
         if (id == "edit.copy") {
             this.copySelection()
             return true
+        }
+        if (id == "chart.copy") {
+            def which:int (this.focusedChartId())
+            if (which == 0) {
+                if ((view.chartLayer.count()) == 1) {
+                    def only:ChartPanel (view.chartLayer.panelAt(0))
+                    which = only.chart.id
+                }
+            }
+            if (which == 0) {
+                clipboardNote = "no chart to copy"
+                return false
+            }
+            return ((this.copyChart(which)) > 0)
         }
         if (id == "edit.cut") {
             this.cutSelection()
@@ -1936,12 +1968,14 @@ class GridApp {
     }
 
     ; A chart window's own buttons: the close box removes the chart, "Edit…"
-    ; brings the picker back. Both are collected before anything is removed,
-    ; because removing rewrites the list being walked.
+    ; brings the picker back, "Copy" puts it on the clipboard. All three are
+    ; collected before anything is removed, because removing rewrites the list
+    ; being walked.
     fn pollChartWindows:void () {
         def layer:ChartLayer view.chartLayer
         def openEdit:int 0
         def closing:int 0
+        def copying:int 0
         def i:int 0
         while (i < (layer.count())) {
             def p:ChartPanel (layer.panelAt(i))
@@ -1951,7 +1985,13 @@ class GridApp {
             if (p.win.activated == (ChartLayer.closeId())) {
                 closing = p.chart.id
             }
+            if (p.win.activated == (ChartLayer.copyId())) {
+                copying = p.chart.id
+            }
             i = (i + 1)
+        }
+        if (copying > 0) {
+            this.copyChart(copying)
         }
         if (closing > 0) {
             layer.remove(windows closing)
@@ -1959,6 +1999,71 @@ class GridApp {
         if (openEdit > 0) {
             this.openChartDialog(openEdit)
         }
+    }
+
+    ; --- the chart on the clipboard -------------------------------------------
+    ; Copy a chart in every flavour Excel and Word paste: the bitmap, the same
+    ; picture as vector, an HTML fragment carrying the bitmap as a data URI, and
+    ; the numbers as TSV. What the host does with them is the host's business —
+    ; a browser hands them to `navigator.clipboard`, a desktop shell registers
+    ; them as clipboard formats — but the payload is decided here so every host
+    ; offers the same thing.
+    fn copyChart:int (id:int) {
+        def panel:ChartPanel (view.chartLayer.panelForChart(id))
+        if (panel.chart.id != id) {
+            clipboardNote = "no such chart"
+            return 0
+        }
+        def box:EVGControl (panel.win.contentControl())
+        def bw:int box.w
+        def bh:int box.h
+        if (bw < 120) {
+            bw = 320
+        }
+        if (bh < 90) {
+            bh = 220
+        }
+        def clip:ChartClip (clipper.build(model panel.chart view.ctx.tr bw bh))
+        if (clip.ok == false) {
+            clipboardNote = clip.note
+            return 0
+        }
+        ; The cell flavours are replaced rather than added to: what was copied
+        ; last is what pastes, and a chart and a block of cells are not both on
+        ; the clipboard at once.
+        clipboardTsv = clip.tsv
+        clipboardHtml = clip.html
+        clipboardPng = clip.pngBase64
+        clipboardSvg = clip.svg
+        clipboardName = clip.name
+        clipboardKind = "chart"
+        clipboardNote = ""
+        clipboardSeq = (clipboardSeq + 1)
+        clipCut = false
+        clear clipValues
+        clear clipFormulas
+        clear clipStyles
+        clipRows = 0
+        clipCols = 0
+        return clip.w
+    }
+
+    ; The chart the keyboard would copy: the topmost chart window, when one is
+    ; on top. Ctrl+C over the sheet still copies cells.
+    fn focusedChartId:int () {
+        def top:EVGWindow (windows.topmost())
+        if (top.visible == false) {
+            return 0
+        }
+        def i:int 0
+        while (i < (view.chartLayer.count())) {
+            def p:ChartPanel (view.chartLayer.panelAt(i))
+            if (p.win.wid == top.wid) {
+                return p.chart.id
+            }
+            i = (i + 1)
+        }
+        return 0
     }
 
     ; Which custom tool button is under the pointer, or -1.
@@ -3052,6 +3157,11 @@ class GridApp {
         }
         clipboardTsv = out
         clipboardHtml = (html + "</table>")
+        clipboardKind = "cells"
+        clipboardPng = ""
+        clipboardSvg = ""
+        clipboardName = ""
+        clipboardSeq = (clipboardSeq + 1)
     }
 
     ; Ctrl+X: copy, then clear the source range as one undoable action. A cut
@@ -3068,6 +3178,9 @@ class GridApp {
     fn setClipboardText:void (text:string) {
         clipboardTsv = text
         clipboardHtml = ""
+        clipboardKind = "cells"
+        clipboardPng = ""
+        clipboardSvg = ""
         clipCut = false
         clear clipValues
         clear clipFormulas
@@ -3707,7 +3820,14 @@ class GridApp {
                     if input.shiftDown {
                         this.copyFormat()
                     } {
-                        this.copySelection()
+                        ; A chart window on top is what Ctrl+C means then —
+                        ; the same rule Excel uses for a selected chart.
+                        def onChart:int (this.focusedChartId())
+                        if (onChart > 0) {
+                            this.copyChart(onChart)
+                        } {
+                            this.copySelection()
+                        }
                     }
                 }
                 if ((ch == 120) || (ch == 88)) {

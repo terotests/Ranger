@@ -348,6 +348,50 @@ class DumpArtifacts {
             DumpArtifacts.writePng(app dir "17_chart_gallery.png")
         }
 
+        print "== 18 the clipboard payload: the very bytes a paste receives =="
+        def ok18:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok18 {
+            def s18:int 0
+            while (s18 < (app.book.sheetCount())) {
+                def sh18:SpreadsheetModel (app.book.sheetAt(s18))
+                if (sh18.name == "Scratch") {
+                    app.setActiveSheet(s18)
+                }
+                s18 = (s18 + 1)
+            }
+            DumpArtifacts.gallerySheet(app)
+            def spec18:GridChart (new GridChart)
+            spec18.sheet = app.book.activeIndex
+            spec18.r0 = 0
+            spec18.c0 = 0
+            spec18.r1 = 6
+            spec18.c1 = 2
+            spec18.kind = (ChartKind.column())
+            spec18.style = (ChartStyle.vela())
+            spec18.title = "Units by month"
+            spec18.w = 380
+            spec18.h = 270
+            spec18.x = 60
+            spec18.y = 70
+            def made:GridChart (app.view.chartLayer.add(app.windows spec18))
+            app.view.chartLayer.syncGeometry()
+            ; The screenshot shows the window with its Copy button…
+            DumpArtifacts.writePng(app dir "18_chart_copy.png")
+            ; …and these two files are exactly what the copy put on the
+            ; clipboard, written out so another program can open them and say
+            ; whether they are real. tools/check_clipboard.py does.
+            def n18:int (app.copyChart(made.id))
+            if (n18 > 0) {
+                def clip18:ChartClip (app.clipper.build(app.model made app.view.ctx.tr 380 270))
+                buffer_write_file dir "18_clipboard_flavour.png" clip18.png
+                write_file dir "18_clipboard_flavour.svg" clip18.svg
+                write_file dir "18_clipboard_flavour.html" clip18.html
+                print ("wrote " + dir + "/18_clipboard_flavour.png|svg|html")
+            } {
+                print ("FAIL chart copy: " + app.clipboardNote)
+            }
+        }
+
         print "DumpArtifacts DONE"
     }
 }

@@ -304,6 +304,7 @@ class ChartLayer {
     sfn closeId:int ()   { return 1 }
     sfn editId:int ()    { return 2 }
     sfn contentId:int () { return 3 }
+    sfn copyId:int ()    { return 4 }
 
     fn count:int () {
         return (array_length panels)
@@ -361,8 +362,10 @@ class ChartLayer {
         wnd.reset()
         wnd.addContent((ChartLayer.contentId()) 120)
         def ids:[int]
+        push ids (ChartLayer.copyId())
         push ids (ChartLayer.editId())
         def labels:[string]
+        push labels "Copy"
         push labels "Edit…"
         wnd.addButtonRow(ids labels (ChartLayer.editId()))
         wnd.finish()
@@ -384,6 +387,21 @@ class ChartLayer {
         mgr.add(p.win)
         push panels p
         return p.chart
+    }
+
+    ; Every chart, gone — what loading another workbook means. A chart is a
+    ; view of a RANGE in a document, so charts of the document that was just
+    ; closed have nothing left to read.
+    fn removeAll:void (mgr:EVGWindowManager) {
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:ChartPanel (itemAt panels i)
+            p.win.visible = false
+            mgr.remove(p.win)
+            view.forget(p.chart.id)
+            i = (i + 1)
+        }
+        clear panels
     }
 
     fn remove:void (mgr:EVGWindowManager id:int) {

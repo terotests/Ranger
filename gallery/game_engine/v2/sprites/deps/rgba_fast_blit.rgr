@@ -58,7 +58,14 @@ class RgbaFastBlit {
         def outR:int (this.blendChan(srcR dstR srcA invA))
         def outG:int (this.blendChan(srcG dstG srcA invA))
         def outB:int (this.blendChan(srcB dstB srcA invA))
-        def alphaMix:int (this.div256(dstA * invA))
+        ; Rounded to 255ths rather than `>> 8`. Dividing the alpha mix by 256
+        ; is one short: an opaque destination came out at 254, so every glyph
+        ; blitted onto a solid canvas left a pixel that was very slightly
+        ; transparent. Nothing on screen showed it — but a PNG written from
+        ; that canvas composited those pixels against the page and came back
+        ; two levels off what was painted. Colour channels keep the cheap
+        ; shift; alpha is where the error is visible.
+        def alphaMix:int (idiv ((dstA * invA) + 127) 255)
         def outA:int (this.clamp255(srcA + alphaMix))
 
         buffer_set dstBuf dstOff outR
@@ -110,7 +117,14 @@ class RgbaFastBlit {
         def outR:int (this.blendChan(srcR dstR srcA invA))
         def outG:int (this.blendChan(srcG dstG srcA invA))
         def outB:int (this.blendChan(srcB dstB srcA invA))
-        def alphaMix:int (this.div256(dstA * invA))
+        ; Rounded to 255ths rather than `>> 8`. Dividing the alpha mix by 256
+        ; is one short: an opaque destination came out at 254, so every glyph
+        ; blitted onto a solid canvas left a pixel that was very slightly
+        ; transparent. Nothing on screen showed it — but a PNG written from
+        ; that canvas composited those pixels against the page and came back
+        ; two levels off what was painted. Colour channels keep the cheap
+        ; shift; alpha is where the error is visible.
+        def alphaMix:int (idiv ((dstA * invA) + 127) 255)
         def outA:int (this.clamp255(srcA + alphaMix))
 
         buffer_set dest.pixels dstOff outR

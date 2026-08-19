@@ -15,6 +15,7 @@
 Import "../src/GridChart.rgr"
 Import "../src/GridChartView.rgr"
 Import "../src/GridApp.rgr"
+Import "../../game_engine/lpc/src/png_decoder.rgr"
 
 class ChartTest {
     def passed:int 0
@@ -135,6 +136,95 @@ class ChartTest {
             i = (i + 1)
         }
         return m
+    }
+
+    ; The PNG signature, as bytes. A test that checked the base64 started with
+    ; "iVBOR" would pass on a truncated file.
+    sfn isPng:boolean (b:buffer) {
+        if ((buffer_length b) < 24) {
+            return false
+        }
+        if ((buffer_get b 0) != 137) {
+            return false
+        }
+        if ((buffer_get b 1) != 80) {
+            return false
+        }
+        if ((buffer_get b 2) != 78) {
+            return false
+        }
+        return ((buffer_get b 3) == 71)
+    }
+
+    ; IHDR carries the size big-endian at byte 16.
+    sfn beInt:int (b:buffer at:int) {
+        def v:int (buffer_get b at)
+        v = ((v * 256) + (buffer_get b (at + 1)))
+        v = ((v * 256) + (buffer_get b (at + 2)))
+        return ((v * 256) + (buffer_get b (at + 3)))
+    }
+
+    sfn pngWidth:int (b:buffer) {
+        if ((buffer_length b) < 24) {
+            return 0
+        }
+        return (ChartTest.beInt(b 16))
+    }
+
+    sfn pngHeight:int (b:buffer) {
+        if ((buffer_length b) < 24) {
+            return 0
+        }
+        return (ChartTest.beInt(b 20))
+    }
+
+    ; How many pixels of a decoded image differ from the RGBA surface it came
+    ; from. Alpha is not compared: the PNG is written opaque.
+    sfn pixelDiff:int (img:ImageBuffer src:buffer) {
+        def n:int (img.width * img.height)
+        def bad:int 0
+        def i:int 0
+        while (i < n) {
+            def off:int (i * 4)
+            if ((buffer_get img.pixels off) != (buffer_get src off)) {
+                bad = (bad + 1)
+            } {
+                if ((buffer_get img.pixels (off + 1)) != (buffer_get src (off + 1))) {
+                    bad = (bad + 1)
+                } {
+                    if ((buffer_get img.pixels (off + 2)) != (buffer_get src (off + 2))) {
+                        bad = (bad + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return bad
+    }
+
+    ; base64 is four characters per three bytes, padded up.
+    sfn base64Len:int (bytes:int) {
+        def groups:int (idiv (bytes + 2) 3)
+        return (groups * 4)
+    }
+
+    ; Pixels that are not the white the chart was cleared to. A blank surface
+    ; encodes to a perfectly valid PNG of nothing, which is the failure a
+    ; header check cannot see.
+    sfn inkCount:int (px:buffer) {
+        def n:int (buffer_length px)
+        def marked:int 0
+        def i:int 0
+        while ((i + 3) < n) {
+            def r:int (buffer_get px i)
+            def g:int (buffer_get px (i + 1))
+            def b:int (buffer_get px (i + 2))
+            if (((r < 250) || (g < 250)) || (b < 250)) {
+                marked = (marked + 1)
+            }
+            i = (i + 4)
+        }
+        return marked
     }
 
     ; How much drawn GEOMETRY a display list carries — the filled rings and
@@ -648,6 +738,98 @@ class ChartTest {
         app.update(input)
         this.checkTrue("clicking it opens the picker" app.chartDialog.visible)
         app.chartDialog.close()
+
+        print "== the clipboard: what Excel and Word are handed =="
+        def clipApp (new GridApp)
+        clipApp.init("gallery/pdf_writer/assets/fonts")
+        clipApp.model.growTo(8 4)
+        clipApp.model.setCell(0 0 "Month")
+        clipApp.model.setCell(0 1 "North")
+        clipApp.model.setCell(1 0 "Jan")
+        clipApp.model.setCell(1 1 "120")
+        clipApp.model.setCell(2 0 "Feb")
+        clipApp.model.setCell(2 1 "150")
+        clipApp.model.setCell(3 0 "Mar")
+        clipApp.model.setCell(3 1 "90")
+        clipApp.sheetView.markDirty()
+        clipApp.sheetView.rebuild()
+        clipApp.grid.updateVisible(clipApp.model)
+        clipApp.sel.anchor.row = 0
+        clipApp.sel.anchor.col = 0
+        clipApp.sel.active.row = 3
+        clipApp.sel.active.col = 1
+        clipApp.openChartDialog(0)
+        clipApp.chartDialog.selectRadio(100 + (ChartKind.column()))
+        clipApp.chartDialog.setInputValue(311 "Sales Q1 (units)")
+        clipApp.applyChartDialog()
+        this.checkInt("a chart to copy" (clipApp.view.chartLayer.count()) 1)
+        def cpanel:ChartPanel (clipApp.view.chartLayer.panelAt(0))
+        def copied:int (clipApp.copyChart(cpanel.chart.id))
+        this.checkTrue("the copy produced a bitmap" (copied > 0))
+        this.check("the clipboard says what it holds" clipApp.clipboardKind "chart")
+        this.check("nothing went wrong" clipApp.clipboardNote "")
+
+        ; text/plain — the numbers, so a paste into cells is useful.
+        this.checkTrue("the text flavour carries the range" (ChartTest.hasSub(clipApp.clipboardTsv "Jan\t120")))
+        this.checkTrue("including its header" (ChartTest.hasSub(clipApp.clipboardTsv "Month\tNorth")))
+
+        ; text/html — the flavour Word and Excel reach for first.
+        this.checkTrue("the html flavour is an image" (ChartTest.hasSub(clipApp.clipboardHtml "<img ")))
+        this.checkTrue("carried inline, not by reference" (ChartTest.hasSub(clipApp.clipboardHtml "src=\"data:image/png;base64,")))
+        this.checkTrue("with the chart's own name on it" (ChartTest.hasSub(clipApp.clipboardHtml "Sales Q1 (units)")))
+        this.checkFalse("and no external URL to go missing" (ChartTest.hasSub(clipApp.clipboardHtml "http")))
+
+        ; image/png — a real PNG, checked as bytes rather than as a string that
+        ; starts with the right letters.
+        def clipDirect:ChartClip (clipApp.clipper.build(clipApp.model cpanel.chart clipApp.view.ctx.tr 320 220))
+        this.checkTrue("the png flavour has bytes" ((buffer_length clipDirect.png) > 1000))
+        this.checkTrue("and they are a PNG" (ChartTest.isPng(clipDirect.png)))
+        this.checkInt("whose header says how big it is" (ChartTest.pngWidth(clipDirect.png)) clipDirect.w)
+        this.checkInt("and how tall" (ChartTest.pngHeight(clipDirect.png)) clipDirect.h)
+        ; Drawn larger than the window it lives in: a 320-pixel chart dropped
+        ; into a Word page is a thumbnail.
+        this.checkTrue("bigger than the on-screen box" (clipDirect.w > 320))
+        this.checkInt("the base64 is exactly those bytes" (strlen clipDirect.pngBase64) (ChartTest.base64Len((buffer_length clipDirect.png))))
+        ; …and the bitmap is a picture rather than a blank rectangle: the
+        ; surface it was encoded from has ink on it.
+        this.checkTrue("there is ink on it" ((ChartTest.inkCount((clipApp.clipper.painter.raw()))) > 2000))
+
+        ; image/svg+xml — the same render as vector, not traced from the bitmap.
+        this.checkTrue("the svg flavour is a document" (ChartTest.hasSub(clipDirect.svg "<svg ")))
+        this.checkTrue("and closes" (ChartTest.hasSub(clipDirect.svg "</svg>")))
+        this.checkTrue("with the bars in it" (ChartTest.hasSub(clipDirect.svg "<path")))
+        this.checkTrue("and the axis labels" (ChartTest.hasSub(clipDirect.svg "Jan")))
+
+        this.check("named after the chart" clipDirect.name "Sales-Q1-units")
+
+        ; The compressed PNG read back by this repository's own decoder, pixel
+        ; for pixel against the surface it was encoded from. The writer emits
+        ; real deflate now rather than stored blocks, and "it looks right in a
+        ; viewer" is not a test of that.
+        def dec (new PNGDecoder)
+        def back:ImageBuffer (dec.decodeBytes(clipDirect.png))
+        this.checkInt("the png decodes to the same width" back.width clipDirect.w)
+        this.checkInt("and the same height" back.height clipDirect.h)
+        this.checkInt("with every pixel intact" (ChartTest.pixelDiff(back (clipApp.clipper.painter.raw()))) 0)
+
+        ; Ctrl+C over a chart copies the chart; over the sheet it still copies
+        ; cells, and copying cells clears the chart flavours.
+        def chartOnTop:int (clipApp.focusedChartId())
+        this.checkInt("the chart window is what Ctrl+C means" chartOnTop cpanel.chart.id)
+        clipApp.copySelection()
+        this.check("copying cells goes back to cells" clipApp.clipboardKind "cells")
+        this.check("and drops the picture" clipApp.clipboardPng "")
+        this.checkTrue("the command surface offers the chart copy" (clipApp.commands.has("chart.copy")))
+        this.checkTrue("and running it copies one" (clipApp.runCommand("chart.copy" "")))
+        this.check("which is a chart again" clipApp.clipboardKind "chart")
+
+        ; A chart of nothing says so instead of putting an empty picture on the
+        ; clipboard.
+        def emptyChart:GridChart (ChartTest.chartOver(40 0 42 0))
+        emptyChart.id = 900
+        def emptyClip:ChartClip (clipApp.clipper.build(clipApp.model emptyChart clipApp.view.ctx.tr 300 200))
+        this.checkFalse("an empty range does not copy" emptyClip.ok)
+        this.checkTrue("and says why" ((strlen emptyClip.note) > 0))
 
         print ""
         print (("passed=" + (to_string passed)) + " failed=" + (to_string failed))

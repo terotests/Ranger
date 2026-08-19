@@ -1,0 +1,222 @@
+; ==============================================================================
+; SoftPainter.rgr — an EVG display list, painted onto a SoftCanvas.
+; ==============================================================================
+;
+; This used to live inside GridView, which was fine while the only thing anyone
+; painted was the page. Copying a CHART to the clipboard needs the same painting
+; at a different size and onto a different surface — 640x400 of chart, with no
+; sheet behind it — and a second copy of the loop would be a second chance to
+; disagree with the first.
+;
+; So the loop moved here and takes its surface as an argument. GridView hands it
+; the page canvas; the clipboard hands it an off-screen one. Both draw the same
+; commands the same way, which is the property that makes "what you copied is
+; what you saw" true rather than hoped for.
+;
+; The kinds are EVG's, unchanged:
+;   0 RECT   1 BORDER   2 IMAGE   3 TEXT   6 PATH   7 STROKE
+; Clip commands (4/5) are the WebGL backend's business; the software path
+; renders them as the bounds they already are.
+; ==============================================================================
+
+Import "GridImages.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class SoftPainter {
+    ; The surface. `own` is used when this painter made it, which is the
+    ; off-screen case; GridView attaches its own and keeps it.
+    def own:SoftCanvas (new SoftCanvas)
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    ; Pictures the sheet anchored. Empty for a chart, which has none.
+    def images:GridImages (new GridImages)
+    def clipW:int 0
+    def clipH:int 0
+    def fontFamily:string "Open Sans"
+
+    Constructor () {
+    }
+
+    ; Paint onto a surface someone else owns, with their context and pictures.
+    fn attach:void (c:SoftCanvas x:UIContext im:GridImages w:int h:int) {
+        canvas = c
+        ctx = x
+        images = im
+        clipW = w
+        clipH = h
+    }
+
+    ; Paint onto a surface of this painter's own, sharing the caller's text
+    ; renderer — fonts are loaded once per app, not once per copy.
+    fn begin:void (w:int h:int tr:UITextRenderer) {
+        own.init(w h)
+        canvas = own
+        ctx = (new UIContext)
+        ctx.attach(own)
+        ctx.tr = tr
+        clipW = w
+        clipH = h
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn clear:void (col:EVGColor) {
+        canvas.clear((col.red()) (col.green()) (col.blue()))
+    }
+
+    ; The face a TEXT command asks for. Selected before drawing so the glyphs
+    ; painted are the ones whose widths were measured.
+    fn applyFaceStyled:void (bold:boolean italic:boolean) {
+        def want:string fontFamily
+        if bold {
+            want = (fontFamily + "-Bold")
+            if italic {
+                want = (fontFamily + "-BoldItalic")
+            }
+        } {
+            if italic {
+                want = (fontFamily + "-Italic")
+            }
+        }
+        if (ctx.tr.fontFamily == want) {
+            return
+        }
+        def face:TrueTypeFont (ctx.tr.fm.getFont(want))
+        if (face.unitsPerEm > 0) {
+            ctx.tr.fontFamily = want
+            ctx.tr.applyFace()
+        }
+    }
+
+    fn draw:void (dl:EVGDisplayList) {
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 0) {
+                def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
+            }
+            if (c.kind == 1) {
+                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
+            }
+            if (c.kind == 3) {
+                def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
+                if (c.rotate == 0.0) {
+                    ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                } {
+                    ctx.textRotated(c.text (to_int c.x) (to_int c.y) c.fontSize col3 c.rotate)
+                }
+            }
+            if (c.kind == 2) {
+                def entry:DecodedImage (images.cached(c.src))
+                if entry.ok {
+                    images.blitScaled(canvas entry.img (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 0 0 clipW clipH)
+                } {
+                    ; A picture that could not be decoded is drawn as its own
+                    ; outline with the reason in it, rather than as nothing.
+                    def note:EVGColor (EVGColor.rgb(80 92 110))
+                    ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 1 note)
+                    def why:string entry.note
+                    if ((strlen why) == 0) {
+                        why = "image"
+                    }
+                    this.applyFaceStyled(false false)
+                    ctx.text(why ((to_int c.x) + 4) ((to_int c.y) + 4) 11.0 note)
+                }
+            }
+            ; Vector ink: a chart's bars, wedges and grid lines arrive as
+            ; flattened rings, exactly as the WebGL backend gets them. Without
+            ; these two the browser would show a chart and the PNG would show
+            ; an empty box, which is the disagreement the display list exists
+            ; to prevent.
+            if (c.kind == 6) {
+                this.fillRings(c)
+            }
+            if (c.kind == 7) {
+                this.strokeRings(c)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; One ring of a path command, as a flat point list.
+    fn ringAt:[double] (c:EVGDrawCmd index:int) {
+        def out:[double]
+        def start:int 0
+        if (index > 0) {
+            start = (itemAt c.ringEnds (index - 1))
+        }
+        def stop:int (itemAt c.ringEnds index)
+        def k:int start
+        while (k < stop) {
+            push out (itemAt c.pts k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn fillRings:void (c:EVGDrawCmd) {
+        def alpha:int (to_int (c.a * 255.0))
+        if (alpha <= 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringAt(c i))
+            ctx.fillPolygon(ring c.r c.g c.b alpha)
+            i = (i + 1)
+        }
+    }
+
+    ; A stroke becomes a quad per segment — the same expansion the WebGL
+    ; backend does, so the two agree on what a one-pixel grid line looks like.
+    fn strokeRings:void (c:EVGDrawCmd) {
+        def alpha:int (to_int (c.a * 255.0))
+        if (alpha <= 0) {
+            return
+        }
+        def half:double (c.thickness / 2.0)
+        if (half < 0.375) {
+            half = 0.375
+        }
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringAt(c i))
+            def n:int (array_length ring)
+            def k:int 0
+            while ((k + 3) < n) {
+                def x1:double (itemAt ring k)
+                def y1:double (itemAt ring (k + 1))
+                def x2:double (itemAt ring (k + 2))
+                def y2:double (itemAt ring (k + 3))
+                def dx:double (x2 - x1)
+                def dy:double (y2 - y1)
+                def len:double (sqrt ((dx * dx) + (dy * dy)))
+                if (len > 0.0001) {
+                    def nx:double (((0.0 - dy) / len) * half)
+                    def ny:double ((dx / len) * half)
+                    def quad:[double]
+                    push quad (x1 + nx)
+                    push quad (y1 + ny)
+                    push quad (x2 + nx)
+                    push quad (y2 + ny)
+                    push quad (x2 - nx)
+                    push quad (y2 - ny)
+                    push quad (x1 - nx)
+                    push quad (y1 - ny)
+                    ctx.fillPolygon(quad c.r c.g c.b alpha)
+                }
+                k = (k + 2)
+            }
+            i = (i + 1)
+        }
+    }
+}
