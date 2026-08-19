@@ -18,6 +18,14 @@ class FormulaFunctions {
     Constructor () {
     }
 
+    ; UPPER / LOWER, for the letters a case change is defined for.
+    ;
+    ; Anything else is copied with `substring`, not rebuilt with
+    ; `(strfromcode ch)`. That pair looks like an identity and is one in
+    ; JavaScript, where a string is code units; in C++ a string is BYTES, so
+    ; `charAt` hands back 0xC3 and `strfromcode` — whose job is a code POINT —
+    ; encodes 195 as two bytes of UTF-8. Every accented letter would come out
+    ; encoded twice.
     sfn upper:string (s:string) {
         def out:string ""
         def i:int 0
@@ -27,7 +35,7 @@ class FormulaFunctions {
             if ((ch >= 97) && (ch <= 122)) {
                 out = (out + (strfromcode (ch - 32)))
             } {
-                out = (out + (strfromcode ch))
+                out = (out + (substring s i (i + 1)))
             }
             i = (i + 1)
         }
@@ -43,7 +51,7 @@ class FormulaFunctions {
             if ((ch >= 65) && (ch <= 90)) {
                 out = (out + (strfromcode (ch + 32)))
             } {
-                out = (out + (strfromcode ch))
+                out = (out + (substring s i (i + 1)))
             }
             i = (i + 1)
         }
@@ -2221,10 +2229,13 @@ class FormulaFunctions {
                     }
                 }
                 startWord = false
+                out = (out + (strfromcode ch))
             } {
                 startWord = true
+                ; Not a letter this knows how to case — copy the byte through
+                ; rather than rebuild it. See `upper` above for why.
+                out = (out + (substring src i (i + 1)))
             }
-            out = (out + (strfromcode ch))
             i = (i + 1)
         }
         return (FormulaValue.fromString(out))

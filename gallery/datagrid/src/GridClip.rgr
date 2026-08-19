@@ -140,7 +140,7 @@ class ChartClipboard {
                 keep = true
             }
             if keep {
-                out = (out + (strfromcode code))
+                out = (out + (substring src i (i + 1)))
             } {
                 ; Runs of anything else collapse to one dash rather than a row
                 ; of them, so "Q1 — Q4 (units)" is not "Q1----Q4--units-".
@@ -184,7 +184,7 @@ class ChartClipboard {
                         if (code == 62) {
                             out = (out + "&gt;")
                         } {
-                            out = (out + (strfromcode code))
+                            out = (out + (substring s i (i + 1)))
                         }
                     }
                 }

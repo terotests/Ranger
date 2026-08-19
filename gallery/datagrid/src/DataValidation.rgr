@@ -83,7 +83,7 @@ class DataValidation {
                 push out (DataValidation.trimWs(cur))
                 cur = ""
             } {
-                cur = (cur + (strfromcode ch))
+                cur = (cur + (substring src i (i + 1)))
             }
             i = (i + 1)
         }

@@ -3342,7 +3342,7 @@ class GridApp {
                         if (c == 34) {
                             out = (out + "&quot;")
                         } {
-                            out = (out + (strfromcode c))
+                            out = (out + (substring v i (i + 1)))
                         }
                     }
                 }
