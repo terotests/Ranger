@@ -1058,25 +1058,51 @@ class GridView {
         ; sheet tabs
         def tabY:int (grid.sheetTabY())
         this.pushRect(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) theme.headerBg)
+        ; A tab is as wide as its name, between a minimum and a maximum. It used
+        ; to be a fixed 88 pixels with the name drawn into it unmeasured, so
+        ; anything longer than "Forecast" ran out of its own tab and across the
+        ; next one. Past the maximum the name is cut and given an ellipsis —
+        ; the whole name is still in the status bar.
         def si:int 0
         def sn:int (book.sheetCount())
-        def tabW:int 88
+        def minTabW:int 64
+        def maxTabW:int 190
+        def tabPad:int 10
+        def tabX:int grid.x
+        grid.clearTabLayout()
+        this.applyFaceStyled(false false)
         while (si < sn) {
             def sheet:SpreadsheetModel (book.sheetAt(si))
             if sheet.sheetHidden {
                 si = (si + 1)
             } {
-                def tx:int (grid.x + (si * tabW))
-                if (si == book.activeIndex) {
-                    this.pushRect(dl (to_double tx) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
-                }
                 def nm:string sheet.name
                 if ((strlen nm) == 0) {
                     nm = ("Sheet" + (to_string (si + 1)))
                 }
-                this.pushText(dl nm (to_double (tx + 8)) (to_double (tabY + 5)) 12.0 theme.headerText)
-                this.pushRect(dl (to_double (tx + tabW - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
-                si = (si + 1)
+                def shown:string (GridView.fitLabel(ctx.tr nm 12.0 (maxTabW - (tabPad * 2))))
+                def textW:int (to_int (ctx.tr.measureWidth(shown 12.0)))
+                def tabW:int (textW + (tabPad * 2))
+                if (tabW < minTabW) {
+                    tabW = minTabW
+                }
+                if (tabW > maxTabW) {
+                    tabW = maxTabW
+                }
+                ; A tab that would hang off the right edge is not drawn at all
+                ; rather than half drawn.
+                if ((tabX + tabW) > (grid.x + grid.w)) {
+                    si = sn
+                } {
+                    if (si == book.activeIndex) {
+                        this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
+                    }
+                    this.pushText(dl shown (to_double (tabX + tabPad)) (to_double (tabY + 5)) 12.0 theme.headerText)
+                    this.pushRect(dl (to_double ((tabX + tabW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+                    grid.addTabLayout(si tabX tabW)
+                    tabX = (tabX + tabW)
+                    si = (si + 1)
+                }
             }
         }
         this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
@@ -1216,6 +1242,35 @@ class GridView {
             n = 1
         }
         return ((lineH * n) + 6)
+    }
+
+    ; A label cut to fit a width, with an ellipsis when it had to be cut. The
+    ; cut is measured rather than counted: "WWWW" and "iiii" are not the same
+    ; number of pixels.
+    sfn fitLabel:string (tr:UITextRenderer text:string size:double maxW:int) {
+        if (maxW < 8) {
+            return ""
+        }
+        def full:double (tr.measureWidth(text size))
+        if (full <= (to_double maxW)) {
+            return text
+        }
+        def ell:string "…"
+        def ellW:double (tr.measureWidth(ell size))
+        def room:double ((to_double maxW) - ellW)
+        if (room <= 0.0) {
+            return ell
+        }
+        def n:int (strlen text)
+        while (n > 0) {
+            def cut:string (substring text 0 n)
+            def w:double (tr.measureWidth(cut size))
+            if (w <= room) {
+                return (cut + ell)
+            }
+            n = (n - 1)
+        }
+        return ell
     }
 
     ; Width the grid would paint this text at, for auto-fit.

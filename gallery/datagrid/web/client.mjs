@@ -211,7 +211,16 @@ canvas.addEventListener(
   "wheel",
   (ev) => {
     ev.preventDefault();
-    postInput({ type: "wheel", delta: ev.deltaY < 0 ? 1 : -1 });
+    // Sideways as well as up and down: a trackpad sends deltaX, and a mouse
+    // sends shift+wheel. Without it there is no way to reach a column that has
+    // scrolled off the right edge.
+    const horizontal = ev.shiftKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY);
+    const raw = horizontal ? (ev.deltaX || ev.deltaY) : ev.deltaY;
+    postInput({
+      type: "wheel",
+      delta: raw < 0 ? 1 : -1,
+      axis: horizontal ? "x" : "y",
+    });
   },
   { passive: false }
 );

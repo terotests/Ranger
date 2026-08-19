@@ -269,6 +269,7 @@ snapshot — no DOM or SDL below the app.
 | Ctrl+click a link | Follows it — the host is told the target | — |
 | Ctrl+M | Chart the selection (live preview in the picker) | — |
 | Ctrl+C over a chart | Copies it as a picture — pastes into Excel and Word | — |
+| Shift + wheel | Scrolls sideways (a trackpad's own sideways notches work too) | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
 | ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
 | Delete | Clear the selection | Delete at the caret |
@@ -743,6 +744,61 @@ and only scaled if it still does not fit. The usual result is 1:1, so the text
 is crisp rather than resampled. Compiling is cached by specification text and
 box size, which is why dragging a chart costs nothing and editing a cell it
 reads costs one recompute.
+
+## Metrics: the grid is the size the file says
+
+A column width in a `.xlsx` is measured in **characters** of the default font,
+and the conversion Excel documents is `round(w × MDW) + 5`, where MDW is the
+width of the widest digit — 7 pixels at 11 point. This used 8, so every column
+with a stated width came out about a seventh wider than the file asked for; and
+a sheet with no widths at all used 100-pixel columns against Excel's 64, with
+22-pixel rows against 20.
+
+Nothing was ever wrong with the text — an 11-point cell is painted at
+11 × 96/72 = 14.67 px, which is exactly what the format says. There was simply
+half a column too much grid around it, which reads as everything being zoomed
+in. The defaults are Excel's now, and `XlsxWriter.pxToColWidth` is the true
+inverse so a width that came from a file goes back out as itself.
+
+> The other half of that impression is the face: this repository draws with
+> Open Sans, whose x-height is larger than Calibri's at the same point size, so
+> the same number is a slightly bigger picture. That is a font we do not ship,
+> not a bug we can fix.
+
+## Recalculation: dependencies first, not sweeps
+
+`FormulaEngine.recalcDirty` used to sweep: walk every formula, evaluate the ones
+whose dependencies were already clean, repeat — **up to 64 times**, and call
+whatever was left a cycle. A sweep settles one link per pass whenever the chain
+runs against the order the sheet is walked in, so a column of 400 subtotals each
+reading the one below it got 64 rows deep and then reported `#CYCLE!` for the
+other 336. From the outside that looks exactly like sums that stop being
+delegated part way down a sheet.
+
+It is a depth-first walk now: to evaluate a cell, evaluate what it depends on
+first. Depth costs nothing, the work is proportional to the dependency graph
+rather than to formulas × passes, and a cycle is a cell reached again while it
+is still being computed — which is what a cycle is, rather than what is left
+over when patience runs out.
+
+```bash
+python3 gallery/datagrid/tools/check_calc.py yourfile.xlsx
+```
+
+Every `.xlsx` stores, beside each formula, the value the program that wrote it
+last computed. That is a free oracle — no LibreOffice, no second implementation
+to install, the answers are already in the file — and `check_calc.py` loads a
+workbook through the engine, recalculates it from the formulas alone, and
+reports every cell where our answer differs, **grouped by the functions the
+formula uses**, because a whole column going wrong is nearly always one
+unimplemented function at the top of it. Point it at a file that looks wrong and
+it will name the culprit.
+
+`fixtures/calc-chain.xlsx` is that oracle turned into a test: 950 formulas —
+400-long chains in both directions, ladders of SUMs, subtotals of subtotals and
+a cross-sheet hop — with the correct values written in by
+`tools/make_calcchain_fixture.py`. It reported 356 disagreements before the
+change and reports none now.
 
 ## The command surface
 

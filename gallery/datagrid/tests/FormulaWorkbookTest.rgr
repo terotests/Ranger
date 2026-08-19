@@ -214,6 +214,81 @@ class FormulaWorkbookTest {
         c.eqStr("raw calc" (sn.getCell(0 0)) "0.275")
         c.eqStr("display pct" (sn.getDisplay(0 0)) "27.5%")
 
+        print "== a deep chain of formulas, and one built the wrong way up =="
+        ; A chain 300 long, written so that each cell depends on the one BELOW
+        ; it. Walked in cell order that is the worst case: a pass over the sheet
+        ; can settle only one link, so a recalculation that gives up after a
+        ; fixed number of passes stops partway down and marks the rest as a
+        ; cycle. Which is what "the sums stop being delegated after a while"
+        ; looks like from the outside.
+        def bookD:WorkbookModel (new WorkbookModel)
+        def sd:SpreadsheetModel (new SpreadsheetModel)
+        sd.name = "Deep"
+        sd.resize(400 4)
+        def depth:int 300
+        sd.setCell(depth 0 "1")
+        def r:int (depth - 1)
+        while (r >= 0) {
+            sd.setFormula(r 0 ("=A" + (to_string (r + 2)) + "+1"))
+            r = (r - 1)
+        }
+        ; …and a column of SUMs of the column beside it, each reading the row
+        ; under it: the same shape a report has when every line is a subtotal.
+        def r2:int 0
+        while (r2 < 40) {
+            sd.setFormula(r2 1 ("=SUM(A" + (to_string (r2 + 1)) + ":A" + (to_string (r2 + 2)) + ")"))
+            r2 = (r2 + 1)
+        }
+        bookD.addSheet(sd)
+        def engD:FormulaEngine (new FormulaEngine)
+        engD.attach(bookD)
+        engD.rebuildAll()
+        c.eqStr("the far end of a 300-long chain" (sd.getCell(0 0)) "301")
+        c.eqStr("its middle" (sd.getCell(150 0)) "151")
+        c.eqStr("the end nearest the constant" (sd.getCell(299 0)) "2")
+        c.eqStr("a SUM of two chained cells" (sd.getCell(0 1)) "601")
+        c.ok("nothing was called a cycle" ((engD.errorCount()) == 0))
+
+        ; Editing the far constant has to travel all the way back up.
+        sd.setCell(depth 0 "2")
+        engD.onCellEdited(0 depth 0)
+        c.eqStr("an edit reaches the far end" (sd.getCell(0 0)) "302")
+
+        ; A real cycle is still a cycle.
+        def bookC:WorkbookModel (new WorkbookModel)
+        def sc:SpreadsheetModel (new SpreadsheetModel)
+        sc.name = "Cyc"
+        sc.resize(6 3)
+        sc.setFormula(0 0 "=A2+1")
+        sc.setFormula(1 0 "=A1+1")
+        bookC.addSheet(sc)
+        def engC:FormulaEngine (new FormulaEngine)
+        engC.attach(bookC)
+        engC.rebuildAll()
+        c.ok("a cycle is reported" ((engC.errorCount()) > 0))
+
+        print "== a real file of deep chains, against the values in it =="
+        ; calc-chain.xlsx carries the answers Excel would store beside each
+        ; formula — computed in the fixture writer, in Python — so this is our
+        ; arithmetic against somebody else's. Four hundred links, both
+        ; directions, ladders of SUMs, subtotals of subtotals and a cross-sheet
+        ; hop. `tools/check_calc.py` compares every one of the 950; these are
+        ; the corners.
+        def loaderC:XlsxLoader (new XlsxLoader)
+        def bookCC:WorkbookModel (new WorkbookModel)
+        def okC:boolean (loaderC.loadPath("gallery/datagrid/fixtures/calc-chain.xlsx" bookCC))
+        c.ok("load calc-chain.xlsx" okC)
+        if okC {
+            def chain:SpreadsheetModel (bookCC.sheetAt(0))
+            c.eqStr("the far end of a 400-long chain" (chain.getCell(0 0)) "400")
+            c.eqStr("its middle" (chain.getCell(199 0)) "201")
+            c.eqStr("the chain that runs the other way" (chain.getCell(399 1)) "803")
+            c.eqStr("a ladder of SUMs over a moving window" (chain.getCell(19 2)) "6765")
+            c.eqStr("a subtotal of ten of them" (chain.getCell(19 3)) "17567")
+            c.eqStr("a sum that leaves the sheet" (chain.getCell(0 5)) "15620")
+            c.ok("nothing was called a cycle" ((loaderC.engine.errorCount()) == 0))
+        }
+
         print "== formulas.xlsx integration =="
         def loader:XlsxLoader (new XlsxLoader)
         def bookL:WorkbookModel (new WorkbookModel)

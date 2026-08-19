@@ -186,11 +186,17 @@ class XlsxWorksheet {
         XlsxWorksheet.parseCellRef(b r2 c2)
     }
 
-    ; Excel column width (character units) → approximate CSS/pixel width.
+    ; Excel column width (character units) → CSS pixels.
+    ;
+    ; The unit is "how many digits of the default font fit", and the conversion
+    ; Excel documents is `round(w * MDW) + padding`, where MDW is the width of
+    ; the widest digit — 7 pixels for the 11-point default. This used 8, which
+    ; made every column with a stated width about a seventh wider than the one
+    ; the file describes; over a sheet it reads as a zoomed-in grid.
     sfn colWidthToPx:int (w:double) {
-        def px:int (to_int ((w * 8.0) + 5.0))
-        if (px < 24) {
-            px = 24
+        def px:int (to_int (((w * 7.0) + 5.0) + 0.5))
+        if (px < 16) {
+            px = 16
         }
         return px
     }

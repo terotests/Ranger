@@ -3844,8 +3844,19 @@ class GridApp {
             grid.resizingRow = -1
         }
 
+        ; The wheel. Shift turns it sideways, which is what every spreadsheet
+        ; does and what this had no answer for: a column off the right edge
+        ; could not be reached with the mouse at all.
         if (input.scrollDelta != 0) {
-            grid.scrollByRows(model (0 - input.scrollDelta))
+            if input.shiftDown {
+                grid.scrollByCols(model (0 - input.scrollDelta))
+            } {
+                grid.scrollByRows(model (0 - input.scrollDelta))
+            }
+        }
+        ; …and a trackpad sends sideways notches of its own.
+        if (input.scrollDeltaX != 0) {
+            grid.scrollByCols(model (0 - input.scrollDeltaX))
         }
 
         if input.ctrlDown {

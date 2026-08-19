@@ -1504,6 +1504,95 @@ class GridEditTest {
         c.ok("and it paints the range" ((strlen (ConditionalFormat.resolveFill(cf.model 1 0))) > 0))
         c.ok("scene builds with the editor up" ((strlen (cf.sceneJson())) > 500))
 
+        print "== the grid is the size Excel says it is =="
+        ; A column width in a file is measured in CHARACTERS of the default
+        ; font, and the conversion is round(w x 7) + 5 — seven being the width
+        ; of the widest digit at eleven points. This used a factor of eight, so
+        ; every column came out a seventh wider than the file asked for, and a
+        ; sheet with no widths at all used 100-pixel columns against Excel's
+        ; 64. Nothing was wrong with the text; there was just half a column too
+        ; much grid around it.
+        c.eqInt("Excel's default column width" (XlsxWorksheet.colWidthToPx(8.43)) 64)
+        c.eqInt("ten characters" (XlsxWorksheet.colWidthToPx(10.0)) 75)
+        c.eqInt("a row of fifteen points" (XlsxWorksheet.rowHeightToPx(15.0)) 20)
+        def metrics:SpreadsheetModel (new SpreadsheetModel)
+        c.eqInt("a sheet with no widths of its own" metrics.defaultColW 64)
+        c.eqInt("…and no heights" metrics.defaultRowH 20)
+
+        print "== a sheet name stays inside its tab =="
+        def tabApp:GridApp (new GridApp)
+        tabApp.init("gallery/pdf_writer/assets/fonts")
+        def tabSheet:SpreadsheetModel (tabApp.model)
+        tabSheet.name = "Consolidated Forecast (draft) 2026"
+        tabApp.render()
+        def tabDl:EVGDisplayList (tabApp.view.buildDisplayList(tabApp.model tabApp.sel tabApp.grid tabApp.editing tabApp.editBuf tabApp.book))
+        c.ok("the tab layout was recorded" ((array_length tabApp.grid.tabXs) > 0))
+        def tabW0:int (itemAt tabApp.grid.tabWs 0)
+        def tabX0:int (itemAt tabApp.grid.tabXs 0)
+        ; The label painted inside the first tab — the band is bounded on both
+        ; sides so the status bar underneath is not mistaken for it.
+        def bandTop:double (to_double (tabApp.grid.sheetTabY()))
+        def bandBottom:double (to_double ((tabApp.grid.sheetTabY()) + tabApp.grid.sheetTabH))
+        def longest:int 0
+        def ti:int 0
+        while (ti < (array_length tabDl.cmds)) {
+            def tc:EVGDrawCmd (itemAt tabDl.cmds ti)
+            if (tc.kind == 3) {
+                if (tc.y >= bandTop) {
+                    if (tc.y < bandBottom) {
+                        if (tc.x >= (to_double tabX0)) {
+                            if (tc.x < (to_double (tabX0 + tabW0))) {
+                                def right:int (to_int (tc.x + tc.w))
+                                if (right > longest) {
+                                    longest = right
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ti = (ti + 1)
+        }
+        c.ok("the tab has a label in it" (longest > tabX0))
+        c.ok("the name was cut to fit" (longest <= (tabX0 + tabW0)))
+        c.ok("and the tab is no wider than the strip allows" (tabW0 <= 190))
+        ; A short name gets a snug tab rather than a fixed slot.
+        def shortSheet:GridApp (new GridApp)
+        shortSheet.init("gallery/pdf_writer/assets/fonts")
+        shortSheet.model.name = "Q1"
+        shortSheet.render()
+        c.ok("a short name gets a short tab" ((itemAt shortSheet.grid.tabWs 0) < 190))
+        ; …and clicking it still finds the right sheet.
+        def hitX:int ((itemAt shortSheet.grid.tabXs 0) + 4)
+        def hitY:int ((shortSheet.grid.sheetTabY()) + 6)
+        c.eqInt("clicking a tab lands on its sheet" (shortSheet.grid.hitSheetTab((shortSheet.book.sheetCount()) hitX hitY)) 0)
+
+        print "== the wheel can reach a column off the right edge =="
+        def scrollApp:GridApp (new GridApp)
+        scrollApp.init("gallery/pdf_writer/assets/fonts")
+        scrollApp.model.growTo(40 60)
+        scrollApp.grid.updateVisible(scrollApp.model)
+        def firstBefore:int scrollApp.grid.firstVisibleCol
+        def lastBefore:int scrollApp.grid.lastVisibleCol
+        def wheel (new UIInput)
+        wheel.newFrame()
+        wheel.setModifiers(true false)
+        wheel.addScroll(-3)
+        scrollApp.update(wheel)
+        c.ok("shift and the wheel move sideways" (scrollApp.grid.firstVisibleCol > firstBefore))
+        c.ok("which brings new columns into view" (scrollApp.grid.lastVisibleCol > lastBefore))
+        def sideways (new UIInput)
+        sideways.newFrame()
+        sideways.addScrollX(-2)
+        def firstMid:int scrollApp.grid.firstVisibleCol
+        scrollApp.update(sideways)
+        c.ok("a trackpad's own sideways notches do too" (scrollApp.grid.firstVisibleCol > firstMid))
+        def back (new UIInput)
+        back.newFrame()
+        back.addScrollX(20)
+        scrollApp.update(back)
+        c.eqInt("and it comes back to the first column" scrollApp.grid.firstVisibleCol 0)
+
         print "== every dialog keeps its controls inside itself =="
         def dlg:GridApp (new GridApp)
         dlg.init("gallery/pdf_writer/assets/fonts")

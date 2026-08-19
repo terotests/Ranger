@@ -432,7 +432,7 @@ class XlsxWriter {
     ; Pixels back to Excel's character units — the inverse of what the loader
     ; does, so a width that came from a file goes back out as itself.
     sfn pxToColWidth:double (px:int) {
-        return (((to_double px) - 5.0) / 8.0)
+        return (((to_double px) - 5.0) / 7.0)
     }
 
     sfn pxToRowPoints:double (px:int) {

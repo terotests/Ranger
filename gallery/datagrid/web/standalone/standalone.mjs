@@ -250,7 +250,10 @@ canvas.addEventListener(
   async (ev) => {
     ev.preventDefault();
     const { x, y } = canvasCoords(ev);
-    web.wheel(x, y, ev.deltaY < 0 ? 1 : -1);
+    const horizontal = ev.shiftKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY);
+    const raw = horizontal ? (ev.deltaX || ev.deltaY) : ev.deltaY;
+    if (horizontal) web.wheelX(x, y, raw < 0 ? 1 : -1);
+    else web.wheel(x, y, raw < 0 ? 1 : -1);
     await afterInput();
   },
   { passive: false }
