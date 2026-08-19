@@ -1,0 +1,320 @@
+; ==============================================================================
+; EvgGlPainter — EVGDisplayList → OpenGL (same seam as evg-webgl.js)
+; ==============================================================================
+;
+; SoftCanvas is only used to rasterize TEXT runs into a white atlas (the WebGL
+; host uses Canvas2D for that). Rects, borders, paths and images are GPU quads /
+; triangles — no full-frame bitmap blit, so HiDPI windows stay sharp and
+; undistorted.
+; ==============================================================================
+
+Import "../../src/SoftPainter.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "gfx_datagrid_sdl.rgr"
+
+class AtlasSlot {
+    def u0:double 0.0
+    def v0:double 0.0
+    def u1:double 0.0
+    def v1:double 0.0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def pad:double 2.0
+    def cmdIndex:int -1
+}
+
+class EvgGlPainter {
+    def atlas:SoftCanvas (new SoftCanvas)
+    def slots:[AtlasSlot]
+    def atlasW:int 0
+    def atlasH:int 0
+    def fontFamily:string "Open Sans"
+
+    Constructor () {
+    }
+
+    fn applyFace:void (tr:UITextRenderer bold:boolean italic:boolean) {
+        def want:string fontFamily
+        if bold {
+            want = (fontFamily + "-Bold")
+            if italic {
+                want = (fontFamily + "-BoldItalic")
+            }
+        } {
+            if italic {
+                want = (fontFamily + "-Italic")
+            }
+        }
+        if (tr.fontFamily == want) {
+            return
+        }
+        def face:TrueTypeFont (tr.fm.getFont(want))
+        if (face.unitsPerEm > 0) {
+            tr.fontFamily = want
+            tr.applyFace()
+        }
+    }
+
+    sfn nextPow2:int (n:int) {
+        def p:int 1
+        while (p < n) {
+            p = (p * 2)
+        }
+        return p
+    }
+
+    ; Pack every TEXT command into one white-on-clear atlas (WebGL buildTextAtlas).
+    fn buildAtlas:void (dl:EVGDisplayList tr:UITextRenderer) {
+        clear slots
+        def pad:int 2
+        def measured:[AtlasSlot]
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if ((c.kind == 3) && ((strlen c.text) > 0)) {
+                this.applyFace(tr (c.fontWeight == "bold") false)
+                def wf:double (tr.measureWidth(c.text c.fontSize))
+                def hf:double (tr.lineHeight(c.fontSize))
+                def slot:AtlasSlot (new AtlasSlot)
+                slot.cmdIndex = i
+                slot.w = (wf + (to_double (pad * 2)))
+                slot.h = (hf + (to_double (pad * 2)))
+                slot.pad = (to_double pad)
+                push measured slot
+            }
+            i = (i + 1)
+        }
+        if ((array_length measured) == 0) {
+            atlasW = 1
+            atlasH = 1
+            atlas.init(1 1)
+            atlas.clear(0 0 0)
+            return
+        }
+        def maxW:int 512
+        def mi:int 0
+        while (mi < (array_length measured)) {
+            def m:AtlasSlot (itemAt measured mi)
+            def mw:int (to_int m.w)
+            if (mw > maxW) {
+                maxW = mw
+            }
+            mi = (mi + 1)
+        }
+        atlasW = (EvgGlPainter.nextPow2(maxW))
+        if (atlasW > 2048) {
+            atlasW = 2048
+        }
+        def x:int 0
+        def y:int 0
+        def rowH:int 0
+        def needH:int 0
+        mi = 0
+        while (mi < (array_length measured)) {
+            def m2:AtlasSlot (itemAt measured mi)
+            def bw:int (to_int m2.w)
+            def bh:int (to_int m2.h)
+            if ((x + bw) > atlasW) {
+                x = 0
+                y = (y + rowH)
+                rowH = 0
+            }
+            m2.x = (to_double x)
+            m2.y = (to_double y)
+            x = (x + bw)
+            if (bh > rowH) {
+                rowH = bh
+            }
+            needH = (y + rowH)
+            mi = (mi + 1)
+        }
+        atlasH = (EvgGlPainter.nextPow2(needH))
+        if (atlasH < 1) {
+            atlasH = 1
+        }
+        atlas.init(atlasW atlasH)
+        atlas.clear(0 0 0)
+        ; Paint white glyphs; fragment shader multiplies by the run colour.
+        def ctx:UIContext (new UIContext)
+        ctx.attach(atlas)
+        ctx.tr = tr
+        mi = 0
+        while (mi < (array_length measured)) {
+            def m3:AtlasSlot (itemAt measured mi)
+            def cmd:EVGDrawCmd (dl.at(m3.cmdIndex))
+            this.applyFace(tr (cmd.fontWeight == "bold") false)
+            def col:EVGColor (EVGColor.rgb(255 255 255))
+            def tx:int ((to_int m3.x) + pad)
+            def ty:int ((to_int m3.y) + pad)
+            ctx.text(cmd.text tx ty cmd.fontSize col)
+            m3.u0 = (m3.x / (to_double atlasW))
+            m3.v0 = (m3.y / (to_double atlasH))
+            m3.u1 = ((m3.x + m3.w) / (to_double atlasW))
+            m3.v1 = ((m3.y + m3.h) / (to_double atlasH))
+            push slots m3
+            mi = (mi + 1)
+        }
+    }
+
+    fn slotFor:AtlasSlot (cmdIndex:int) {
+        def i:int 0
+        while (i < (array_length slots)) {
+            def s:AtlasSlot (itemAt slots i)
+            if (s.cmdIndex == cmdIndex) {
+                return s
+            }
+            i = (i + 1)
+        }
+        return (new AtlasSlot)
+    }
+
+    fn ringAt:[double] (c:EVGDrawCmd index:int) {
+        def out:[double]
+        def start:int 0
+        if (index > 0) {
+            start = (itemAt c.ringEnds (index - 1))
+        }
+        def stop:int (itemAt c.ringEnds index)
+        def k:int start
+        while (k < stop) {
+            push out (itemAt c.pts k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn emitStroke:void (c:EVGDrawCmd) {
+        def half:double (c.thickness / 2.0)
+        if (half < 0.375) {
+            half = 0.375
+        }
+        def rf:double ((to_double c.r) / 255.0)
+        def gf:double ((to_double c.g) / 255.0)
+        def bf:double ((to_double c.b) / 255.0)
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringAt(c i))
+            def n:int (array_length ring)
+            def tris:[double]
+            def k:int 0
+            while ((k + 3) < n) {
+                def x1:double (itemAt ring k)
+                def y1:double (itemAt ring (k + 1))
+                def x2:double (itemAt ring (k + 2))
+                def y2:double (itemAt ring (k + 3))
+                def dx:double (x2 - x1)
+                def dy:double (y2 - y1)
+                def len:double (sqrt ((dx * dx) + (dy * dy)))
+                if (len > 0.0001) {
+                    def nx:double (((0.0 - dy) / len) * half)
+                    def ny:double ((dx / len) * half)
+                    push tris (x1 + nx)
+                    push tris (y1 + ny)
+                    push tris (x2 + nx)
+                    push tris (y2 + ny)
+                    push tris (x2 - nx)
+                    push tris (y2 - ny)
+                    push tris (x1 + nx)
+                    push tris (y1 + ny)
+                    push tris (x2 - nx)
+                    push tris (y2 - ny)
+                    push tris (x1 - nx)
+                    push tris (y1 - ny)
+                }
+                k = (k + 2)
+            }
+            def nf:int (array_length tris)
+            if (nf >= 6) {
+                dgfx_evg_tris_d tris rf gf bf c.a
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn emitFill:void (c:EVGDrawCmd) {
+        ; Fan-triangulate each ring (same practical path SoftPainter uses).
+        def rf:double ((to_double c.r) / 255.0)
+        def gf:double ((to_double c.g) / 255.0)
+        def bf:double ((to_double c.b) / 255.0)
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringAt(c i))
+            def n:int (array_length ring)
+            if (n >= 6) {
+                def tris:[double]
+                def x0:double (itemAt ring 0)
+                def y0:double (itemAt ring 1)
+                def k:int 2
+                while ((k + 3) < n) {
+                    push tris x0
+                    push tris y0
+                    push tris (itemAt ring k)
+                    push tris (itemAt ring (k + 1))
+                    push tris (itemAt ring (k + 2))
+                    push tris (itemAt ring (k + 3))
+                    k = (k + 2)
+                }
+                if ((array_length tris) >= 6) {
+                    dgfx_evg_tris_d tris rf gf bf c.a
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn draw:void (dl:EVGDisplayList pageW:int pageH:int tr:UITextRenderer images:GridImages) {
+        this.buildAtlas(dl tr)
+        def drawW:int (dgfx_drawable_width)
+        def drawH:int (dgfx_drawable_height)
+        if (drawW < 1) {
+            drawW = pageW
+        }
+        if (drawH < 1) {
+            drawH = pageH
+        }
+        dgfx_evg_begin pageW pageH drawW drawH
+        dgfx_evg_set_atlas (atlas.raw()) atlasW atlasH
+
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            def rf:double ((to_double c.r) / 255.0)
+            def gf:double ((to_double c.g) / 255.0)
+            def bf:double ((to_double c.b) / 255.0)
+            if (c.kind == 0) {
+                dgfx_evg_rect c.x c.y c.w c.h rf gf bf c.a c.radius
+            }
+            if (c.kind == 1) {
+                dgfx_evg_border c.x c.y c.w c.h c.thickness rf gf bf c.a c.radius
+            }
+            if (c.kind == 3) {
+                def s:AtlasSlot (this.slotFor(i))
+                if (s.cmdIndex == i) {
+                    def tx:double (c.x - s.pad)
+                    def ty:double c.y
+                    dgfx_evg_text tx ty s.w s.h s.u0 s.v0 s.u1 s.v1 rf gf bf c.a c.rotate
+                }
+            }
+            if (c.kind == 2) {
+                def entry:DecodedImage (images.cached(c.src))
+                if entry.ok {
+                    dgfx_evg_image c.x c.y c.w c.h (entry.img.pixels) entry.img.width entry.img.height c.radius
+                }
+            }
+            if (c.kind == 6) {
+                this.emitFill(c)
+            }
+            if (c.kind == 7) {
+                this.emitStroke(c)
+            }
+            i = (i + 1)
+        }
+        dgfx_evg_end
+    }
+}
