@@ -290,7 +290,7 @@ function buildTextAtlas(cmds, dpr) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   const measured = runs.map((c) => {
-    ctx.font = `${c.size * dpr}px "${c.font}", sans-serif`;
+    ctx.font = `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${c.font}", sans-serif`;
     const m = ctx.measureText(c.text);
     const asc = m.actualBoundingBoxAscent || c.size * dpr * 0.8;
     const desc = m.actualBoundingBoxDescent || c.size * dpr * 0.25;
@@ -313,7 +313,7 @@ function buildTextAtlas(cmds, dpr) {
   c2.fillStyle = "#fff";
   const slots = new Map();
   for (const m of measured) {
-    c2.font = `${m.c.size * dpr}px "${m.c.font}", sans-serif`;
+    c2.font = `${m.c.italic ? "italic " : ""}${m.c.weight ? m.c.weight + " " : ""}${m.c.size * dpr}px "${m.c.font}", sans-serif`;
     c2.fillText(m.c.text, m.x + pad, m.y + pad + m.asc);
     slots.set(m.c, {
       u0: m.x / canvas.width, v0: m.y / canvas.height,

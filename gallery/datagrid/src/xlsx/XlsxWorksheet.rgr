@@ -418,6 +418,13 @@ class XlsxWorksheet {
         def value:string ""
         def inline:string ""
         if open.selfClose {
+            ; An empty but FORMATTED cell is written self-closing, e.g.
+            ; <c r="B3" s="2"/>. Returning here dropped its fill and borders —
+            ; which is exactly how a "background colour" row is stored.
+            if ((strlen styleAttr) > 0) {
+                this.ensureSize(model row col)
+                model.setCellStyleId(row col (XlsxWorksheet.parseInt0(styleAttr)))
+            }
             return
         }
         def depth:int 1

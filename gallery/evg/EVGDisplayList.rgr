@@ -502,6 +502,14 @@ class EVGDisplayList {
                 out = out + ",\"text\":" + (EVGDisplayList.jsonString(c.text))
                 out = out + ",\"font\":" + (EVGDisplayList.jsonString(c.fontFamily))
                 out = out + ",\"size\":" + (EVGDisplayList.num(c.fontSize))
+                ; Weight / slant so a canvas backend paints the same face the
+                ; SoftCanvas rasterizer picked.
+                if ((strlen c.fontWeight) > 0) {
+                    out = out + ",\"weight\":" + (EVGDisplayList.jsonString(c.fontWeight))
+                }
+                if (c.textAlign == "italic") {
+                    out = out + ",\"italic\":true"
+                }
             }
             if ((strlen c.src) > 0) {
                 out = out + ",\"src\":" + (EVGDisplayList.jsonString(c.src))

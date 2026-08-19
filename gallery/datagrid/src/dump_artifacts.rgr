@@ -66,6 +66,16 @@ class DumpArtifacts {
             DumpArtifacts.writePng(app dir "03_formulas_calc.png")
         }
 
+        print "== 04 styles showcase (borders / fonts / formats) =="
+        def ok3:boolean (app.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx"))
+        if ok3 {
+            app.sel.anchor.row = 0
+            app.sel.anchor.col = 0
+            app.sel.active.row = 0
+            app.sel.active.col = 0
+            DumpArtifacts.writePng(app dir "04_styles_showcase.png")
+        }
+
         print "DumpArtifacts DONE"
     }
 }

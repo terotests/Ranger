@@ -26,7 +26,8 @@
 ; Multiple sheets                 | tabs + hidden metadata + scroll save      | done
 ; Freeze panes                    | freezeRows/Cols + fixed bands             | done
 ; Undo / redo                     | transactional, value + formula per op     | done
-; Cell formatting (fill/font/…)   | styles.xml → CellStyle → EVG              | done
+; Cell formatting (fill/font/…)   | fill, bold/italic/underline/strike, size  | done
+; Cell borders                    | 4 edges, all OOXML line styles + colours  | done
 ; Number formats                  | XlsxNumberFormat engine (practical set)   | done
 ; Text wrap / rotation            |                                           | todo
 ; Sort / filter                   | SheetView paint + header popup UI         | done
@@ -78,7 +79,15 @@
 ; Screenshots: gallery/datagrid/artifacts/*.png|jpg (tracked).
 ;
 ; Number formats: General, 0, 0.00, #,##0(.00), %, currency, scientific,
-; dates/times, @, pos;neg;zero sections.
+; dates/times, @, pos;neg;zero sections. Quoted literals ("$"#,##0.00 and
+; 0" kg"), \x escapes, _x / *x and [Red] / [$-409] decorations are handled;
+; sections split outside quotes and brackets.
+;
+; Borders: styles.xml <borders> → CellBorder per edge (style + colour), painted
+; as rects so every backend shows them — solid / dashed / dotted / double, hair
+; thin medium thick and the dash-dot family, per-edge and defaulting to black.
+; An empty but formatted cell (<c r="B3" s="2"/>) keeps its fill and borders.
+; Fixture: styles-showcase.xlsx, artifact 04_styles_showcase.png.
 ;
 ; Oracles: openpyxl semantic + LibreOffice visual (SKIP if LO absent).
 ; Perf: grid_bench + sparse100k fixture (sheet size ≠ painted cells).

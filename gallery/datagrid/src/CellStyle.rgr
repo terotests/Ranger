@@ -8,13 +8,100 @@
 
 Import "XlsxNumberFormat.rgr"
 
+; One cell edge from styles.xml <border>. style "" means no border.
+; OOXML styles: hair thin medium thick double dashed dotted dashDot
+; dashDotDot mediumDashed mediumDashDot mediumDashDotDot slantDashDot.
+class CellBorder {
+    def style:string ""
+    def rgb:string "#000000"
+
+    Constructor () {
+    }
+
+    fn has:boolean () {
+        return ((strlen style) > 0)
+    }
+
+    fn copyFrom:void (o:CellBorder) {
+        style = o.style
+        rgb = o.rgb
+    }
+
+    ; Painted thickness in px.
+    fn width:int () {
+        if (style == "thick") {
+            return 3
+        }
+        if (style == "double") {
+            return 3
+        }
+        if (style == "medium") {
+            return 2
+        }
+        if (style == "mediumDashed") {
+            return 2
+        }
+        if (style == "mediumDashDot") {
+            return 2
+        }
+        if (style == "mediumDashDotDot") {
+            return 2
+        }
+        return 1
+    }
+
+    ; 0 = solid, 1 = dashed, 2 = dotted, 3 = double (two hairlines).
+    fn pattern:int () {
+        if (style == "double") {
+            return 3
+        }
+        if (style == "dotted") {
+            return 2
+        }
+        if (style == "hair") {
+            return 2
+        }
+        if (style == "dashed") {
+            return 1
+        }
+        if (style == "dashDot") {
+            return 1
+        }
+        if (style == "dashDotDot") {
+            return 1
+        }
+        if (style == "mediumDashed") {
+            return 1
+        }
+        if (style == "mediumDashDot") {
+            return 1
+        }
+        if (style == "mediumDashDotDot") {
+            return 1
+        }
+        if (style == "slantDashDot") {
+            return 1
+        }
+        return 0
+    }
+}
+
 class CellStyle {
     def fillRgb:string ""
     def textRgb:string ""
     def bold:boolean false
+    def italic:boolean false
+    def underline:boolean false
+    def strike:boolean false
+    def fontSizePt:double 11.0
     def align:string "left"
     def numFmt:string "General"
     def hasFill:boolean false
+    def hasBorder:boolean false
+    def borderTop:CellBorder (new CellBorder)
+    def borderRight:CellBorder (new CellBorder)
+    def borderBottom:CellBorder (new CellBorder)
+    def borderLeft:CellBorder (new CellBorder)
 
     Constructor () {
     }

@@ -3,6 +3,7 @@
 ; ==============================================================================
 
 Import "../src/GridApp.rgr"
+Import "../src/XlsxNumberFormat.rgr"
 Import "../src/xlsx/XlsxLoader.rgr"
 Import "../src/xlsx/XlsxWorksheet.rgr"
 Import "../src/CellStyle.rgr"
@@ -117,6 +118,98 @@ class XlsxTest {
         c.ok("framebuffer" ((buffer_length raw) > 1000))
         def scene:string (app.sceneJson())
         c.ok("sceneJson" ((strlen scene) > 50))
+
+        print "== styles-showcase: borders, fonts, formats =="
+        def sApp:GridApp (new GridApp)
+        sApp.init("gallery/pdf_writer/assets/fonts")
+        c.ok("load styles-showcase" (sApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")))
+        def sm:SpreadsheetModel sApp.model
+        ; An empty cell that only carries a style must keep its fill —
+        ; Excel writes those self-closing, and they used to be dropped.
+        def bg:CellStyle (sm.getCellStyle(2 1))
+        c.ok("empty styled cell keeps its fill" bg.hasFill)
+        c.eqStr("fill colour" bg.fillRgb "#1A73E8")
+        c.eqStr("blank cell has no text" (sm.getCell(2 1)) "")
+
+        print "-- border line styles --"
+        def thin:CellStyle (sm.getCellStyle(4 1))
+        c.ok("thin has a border" thin.hasBorder)
+        c.eqStr("thin style" thin.borderTop.style "thin")
+        c.eqStr("thin colour" thin.borderTop.rgb "#EA4335")
+        c.eqInt("thin width" (thin.borderTop.width()) 1)
+        c.eqInt("thin is solid" (thin.borderTop.pattern()) 0)
+        def medium:CellStyle (sm.getCellStyle(4 2))
+        c.eqInt("medium width" (medium.borderTop.width()) 2)
+        def thick:CellStyle (sm.getCellStyle(4 3))
+        c.eqInt("thick width" (thick.borderTop.width()) 3)
+        def dbl:CellStyle (sm.getCellStyle(6 1))
+        c.eqInt("double pattern" (dbl.borderTop.pattern()) 3)
+        def dashed:CellStyle (sm.getCellStyle(6 2))
+        c.eqInt("dashed pattern" (dashed.borderTop.pattern()) 1)
+        c.eqStr("dashed colour" dashed.borderTop.rgb "#1A73E8")
+        def dotted:CellStyle (sm.getCellStyle(6 3))
+        c.eqInt("dotted pattern" (dotted.borderTop.pattern()) 2)
+
+        print "-- per-edge independence --"
+        def onlyBottom:CellStyle (sm.getCellStyle(10 1))
+        c.ok("bottom set" (onlyBottom.borderBottom.has()))
+        c.ok("top not set" ((onlyBottom.borderTop.has()) == false))
+        c.ok("left not set" ((onlyBottom.borderLeft.has()) == false))
+        c.ok("right not set" ((onlyBottom.borderRight.has()) == false))
+        def onlyLeft:CellStyle (sm.getCellStyle(10 2))
+        c.ok("left set" (onlyLeft.borderLeft.has()))
+        c.ok("bottom not set" ((onlyLeft.borderBottom.has()) == false))
+        def onlyTop:CellStyle (sm.getCellStyle(10 3))
+        c.ok("top set" (onlyTop.borderTop.has()))
+        c.eqStr("top style" onlyTop.borderTop.style "dashed")
+        ; A border element with no <color> defaults to black.
+        def defColor:CellStyle (sm.getCellStyle(12 1))
+        c.eqStr("no colour means black" defColor.borderTop.rgb "#000000")
+        ; A plain cell has no border at all.
+        def plain:CellStyle (sm.getCellStyle(1 0))
+        c.ok("plain cell has no border" (plain.hasBorder == false))
+
+        print "-- font attributes --"
+        def fb:CellStyle (sm.getCellStyle(14 1))
+        c.ok("bold parsed" fb.bold)
+        def fi:CellStyle (sm.getCellStyle(14 2))
+        c.ok("italic parsed" fi.italic)
+        c.ok("italic is not bold" (fi.bold == false))
+        def fu:CellStyle (sm.getCellStyle(14 3))
+        c.ok("underline parsed" fu.underline)
+        def fs:CellStyle (sm.getCellStyle(15 1))
+        c.ok("strike parsed" fs.strike)
+        def fbig:CellStyle (sm.getCellStyle(15 2))
+        c.ok("18pt parsed" (fbig.fontSizePt > 17.0))
+        def fsmall:CellStyle (sm.getCellStyle(15 3))
+        c.ok("8pt parsed" (fsmall.fontSizePt < 9.0))
+        def fcol:CellStyle (sm.getCellStyle(16 1))
+        c.eqStr("font colour" fcol.textRgb "#4285F4")
+
+        print "-- number formats with quoted literals --"
+        ; "$"#,##0.00 must show a $, not a quoted one.
+        c.eqStr("currency literal unquoted" (sm.getDisplay(18 3)) "$1,234.50")
+        c.eqStr("two decimals" (sm.getDisplay(18 1)) "0.25")
+        c.eqStr("percent" (sm.getDisplay(18 2)) "25%")
+        c.eqStr("suffix literal" (XlsxNumberFormat.format("12" "0\" kg\"")) "12 kg")
+        c.eqStr("escaped char" (XlsxNumberFormat.format("5" "0\\x")) "5x")
+        c.eqStr("colour tag dropped" (XlsxNumberFormat.format("7" "[Red]0")) "7")
+        ; A ';' inside a literal must not split the sections.
+        c.eqStr("semicolon inside a literal" (XlsxNumberFormat.format("3" "0\";\"")) "3;")
+
+        print "-- the faces actually differ --"
+        ; Only the Regular face used to be loaded, so bold silently painted
+        ; regular. Measuring through each face must now give different widths.
+        sApp.view.applyFaceStyled(false false)
+        def wReg:int (sApp.view.measureText("Sample"))
+        sApp.view.applyFaceStyled(true false)
+        def wBold:int (sApp.view.measureText("Sample"))
+        sApp.view.applyFaceStyled(false true)
+        def wItal:int (sApp.view.measureText("Sample"))
+        c.ok("bold is wider than regular" (wBold > wReg))
+        c.ok("italic differs from regular" (wItal != wReg))
+        sApp.view.applyFaceStyled(false false)
+        c.ok("renders the showcase" ((strlen (sApp.sceneJson())) > 500))
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

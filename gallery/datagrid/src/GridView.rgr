@@ -69,6 +69,11 @@ class GridView {
         ctx.attach(canvas)
         ctx.tr.addFontDir(fontDir)
         def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
+        ; Only Regular used to be loaded, so every bold / italic cell silently
+        ; fell back to it — styles.xml said bold, the grid painted regular.
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Italic.ttf")
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-BoldItalic.ttf")
         if (ok == false) {
             status = "bitmap-font fallback"
         } {
@@ -137,6 +142,64 @@ class GridView {
         push dl.cmds c
     }
 
+    ; Select the raster face. It must go through fontFamily: UITextRenderer
+    ; re-applies the face from it on every measure and draw, so setting rt
+    ; directly is undone by the next call.
+    fn applyFace:void (bold:boolean) {
+        this.applyFaceStyled(bold false)
+    }
+
+    fn applyFaceStyled:void (bold:boolean italic:boolean) {
+        def want:string "Open Sans"
+        if bold {
+            want = "Open Sans-Bold"
+            if italic {
+                want = "Open Sans-BoldItalic"
+            }
+        } {
+            if italic {
+                want = "Open Sans-Italic"
+            }
+        }
+        if (ctx.tr.fontFamily == want) {
+            return
+        }
+        def face:TrueTypeFont (ctx.tr.fm.getFont(want))
+        if (face.unitsPerEm > 0) {
+            ctx.tr.fontFamily = want
+            ctx.tr.applyFace()
+        }
+    }
+
+    ; Text with per-cell weight / slant. The face is selected before measuring
+    ; so the width recorded on the command matches what gets painted.
+    fn pushStyledText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor bold:boolean italic:boolean) {
+        if ((strlen text) == 0) {
+            return
+        }
+        this.applyFaceStyled(bold italic)
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = (ctx.tr.measureWidth(text size))
+        c.h = (ctx.tr.lineHeight(size))
+        c.text = text
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        if bold {
+            c.fontWeight = "bold"
+        }
+        if italic {
+            c.textAlign = "italic"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
     fn pushClip:void (dl:EVGDisplayList x:double y:double w:double h:double) {
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 4
@@ -158,6 +221,70 @@ class GridView {
             return (EVGColor.parse(hex))
         }
         return fallback
+    }
+
+    ; --- cell borders ---------------------------------------------------------
+    ; One edge, honouring the OOXML line style: solid, dashed, dotted or double.
+    ; Drawn as rects so it works on every EVG backend.
+    fn pushEdge:void (dl:EVGDisplayList b:CellBorder x:int y:int len:int horizontal:boolean) {
+        if ((b.has()) == false) {
+            return
+        }
+        if (len <= 0) {
+            return
+        }
+        def col:EVGColor (this.colorOr(b.rgb theme.gridLine))
+        def w:int (b.width())
+        def pat:int (b.pattern())
+        if (pat == 3) {
+            ; double: two hairlines with a gap
+            if horizontal {
+                this.pushRect(dl (to_double x) (to_double y) (to_double len) 1.0 col)
+                this.pushRect(dl (to_double x) (to_double (y + 2)) (to_double len) 1.0 col)
+            } {
+                this.pushRect(dl (to_double x) (to_double y) 1.0 (to_double len) col)
+                this.pushRect(dl (to_double (x + 2)) (to_double y) 1.0 (to_double len) col)
+            }
+            return
+        }
+        if (pat == 0) {
+            if horizontal {
+                this.pushRect(dl (to_double x) (to_double y) (to_double len) (to_double w) col)
+            } {
+                this.pushRect(dl (to_double x) (to_double y) (to_double w) (to_double len) col)
+            }
+            return
+        }
+        ; dashed / dotted: run of segments
+        def on:int 4
+        def off:int 3
+        if (pat == 2) {
+            on = 1
+            off = 2
+        }
+        def at:int 0
+        while (at < len) {
+            def seg:int on
+            if ((at + seg) > len) {
+                seg = (len - at)
+            }
+            if horizontal {
+                this.pushRect(dl (to_double (x + at)) (to_double y) (to_double seg) (to_double w) col)
+            } {
+                this.pushRect(dl (to_double x) (to_double (y + at)) (to_double w) (to_double seg) col)
+            }
+            at = (at + on + off)
+        }
+    }
+
+    fn paintCellBorders:void (dl:EVGDisplayList st:CellStyle rect:GridRect) {
+        if (st.hasBorder == false) {
+            return
+        }
+        this.pushEdge(dl st.borderTop rect.x rect.y rect.w true)
+        this.pushEdge(dl st.borderBottom rect.x ((rect.y + rect.h) - (st.borderBottom.width())) rect.w true)
+        this.pushEdge(dl st.borderLeft rect.x rect.y rect.h false)
+        this.pushEdge(dl st.borderRight ((rect.x + rect.w) - (st.borderRight.width())) rect.y rect.h false)
     }
 
     fn paintCell:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string r:int c:int) {
@@ -195,17 +322,36 @@ class GridView {
             if ((strlen st.textRgb) >= 4) {
                 col = (EVGColor.parse(st.textRgb))
             }
+            ; Cell font size comes from the style (pt → px), bold / italic ride
+            ; on the draw command so both backends can honour them.
+            def cellPx:double fontSize
+            if (st.fontSizePt > 0.0) {
+                cellPx = ((st.fontSizePt * 96.0) / 72.0)
+            }
+            if (cellPx < 6.0) {
+                cellPx = 6.0
+            }
+            this.applyFaceStyled(st.bold st.italic)
+            def tw3:int (to_int (ctx.tr.measureWidth(txt cellPx)))
             def tx:double (to_double (rect.x + 4))
             if (st.align == "right") {
-                def tw:int (to_int (ctx.tr.measureWidth(txt fontSize)))
-                tx = (to_double ((rect.x + rect.w) - tw - 4))
+                tx = (to_double ((rect.x + rect.w) - tw3 - 4))
             }
             if (st.align == "center") {
-                def tw2:int (to_int (ctx.tr.measureWidth(txt fontSize)))
-                tx = (to_double (rect.x + (to_int ((to_double (rect.w - tw2)) / 2.0))))
+                tx = (to_double (rect.x + (to_int ((to_double (rect.w - tw3)) / 2.0))))
             }
-            this.pushText(dl txt tx (to_double (rect.y + 3)) fontSize col)
+            def ty:double (to_double (rect.y + 3))
+            this.pushStyledText(dl txt tx ty cellPx col st.bold st.italic)
+            if st.underline {
+                def uy:int ((rect.y + 3) + (to_int cellPx))
+                this.pushRect(dl tx (to_double uy) (to_double tw3) 1.0 col)
+            }
+            if st.strike {
+                def sy:int ((rect.y + 3) + (to_int (cellPx * 0.55)))
+                this.pushRect(dl tx (to_double sy) (to_double tw3) 1.0 col)
+            }
         }
+        this.paintCellBorders(dl st rect)
     }
 
     ; r0..r1 / c0..c1 are VIEW indices when grid.hasView.
@@ -512,6 +658,7 @@ class GridView {
             }
             if (c.kind == 3) {
                 def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
                 ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
             }
             i = (i + 1)

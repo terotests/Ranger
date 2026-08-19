@@ -43,6 +43,10 @@ npm run datagrid:window
 
 - Multi-sheet workbook + tabs (hidden sheet metadata)
 - styles.xml → fill / font / align / **XlsxNumberFormat** engine
+- **Cell borders**: all OOXML line styles per edge (solid, dashed, dotted,
+  double, hair→thick) with colours; empty-but-formatted cells keep their fill
+- **Fonts**: bold / italic / underline / strikethrough / size / colour, painted
+  with the real Open Sans faces
 - Freeze panes, merges (hit-test → origin), hidden rows/cols
 - Formula bar; FormulaEngine (coerce, abs/rel/cross-sheet refs, fill-translate,
   incremental recalc) + FormulaFunctions; cached `<v>` fallback
@@ -50,7 +54,8 @@ npm run datagrid:window
 - Conditional formatting: colorScale + cellIs paint overlay
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
-- Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`, `sparse100k`
+- Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`,
+  `sparse100k`, `styles-showcase` (FortuneSheet-shaped border/font/format matrix)
 - Oracles: openpyxl semantic; LibreOffice visual + formula CSV when available
 - Bench: `datagrid:bench`, `datagrid:formula:bench`
 

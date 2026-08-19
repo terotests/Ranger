@@ -12,7 +12,20 @@ Import "../CellStyle.rgr"
 class XlsxStyles {
     def styles:[CellStyle]
     def fontsBold:[boolean]
+    def fontsItalic:[boolean]
+    def fontsUnderline:[boolean]
+    def fontsStrike:[boolean]
+    def fontsSize:[double]
     def fontsColor:[string]
+    ; One entry per <border> id, four edges each.
+    def bTopStyle:[string]
+    def bTopRgb:[string]
+    def bRightStyle:[string]
+    def bRightRgb:[string]
+    def bBottomStyle:[string]
+    def bBottomRgb:[string]
+    def bLeftStyle:[string]
+    def bLeftRgb:[string]
     def fillsRgb:[string]
     def fillsHas:[boolean]
     def numFmtMap:[string:string]
@@ -32,6 +45,14 @@ class XlsxStyles {
 
     fn count:int () {
         return (array_length styles)
+    }
+
+    ; A border with no <color> defaults to black, as Excel does.
+    sfn borderColorOr:string (rgb:string) {
+        if ((strlen rgb) >= 4) {
+            return rgb
+        }
+        return "#000000"
     }
 
     sfn builtInNumFmt:string (id:int) {
@@ -102,9 +123,21 @@ class XlsxStyles {
     fn parse:void (xml:string) {
         clear styles
         clear fontsBold
+        clear fontsItalic
+        clear fontsUnderline
+        clear fontsStrike
+        clear fontsSize
         clear fontsColor
         clear fillsRgb
         clear fillsHas
+        clear bTopStyle
+        clear bTopRgb
+        clear bRightStyle
+        clear bRightRgb
+        clear bBottomStyle
+        clear bBottomRgb
+        clear bLeftStyle
+        clear bLeftRgb
         def emptyFmt:[string:string]
         numFmtMap = emptyFmt
         this.ensureBuiltinNumFmts()
@@ -130,6 +163,10 @@ class XlsxStyles {
             }
             if ((t.name == "font") && (t.isEnd == false) && (t.selfClose == false)) {
                 def bold:boolean false
+                def italic:boolean false
+                def underline:boolean false
+                def strike:boolean false
+                def sizePt:double 11.0
                 def color:string ""
                 def depth:int 1
                 while ((p.pos < p.len) && (depth > 0)) {
@@ -149,13 +186,117 @@ class XlsxStyles {
                         if ((ft.name == "b") && (ft.isEnd == false)) {
                             bold = true
                         }
+                        if ((ft.name == "i") && (ft.isEnd == false)) {
+                            italic = true
+                        }
+                        if ((ft.name == "u") && (ft.isEnd == false)) {
+                            underline = true
+                        }
+                        if ((ft.name == "strike") && (ft.isEnd == false)) {
+                            strike = true
+                        }
+                        if ((ft.name == "sz") && (ft.isEnd == false)) {
+                            def szv:string (ft.attr("val"))
+                            if ((strlen szv) > 0) {
+                                def szd@(optional):double (to_double szv)
+                                if (!null? szd) {
+                                    sizePt = (unwrap szd)
+                                }
+                            }
+                        }
                         if ((ft.name == "color") && (ft.isEnd == false)) {
                             color = (this.parseColorAttr(ft))
                         }
                     }
                 }
                 push fontsBold bold
+                push fontsItalic italic
+                push fontsUnderline underline
+                push fontsStrike strike
+                push fontsSize sizePt
                 push fontsColor color
+            }
+            ; <border><left style="thin"><color rgb="FFFF0000"/></left>…</border>
+            if ((t.name == "border") && (t.isEnd == false)) {
+                def tS:string ""
+                def tC:string ""
+                def rS:string ""
+                def rC:string ""
+                def bS:string ""
+                def bC:string ""
+                def lS:string ""
+                def lC:string ""
+                if (t.selfClose == false) {
+                    def edge:string ""
+                    def depthB:int 1
+                    while ((p.pos < p.len) && (depthB > 0)) {
+                        def bt:XmlTag (p.nextTag())
+                        if (bt.valid == false) {
+                            break
+                        }
+                        if (bt.name == "border") {
+                            if bt.isEnd {
+                                depthB = (depthB - 1)
+                            } {
+                                if (bt.selfClose == false) {
+                                    depthB = (depthB + 1)
+                                }
+                            }
+                        } {
+                            def isEdge:boolean false
+                            if ((bt.name == "left") || (bt.name == "right")) {
+                                isEdge = true
+                            }
+                            if ((bt.name == "top") || (bt.name == "bottom")) {
+                                isEdge = true
+                            }
+                            if isEdge {
+                                if (bt.isEnd == false) {
+                                    edge = bt.name
+                                    def stv:string (bt.attr("style"))
+                                    if (bt.name == "top") {
+                                        tS = stv
+                                    }
+                                    if (bt.name == "right") {
+                                        rS = stv
+                                    }
+                                    if (bt.name == "bottom") {
+                                        bS = stv
+                                    }
+                                    if (bt.name == "left") {
+                                        lS = stv
+                                    }
+                                } {
+                                    edge = ""
+                                }
+                            } {
+                                if ((bt.name == "color") && (bt.isEnd == false)) {
+                                    def cv:string (this.parseColorAttr(bt))
+                                    if (edge == "top") {
+                                        tC = cv
+                                    }
+                                    if (edge == "right") {
+                                        rC = cv
+                                    }
+                                    if (edge == "bottom") {
+                                        bC = cv
+                                    }
+                                    if (edge == "left") {
+                                        lC = cv
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                push bTopStyle tS
+                push bTopRgb tC
+                push bRightStyle rS
+                push bRightRgb rC
+                push bBottomStyle bS
+                push bBottomRgb bC
+                push bLeftStyle lS
+                push bLeftRgb lC
             }
             if ((t.name == "fill") && (t.isEnd == false) && (t.selfClose == false)) {
                 def frgb:string ""
@@ -210,7 +351,36 @@ class XlsxStyles {
                     def numId:int (XlsxStyles.parseInt0((t2.attr("numFmtId"))))
                     if ((fontId >= 0) && (fontId < (array_length fontsBold))) {
                         st.bold = (itemAt fontsBold fontId)
+                        st.italic = (itemAt fontsItalic fontId)
+                        st.underline = (itemAt fontsUnderline fontId)
+                        st.strike = (itemAt fontsStrike fontId)
+                        st.fontSizePt = (itemAt fontsSize fontId)
                         st.textRgb = (itemAt fontsColor fontId)
+                    }
+                    def borderId:int (XlsxStyles.parseInt0((t2.attr("borderId"))))
+                    if ((borderId >= 0) && (borderId < (array_length bTopStyle))) {
+                        st.borderTop.style = (itemAt bTopStyle borderId)
+                        st.borderTop.rgb = (XlsxStyles.borderColorOr((itemAt bTopRgb borderId)))
+                        st.borderRight.style = (itemAt bRightStyle borderId)
+                        st.borderRight.rgb = (XlsxStyles.borderColorOr((itemAt bRightRgb borderId)))
+                        st.borderBottom.style = (itemAt bBottomStyle borderId)
+                        st.borderBottom.rgb = (XlsxStyles.borderColorOr((itemAt bBottomRgb borderId)))
+                        st.borderLeft.style = (itemAt bLeftStyle borderId)
+                        st.borderLeft.rgb = (XlsxStyles.borderColorOr((itemAt bLeftRgb borderId)))
+                        def any:boolean false
+                        if (st.borderTop.has()) {
+                            any = true
+                        }
+                        if (st.borderRight.has()) {
+                            any = true
+                        }
+                        if (st.borderBottom.has()) {
+                            any = true
+                        }
+                        if (st.borderLeft.has()) {
+                            any = true
+                        }
+                        st.hasBorder = any
                     }
                     if ((fillId >= 0) && (fillId < (array_length fillsHas))) {
                         st.hasFill = (itemAt fillsHas fillId)
