@@ -382,35 +382,80 @@ class EVGWindow {
         focusedId = (itemAt ids next)
     }
 
-    ; Buttons sit on one row at the bottom, laid out right to left.
+    ; Buttons sit at the bottom, laid out right to left so the default one is
+    ; in the corner the eye goes to.
+    ;
+    ; The width is NEGOTIATED rather than fixed. A fixed 92 pixels is fine for
+    ; two buttons and runs off the left edge with four — which is exactly what
+    ; "Close / Replace all / Replace / Find next" did in a 340-wide dialog: the
+    ; first button was laid out at x = -66, outside its own panel. So the row
+    ; is fitted to the space it has: shrink the buttons towards a legible
+    ; minimum, and when even that will not fit, wrap onto another row rather
+    ; than overflow. A dialog can then add the buttons it needs without also
+    ; having to know how wide its own panel happens to be.
     fn addButtonRow:void (ids:[int] labels:[string] defaultId:int) {
         def n:int (array_length ids)
         if (n == 0) {
             return
         }
-        def bw:int 92
         def bh:int 26
         def gap:int 8
-        def rowY:int (cursorY + 6)
-        def right:int (w - padX)
-        def i:int (n - 1)
-        while (i >= 0) {
-            def c:EVGControl (new EVGControl)
-            c.id = (itemAt ids i)
-            c.kind = (EVGControlKind.button())
-            c.text = (itemAt labels i)
-            c.w = bw
-            c.h = bh
-            c.x = (right - bw)
-            c.y = rowY
-            if (c.id == defaultId) {
-                c.isDefault = true
+        def maxW:int 92
+        def minW:int 56
+        def avail:int (w - (padX * 2))
+
+        ; How many still fit on one row at the narrowest width worth drawing.
+        def perRow:int n
+        while (perRow > 1) {
+            def need:int ((perRow * minW) + ((perRow - 1) * gap))
+            if (need <= avail) {
+                break
             }
-            push controls c
-            right = ((right - bw) - gap)
-            i = (i - 1)
+            perRow = (perRow - 1)
         }
-        cursorY = (rowY + bh + padY)
+        def bw:int (idiv (avail - ((perRow - 1) * gap)) perRow)
+        if (bw > maxW) {
+            bw = maxW
+        }
+        if (bw < 24) {
+            bw = 24
+        }
+
+        def rowY:int (cursorY + 6)
+        def placed:int 0
+        while (placed < n) {
+            ; This row's slice, right-aligned like the row above it.
+            def count:int (n - placed)
+            if (count > perRow) {
+                count = perRow
+            }
+            def right:int (w - padX)
+            def i:int ((placed + count) - 1)
+            while (i >= placed) {
+                def c:EVGControl (new EVGControl)
+                c.id = (itemAt ids i)
+                c.kind = (EVGControlKind.button())
+                c.text = (itemAt labels i)
+                c.w = bw
+                c.h = bh
+                c.x = (right - bw)
+                if (c.x < padX) {
+                    c.x = padX
+                }
+                c.y = rowY
+                if (c.id == defaultId) {
+                    c.isDefault = true
+                }
+                push controls c
+                right = ((right - bw) - gap)
+                i = (i - 1)
+            }
+            placed = (placed + count)
+            if (placed < n) {
+                rowY = ((rowY + bh) + gap)
+            }
+        }
+        cursorY = ((rowY + bh) + padY)
     }
 
     ; Call once the controls are in: sizes the panel to its content.

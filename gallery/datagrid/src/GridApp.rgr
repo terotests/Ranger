@@ -962,7 +962,7 @@ class GridApp {
         chartDialog.w = 300
         chartDialog.title = "Chart"
         windows.add(chartDialog)
-        findDialog.w = 340
+        findDialog.w = 380
         findDialog.title = "Find and replace"
         windows.add(findDialog)
         cfDialog.w = 330
@@ -1864,7 +1864,7 @@ class GridApp {
             this.commitEdit()
         }
         findDialog.title = "Find and replace"
-        findDialog.w = 340
+        findDialog.w = 380
         findDialog.labelW = 92
         findDialog.reset()
         findDialog.addInput(501 "Find" findQuery)

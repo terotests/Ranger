@@ -32,6 +32,36 @@ class EditChecker {
 }
 
 class GridEditTest {
+    ; Every control has to be INSIDE its own panel. This is the invariant a
+    ; fixed 92-pixel button row broke: four buttons in a 340-wide dialog were
+    ; laid out from the right edge until the first one landed at x = -66,
+    ; hanging off the panel and over the sheet behind it. Checking the geometry
+    ; rather than the picture is what makes that a test.
+    sfn firstEscapee:string (wnd:EVGWindow) {
+        def i:int 0
+        while (i < (array_length wnd.controls)) {
+            def c:EVGControl (itemAt wnd.controls i)
+            def why:string ""
+            if (c.x < 0) {
+                why = "x < 0"
+            }
+            if (c.y < 0) {
+                why = "y < 0"
+            }
+            if ((c.x + c.w) > wnd.w) {
+                why = "runs past the right edge"
+            }
+            if ((c.y + c.h) > wnd.h) {
+                why = "runs past the bottom"
+            }
+            if ((strlen why) > 0) {
+                return ((("'" + c.text) + "' ") + why + " (x=" + (to_string c.x) + " w=" + (to_string c.w) + " y=" + (to_string c.y) + " h=" + (to_string c.h) + " panel " + (to_string wnd.w) + "x" + (to_string wnd.h) + ")")
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     sfn select:void (app:GridApp r:int c:int) {
         app.sel.anchor.row = r
         app.sel.anchor.col = c
@@ -1473,6 +1503,71 @@ class GridEditTest {
         c.eqInt("a colour scale is a rule too" (cf.model.cfRuleCount()) 1)
         c.ok("and it paints the range" ((strlen (ConditionalFormat.resolveFill(cf.model 1 0))) > 0))
         c.ok("scene builds with the editor up" ((strlen (cf.sceneJson())) > 500))
+
+        print "== every dialog keeps its controls inside itself =="
+        def dlg:GridApp (new GridApp)
+        dlg.init("gallery/pdf_writer/assets/fonts")
+        dlg.findQuery = "Widget"
+        dlg.replaceWith = "Gizmo"
+        dlg.findStatus = "found C2"
+        GridEditTest.selectRange(dlg 0 0 3 2)
+
+        dlg.openFindDialog()
+        c.eqStr("find and replace" (GridEditTest.firstEscapee(dlg.findDialog)) "")
+        dlg.findDialog.close()
+        dlg.openPasteSpecial()
+        c.eqStr("paste special" (GridEditTest.firstEscapee(dlg.pasteDialog)) "")
+        dlg.pasteDialog.close()
+        dlg.openChartDialog(0)
+        c.eqStr("chart picker" (GridEditTest.firstEscapee(dlg.chartDialog)) "")
+        dlg.chartDialog.close()
+        dlg.openCfDialog()
+        c.eqStr("conditional formatting" (GridEditTest.firstEscapee(dlg.cfDialog)) "")
+        dlg.cfDialog.close()
+        dlg.openValidationDialog()
+        c.eqStr("data validation" (GridEditTest.firstEscapee(dlg.dvDialog)) "")
+        dlg.dvDialog.close()
+        dlg.openLinkDialog()
+        c.eqStr("hyperlink" (GridEditTest.firstEscapee(dlg.linkDialog)) "")
+        dlg.linkDialog.close()
+
+        ; A narrow panel is the case that broke: the row has to shrink, and
+        ; then wrap, rather than run off the edge.
+        def narrow:EVGWindow (new EVGWindow)
+        narrow.w = 200
+        narrow.reset()
+        narrow.addLabel("four buttons in a narrow panel")
+        def nIds:[int]
+        def nLabels:[string]
+        push nIds 1
+        push nLabels "Close"
+        push nIds 2
+        push nLabels "Replace all"
+        push nIds 3
+        push nLabels "Replace"
+        push nIds 4
+        push nLabels "Find next"
+        narrow.addButtonRow(nIds nLabels 4)
+        narrow.finish()
+        c.eqStr("a narrow row stays inside" (GridEditTest.firstEscapee(narrow)) "")
+        def firstBtn:EVGControl (narrow.controlById(1))
+        def lastBtn:EVGControl (narrow.controlById(4))
+        c.ok("it wrapped onto two rows" (lastBtn.y > firstBtn.y))
+        c.ok("the default button is on the last row, at the right" (((lastBtn.x + lastBtn.w) + narrow.padX) >= narrow.w))
+
+        ; And an absurdly narrow one still produces something drawable.
+        def tiny:EVGWindow (new EVGWindow)
+        tiny.w = 90
+        tiny.reset()
+        def tIds:[int]
+        def tLabels:[string]
+        push tIds 1
+        push tLabels "Cancel"
+        push tIds 2
+        push tLabels "OK"
+        tiny.addButtonRow(tIds tLabels 2)
+        tiny.finish()
+        c.eqStr("even a tiny panel keeps them in" (GridEditTest.firstEscapee(tiny)) "")
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

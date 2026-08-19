@@ -257,6 +257,14 @@ The host stays in charge: it passes the `UITextRenderer` it already has,
 forwards the pointer and keys it already receives, and appends the window's
 commands to its own display list.
 
+**A button row is fitted to the panel, not assumed to fit it.** Buttons prefer
+92 pixels, shrink towards a legible minimum when there are more of them than
+there is room for, and wrap onto another row rather than overflow — four
+buttons in a 340-wide dialog used to lay the first one out at `x = -66`,
+hanging off the panel and over the sheet behind it. `GridEditTest` now asserts
+the invariant that broke: every control of every dialog is inside its own
+panel.
+
 ## Find and replace
 
 `Ctrl+F` (or `Ctrl+H`) opens it. The dialog has real text fields — the window
