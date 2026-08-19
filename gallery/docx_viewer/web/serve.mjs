@@ -212,6 +212,9 @@ async function handleRequest(req, res) {
       viewer.toggleBold();
     } else if (type === "font") {
       viewer.setFont(String(ev.font || "Open Sans"));
+    } else if (type === "paste") {
+      // text/html from a spreadsheet copy becomes a table; otherwise plain text.
+      viewer.pasteClipboard(String(ev.html || ""), String(ev.text || ""));
     }
     currentPage = viewer.currentPage | currentPage;
     let caret = { active: false };

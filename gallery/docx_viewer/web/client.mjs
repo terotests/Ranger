@@ -245,6 +245,20 @@ window.addEventListener("keydown", async (ev) => {
   }
 });
 
+// Paste from the OS clipboard. A spreadsheet selection carries a text/html
+// <table> next to the TSV; the server turns that into a real Word table.
+window.addEventListener("paste", async (ev) => {
+  if (!editMode) return;
+  const tag = (ev.target && ev.target.tagName) || "";
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  ev.preventDefault();
+  const cd = ev.clipboardData;
+  const html = cd ? cd.getData("text/html") : "";
+  const text = cd ? cd.getData("text/plain") : "";
+  if (!html && !text) return;
+  await sendInput({ type: "paste", html, text });
+});
+
 document.getElementById("btnBold")?.addEventListener("click", () => sendInput({ type: "bold" }));
 
 statusEl.textContent = "starting";

@@ -137,7 +137,8 @@ function applyEvent(ev) {
   // clipboard (a Node process cannot reach it directly).
   if (ev.type === "text" && ev.ctrl && /^[cxCX]$/.test(String(ev.text || ""))) {
     lastExportedTsv = app.clipboardTsv || "";
-    return { clipboard: lastExportedTsv };
+    // The HTML flavour is what a word processor pastes as a table.
+    return { clipboard: lastExportedTsv, clipboardHtml: app.clipboardHtml || "" };
   }
   return null;
 }

@@ -1,0 +1,638 @@
+; ==============================================================================
+; ClipboardTable - OS clipboard HTML / TSV → a grid of cells.
+; ==============================================================================
+;
+; What a spreadsheet puts on the clipboard when you press Ctrl+C is two
+; flavours of the same selection: `text/plain` TSV and `text/html` holding a
+; real <table>. Word pastes the HTML flavour as a table; this is the reader for
+; that, so a range copied in the Ranger DataGrid (or in Excel) lands in the DOCX
+; editor as a DocumentTable rather than as tab-separated text.
+;
+; The scanner is deliberately tolerant, not an XML parser: real clipboard HTML
+; carries <!--StartFragment--> comments, a <style> block, unquoted or
+; single-quoted attributes and void <col>/<br> tags, none of which are
+; well-formed XML.
+; ==============================================================================
+
+class ClipCell {
+    def text:string ""
+    def bold:boolean false
+    def fillHex:string ""
+    def align:string ""
+    def gridSpan:int 1
+
+    Constructor () {
+    }
+}
+
+class ClipRow {
+    def cells:[ClipCell]
+
+    Constructor () {
+    }
+}
+
+class ClipboardTable {
+    def rows:[ClipRow]
+    def ok:boolean false
+
+    Constructor () {
+    }
+
+    fn rowCount:int () {
+        return (array_length rows)
+    }
+
+    ; Widest row, counting a colspan as the columns it covers.
+    fn columnCount:int () {
+        def best:int 0
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:ClipRow (itemAt rows i)
+            def w:int 0
+            def j:int 0
+            while (j < (array_length r.cells)) {
+                def c:ClipCell (itemAt r.cells j)
+                def gs:int c.gridSpan
+                if (gs < 1) {
+                    gs = 1
+                }
+                w = (w + gs)
+                j = (j + 1)
+            }
+            if (w > best) {
+                best = w
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn rowAt:ClipRow (i:int) {
+        return (itemAt rows i)
+    }
+
+    ; --- small string helpers -------------------------------------------------
+    sfn lower:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c >= 65) && (c <= 90)) {
+                c = (c + 32)
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn hasAt:boolean (hay:string pos:int needle:string) {
+        def m:int (strlen needle)
+        if (m == 0) {
+            return true
+        }
+        if ((pos + m) > (strlen hay)) {
+            return false
+        }
+        return ((substring hay pos (pos + m)) == needle)
+    }
+
+    sfn findFrom:int (hay:string needle:string from:int) {
+        def n:int (strlen hay)
+        def m:int (strlen needle)
+        if (m == 0) {
+            return from
+        }
+        def i:int from
+        if (i < 0) {
+            i = 0
+        }
+        while (i <= (n - m)) {
+            if ((substring hay i (i + m)) == needle) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn isSpace:boolean (c:int) {
+        if (c == 32) {
+            return true
+        }
+        if (c == 9) {
+            return true
+        }
+        if (c == 10) {
+            return true
+        }
+        if (c == 13) {
+            return true
+        }
+        return false
+    }
+
+    sfn trimWs:string (s:string) {
+        def a:int 0
+        def b:int (strlen s)
+        while (a < b) {
+            if (ClipboardTable.isSpace((charAt s a))) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        while (b > a) {
+            if (ClipboardTable.isSpace((charAt s (b - 1)))) {
+                b = (b - 1)
+            } {
+                break
+            }
+        }
+        return (substring s a b)
+    }
+
+    ; Collapse runs of whitespace: clipboard HTML is pretty-printed.
+    sfn squeeze:string (s:string) {
+        def out:string ""
+        def prevSpace:boolean false
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (ClipboardTable.isSpace(c)) {
+                if (prevSpace == false) {
+                    out = (out + " ")
+                }
+                prevSpace = true
+            } {
+                out = (out + (strfromcode c))
+                prevSpace = false
+            }
+            i = (i + 1)
+        }
+        return (ClipboardTable.trimWs(out))
+    }
+
+    sfn decodeEntities:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 38) {
+                def semi:int (ClipboardTable.findFrom(s ";" i))
+                def handled:boolean false
+                if (semi > i) {
+                    if ((semi - i) <= 10) {
+                        def name:string (substring s (i + 1) semi)
+                        def low:string (ClipboardTable.lower(name))
+                        if (low == "amp") {
+                            out = (out + "&")
+                            handled = true
+                        }
+                        if (low == "lt") {
+                            out = (out + "<")
+                            handled = true
+                        }
+                        if (low == "gt") {
+                            out = (out + ">")
+                            handled = true
+                        }
+                        if (low == "quot") {
+                            out = (out + "\"")
+                            handled = true
+                        }
+                        if (low == "apos") {
+                            out = (out + "'")
+                            handled = true
+                        }
+                        if (low == "nbsp") {
+                            out = (out + " ")
+                            handled = true
+                        }
+                        if (low == "#39") {
+                            out = (out + "'")
+                            handled = true
+                        }
+                        if (low == "#160") {
+                            out = (out + " ")
+                            handled = true
+                        }
+                        if handled {
+                            i = (semi + 1)
+                        }
+                    }
+                }
+                if (handled == false) {
+                    out = (out + "&")
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; Attribute value from a raw tag body, quoted ("x" / 'x') or bare.
+    sfn attrValue:string (raw:string name:string) {
+        def low:string (ClipboardTable.lower(raw))
+        def n:int (strlen raw)
+        def from:int 0
+        while (from < n) {
+            def at:int (ClipboardTable.findFrom(low name from))
+            if (at < 0) {
+                return ""
+            }
+            ; must start at a word boundary
+            def okStart:boolean true
+            if (at > 0) {
+                def prev:int (charAt low (at - 1))
+                if ((ClipboardTable.isSpace(prev)) == false) {
+                    okStart = false
+                }
+            }
+            def i:int (at + (strlen name))
+            if okStart {
+                while (i < n) {
+                    if (ClipboardTable.isSpace((charAt raw i))) {
+                        i = (i + 1)
+                    } {
+                        break
+                    }
+                }
+                if (i < n) {
+                    if ((charAt raw i) == 61) {
+                        i = (i + 1)
+                        while (i < n) {
+                            if (ClipboardTable.isSpace((charAt raw i))) {
+                                i = (i + 1)
+                            } {
+                                break
+                            }
+                        }
+                        if (i < n) {
+                            def q:int (charAt raw i)
+                            if ((q == 34) || (q == 39)) {
+                                def end:int (i + 1)
+                                while (end < n) {
+                                    if ((charAt raw end) == q) {
+                                        break
+                                    }
+                                    end = (end + 1)
+                                }
+                                return (substring raw (i + 1) end)
+                            }
+                            def e2:int i
+                            while (e2 < n) {
+                                if (ClipboardTable.isSpace((charAt raw e2))) {
+                                    break
+                                }
+                                e2 = (e2 + 1)
+                            }
+                            return (substring raw i e2)
+                        }
+                    }
+                }
+            }
+            from = (at + 1)
+        }
+        return ""
+    }
+
+    ; CSS declaration value, e.g. cssValue("a:1;color:red" "color") → "red".
+    sfn cssValue:string (style:string prop:string) {
+        def low:string (ClipboardTable.lower(style))
+        def key:string (prop + ":")
+        def at:int (ClipboardTable.findFrom(low key 0))
+        if (at < 0) {
+            return ""
+        }
+        def i:int (at + (strlen key))
+        def n:int (strlen style)
+        def end:int i
+        while (end < n) {
+            if ((charAt style end) == 59) {
+                break
+            }
+            end = (end + 1)
+        }
+        return (ClipboardTable.trimWs((substring style i end)))
+    }
+
+    sfn isHex6:boolean (s:string) {
+        if ((strlen s) != 6) {
+            return false
+        }
+        def i:int 0
+        while (i < 6) {
+            def c:int (charAt s i)
+            def okc:boolean false
+            if ((c >= 48) && (c <= 57)) {
+                okc = true
+            }
+            if ((c >= 97) && (c <= 102)) {
+                okc = true
+            }
+            if ((c >= 65) && (c <= 70)) {
+                okc = true
+            }
+            if (okc == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; "#RRGGBB" → "RRGGBB"; anything else (named colours, rgb()) is dropped.
+    sfn hexOf:string (v:string) {
+        def s:string (ClipboardTable.trimWs(v))
+        if ((strlen s) == 7) {
+            if ((charAt s 0) == 35) {
+                def h:string (substring s 1 7)
+                if (ClipboardTable.isHex6(h)) {
+                    return h
+                }
+            }
+        }
+        if ((strlen s) == 6) {
+            if (ClipboardTable.isHex6(s)) {
+                return s
+            }
+        }
+        return ""
+    }
+
+    ; Tag name: letters right after "<" or "</".
+    sfn tagName:string (tag:string) {
+        def i:int 0
+        def n:int (strlen tag)
+        if (i < n) {
+            if ((charAt tag i) == 47) {
+                i = (i + 1)
+            }
+        }
+        def out:string ""
+        while (i < n) {
+            def c:int (charAt tag i)
+            def isLetter:boolean false
+            if ((c >= 97) && (c <= 122)) {
+                isLetter = true
+            }
+            if ((c >= 65) && (c <= 90)) {
+                isLetter = true
+            }
+            if ((c >= 48) && (c <= 57)) {
+                isLetter = true
+            }
+            if (isLetter == false) {
+                break
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return (ClipboardTable.lower(out))
+    }
+
+    sfn isClosing:boolean (tag:string) {
+        if ((strlen tag) == 0) {
+            return false
+        }
+        return ((charAt tag 0) == 47)
+    }
+
+    fn applyCellAttrs:void (cell:ClipCell raw:string) {
+        def span:string (ClipboardTable.attrValue(raw "colspan"))
+        if ((strlen span) > 0) {
+            def gv@(optional):int (to_int span)
+            if (!null? gv) {
+                def g:int (unwrap gv)
+                if (g > 0) {
+                    cell.gridSpan = g
+                }
+            }
+        }
+        def bg:string (ClipboardTable.attrValue(raw "bgcolor"))
+        if ((strlen bg) > 0) {
+            cell.fillHex = (ClipboardTable.hexOf(bg))
+        }
+        def style:string (ClipboardTable.attrValue(raw "style"))
+        if ((strlen style) > 0) {
+            def fill:string (ClipboardTable.cssValue(style "background-color"))
+            if ((strlen fill) == 0) {
+                fill = (ClipboardTable.cssValue(style "background"))
+            }
+            def hx:string (ClipboardTable.hexOf(fill))
+            if ((strlen hx) > 0) {
+                cell.fillHex = hx
+            }
+            def weight:string (ClipboardTable.lower((ClipboardTable.cssValue(style "font-weight"))))
+            if (weight == "bold") {
+                cell.bold = true
+            }
+            if (weight == "700") {
+                cell.bold = true
+            }
+            def al:string (ClipboardTable.lower((ClipboardTable.cssValue(style "text-align"))))
+            if ((al == "center") || (al == "right")) {
+                cell.align = al
+            }
+        }
+    }
+
+    ; --- HTML ----------------------------------------------------------------
+    ; Reads the FIRST <table> in the document and stops at its </table>.
+    fn parseHtml:boolean (html:string) {
+        clear rows
+        ok = false
+        def low:string (ClipboardTable.lower(html))
+        def n:int (strlen html)
+        def start:int (ClipboardTable.findFrom(low "<table" 0))
+        if (start < 0) {
+            return false
+        }
+        def i:int start
+        def inRow:boolean false
+        def inCell:boolean false
+        def buf:string ""
+        def curRow:ClipRow (new ClipRow)
+        def curCell:ClipCell (new ClipCell)
+        def running:boolean true
+        while (running && (i < n)) {
+            def ch:int (charAt html i)
+            if (ch == 60) {
+                if (ClipboardTable.hasAt(low i "<!--")) {
+                    def ce:int (ClipboardTable.findFrom(low "-->" i))
+                    if (ce < 0) {
+                        i = n
+                    } {
+                        i = (ce + 3)
+                    }
+                } {
+                    def close:int (ClipboardTable.findFrom(html ">" i))
+                    if (close < 0) {
+                        i = n
+                    } {
+                        def raw:string (substring html (i + 1) close)
+                        def name:string (ClipboardTable.tagName(raw))
+                        def closing:boolean (ClipboardTable.isClosing(raw))
+                        i = (close + 1)
+                        if ((name == "style") || (name == "script")) {
+                            if (closing == false) {
+                                def endTag:string (("</" + name) + ">")
+                                def se:int (ClipboardTable.findFrom(low endTag i))
+                                if (se < 0) {
+                                    i = n
+                                } {
+                                    i = (se + (strlen endTag))
+                                }
+                            }
+                        }
+                        if (name == "table") {
+                            if closing {
+                                running = false
+                            }
+                        }
+                        if (name == "tr") {
+                            if closing {
+                                if inCell {
+                                    curCell.text = (ClipboardTable.squeeze((ClipboardTable.decodeEntities(buf))))
+                                    push curRow.cells curCell
+                                    inCell = false
+                                    buf = ""
+                                }
+                                if inRow {
+                                    push rows curRow
+                                    inRow = false
+                                }
+                            } {
+                                if inRow {
+                                    push rows curRow
+                                }
+                                curRow = (new ClipRow)
+                                inRow = true
+                                inCell = false
+                                buf = ""
+                            }
+                        }
+                        if ((name == "td") || (name == "th")) {
+                            if closing {
+                                if inCell {
+                                    curCell.text = (ClipboardTable.squeeze((ClipboardTable.decodeEntities(buf))))
+                                    push curRow.cells curCell
+                                    inCell = false
+                                    buf = ""
+                                }
+                            } {
+                                if inCell {
+                                    curCell.text = (ClipboardTable.squeeze((ClipboardTable.decodeEntities(buf))))
+                                    push curRow.cells curCell
+                                }
+                                if (inRow == false) {
+                                    curRow = (new ClipRow)
+                                    inRow = true
+                                }
+                                curCell = (new ClipCell)
+                                if (name == "th") {
+                                    curCell.bold = true
+                                }
+                                this.applyCellAttrs(curCell raw)
+                                inCell = true
+                                buf = ""
+                            }
+                        }
+                        if inCell {
+                            if (closing == false) {
+                                if ((name == "b") || (name == "strong")) {
+                                    curCell.bold = true
+                                }
+                                if ((name == "br") || (name == "p")) {
+                                    buf = (buf + " ")
+                                }
+                            }
+                        }
+                    }
+                }
+            } {
+                if inCell {
+                    buf = (buf + (strfromcode ch))
+                }
+                i = (i + 1)
+            }
+        }
+        if inCell {
+            curCell.text = (ClipboardTable.squeeze((ClipboardTable.decodeEntities(buf))))
+            push curRow.cells curCell
+        }
+        if inRow {
+            push rows curRow
+        }
+        ; Drop trailing rows with no cells (stray <tr> in fragment markup).
+        while ((array_length rows) > 0) {
+            def lastRow:ClipRow (itemAt rows ((array_length rows) - 1))
+            if ((array_length lastRow.cells) == 0) {
+                removeLast rows
+            } {
+                break
+            }
+        }
+        ok = ((array_length rows) > 0)
+        return ok
+    }
+
+    ; --- TSV (text/plain flavour) --------------------------------------------
+    fn parseTsv:boolean (text:string) {
+        clear rows
+        ok = false
+        if ((strlen text) == 0) {
+            return false
+        }
+        def lines:[string] (strsplit text "\n")
+        def li:int 0
+        def n:int (array_length lines)
+        while (li < n) {
+            def line:string (itemAt lines li)
+            def len:int (strlen line)
+            if (len > 0) {
+                if ((charAt line (len - 1)) == 13) {
+                    line = (substring line 0 (len - 1))
+                }
+            }
+            ; A single trailing newline should not make an empty last row.
+            def skip:boolean false
+            if (li == (n - 1)) {
+                if ((strlen line) == 0) {
+                    skip = true
+                }
+            }
+            if (skip == false) {
+                def row:ClipRow (new ClipRow)
+                def cols:[string] (strsplit line "\t")
+                def ci:int 0
+                while (ci < (array_length cols)) {
+                    def cell:ClipCell (new ClipCell)
+                    cell.text = (itemAt cols ci)
+                    push row.cells cell
+                    ci = (ci + 1)
+                }
+                push rows row
+            }
+            li = (li + 1)
+        }
+        ok = ((array_length rows) > 0)
+        return ok
+    }
+
+    ; Plain text worth pasting as a grid: at least one tab or several lines.
+    sfn looksTabular:boolean (text:string) {
+        if ((ClipboardTable.findFrom(text "\t" 0)) >= 0) {
+            return true
+        }
+        return false
+    }
+}

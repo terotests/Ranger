@@ -71,5 +71,9 @@ Short form:
 - **Elvis is prefix:** `(?? value fallback)`, not `(value ?? fallback)`.
 - **Do not name a method `toString`** — it can crash the compiler; use
   `asString` / `getSymbol` instead (ISSUES.md).
+- **Some method names are reserved.** Defining `contains`, `startsWith`,
+  `endsWith` or `trim` on your own class compiles, but every call site fails
+  with `Class X does not have method …` — the compiler resolves those names
+  elsewhere. Rename (`hasSub`, `beginsWith`, `finishesWith`, `trimWs`).
 - No `abs` builtin; inline the absolute value. Prefer flattening over relying on
   the TSX interpreter's limited `extends` / `super`.

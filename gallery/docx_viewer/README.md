@@ -88,6 +88,8 @@ npm run docx_viewer:window        # http://127.0.0.1:8770/
 ## Known limitations
 
 - Not a full Word clone; no lossless DOCX round-trip / edit export yet
+- Paste builds a plain table: no column widths from the source, cell borders,
+  merged rows, or images
 - SoftCanvas glyph metrics can clip the last letter(s) of long lines
 - Justify is flagged but not full glyph-distributed justification
 - Table row vertical merge, nested tables, floating images: out of scope
@@ -104,9 +106,34 @@ npm run docx_viewer:window        # http://127.0.0.1:8770/
 ```text
 DocxEditController → RichDocumentEdit → RichDocument (paragraph + spans)
                  ↘ DocxLayout hit-test / caret geometry
+                 ↘ ClipboardTable (clipboard HTML / TSV → table)
 ```
 
 Window host: toggle **Edit**, click a body paragraph, type / Backspace / Delete /
 Enter / Ctrl+B / Ctrl+Z. Same SoftCanvas layout drives caret placement.
 
 v1 scope: body paragraphs only (not tables/headers yet).
+
+## Paste
+
+`Ctrl+V` in edit mode reads the OS clipboard through the browser's native
+`paste` event and inserts at the caret:
+
+| Clipboard flavour | Result |
+| --- | --- |
+| `text/html` containing a `<table>` | a real `DocumentTable` block |
+| `text/plain` with tabs | same, parsed as TSV |
+| `text/plain` without tabs | text, newlines becoming paragraph splits |
+
+That is the spreadsheet interop path: select a range in the
+[DataGrid](../datagrid/README.md#clipboard) (or in Excel), press `Ctrl+C`, and
+paste here to get a table. Per-cell background fill, bold, `colspan` and
+horizontal alignment survive the trip; the table is sized to the section's text
+column. Like Word, the paragraph is split at the caret and the table lands
+between the halves, with the caret on the paragraph that follows it. One
+`Ctrl+Z` removes the table and rejoins the paragraph.
+
+`ClipboardTable` reads the HTML with a tolerant tag scanner rather than an XML
+parser, because real clipboard markup is not well-formed XML — Excel ships a
+`<style>` block, `<!--StartFragment-->` comments, unquoted and single-quoted
+attributes and void `<col>` tags.

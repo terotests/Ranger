@@ -56,6 +56,58 @@ class GridEditTest {
         input.setModifiers(false false)
     }
 
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen hay)
+        def m:int (strlen needle)
+        if (m == 0) {
+            return true
+        }
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring hay i (i + m)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn countOf:int (hay:string needle:string) {
+        def n:int (strlen hay)
+        def m:int (strlen needle)
+        if (m == 0) {
+            return 0
+        }
+        def count:int 0
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring hay i (i + m)) == needle) {
+                count = (count + 1)
+                i = (i + m)
+            } {
+                i = (i + 1)
+            }
+        }
+        return count
+    }
+
+    sfn beginsWith:boolean (hay:string prefix:string) {
+        def m:int (strlen prefix)
+        if ((strlen hay) < m) {
+            return false
+        }
+        return ((substring hay 0 m) == prefix)
+    }
+
+    sfn finishesWith:boolean (hay:string suffix:string) {
+        def n:int (strlen hay)
+        def m:int (strlen suffix)
+        if (n < m) {
+            return false
+        }
+        return ((substring hay (n - m) n) == suffix)
+    }
+
     sfn typeInto:void (app:GridApp r:int c:int text:string) {
         GridEditTest.select(app r c)
         app.beginEdit(text true)
@@ -379,6 +431,30 @@ class GridEditTest {
         input2.setModifiers(false false)
         nav.update(input2)
         c.eqStr("tsv block" nav.clipboardTsv "x\ty\nx\ty")
+
+        print "== copy also produces an HTML table for Word =="
+        nav.model.setCellRaw(30 0 "Region")
+        nav.model.setCellRaw(30 1 "Q1 <b>")
+        nav.model.setCellRaw(31 0 "North & South")
+        nav.model.setCellRaw(31 1 "120")
+        GridEditTest.selectRange(nav 30 0 31 1)
+        nav.copySelection()
+        c.ok("html non-empty" ((strlen nav.clipboardHtml) > 0))
+        c.ok("html opens a table" (GridEditTest.beginsWith(nav.clipboardHtml "<table")))
+        c.ok("html closes the table" (GridEditTest.finishesWith(nav.clipboardHtml "</table>")))
+        c.eqInt("html rows" (GridEditTest.countOf(nav.clipboardHtml "<tr>")) 2)
+        c.eqInt("html cells" (GridEditTest.countOf(nav.clipboardHtml "<td")) 4)
+        c.ok("html escapes &" (GridEditTest.hasSub(nav.clipboardHtml "North &amp; South")))
+        c.ok("html escapes <" (GridEditTest.hasSub(nav.clipboardHtml "Q1 &lt;b&gt;")))
+        c.ok("tsv still plain" (GridEditTest.hasSub(nav.clipboardTsv "North & South")))
+        ; styles.xml colours arrive as "#RRGGBB"; the CSS must not double the #.
+        c.ok("no doubled hash" ((GridEditTest.hasSub(nav.clipboardHtml "##")) == false))
+        c.eqStr("hash form kept" (GridApp.cssColor("#1F4E79")) "#1F4E79")
+        c.eqStr("bare form gets hash" (GridApp.cssColor("1F4E79")) "#1F4E79")
+        c.eqStr("junk colour dropped" (GridApp.cssColor("red")) "")
+        ; A host-supplied clipboard has no table flavour to offer.
+        nav.setClipboardText("a\tb")
+        c.eqStr("external clears html" nav.clipboardHtml "")
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

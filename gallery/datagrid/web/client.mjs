@@ -73,9 +73,25 @@ const KEY_MAP = {
 // Z undo, Y redo, Space select column.
 const CTRL_CHORD = /^[acxvzyACXVZY ]$/;
 
-/** Put text on the OS clipboard, falling back to execCommand when the
- *  async Clipboard API is unavailable or denied (e.g. non-secure origin). */
-async function writeClipboard(text) {
+/** Put the selection on the OS clipboard as BOTH flavours a spreadsheet
+ *  offers: text/plain TSV and text/html holding a <table>. The HTML flavour is
+ *  what Word — and the Ranger DOCX editor — paste as a real table.
+ *  Falls back to plain text when ClipboardItem is unavailable, then to
+ *  execCommand on non-secure origins. */
+async function writeClipboard(text, html) {
+  if (html && typeof ClipboardItem === "function" && navigator.clipboard?.write) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ]);
+      return true;
+    } catch (_) {
+      /* fall through to plain text */
+    }
+  }
   try {
     await navigator.clipboard.writeText(text);
     return true;
@@ -179,7 +195,7 @@ canvas.addEventListener("keydown", async (ev) => {
         ctrl: true,
       });
       if (reply && typeof reply.clipboard === "string" && reply.clipboard) {
-        await writeClipboard(reply.clipboard);
+        await writeClipboard(reply.clipboard, reply.clipboardHtml || "");
       }
     }
     return;

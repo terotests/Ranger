@@ -298,6 +298,81 @@ class RichDocumentEdit {
         return np.id
     }
 
+    ; Block index of the top-level block holding this paragraph, or -1.
+    fn blockIndexOfParagraph:int (paragraphId:int) {
+        def bi:int 0
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 0) {
+                if (b.paragraph.id == paragraphId) {
+                    return bi
+                }
+            }
+            bi = (bi + 1)
+        }
+        return -1
+    }
+
+    ; Splice a fresh table block immediately before the given paragraph's block.
+    fn insertTableBefore:DocumentTable (paragraphId:int) {
+        def t:DocumentTable (doc.addTableOnly())
+        def at:int (this.blockIndexOfParagraph(paragraphId))
+        if (at < 0) {
+            push doc.blocks (DocBlock.tbl(t))
+            return t
+        }
+        def rest:[DocBlock]
+        def rj:int at
+        while (rj < (doc.blockCount())) {
+            push rest (doc.blockAt(rj))
+            rj = (rj + 1)
+        }
+        while ((array_length doc.blocks) > at) {
+            removeLast doc.blocks
+        }
+        push doc.blocks (DocBlock.tbl(t))
+        def rk:int 0
+        while (rk < (array_length rest)) {
+            push doc.blocks (itemAt rest rk)
+            rk = (rk + 1)
+        }
+        return t
+    }
+
+    ; Remove the block holding this table (used to undo a table paste).
+    fn removeTableById:boolean (tableId:int) {
+        def at:int -1
+        def bi:int 0
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 1) {
+                if (b.table.id == tableId) {
+                    at = bi
+                    bi = (doc.blockCount())
+                }
+            }
+            bi = (bi + 1)
+        }
+        if (at < 0) {
+            return false
+        }
+        def rest:[DocBlock]
+        def rj:int (at + 1)
+        while (rj < (doc.blockCount())) {
+            push rest (doc.blockAt(rj))
+            rj = (rj + 1)
+        }
+        while ((array_length doc.blocks) > at) {
+            removeLast doc.blocks
+        }
+        def rk:int 0
+        while (rk < (array_length rest)) {
+            push doc.blocks (itemAt rest rk)
+            rk = (rk + 1)
+        }
+        return true
+    }
+
     ; Merge paragraphId into previous top-level body paragraph.
     fn mergePrevious:DocumentPosition (paragraphId:int) {
         def fail:DocumentPosition (DocumentPosition.create(0 0))

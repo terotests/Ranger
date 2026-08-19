@@ -233,6 +233,7 @@ class DocTableRow {
 }
 
 class DocumentTable {
+    def id:int 0
     def colWidthsTwips:[int]
     def rows:[DocTableRow]
     def borderColor:string "666666"
@@ -296,6 +297,7 @@ class RichDocument {
     def sections:[DocSection]
     def section:DocSection (new DocSection)
     def nextParaId:int 1
+    def nextTableId:int 1
 
     Constructor () {
         push sections section
@@ -328,8 +330,20 @@ class RichDocument {
 
     fn addTable:DocumentTable () {
         def t:DocumentTable (new DocumentTable)
+        t.id = nextTableId
+        nextTableId = (nextTableId + 1)
         push tables t
         push blocks (DocBlock.tbl(t))
+        return t
+    }
+
+    fn addTableOnly:DocumentTable () {
+        ; Table not appended as a block — the caller splices the block itself
+        ; (paste inserts one in the middle of the document, not at the end).
+        def t:DocumentTable (new DocumentTable)
+        t.id = nextTableId
+        nextTableId = (nextTableId + 1)
+        push tables t
         return t
     }
 

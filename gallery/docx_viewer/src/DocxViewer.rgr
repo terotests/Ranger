@@ -8,6 +8,7 @@ Import "WordNumbering.rgr"
 Import "RichDocument.rgr"
 Import "DocxView.rgr"
 Import "DocxEditController.rgr"
+Import "ClipboardTable.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 
 class DocxViewer {
@@ -164,6 +165,36 @@ class DocxViewer {
     fn keyRedo:void () {
         edit.redo()
         this.renderPage(currentPage)
+    }
+
+    ; Clipboard paste from the host. `html` is the text/html flavour (what a
+    ; spreadsheet copy puts next to the TSV) and lands as a real table; `text`
+    ; is the text/plain fallback. Returns true when something was inserted.
+    fn pasteClipboard:boolean (html:string text:string) {
+        if ((edit.isEnabled()) == false) {
+            return false
+        }
+        if ((edit.isActive()) == false) {
+            return false
+        }
+        def tbl:ClipboardTable (new ClipboardTable)
+        def got:boolean false
+        if ((strlen html) > 0) {
+            got = (tbl.parseHtml(html))
+        }
+        if (got == false) {
+            if (ClipboardTable.looksTabular(text)) {
+                got = (tbl.parseTsv(text))
+            }
+        }
+        if got {
+            def done:boolean (edit.pasteTable(tbl))
+            this.renderPage(currentPage)
+            return done
+        }
+        def typed:boolean (edit.pasteText(text))
+        this.renderPage(currentPage)
+        return typed
     }
 
     fn toggleBold:void () {

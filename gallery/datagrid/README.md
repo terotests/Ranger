@@ -105,15 +105,26 @@ written rather than rescanning a sheet that may declare 100k rows (see
 
 ### Clipboard
 
-`Ctrl+C` / `Ctrl+X` build TSV in `GridApp.clipboardTsv` plus a structured block
-that keeps formulas. In the WebGL host that TSV also reaches the **OS
-clipboard**: `/input` answers a copy or cut with `{"clipboard": "…"}`, and
-`web/client.mjs` writes it out (`navigator.clipboard`, falling back to a hidden
-textarea + `execCommand` on non-secure origins). Pasting goes the other way
-through the browser's native `paste` event, so no clipboard-read permission is
-needed. The host remembers the text it exported: paste it back and the
-formula-aware block paste still runs; paste anything else and it lands as plain
-TSV values.
+`Ctrl+C` / `Ctrl+X` build three views of the selection:
+
+| | What it is | Who reads it |
+| --- | --- | --- |
+| `clipboardTsv` | tab/newline text | any app, and the TSV paste path |
+| `clipboardHtml` | an HTML `<table>` with fill / bold / align per cell | Word, and the Ranger DOCX editor |
+| `clipValues` + `clipFormulas` | the structured block | this grid, so paste can translate refs |
+
+In the WebGL host the first two reach the **OS clipboard** as `text/plain` and
+`text/html` — the same two flavours Excel offers. `/input` answers a copy or cut
+with `{"clipboard": …, "clipboardHtml": …}` and `web/client.mjs` writes both via
+`ClipboardItem`, degrading to `writeText` and then to a hidden textarea +
+`execCommand` on non-secure origins. Pasting goes the other way through the
+browser's native `paste` event, so no clipboard-read permission is needed. The
+host remembers the text it exported: paste it back and the formula-aware block
+paste still runs; paste anything else and it lands as plain TSV values.
+
+Because the HTML flavour is a real table, a range copied here pastes into Word —
+or into this gallery's own [DOCX editor](../docx_viewer/README.md#paste) — as a
+table, not as tab-separated text.
 
 Known gaps: cut does not rewrite formulas elsewhere that referenced the moved
 cells; paste does not tile into a larger target range; no cell-style clipboard.

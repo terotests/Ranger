@@ -9,6 +9,7 @@ Import "../src/WordNumbering.rgr"
 Import "../src/WordStyleResolver.rgr"
 Import "../src/RichDocument.rgr"
 Import "../src/DocxLayout.rgr"
+Import "../src/ClipboardTable.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 
 class Checker {
@@ -391,6 +392,122 @@ class DocxTest {
         viewer.renderPage(0)
         c.ok("bold render" ((buffer_length (viewer.view.raw())) > 1000))
         viewer.setEditMode(false)
+
+        print "== clipboard HTML → ClipboardTable =="
+        ; Exactly what gallery/datagrid GridApp.copySelection puts on the
+        ; text/html flavour of the clipboard.
+        def gridHtml:string "<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\"><tr><td style=\"background-color:#DDEBF7;font-weight:bold;\">Region</td><td style=\"font-weight:bold;\">Q1</td></tr><tr><td>North &amp; South</td><td style=\"text-align:right;\">1&lt;2</td></tr></table>"
+        def ct:ClipboardTable (new ClipboardTable)
+        c.ok("parses grid html" (ct.parseHtml(gridHtml)))
+        c.eqInt("rows" (ct.rowCount()) 2)
+        c.eqInt("cols" (ct.columnCount()) 2)
+        def r0:ClipRow (ct.rowAt(0))
+        def cell00:ClipCell (itemAt r0.cells 0)
+        c.eqStr("header text" cell00.text "Region")
+        c.ok("header bold" cell00.bold)
+        c.eqStr("header fill" cell00.fillHex "DDEBF7")
+        def r1:ClipRow (ct.rowAt(1))
+        def cell10:ClipCell (itemAt r1.cells 0)
+        c.eqStr("entity decode &" cell10.text "North & South")
+        def cell11:ClipCell (itemAt r1.cells 1)
+        c.eqStr("entity decode <" cell11.text "1<2")
+        c.eqStr("align right" cell11.align "right")
+
+        print "== clipboard HTML from Excel itself =="
+        ; Excel's real shape: <style> block, fragment comments, unquoted and
+        ; single-quoted attributes, void <col>, <b> inside a cell.
+        def excelHtml:string "<html xmlns:o=\"urn:schemas-microsoft-com:office:office\"><head><meta charset=utf-8><style>.xl65 { color:red; }</style></head><body><table border=0 cellpadding=0 cellspacing=0 width=192 style='border-collapse:collapse'><!--StartFragment--><col width=64><col width=64><tr height=20 style='height:15.0pt'><td height=20 width=64 style='height:15.0pt;background:#FFFF00'><b>Item</b></td><td colspan=2 style='text-align:center'>Cost&nbsp;A</td></tr><tr><td>Bolt</td><td>1.25</td><td>x</td></tr><!--EndFragment--></table></body></html>"
+        def ex:ClipboardTable (new ClipboardTable)
+        c.ok("parses excel html" (ex.parseHtml(excelHtml)))
+        c.eqInt("excel rows" (ex.rowCount()) 2)
+        c.eqInt("excel cols (colspan counted)" (ex.columnCount()) 3)
+        def er0:ClipRow (ex.rowAt(0))
+        def ec00:ClipCell (itemAt er0.cells 0)
+        c.eqStr("excel cell text" ec00.text "Item")
+        c.ok("excel <b> detected" ec00.bold)
+        c.eqStr("excel bare-attr fill" ec00.fillHex "FFFF00")
+        def ec01:ClipCell (itemAt er0.cells 1)
+        c.eqInt("excel colspan" ec01.gridSpan 2)
+        c.eqStr("nbsp decoded" ec01.text "Cost A")
+        c.ok("style block not treated as text" ((ex.rowCount()) == 2))
+
+        print "== clipboard TSV fallback =="
+        def tsv:ClipboardTable (new ClipboardTable)
+        c.ok("tsv looks tabular" (ClipboardTable.looksTabular("a\tb")))
+        c.ok("plain line is not tabular" ((ClipboardTable.looksTabular("hello")) == false))
+        c.ok("parses tsv" (tsv.parseTsv("a\tb\nc\td\n")))
+        c.eqInt("tsv rows" (tsv.rowCount()) 2)
+        c.eqInt("tsv cols" (tsv.columnCount()) 2)
+        def tr1:ClipRow (tsv.rowAt(1))
+        def tc1:ClipCell (itemAt tr1.cells 1)
+        c.eqStr("tsv cell" tc1.text "d")
+
+        print "== paste a spreadsheet selection as a new table =="
+        c.ok("reopen hello for paste" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def pdoc:RichDocument (viewer.document())
+        def blocksBefore:int (pdoc.blockCount())
+        def target:Paragraph (pdoc.paragraphAt(1))
+        def targetLen:int (strlen target.text)
+        viewer.edit.setCaret(target.id targetLen)
+        c.ok("paste html" (viewer.pasteClipboard(gridHtml "Region\tQ1\nNorth & South\t1<2")))
+        def pdoc2:RichDocument (viewer.document())
+        ; split adds a paragraph block, paste adds a table block
+        c.eqInt("two blocks added" (pdoc2.blockCount()) (blocksBefore + 2))
+        def tblBlock:int -1
+        def bi2:int 0
+        while (bi2 < (pdoc2.blockCount())) {
+            def blk:DocBlock (pdoc2.blockAt(bi2))
+            if (blk.kind == 1) {
+                tblBlock = bi2
+            }
+            bi2 = (bi2 + 1)
+        }
+        c.ok("table block present" (tblBlock >= 0))
+        def newTbl:DocumentTable ((pdoc2.blockAt(tblBlock)).table)
+        c.eqInt("table rows" (newTbl.rowCount()) 2)
+        c.eqInt("table cols" (newTbl.columnCount()) 2)
+        def trow0:DocTableRow (itemAt newTbl.rows 0)
+        def tcell0:DocTableCell (itemAt trow0.cells 0)
+        def tcellPara:Paragraph (itemAt tcell0.paragraphs 0)
+        c.eqStr("cell paragraph text" tcellPara.text "Region")
+        c.eqStr("cell fill carried" tcell0.fillHex "DDEBF7")
+        def cellSpan:TextSpan (itemAt tcellPara.spans 0)
+        c.ok("cell bold carried" cellSpan.bold)
+        c.ok("column widths set" ((array_length newTbl.colWidthsTwips) == 2))
+        c.ok("widths positive" ((itemAt newTbl.colWidthsTwips 0) > 0))
+        ; the table must sit before the paragraph the caret moved to
+        def caretPos:DocumentPosition (viewer.edit.caret())
+        def caretBlock:int (viewer.edit.adapter.blockIndexOfParagraph(caretPos.paragraphId))
+        c.ok("caret paragraph follows the table" (caretBlock > tblBlock))
+        viewer.renderPage(0)
+        c.ok("renders with table" ((buffer_length (viewer.view.raw())) > 1000))
+        c.ok("still paginates" ((viewer.pageCount()) >= 1))
+
+        print "== undo removes the pasted table =="
+        viewer.keyUndo()
+        def pdoc3:RichDocument (viewer.document())
+        c.eqInt("blocks back to start" (pdoc3.blockCount()) blocksBefore)
+        def stillTable:boolean false
+        def bi3:int 0
+        while (bi3 < (pdoc3.blockCount())) {
+            def blk3:DocBlock (pdoc3.blockAt(bi3))
+            if (blk3.kind == 1) {
+                stillTable = true
+            }
+            bi3 = (bi3 + 1)
+        }
+        c.ok("table gone" (stillTable == false))
+        def rejoined:Paragraph (viewer.edit.adapter.findParagraph(target.id))
+        c.eqInt("paragraph rejoined" (strlen rejoined.text) targetLen)
+        viewer.renderPage(0)
+        c.ok("renders after undo" ((buffer_length (viewer.view.raw())) > 1000))
+        viewer.setEditMode(false)
+
+        print "== paste needs an active caret =="
+        c.ok("reopen for guard" (viewer.openFile(fix "hello.docx")))
+        c.ok("no paste without edit mode" ((viewer.pasteClipboard(gridHtml "")) == false))
 
         print "== render page =="
         c.ok("open hello again" (viewer.openFile(fix "hello.docx")))

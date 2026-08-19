@@ -9,6 +9,7 @@
 
 Import "RichDocument.rgr"
 Import "RichDocumentEdit.rgr"
+Import "ClipboardTable.rgr"
 Import "DocxLayout.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
@@ -236,6 +237,114 @@ class DocxEditController {
         this.setCaret(newId 0)
     }
 
+    ; --- clipboard paste ------------------------------------------------------
+    ; Word's behaviour: the paragraph is split at the caret and the table lands
+    ; between the halves, with the caret on the paragraph that follows it.
+    fn pasteTable:boolean (tbl:ClipboardTable) {
+        if ((this.isActive()) == false) {
+            return false
+        }
+        if ((tbl.rowCount()) == 0) {
+            return false
+        }
+        def pid:int sel.focus.paragraphId
+        this.splitAtCaret()
+        def afterId:int sel.focus.paragraphId
+        def doc:RichDocument (adapter.doc)
+        def t:DocumentTable (adapter.insertTableBefore(afterId))
+        def cols:int (tbl.columnCount())
+        if (cols < 1) {
+            cols = 1
+        }
+        ; Spread the table across the text column, as Word does for a paste.
+        def widthPx:int (doc.section.contentWidthPx())
+        def totalTwips:int (to_int (((to_double widthPx) * 1440.0) / 96.0))
+        def per:int (to_int (totalTwips / cols))
+        if (per < 240) {
+            per = 240
+        }
+        clear t.colWidthsTwips
+        def ci:int 0
+        while (ci < cols) {
+            push t.colWidthsTwips per
+            ci = (ci + 1)
+        }
+        def ri:int 0
+        while (ri < (tbl.rowCount())) {
+            def src:ClipRow (tbl.rowAt(ri))
+            def row:DocTableRow (new DocTableRow)
+            def cj:int 0
+            while (cj < (array_length src.cells)) {
+                def sc:ClipCell (itemAt src.cells cj)
+                def cell:DocTableCell (new DocTableCell)
+                if (sc.gridSpan > 1) {
+                    cell.gridSpan = sc.gridSpan
+                }
+                if ((strlen sc.fillHex) == 6) {
+                    cell.fillHex = sc.fillHex
+                }
+                def p:Paragraph (doc.addParagraphOnly())
+                p.styleId = "Normal"
+                p.spaceBeforePt = 0.0
+                p.spaceAfterPt = 0.0
+                p.lineSpacing = 1.0
+                if (sc.align == "center") {
+                    p.align = 1
+                }
+                if (sc.align == "right") {
+                    p.align = 2
+                }
+                def span:TextSpan (TextSpan.create(0 0))
+                span.bold = sc.bold
+                span.fontFamily = typingFont
+                p.appendText(sc.text span)
+                push cell.paragraphs p
+                push row.cells cell
+                cj = (cj + 1)
+            }
+            push t.rows row
+            ri = (ri + 1)
+        }
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 4
+        op.paragraphId = pid
+        op.secondId = afterId
+        op.start = t.id
+        this.pushUndo(op)
+        this.setCaret(afterId 0)
+        return true
+    }
+
+    ; Plain text paste: newlines become paragraph splits.
+    fn pasteText:boolean (text:string) {
+        if ((this.isActive()) == false) {
+            return false
+        }
+        if ((strlen text) == 0) {
+            return false
+        }
+        def lines:[string] (strsplit text "\n")
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            def line:string (itemAt lines i)
+            def len:int (strlen line)
+            if (len > 0) {
+                if ((charAt line (len - 1)) == 13) {
+                    line = (substring line 0 (len - 1))
+                }
+            }
+            if ((strlen line) > 0) {
+                this.insertText(line)
+            }
+            if (i < (n - 1)) {
+                this.splitAtCaret()
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
     fn toggleBold:void () {
         if ((this.isActive()) == false) {
             return
@@ -289,6 +398,16 @@ class DocxEditController {
         if (op.kind == 0) {
             adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
             this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
+        }
+        if (op.kind == 4) {
+            ; Drop the pasted table, then rejoin the paragraph it was split from.
+            adapter.removeTableById(op.start)
+            def back:DocumentPosition (adapter.mergePrevious(op.secondId))
+            if (back.paragraphId > 0) {
+                this.setCaret(back.paragraphId back.textOffset)
+            } {
+                this.setCaret(op.paragraphId (adapter.textLength(op.paragraphId)))
+            }
         }
         push redoStack op
     }

@@ -40,6 +40,7 @@ class GridApp {
     def fillR1:int 0
     def fillC1:int 0
     def clipboardTsv:string ""
+    def clipboardHtml:string ""
     def clipR0:int 0
     def clipC0:int 0
     def clipRows:int 0
@@ -636,8 +637,86 @@ class GridApp {
         this.moveActive((sel.active.row + dr) (sel.active.col + dc) extend)
     }
 
-    ; Excel-style clipboard. Two representations are kept:
+    sfn htmlEscape:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 38) {
+                out = (out + "&amp;")
+            } {
+                if (c == 60) {
+                    out = (out + "&lt;")
+                } {
+                    if (c == 62) {
+                        out = (out + "&gt;")
+                    } {
+                        if (c == 34) {
+                            out = (out + "&quot;")
+                        } {
+                            out = (out + (strfromcode c))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; CellStyle colours already carry a leading "#" when they come from
+    ; styles.xml; normalize either form to a CSS colour, or "" if unusable.
+    sfn cssColor:string (v:string) {
+        def s:string v
+        if ((strlen s) == 0) {
+            return ""
+        }
+        if ((charAt s 0) == 35) {
+            s = (substring s 1 (strlen s))
+        }
+        if ((strlen s) != 6) {
+            return ""
+        }
+        return ("#" + s)
+    }
+
+    ; One <td>, carrying the bits of cell style a word processor can honour.
+    fn cellHtml:string (r:int c:int) {
+        def st:CellStyle (model.getCellStyle(r c))
+        def style:string ""
+        if st.hasFill {
+            def bg:string (GridApp.cssColor(st.fillRgb))
+            if ((strlen bg) > 0) {
+                style = (style + "background-color:" + bg + ";")
+            }
+        }
+        def fg:string (GridApp.cssColor(st.textRgb))
+        if ((strlen fg) > 0) {
+            style = (style + "color:" + fg + ";")
+        }
+        if st.bold {
+            style = (style + "font-weight:bold;")
+        }
+        if (st.align != "left") {
+            style = (style + "text-align:" + st.align + ";")
+        }
+        def open:string "<td"
+        if ((strlen style) > 0) {
+            open = (open + " style=\"" + style + "\"")
+        }
+        open = (open + ">")
+        def body:string (GridApp.htmlEscape((model.getCell(r c))))
+        if ((strlen body) == 0) {
+            body = "&nbsp;"
+        }
+        return ((open + body) + "</td>")
+    }
+
+    ; Excel-style clipboard. Three representations are kept:
     ;   * clipboardTsv     — flat text, what a host would put on the OS clipboard
+    ;   * clipboardHtml    — an HTML <table>, the flavour Word/Excel paste as a
+    ;     real table (Excel puts the same two flavours on the clipboard)
     ;   * clipValues/Formulas + clipR0/clipC0 — structured block, so paste can
     ;     translate relative refs the way Excel copy/paste does.
     fn copySelection:void () {
@@ -652,11 +731,13 @@ class GridApp {
         clear clipValues
         clear clipFormulas
         def out:string ""
+        def html:string "<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\">"
         def r:int a.row
         while (r <= b.row) {
             if (r > a.row) {
                 out = (out + "\n")
             }
+            html = (html + "<tr>")
             def c:int a.col
             while (c <= b.col) {
                 if (c > a.col) {
@@ -664,13 +745,16 @@ class GridApp {
                 }
                 def v:string (model.getCell(r c))
                 out = (out + v)
+                html = (html + (this.cellHtml(r c)))
                 push clipValues v
                 push clipFormulas (model.getFormula(r c))
                 c = (c + 1)
             }
+            html = (html + "</tr>")
             r = (r + 1)
         }
         clipboardTsv = out
+        clipboardHtml = (html + "</table>")
     }
 
     ; Ctrl+X: copy, then clear the source range as one undoable action. A cut
@@ -686,6 +770,7 @@ class GridApp {
     ; TSV path is used and no stale formulas leak in.
     fn setClipboardText:void (text:string) {
         clipboardTsv = text
+        clipboardHtml = ""
         clipCut = false
         clear clipValues
         clear clipFormulas
