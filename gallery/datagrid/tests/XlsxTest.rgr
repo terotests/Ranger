@@ -318,6 +318,50 @@ class XlsxTest {
             c.ok("the scene still builds" ((strlen anScene) > 500))
         }
 
+        print "== rich text: several styles inside one cell =="
+        def rtApp:GridApp (new GridApp)
+        rtApp.init("gallery/pdf_writer/assets/fonts")
+        def rtOk:boolean (rtApp.loadXlsx("gallery/datagrid/fixtures/annotations.xlsx"))
+        c.ok("fixture loaded" rtOk)
+        if rtOk {
+            c.eqStr("the cell's value is what the runs spell" (rtApp.model.getCell(4 0)) "Total: 1234 kg")
+            c.ok("and it knows it is rich" (rtApp.model.hasRichText(4 0)))
+            def rt:RichText (rtApp.model.richTextAt(4 0))
+            c.eqInt("three runs" (rt.count()) 3)
+            def r0:CellRun (itemAt rt.runs 0)
+            c.eqStr("the first says Total" r0.text "Total: ")
+            c.ok("in bold" r0.bold)
+            c.eqStr("and in red" r0.rgb "#CC0000")
+            def r1:CellRun (itemAt rt.runs 1)
+            c.eqStr("the second is the number" r1.text "1234")
+            c.ok("with nothing of its own" ((r1.isStyled()) == false))
+            def r2:CellRun (itemAt rt.runs 2)
+            c.eqStr("the third is the unit" r2.text " kg")
+            c.ok("in italic" r2.italic)
+            c.eqStr("and smaller" (to_string (to_int r2.sizePt)) "8")
+
+            c.ok("an inline string carries runs too" (rtApp.model.hasRichText(4 1)))
+            c.eqStr("spelling what it should" (rtApp.model.getCell(4 1)) "inline runs")
+            c.ok("a plain cell is not rich" ((rtApp.model.hasRichText(0 0)) == false))
+            c.eqInt("two rich cells on the sheet" (rtApp.model.richCount()) 2)
+
+            ; The paint has to actually use them: a bold run means a bold
+            ; command in the display list for that cell's text.
+            rtApp.moveActive(4 0 false)
+            def rtScene:string (rtApp.sceneJson())
+            c.ok("the scene carries a bold run" (XlsxTest.hasSub(rtScene "\"text\":\"Total: \",\"font\":\"Open Sans\",\"size\":14.67,\"weight\":\"bold\"")))
+            c.ok("and the plain piece beside it" (XlsxTest.hasSub(rtScene "\"text\":\"1234\"")))
+
+            ; Retyping the cell drops the pieces, because new text cannot
+            ; belong to the old ones.
+            ; A5 sits inside the list rule, so the replacement has to be one
+            ; of its values — which is the rule doing its job, not a problem.
+            rtApp.beginEdit("east" true)
+            rtApp.commitEdit()
+            c.eqStr("the new text is there" (rtApp.model.getCell(4 0)) "east")
+            c.ok("and the runs are gone" ((rtApp.model.hasRichText(4 0)) == false))
+        }
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

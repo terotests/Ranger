@@ -2177,7 +2177,7 @@ class GridApp {
         if ((strlen editBuf) > 0) {
             if ((charAt editBuf 0) == 61) {
                 def expr:string (substring editBuf 1 (strlen editBuf))
-                model.applyEdit(r c "" expr)
+                model.applyEditPlain(r c "" expr)
             } {
                 ; A typed date becomes what a spreadsheet stores for one: the
                 ; day count, wearing a format that draws it back the way it was
@@ -2191,10 +2191,12 @@ class GridApp {
                 if isDate {
                     def st:CellStyle ((model.getCellStyle(r c)).copy())
                     st.numFmt = (DateSerial.formatForTyped(editBuf))
+                    model.clearRichText(r c)
                     model.applyEditStyled(r c (to_string (to_int serial)) "" st)
                 } {
-                    ; Plain value overwrites any prior formula.
-                    model.applyEdit(r c editBuf "")
+                    ; Plain value overwrites any prior formula — and the pieces
+                    ; the old text was drawn in, which new text cannot belong to.
+                    model.applyEditPlain(r c editBuf "")
                 }
             }
         } {

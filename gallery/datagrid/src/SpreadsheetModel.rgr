@@ -12,6 +12,7 @@
 
 Import "CellStyle.rgr"
 Import "DataValidation.rgr"
+Import "RichText.rgr"
 Import "XlsxNumberFormat.rgr"
 
 ; Conditional formatting rule (parsed from xlsx cfRule).
@@ -184,6 +185,10 @@ class SpreadsheetModel {
     def spillSize:[string:string]
     def spillOwner:[string:string]
     def spillKeys:[string]
+    ; Cells whose text is drawn in pieces. Keyed like everything else, and kept
+    ; beside the value rather than inside it — see RichText.
+    def richCells:[string:RichText]
+    def richKeys:[string]
     def links:[string:string]
     def linkKeys:[string]
     def notes:[string:string]
@@ -956,6 +961,54 @@ class SpreadsheetModel {
         return (XlsxNumberFormat.format(raw st.numFmt))
     }
 
+    ; --- rich text ------------------------------------------------------------
+    ; Setting runs also sets the cell's value to what they spell, so a formula
+    ; reading the cell and a paste copying it see the plain string.
+    fn setRichText:void (row:int col:int rt:RichText) {
+        def k:string (this.cellKey(row col))
+        if ((has richCells k) == false) {
+            push richKeys k
+        }
+        set richCells k rt
+        version = (version + 1)
+    }
+
+    fn richTextAt:RichText (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has richCells k) {
+            return (unwrap (get richCells k))
+        }
+        return (new RichText)
+    }
+
+    fn hasRichText:boolean (row:int col:int) {
+        def rt:RichText (this.richTextAt(row col))
+        return (rt.isRich())
+    }
+
+    fn clearRichText:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has richCells k) {
+            set richCells k (new RichText)
+        }
+    }
+
+    fn richCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length richKeys)) {
+            def k:string (itemAt richKeys i)
+            if (has richCells k) {
+                def rt:RichText (unwrap (get richCells k))
+                if (rt.isRich()) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     ; --- spilled array results ------------------------------------------------
     fn setSpill:void (row:int col:int rows:int cols:int) {
         def k:string (this.cellKey(row col))
@@ -1650,6 +1703,14 @@ class SpreadsheetModel {
 
     fn setCell:void (row:int col:int value:string) {
         this.applyEdit(row col value "")
+    }
+
+    ; Retyping a cell drops the pieces its text was drawn in — a spreadsheet
+    ; does the same, because there is no answer to which run new text belongs
+    ; to.
+    fn applyEditPlain:void (row:int col:int value:string formula:string) {
+        this.clearRichText(row col)
+        this.applyEdit(row col value formula)
     }
 
     ; Record a structural column op so it can be undone as one action.

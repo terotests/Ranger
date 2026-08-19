@@ -72,6 +72,7 @@ npm run datagrid:window
 - **.xlsx export**: `Ctrl+S`, round-tripped by our own loader and by openpyxl
 - **~80 formula functions**, lookups over real rectangles, spilling array
   results, and dates as Excel stores them
+- **Rich text**: several styles inside one cell, on one baseline
 - **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
@@ -298,6 +299,21 @@ Rules are sheet metadata rather than cell contents, so they are deliberately
 **not** on the undo stack: undoing a paste must not silently drop a rule the
 paste never touched.
 
+## Rich text
+
+A cell's style says how the cell is drawn; **rich text** says how parts of it
+are — `Total:` in bold red, the number plain, the unit smaller and italic.
+OOXML calls the pieces *runs*, and they are read, painted and written back.
+
+The runs live beside the cell's value, not inside it, for the same reason notes
+and links do: the value is what formulas read and what a paste carries, so it
+stays a plain string that everything already understands. Runs of different
+sizes sit on **one baseline**, which is what makes a smaller suffix look
+attached to the word before it rather than floating above it.
+
+Retyping a cell drops its runs — a spreadsheet does the same, because there is
+no answer to which run the new text belongs to.
+
 ## Links, notes and validation
 
 Three things a cell can carry that are not its value. All three come out of the
@@ -484,7 +500,7 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   36.5 / 41   89.0%     done 36   partial 1   todo 4
+TOTAL   37.5 / 41   91.5%     done 37   partial 1   todo 3
 ```
 
 `-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so

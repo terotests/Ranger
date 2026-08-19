@@ -24,7 +24,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Overflow | done | spills into empty neighbours only, as Excel does |
 | Automatic line wrapping | done | wrapText → multi-line paint + row auto-fit |
 | Multiple data types | done | number / string / bool / formula / date — typed, stored as a serial, formatted back |
-| Cell segmentation style | todo | one style per cell, no rich-text runs inside a cell |
+| Cell segmentation style | done | rich-text runs read, painted on one baseline, and written back |
 | Hyperlink | done | rel-resolved external + internal targets, painted as links, Ctrl+click follows |
 
 ## Cells

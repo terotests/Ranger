@@ -3,9 +3,14 @@
 ; ==============================================================================
 
 Import "XmlLite.rgr"
+Import "../RichText.rgr"
 
 class XlsxSharedStrings {
     def strings:[string]
+    ; The same entries, in pieces. A shared string is either one plain run or
+    ; several styled ones, and the styled case is the whole point of rich text —
+    ; keeping only the concatenation throws away what the file said.
+    def rich:[RichText]
 
     Constructor () {
     }
@@ -24,8 +29,19 @@ class XlsxSharedStrings {
         return (itemAt strings i)
     }
 
+    fn richAt:RichText (i:int) {
+        if (i < 0) {
+            return (new RichText)
+        }
+        if (i >= (array_length rich)) {
+            return (new RichText)
+        }
+        return (itemAt rich i)
+    }
+
     fn parse:void (xml:string) {
         clear strings
+        clear rich
         if ((strlen xml) == 0) {
             return
         }
@@ -37,9 +53,98 @@ class XlsxSharedStrings {
                 break
             }
             if ((t.name == "si") && (t.isEnd == false) && (t.selfClose == false)) {
-                def s:string (p.collectTTextUntil("si"))
-                push strings s
+                def rt:RichText (XlsxSharedStrings.parseRuns(p "si"))
+                push rich rt
+                push strings (rt.text())
             }
         }
+    }
+
+    ; The runs of one <si> or <is>, up to its closing tag. A bare <t> is one
+    ; unstyled run; an <r> carries an optional <rPr> saying how its piece
+    ; differs from the cell.
+    sfn parseRuns:RichText (p:XmlLite endName:string) {
+        def out:RichText (new RichText)
+        def depth:int 1
+        def cur:CellRun (new CellRun)
+        def inRun:boolean false
+        while ((p.pos < p.len) && (depth > 0)) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if (t.name == endName) {
+                if t.isEnd {
+                    depth = (depth - 1)
+                } {
+                    if (t.selfClose == false) {
+                        depth = (depth + 1)
+                    }
+                }
+            } {
+                if (t.name == "r") {
+                    if t.isEnd {
+                        inRun = false
+                    } {
+                        cur = (new CellRun)
+                        inRun = true
+                    }
+                }
+                if ((t.name == "b") && (t.isEnd == false)) {
+                    cur.bold = (XlsxSharedStrings.onOff(t))
+                }
+                if ((t.name == "i") && (t.isEnd == false)) {
+                    cur.italic = (XlsxSharedStrings.onOff(t))
+                }
+                if ((t.name == "u") && (t.isEnd == false)) {
+                    cur.underline = (XlsxSharedStrings.onOff(t))
+                }
+                if ((t.name == "strike") && (t.isEnd == false)) {
+                    cur.strike = (XlsxSharedStrings.onOff(t))
+                }
+                if ((t.name == "sz") && (t.isEnd == false)) {
+                    def sv:string (t.attr("val"))
+                    if ((strlen sv) > 0) {
+                        def d@(optional):double (to_double sv)
+                        if d {
+                            cur.sizePt = (unwrap d)
+                        }
+                    }
+                }
+                if ((t.name == "color") && (t.isEnd == false)) {
+                    def cv:string (t.attr("rgb"))
+                    if ((strlen cv) >= 6) {
+                        ; ARGB in the file, CSS in the model.
+                        cur.rgb = ("#" + (substring cv ((strlen cv) - 6) (strlen cv)))
+                    }
+                }
+                if ((t.name == "t") && (t.isEnd == false)) {
+                    if (t.selfClose == false) {
+                        def body:string (p.readTextUntilEnd("t"))
+                        cur.text = (cur.text + body)
+                        out.add(cur)
+                        def next:CellRun (new CellRun)
+                        if inRun {
+                            ; A run's properties belong to its own <t> only.
+                            cur = next
+                        } {
+                            cur = next
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn onOff:boolean (t:XmlTag) {
+        def v:string (t.attr("val"))
+        if ((strlen v) == 0) {
+            return true
+        }
+        if (v == "0") {
+            return false
+        }
+        return (v != "false")
     }
 }

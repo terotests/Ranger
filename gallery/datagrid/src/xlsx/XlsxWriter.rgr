@@ -37,6 +37,7 @@ Import "../SpreadsheetModel.rgr"
 Import "../WorkbookModel.rgr"
 Import "../CellStyle.rgr"
 Import "../DataValidation.rgr"
+Import "../RichText.rgr"
 Import "../../zip/ZipWriter.rgr"
 
 class XlsxWriter {
@@ -386,6 +387,43 @@ class XlsxWriter {
         return (out + "</styleSheet>")
     }
 
+    ; One <r> per run, with only the properties the run actually overrides —
+    ; an empty <rPr> is legal and pointless, so it is left out.
+    sfn runsXml:string (rt:RichText) {
+        def out:string ""
+        def i:int 0
+        while (i < (rt.count())) {
+            def run:CellRun (itemAt rt.runs i)
+            def props:string ""
+            if run.bold {
+                props = (props + "<b/>")
+            }
+            if run.italic {
+                props = (props + "<i/>")
+            }
+            if run.underline {
+                props = (props + "<u/>")
+            }
+            if run.strike {
+                props = (props + "<strike/>")
+            }
+            if (run.sizePt > 0.0) {
+                props = (props + "<sz val=\"" + (XlsxWriter.numText(run.sizePt)) + "\"/>")
+            }
+            def col:string (XlsxWriter.argb(run.rgb))
+            if ((strlen col) > 0) {
+                props = (props + "<color rgb=\"" + col + "\"/>")
+            }
+            out = (out + "<r>")
+            if ((strlen props) > 0) {
+                out = (out + "<rPr>" + props + "</rPr>")
+            }
+            out = (out + "<t xml:space=\"preserve\">" + (XlsxWriter.esc(run.text)) + "</t></r>")
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; --- a sheet --------------------------------------------------------------
     sfn cellRef:string (row:int col:int) {
         return ((SpreadsheetModel.colLabel(col)) + (to_string (row + 1)))
@@ -498,7 +536,15 @@ class XlsxWriter {
                             if numeric {
                                 tag = (tag + "><v>" + raw + "</v></c>")
                             } {
-                                tag = (tag + " t=\"inlineStr\"><is><t xml:space=\"preserve\">" + (XlsxWriter.esc(raw)) + "</t></is></c>")
+                                ; Text drawn in pieces goes out in pieces. An
+                                ; inline string can hold runs just as a shared
+                                ; one can, so nothing extra has to be written
+                                ; to another part of the package.
+                                if (m.hasRichText(r cc)) {
+                                    tag = (tag + " t=\"inlineStr\"><is>" + (XlsxWriter.runsXml((m.richTextAt(r cc)))) + "</is></c>")
+                                } {
+                                    tag = (tag + " t=\"inlineStr\"><is><t xml:space=\"preserve\">" + (XlsxWriter.esc(raw)) + "</t></is></c>")
+                                }
                             }
                         }
                     }

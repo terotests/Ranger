@@ -1,0 +1,157 @@
+; ==============================================================================
+; RichText.rgr — several styles inside one cell.
+; ==============================================================================
+;
+; A cell's style says how the cell is drawn. Rich text says how PARTS of it are:
+; "Reviewer:" in bold followed by the note in plain, a units suffix in a smaller
+; face, one word in red. OOXML calls the pieces runs, and a shared string is
+; either one plain piece of text or a list of them.
+;
+; The runs are kept beside the cell's value rather than inside it, for the same
+; reason notes and links are: the value is what formulas read and what a paste
+; carries, and it must stay a plain string. `text()` reassembles it, and that is
+; what the model stores as the cell's value — so everything that does not know
+; about runs keeps working, and everything that does can ask.
+;
+; Editing a cell drops its runs. That is what a spreadsheet does when you retype
+; a cell rather than a pretence that the pieces could survive arbitrary text
+; being typed over them.
+; ==============================================================================
+
+Import "CellStyle.rgr"
+
+class CellRun {
+    def text:string ""
+    def bold:boolean false
+    def italic:boolean false
+    def underline:boolean false
+    def strike:boolean false
+    ; 0 means "whatever the cell's own style says", which is how OOXML leaves
+    ; a run that only overrides the weight.
+    def sizePt:double 0.0
+    def rgb:string ""
+
+    Constructor () {
+    }
+
+    fn copyFrom:void (o:CellRun) {
+        text = o.text
+        bold = o.bold
+        italic = o.italic
+        underline = o.underline
+        strike = o.strike
+        sizePt = o.sizePt
+        rgb = o.rgb
+    }
+
+    ; Does this run ask for anything the cell's own style would not give it?
+    ; A string whose runs all answer false is not rich text — it is text that
+    ; happened to be written in pieces, and it is stored as one.
+    fn isStyled:boolean () {
+        if bold {
+            return true
+        }
+        if italic {
+            return true
+        }
+        if underline {
+            return true
+        }
+        if strike {
+            return true
+        }
+        if (sizePt > 0.0) {
+            return true
+        }
+        return ((strlen rgb) > 0)
+    }
+
+    ; The face this run is painted in: the cell's style, overridden by whatever
+    ; the run says. Handing back a whole CellStyle means the painter needs no
+    ; special path — it draws a run exactly as it draws a cell.
+    fn styleOver:CellStyle (base:CellStyle) {
+        def st:CellStyle (base.copy())
+        if bold {
+            st.bold = true
+        }
+        if italic {
+            st.italic = true
+        }
+        if underline {
+            st.underline = true
+        }
+        if strike {
+            st.strike = true
+        }
+        if (sizePt > 0.0) {
+            st.fontSizePt = sizePt
+        }
+        if ((strlen rgb) > 0) {
+            st.textRgb = rgb
+        }
+        return st
+    }
+}
+
+class RichText {
+    def runs:[CellRun]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length runs)
+    }
+
+    fn add:void (r:CellRun) {
+        push runs r
+    }
+
+    fn addPlain:void (t:string) {
+        def r:CellRun (new CellRun)
+        r.text = t
+        push runs r
+    }
+
+    ; The plain string the runs spell out — what the cell stores as its value.
+    fn text:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length runs)) {
+            def r:CellRun (itemAt runs i)
+            out = (out + r.text)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Worth keeping only when at least one run differs from the rest of the
+    ; cell. Otherwise the pieces carry no information the value does not.
+    fn isRich:boolean () {
+        if ((array_length runs) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length runs)) {
+            def r:CellRun (itemAt runs i)
+            if (r.isStyled()) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn copy:RichText () {
+        def o:RichText (new RichText)
+        def i:int 0
+        while (i < (array_length runs)) {
+            def src:CellRun (itemAt runs i)
+            def r:CellRun (new CellRun)
+            r.copyFrom(src)
+            push o.runs r
+            i = (i + 1)
+        }
+        return o
+    }
+}

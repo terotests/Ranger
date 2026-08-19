@@ -24,6 +24,18 @@ SHARED = [
     "Second sheet",          # 6
 ]
 
+# One shared string written in styled pieces — bold red "Total:" followed by
+# plain text and a smaller unit. Rich text is a list of runs, and a loader that
+# keeps only what they spell loses the point of it.
+RICH_SI = (
+    '<si>'
+    '<r><rPr><b/><color rgb="FFCC0000"/></rPr><t xml:space="preserve">Total: </t></r>'
+    '<r><t xml:space="preserve">1234</t></r>'
+    '<r><rPr><i/><sz val="8"/></rPr><t xml:space="preserve"> kg</t></r>'
+    '</si>'
+)
+RICH_INDEX = len(SHARED)  # 7
+
 CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -75,6 +87,7 @@ SHEET1 = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c></row>
     <row r="2"><c r="A2" t="s"><v>3</v></c><c r="B2" t="s"><v>4</v></c></row>
     <row r="3"><c r="A3" t="s"><v>5</v></c><c r="B3"><v>42</v></c></row>
+    <row r="5"><c r="A5" t="s"><v>7</v></c><c r="B5" t="inlineStr"><is><r><rPr><b/></rPr><t>inline </t></r><r><t>runs</t></r></is></c></row>
   </sheetData>
   <hyperlinks>
     <hyperlink ref="A1" r:id="rId1"/>
@@ -123,10 +136,11 @@ STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 
 def shared_strings():
-    items = "".join(f"<si><t>{s}</t></si>" for s in SHARED)
+    items = "".join(f"<si><t>{s}</t></si>" for s in SHARED) + RICH_SI
+    total = len(SHARED) + 1
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
             '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-            f'count="{len(SHARED)}" uniqueCount="{len(SHARED)}">{items}</sst>')
+            f'count="{total}" uniqueCount="{total}">{items}</sst>')
 
 
 def main():

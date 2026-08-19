@@ -452,7 +452,70 @@ class GridView {
         }
     }
 
+    ; Text drawn in pieces. Each run is laid down at the x the one before it
+    ; ended at, in its own face — which is why `styleOver` hands back a whole
+    ; CellStyle: a run is painted exactly as a cell is, and only the walk is
+    ; new. The whole string is aligned as one, so a centred cell of rich text
+    ; is centred rather than each piece being centred separately.
+    fn paintRuns:void (dl:EVGDisplayList rect:GridRect base:CellStyle cellPx:double baseCol:EVGColor rt:RichText) {
+        def total:int 0
+        def i:int 0
+        while (i < (rt.count())) {
+            def run:CellRun (itemAt rt.runs i)
+            def rs:CellStyle (run.styleOver(base))
+            def px:double (this.sizeOf(rs cellPx))
+            this.applyFaceStyled(rs.bold rs.italic)
+            total = (total + (to_int (ctx.tr.measureWidth(run.text px))))
+            i = (i + 1)
+        }
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        def top:int (this.textTopFor(rect base lineH 1))
+        def x:double (this.alignedX(rect base total))
+        def k:int 0
+        while (k < (rt.count())) {
+            def run2:CellRun (itemAt rt.runs k)
+            def rs2:CellStyle (run2.styleOver(base))
+            def px2:double (this.sizeOf(rs2 cellPx))
+            def runCol:EVGColor baseCol
+            if ((strlen rs2.textRgb) >= 4) {
+                runCol = (EVGColor.parse(rs2.textRgb))
+            }
+            this.applyFaceStyled(rs2.bold rs2.italic)
+            def w:int (to_int (ctx.tr.measureWidth(run2.text px2)))
+            ; Runs of different sizes sit on one baseline rather than one top,
+            ; which is what makes a smaller suffix look attached to the word
+            ; before it instead of floating above it.
+            def runTop:int (top + (to_int (ctx.tr.lineHeight(cellPx))) - (to_int (ctx.tr.lineHeight(px2))))
+            this.pushStyledText(dl run2.text x (to_double runTop) px2 runCol rs2.bold rs2.italic)
+            this.paintDecoration(dl rs2 x runTop w px2 runCol)
+            x = (x + (to_double w))
+            k = (k + 1)
+        }
+    }
+
+    ; A run's point size in pixels, falling back to the cell's.
+    fn sizeOf:double (st:CellStyle fallback:double) {
+        if (st.fontSizePt > 0.0) {
+            def px:double ((st.fontSizePt * 96.0) / 72.0)
+            if (px < 6.0) {
+                return 6.0
+            }
+            return px
+        }
+        return fallback
+    }
+
     fn paintSingleLine:void (dl:EVGDisplayList model:SpreadsheetModel rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string r:int c:int) {
+        if (model.hasRichText(r c)) {
+            def rt:RichText (model.richTextAt(r c))
+            this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
+            this.paintRuns(dl rect st cellPx col rt)
+            this.popClip(dl)
+            return
+        }
         if (st.isStacked()) {
             this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
             this.paintStacked(dl rect st cellPx col txt)

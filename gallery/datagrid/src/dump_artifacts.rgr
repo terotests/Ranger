@@ -217,6 +217,12 @@ class DumpArtifacts {
             app.openListPicker(2 0)
             DumpArtifacts.writePng(app dir "13_validation_list.png")
             app.listDialog.close()
+            app.moveActive(4 2 false)
+            app.model.setColWidth(0 190)
+            app.sheetView.markDirty()
+            app.sheetView.rebuild()
+            app.grid.updateVisible(app.model)
+            DumpArtifacts.writePng(app dir "14_rich_text.png")
         }
 
         print "DumpArtifacts DONE"

@@ -595,6 +595,7 @@ class XlsxWorksheet {
         def formula:string ""
         def value:string ""
         def inline:string ""
+        def inlineRich:RichText (new RichText)
         if open.selfClose {
             ; An empty but FORMATTED cell is written self-closing, e.g.
             ; <c r="B3" s="2"/>. Returning here dropped its fill and borders —
@@ -627,7 +628,10 @@ class XlsxWorksheet {
                     value = (p.readTextUntilEnd("v"))
                 }
                 if ((t.name == "is") && (t.isEnd == false) && (t.selfClose == false)) {
-                    inline = (p.collectTTextUntil("is"))
+                    ; An inline string can be written in styled pieces too, so
+                    ; it is read the same way a shared one is.
+                    inlineRich = (XlsxSharedStrings.parseRuns(p "is"))
+                    inline = (inlineRich.text())
                 }
             }
         }
@@ -636,9 +640,18 @@ class XlsxWorksheet {
         if (cellType == "s") {
             def idx:int (XlsxWorksheet.parseInt0(value))
             display = (sst.at(idx))
+            ; Several styles inside one string: keep the pieces, not only what
+            ; they spell.
+            def shared:RichText (sst.richAt(idx))
+            if (shared.isRich()) {
+                model.setRichText(row col (shared.copy()))
+            }
         } {
             if (cellType == "inlineStr") {
                 display = inline
+                if (inlineRich.isRich()) {
+                    model.setRichText(row col inlineRich)
+                }
             } {
                 if (cellType == "b") {
                     if ((value == "1") || (value == "true")) {
