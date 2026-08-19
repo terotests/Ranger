@@ -71,6 +71,29 @@ class UITextRenderer {
         return ok
     }
 
+    ; The same as `loadFont`, from bytes. `family` is the name this renderer
+    ; will then draw with; the face's own name comes out of the file.
+    fn loadFontBytes:boolean (family:string data:buffer) {
+        def ok:boolean (fm.loadFontBuffer(family data))
+        if ok {
+            fontFamily = family
+            def ttf:TrueTypeFont (fm.getFont(family))
+            rt.setFont(ttf)
+            def tm:TTFTextMeasurer (new TTFTextMeasurer(fm))
+            measurer = tm
+            hasFont = true
+            this.clearCache()
+        }
+        return ok
+    }
+
+    ; A face the renderer will not switch to — bold and italic are selected by
+    ; name when a run asks for them, and asking for them here would leave the
+    ; default face bold.
+    fn addFaceBytes:boolean (data:buffer) {
+        return (fm.loadFontBuffer("" data))
+    }
+
     fn setDefaultSize:void (sz:double) {
         defaultSize = sz
     }

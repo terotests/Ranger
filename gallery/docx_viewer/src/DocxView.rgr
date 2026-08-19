@@ -3,6 +3,12 @@
 ; ==============================================================================
 
 Import "RichDocument.rgr"
+; The chart component: the same model, the same generator and the same Vela
+; renderer the spreadsheet uses. A chart pasted into a document is not a second
+; implementation of charts — it is the first one, running here.
+Import "../../datagrid/src/ChartDoc.rgr"
+Import "../../datagrid/src/GridChartView.rgr"
+Import "../../datagrid/src/SoftPainter.rgr"
 Import "DocxLayout.rgr"
 Import "DocxEditController.rgr"
 Import "DocxTextMetrics.rgr"
@@ -17,6 +23,14 @@ Import "../../text_editor/src/TextEditCore.rgr"
 class DocxView {
     def canvas:SoftCanvas (new SoftCanvas)
     def ctx:UIContext (new UIContext)
+    ; Charts in the document, drawn by the spreadsheet's own renderer. The
+    ; cache is keyed by chart id and box, so scrolling a page of charts costs
+    ; nothing and editing one costs a single recompute.
+    def charts:GridChartView (new GridChartView)
+    def chartInk:SoftPainter (new SoftPainter)
+    ; Which chart the caret is on, or 0. Painted with a frame so the reader can
+    ; see what an edit would change.
+    def selectedChartId:int 0
     def layout:DocxLayout (new DocxLayout)
     def pageIndex:int 0
     def bg:EVGColor (EVGColor.rgb(248 248 250))
@@ -275,10 +289,46 @@ class DocxView {
                     }
                 }
             }
+            if (line.kind == 6) {
+                this.paintChartLine(line lx ly)
+            }
             if ((line.kind == 0) || (line.kind == 4) || (line.kind == 5)) {
                 this.paintStyledLine(line lx ly)
             }
             i = (i + 1)
+        }
+    }
+
+    ; A chart, drawn where the layout put it. The document carries the chart's
+    ; JSON; this decodes it, hands the cells and the settings to the same
+    ; generator the grid uses, and paints the resulting draw commands onto this
+    ; page's canvas. Nothing about the picture was stored — it is made here,
+    ; which is why an edit shows up immediately.
+    fn paintChartLine:void (line:LaidLine lx:int ly:int) {
+        def ch:DocChart (docRef.chartById(line.chartId))
+        if ((strlen ch.json) == 0) {
+            return
+        }
+        def doc:ChartDoc (ChartDocCodec.decode(ch.json))
+        if (doc.ok == false) {
+            ch.note = doc.note
+            ctx.fillRect(lx ly line.width line.height (EVGColor.rgb(240 242 246)))
+            ctx.text(("[chart: " + doc.note + "]") (lx + 8) (ly + 8) 12.0 ink)
+            return
+        }
+        ; The chart's id is the render cache's key, so two charts in one
+        ; document do not evict each other.
+        doc.chart.id = ch.id
+        def dl (new EVGDisplayList)
+        charts.paint(dl doc.cells doc.chart ctx.tr lx ly line.width line.height)
+        chartInk.attach(canvas ctx (new GridImages) (canvas.getWidth()) (canvas.getHeight()))
+        chartInk.draw(dl)
+        ch.note = ""
+        if (selectedChartId == ch.id) {
+            ; The selection frame is chrome, not part of the chart — it is
+            ; drawn after, so it never ends up in an exported picture.
+            def mark:EVGColor (EVGColor.rgb(40 100 210))
+            ctx.strokeRect((lx - 3) (ly - 3) (line.width + 6) (line.height + 6) 2 mark)
         }
     }
 

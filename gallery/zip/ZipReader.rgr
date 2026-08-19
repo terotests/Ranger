@@ -24,7 +24,14 @@ class ZipReader {
     
     fn open:boolean (path:string filename:string) {
         ; Read ZIP file into buffer
-        data = (buffer_read_file path filename)
+        return (this.openBytes((buffer_read_file path filename)))
+    }
+
+    ; The same archive, from bytes somebody else obtained. A browser has no
+    ; file system to read from — it has a fetch() and an ArrayBuffer — so the
+    ; reading and the parsing are separated here rather than in every caller.
+    fn openBytes:boolean (bytes:buffer) {
+        data = bytes
         def dataLen:int (buffer_length data)
         
         if (dataLen < 22) {

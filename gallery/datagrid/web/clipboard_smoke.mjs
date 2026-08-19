@@ -154,6 +154,18 @@ async function main() {
 
     const clip = await get("/clipboard");
     check("the vector flavour is there too", (clip.svg || "").startsWith("<svg "));
+    // The chart also travels as a document: spec, numbers and presentation.
+    // This is what makes a pasted chart editable rather than a picture of one.
+    let doc = null;
+    try {
+      doc = JSON.parse(clip.chart || "null");
+    } catch (_) {
+      doc = null;
+    }
+    check("and the chart travels as a document", !!doc && doc.ranger === "vela-chart");
+    check("carrying its own specification", !!(doc && doc.spec && doc.spec.mark));
+    check("and the numbers it was made of", !!(doc && Array.isArray(doc.cells) && doc.cells.length > 1));
+    check("the html carries the same document", (reply.clipboardHtml || "").includes("data-ranger-chart"));
     check("named after the chart", (clip.name || "").length > 0, clip.name);
     check("and the host can tell copies apart", (clip.seq | 0) > 0, String(clip.seq));
 

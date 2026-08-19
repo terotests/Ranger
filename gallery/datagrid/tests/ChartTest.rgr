@@ -13,7 +13,9 @@
 ; ==============================================================================
 
 Import "../src/GridChart.rgr"
+Import "../src/ChartDoc.rgr"
 Import "../src/GridChartView.rgr"
+Import "../../vela/src/VlEvgList.rgr"
 Import "../src/GridApp.rgr"
 Import "../../game_engine/lpc/src/png_decoder.rgr"
 
@@ -200,6 +202,14 @@ class ChartTest {
             i = (i + 1)
         }
         return bad
+    }
+
+    sfn near:boolean (got:double want:double slack:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d <= slack)
     }
 
     ; base64 is four characters per three bytes, padded up.
@@ -739,6 +749,39 @@ class ChartTest {
         this.checkTrue("clicking it opens the picker" app.chartDialog.visible)
         app.chartDialog.close()
 
+        print "== a turned label hangs off its anchor, not through the plot =="
+        ; Vega anchors a label and then turns it about that anchor, with the
+        ; alignment applied first. EVG turns a string about the centre of its
+        ; own box. Those agree only when the anchor IS the centre, which for an
+        ; axis label it never is — and treating them as the same put half of
+        ; every turned category name above the axis, standing in the data.
+        ;
+        ; A bottom-axis label at 270 degrees is anchored at its right end and
+        ; must end up hanging straight down from the anchor.
+        def turned (new VlDrawCommand)
+        turned.op = "text"
+        turned.text = "Marketing"
+        turned.x = 100.0
+        turned.y = 200.0
+        turned.align = "right"
+        turned.baseline = "middle"
+        turned.angle = 270.0
+        turned.fill = "#333333"
+        turned.fontSize = 10.0
+        def turnList (new VlCommandList)
+        push turnList.commands turned
+        def turnDl (new EVGDisplayList)
+        def bridge (new VlEvgList)
+        bridge.emit(turnDl turnList tr 0.0 0.0 1.0)
+        this.checkInt("the label was emitted" (array_length turnDl.cmds) 1)
+        def label:EVGDrawCmd (itemAt turnDl.cmds 0)
+        def labelCx:double (label.x + (label.w / 2.0))
+        def labelCy:double (label.y + (label.h / 2.0))
+        this.checkTrue("it stays on the anchor's column" (ChartTest.near(labelCx 100.0 1.5)))
+        def wantCy:double (200.0 + (label.w / 2.0))
+        this.checkTrue("and hangs below the anchor" (ChartTest.near(labelCy wantCy 1.5)))
+        this.checkTrue("nothing of it reaches above the axis" ((label.y + label.h) > 200.0))
+
         print "== the clipboard: what Excel and Word are handed =="
         def clipApp (new GridApp)
         clipApp.init("gallery/pdf_writer/assets/fonts")
@@ -830,6 +873,62 @@ class ChartTest {
         def emptyClip:ChartClip (clipApp.clipper.build(clipApp.model emptyChart clipApp.view.ctx.tr 300 200))
         this.checkFalse("an empty range does not copy" emptyClip.ok)
         this.checkTrue("and says why" ((strlen emptyClip.note) > 0))
+
+        print "== the chart as a document, not a picture =="
+        def docChart:GridChart (ChartTest.chartOver(0 0 6 2))
+        docChart.id = 7
+        docChart.kind = (ChartKind.line())
+        docChart.style = (ChartStyle.ocean())
+        docChart.title = "Units \"per\" month"
+        docChart.w = 420
+        docChart.h = 280
+        def carried:string (ChartDocCodec.encode(wide docChart))
+        this.checkTrue("it says what it is" (ChartTest.hasSub(carried "\"ranger\":\"vela-chart\"")))
+        this.checkTrue("it carries the specification" (ChartTest.hasSub(carried "\"mark\"")))
+        this.checkTrue("and the numbers it was made of" (ChartTest.hasSub(carried "\"Jan\"")))
+
+        def back:ChartDoc (ChartDocCodec.decode(carried))
+        this.checkTrue("it decodes" back.ok)
+        this.checkInt("the kind survives" back.chart.kind (ChartKind.line()))
+        this.checkInt("the style survives" back.chart.style (ChartStyle.ocean()))
+        this.check("the title survives, quotes and all" back.chart.title "Units \"per\" month")
+        this.checkInt("the box survives" back.chart.w 420
+        )
+        this.checkInt("seven rows of cells" (back.rows()) 7)
+        this.checkInt("three columns" (back.cols()) 3)
+        this.check("the cells are the cells" (back.cells.getCell(1 1)) "120")
+
+        ; The point of carrying the table: the same generator, run on the far
+        ; side, produces the same specification. A picture cannot do this.
+        def hereData (new ChartData)
+        hereData.extract(wide docChart)
+        def hereSpec:string (hereData.specJson(docChart 420 280))
+        def thereSpec:string (back.rebuildSpec(420 280))
+        this.check("the far side regenerates the same specification" thereSpec hereSpec)
+
+        ; …and an edit on the far side is a real edit rather than a relabel.
+        back.chart.kind = (ChartKind.area())
+        def edited:string (back.rebuildSpec(420 280))
+        this.checkTrue("changing the kind changes the spec" (edited != hereSpec))
+        this.checkTrue("to the kind that was asked for" (ChartTest.hasSub(edited "\"area\"")))
+        this.checkTrue("and the far side knows what it can become" (back.suits((ChartKind.pie())) == false))
+
+        ; It rides in the HTML flavour, so a paste can find it.
+        def carriedHtml:string (clipApp.clipboardHtml)
+        this.checkTrue("the clipboard html carries the document" (ChartTest.hasSub(carriedHtml (ChartDocCodec.attrName()))))
+        def fromClip:ChartDoc (ChartDocCodec.fromHtml(carriedHtml))
+        this.checkTrue("which comes back out of it" fromClip.ok)
+        this.check("with the chart that was copied" fromClip.chart.title "Sales Q1 (units)")
+        this.checkInt("and its numbers" (fromClip.rows()) 4)
+
+        ; Anything else is refused with a reason rather than half-built.
+        def notOurs:ChartDoc (ChartDocCodec.fromHtml("<table><tr><td>1</td></tr></table>"))
+        this.checkFalse("plain html is not a chart" notOurs.ok)
+        this.checkTrue("and says so" ((strlen notOurs.note) > 0))
+        def wrongTag:ChartDoc (ChartDocCodec.decode("{\"ranger\":\"something-else\"}"))
+        this.checkFalse("nor is another kind of ranger json" wrongTag.ok)
+        def future:ChartDoc (ChartDocCodec.decode("{\"ranger\":\"vela-chart\",\"v\":99,\"cells\":[[\"a\"]]}"))
+        this.checkFalse("nor a version from the future" future.ok)
 
         print ""
         print (("passed=" + (to_string passed)) + " failed=" + (to_string failed))

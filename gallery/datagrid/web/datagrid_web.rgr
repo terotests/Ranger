@@ -1,0 +1,200 @@
+; ==============================================================================
+; datagrid_web.rgr — the whole editor, in the browser, with no host behind it.
+; ==============================================================================
+;
+; The Node host was never part of the architecture. The seam is the DISPLAY
+; LIST: the app builds an EVGDisplayList and something draws it. HTTP was one
+; way to get the list from the app to the drawer, and it is the only reason
+; there was a server at all — the browser was fetching `scene.json` sixty times
+; a second from a process running on the same machine to draw a picture the
+; same machine had just computed.
+;
+; Ranger compiles to JavaScript, so the app can simply BE in the page. Same
+; GridApp, same UIInput, same display list, same WebGL renderer; the fetch in
+; the middle is gone. What is left of the host is a static file server, and
+; `python3 -m http.server` is one of those.
+;
+; The only thing a browser cannot do is read files, and the app used the file
+; system for exactly two things — the fonts and the workbook. Both now have
+; byte-taking entry points beside their path-taking ones (`loadFontBytes`,
+; `loadXlsxBytes`), so the page fetches them and hands the bytes over.
+;
+; This class is the facade the page talks to. It is thin on purpose: the
+; compiled app object is right there in JavaScript, so the page reaches
+; `web.app.clipboardHtml` and `web.app.book.sheetAt(i)` directly rather than
+; through a wrapper that would have to be kept in step with them.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class DataGridWeb {
+    def app:GridApp (new GridApp)
+    def input:UIInput (new UIInput)
+    ; What the last openWorkbook said, when it said no.
+    def note:string ""
+
+    Constructor () {
+    }
+
+    ; --- starting up ----------------------------------------------------------
+    ; Size first, then fonts, then a workbook — in that order, because the grid
+    ; measures text with the faces it has and lays out for the size it was told.
+    fn start:void (w:int h:int) {
+        app.W = w
+        app.H = h
+        app.initBare()
+    }
+
+    ; The face the grid draws with. The first call wins the default; the rest
+    ; are the cuts a bold or italic cell switches to.
+    fn addFont:boolean (family:string data:buffer) {
+        return (app.addFontBytes(family data))
+    }
+
+    fn addFace:boolean (data:buffer) {
+        return (app.addFaceBytes(data))
+    }
+
+    ; Fonts are in: build the demo sheet so the page has something to draw
+    ; before (or instead of) a workbook arriving.
+    fn useDemo:void () {
+        app.loadDemo()
+    }
+
+    fn openWorkbook:boolean (data:buffer name:string) {
+        def ok:boolean (app.loadXlsxBytes(data name))
+        if (ok == false) {
+            note = app.loadError
+        } {
+            note = ""
+        }
+        return ok
+    }
+
+    ; Open the sheet with this name, if the workbook has one. What the host
+    ; used to do for the showcase workbook.
+    fn showSheet:boolean (name:string) {
+        def i:int 0
+        while (i < (app.book.sheetCount())) {
+            def sh:SpreadsheetModel (app.book.sheetAt(i))
+            if (sh.name == name) {
+                app.setActiveSheet(i)
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn resize:void (w:int h:int) {
+        app.resize(w h)
+    }
+
+    ; --- input ----------------------------------------------------------------
+    ; One frame of input per call, which is the contract UIInput already has:
+    ; the page collects a browser event, hands it over, and the app updates.
+    fn pointer:void (x:int y:int down:boolean shift:boolean ctrl:boolean) {
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.setPointerDown(down)
+        input.setModifiers(shift ctrl)
+        app.update(input)
+    }
+
+    fn wheel:void (x:int y:int delta:int) {
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.addScroll(delta)
+        app.update(input)
+    }
+
+    fn text:void (s:string shift:boolean ctrl:boolean) {
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushText(s)
+        app.update(input)
+    }
+
+    fn key:void (name:string shift:boolean ctrl:boolean) {
+        def code:int (DataGridWeb.keyByName(name))
+        if (code == 0) {
+            return
+        }
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushKey(code)
+        app.update(input)
+    }
+
+    ; The browser's key names, as UIKey's numbers. Kept here rather than in the
+    ; page so a second host does not have to invent the same table.
+    sfn keyByName:int (name:string) {
+        if (name == "backspace") { return (UIKey.backspace()) }
+        if (name == "enter")     { return (UIKey.enter()) }
+        if (name == "tab")       { return (UIKey.tab()) }
+        if (name == "escape")    { return (UIKey.escape()) }
+        if (name == "left")      { return (UIKey.left()) }
+        if (name == "right")     { return (UIKey.right()) }
+        if (name == "up")        { return (UIKey.up()) }
+        if (name == "down")      { return (UIKey.down()) }
+        if (name == "delete")    { return (UIKey.del()) }
+        if (name == "home")      { return (UIKey.home()) }
+        if (name == "end")       { return (UIKey.end()) }
+        if (name == "pageUp")    { return (UIKey.pageUp()) }
+        if (name == "pageDown")  { return (UIKey.pageDown()) }
+        if (name == "f2")        { return (UIKey.f2()) }
+        return (UIKey.none())
+    }
+
+    ; A double click, which the browser reports as its own event and the grid
+    ; reads as "fit this column to what is in it".
+    fn autoFitAt:void (x:int y:int) {
+        app.autoFitAt(x y)
+    }
+
+    ; --- the clipboard --------------------------------------------------------
+    ; The page puts these on the system clipboard. Same four flavours the Node
+    ; host handed over HTTP, for the same reason: `text/html` is what Word and
+    ; Excel take, and a chart also travels as its own Vela document.
+    fn pasteText:void (s:string) {
+        app.setClipboardText(s)
+        app.pasteClipboard()
+    }
+
+    ; True when the app has copied something since the page last asked, so the
+    ; page writes the clipboard on a copy it did not predict — the Copy button
+    ; on a chart window is a click, not a key.
+    fn copySeq:int () {
+        return app.clipboardSeq
+    }
+
+    ; --- the picture ----------------------------------------------------------
+    fn scene:string () {
+        return (app.sceneJson())
+    }
+
+    fn width:int () {
+        return app.W
+    }
+
+    fn height:int () {
+        return app.H
+    }
+
+    fn status:string () {
+        return app.view.status
+    }
+
+    ; --- the command surface --------------------------------------------------
+    fn commands:string () {
+        return (app.commands.toJson())
+    }
+
+    fn run:boolean (id:string arg:string) {
+        return (app.runCommand(id arg))
+    }
+
+    fn activeLabel:string () {
+        return (app.activeLabel())
+    }
+}

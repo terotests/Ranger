@@ -3,6 +3,7 @@
 ; ==============================================================================
 
 Import "DocxViewer.rgr"
+Import "../../datagrid/src/GridApp.rgr"
 
 class DocxDemo {
     sfn renderOne:void (viewer:DocxViewer dir:string file:string outName:string) {
@@ -19,6 +20,88 @@ class DocxDemo {
         print ("  pages=" + (to_string (viewer.pageCount())))
         print ("  text: " + (substring (viewer.plainText()) 0 80))
         print ("  wrote gallery/docx_viewer/" + outName)
+    }
+
+    ; A chart copied out of the spreadsheet and pasted into the document —
+    ; twice, so the pictures show what "still editable" means: the second page
+    ; is the same chart after asking for a different kind and a dark palette,
+    ; with nothing but the chart's own JSON in between.
+    sfn chartPages:void (viewer:DocxViewer fix:string) {
+        print "-- a chart pasted into a document"
+        def app (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.growTo(8 3)
+        app.model.setCell(0 0 "Month")
+        app.model.setCell(0 1 "Widgets")
+        app.model.setCell(0 2 "Gadgets")
+        def names:[string]
+        push names "Jan"
+        push names "Feb"
+        push names "Mar"
+        push names "Apr"
+        push names "May"
+        push names "Jun"
+        def a:[string]
+        push a "120"
+        push a "150"
+        push a "90"
+        push a "175"
+        push a "140"
+        push a "165"
+        def b:[string]
+        push b "80"
+        push b "95"
+        push b "130"
+        push b "110"
+        push b "125"
+        push b "85"
+        def i:int 0
+        while (i < (array_length names)) {
+            app.model.setCell((i + 1) 0 (itemAt names i))
+            app.model.setCell((i + 1) 1 (itemAt a i))
+            app.model.setCell((i + 1) 2 (itemAt b i))
+            i = (i + 1)
+        }
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.grid.updateVisible(app.model)
+        app.sel.anchor.row = 0
+        app.sel.anchor.col = 0
+        app.sel.active.row = 6
+        app.sel.active.col = 2
+        app.openChartDialog(0)
+        app.chartDialog.selectRadio(100 + (ChartKind.column()))
+        app.chartDialog.setInputValue(311 "Units by month")
+        app.applyChartDialog()
+        def panel:ChartPanel (app.view.chartLayer.panelAt(0))
+        def copied:int (app.copyChart(panel.chart.id))
+        if (copied == 0) {
+            print ("  FAIL copy: " + app.clipboardNote)
+            return
+        }
+        if ((viewer.openFile(fix "hello.docx")) == false) {
+            print ("  FAIL open: " + viewer.lastError)
+            return
+        }
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def d:RichDocument (viewer.document())
+        def target:Paragraph (d.paragraphAt(1))
+        viewer.edit.setCaret(target.id (strlen target.text))
+        if ((viewer.pasteClipboard(app.clipboardHtml app.clipboardTsv)) == false) {
+            print "  FAIL paste"
+            return
+        }
+        viewer.renderPage(0)
+        viewer.writePng("gallery/docx_viewer" "docx_chart_pasted.png")
+        print "  wrote gallery/docx_viewer/docx_chart_pasted.png"
+        ; …and edited in the document, through the chart's own document.
+        viewer.editChart("kind" (to_string (ChartKind.smooth())))
+        viewer.editChart("style" (to_string (ChartStyle.slate())))
+        viewer.editChart("title" "Units by month (edited in Word)")
+        viewer.renderPage(0)
+        viewer.writePng("gallery/docx_viewer" "docx_chart_edited.png")
+        print "  wrote gallery/docx_viewer/docx_chart_edited.png"
     }
 
     sfn main:void () {
@@ -42,6 +125,7 @@ class DocxDemo {
             viewer.writePng("gallery/docx_viewer" "docx_business_features.png")
             print ("  wrote business features page " + (to_string pg))
         }
+        DocxDemo.chartPages(viewer fix)
         print "docx_demo done"
     }
 }

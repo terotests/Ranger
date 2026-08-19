@@ -86,8 +86,24 @@ async function sendInput(payload) {
       ? `p${data.caret.paragraphId}@${data.caret.offset}${data.caret.selEnd != null && data.caret.selEnd !== data.caret.offset ? "…" + data.caret.selEnd : ""}`
       : "—";
   }
+  // The chart controls appear only when a chart is selected: they are about
+  // the object under the pointer, not about the document.
+  if (typeof data.chart === "number") setChartTools(data.chart);
   await refreshPage();
   return data;
+}
+
+const chartToolsEl = document.getElementById("chartTools");
+let selectedChart = 0;
+
+function setChartTools(id) {
+  selectedChart = id | 0;
+  if (chartToolsEl) chartToolsEl.hidden = selectedChart === 0;
+}
+
+async function chartEdit(what, arg) {
+  if (!selectedChart) return;
+  await sendInput({ type: "chart", what, arg: arg == null ? "" : String(arg) });
 }
 
 function imgLocalXY(ev) {
@@ -359,6 +375,18 @@ window.addEventListener("paste", async (ev) => {
 });
 
 document.getElementById("btnBold")?.addEventListener("click", () => sendInput({ type: "bold" }));
+
+// Editing a chart in the document. Each of these changes the chart's own Vela
+// document and it is drawn again from the numbers — none of them touch pixels.
+document.getElementById("chartType")?.addEventListener("click", () => chartEdit("kind.next", 1));
+document.getElementById("chartStyle")?.addEventListener("click", () => chartEdit("style.next", 1));
+document.getElementById("chartLegend")?.addEventListener("click", () => chartEdit("legend", ""));
+document.getElementById("chartTitle")?.addEventListener("click", () => {
+  const title = window.prompt("Chart title");
+  if (title != null) chartEdit("title", title);
+});
+document.getElementById("chartWider")?.addEventListener("click", () => chartEdit("width", 520));
+document.getElementById("chartDelete")?.addEventListener("click", () => chartEdit("delete", ""));
 
 statusEl.textContent = "starting";
 try {

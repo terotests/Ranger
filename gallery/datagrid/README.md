@@ -46,6 +46,67 @@ npm run datagrid:window
 `datagrid:window` rebuilds the module and opens the WebGL host. **Default workbook is
 `business-workbook.xlsx`** (not the old `sales.xlsx`).
 
+### Running it with no host at all
+
+```bash
+npm run datagrid:web          # build gallery/datagrid/web/standalone/dist
+npm run datagrid:web:serve    # …and serve it on :8000 with python's file server
+npm run datagrid:web:test     # open it in headless Chrome and make it work
+```
+
+The Node host was never part of the architecture. The seam is the **display
+list**: the app builds an `EVGDisplayList` and something draws it. HTTP was one
+way to carry the list from the app to the drawer, and the only reason there was
+a server — a browser fetching `scene.json` sixty times a second from a process
+on the same machine, to draw a picture that machine had just computed.
+
+Ranger compiles to JavaScript, so the app can simply *be* in the page:
+
+```text
+hosted                                   standalone
+browser event → POST /input → GridApp    browser event → GridApp        (this tab)
+GET /scene.json → EVGDisplayList → GL    GridApp.sceneJson() → GL       (this tab)
+```
+
+Same `GridApp`, same `UIInput`, same display list, same `evg-webgl.js`. What is
+left of the host is a static file server, and `python3 -m http.server` is one of
+those. The output is an HTML file, one compiled script, the renderer, four font
+files and a workbook.
+
+The only thing a browser cannot do is read files, and the app used the file
+system for exactly two things — the fonts and the workbook. Both now have
+byte-taking entry points beside the path-taking ones (`loadFontBytes`,
+`loadXlsxBytes`, and `ZipReader.openBytes` under them), so the page fetches the
+bytes and hands them over. A workbook you pick with the file input is read in
+the tab and never uploaded anywhere.
+
+> The build **checks** that the bundle is loadable by a browser rather than
+> assuming it: it loads the compiled script with `require` undefined — which is
+> what a browser looks like — and asks for its class. The EVG stack keeps its
+> file-reading functions; they are simply never on the path this page takes, and
+> a stray one at load time would compile fine and fail only when somebody opened
+> the page.
+>
+> There is no browser-driver library here, so the page tests itself: `?selftest=1`
+> types into a cell, copies, opens the chart picker and makes a chart, then
+> writes the result into the DOM where headless Chrome's `--dump-dom` can be
+> read back.
+
+### The render seam, and why the browser asks so often
+
+The host holds the document; the browser is a renderer. Every frame it asks
+`GET /scene.json` for the app's **EVG display list** and draws it with WebGL —
+that is the whole render path, and it is why the network panel shows a request
+per animation frame.
+
+It asks that often because it cannot know when the app changed: nothing pushes.
+So the client sends the number of the scene it already holds
+(`/scene.json?seen=N`) and a scene that has not changed answers **204** instead
+of the list. The scene is still built on every poll — that is what makes the
+caret blink and a drag follow the pointer — but an idle page now transfers
+nothing and redraws nothing, instead of pulling tens of kilobytes sixty times a
+second and re-uploading a picture it had already drawn.
+
 - Multi-sheet workbook + tabs (hidden sheet metadata)
 - styles.xml → fill / font / align / **XlsxNumberFormat** engine
 - **Cell borders**: all OOXML line styles per edge (solid, dashed, dotted,
@@ -570,6 +631,52 @@ nothing external to fetch, nothing to go missing when the document is mailed on.
 A host that puts CF_HTML on a Windows clipboard wraps that fragment in the
 CF_HTML header; a browser hands `text/html` to `navigator.clipboard` and the
 wrapping is the browser's problem.
+
+### The chart as a document
+
+A picture is what a program can *paste*; it is not something it can **edit**.
+So the same `<img>` carries the chart itself, as JSON, in an attribute:
+
+```html
+<img src="data:image/png;base64,…" data-ranger-chart="{&quot;ranger&quot;:&quot;vela-chart&quot;,…}">
+```
+
+```jsonc
+{
+  "ranger": "vela-chart", "v": 1,
+  "title": "Units by month", "kind": 1, "style": 1, "legend": true,
+  "headerRow": true, "headerCol": true, "w": 380, "h": 270,
+  "source": "A1:C7",
+  "cells": [["Month","Widgets","Gadgets"], ["Jan","120","80"], …],
+  "spec":  { "mark": "bar", "encoding": { … }, "data": { "values": [ … ] }, … }
+}
+```
+
+Both halves are there on purpose:
+
+| Member | For | Why |
+| --- | --- | --- |
+| `spec` | a **renderer** | hand it to Vela unchanged and a chart comes out; no spreadsheet involved |
+| `cells` + the settings | an **editor** | ask for a different kind and get a different chart, not a differently-labelled one |
+
+`spec` is never edited by hand. Every change regenerates it from `cells`
+through `ChartData.specJson` — the *same* generator the spreadsheet uses — which
+is what stops the two halves from drifting. The carried table is a tiny
+`SpreadsheetModel`, the same class the grid holds its cells in, so "the same
+generator" is literal rather than approximate.
+
+A program that does not know the attribute pastes the picture and loses nothing
+it ever had. A program that does — [the DOCX editor](../docx_viewer/README.md#charts-from-the-spreadsheet)
+— pastes a chart it can go on editing, in the document, with the same Vela
+renderer drawing it. `GridApp.clipboardChartJson` holds it, `GET /clipboard`
+returns it as `chart`, and [`ChartDoc.rgr`](src/ChartDoc.rgr) is both ends of
+the codec.
+
+> The three files that make up the chart component — `GridChart.rgr` (the model
+> and the spec generator), `GridChartView.rgr` (compile, fit, cache, draw) and
+> `ChartDoc.rgr` (the interchange format) — are used by the DOCX editor as they
+> stand. They live here because this is where charts are authored, not because
+> they are the spreadsheet's private business.
 
 All of them are built from **one render** ([`GridClip.rgr`](src/GridClip.rgr)) —
 the same display list the sheet draws, painted onto an off-screen surface by the

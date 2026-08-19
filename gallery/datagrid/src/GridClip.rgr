@@ -32,10 +32,10 @@
 ; ==============================================================================
 
 Import "GridChart.rgr"
+Import "ChartDoc.rgr"
 Import "GridChartView.rgr"
 Import "SoftPainter.rgr"
 Import "SpreadsheetModel.rgr"
-Import "../../evg/EVGWindow.rgr"
 Import "../../vela/src/VlSvg.rgr"
 Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
 Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
@@ -55,6 +55,9 @@ class ChartClip {
     def svg:string ""
     def html:string ""
     def tsv:string ""
+    ; The chart as a document — spec, cells and settings. This is what makes a
+    ; pasted chart editable rather than a picture of one.
+    def chartJson:string ""
 
     Constructor () {
     }
@@ -253,7 +256,11 @@ class ChartClipboard {
         ; pixels at the ON-SCREEN size rather than the bitmap's, so the picture
         ; arrives the size it looked on the sheet and carries twice the detail
         ; for when it is printed or enlarged.
-        clip.html = ("<meta charset=\"utf-8\"><img alt=\"" + (ChartClipboard.attrEscape(alt)) + "\" width=\"" + (to_string boxW) + "\" height=\"" + (to_string boxH) + "\" src=\"" + (clip.dataUri()) + "\">")
+        ; The document rides on the picture. A program that does not know the
+        ; attribute pastes the image and loses nothing; one that does — the
+        ; DOCX editor here — pastes a chart it can go on editing.
+        clip.chartJson = (ChartDocCodec.encode(model ch))
+        clip.html = ("<meta charset=\"utf-8\"><img alt=\"" + (ChartClipboard.attrEscape(alt)) + "\" width=\"" + (to_string boxW) + "\" height=\"" + (to_string boxH) + "\" " + (ChartDocCodec.htmlAttribute(clip.chartJson)) + " src=\"" + (clip.dataUri()) + "\">")
         clip.ok = true
         return clip
     }

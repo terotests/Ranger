@@ -198,7 +198,11 @@ async function handleRequest(req, res) {
     // (a Node process cannot reach it directly).
     let clipboardOut = "";
     if (type === "click") {
-      viewer.clickAt(ev.x | 0, ev.y | 0, !!ev.shift);
+      // A chart takes the click before the caret does — it is an object on the
+      // page, like a picture, not a place in the text.
+      if (!viewer.clickChart(ev.x | 0, ev.y | 0)) {
+        viewer.clickAt(ev.x | 0, ev.y | 0, !!ev.shift);
+      }
     } else if (type === "text") {
       viewer.typeText(String(ev.text || ""));
     } else if (type === "backspace") {
@@ -239,6 +243,12 @@ async function handleRequest(req, res) {
       clipboardOut = viewer.copySelection();
     } else if (type === "cut") {
       clipboardOut = viewer.cutSelection();
+    } else if (type === "chart") {
+      // Editing a pasted chart: each of these regenerates the chart's
+      // specification from its own numbers and redraws it.
+      const what = String(ev.what || "");
+      if (what === "delete") viewer.deleteChart();
+      else viewer.editChart(what, String(ev.arg || ""));
     }
     // Follow the caret: `| currentPage` OR-ed the old page in, so moving back
     // to an earlier page (page 0 especially) never took effect.
@@ -256,6 +266,9 @@ async function handleRequest(req, res) {
         caret,
         editMode: !!viewer.editMode(),
         clipboard: clipboardOut,
+        // Which chart is selected, so the host can offer the chart controls
+        // only when there is one to change.
+        chart: viewer.selectedChart() | 0,
       })
     );
     return;

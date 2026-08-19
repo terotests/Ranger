@@ -259,11 +259,46 @@ class VlEvgList {
         if (cmd.baseline == "alphabetic") {
             top = (ay - (size * 0.8))
         }
-        ; A turned label rotates about its own box centre on every backend, so
-        ; the box has to be centred on the anchor for the string to land there.
+        ; A turned label. EVG rotates a string about the centre of its own box;
+        ; SVG — and therefore the reference — rotates it about its ANCHOR, with
+        ; the alignment and baseline applied first. Those are the same thing
+        ; only when the anchor happens to be the centre, which for an axis
+        ; label it never is: a category name under a bottom axis is anchored at
+        ; its RIGHT end, so turning it a quarter should hang it downwards from
+        ; the axis.
+        ;
+        ; Centring the box on the anchor instead put half of every turned label
+        ; ABOVE the axis, standing in the plot among the data.
+        ;
+        ; So the box keeps the place alignment gave it, and its centre is
+        ; carried around the anchor by the same rotation the renderer will then
+        ; apply about that centre.
         if (cmd.angle != 0.0) {
-            left = (ax - (tw / 2.0))
-            top = (ay - (lh / 2.0))
+            def cx:double (left + (tw / 2.0))
+            ; The box's own centre, taken from the baseline rather than from
+            ; `top`: the unrotated mapping measures a baseline against the FONT
+            ; SIZE and the box is a line height tall, and the couple of pixels
+            ; between the two become a couple of pixels of lean once the label
+            ; is turned a quarter.
+            def cy:double (ay + (lh / 2.0))
+            if (cmd.baseline == "middle") {
+                cy = ay
+            }
+            if (cmd.baseline == "bottom") {
+                cy = (ay - (lh / 2.0))
+            }
+            if (cmd.baseline == "alphabetic") {
+                cy = ((ay - (size * 0.8)) + (lh / 2.0))
+            }
+            def rad:double ((cmd.angle * 3.141592653589793) / 180.0)
+            def cs:double (cos rad)
+            def sn:double (sin rad)
+            def rx:double (cx - ax)
+            def ry:double (cy - ay)
+            def nx:double (ax + ((rx * cs) - (ry * sn)))
+            def ny:double (ay + ((rx * sn) + (ry * cs)))
+            left = (nx - (tw / 2.0))
+            top = (ny - (lh / 2.0))
         }
         def col:EVGColor (EVGColor.parse(cmd.fill))
         def c (new EVGDrawCmd)

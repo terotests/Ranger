@@ -294,9 +294,23 @@ async function imagesFor(doc) {
   return out;
 }
 
+// Which scene we are already holding. The host answers 204 when it would send
+// that same one again, which is most frames: the display list only changes when
+// something in the app does, and a browser polling once per animation frame has
+// no way to know that on its own. Without this the page pulled ~50 KB sixty
+// times a second and spent it redrawing a picture it had already drawn.
+let sceneSeq = -1;
+
 async function pullScene() {
-  const res = await fetch("/scene.json?" + Date.now(), { cache: "no-store" });
+  const res = await fetch("/scene.json?seen=" + sceneSeq, { cache: "no-store" });
+  if (res.status === 204) {
+    // Nothing changed. The canvas already holds this frame, so there is
+    // nothing to fetch, nothing to upload and nothing to draw.
+    return;
+  }
   if (!res.ok) throw new Error("scene " + res.status);
+  const seq = parseInt(res.headers.get("x-scene-seq") || "-1", 10);
+  if (!Number.isNaN(seq)) sceneSeq = seq;
   const doc = await res.json();
   if (!fontsReady) {
     fontsReady = ensureFonts(doc);

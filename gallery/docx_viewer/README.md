@@ -79,6 +79,7 @@ See `harness/ORACLES.md`.
 
 ```bash
 npm run docx_viewer:test
+npm run docx_viewer:chart:test    # copy a chart in the grid, paste and edit it here
 npm run docx_viewer:demo          # PNG snapshots under gallery/docx_viewer/
 npm run docx_viewer:oracles
 npm run docx_viewer:module
@@ -199,6 +200,7 @@ paragraph no longer wraps as if it were regular.
 
 | Clipboard flavour | Result |
 | --- | --- |
+| `text/html` carrying `data-ranger-chart` | a live **chart** block — see below |
 | `text/html` containing a `<table>` | a real `DocumentTable` block |
 | `text/plain` with tabs | same, parsed as TSV |
 | `text/plain` without tabs | text, newlines becoming paragraph splits |
@@ -215,3 +217,50 @@ between the halves, with the caret on the paragraph that follows it. One
 parser, because real clipboard markup is not well-formed XML — Excel ships a
 `<style>` block, `<!--StartFragment-->` comments, unquoted and single-quoted
 attributes and void `<col>` tags.
+
+## Charts from the spreadsheet
+
+Copy a chart in the [DataGrid](../datagrid/README.md#the-chart-as-a-document)
+and paste it here. What arrives is **not a picture of a chart**: the clipboard's
+HTML flavour carries the chart's whole Vela document — the Vega-Lite
+specification, the numbers it was made of, and how it is presented — on the
+`data-ranger-chart` attribute of the `<img>`. This editor reads that instead of
+the bitmap and stores it as a `DocChart` block.
+
+Nothing about the drawing is kept. The picture is recomputed on every paint by
+the *same* renderer the spreadsheet uses — `GridChartView` → Vela → EVG — so a
+chart in a document and a chart on a sheet are one implementation, not two that
+resemble each other.
+
+Which is what makes it editable here:
+
+| Control | Does |
+| --- | --- |
+| Click the chart | Selects it (a frame is drawn around it) |
+| **Type ▸** | Next chart type its own numbers can actually be drawn as |
+| **Style ▸** | Next palette |
+| **Legend** | Key on or off |
+| **Title…** | Rename it |
+| **Wider** | Grow the box; the chart re-lays out, it does not stretch |
+| **Delete** | Remove it |
+
+Every one of those decodes the chart's JSON, changes one field, regenerates the
+specification from the carried cells through the spreadsheet's own generator,
+and encodes it again. No control anywhere edits a specification by hand, so the
+picture, the settings and the numbers cannot drift apart.
+
+`npm run docx_viewer:chart:test` is the proof, and it is deliberately a
+*cross-application* test: it copies a chart out of `GridApp`, pastes that exact
+clipboard string into `DocxViewer`, checks the document holds the numbers rather
+than pixels, checks the page gains ink where the chart is, and then edits the
+chart and checks the specification followed.
+
+`docx_chart_pasted.png` and `docx_chart_edited.png` (written by
+`npm run docx_viewer:demo`, and tracked) are the same chart before and after
+being changed to a smooth line on a slate palette — in the document, with
+nothing but its own JSON in between.
+
+Known limits: a chart cannot yet be exported back into a `.docx` (this editor
+has no DOCX writer at all yet). When there is one, a chart should go out as a
+`w:drawing` with the rendered PNG plus its JSON on the alt-text, which is how it
+would survive a round trip through real Word.
