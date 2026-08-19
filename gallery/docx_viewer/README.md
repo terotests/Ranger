@@ -75,6 +75,46 @@ Regenerate: `npm run docx_viewer:fixtures` (`ffmpeg` + Pillow).
 
 See `harness/ORACLES.md`.
 
+## Running it in a browser, with no host and no PNG
+
+```bash
+npm run docx_viewer:web         # build gallery/docx_viewer/web/standalone/dist
+npm run docx_viewer:web:serve   # …and serve it on :8002
+npm run docx_viewer:web:test    # open it in headless Chrome and use it
+```
+
+This viewer used to be the odd one out. The spreadsheet and the slide deck have
+built `EVGDisplayList`s for a long time and let WebGL draw them; a document was
+rasterized **on the server** and shipped to the browser as a PNG per page — a
+machine with a GPU receiving a picture of a page it could have drawn.
+
+The layout and the painting did not change. What changed is where the marks go:
+[`DocxInk`](src/DocxInk.rgr) is one object with two modes, and every `rect`,
+`text` and `image` the page painter makes either lands on the SoftCanvas or
+becomes a draw command. A second painter would have meant two descriptions of
+what a Word page looks like, drifting apart at their own pace; this way a
+difference between the backends would have to be a difference in EVG.
+
+```text
+was                                     now
+DocxLayout → SoftCanvas → PNG → HTTP    DocxLayout → EVGDisplayList → WebGL
+```
+
+A chart in the document is the clearest case: it already spoke display list, so
+on this path its commands simply join the page's — nothing is rasterized at all.
+
+The rest is the same recipe as the other two galleries: bytes instead of paths
+for the fonts and the document (`DocxPackage.openBytes` over
+`ZipReader.openBytes`), and the document's own image parts handed to the
+renderer rather than served, since the package is closed by the time anything is
+drawn.
+
+The page tests itself (`?selftest=1`, read back through headless Chrome's
+`--dump-dom`): it checks the context really is WebGL 2, that the page arrived as
+text runs rather than one big picture, turns a page, types, and pastes a chart
+copied out of the spreadsheet — then checks that the chart is drawn as geometry
+and can still be re-typed here.
+
 ## Run
 
 ```bash

@@ -30,6 +30,10 @@ class PptxParser {
         return (pkg.openParts(path name))
     }
 
+    fn openBytes:boolean (bytes:buffer name:string) {
+        return (pkg.openBytes(bytes name))
+    }
+
     fn parseDoubleAttr:double (node:PptxXmlNode name:string) {
         def s:string (node.attr(name))
         if ((strlen s) == 0) {

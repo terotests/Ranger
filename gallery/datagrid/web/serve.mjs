@@ -143,7 +143,8 @@ function applyEvent(ev) {
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
   } else if (ev.type === "wheel") {
     liveInput.setPointerPos(lastX, lastY);
-    liveInput.addScroll(ev.delta | 0);
+    if (ev.axis === "x") liveInput.addScrollX(ev.delta | 0);
+    else liveInput.addScroll(ev.delta | 0);
   } else if (ev.type === "key") {
     liveInput.setPointerPos(lastX, lastY);
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);

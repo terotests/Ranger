@@ -1,0 +1,154 @@
+; ==============================================================================
+; DocxInk.rgr — where a page's marks go: a canvas, or a display list.
+; ==============================================================================
+;
+; The viewer painted straight onto a SoftCanvas, and the web host answered with
+; a PNG of it. That works and it is slow in the least interesting way: the
+; server rasterizes a page, encodes it, ships it, and the browser — which has a
+; GPU — decodes a picture it could have drawn itself. The spreadsheet and the
+; slide viewer have not done that for a long time; they build an
+; `EVGDisplayList` and let WebGL draw it.
+;
+; The obvious way to add a display list here would have been a second painter
+; beside the first, and then two descriptions of what a Word page looks like,
+; drifting apart at their own pace. So instead the marks go through this: one
+; object with two modes. Every `rect`, `text` and `image` the page painter makes
+; either lands on the canvas or becomes a draw command, and nothing else in the
+; painter changes.
+;
+; Text carries its face with it. A display list is measured and drawn by
+; somebody else later, so "bold" has to be on the command rather than implied
+; by whichever face happened to be selected when it was written.
+; ==============================================================================
+
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "DocxTextMetrics.rgr"
+
+class DocxInk {
+    def ctx:UIContext (new UIContext)
+    def dl:EVGDisplayList (new EVGDisplayList)
+    ; false: paint onto the canvas the context is attached to.
+    ; true:  append to the display list instead.
+    def toList:boolean false
+    def fontFamily:string "Open Sans"
+
+    Constructor () {
+    }
+
+    fn canvasMode:void (c:UIContext) {
+        ctx = c
+        toList = false
+    }
+
+    fn listMode:void (c:UIContext out:EVGDisplayList) {
+        ctx = c
+        dl = out
+        toList = true
+    }
+
+    fn rect:void (x:int y:int w:int h:int col:EVGColor) {
+        if (w <= 0) {
+            return
+        }
+        if (h <= 0) {
+            return
+        }
+        if (toList == false) {
+            ctx.fillRect(x y w h col)
+            return
+        }
+        def c (new EVGDrawCmd)
+        c.kind = 0
+        c.x = (to_double x)
+        c.y = (to_double y)
+        c.w = (to_double w)
+        c.h = (to_double h)
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; An outline. The display list has a BORDER command for exactly this, so a
+    ; page frame is one command rather than four rectangles.
+    fn strokeRect:void (x:int y:int w:int h:int thickness:int col:EVGColor) {
+        if (toList == false) {
+            ctx.strokeRect(x y w h thickness col)
+            return
+        }
+        def c (new EVGDrawCmd)
+        c.kind = 1
+        c.x = (to_double x)
+        c.y = (to_double y)
+        c.w = (to_double w)
+        c.h = (to_double h)
+        c.thickness = (to_double thickness)
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; A run of text at its own size and weight. The face is applied before
+    ; measuring either way, so the width recorded on the command is the width
+    ; the same renderer would paint.
+    fn text:void (s:string x:int y:int size:double col:EVGColor bold:boolean) {
+        if ((strlen s) == 0) {
+            return
+        }
+        DocxTextMetrics.applyFace(ctx.tr bold)
+        if (toList == false) {
+            ctx.text(s x y size col)
+            return
+        }
+        def c (new EVGDrawCmd)
+        c.kind = 3
+        c.x = (to_double x)
+        c.y = (to_double y)
+        c.w = (ctx.tr.measureWidth(s size))
+        c.h = (ctx.tr.lineHeight(size))
+        c.text = s
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        if bold {
+            c.fontWeight = "bold"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; A picture, named by its package part. The canvas has the decoded pixels;
+    ; a display-list backend fetches the part itself, which is the same contract
+    ; the spreadsheet's images use.
+    fn image:void (src:string x:int y:int w:int h:int) {
+        if (toList == false) {
+            return
+        }
+        def c (new EVGDrawCmd)
+        c.kind = 2
+        c.x = (to_double x)
+        c.y = (to_double y)
+        c.w = (to_double w)
+        c.h = (to_double h)
+        c.src = src
+        c.a = 1.0
+        push dl.cmds c
+    }
+
+    ; Commands somebody else already made — a chart draws itself into a list of
+    ; its own, and in list mode those commands simply join this page's.
+    fn append:void (other:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length other.cmds)) {
+            push dl.cmds (itemAt other.cmds i)
+            i = (i + 1)
+        }
+    }
+}

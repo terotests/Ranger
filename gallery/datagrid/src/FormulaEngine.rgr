@@ -1295,6 +1295,32 @@ class FormulaEngine {
         this.recalcDirty()
     }
 
+    ; How many formulas ended up in an error state — a cycle, or an expression
+    ; that could not be evaluated. Zero is what a healthy sheet reports, and a
+    ; test can say so without knowing which cells they were.
+    fn errorCount:int () {
+        def n:int 0
+        def si:int 0
+        while (si < (book.sheetCount())) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            def keys:[string]
+            sheet.collectFormulaKeys(si keys)
+            def i:int 0
+            while (i < (array_length keys)) {
+                def k:string (itemAt keys i)
+                if (has calcStatus k) {
+                    def st:string (unwrap (get calcStatus k))
+                    if (st == "error") {
+                        n = (n + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+            si = (si + 1)
+        }
+        return n
+    }
+
     fn recalcAll:void () {
         def keys:[string]
         ; gather all formula keys from depsOf — iterate sheets
@@ -1314,63 +1340,129 @@ class FormulaEngine {
         this.recalcDirty()
     }
 
+    ; Recalculate everything dirty, dependencies first.
+    ;
+    ; This used to be a sweep: walk every formula in the workbook, evaluate the
+    ; ones whose dependencies were already clean, and repeat — up to SIXTY-FOUR
+    ; times, after which whatever was left was declared a cycle. A sweep settles
+    ; one link of a chain per pass whenever the chain runs against the order the
+    ; sheet is walked in, so a column of four hundred subtotals — each reading
+    ; the one below it, which is how a report is usually built — got sixty-four
+    ; rows deep and then reported #CYCLE! for the other three hundred and
+    ; thirty-six. From the outside that looks exactly like sums that "stop being
+    ; delegated after a while".
+    ;
+    ; So it is a depth-first walk now: to evaluate a cell, evaluate what it
+    ; depends on first. Depth costs nothing, the work is proportional to the
+    ; dependency graph rather than to (formulas x passes), and a cycle is a cell
+    ; that is reached again while it is still being computed — which is what a
+    ; cycle actually is, rather than what is left over when patience runs out.
+    ;
+    ; The walk carries its own stack. Recursion would have been shorter and a
+    ; four-hundred-deep sheet is a perfectly ordinary thing to open.
     fn recalcDirty:void () {
-        ; simple multi-pass: evaluate dirty formulas whose deps are clean; detect cycles
-        def guard:int 0
-        while (guard < 64) {
-            def progressed:boolean false
-            def si:int 0
-            def sn:int (book.sheetCount())
-            while (si < sn) {
-                def sheet:SpreadsheetModel (book.sheetAt(si))
-                def keys:[string]
-                sheet.collectFormulaKeys(si keys)
-                def i:int 0
-                def n:int (array_length keys)
-                while (i < n) {
-                    def key:string (itemAt keys i)
-                    def st:string "cached"
-                    if (has calcStatus key) {
-                        st = (unwrap (get calcStatus key))
-                    }
-                    if ((st == "dirty") || (st == "pending")) {
-                        if (this.depsReady(key)) {
-                            this.evalOne(key)
-                            progressed = true
+        def si:int 0
+        def sn:int (book.sheetCount())
+        while (si < sn) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            def keys:[string]
+            sheet.collectFormulaKeys(si keys)
+            def i:int 0
+            def n:int (array_length keys)
+            while (i < n) {
+                def key:string (itemAt keys i)
+                if (this.needsWork(key)) {
+                    this.resolveFrom(key)
+                }
+                i = (i + 1)
+            }
+            si = (si + 1)
+        }
+    }
+
+    fn needsWork:boolean (key:string) {
+        if (has calcStatus key) {
+            def st:string (unwrap (get calcStatus key))
+            if (st == "dirty") {
+                return true
+            }
+            if (st == "pending") {
+                return true
+            }
+            return false
+        }
+        ; A formula nothing has said anything about yet still has to be run.
+        return (has depsOf key)
+    }
+
+    ; One dependency-first walk from `root`. Everything reachable from it that
+    ; is dirty comes out either evaluated or, if it is genuinely part of a
+    ; cycle, marked as one.
+    fn resolveFrom:void (root:string) {
+        def stack:[string]
+        def phase:[int]
+        push stack root
+        push phase 0
+        while ((array_length stack) > 0) {
+            def top:int ((array_length stack) - 1)
+            def key:string (itemAt stack top)
+            def ph:int (itemAt phase top)
+            if (ph == 0) {
+                if ((this.needsWork(key)) == false) {
+                    removeLast stack
+                    removeLast phase
+                    continue
+                }
+                ; "visiting" means: on the stack right now. Anything that reaches
+                ; a visiting cell has closed a loop.
+                set calcStatus key "visiting"
+                set phase top 1
+                if (has depsOf key) {
+                    def deps:[string]
+                    this.splitKeys((unwrap (get depsOf key)) deps)
+                    def i:int 0
+                    def n:int (array_length deps)
+                    while (i < n) {
+                        def d:string (itemAt deps i)
+                        def dst:string ""
+                        if (has calcStatus d) {
+                            dst = (unwrap (get calcStatus d))
                         }
-                    }
-                    i = (i + 1)
-                }
-                si = (si + 1)
-            }
-            if (progressed == false) {
-                break
-            }
-            guard = (guard + 1)
-        }
-        ; remaining dirty → cycle
-        def si2:int 0
-        def sn2:int (book.sheetCount())
-        while (si2 < sn2) {
-            def sheet2:SpreadsheetModel (book.sheetAt(si2))
-            def keys2:[string]
-            sheet2.collectFormulaKeys(si2 keys2)
-            def j:int 0
-            def m:int (array_length keys2)
-            while (j < m) {
-                def k2:string (itemAt keys2 j)
-                if (has calcStatus k2) {
-                    def st2:string (unwrap (get calcStatus k2))
-                    if ((st2 == "dirty") || (st2 == "pending")) {
-                        set calcStatus k2 "error"
-                        set calcValues k2 "#CYCLE!"
-                        this.applyResult(k2 (FormulaValue.fromError("#CYCLE!")))
+                        if (dst == "visiting") {
+                            ; The loop is real: this cell cannot be computed.
+                            this.markCycle(key)
+                        } {
+                            if (this.needsWork(d)) {
+                                push stack d
+                                push phase 0
+                            }
+                        }
+                        i = (i + 1)
                     }
                 }
-                j = (j + 1)
+            } {
+                removeLast stack
+                removeLast phase
+                def st:string ""
+                if (has calcStatus key) {
+                    st = (unwrap (get calcStatus key))
+                }
+                ; Still visiting means the dependencies are done and nothing
+                ; declared it cyclic, so now it can be evaluated.
+                if (st == "visiting") {
+                    this.evalOne(key)
+                }
             }
-            si2 = (si2 + 1)
         }
+    }
+
+    ; A cell in a cycle: say so in the cell as well as in the status, because
+    ; the value that is there now was computed from something that no longer
+    ; holds.
+    fn markCycle:void (key:string) {
+        set calcStatus key "error"
+        set calcValues key "#CYCLE!"
+        this.applyResult(key (FormulaValue.fromError("#CYCLE!")))
     }
 
     fn depsReady:boolean (key:string) {

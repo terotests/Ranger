@@ -1,0 +1,121 @@
+; ==============================================================================
+; pptx_web.rgr — the slide viewer, in the browser, with no host behind it.
+; ==============================================================================
+;
+; The viewer already produced a display list and the WebGL host already drew it;
+; the only thing between them was HTTP. Ranger compiles to JavaScript, so the
+; viewer can be in the page instead — same PptxApp, same EVGDisplayList, same
+; evg-webgl.js, no server.
+;
+; A browser cannot read files, and the viewer used the file system for the fonts
+; and the deck. Both take bytes now (`loadFontBytes`, `loadBytes` over
+; `OpcPackage.openBytes`), so the page fetches or is handed them.
+;
+; The deck's pictures come with it: the parser already pulled every image part
+; out of the package and left the bytes on the model, so the page turns those
+; into textures directly rather than asking a server for them — which is also
+; why pictures now appear in the WebGL path at all.
+; ==============================================================================
+
+Import "../src/PptxApp.rgr"
+
+class PptxWeb {
+    def app:PptxApp (new PptxApp)
+    def input:UIInput (new UIInput)
+    def note:string ""
+
+    Constructor () {
+    }
+
+    fn start:void (w:int h:int) {
+        app.W = w
+        app.H = h
+        app.initBare()
+    }
+
+    fn addFont:boolean (family:string data:buffer) {
+        return (app.addFontBytes(family data))
+    }
+
+    fn addFace:boolean (data:buffer) {
+        return (app.addFaceBytes(data))
+    }
+
+    fn openDeck:boolean (data:buffer name:string) {
+        def ok:boolean (app.loadBytes(data name))
+        if (ok == false) {
+            note = "could not open the deck"
+        } {
+            note = ""
+        }
+        return ok
+    }
+
+    fn slideCount:int () {
+        return (app.slideCount())
+    }
+
+    fn slideIndex:int () {
+        return app.index
+    }
+
+    fn gotoSlide:void (i:int) {
+        app.gotoSlide(i)
+    }
+
+    fn next:void () {
+        app.nextSlide()
+    }
+
+    fn prev:void () {
+        app.prevSlide()
+    }
+
+    ; The same input contract the hosted build used, one frame per call.
+    fn pointer:void (x:int y:int down:boolean) {
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.setPointerDown(down)
+        app.update(input)
+    }
+
+    fn key:void (name:string) {
+        def code:int (PptxWeb.keyByName(name))
+        if (code == 0) {
+            return
+        }
+        input.newFrame()
+        input.pushKey(code)
+        app.update(input)
+    }
+
+    sfn keyByName:int (name:string) {
+        if (name == "left")     { return (UIKey.left()) }
+        if (name == "right")    { return (UIKey.right()) }
+        if (name == "home")     { return (UIKey.home()) }
+        if (name == "end")      { return (UIKey.end()) }
+        if (name == "pageUp")   { return (UIKey.left()) }
+        if (name == "pageDown") { return (UIKey.right()) }
+        return (UIKey.none())
+    }
+
+    fn scene:string () {
+        return (app.sceneJson())
+    }
+
+    fn imageParts:string () {
+        return (app.imagePartsJson())
+    }
+
+    fn imageBytes:buffer (part:string) {
+        return (app.imageBytes(part))
+    }
+
+    fn status:string () {
+        return app.view.status
+    }
+
+    fn deckName:string () {
+        return app.view.deckName
+    }
+}

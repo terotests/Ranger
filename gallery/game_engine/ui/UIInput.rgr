@@ -47,6 +47,9 @@ class UIInput {
     def pointerPressed:boolean false   ; edge: went down this frame
     def pointerReleased:boolean false  ; edge: went up this frame
     def scrollDelta:int 0              ; wheel notches this frame (+up / -down)
+    ; Sideways notches: a trackpad sends them on their own, and a mouse sends
+    ; them as shift+wheel. A host that has neither simply leaves this at zero.
+    def scrollDeltaX:int 0             ; (+left / -right)
 
     ; --- keyboard -------------------------------------------------------------
     ; Printable characters typed this frame, in order (already de-modified:
@@ -69,6 +72,7 @@ class UIInput {
         pointerPressed = false
         pointerReleased = false
         scrollDelta = 0
+        scrollDeltaX = 0
         textInput = ""
         clear specialKeys
     }
@@ -88,6 +92,10 @@ class UIInput {
             pointerReleased = true
         }
         pointerDown = down
+    }
+
+    fn addScrollX:void (delta:int) {
+        scrollDeltaX = (scrollDeltaX + delta)
     }
 
     fn addScroll:void (delta:int) {

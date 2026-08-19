@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger PPTX viewer — running entirely in the browser</title>
+    <style>
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; }
+      :root { --ink: #1a1f2b; --muted: #5c6b80; --accent: #b4451f; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; min-height: 100%;
+        background: linear-gradient(180deg, #23272f 0%, #14171c 100%);
+        color: #e8ecf2;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body { display: grid; place-items: start center; padding: 24px; }
+      .stage { width: min(1120px, 100%); }
+      h1 { margin: 0 0 6px; font-size: 1.3rem; font-weight: 650; }
+      p.hint { margin: 0 0 14px; color: #9fb0c4; font-size: 0.9rem; }
+      .frame { background: #0d1014; border: 1px solid #333a44; padding: 10px; box-shadow: 0 18px 46px rgba(0,0,0,0.5); }
+      canvas { display: block; width: 100%; height: auto; background: #fff; outline: none; }
+      .bar { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; color: #9fb0c4; font-size: 0.82rem; align-items: center; }
+      .bar strong { color: #ffb27a; font-weight: 600; }
+      button { font: inherit; font-size: 0.82rem; padding: 3px 10px; background: #2a3039; color: #e8ecf2; border: 1px solid #3d4550; cursor: pointer; }
+      input[type="file"] { font-size: 0.78rem; color: #9fb0c4; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>Ranger PPTX · no server</h1>
+      <p class="hint">
+        The deck is parsed and drawn in this page: OPC/ZIP → PresentationML →
+        theme &amp; layout inheritance → <code>EVGDisplayList</code> → WebGL 2.
+        Arrow keys or the buttons change slide; nothing is fetched while you
+        look. Open a deck of your own — it is read here, not uploaded.
+      </p>
+      <div class="frame">
+        <canvas id="screen" tabindex="0" width="1000" height="600"></canvas>
+      </div>
+      <div class="bar">
+        <button type="button" id="prev">◀ Prev</button>
+        <span>slide <strong id="slide">—</strong></span>
+        <button type="button" id="next">Next ▶</button>
+        <span>status: <strong id="status">starting…</strong></span>
+        <span>backend: <strong id="backend">—</strong></span>
+        <span>cmds: <strong id="cmds">—</strong></span>
+        <label>open a .pptx <input id="file" type="file" accept=".pptx" /></label>
+      </div>
+    </div>
+    <script src="./pptx_web.js"></script>
+    <script type="module" src="./standalone.mjs"></script>
+  </body>
+</html>

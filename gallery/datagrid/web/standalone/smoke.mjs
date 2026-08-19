@@ -162,6 +162,8 @@ async function main() {
     console.log("  status  " + status);
     console.log("  backend " + backend);
     console.log("  cmds    " + cmds);
+    const glinfo = (dom.match(/<pre id="glinfo">([^<]*)/) || [])[1];
+    if (glinfo) console.log("  " + glinfo);
     if (line) console.log("  " + line.split(" :: ").join("\n  "));
 
     const problems = [];

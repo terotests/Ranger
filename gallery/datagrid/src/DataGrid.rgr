@@ -38,6 +38,10 @@ class DataGrid {
     def y:int 0
     def w:int 720
     def h:int 440
+    ; The toolbar strip above the formula bar. Zero when a host does not want
+    ; one — a printed page or an oracle dump has no use for buttons — so the
+    ; geometry below is written in terms of it rather than around it.
+    def toolbarH:int 0
     def formulaBarH:int 28
     def colHeaderH:int 24
     def rowHeaderW:int 48
@@ -246,8 +250,21 @@ class DataGrid {
         return (x + rowHeaderW)
     }
 
+    fn toolbarY:int () {
+        return y
+    }
+
+    fn formulaBarY:int () {
+        return (y + toolbarH)
+    }
+
+    ; Top of the column header strip — where the sheet proper begins.
+    fn headerTop:int () {
+        return ((y + toolbarH) + formulaBarH)
+    }
+
     fn gridOriginY:int () {
-        return (y + formulaBarH + colHeaderH)
+        return (((y + toolbarH) + formulaBarH) + colHeaderH)
     }
 
     fn viewportW:int () {
@@ -259,7 +276,7 @@ class DataGrid {
     }
 
     fn viewportH:int () {
-        def vh:int (h - formulaBarH - colHeaderH - sheetTabH)
+        def vh:int ((((h - toolbarH) - formulaBarH) - colHeaderH) - sheetTabH)
         if (vh < 1) {
             return 1
         }
@@ -385,6 +402,17 @@ class DataGrid {
     fn scrollByRows:void (model:SpreadsheetModel delta:int) {
         def step:int model.defaultRowH
         this.scrollByPixels(model 0 (delta * step))
+    }
+
+    ; Sideways, a column at a time. Without this there was no way to reach a
+    ; column that had scrolled off the right edge except by walking the caret
+    ; there — the wheel only ever moved rows.
+    fn scrollByCols:void (model:SpreadsheetModel delta:int) {
+        def step:int model.defaultColW
+        if (step < 8) {
+            step = 8
+        }
+        this.scrollByPixels(model (delta * step) 0)
     }
 
     ; Screen X for a MODEL column (maps through SheetView when bound).
@@ -566,6 +594,27 @@ class DataGrid {
         return true
     }
 
+    ; Where the sheet tabs were last painted: one entry per VISIBLE tab, in the
+    ; order they were drawn. The view fills these because only the view can
+    ; measure a name, and a tab is as wide as its name — a hit test that
+    ; assumed a fixed slot would pick the wrong sheet the moment one of them
+    ; was called "Q3 Forecast (draft)".
+    def tabXs:[int]
+    def tabWs:[int]
+    def tabSheets:[int]
+
+    fn clearTabLayout:void () {
+        clear tabXs
+        clear tabWs
+        clear tabSheets
+    }
+
+    fn addTabLayout:void (sheetIndex:int tx:int tw:int) {
+        push tabXs tx
+        push tabWs tw
+        push tabSheets sheetIndex
+    }
+
     ; Sheet tab index under pointer, or -1.
     fn hitSheetTab:int (sheetCount:int px:int py:int) {
         def ty:int (this.sheetTabY())
@@ -581,15 +630,31 @@ class DataGrid {
         if (px >= (x + w)) {
             return -1
         }
+        if ((array_length tabXs) > 0) {
+            def i:int 0
+            while (i < (array_length tabXs)) {
+                def tx:int (itemAt tabXs i)
+                def tw:int (itemAt tabWs i)
+                if (px >= tx) {
+                    if (px < (tx + tw)) {
+                        return (itemAt tabSheets i)
+                    }
+                }
+                i = (i + 1)
+            }
+            return -1
+        }
+        ; Nothing painted yet: fall back to the fixed slots the view uses as
+        ; its minimum, so a hit test before the first frame still lands.
         def tabW:int 88
-        def i:int (to_int ((to_double (px - x)) / (to_double tabW)))
-        if (i < 0) {
+        def k:int (to_int ((to_double (px - x)) / (to_double tabW)))
+        if (k < 0) {
             return -1
         }
-        if (i >= sheetCount) {
+        if (k >= sheetCount) {
             return -1
         }
-        return i
+        return k
     }
 
     fn ensureCellVisible:void (model:SpreadsheetModel row:int col:int) {
@@ -640,10 +705,10 @@ class DataGrid {
         if (py >= (y + h)) {
             return miss
         }
-        if (py < (y + formulaBarH)) {
+        if (py < (this.headerTop())) {
             return (CellPos.create(-3 -3))
         }
-        def headerTop:int (y + formulaBarH)
+        def headerTop:int (this.headerTop())
         def bodyLeft:int (x + rowHeaderW)
         def bodyTop:int (headerTop + colHeaderH)
         if ((px < bodyLeft) && (py < bodyTop)) {
@@ -728,7 +793,7 @@ class DataGrid {
     ; Row resize hit: near bottom edge of a row header. Iterates VIEW
     ; rows so sort / filter order does not shift the grab zone.
     fn hitRowResize:int (model:SpreadsheetModel px:int py:int) {
-        def headerTop:int (y + formulaBarH)
+        def headerTop:int (this.headerTop())
         def bodyLeft:int (x + rowHeaderW)
         def bodyTop:int (headerTop + colHeaderH)
         if (px < x) {
@@ -764,7 +829,7 @@ class DataGrid {
 
     ; Column resize hit: near right edge of a column header.
     fn hitColResize:int (model:SpreadsheetModel px:int py:int) {
-        def headerTop:int (y + formulaBarH)
+        def headerTop:int (this.headerTop())
         def bodyLeft:int (x + rowHeaderW)
         def bodyTop:int (headerTop + colHeaderH)
         if (py < headerTop) {

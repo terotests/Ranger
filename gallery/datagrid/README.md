@@ -92,6 +92,28 @@ the tab and never uploaded anywhere.
 > writes the result into the DOM where headless Chrome's `--dump-dom` can be
 > read back.
 
+**Is it really WebGL?** "backend: webgl2" is a label the page writes about
+itself, so the self test checks the facts under it: that the context really is a
+`WebGL2RenderingContext`, that it has the stencil buffer a filled path needs,
+that the scene left GL draw calls behind, and that no fill was skipped. It also
+prints what is actually rasterizing:
+
+```text
+gl ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …)) :: draws 118 textRuns 49 paths 19 images 0
+```
+
+That line is from a container with no GPU, where Chrome falls back to
+SwiftShader — a CPU implementation of the same API. On a machine with a GPU the
+same page names the GPU. The pipeline is the same either way.
+
+One honest qualification about text: every rect, border, path, stroke and image
+is geometry the GPU draws, but **glyphs are rasterized by Canvas2D into a
+texture atlas** once per changed scene and composited by GL as instanced
+textured quads. That is the usual way to do text in WebGL — the shaping and
+positioning are already settled by EVG, so the backend only needs a picture of
+each run — but it does mean a CPU pass over the text whenever the scene
+changes.
+
 ### The render seam, and why the browser asks so often
 
 The host holds the document; the browser is a renderer. Every frame it asks
@@ -247,6 +269,7 @@ snapshot — no DOM or SDL below the app.
 | Ctrl+click a link | Follows it — the host is told the target | — |
 | Ctrl+M | Chart the selection (live preview in the picker) | — |
 | Ctrl+C over a chart | Copies it as a picture — pastes into Excel and Word | — |
+| Shift + wheel | Scrolls sideways (a trackpad's own sideways notches work too) | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
 | ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
 | Delete | Clear the selection | Delete at the caret |
@@ -721,6 +744,98 @@ and only scaled if it still does not fit. The usual result is 1:1, so the text
 is crisp rather than resampled. Compiling is cached by specification text and
 box size, which is why dragging a chart costs nothing and editing a cell it
 reads costs one recompute.
+
+## The toolbar
+
+The grid could read and paint every style a workbook carries and could not set
+a single one of them: no bold, no alignment, no fill, no border, no merge, no
+number format. Everything the app *could* do was a keyboard shortcut or a
+command string — fine for a host driving it over a socket, useless for a person
+looking at it.
+
+So there is a toolbar now, and there are commands behind it:
+
+| Group | Buttons |
+| --- | --- |
+| File and history | Save, Undo, Redo, Format painter |
+| Text | Bold, Italic, Underline, Strikethrough, Bigger, Smaller, Text colour, Fill |
+| Layout | Align left / centre / right, Top / Middle / Bottom, Wrap, Merge |
+| Borders | All, Outline, None |
+| Numbers | Currency, Percent, Thousands, More / fewer decimals, Clear formatting |
+| Structure | Insert row, Insert column, Delete rows, Sort ▲▼, Freeze panes |
+| Insert | Chart, Link, Find, Conditional formatting, Data validation |
+
+It is drawn by the **app**, not by the page: it is part of the display list, so
+every host gets it — the browser, the PNG dumps, anything an SDL window would
+present — and a screenshot of the app is a screenshot of the app people use.
+The strip wraps to as many rows as the window needs rather than dropping the
+last six buttons, which are exactly the ones a newcomer looks for.
+
+Each button names a **command**, the same string the keyboard and a remote host
+use, so a button cannot do something the command surface cannot; a test walks
+the toolbar and fails if any button names a command the table does not have.
+Toggles read the cell the caret is on — select a mixed range with the caret on a
+plain cell and one click makes it all bold, as every spreadsheet does.
+
+[`GridFormat.rgr`](src/GridFormat.rgr) is the single place that knows how a
+style changes: one operation per name, applied over every selected range inside
+one transaction, so a formatting change is one Ctrl+Z. Ctrl+B / Ctrl+I / Ctrl+U
+run the same commands.
+
+## Metrics: the grid is the size the file says
+
+A column width in a `.xlsx` is measured in **characters** of the default font,
+and the conversion Excel documents is `round(w × MDW) + 5`, where MDW is the
+width of the widest digit — 7 pixels at 11 point. This used 8, so every column
+with a stated width came out about a seventh wider than the file asked for; and
+a sheet with no widths at all used 100-pixel columns against Excel's 64, with
+22-pixel rows against 20.
+
+Nothing was ever wrong with the text — an 11-point cell is painted at
+11 × 96/72 = 14.67 px, which is exactly what the format says. There was simply
+half a column too much grid around it, which reads as everything being zoomed
+in. The defaults are Excel's now, and `XlsxWriter.pxToColWidth` is the true
+inverse so a width that came from a file goes back out as itself.
+
+> The other half of that impression is the face: this repository draws with
+> Open Sans, whose x-height is larger than Calibri's at the same point size, so
+> the same number is a slightly bigger picture. That is a font we do not ship,
+> not a bug we can fix.
+
+## Recalculation: dependencies first, not sweeps
+
+`FormulaEngine.recalcDirty` used to sweep: walk every formula, evaluate the ones
+whose dependencies were already clean, repeat — **up to 64 times**, and call
+whatever was left a cycle. A sweep settles one link per pass whenever the chain
+runs against the order the sheet is walked in, so a column of 400 subtotals each
+reading the one below it got 64 rows deep and then reported `#CYCLE!` for the
+other 336. From the outside that looks exactly like sums that stop being
+delegated part way down a sheet.
+
+It is a depth-first walk now: to evaluate a cell, evaluate what it depends on
+first. Depth costs nothing, the work is proportional to the dependency graph
+rather than to formulas × passes, and a cycle is a cell reached again while it
+is still being computed — which is what a cycle is, rather than what is left
+over when patience runs out.
+
+```bash
+python3 gallery/datagrid/tools/check_calc.py yourfile.xlsx
+```
+
+Every `.xlsx` stores, beside each formula, the value the program that wrote it
+last computed. That is a free oracle — no LibreOffice, no second implementation
+to install, the answers are already in the file — and `check_calc.py` loads a
+workbook through the engine, recalculates it from the formulas alone, and
+reports every cell where our answer differs, **grouped by the functions the
+formula uses**, because a whole column going wrong is nearly always one
+unimplemented function at the top of it. Point it at a file that looks wrong and
+it will name the culprit.
+
+`fixtures/calc-chain.xlsx` is that oracle turned into a test: 950 formulas —
+400-long chains in both directions, ladders of SUMs, subtotals of subtotals and
+a cross-sheet hop — with the correct values written in by
+`tools/make_calcchain_fixture.py`. It reported 356 disagreements before the
+change and reports none now.
 
 ## The command surface
 

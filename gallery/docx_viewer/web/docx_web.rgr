@@ -1,0 +1,148 @@
+; ==============================================================================
+; docx_web.rgr — the Word viewer, in the browser, drawing with WebGL.
+; ==============================================================================
+;
+; This one was the odd viewer out. The spreadsheet and the slide deck have built
+; display lists for a long time and let WebGL draw them; the document was
+; rasterized on the server and shipped to the browser as a PNG per page — a
+; machine with a GPU receiving a picture of a page it could have drawn.
+;
+; So the page painter grew a second sink (`DocxInk`) and the viewer grew
+; `sceneJson`. Nothing about the layout or the painting changed: the same code
+; makes the same marks, and they either land on a SoftCanvas or become draw
+; commands. That is what keeps the two backends honest — a difference between
+; them would have to be a difference in EVG, not in what a Word page is.
+;
+; The rest is the same recipe as the other two: bytes instead of paths for the
+; fonts and the document, and the document's own image parts handed to the
+; renderer rather than served.
+; ==============================================================================
+
+Import "../src/DocxViewer.rgr"
+
+class DocxWeb {
+    def viewer:DocxViewer (new DocxViewer)
+    def note:string ""
+
+    Constructor () {
+    }
+
+    ; Fonts arrive as bytes; there is no font directory to read.
+    fn start:void () {
+        viewer.view.ink.canvasMode(viewer.view.ctx)
+    }
+
+    fn addFont:boolean (family:string data:buffer) {
+        return (viewer.view.ctx.tr.loadFontBytes(family data))
+    }
+
+    fn addFace:boolean (data:buffer) {
+        return (viewer.view.ctx.tr.addFaceBytes(data))
+    }
+
+    fn openDocument:boolean (data:buffer name:string) {
+        def ok:boolean (viewer.openBytes(data name))
+        if (ok == false) {
+            note = viewer.lastError
+        } {
+            note = ""
+        }
+        return ok
+    }
+
+    ; --- the picture ----------------------------------------------------------
+    fn scene:string (page:int) {
+        return (viewer.sceneJson(page))
+    }
+
+    fn pageCount:int () {
+        return (viewer.pageCount())
+    }
+
+    fn page:int () {
+        return viewer.currentPage
+    }
+
+    fn imageParts:string () {
+        return (viewer.imagePartsJson())
+    }
+
+    fn imageBytes:buffer (part:string) {
+        return (viewer.imageBytes(part))
+    }
+
+    fn title:string () {
+        def d:RichDocument (viewer.document())
+        return d.title
+    }
+
+    ; --- editing --------------------------------------------------------------
+    fn setEditMode:void (on:boolean) {
+        viewer.setEditMode(on)
+    }
+
+    fn editMode:boolean () {
+        return (viewer.editMode())
+    }
+
+    fn click:void (x:int y:int extend:boolean) {
+        ; A chart takes the click before the caret does — it is an object on
+        ; the page rather than a place in the text.
+        if ((viewer.clickChart(x y)) == false) {
+            viewer.clickAt(x y extend)
+        }
+    }
+
+    fn typeText:void (s:string) {
+        viewer.typeText(s)
+    }
+
+    fn key:void (name:string shift:boolean ctrl:boolean) {
+        if (name == "backspace") { viewer.keyBackspace()  return }
+        if (name == "delete")    { viewer.keyDelete()     return }
+        if (name == "enter")     { viewer.keyEnter()      return }
+        if (name == "left")      { viewer.keyLeft(shift)  return }
+        if (name == "right")     { viewer.keyRight(shift) return }
+        if (name == "up")        { viewer.keyUp(shift)    return }
+        if (name == "down")      { viewer.keyDown(shift)  return }
+        if (name == "pageUp")    { viewer.keyPageUp(shift)   return }
+        if (name == "pageDown")  { viewer.keyPageDown(shift) return }
+        if (name == "home")      { viewer.keyHome(shift ctrl) return }
+        if (name == "end")       { viewer.keyEnd(shift ctrl)  return }
+        if (name == "tab")       { viewer.keyTab(shift)    return }
+        if (name == "selectAll") { viewer.keySelectAll()   return }
+        if (name == "undo")      { viewer.keyUndo()        return }
+        if (name == "redo")      { viewer.keyRedo()        return }
+        if (name == "bold")      { viewer.toggleBold()     return }
+    }
+
+    fn copySelection:string () {
+        return (viewer.copySelection())
+    }
+
+    fn cutSelection:string () {
+        return (viewer.cutSelection())
+    }
+
+    ; Paste: the html flavour is what carries a table or a chart.
+    fn paste:boolean (html:string text:string) {
+        return (viewer.pasteClipboard(html text))
+    }
+
+    fn caretJson:string () {
+        return (viewer.caretInfoJson())
+    }
+
+    ; --- charts in the document -----------------------------------------------
+    fn selectedChart:int () {
+        return (viewer.selectedChart())
+    }
+
+    fn editChart:boolean (what:string arg:string) {
+        return (viewer.editChart(what arg))
+    }
+
+    fn deleteChart:boolean () {
+        return (viewer.deleteChart())
+    }
+}

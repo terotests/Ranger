@@ -78,7 +78,11 @@ def main():
     check("number format", ws["C2"].number_format, "$#,##0.00")
     check("text rotation", ws["A5"].alignment.textRotation, 45)
 
-    check("column width", round(ws.column_dimensions["A"].width, 3), 19.375)
+    # 160 px in Excel's character units: (160 - 5) / 7, seven being the width
+    # of the widest digit at eleven points. It read 19.375 while the loader and
+    # writer used a factor of eight, which made every stated width a seventh
+    # wider than the file asked for.
+    check("column width", round(ws.column_dimensions["A"].width, 3), 22.143)
     truthy("hidden column", ws.column_dimensions["E"].hidden)
     check("row height", round(ws.row_dimensions[1].height, 1), 25.5)
     check("merge", [str(r) for r in ws.merged_cells.ranges], ["A7:C7"])

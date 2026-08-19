@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger DOCX viewer — running entirely in the browser</title>
+    <style>
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; }
+      :root { --ink: #1a1f2b; --muted: #5c6b80; --accent: #2864d2; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; min-height: 100%;
+        background: linear-gradient(180deg, #eef1f6 0%, #dde3ec 100%);
+        color: #1a1f2b;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body { display: grid; place-items: start center; padding: 24px; }
+      .stage { width: min(1120px, 100%); }
+      h1 { margin: 0 0 6px; font-size: 1.3rem; font-weight: 650; }
+      p.hint { margin: 0 0 14px; color: #9fb0c4; font-size: 0.9rem; }
+      .frame { background: #c9ced8; border: 1px solid #b3bac6; padding: 12px; box-shadow: 0 16px 40px rgba(30,50,80,0.16); max-height: 78vh; overflow: auto; }
+      canvas { display: block; margin: 0 auto; background: #fff; outline: none; box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+      .bar { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; color: #5c6b80; font-size: 0.82rem; align-items: center; }
+      .bar strong { color: #2864d2; font-weight: 600; }
+      button { font: inherit; font-size: 0.82rem; padding: 3px 10px; background: #f4f6fa; color: #1a1f2b; border: 1px solid #b3bac6; cursor: pointer; }
+      button[aria-pressed="true"] { background: #2864d2; color: #fff; border-color: #2864d2; }
+      input[type="file"] { font-size: 0.78rem; color: #5c6b80; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>Ranger DOCX · no server, no PNG</h1>
+      <p class="hint">
+        The document is parsed, laid out and drawn in this page: OPC/ZIP →
+        WordprocessingML → styles, numbering, tables and sections →
+        <code>EVGDisplayList</code> → WebGL 2. It used to be rasterized on a
+        server and shipped here as a picture of a page. Turn on <b>Edit</b> to
+        type; paste a chart copied from the spreadsheet and it stays a chart.
+      </p>
+      <div class="frame">
+        <canvas id="screen" tabindex="0" width="816" height="1056"></canvas>
+      </div>
+      <div class="bar">
+        <button type="button" id="prev">◀ Prev</button>
+        <span>page <strong id="slide">—</strong></span>
+        <button type="button" id="next">Next ▶</button>
+        <button type="button" id="edit" aria-pressed="false">Edit</button>
+        <span id="chartTools" hidden>
+          <button type="button" id="chartType">Chart type ▸</button>
+          <button type="button" id="chartStyle">Style ▸</button>
+          <button type="button" id="chartDelete">Delete chart</button>
+        </span>
+        <span>status: <strong id="status">starting…</strong></span>
+        <span>backend: <strong id="backend">—</strong></span>
+        <span>cmds: <strong id="cmds">—</strong></span>
+        <label>open a .docx <input id="file" type="file" accept=".docx" /></label>
+      </div>
+    </div>
+    <script src="./docx_web.js"></script>
+    <script type="module" src="./standalone.mjs"></script>
+  </body>
+</html>

@@ -151,8 +151,13 @@ class SpreadsheetModel {
     def name:string ""
     def rowCount:int 1000
     def colCount:int 26
-    def defaultRowH:int 22
-    def defaultColW:int 100
+    ; Excel's own defaults, in CSS pixels: a row is 15 points and a column is
+    ; 8.43 characters of the default font. This used to be 22 and 100 — a grid
+    ; half again as wide per column as the one the same file opens as in Excel
+    ; or Sheets, which reads as everything being zoomed in, and text that is
+    ; the right size looking too big for the sheet around it.
+    def defaultRowH:int 20
+    def defaultColW:int 64
     def freezeRows:int 0
     def freezeCols:int 0
     def cells:[string:string]
@@ -1538,6 +1543,32 @@ class SpreadsheetModel {
         }
         def key:string ((((to_string r1) + ",") + (to_string c1) + ",") + (to_string r2) + "," + (to_string c2))
         push merges key
+    }
+
+    ; Take apart the merge that contains this cell, if any. The same button
+    ; that made it undoes it, which is how every spreadsheet behaves.
+    fn removeMerge:boolean (row:int col:int) {
+        def key:string (this.mergeAt(row col))
+        if ((strlen key) == 0) {
+            return false
+        }
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length merges)) {
+            def m:string (itemAt merges i)
+            if (m != key) {
+                push kept m
+            }
+            i = (i + 1)
+        }
+        clear merges
+        def j:int 0
+        while (j < (array_length kept)) {
+            push merges (itemAt kept j)
+            j = (j + 1)
+        }
+        version = (version + 1)
+        return true
     }
 
     ; Returns merge key containing (row,col), or "".

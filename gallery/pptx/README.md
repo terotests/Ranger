@@ -73,6 +73,25 @@ gallery/pptx/
 Still later: multi-stop gradients, crop/transparency, table merges, richer
 ChartML (pie/line/multi-series), curve geom, animations, embedded fonts.
 
+## Running it in a browser, with no host
+
+```bash
+npm run pptx:web         # build gallery/pptx/web/standalone/dist
+npm run pptx:web:serve   # …and serve it on :8001
+npm run pptx:web:test    # open it in headless Chrome and page through a deck
+```
+
+The viewer always built a display list and the host always drew it with WebGL;
+HTTP was the only thing in between, and Ranger compiles to JavaScript, so the
+viewer can be in the page instead. What is left of the host is a static file
+server.
+
+A browser cannot read files, so the fonts and the deck arrive as bytes
+(`OpcPackage.openBytes` over `ZipReader.openBytes`). The deck's pictures come
+out of the package with it — the parser already leaves the bytes on the model —
+so the page turns those into textures directly rather than asking a server for
+them, which is also why pictures appear in the WebGL path at all now.
+
 ## Run
 
 ```bash

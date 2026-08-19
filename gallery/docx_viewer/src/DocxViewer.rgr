@@ -51,6 +51,95 @@ class DocxViewer {
         return true
     }
 
+    ; The same, from bytes. `openFile` is this with a file read in front of it.
+    fn openBytes:boolean (data:buffer name:string) {
+        lastError = ""
+        def pkg:DocxPackage (new DocxPackage)
+        if ((pkg.openBytes(data name)) == false) {
+            lastError = ("failed to open " + name)
+            return false
+        }
+        if ((pkg.hasPart("word/document.xml")) == false) {
+            lastError = "missing word/document.xml"
+            pkg.close()
+            return false
+        }
+        doc = (parser.parsePackage(pkg))
+        numbering = parser.numbering
+        pkg.close()
+        if ((strlen doc.title) == 0) {
+            doc.title = name
+        }
+        edit.bindDocument(doc)
+        currentPage = 0
+        return true
+    }
+
+    ; The page as an EVGDisplayList, for a backend that draws rather than
+    ; receives a picture. Same layout and same painting as `renderPage`.
+    fn sceneJson:string (page:int) {
+        def dl:EVGDisplayList (view.buildDisplayList(doc page numbering edit (edit.isEnabled())))
+        currentPage = view.pageIndex
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num((to_double (view.sceneWidth())))) + ",\"height\":" + (EVGDisplayList.num((to_double (view.sceneHeight())))) + ",\"list\":" + body + "}")
+    }
+
+    ; Every image part this document carries, and their bytes — a host with no
+    ; file server hands them to the renderer itself.
+    fn imagePartsJson:string () {
+        def names:[string]
+        def i:int 0
+        while (i < (doc.paragraphCount())) {
+            def p:Paragraph (doc.paragraphAt(i))
+            def j:int 0
+            while (j < (array_length p.images)) {
+                def im:DocImage (itemAt p.images j)
+                if ((buffer_length im.bytes) > 0) {
+                    def seen:boolean false
+                    def k:int 0
+                    while (k < (array_length names)) {
+                        if ((itemAt names k) == im.partPath) {
+                            seen = true
+                        }
+                        k = (k + 1)
+                    }
+                    if (seen == false) {
+                        push names im.partPath
+                    }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        def out:string "["
+        def n:int 0
+        while (n < (array_length names)) {
+            if (n > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\"" + (itemAt names n) + "\"")
+            n = (n + 1)
+        }
+        return (out + "]")
+    }
+
+    fn imageBytes:buffer (part:string) {
+        def i:int 0
+        while (i < (doc.paragraphCount())) {
+            def p:Paragraph (doc.paragraphAt(i))
+            def j:int 0
+            while (j < (array_length p.images)) {
+                def im:DocImage (itemAt p.images j)
+                if (im.partPath == part) {
+                    return im.bytes
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return (buffer_alloc 0)
+    }
+
     fn document:RichDocument () {
         return doc
     }

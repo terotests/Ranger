@@ -1,0 +1,352 @@
+; ==============================================================================
+; GridFormat.rgr — changing how the selected cells look.
+; ==============================================================================
+;
+; The grid could READ every style a workbook carries and paint it faithfully,
+; and it could not set a single one of them. Everything a person opens a
+; spreadsheet to do — make that row bold, right-align the numbers, put a border
+; under the total, show it as currency — had no path through the app at all.
+;
+; So: one place that knows how a style CHANGES, expressed as a named operation
+; over the cells that are selected. Named rather than a method per button
+; because the toolbar, the keyboard and a host driving the app over a socket
+; then all reach the same code by the same string, and the command table can
+; list them.
+;
+; Two rules that make the buttons feel right rather than merely work:
+;
+;   * A TOGGLE reads the ACTIVE cell and applies the opposite to everything
+;     selected. Select a mixed range with the caret on a plain cell and one
+;     click makes it all bold — which is what every spreadsheet does, and what
+;     "toggle each cell independently" does not.
+;   * A style that ends up plain is stored as plain, so a cell that has been
+;     bolded and un-bolded is indistinguishable from one that never was.
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "GridSelection.rgr"
+Import "CellStyle.rgr"
+
+class GridFormat {
+    ; --- the operations, by name ---------------------------------------------
+    ; Anything not listed is refused rather than silently ignored, so a typo in
+    ; a host's command string is visible immediately.
+    sfn known:boolean (op:string) {
+        if (op == "bold")      { return true }
+        if (op == "italic")    { return true }
+        if (op == "underline") { return true }
+        if (op == "strike")    { return true }
+        if (op == "wrap")      { return true }
+        if (op == "align")     { return true }
+        if (op == "valign")    { return true }
+        if (op == "size")      { return true }
+        if (op == "fill")      { return true }
+        if (op == "color")     { return true }
+        if (op == "numfmt")    { return true }
+        if (op == "decimals")  { return true }
+        if (op == "border")    { return true }
+        if (op == "rotate")    { return true }
+        if (op == "clear")     { return true }
+        return false
+    }
+
+    ; Whether a toggle is currently on for this style — what the toolbar draws
+    ; as a pressed button, and what decides which way a toggle goes.
+    sfn isOn:boolean (st:CellStyle op:string arg:string) {
+        if (op == "bold")      { return st.bold }
+        if (op == "italic")    { return st.italic }
+        if (op == "underline") { return st.underline }
+        if (op == "strike")    { return st.strike }
+        if (op == "wrap")      { return st.wrapText }
+        if (op == "align")     { return (st.align == arg) }
+        if (op == "valign")    { return (st.valign == arg) }
+        if (op == "numfmt")    { return (st.numFmt == (GridFormat.namedFormat(arg))) }
+        if (op == "border") {
+            if (arg == "none") {
+                return (st.hasBorder == false)
+            }
+            return st.hasBorder
+        }
+        return false
+    }
+
+    ; The number formats the toolbar offers, by short name. Excel's own codes,
+    ; because they have to survive being written back out.
+    sfn namedFormat:string (arg:string) {
+        if (arg == "currency") { return "$#,##0.00" }
+        if (arg == "percent")  { return "0.00%" }
+        if (arg == "comma")    { return "#,##0.00" }
+        if (arg == "date")     { return "yyyy-mm-dd" }
+        if (arg == "text")     { return "@" }
+        return "General"
+    }
+
+    ; One more (or one fewer) decimal place in a numeric format. Excel's own
+    ; behaviour: it works on the format code rather than on the value, so the
+    ; number itself is untouched.
+    sfn withDecimals:string (fmt:string delta:int) {
+        def base:string fmt
+        if (base == "General") {
+            base = "0"
+            if (delta < 0) {
+                return "0"
+            }
+        }
+        ; Count the zeros after the last decimal point.
+        def dot:int -1
+        def i:int 0
+        while (i < (strlen base)) {
+            if ((charAt base i) == 46) {
+                dot = i
+            }
+            i = (i + 1)
+        }
+        def digits:int 0
+        if (dot >= 0) {
+            def j:int (dot + 1)
+            while (j < (strlen base)) {
+                if ((charAt base j) == 48) {
+                    digits = (digits + 1)
+                    j = (j + 1)
+                } {
+                    j = (strlen base)
+                }
+            }
+        }
+        def want:int (digits + delta)
+        if (want < 0) {
+            want = 0
+        }
+        if (want > 9) {
+            want = 9
+        }
+        ; Rebuild: everything before the point, then the new run of zeros, then
+        ; whatever trailed the old run (a percent sign, a currency suffix).
+        def head:string base
+        def tail:string ""
+        if (dot >= 0) {
+            head = (substring base 0 dot)
+            def k:int (dot + 1)
+            def seen:int 0
+            while (k < (strlen base)) {
+                if ((charAt base k) == 48) {
+                    if (seen < digits) {
+                        seen = (seen + 1)
+                        k = (k + 1)
+                    } {
+                        tail = (substring base k (strlen base))
+                        k = (strlen base)
+                    }
+                } {
+                    tail = (substring base k (strlen base))
+                    k = (strlen base)
+                }
+            }
+        }
+        if (want == 0) {
+            return (head + tail)
+        }
+        def zeros:string ""
+        def z:int 0
+        while (z < want) {
+            zeros = (zeros + "0")
+            z = (z + 1)
+        }
+        return (head + "." + zeros + tail)
+    }
+
+    ; Apply one operation to one style. `on` is what a toggle should become,
+    ; decided once for the whole selection by the caller.
+    sfn mutate:void (st:CellStyle op:string arg:string on:boolean) {
+        if (op == "bold") {
+            st.bold = on
+            return
+        }
+        if (op == "italic") {
+            st.italic = on
+            return
+        }
+        if (op == "underline") {
+            st.underline = on
+            return
+        }
+        if (op == "strike") {
+            st.strike = on
+            return
+        }
+        if (op == "wrap") {
+            st.wrapText = on
+            return
+        }
+        if (op == "align") {
+            st.align = arg
+            return
+        }
+        if (op == "valign") {
+            st.valign = arg
+            return
+        }
+        if (op == "rotate") {
+            def deg@(optional):int (to_int arg)
+            if deg {
+                st.textRotation = (unwrap deg)
+            }
+            return
+        }
+        if (op == "size") {
+            def d@(optional):double (to_double arg)
+            def step:double 0.0
+            if d {
+                step = (unwrap d)
+            }
+            def next:double (st.fontSizePt + step)
+            ; Absolute when the argument is a size rather than a nudge.
+            if (step > 3.0) {
+                next = step
+            }
+            if (next < 6.0) {
+                next = 6.0
+            }
+            if (next > 96.0) {
+                next = 96.0
+            }
+            st.fontSizePt = next
+            return
+        }
+        if (op == "fill") {
+            if ((strlen arg) == 0) {
+                st.hasFill = false
+                st.fillRgb = ""
+            } {
+                st.hasFill = true
+                st.fillRgb = arg
+            }
+            return
+        }
+        if (op == "color") {
+            st.textRgb = arg
+            return
+        }
+        if (op == "numfmt") {
+            st.numFmt = (GridFormat.namedFormat(arg))
+            return
+        }
+        if (op == "decimals") {
+            def delta:int 1
+            if (arg == "less") {
+                delta = -1
+            }
+            st.numFmt = (GridFormat.withDecimals(st.numFmt delta))
+            return
+        }
+        if (op == "clear") {
+            ; Everything back to default, in place: the caller holds this
+            ; object and is about to store it.
+            st.fillRgb = ""
+            st.textRgb = ""
+            st.bold = false
+            st.italic = false
+            st.underline = false
+            st.strike = false
+            st.fontSizePt = 11.0
+            st.align = "left"
+            st.valign = "bottom"
+            st.wrapText = false
+            st.textRotation = 0
+            st.numFmt = "General"
+            st.hasFill = false
+            st.hasBorder = false
+            st.borderTop = (new CellBorder)
+            st.borderRight = (new CellBorder)
+            st.borderBottom = (new CellBorder)
+            st.borderLeft = (new CellBorder)
+            return
+        }
+    }
+
+    ; Borders are the one operation that depends on WHERE a cell is in the
+    ; selection: "outline" puts a line only on the edges of the block, "all"
+    ; puts one on every side of every cell.
+    sfn borderFor:void (st:CellStyle arg:string top:boolean right:boolean bottom:boolean left:boolean) {
+        if (arg == "none") {
+            st.hasBorder = false
+            st.borderTop = (new CellBorder)
+            st.borderRight = (new CellBorder)
+            st.borderBottom = (new CellBorder)
+            st.borderLeft = (new CellBorder)
+            return
+        }
+        def line:string "thin"
+        def ink:string "#000000"
+        if ((arg == "all") || (arg == "outline")) {
+            if top {
+                st.borderTop.style = line
+                st.borderTop.rgb = ink
+            }
+            if right {
+                st.borderRight.style = line
+                st.borderRight.rgb = ink
+            }
+            if bottom {
+                st.borderBottom.style = line
+                st.borderBottom.rgb = ink
+            }
+            if left {
+                st.borderLeft.style = line
+                st.borderLeft.rgb = ink
+            }
+        }
+        if (arg == "bottom") {
+            st.borderBottom.style = line
+            st.borderBottom.rgb = ink
+        }
+        if (arg == "top") {
+            st.borderTop.style = line
+            st.borderTop.rgb = ink
+        }
+        st.hasBorder = true
+    }
+
+    ; --- applying it to a selection -------------------------------------------
+    ; One transaction, so one Ctrl+Z takes the whole thing back.
+    sfn apply:boolean (model:SpreadsheetModel sel:GridSelection op:string arg:string) {
+        if ((GridFormat.known(op)) == false) {
+            return false
+        }
+        ; A toggle is decided once, from the cell the caret is on.
+        def active:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        def on:boolean ((GridFormat.isOn(active op arg)) == false)
+        model.beginTx()
+        def gi:int 0
+        while (gi < (sel.rangeCount())) {
+            def g:GridRange (sel.rangeAt(gi))
+            def r:int g.r0
+            while (r <= g.r1) {
+                def c:int g.c0
+                while (c <= g.c1) {
+                    def st:CellStyle ((model.getCellStyle(r c)).copy())
+                    if (op == "border") {
+                        GridFormat.borderFor(st arg (r == g.r0) (c == g.c1) (r == g.r1) (c == g.c0))
+                        if (arg == "all") {
+                            GridFormat.borderFor(st "all" true true true true)
+                        }
+                    } {
+                        GridFormat.mutate(st op arg on)
+                    }
+                    model.applyEditStyled(r c (model.getCell(r c)) (model.getFormula(r c)) st)
+                    c = (c + 1)
+                }
+                r = (r + 1)
+            }
+            gi = (gi + 1)
+        }
+        model.endTx()
+        return true
+    }
+
+    ; What the toolbar should draw as pressed, for the cell the caret is on.
+    sfn activeIsOn:boolean (model:SpreadsheetModel sel:GridSelection op:string arg:string) {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        return (GridFormat.isOn(st op arg))
+    }
+}

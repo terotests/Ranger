@@ -19,6 +19,7 @@ Import "../../evg/EVGWindow.rgr"
 Import "GridChartView.rgr"
 Import "GridImages.rgr"
 Import "GridCommands.rgr"
+Import "GridToolbar.rgr"
 Import "SoftPainter.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
@@ -71,6 +72,10 @@ class GridView {
     ; The host's custom tools, drawn as buttons on the status bar. The view
     ; only paints them; what they mean is the host's business.
     def commands:GridCommandTable (new GridCommandTable)
+    ; The buttons. The app owns what they do; the view lays them out and paints
+    ; them, and the layout lives on the toolbar object so the hit test and the
+    ; picture cannot disagree.
+    def toolbar:GridToolbar (new GridToolbar)
     ; The chart the picker is previewing, and which window to draw it in. Set
     ; by the host every frame the picker is up; zero means nothing to preview.
     def previewChart:GridChart (new GridChart)
@@ -739,8 +744,13 @@ class GridView {
 
         this.pushRect(dl 0.0 0.0 (to_double pageW) (to_double pageH) theme.bg)
 
+        ; --- toolbar ---
+        if (grid.toolbarH > 0) {
+            this.paintToolbar(dl model sel grid)
+        }
+
         ; --- formula bar ---
-        def fbY:int grid.y
+        def fbY:int (grid.formulaBarY())
         this.pushRect(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) theme.formulaBg)
         def addr:string (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
         def shown:string (model.formulaBarText(sel.active.row sel.active.col))
@@ -751,7 +761,7 @@ class GridView {
         this.pushText(dl shown (to_double (grid.x + 64)) (to_double (fbY + 6)) 13.0 theme.formulaText)
         this.pushBorder(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) 1.0 theme.gridLine)
 
-        def headerTop:int (grid.y + grid.formulaBarH)
+        def headerTop:int (grid.headerTop())
         def bodyLeft:int (grid.x + grid.rowHeaderW)
         def bodyTop:int (headerTop + grid.colHeaderH)
         def vw:int (grid.viewportW())
@@ -1045,7 +1055,7 @@ class GridView {
         if (grid.resizingCol >= 0) {
             def gx:int ((grid.colScreenX(model grid.resizingCol)) + (model.colWidth(grid.resizingCol)))
             if (gx > grid.x) {
-                this.pushRect(dl (to_double (gx - 1)) (to_double (grid.y + grid.formulaBarH)) 2.0 (to_double (grid.h - grid.formulaBarH)) theme.activeBorder)
+                this.pushRect(dl (to_double (gx - 1)) (to_double (grid.headerTop())) 2.0 (to_double ((grid.h - grid.toolbarH) - grid.formulaBarH)) theme.activeBorder)
             }
         }
         if (grid.resizingRow >= 0) {
@@ -1058,25 +1068,51 @@ class GridView {
         ; sheet tabs
         def tabY:int (grid.sheetTabY())
         this.pushRect(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) theme.headerBg)
+        ; A tab is as wide as its name, between a minimum and a maximum. It used
+        ; to be a fixed 88 pixels with the name drawn into it unmeasured, so
+        ; anything longer than "Forecast" ran out of its own tab and across the
+        ; next one. Past the maximum the name is cut and given an ellipsis —
+        ; the whole name is still in the status bar.
         def si:int 0
         def sn:int (book.sheetCount())
-        def tabW:int 88
+        def minTabW:int 64
+        def maxTabW:int 190
+        def tabPad:int 10
+        def tabX:int grid.x
+        grid.clearTabLayout()
+        this.applyFaceStyled(false false)
         while (si < sn) {
             def sheet:SpreadsheetModel (book.sheetAt(si))
             if sheet.sheetHidden {
                 si = (si + 1)
             } {
-                def tx:int (grid.x + (si * tabW))
-                if (si == book.activeIndex) {
-                    this.pushRect(dl (to_double tx) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
-                }
                 def nm:string sheet.name
                 if ((strlen nm) == 0) {
                     nm = ("Sheet" + (to_string (si + 1)))
                 }
-                this.pushText(dl nm (to_double (tx + 8)) (to_double (tabY + 5)) 12.0 theme.headerText)
-                this.pushRect(dl (to_double (tx + tabW - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
-                si = (si + 1)
+                def shown:string (GridView.fitLabel(ctx.tr nm 12.0 (maxTabW - (tabPad * 2))))
+                def textW:int (to_int (ctx.tr.measureWidth(shown 12.0)))
+                def tabW:int (textW + (tabPad * 2))
+                if (tabW < minTabW) {
+                    tabW = minTabW
+                }
+                if (tabW > maxTabW) {
+                    tabW = maxTabW
+                }
+                ; A tab that would hang off the right edge is not drawn at all
+                ; rather than half drawn.
+                if ((tabX + tabW) > (grid.x + grid.w)) {
+                    si = sn
+                } {
+                    if (si == book.activeIndex) {
+                        this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
+                    }
+                    this.pushText(dl shown (to_double (tabX + tabPad)) (to_double (tabY + 5)) 12.0 theme.headerText)
+                    this.pushRect(dl (to_double ((tabX + tabW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+                    grid.addTabLayout(si tabX tabW)
+                    tabX = (tabX + tabW)
+                    si = (si + 1)
+                }
             }
         }
         this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
@@ -1216,6 +1252,332 @@ class GridView {
             n = 1
         }
         return ((lineH * n) + 6)
+    }
+
+    ; A label cut to fit a width, with an ellipsis when it had to be cut. The
+    ; cut is measured rather than counted: "WWWW" and "iiii" are not the same
+    ; number of pixels.
+    sfn fitLabel:string (tr:UITextRenderer text:string size:double maxW:int) {
+        if (maxW < 8) {
+            return ""
+        }
+        def full:double (tr.measureWidth(text size))
+        if (full <= (to_double maxW)) {
+            return text
+        }
+        def ell:string "…"
+        def ellW:double (tr.measureWidth(ell size))
+        def room:double ((to_double maxW) - ellW)
+        if (room <= 0.0) {
+            return ell
+        }
+        def n:int (strlen text)
+        while (n > 0) {
+            def cut:string (substring text 0 n)
+            def w:double (tr.measureWidth(cut size))
+            if (w <= room) {
+                return (cut + ell)
+            }
+            n = (n - 1)
+        }
+        return ell
+    }
+
+    ; --- the toolbar ----------------------------------------------------------
+    ; Icons are drawn from primitives. There is no icon font here and a sprite
+    ; sheet would be a second thing to keep in step with the theme, so a button
+    ; is a few rectangles and, where a letter says it best, a letter.
+    fn paintToolbar:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid) {
+        def y0:int (grid.toolbarY())
+        this.pushRect(dl (to_double grid.x) (to_double y0) (to_double grid.w) (to_double grid.toolbarH) theme.statusBg)
+        this.pushBorder(dl (to_double grid.x) (to_double y0) (to_double grid.w) (to_double grid.toolbarH) 1.0 theme.gridLine)
+        toolbar.layout(grid.x y0 grid.w)
+        def i:int 0
+        while (i < (toolbar.count())) {
+            def t:ToolItem (toolbar.at(i))
+            if (t.w > 0) {
+                if t.isSeparator {
+                    this.pushRect(dl (to_double (t.x + 4)) (to_double (t.y + 3)) 1.0 (to_double (t.h - 6)) theme.gridLine)
+                } {
+                    def pressed:boolean (toolbar.isPressed(i model sel))
+                    if pressed {
+                        this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) theme.selection)
+                    }
+                    if (toolbar.hot == i) {
+                        if (pressed == false) {
+                            this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) theme.headerBg)
+                        }
+                    }
+                    this.paintToolIcon(dl t)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A glyph for one button, inside its box.
+    fn paintToolIcon:void (dl:EVGDisplayList t:ToolItem) {
+        def cx:int (t.x + (idiv t.w 2))
+        def cy:int (t.y + (idiv t.h 2))
+        def ink:EVGColor theme.cellText
+        def dim:EVGColor theme.statusText
+        def k:int t.icon
+
+        ; Letters, where a letter is the clearest icon there is.
+        if (k == (ToolIcon.bold())) {
+            this.pushToolText(dl "B" cx cy 13.0 ink true)
+            return
+        }
+        if (k == (ToolIcon.italic())) {
+            this.pushToolText(dl "I" cx cy 13.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.underline())) {
+            this.pushToolText(dl "U" cx (cy - 1) 12.0 ink false)
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy + 7)) 10.0 1.0 ink)
+            return
+        }
+        if (k == (ToolIcon.strike())) {
+            this.pushToolText(dl "S" cx cy 12.0 ink false)
+            this.pushRect(dl (to_double (cx - 5)) (to_double cy) 10.0 1.0 ink)
+            return
+        }
+        if (k == (ToolIcon.currency())) {
+            this.pushToolText(dl "$" cx cy 13.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.percent())) {
+            this.pushToolText(dl "%" cx cy 12.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.comma())) {
+            this.pushToolText(dl "," cx (cy - 2) 15.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.decMore())) {
+            this.pushToolText(dl ".0" cx cy 11.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.decLess())) {
+            this.pushToolText(dl ".00" cx cy 9.0 dim false)
+            return
+        }
+        if (k == (ToolIcon.sizeUp())) {
+            this.pushToolText(dl "A+" cx cy 12.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.sizeDown())) {
+            this.pushToolText(dl "A-" cx cy 10.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.undo())) {
+            this.paintArrowIcon(dl cx cy true ink)
+            return
+        }
+        if (k == (ToolIcon.redo())) {
+            this.paintArrowIcon(dl cx cy false ink)
+            return
+        }
+        if (k == (ToolIcon.save())) {
+            ; A tray with something going into it.
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 7)) 2.0 8.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 2)) 3.0 2.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 2)) 3.0 2.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 3)) 14.0 2.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 3)) 2.0 4.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 3)) 2.0 4.0 theme.activeBorder)
+            return
+        }
+        if (k == (ToolIcon.paint())) {
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 6)) 10.0 5.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 1)) 2.0 8.0 dim)
+            return
+        }
+        if (k == (ToolIcon.clearFmt())) {
+            this.pushToolText(dl "A" cx (cy - 2) 12.0 dim false)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 6)) 12.0 2.0 theme.noteMark)
+            return
+        }
+        if (k == (ToolIcon.search())) {
+            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 10.0 10.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 3)) 4.0 2.0 ink)
+            return
+        }
+        if (k == (ToolIcon.chart())) {
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 3.0 5.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 3)) 3.0 9.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx + 4)) (to_double (cy - 6)) 3.0 12.0 theme.activeBorder)
+            return
+        }
+        if (k == (ToolIcon.link())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 6.0 2.0 theme.linkText)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 1)) 6.0 2.0 theme.linkText)
+            this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 1)) 4.0 2.0 theme.linkText)
+            return
+        }
+        if (k == (ToolIcon.cond())) {
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 5)) 12.0 4.0 theme.noteMark)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 12.0 4.0 (EVGColor.rgb(120 190 120)))
+            return
+        }
+        if (k == (ToolIcon.validate())) {
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy + 1)) 4.0 2.0 (EVGColor.rgb(40 140 70)))
+            this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 3)) 8.0 2.0 (EVGColor.rgb(40 140 70)))
+            return
+        }
+        if (k == (ToolIcon.freeze())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 1.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 7)) 1.0 14.0 theme.activeBorder)
+            return
+        }
+        if (k == (ToolIcon.sortAsc())) {
+            this.pushToolText(dl "A1" cx cy 10.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.sortDesc())) {
+            this.pushToolText(dl "1A" cx cy 10.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.funnel())) {
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 5)) 12.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 1)) 6.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 2.0 2.0 ink)
+            return
+        }
+        if (k == (ToolIcon.insertRow())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 2)) 14.0 5.0 theme.gridLine)
+            this.pushToolText(dl "+" cx (cy - 4) 12.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.insertCol())) {
+            this.pushRect(dl (to_double (cx + 2)) (to_double (cy - 7)) 5.0 14.0 theme.gridLine)
+            this.pushToolText(dl "+" (cx - 4) cy 12.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.deleteRow())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 2)) 14.0 5.0 theme.gridLine)
+            this.pushToolText(dl "-" cx (cy + 4) 12.0 theme.noteMark false)
+            return
+        }
+        if (k == (ToolIcon.merge())) {
+            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 5)) 16.0 10.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 4)) 2.0 8.0 theme.statusBg)
+            return
+        }
+        if (k == (ToolIcon.fill())) {
+            this.pushToolText(dl "A" cx (cy - 2) 11.0 ink false)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 6)) 14.0 4.0 (EVGColor.rgb(255 220 130)))
+            return
+        }
+        if (k == (ToolIcon.textColor())) {
+            this.pushToolText(dl "A" cx (cy - 2) 11.0 ink false)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 6)) 14.0 4.0 theme.noteMark)
+            return
+        }
+        if (k == (ToolIcon.borderAll())) {
+            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 7)) (to_double cy) 14.0 1.0 ink)
+            this.pushRect(dl (to_double cx) (to_double (cy - 7)) 1.0 14.0 ink)
+            return
+        }
+        if (k == (ToolIcon.borderOut())) {
+            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 ink)
+            return
+        }
+        if (k == (ToolIcon.borderNone())) {
+            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 theme.gridLine)
+            return
+        }
+        if (k == (ToolIcon.alignLeft())) {
+            this.paintAlignIcon(dl cx cy 0 ink)
+            return
+        }
+        if (k == (ToolIcon.alignCenter())) {
+            this.paintAlignIcon(dl cx cy 1 ink)
+            return
+        }
+        if (k == (ToolIcon.alignRight())) {
+            this.paintAlignIcon(dl cx cy 2 ink)
+            return
+        }
+        if (k == (ToolIcon.valignTop())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 3)) 8.0 2.0 dim)
+            return
+        }
+        if (k == (ToolIcon.valignMid())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 6)) 8.0 2.0 dim)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy + 4)) 8.0 2.0 dim)
+            return
+        }
+        if (k == (ToolIcon.valignBot())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 5)) 14.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy + 1)) 8.0 2.0 dim)
+            return
+        }
+        if (k == (ToolIcon.wrapCell())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 5)) 14.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 1)) 9.0 2.0 ink)
+            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 1)) 3.0 2.0 dim)
+            return
+        }
+        ; Anything without a picture falls back to its own first letter, which
+        ; is better than an empty box.
+        if ((strlen t.label) > 0) {
+            this.pushToolText(dl (substring t.label 0 1) cx cy 12.0 ink false)
+        }
+    }
+
+    ; An arrow curving back on itself: a shaft, and a head made of a stack of
+    ; rectangles. Undo points left, redo right.
+    fn paintArrowIcon:void (dl:EVGDisplayList cx:int cy:int back:boolean col:EVGColor) {
+        def dir:int 1
+        if back {
+            dir = -1
+        }
+        ; the shaft, bending down at the far end
+        this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 4)) 12.0 2.0 col)
+        def tipX:int (cx + (dir * 6))
+        this.pushRect(dl (to_double (tipX - 1)) (to_double (cy - 4)) 2.0 7.0 col)
+        ; the head, three steps deep
+        def i:int 0
+        while (i < 4) {
+            def hx:int ((cx - (dir * 6)) + (dir * i))
+            this.pushRect(dl (to_double hx) (to_double ((cy - 4) - i)) 1.0 (to_double ((i * 2) + 2)) col)
+            i = (i + 1)
+        }
+    }
+
+    fn paintAlignIcon:void (dl:EVGDisplayList cx:int cy:int mode:int col:EVGColor) {
+        def i:int 0
+        while (i < 4) {
+            def wide:boolean ((i % 2) == 0)
+            def lw:int 14
+            if (wide == false) {
+                lw = 9
+            }
+            def lx:int (cx - 7)
+            if (wide == false) {
+                if (mode == 1) {
+                    lx = (cx - (idiv lw 2))
+                }
+                if (mode == 2) {
+                    lx = ((cx + 7) - lw)
+                }
+            }
+            this.pushRect(dl (to_double lx) (to_double ((cy - 7) + (i * 4))) (to_double lw) 2.0 col)
+            i = (i + 1)
+        }
+    }
+
+    ; Toolbar text is centred on the button rather than laid out from a corner.
+    fn pushToolText:void (dl:EVGDisplayList s:string cx:int cy:int size:double col:EVGColor bold:boolean) {
+        this.applyFaceStyled(bold false)
+        def w:double (ctx.tr.measureWidth(s size))
+        def x:double ((to_double cx) - (w / 2.0))
+        def y:double ((to_double cy) - (size * 0.62))
+        this.pushStyledText(dl s x y size col bold false)
     }
 
     ; Width the grid would paint this text at, for auto-fit.
