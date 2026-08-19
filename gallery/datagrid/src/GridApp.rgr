@@ -17,6 +17,8 @@ Import "FormulaEngine.rgr"
 Import "xlsx/XlsxLoader.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGWindow.rgr"
+Import "GridChart.rgr"
+Import "GridChartView.rgr"
 
 class GridApp {
     def book:WorkbookModel (new WorkbookModel)
@@ -57,6 +59,13 @@ class GridApp {
     ; Shared EVG dialog layer — the same windows the DOCX / PPTX hosts can use.
     def windows:EVGWindowManager (new EVGWindowManager)
     def pasteDialog:EVGWindow (new EVGWindow)
+    ; Charts: the picker, and the description it is editing. The charts
+    ; themselves live on the view's ChartLayer, because that is what paints
+    ; them; this side only decides what they are.
+    def chartDialog:EVGWindow (new EVGWindow)
+    def pendingChart:GridChart (new GridChart)
+    ; The chart the picker is editing, or 0 when it is making a new one.
+    def chartEditId:int 0
     def dialogsReady:boolean false
     ; Format painter: armed by Ctrl+Shift+C, applied to the next selection.
     def formatBrush:CellStyle (new CellStyle)
@@ -86,6 +95,10 @@ class GridApp {
 
     fn init:void (fontDir:string) {
         view.init(W H fontDir)
+        ; The view paints the windows and the charts, so it is given them once
+        ; here rather than on every frame — anything that builds a display list
+        ; directly (a test, a dump) then sees the same scene the app does.
+        view.windows = windows
         grid.setBounds(0 0 W (H - statusH))
         this.loadDemo()
     }
@@ -148,6 +161,7 @@ class GridApp {
         }
         book.setActive(i)
         this.syncActiveModel()
+        view.chartLayer.showSheet(book.activeIndex)
     }
 
     ; --- column sizing --------------------------------------------------------
@@ -651,7 +665,270 @@ class GridApp {
         pasteDialog.addButtonRow(ids labels 10)
         pasteDialog.finish()
         windows.add(pasteDialog)
+        ; The chart picker's contents are rebuilt every time it opens — which
+        ; kinds are offered depends on the selection — so only its place in the
+        ; stack is settled here.
+        chartDialog.w = 300
+        chartDialog.title = "Chart"
+        windows.add(chartDialog)
         dialogsReady = true
+    }
+
+    ; --- charts ---------------------------------------------------------------
+    ; What a chart made right now would read. A selection of one cell means
+    ; "the block I am standing in", which is what Excel assumes too: nobody
+    ; charts a single number.
+    fn rowHasContent:boolean (r:int c0:int c1:int) {
+        def c:int c0
+        while (c <= c1) {
+            if ((strlen (model.getCell(r c))) > 0) {
+                return true
+            }
+            c = (c + 1)
+        }
+        return false
+    }
+
+    fn selectionChart:void (out:GridChart) {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def r0:int a.row
+        def c0:int a.col
+        def r1:int b.row
+        def c1:int b.col
+        if (r0 == r1) {
+            if (c0 == c1) {
+                while (c0 > 0) {
+                    if ((strlen (model.getCell(r0 (c0 - 1)))) == 0) {
+                        break
+                    }
+                    c0 = (c0 - 1)
+                }
+                while (c1 < (model.colCount - 1)) {
+                    if ((strlen (model.getCell(r0 (c1 + 1)))) == 0) {
+                        break
+                    }
+                    c1 = (c1 + 1)
+                }
+                while (r0 > 0) {
+                    if ((this.rowHasContent((r0 - 1) c0 c1)) == false) {
+                        break
+                    }
+                    r0 = (r0 - 1)
+                }
+                while (r1 < (model.rowCount - 1)) {
+                    if ((this.rowHasContent((r1 + 1) c0 c1)) == false) {
+                        break
+                    }
+                    r1 = (r1 + 1)
+                }
+            }
+        }
+        out.r0 = r0
+        out.c0 = c0
+        out.r1 = r1
+        out.c1 = c1
+        out.sheet = book.activeIndex
+        ; Headers are guessed the way a reader would: a top row of words over a
+        ; column of numbers is a header, not data.
+        def flag:[boolean]
+        ChartData.asNumber((model.getCell(r0 c1)) flag)
+        def topIsText:boolean true
+        if ((array_length flag) > 0) {
+            topIsText = ((itemAt flag 0) == false)
+        }
+        out.useHeaderRow = false
+        if (r1 > r0) {
+            out.useHeaderRow = topIsText
+        }
+        ChartData.asNumber((model.getCell(r1 c0)) flag)
+        def leftIsText:boolean true
+        if ((array_length flag) > 0) {
+            leftIsText = ((itemAt flag 0) == false)
+        }
+        out.useHeaderCol = false
+        if (c1 > c0) {
+            out.useHeaderCol = leftIsText
+        }
+    }
+
+    ; Open the picker: on the current selection when `editId` is 0, on an
+    ; existing chart otherwise.
+    fn openChartDialog:void (editId:int) {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        chartEditId = editId
+        if (editId > 0) {
+            def p:ChartPanel (view.chartLayer.panelForChart(editId))
+            if (p.chart.id != editId) {
+                return
+            }
+            pendingChart.copyFrom(p.chart)
+        } {
+            def fresh:GridChart (new GridChart)
+            this.selectionChart(fresh)
+            pendingChart.copyFrom(fresh)
+        }
+        def probe:ChartData (new ChartData)
+        def has:boolean (probe.extract(model pendingChart))
+        if (editId == 0) {
+            if has {
+                pendingChart.kind = (probe.suggestedKind())
+            }
+        }
+        ; Never open on a choice that cannot be drawn.
+        if has {
+            if ((probe.suits(pendingChart.kind)) == false) {
+                def k2:int (ChartKind.lowest())
+                while (k2 <= (ChartKind.highest())) {
+                    if (probe.suits(k2)) {
+                        pendingChart.kind = k2
+                        k2 = ((ChartKind.highest()) + 1)
+                    } {
+                        k2 = (k2 + 1)
+                    }
+                }
+            }
+        }
+
+        chartDialog.title = "Insert chart"
+        if (editId > 0) {
+            chartDialog.title = "Chart"
+        }
+        chartDialog.reset()
+        chartDialog.addLabel(("Data: " + (pendingChart.rangeLabel())))
+        chartDialog.addSeparator()
+        chartDialog.addLabel("Chart type")
+        chartDialog.beginColumns(2)
+        def k:int (ChartKind.lowest())
+        while (k <= (ChartKind.highest())) {
+            def id:int (100 + k)
+            chartDialog.addRadio(id (ChartKind.label(k)) 1 (k == pendingChart.kind))
+            def c:EVGControl (chartDialog.controlById(id))
+            def ok:boolean false
+            if has {
+                ok = (probe.suits(k))
+            }
+            c.enabled = ok
+            if (ok == false) {
+                c.checked = false
+            }
+            k = (k + 1)
+        }
+        chartDialog.endColumns()
+        chartDialog.addSeparator()
+        chartDialog.addLabel("Style")
+        chartDialog.beginColumns(2)
+        def st:int (ChartStyle.lowest())
+        while (st <= (ChartStyle.highest())) {
+            chartDialog.addRadio((200 + st) (ChartStyle.label(st)) 2 (st == pendingChart.style))
+            st = (st + 1)
+        }
+        chartDialog.endColumns()
+        chartDialog.addSeparator()
+        chartDialog.addCheckbox(301 "First row names the series" pendingChart.useHeaderRow)
+        chartDialog.addCheckbox(302 "First column labels the categories" pendingChart.useHeaderCol)
+        def ids:[int]
+        def labels:[string]
+        if (editId > 0) {
+            push ids 402
+            push labels "Delete"
+        }
+        push ids 401
+        push labels "Cancel"
+        push ids 403
+        if (editId > 0) {
+            push labels "Apply"
+        } {
+            push labels "Create"
+        }
+        chartDialog.addButtonRow(ids labels 403)
+        chartDialog.finish()
+        def px:int (grid.x + (idiv (W - chartDialog.w) 2))
+        def py:int (grid.y + 40)
+        chartDialog.openWithin(px py W H)
+        windows.raise(chartDialog)
+        view.focused = true
+    }
+
+    ; Read the picker back into the chart and put it on the sheet.
+    fn applyChartDialog:void () {
+        def chosen:int (chartDialog.selectedInGroup(1))
+        if (chosen > 100) {
+            pendingChart.kind = (chosen - 100)
+        }
+        def st:int (chartDialog.selectedInGroup(2))
+        if (st > 200) {
+            pendingChart.style = (st - 200)
+        }
+        pendingChart.useHeaderRow = (chartDialog.isChecked(301))
+        pendingChart.useHeaderCol = (chartDialog.isChecked(302))
+        if (chartEditId > 0) {
+            view.chartLayer.apply(chartEditId pendingChart)
+        } {
+            ; New charts cascade, so the second one is not hidden under the
+            ; first.
+            def step:int ((view.chartLayer.count()) % 5)
+            pendingChart.x = ((grid.x + 96) + (step * 26))
+            pendingChart.y = ((grid.y + 64) + (step * 22))
+            if ((pendingChart.x + pendingChart.w) > W) {
+                pendingChart.x = (W - (pendingChart.w + 12))
+            }
+            if (pendingChart.x < 4) {
+                pendingChart.x = 4
+            }
+            view.chartLayer.add(windows pendingChart)
+        }
+        chartDialog.close()
+        chartEditId = 0
+    }
+
+    ; A chart window's own buttons: the close box removes the chart, "Edit…"
+    ; brings the picker back. Both are collected before anything is removed,
+    ; because removing rewrites the list being walked.
+    fn pollChartWindows:void () {
+        def layer:ChartLayer view.chartLayer
+        def openEdit:int 0
+        def closing:int 0
+        def i:int 0
+        while (i < (layer.count())) {
+            def p:ChartPanel (layer.panelAt(i))
+            if (p.win.activated == (ChartLayer.editId())) {
+                openEdit = p.chart.id
+            }
+            if (p.win.activated == (ChartLayer.closeId())) {
+                closing = p.chart.id
+            }
+            i = (i + 1)
+        }
+        if (closing > 0) {
+            layer.remove(windows closing)
+        }
+        if (openEdit > 0) {
+            this.openChartDialog(openEdit)
+        }
+    }
+
+    ; The status bar's "+ Chart" button.
+    fn chartButtonHit:boolean (px:int py:int) {
+        def statusTop:int (grid.y + grid.h)
+        def bx:int (GridView.chartButtonX(W))
+        def by:int (GridView.chartButtonY(statusTop))
+        if (px < bx) {
+            return false
+        }
+        if (py < by) {
+            return false
+        }
+        def bw:int (GridView.chartButtonW())
+        def bh:int (GridView.chartButtonH())
+        if (px >= (bx + bw)) {
+            return false
+        }
+        return (py < (by + bh))
     }
 
     fn openPasteSpecial:void () {
@@ -670,14 +947,23 @@ class GridApp {
         def px:int (grid.x + (idiv (W - pasteDialog.w) 2))
         def py:int (grid.y + 70)
         pasteDialog.openAt(px py)
+        ; A dialog opened over a floating chart has to be in front of it.
+        windows.raise(pasteDialog)
         view.focused = true
     }
 
-    ; Returns true when a dialog handled the frame, so the grid stays inert.
+    ; Route the frame through the window layer, then read what it produced.
+    ;
+    ; The return value is what the grid uses to decide whether the frame is
+    ; still its own, and it is not the same question as "is a window open".
+    ; A MODAL dialog owns everything until it closes. A floating chart owns
+    ; only the pixels it covers: clicking the sheet beside it must still select
+    ; a cell, or a chart would freeze the document it is a view of.
     fn updateDialogs:boolean (input:UIInput) {
         if ((windows.anyVisible()) == false) {
             return false
         }
+        def blocking:boolean (windows.anyModalVisible())
         def consumed:boolean (windows.handlePointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased))
         def ki:int 0
         def kn:int (input.keyCount())
@@ -706,7 +992,28 @@ class GridApp {
         if (pasteDialog.activated == 11) {
             pasteDialog.close()
         }
-        return true
+        if (chartDialog.activated == 403) {
+            this.applyChartDialog()
+        }
+        if (chartDialog.activated == 401) {
+            chartDialog.close()
+            chartEditId = 0
+        }
+        if (chartDialog.activated == 402) {
+            if (chartEditId > 0) {
+                view.chartLayer.remove(windows chartEditId)
+            }
+            chartDialog.close()
+            chartEditId = 0
+        }
+        this.pollChartWindows()
+        ; Dragging and resizing happened inside the window layer; the charts
+        ; keep their own geometry so it survives the window being rebuilt.
+        view.chartLayer.syncGeometry()
+        if blocking {
+            return true
+        }
+        return consumed
     }
 
     fn resize:void (nw:int nh:int) {
@@ -1606,6 +1913,10 @@ class GridApp {
             return
         }
         if input.pointerPressed {
+            if (this.chartButtonHit(input.pointerX input.pointerY)) {
+                this.openChartDialog(0)
+                return
+            }
             def tab:int (grid.hitSheetTab((book.sheetCount()) input.pointerX input.pointerY))
             if (tab >= 0) {
                 this.setActiveSheet(tab)
@@ -1722,6 +2033,15 @@ class GridApp {
                     } {
                         this.pasteClipboard()
                     }
+                }
+                ; Ctrl+M makes a chart of the selection. Excel's own chart
+                ; keys (F11, Alt+F1) are not keys this input layer carries, and
+                ; the browser host keeps most of the rest.
+                if ((ch == 109) || (ch == 77)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openChartDialog(0)
                 }
                 if ((ch == 122) || (ch == 90)) {
                     this.undoEdit()

@@ -24,6 +24,7 @@ EVGDisplayList → SoftCanvas / WebGL
 npm run datagrid:test
 npm run datagrid:edit:test
 npm run datagrid:xlsx:test
+npm run datagrid:chart:test
 npm run datagrid:workbook:test
 npm run datagrid:formula:test
 npm run datagrid:formula:workbook:test
@@ -58,6 +59,8 @@ npm run datagrid:window
   incremental recalc) + FormulaFunctions; cached `<v>` fallback
 - SheetView drives paint order; header popup for sort/filter
 - Conditional formatting: colorScale + cellIs paint overlay
+- **Charts from a selection**: eight Vega-Lite chart types through
+  [Vela](../vela/README.md), floating in draggable, resizable windows
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
 - Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`,
@@ -212,9 +215,84 @@ input capture: while a modal window is up it swallows clicks meant for the
 document behind it. Geometry is all integers, so behaviour is unit-testable
 without rendering.
 
+The same class is also the **sticky panel** the charts float in — a non-modal
+window with a close box, a resize grip and one *content region* the owner
+paints itself. Non-modal is the whole difference: a floating chart owns only
+the pixels it covers, so clicking the sheet beside it still selects a cell.
+
 The host stays in charge: it passes the `UITextRenderer` it already has,
 forwards the pointer and keys it already receives, and appends the window's
 commands to its own display list.
+
+## Charts
+
+Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
+picker opens on that range. Pick a type and a style, and the chart appears in a
+window floating over the sheet that you can drag, resize, and reopen for
+editing.
+
+Nothing about the drawing is stored. A chart *is* its range: `GridChart` holds
+the rectangle, the kind, the style, the two header flags and the window box, and
+the picture is recomputed from the cells. Edit a number the chart reads and the
+chart follows on the next frame.
+
+| Step | Where |
+| --- | --- |
+| cells → Vega-Lite JSON | `GridChart.rgr` (`ChartData.specJson`) |
+| Vega-Lite → Vega → scene → draw commands | [Vela](../vela/README.md), unchanged |
+| draw commands → `EVGDrawCmd` | [`VlEvgList.rgr`](../vela/src/VlEvgList.rgr) |
+| the window, the drag, the resize | [`EVGWindow`](../evg/EVGWindow.rgr) |
+
+Only the first arrow is new. Everything below it is Vela's, which is checked
+against the official Vega implementation by its own corpus, so a bar here is
+the bar the reference draws.
+
+### What the picker offers
+
+Eight types — column, bar, stacked column, line, area, scatter, pie, donut — and
+four styles (Vela light, Slate dark, Mono, Bold), which are `config` blocks: the
+same marks, painted differently.
+
+**A type that would not work is greyed out rather than hidden**, because
+"a pie is possible, but not of two series" is worth more than a shorter list:
+
+| Type | Needs |
+| --- | --- |
+| Stacked column | two or more series |
+| Line, area | two or more categories |
+| Scatter | a numeric first column |
+| Pie, donut | exactly one series, two or more categories |
+
+The picker opens on the type the data suggests, with the headers already
+guessed: a top row of words over a column of numbers is a header row, not data.
+A single selected cell charts the **block around it**, as Excel assumes too —
+nobody charts one number.
+
+Numbers are read strictly: `2024-01-01` and `14.00%` are *not* numbers, which
+matters because the platform's own `to_double` reads them as `2024` and `14`.
+A column of dates charted as six equal values of 2024 is how that was found.
+
+### The window
+
+| Gesture | Does |
+| --- | --- |
+| Drag the title bar | Moves the chart; the chart remembers where it was left |
+| Drag the bottom-right grip | Resizes it, and the chart redraws to fit |
+| **Edit…** | Reopens the picker on that chart — change type, style or headers |
+| The box in the title bar | Removes the chart |
+
+Charts belong to a sheet: switch sheets and the ones reading another sheet hide
+rather than draw over the wrong numbers.
+
+### Fitting
+
+A Vega view is bigger than its plot — the axes and legend grow it by whatever
+they turn out to need, which is not known until the labels exist. So the spec is
+run once to measure that, run again with the plot shrunk by exactly that much,
+and only scaled if it still does not fit. The usual result is 1:1, so the text
+is crisp rather than resampled. Compiling is cached by specification text and
+box size, which is why dragging a chart costs nothing and editing a cell it
+reads costs one recompute.
 
 ## Parity score
 

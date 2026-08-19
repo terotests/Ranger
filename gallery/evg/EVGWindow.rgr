@@ -11,8 +11,15 @@
 ; The layer is deliberately small. It owns:
 ;   * a floating panel with a title bar you can drag
 ;   * labels, buttons, radio groups, checkboxes and separators
+;   * a content area the owner paints itself — what a sticky panel needs
 ;   * hit-testing and pointer / key routing, with modal capture
 ;   * painting into an EVGDisplayList
+;
+; A window is either a DIALOG (modal, sized to its controls, dismissed by a
+; button) or a STICKY PANEL (non-modal, resizable, closed by the box in its
+; title bar, and holding one content region whose pixels are the owner's).
+; Both are the same class because the only difference is which of those fields
+; are set — the drag, the frame and the routing are shared.
 ;
 ; It does NOT own a font, a canvas, or an event loop. The host passes the
 ; UITextRenderer it already has for measurement, forwards the pointer and keys
@@ -31,6 +38,9 @@ class EVGControlKind {
     sfn radio:int ()     { return 2 }
     sfn checkbox:int ()  { return 3 }
     sfn separator:int () { return 4 }
+    ; A region the window reserves but does not paint: the owner draws into it
+    ; once the frame is down. A chart is the reason it exists.
+    sfn content:int ()   { return 5 }
 }
 
 class EVGControl {
@@ -84,6 +94,9 @@ class EVGWindowTheme {
 }
 
 class EVGWindow {
+    ; Identity, assigned by the manager on add. Used for the z-order shuffle,
+    ; which has to tell one window from another without comparing references.
+    def wid:int 0
     def title:string ""
     def x:int 0
     def y:int 0
@@ -106,6 +119,36 @@ class EVGWindow {
     def dragDY:int 0
     ; Where the next added control goes.
     def cursorY:int 0
+    ; Column layout. A list of eight radio buttons is eight rows tall, which is
+    ; taller than a dialog wants to be; `beginColumns` lays the next controls
+    ; out side by side instead, in the same order.
+    def columns:int 1
+    def colIndex:int 0
+    def colTop:int 0
+    def colRowH:int 0
+
+    ; --- sticky panel ---------------------------------------------------------
+    ; A close box in the title bar. `closeId` is what `activated` reports when
+    ; it is clicked, so the host reads it exactly like a button.
+    def closable:boolean false
+    def closeId:int -1
+    ; A grip in the bottom-right corner. Resizing stretches the content control,
+    ; which is why only a window with one is worth resizing.
+    def resizable:boolean false
+    def minW:int 160
+    def minH:int 120
+    def sizing:boolean false
+    def sizeW0:int 0
+    def sizeH0:int 0
+    def sizeX0:int 0
+    def sizeY0:int 0
+    ; Set once the window carries a content control, so paint knows to leave
+    ; that rectangle alone.
+    def hasContent:boolean false
+    def contentId:int -1
+    ; Bumped every time the content rectangle changes size, so an owner that
+    ; caches rendered pixels knows when the cache went stale.
+    def contentVersion:int 0
 
     Constructor () {
     }
@@ -116,6 +159,8 @@ class EVGWindow {
         cursorY = (titleH + padY)
         activated = -1
         hot = -1
+        columns = 1
+        colIndex = 0
     }
 
     fn addControl:EVGControl (id:int kind:int text:string height:int) {
@@ -123,13 +168,45 @@ class EVGWindow {
         c.id = id
         c.kind = kind
         c.text = text
-        c.x = padX
-        c.y = cursorY
-        c.w = (w - (padX * 2))
         c.h = height
+        if (columns > 1) {
+            def cw:int (idiv (w - (padX * 2)) columns)
+            c.x = (padX + (colIndex * cw))
+            c.y = colTop
+            c.w = (cw - 8)
+            colRowH = height
+            colIndex = (colIndex + 1)
+            if (colIndex >= columns) {
+                colIndex = 0
+                colTop = ((colTop + height) + 4)
+            }
+        } {
+            c.x = padX
+            c.y = cursorY
+            c.w = (w - (padX * 2))
+            cursorY = ((cursorY + height) + 4)
+        }
         push controls c
-        cursorY = (cursorY + height + 4)
         return c
+    }
+
+    fn beginColumns:void (n:int) {
+        if (n < 1) {
+            return
+        }
+        columns = n
+        colIndex = 0
+        colTop = cursorY
+        colRowH = rowH
+    }
+
+    fn endColumns:void () {
+        cursorY = colTop
+        if (colIndex > 0) {
+            cursorY = ((colTop + colRowH) + 4)
+        }
+        columns = 1
+        colIndex = 0
     }
 
     fn addLabel:void (text:string) {
@@ -149,6 +226,88 @@ class EVGWindow {
     fn addCheckbox:void (id:int text:string selected:boolean) {
         def c:EVGControl (this.addControl(id (EVGControlKind.checkbox()) text rowH))
         c.checked = selected
+    }
+
+    ; A region the window will not paint. The owner reads `contentX/Y/W/H` and
+    ; draws whatever it likes there — the window only guarantees the rectangle
+    ; is inside the frame and moves with it.
+    fn addContent:void (id:int height:int) {
+        def c:EVGControl (this.addControl(id (EVGControlKind.content()) "" height))
+        hasContent = true
+        contentId = id
+    }
+
+    fn contentControl:EVGControl () {
+        return (this.controlById(contentId))
+    }
+
+    fn contentX:int () {
+        def c:EVGControl (this.contentControl())
+        return (x + c.x)
+    }
+
+    fn contentY:int () {
+        def c:EVGControl (this.contentControl())
+        return (y + c.y)
+    }
+
+    fn contentW:int () {
+        def c:EVGControl (this.contentControl())
+        return c.w
+    }
+
+    fn contentH:int () {
+        def c:EVGControl (this.contentControl())
+        return c.h
+    }
+
+    ; Resize the panel and give every pixel gained or lost to the content
+    ; control. Controls below it (a button row) ride along.
+    fn setSize:void (nw:int nh:int) {
+        def wantW:int nw
+        def wantH:int nh
+        if (wantW < minW) {
+            wantW = minW
+        }
+        if (wantH < minH) {
+            wantH = minH
+        }
+        if (wantW == w) {
+            if (wantH == h) {
+                return
+            }
+        }
+        def dw:int (wantW - w)
+        def dh:int (wantH - h)
+        w = wantW
+        h = wantH
+        def i:int 0
+        def past:boolean false
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if (c.kind == (EVGControlKind.button())) {
+                ; Buttons are laid out from the right edge and sit under the
+                ; content, so they follow both.
+                c.x = (c.x + dw)
+                c.y = (c.y + dh)
+            } {
+                if (c.id == contentId) {
+                    if hasContent {
+                        c.w = (c.w + dw)
+                        c.h = (c.h + dh)
+                        past = true
+                        contentVersion = (contentVersion + 1)
+                    }
+                } {
+                    if past {
+                        c.y = (c.y + dh)
+                    } {
+                        c.w = (c.w + dw)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     ; Buttons sit on one row at the bottom, laid out right to left.
@@ -188,6 +347,26 @@ class EVGWindow {
         if (h < (titleH + 40)) {
             h = (titleH + 40)
         }
+    }
+
+    ; Open at (px, py), but never off the page: a dialog whose buttons are
+    ; below the bottom edge cannot be answered.
+    fn openWithin:void (px:int py:int pageW:int pageH:int) {
+        def ox:int px
+        def oy:int py
+        if ((ox + w) > pageW) {
+            ox = (pageW - (w + 8))
+        }
+        if (ox < 4) {
+            ox = 4
+        }
+        if ((oy + h) > pageH) {
+            oy = (pageH - (h + 8))
+        }
+        if (oy < 4) {
+            oy = 4
+        }
+        this.openAt(ox oy)
     }
 
     fn openAt:void (px:int py:int) {
@@ -296,6 +475,51 @@ class EVGWindow {
         return (py < (y + titleH))
     }
 
+    ; The close box lives at the right end of the title bar; the resize grip in
+    ; the bottom-right corner. Both are fixed 14-pixel squares so a host can
+    ; reason about them without asking.
+    fn boxSide:int () {
+        return 14
+    }
+
+    fn onCloseBox:boolean (px:int py:int) {
+        if (closable == false) {
+            return false
+        }
+        def side:int (this.boxSide())
+        def bx:int ((x + w) - (side + 8))
+        def by:int (y + (idiv (titleH - side) 2))
+        if (px < bx) {
+            return false
+        }
+        if (py < by) {
+            return false
+        }
+        if (px >= (bx + side)) {
+            return false
+        }
+        return (py < (by + side))
+    }
+
+    fn onResizeGrip:boolean (px:int py:int) {
+        if (resizable == false) {
+            return false
+        }
+        def side:int (this.boxSide())
+        def gx:int ((x + w) - side)
+        def gy:int ((y + h) - side)
+        if (px < gx) {
+            return false
+        }
+        if (py < gy) {
+            return false
+        }
+        if (px >= (gx + side)) {
+            return false
+        }
+        return (py < (gy + side))
+    }
+
     ; Control under the pointer, or -1. Coordinates are window-relative inside.
     fn controlAt:int (px:int py:int) {
         if ((this.containsPoint(px py)) == false) {
@@ -335,6 +559,14 @@ class EVGWindow {
             return false
         }
         hot = (this.controlAt(px py))
+        if sizing {
+            if down {
+                this.setSize((sizeW0 + (px - sizeX0)) (sizeH0 + (py - sizeY0)))
+                return true
+            }
+            sizing = false
+            return true
+        }
         if dragging {
             if down {
                 x = (px - dragDX)
@@ -345,6 +577,19 @@ class EVGWindow {
             return true
         }
         if pressed {
+            if (this.onCloseBox(px py)) {
+                activated = closeId
+                this.close()
+                return true
+            }
+            if (this.onResizeGrip(px py)) {
+                sizing = true
+                sizeX0 = px
+                sizeY0 = py
+                sizeW0 = w
+                sizeH0 = h
+                return true
+            }
             if (this.onTitleBar(px py)) {
                 dragging = true
                 dragDX = (px - x)
@@ -380,10 +625,15 @@ class EVGWindow {
         return modal
     }
 
-    ; escapeKey / enterKey are the host's UIKey codes.
+    ; escapeKey / enterKey are the host's UIKey codes. Only a modal window reads
+    ; keys: a sticky panel floats over a document whose keyboard belongs to the
+    ; document, and closing it on a stray Escape would be a surprise.
     fn handleKey:boolean (key:int escapeKey:int enterKey:int) {
         activated = -1
         if (visible == false) {
+            return false
+        }
+        if (modal == false) {
             return false
         }
         if (key == escapeKey) {
@@ -466,6 +716,16 @@ class EVGWindow {
         this.frame(dl x y w h 1.0 theme.border)
         this.rect(dl x y w titleH theme.titleBg)
         this.text(dl title (x + padX) (y + 6) fontSize theme.titleText tr true)
+        if closable {
+            def side:int (this.boxSide())
+            def bx:int ((x + w) - (side + 8))
+            def by:int (y + (idiv (titleH - side) 2))
+            this.frame(dl bx by side side 1.0 theme.titleText)
+            ; An x drawn as two thin bars, because a glyph would need a face
+            ; the host may not have loaded.
+            this.rect(dl (bx + 3) (by + (idiv side 2)) (side - 6) 1 theme.titleText)
+            this.rect(dl (bx + (idiv side 2)) (by + 3) 1 (side - 6) theme.titleText)
+        }
         def i:int 0
         while (i < (array_length controls)) {
             def c:EVGControl (itemAt controls i)
@@ -474,17 +734,31 @@ class EVGWindow {
             if (c.kind == (EVGControlKind.label())) {
                 this.text(dl c.text cx (cy + 4) fontSize theme.text tr false)
             }
+            if (c.kind == (EVGControlKind.content())) {
+                ; The owner's rectangle: only the recess is ours.
+                this.rect(dl cx cy c.w c.h theme.panel)
+                this.frame(dl cx cy c.w c.h 1.0 theme.muted)
+            }
             if (c.kind == (EVGControlKind.separator())) {
                 this.rect(dl cx (cy + 3) c.w 1 theme.muted)
             }
             if (c.kind == (EVGControlKind.radio())) {
                 def rr:int 12
                 def ry2:int (cy + (idiv (c.h - rr) 2))
-                this.frame(dl cx ry2 rr rr 1.0 theme.border)
+                ; A choice that would not work is shown greyed rather than
+                ; hidden: knowing a pie is possible but not for THIS selection
+                ; is worth more than a shorter list.
+                def edge:EVGColor theme.border
+                def ink:EVGColor theme.text
+                if (c.enabled == false) {
+                    edge = theme.muted
+                    ink = theme.muted
+                }
+                this.frame(dl cx ry2 rr rr 1.0 edge)
                 if c.checked {
                     this.rect(dl (cx + 3) (ry2 + 3) (rr - 6) (rr - 6) theme.accent)
                 }
-                this.text(dl c.text (cx + rr + 8) (cy + 4) fontSize theme.text tr false)
+                this.text(dl c.text (cx + rr + 8) (cy + 4) fontSize ink tr false)
             }
             if (c.kind == (EVGControlKind.checkbox())) {
                 def br:int 12
@@ -512,6 +786,18 @@ class EVGWindow {
             }
             i = (i + 1)
         }
+        if resizable {
+            def gside:int (this.boxSide())
+            def gx:int ((x + w) - gside)
+            def gy:int ((y + h) - gside)
+            def line:int 0
+            while (line < 3) {
+                def off:int (3 + (line * 4))
+                this.rect(dl (gx + off) ((gy + gside) - 3) (gside - off) 1 theme.muted)
+                this.rect(dl ((gx + gside) - 3) (gy + off) 1 (gside - off) theme.muted)
+                line = (line + 1)
+            }
+        }
     }
 }
 
@@ -524,7 +810,28 @@ class EVGWindowManager {
     }
 
     fn add:void (win:EVGWindow) {
+        win.wid = ((array_length windows) + 1)
         push windows win
+    }
+
+    ; Take a window out of the stack for good — what a closable panel needs,
+    ; since a hidden window still costs a paint check every frame.
+    fn remove:void (win:EVGWindow) {
+        def keep:[EVGWindow]
+        def i:int 0
+        while (i < (array_length windows)) {
+            def wnd:EVGWindow (itemAt windows i)
+            if (wnd.wid != win.wid) {
+                push keep wnd
+            }
+            i = (i + 1)
+        }
+        clear windows
+        def k:int 0
+        while (k < (array_length keep)) {
+            push windows (itemAt keep k)
+            k = (k + 1)
+        }
     }
 
     fn anyVisible:boolean () {
@@ -533,6 +840,22 @@ class EVGWindowManager {
             def wnd:EVGWindow (itemAt windows i)
             if wnd.visible {
                 return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; What a host asks before it decides the document is inert: a sticky panel
+    ; floats over a live document, a dialog does not.
+    fn anyModalVisible:boolean () {
+        def i:int 0
+        while (i < (array_length windows)) {
+            def wnd:EVGWindow (itemAt windows i)
+            if wnd.visible {
+                if wnd.modal {
+                    return true
+                }
             }
             i = (i + 1)
         }
@@ -551,12 +874,48 @@ class EVGWindowManager {
         return (new EVGWindow)
     }
 
+    ; Move a window to the top of the stack. Z-order is recency: the window
+    ; you last touched is the one in front, and a dialog raises itself when it
+    ; opens, which is what keeps it above the panels it was opened over.
+    fn raise:void (win:EVGWindow) {
+        def keep:[EVGWindow]
+        def i:int 0
+        while (i < (array_length windows)) {
+            def wnd:EVGWindow (itemAt windows i)
+            if (wnd.wid != win.wid) {
+                push keep wnd
+            }
+            i = (i + 1)
+        }
+        clear windows
+        def k:int 0
+        while (k < (array_length keep)) {
+            push windows (itemAt keep k)
+            k = (k + 1)
+        }
+        push windows win
+    }
+
+    ; Top-down until one window takes it. Every visible window has its
+    ; `activated` cleared first, so a stale click on a panel that is no longer
+    ; on top cannot be read a second time.
     fn handlePointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        def c:int 0
+        while (c < (array_length windows)) {
+            def w0:EVGWindow (itemAt windows c)
+            w0.activated = -1
+            c = (c + 1)
+        }
         def i:int ((array_length windows) - 1)
         while (i >= 0) {
             def wnd:EVGWindow (itemAt windows i)
             if wnd.visible {
-                return (wnd.handlePointer(px py pressed down released))
+                if (wnd.handlePointer(px py pressed down released)) {
+                    if pressed {
+                        this.raise(wnd)
+                    }
+                    return true
+                }
             }
             i = (i - 1)
         }
@@ -568,7 +927,9 @@ class EVGWindowManager {
         while (i >= 0) {
             def wnd:EVGWindow (itemAt windows i)
             if wnd.visible {
-                return (wnd.handleKey(key escapeKey enterKey))
+                if (wnd.handleKey(key escapeKey enterKey)) {
+                    return true
+                }
             }
             i = (i - 1)
         }

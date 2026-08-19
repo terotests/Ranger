@@ -589,6 +589,14 @@ elements. Only *consecutive* commands merge, so the drawing order survives —
 grid under bars under labels. A bar chart with axes comes out as six paths and
 twenty-two labels.
 
+**Two outputs, one geometry.** `VlEvg` writes EVG *source* — TSX a page
+compiles — which is what a document wants. `VlEvgList` appends `EVGDrawCmd`s to
+a display list an application is already holding, which is what an application
+wants: the spreadsheet's floating charts are drawn that way, straight into the
+grid's own frame, and land on SoftCanvas and WebGL with no chart code in either.
+Both take their outlines from `VlShape`, so a wedge in one is the wedge in the
+other; the difference is only where the ink goes.
+
 **Colour can come from the specification or from a stylesheet.** By default a
 chart carries its own colours, written as `fill` and `stroke` attributes — the
 specification decided them and a chart drawn on its own should look like the
@@ -988,6 +996,7 @@ gallery/vela/
 │   ├── VlAxis.rgr        an axis spec becomes rules and text
 │   ├── VlLegend.rgr      a legend spec becomes symbols and text
 │   ├── VlEvg.rgr         the EVG backend: commands → path data
+│   ├── VlEvgList.rgr     the same, into a live EVGDisplayList
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
 │   ├── VlRegex.rgr       a regular expression, matched

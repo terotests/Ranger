@@ -189,6 +189,7 @@
     "datagrid:window:sales": "npm run datagrid:module && node gallery/datagrid/web/serve.mjs --open --xlsx gallery/datagrid/fixtures/sales.xlsx",
     "datagrid:window:smoke": "npm run datagrid:module && node gallery/datagrid/web/serve.mjs --headless-smoke",
     "datagrid:edit:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridEditTest.rgr -d=./gallery/datagrid/bin -o=GridEditTest.js -nodecli && node ./gallery/datagrid/bin/GridEditTest.js",
+    "datagrid:chart:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/ChartTest.rgr -d=./gallery/datagrid/bin -o=ChartTest.js -nodecli && node ./gallery/datagrid/bin/ChartTest.js",
     "datagrid:xlsx:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/XlsxTest.rgr -d=./gallery/datagrid/bin -o=XlsxTest.js -nodecli && node ./gallery/datagrid/bin/XlsxTest.js",
     "datagrid:xlsx:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/src/xlsx_demo.rgr -d=./gallery/datagrid/bin -o=xlsx_demo.js -nodecli && node ./gallery/datagrid/bin/xlsx_demo.js",
     "datagrid:xlsx:fixtures": "python3 gallery/datagrid/tools/make_fixtures.py && python3 gallery/datagrid/tools/make_m4_fixtures.py && python3 gallery/datagrid/tools/make_styles_fixture.py",

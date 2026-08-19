@@ -1,0 +1,613 @@
+; ==============================================================================
+; GridChart.rgr — a cell range becomes a chart.
+; ==============================================================================
+;
+; A chart in a spreadsheet is not a picture pasted onto the sheet: it is a VIEW
+; of a range. Move the range's numbers and the picture has to follow, which is
+; why nothing here stores a drawing. A `GridChart` stores the range, the kind of
+; chart, the style, and where its window sits — nine numbers and two strings —
+; and the picture is recomputed from the cells whenever they change.
+;
+; The path from those cells to pixels is entirely borrowed:
+;
+;   range → Vega-Lite JSON → VlCompile → VlRuntime → draw commands → EVG
+;
+; Every step but the first already existed and is checked against the official
+; Vega implementation by Vela's own corpus. So this file's whole job is the
+; first arrow: read a rectangle of cells and write the specification a chart of
+; that shape needs. It emits LONG form — one row per (category, series, value) —
+; because that is the shape Vega-Lite's colour and offset channels want, and
+; because generating it needs no transform Vela would have to support.
+;
+; WHICH CHARTS SUIT A SELECTION is decided here too, and it is a real question
+; rather than a menu: a pie of six series is nonsense, a line of one point is a
+; dot, and a scatter needs a numeric x. `ChartKind.suits` answers it, so the
+; picker can offer what will work and grey out what will not.
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+
+; The chart types offered, as small integers so they can be radio-button ids.
+class ChartKind {
+    sfn column:int ()  { return 1 }
+    sfn bar:int ()     { return 2 }
+    sfn stacked:int () { return 3 }
+    sfn line:int ()    { return 4 }
+    sfn area:int ()    { return 5 }
+    sfn scatter:int () { return 6 }
+    sfn pie:int ()     { return 7 }
+    sfn donut:int ()   { return 8 }
+    ; `first` / `last` are names the compiler keeps for itself, hence these.
+    sfn lowest:int ()  { return 1 }
+    sfn highest:int () { return 8 }
+
+    sfn label:string (kind:int) {
+        if (kind == 1) { return "Column" }
+        if (kind == 2) { return "Bar" }
+        if (kind == 3) { return "Stacked column" }
+        if (kind == 4) { return "Line" }
+        if (kind == 5) { return "Area" }
+        if (kind == 6) { return "Scatter" }
+        if (kind == 7) { return "Pie" }
+        if (kind == 8) { return "Donut" }
+        return "Column"
+    }
+}
+
+; A visual style is a `config` block and a background: the same data drawn by
+; the same marks, painted differently. Kept as presets rather than a colour
+; picker because what a chart in a spreadsheet needs is to match the others.
+class ChartStyle {
+    sfn vela:int ()  { return 1 }
+    sfn slate:int () { return 2 }
+    sfn mono:int ()  { return 3 }
+    sfn bold:int ()  { return 4 }
+    sfn lowest:int ()  { return 1 }
+    sfn highest:int () { return 4 }
+
+    sfn label:string (style:int) {
+        if (style == 1) { return "Vela light" }
+        if (style == 2) { return "Slate dark" }
+        if (style == 3) { return "Mono" }
+        if (style == 4) { return "Bold" }
+        return "Vela light"
+    }
+
+    ; The page colour behind the plot. The window paints it too, so the chart
+    ; does not sit on a white card inside a dark panel.
+    sfn background:string (style:int) {
+        if (style == 2) { return "#242a33" }
+        if (style == 3) { return "#ffffff" }
+        if (style == 4) { return "#ffffff" }
+        return "#ffffff"
+    }
+
+    ; True when the style's own text is light, so the host paints its chrome to
+    ; match rather than guessing from the background string.
+    sfn isDark:boolean (style:int) {
+        return (style == 2)
+    }
+
+    ; The `config` member, without the surrounding braces of the spec.
+    sfn configJson:string (style:int) {
+        if (style == 2) {
+            return "\"config\":{\"range\":{\"category\":{\"scheme\":\"category20b\"}},\"axis\":{\"labelColor\":\"#c9d1d9\",\"titleColor\":\"#c9d1d9\",\"domainColor\":\"#586069\",\"tickColor\":\"#586069\",\"gridColor\":\"#39414c\"},\"legend\":{\"labelColor\":\"#c9d1d9\",\"titleColor\":\"#c9d1d9\"},\"view\":{\"stroke\":\"#39414c\"}}"
+        }
+        if (style == 3) {
+            return "\"config\":{\"range\":{\"category\":{\"scheme\":\"greys\"}},\"axis\":{\"grid\":false,\"domainColor\":\"#666666\",\"tickColor\":\"#666666\",\"labelColor\":\"#333333\",\"titleColor\":\"#333333\"},\"view\":{\"stroke\":\"#cccccc\"}}"
+        }
+        if (style == 4) {
+            return "\"config\":{\"range\":{\"category\":{\"scheme\":\"category10\"}},\"axis\":{\"grid\":false,\"labelFontSize\":12,\"titleFontSize\":12},\"view\":{\"stroke\":\"\"}}"
+        }
+        return "\"config\":{\"range\":{\"category\":{\"scheme\":\"category\"}}}"
+    }
+}
+
+; One chart: what it reads, how it looks, and where its window is. Everything
+; is a value — no display list, no cached scene — so a chart can be copied,
+; compared and undone like any other edit.
+class GridChart {
+    def id:int 0
+    def kind:int 1
+    def style:int 1
+    ; Which sheet the range belongs to. A chart of Sheet2 does not follow you
+    ; to Sheet1, it hides.
+    def sheet:int 0
+    def r0:int 0
+    def c0:int 0
+    def r1:int 0
+    def c1:int 0
+    ; The first row names the series; the first column names the categories.
+    ; Both default on, which is what a spreadsheet selection usually looks like.
+    def useHeaderRow:boolean true
+    def useHeaderCol:boolean true
+    def title:string ""
+    ; Window rectangle, in page pixels.
+    def x:int 0
+    def y:int 0
+    def w:int 380
+    def h:int 260
+    ; Set when the range's cells changed under it, so the host knows to redraw.
+    def dirty:boolean true
+
+    Constructor () {
+    }
+
+    fn copyFrom:void (o:GridChart) {
+        id = o.id
+        kind = o.kind
+        style = o.style
+        sheet = o.sheet
+        r0 = o.r0
+        c0 = o.c0
+        r1 = o.r1
+        c1 = o.c1
+        useHeaderRow = o.useHeaderRow
+        useHeaderCol = o.useHeaderCol
+        title = o.title
+        x = o.x
+        y = o.y
+        w = o.w
+        h = o.h
+        dirty = true
+    }
+
+    fn rangeLabel:string () {
+        return ((SpreadsheetModel.cellLabel(r0 c0)) + ":" + (SpreadsheetModel.cellLabel(r1 c1)))
+    }
+
+    ; The window's caption: the user's title if they gave one, else what the
+    ; chart is of, which is more use than "Chart 1".
+    fn caption:string () {
+        if ((strlen title) > 0) {
+            return title
+        }
+        return ((ChartKind.label(kind)) + " — " + (this.rangeLabel()))
+    }
+
+    ; Does an edit at (r, c) change this chart?
+    fn covers:boolean (sh:int r:int c:int) {
+        if (sh != sheet) {
+            return false
+        }
+        if (r < r0) {
+            return false
+        }
+        if (r > r1) {
+            return false
+        }
+        if (c < c0) {
+            return false
+        }
+        return (c <= c1)
+    }
+}
+
+; The numbers behind one chart, pulled out of the model once and then asked
+; questions: how many series, are the categories numeric, is a pie sensible.
+class ChartData {
+    def cats:[string]
+    def series:[string]
+    ; Row-major over categories: index = (cat * seriesCount) + series.
+    def values:[double]
+    def filled:[boolean]
+    ; True when every category label parsed as a number, which is what decides
+    ; whether a line gets a real x axis or a categorical one.
+    def catNumeric:boolean false
+    def points:int 0
+    ; What the headers called things. Without these an axis is labelled with
+    ; the field name the generator invented ("cat", "value"), which is a
+    ; detail of this file leaking onto the user's chart.
+    def catTitle:string ""
+    def valueTitle:string ""
+    def seriesTitle:string ""
+
+    Constructor () {
+    }
+
+    fn catCount:int () {
+        return (array_length cats)
+    }
+
+    fn seriesCount:int () {
+        return (array_length series)
+    }
+
+    ; Is the WHOLE string a number? `to_double` is a front-parser: it reads
+    ; "2024-01-01" as 2024 and "14%" as 14, which is how a column of dates
+    ; ended up charted as six equal values of 2024. So the shape is checked
+    ; first, and only then converted.
+    sfn looksNumeric:boolean (text:string) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        def digits:int 0
+        def dots:int 0
+        def exponents:int 0
+        while (i < n) {
+            def ch:int (charAt text i)
+            def isDigit:boolean ((ch >= 48) && (ch <= 57))
+            if isDigit {
+                digits = (digits + 1)
+            } {
+                if (ch == 46) {
+                    dots = (dots + 1)
+                    if (dots > 1) {
+                        return false
+                    }
+                } {
+                    if ((ch == 43) || (ch == 45)) {
+                        ; A sign is only a sign at the front, or straight after
+                        ; the exponent marker.
+                        if (i > 0) {
+                            def prev:int (charAt text (i - 1))
+                            if ((prev != 101) && (prev != 69)) {
+                                return false
+                            }
+                        }
+                    } {
+                        if ((ch == 101) || (ch == 69)) {
+                            exponents = (exponents + 1)
+                            if (exponents > 1) {
+                                return false
+                            }
+                            if (digits == 0) {
+                                return false
+                            }
+                        } {
+                            return false
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
+    sfn asNumber:double (text:string out:[boolean]) {
+        clear out
+        if ((ChartData.looksNumeric(text)) == false) {
+            push out false
+            return 0.0
+        }
+        def p@(optional):double (to_double text)
+        if p {
+            push out true
+            return (unwrap p)
+        }
+        push out false
+        return 0.0
+    }
+
+    ; Read the chart's rectangle out of the model. Returns false when there is
+    ; nothing to draw — no value column, or no row under the header.
+    fn extract:boolean (model:SpreadsheetModel ch:GridChart) {
+        clear cats
+        clear series
+        clear values
+        clear filled
+        catNumeric = true
+        points = 0
+        catTitle = ""
+        valueTitle = ""
+        seriesTitle = ""
+
+        def top:int ch.r0
+        def left:int ch.c0
+        if ch.useHeaderRow {
+            top = (top + 1)
+        }
+        if ch.useHeaderCol {
+            left = (left + 1)
+        }
+        if (top > ch.r1) {
+            return false
+        }
+        if (left > ch.c1) {
+            return false
+        }
+
+        ; Series names: the header row over the value columns, or "Series n".
+        def c:int left
+        while (c <= ch.c1) {
+            def name:string ""
+            if ch.useHeaderRow {
+                name = (model.getCell(ch.r0 c))
+            }
+            if ((strlen name) == 0) {
+                name = ("Series " + (to_string ((c - left) + 1)))
+            }
+            push series name
+            c = (c + 1)
+        }
+
+        def flag:[boolean]
+        def r:int top
+        while (r <= ch.r1) {
+            def label:string ""
+            if ch.useHeaderCol {
+                label = (model.getCell(r ch.c0))
+            }
+            if ((strlen label) == 0) {
+                label = (to_string ((r - top) + 1))
+            }
+            def probe:double (ChartData.asNumber(label flag))
+            if ((array_length flag) > 0) {
+                if ((itemAt flag 0) == false) {
+                    catNumeric = false
+                }
+            }
+            push cats label
+            def cc:int left
+            while (cc <= ch.c1) {
+                def raw:string (model.getCell(r cc))
+                def v:double (ChartData.asNumber(raw flag))
+                def ok:boolean false
+                if ((array_length flag) > 0) {
+                    ok = (itemAt flag 0)
+                }
+                push values v
+                push filled ok
+                if ok {
+                    points = (points + 1)
+                }
+                cc = (cc + 1)
+            }
+            r = (r + 1)
+        }
+        if ((array_length cats) == 0) {
+            return false
+        }
+        if ch.useHeaderCol {
+            catTitle = (model.getCell(ch.r0 ch.c0))
+        }
+        if ((array_length series) == 1) {
+            valueTitle = (itemAt series 0)
+        }
+        if ((array_length series) > 1) {
+            seriesTitle = "Series"
+        }
+        return (points > 0)
+    }
+
+    ; Can this selection be drawn as `kind` at all? The picker greys out what
+    ; answers false rather than drawing something misleading.
+    fn suits:boolean (kind:int) {
+        if (points == 0) {
+            return false
+        }
+        def nc:int (this.catCount())
+        def ns:int (this.seriesCount())
+        if (kind == (ChartKind.stacked())) {
+            return (ns >= 2)
+        }
+        if (kind == (ChartKind.line())) {
+            return (nc >= 2)
+        }
+        if (kind == (ChartKind.area())) {
+            return (nc >= 2)
+        }
+        if (kind == (ChartKind.scatter())) {
+            if (catNumeric == false) {
+                return false
+            }
+            return (nc >= 2)
+        }
+        if (kind == (ChartKind.pie())) {
+            if (ns != 1) {
+                return false
+            }
+            return (nc >= 2)
+        }
+        if (kind == (ChartKind.donut())) {
+            if (ns != 1) {
+                return false
+            }
+            return (nc >= 2)
+        }
+        return true
+    }
+
+    ; The kind to open the picker on: what the shape of the data suggests.
+    fn suggestedKind:int () {
+        def ns:int (this.seriesCount())
+        if catNumeric {
+            if (ns == 1) {
+                return (ChartKind.line())
+            }
+        }
+        if (ns >= 3) {
+            return (ChartKind.stacked())
+        }
+        return (ChartKind.column())
+    }
+
+    ; A channel's `title`, or nothing at all. An empty title is written as one
+    ; — that is how a spec says "label this with nothing", and it is what a
+    ; column of numbers with no header wants.
+    sfn titleMember:string (title:string) {
+        return ((",\"title\":\"" + (ChartData.jsonEscape(title))) + "\"")
+    }
+
+    sfn jsonEscape:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if (ch == 34) {
+                out = (out + "\\\"")
+            } {
+                if (ch == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (ch < 32) {
+                        out = (out + " ")
+                    } {
+                        out = (out + (strfromcode ch))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A double, written so a JSON parser reads it back as the same number.
+    ; `to_string` on a whole double gives "3" on some targets and "3.0" on
+    ; others; both parse, so this only has to avoid exponent notation.
+    sfn num:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def av:double v
+        if neg {
+            av = (0.0 - v)
+        }
+        def rounded:int (to_int ((av * 1000.0) + 0.5))
+        if (rounded == 0) {
+            return "0"
+        }
+        def whole:int (idiv rounded 1000)
+        def frac:int (rounded - (whole * 1000))
+        def out:string (to_string whole)
+        if (frac > 0) {
+            def digits:string (to_string frac)
+            while ((strlen digits) < 3) {
+                digits = ("0" + digits)
+            }
+            out = ((out + ".") + digits)
+        }
+        if neg {
+            out = ("-" + out)
+        }
+        return out
+    }
+
+    ; One JSON row per (category, series) pair that has a number. Pie and donut
+    ; read a single series, so they are given the first one only.
+    fn rowsJson:string (singleSeries:boolean) {
+        def out:string ""
+        def ns:int (this.seriesCount())
+        def nc:int (this.catCount())
+        def wrote:int 0
+        def ci:int 0
+        while (ci < nc) {
+            def si:int 0
+            def upto:int ns
+            if singleSeries {
+                upto = 1
+            }
+            while (si < upto) {
+                def at:int ((ci * ns) + si)
+                if (itemAt filled at) {
+                    if (wrote > 0) {
+                        out = (out + ",")
+                    }
+                    def cat:string (itemAt cats ci)
+                    out = (out + "{\"cat\":")
+                    if catNumeric {
+                        out = (out + cat)
+                    } {
+                        out = ((out + "\"") + (ChartData.jsonEscape(cat)) + "\"")
+                    }
+                    out = ((out + ",\"series\":\"") + (ChartData.jsonEscape((itemAt series si))) + "\"")
+                    out = ((out + ",\"value\":") + (ChartData.num((itemAt values at))) + "}")
+                    wrote = (wrote + 1)
+                }
+                si = (si + 1)
+            }
+            ci = (ci + 1)
+        }
+        return out
+    }
+
+    ; The category channel's type. A numeric first column is a real axis for
+    ; the marks that have one; a bar always bands, because a bar of a
+    ; continuous x is a histogram and that is a different chart.
+    fn catType:string (kind:int) {
+        if (kind == (ChartKind.line())) {
+            if catNumeric {
+                return "quantitative"
+            }
+        }
+        if (kind == (ChartKind.area())) {
+            if catNumeric {
+                return "quantitative"
+            }
+        }
+        if (kind == (ChartKind.scatter())) {
+            return "quantitative"
+        }
+        return "nominal"
+    }
+
+    ; The whole Vega-Lite specification, sized to the box it will be drawn in.
+    fn specJson:string (ch:GridChart plotW:int plotH:int) {
+        def kind:int ch.kind
+        def single:boolean false
+        if (kind == (ChartKind.pie())) {
+            single = true
+        }
+        if (kind == (ChartKind.donut())) {
+            single = true
+        }
+        def rows:string (this.rowsJson(single))
+        def out:string "{"
+        out = ((out + "\"width\":") + (to_string plotW) + ",\"height\":" + (to_string plotH))
+        out = ((out + ",\"background\":\"") + (ChartStyle.background(ch.style)) + "\"")
+        out = ((out + ",\"data\":{\"values\":[") + rows + "]}")
+
+        def multi:boolean ((this.seriesCount()) > 1)
+        def colour:string ("\"color\":{\"field\":\"series\",\"type\":\"nominal\"" + (ChartData.titleMember(seriesTitle)) + "}")
+        def valueField:string ("\"field\":\"value\",\"type\":\"quantitative\"" + (ChartData.titleMember(valueTitle)))
+        def catField:string ("\"field\":\"cat\",\"type\":\"" + (this.catType(kind)) + "\"" + (ChartData.titleMember(catTitle)))
+
+        if (kind == (ChartKind.pie())) {
+            out = (out + ",\"mark\":\"arc\",\"encoding\":{\"theta\":{" + valueField + "},\"color\":{\"field\":\"cat\",\"type\":\"nominal\"" + (ChartData.titleMember(catTitle)) + "}}")
+        }
+        if (kind == (ChartKind.donut())) {
+            out = (out + ",\"mark\":{\"type\":\"arc\",\"innerRadius\":40},\"encoding\":{\"theta\":{" + valueField + "},\"color\":{\"field\":\"cat\",\"type\":\"nominal\"" + (ChartData.titleMember(catTitle)) + "}}")
+        }
+        if (kind == (ChartKind.column())) {
+            out = (out + ",\"mark\":\"bar\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            if multi {
+                out = (out + "," + colour + ",\"xOffset\":{\"field\":\"series\",\"type\":\"nominal\"}")
+            }
+            out = (out + "}")
+        }
+        if (kind == (ChartKind.stacked())) {
+            out = (out + ",\"mark\":\"bar\",\"encoding\":{\"x\":{" + catField + "},\"y\":{\"field\":\"value\",\"type\":\"quantitative\",\"aggregate\":\"sum\"}," + colour + "}")
+        }
+        if (kind == (ChartKind.bar())) {
+            out = (out + ",\"mark\":\"bar\",\"encoding\":{\"y\":{" + catField + "},\"x\":{" + valueField + "}")
+            if multi {
+                out = (out + "," + colour)
+            }
+            out = (out + "}")
+        }
+        if (kind == (ChartKind.line())) {
+            out = (out + ",\"mark\":{\"type\":\"line\",\"point\":true},\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            if multi {
+                out = (out + "," + colour)
+            }
+            out = (out + "}")
+        }
+        if (kind == (ChartKind.area())) {
+            out = (out + ",\"mark\":\"area\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            if multi {
+                out = (out + "," + colour)
+            }
+            out = (out + "}")
+        }
+        if (kind == (ChartKind.scatter())) {
+            out = (out + ",\"mark\":\"point\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            if multi {
+                out = (out + "," + colour)
+            }
+            out = (out + "}")
+        }
+        out = ((out + ",") + (ChartStyle.configJson(ch.style)))
+        return (out + "}")
+    }
+}

@@ -1,0 +1,289 @@
+; ==============================================================================
+; VlEvgList.rgr — a chart's draw commands become EVG display-list commands.
+; ==============================================================================
+;
+; VlEvg.rgr already writes a chart as EVG *source*: TSX a page compiles. That is
+; the right answer for a document; it is the wrong one for an application that
+; is already holding an EVGDisplayList and wants the chart in it this frame.
+;
+; So this is the other half of the same bridge. Same geometry — the outlines
+; come from VlShape, exactly as the SVG and TSX backends take them, so a wedge
+; here is the wedge there — but the output is `EVGDrawCmd`s appended to a list
+; the host already paints: SoftCanvas to PNG, WebGL in a browser, anything a
+; later backend adds. The spreadsheet's floating chart and the showcase page
+; are then the same drawing, not two drawings that agree.
+;
+; Two things are worth stating.
+;
+; NOTHING IS RASTERISED HERE. Curves are flattened to rings by the same
+; SVGPathParser every other EVG path goes through, and that is all — no pixels,
+; no device resources, so this compiles wherever Vela does.
+;
+; TEXT IS PLACED, NOT BOXED. The TSX backend can hand a label a box and let the
+; page's own metrics settle it, because a page has metrics. A display list does
+; not: a command carries a position and a string. So the anchor is resolved
+; here, with the host's UITextRenderer — the same object that will draw it, so
+; the width that decides the placement is the width that gets painted.
+; ==============================================================================
+
+Import "VlCommand.rgr"
+Import "VlShape.rgr"
+Import "../../evg/PathBuilder.rgr"
+Import "../../evg/SVGPathParser.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+class VlEvgList {
+    ; Curve subdivision. A chart is small and its curves are short, so this is
+    ; a fixed budget rather than one derived from the drawn size.
+    def steps:int 16
+    def fontFamily:string "Open Sans"
+    ; Below this a label is unreadable at any zoom, so it is lifted instead of
+    ; being drawn as a smudge.
+    def minFontSize:double 7.0
+    ; How many commands the last emit produced. Handy for tests, which can then
+    ; assert that a chart drew something without owning a rasterizer.
+    def emitted:int 0
+
+    Constructor () {
+    }
+
+    ; Append `list` to `dl`, translated by (ox, oy) and scaled uniformly.
+    ; The offset is the plot origin the host chose; the scale is whatever is
+    ; left after the spec was asked for a size — normally 1.0.
+    fn emit:void (dl:EVGDisplayList list:VlCommandList tr:UITextRenderer ox:double oy:double scale:double) {
+        emitted = 0
+        def n:int (array_length list.commands)
+        def i:int 0
+        while (i < n) {
+            def cmd:VlDrawCommand (itemAt list.commands i)
+            if (cmd.op == "text") {
+                this.emitText(dl cmd tr ox oy scale)
+            } {
+                if (VlEvgList.isGeometry(cmd)) {
+                    this.emitGeometry(dl cmd ox oy scale)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Groups are layout, not ink: the command coordinates are already absolute
+    ; by the time they get here, so a group marker has nothing left to say.
+    sfn isGeometry:boolean (cmd:VlDrawCommand) {
+        if (cmd.op == "rect") {
+            return true
+        }
+        if (cmd.op == "line") {
+            return true
+        }
+        if (cmd.op == "symbol") {
+            return true
+        }
+        if (cmd.op == "polyline") {
+            return true
+        }
+        if (cmd.op == "polygon") {
+            return true
+        }
+        if (cmd.op == "trail") {
+            return true
+        }
+        if (cmd.op == "arc") {
+            return true
+        }
+        if (cmd.op == "path") {
+            return true
+        }
+        return false
+    }
+
+    ; The outline, in the command's own coordinates. Lifted from the TSX
+    ; backend deliberately: one of these two drawing a wedge differently would
+    ; be a bug nothing catches, so they call the same VlShape.
+    sfn appendGeometry:void (builder:PathBuilder cmd:VlDrawCommand) {
+        if (cmd.op == "rect") {
+            VlShape.appendRect(builder cmd.x cmd.y cmd.width cmd.height cmd.cornerTL cmd.cornerTR cmd.cornerBR cmd.cornerBL)
+            return
+        }
+        if (cmd.op == "line") {
+            builder.addLine(cmd.x cmd.y cmd.x2 cmd.y2)
+            return
+        }
+        if (cmd.op == "symbol") {
+            VlShape.appendSymbol(builder cmd.shape cmd.size cmd.x cmd.y)
+            return
+        }
+        if ((cmd.op == "polyline") || (cmd.op == "polygon")) {
+            VlShape.appendBrokenCurve(builder cmd.points cmd.breaks cmd.interpolate cmd.tension (cmd.op == "polygon"))
+            return
+        }
+        if (cmd.op == "trail") {
+            VlShape.appendBrokenTrail(builder cmd.points cmd.widths cmd.breaks)
+            return
+        }
+        if (cmd.op == "arc") {
+            VlShape.appendArc(builder cmd.x cmd.y cmd.startAngle cmd.endAngle cmd.innerRadius cmd.outerRadius)
+            return
+        }
+        if (cmd.op == "path") {
+            builder.addPathData(cmd.pathData)
+        }
+    }
+
+    ; "none" is how a specification says "do not paint this", and it is not a
+    ; colour: parsing it would give black, which is the most visible possible
+    ; way to be wrong.
+    sfn paints:boolean (colour:string) {
+        if ((strlen colour) == 0) {
+            return false
+        }
+        if (colour == "none") {
+            return false
+        }
+        if (colour == "transparent") {
+            return false
+        }
+        return true
+    }
+
+    fn emitGeometry:void (dl:EVGDisplayList cmd:VlDrawCommand ox:double oy:double scale:double) {
+        if (cmd.opacity <= 0.0) {
+            return
+        }
+        def wantFill:boolean false
+        if cmd.hasFill {
+            wantFill = (VlEvgList.paints(cmd.fill))
+        }
+        def wantStroke:boolean false
+        if cmd.hasStroke {
+            if (cmd.strokeWidth > 0.0) {
+                wantStroke = (VlEvgList.paints(cmd.stroke))
+            }
+        }
+        if (wantFill == false) {
+            if (wantStroke == false) {
+                return
+            }
+        }
+        def builder (new PathBuilder)
+        VlEvgList.appendGeometry(builder cmd)
+        if (builder.isEmpty()) {
+            return
+        }
+        def outline:[PathCommand] (builder.getCommands())
+        def parser:SVGPathParser (SVGPathParser.fromCommands(outline))
+        def rings:[PathRing] (parser.flattenRings(steps scale 0.0 0.0 scale ox oy))
+        if ((array_length rings) == 0) {
+            return
+        }
+        if wantFill {
+            def col:EVGColor (EVGColor.parse(cmd.fill))
+            def cf (new EVGDrawCmd)
+            cf.kind = 6
+            cf.r = (col.red())
+            cf.g = (col.green())
+            cf.b = (col.blue())
+            cf.a = (((col.alpha()) * cmd.fillOpacity) * cmd.opacity)
+            this.copyRings(cf rings)
+            push dl.cmds cf
+            emitted = (emitted + 1)
+        }
+        if wantStroke {
+            def scol:EVGColor (EVGColor.parse(cmd.stroke))
+            def cs (new EVGDrawCmd)
+            cs.kind = 7
+            cs.thickness = (cmd.strokeWidth * scale)
+            if (cs.thickness < 0.75) {
+                cs.thickness = 0.75
+            }
+            cs.r = (scol.red())
+            cs.g = (scol.green())
+            cs.b = (scol.blue())
+            cs.a = (((scol.alpha()) * cmd.strokeOpacity) * cmd.opacity)
+            this.copyRings(cs rings)
+            push dl.cmds cs
+            emitted = (emitted + 1)
+        }
+    }
+
+    fn copyRings:void (c:EVGDrawCmd rings:[PathRing]) {
+        def i:int 0
+        while (i < (array_length rings)) {
+            def ring:PathRing (itemAt rings i)
+            def k:int 0
+            while (k < (array_length ring.pts)) {
+                push c.pts (itemAt ring.pts k)
+                k = (k + 1)
+            }
+            push c.ringEnds (array_length c.pts)
+            i = (i + 1)
+        }
+    }
+
+    ; A label the overlap pass hid is not drawn at all — emitting it at zero
+    ; opacity leaves it there for a backend that ignores alpha to paint anyway.
+    fn emitText:void (dl:EVGDisplayList cmd:VlDrawCommand tr:UITextRenderer ox:double oy:double scale:double) {
+        if (cmd.opacity <= 0.0) {
+            return
+        }
+        if ((strlen cmd.text) == 0) {
+            return
+        }
+        if ((VlEvgList.paints(cmd.fill)) == false) {
+            return
+        }
+        def size:double (cmd.fontSize * scale)
+        if (size < minFontSize) {
+            size = minFontSize
+        }
+        def ax:double ((((cmd.x + cmd.dx) * scale)) + ox)
+        def ay:double ((((cmd.y + cmd.dy) * scale)) + oy)
+        def tw:double (tr.measureWidth(cmd.text size))
+        def lh:double (tr.lineHeight(size))
+        def left:double ax
+        if (cmd.align == "center") {
+            left = (ax - (tw / 2.0))
+        }
+        if (cmd.align == "right") {
+            left = (ax - tw)
+        }
+        def top:double ay
+        if (cmd.baseline == "middle") {
+            top = (ay - (size / 2.0))
+        }
+        if (cmd.baseline == "bottom") {
+            top = (ay - size)
+        }
+        if (cmd.baseline == "alphabetic") {
+            top = (ay - (size * 0.8))
+        }
+        ; A turned label rotates about its own box centre on every backend, so
+        ; the box has to be centred on the anchor for the string to land there.
+        if (cmd.angle != 0.0) {
+            left = (ax - (tw / 2.0))
+            top = (ay - (lh / 2.0))
+        }
+        def col:EVGColor (EVGColor.parse(cmd.fill))
+        def c (new EVGDrawCmd)
+        c.kind = 3
+        c.x = left
+        c.y = top
+        c.w = tw
+        c.h = lh
+        c.text = cmd.text
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        c.rotate = cmd.angle
+        if (cmd.fontWeight == "bold") {
+            c.fontWeight = "bold"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = ((col.alpha()) * cmd.opacity)
+        push dl.cmds c
+        emitted = (emitted + 1)
+    }
+}

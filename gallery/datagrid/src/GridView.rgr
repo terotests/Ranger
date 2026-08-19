@@ -16,6 +16,7 @@ Import "DataGrid.rgr"
 Import "CellStyle.rgr"
 Import "ConditionalFormat.rgr"
 Import "../../evg/EVGWindow.rgr"
+Import "GridChartView.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -49,6 +50,10 @@ class GridView {
     def editCaret:int 0
     ; Dialogs painted on top of the grid, from the shared EVG window layer.
     def windows:EVGWindowManager (new EVGWindowManager)
+    ; The charts floating over the sheet. Painted here rather than by the
+    ; window layer, because their content is the document's and the frame is
+    ; not.
+    def chartLayer:ChartLayer (new ChartLayer)
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -492,6 +497,25 @@ class GridView {
         }
     }
 
+    ; The status bar's chart button. Static so the hit test and the paint read
+    ; the same rectangle rather than two copies of it.
+    sfn chartButtonW:int () {
+        return 68
+    }
+
+    sfn chartButtonH:int () {
+        return 17
+    }
+
+    sfn chartButtonX:int (pageW:int) {
+        def bw:int (GridView.chartButtonW())
+        return (pageW - (bw + 8))
+    }
+
+    sfn chartButtonY:int (statusTop:int) {
+        return (statusTop + 2)
+    }
+
     fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
         grid.updateVisible(model)
         def dl:EVGDisplayList (new EVGDisplayList)
@@ -760,10 +784,27 @@ class GridView {
             }
             def info:string ("sheet " + (book.activeName()) + "  sel " + (SpreadsheetModel.cellLabel(sel.active.row sel.active.col)) + "  visible " + (to_string grid.firstVisibleRow) + ".." + (to_string grid.lastVisibleRow) + "  rows=" + (to_string model.rowCount) + "  " + src + "  " + status)
             this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.statusText)
+            ; The one control on the status bar: making a chart out of what is
+            ; selected. A shortcut alone would be a feature nobody finds.
+            def cbx:int (GridView.chartButtonX(pageW))
+            def cby:int (GridView.chartButtonY(sy2))
+            this.pushRect(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) theme.headerBg)
+            this.pushBorder(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) 1.0 theme.gridLine)
+            this.pushText(dl "+ Chart" (to_double (cbx + 10)) (to_double (cby + 1)) 12.0 theme.statusText)
         }
 
-        ; Dialogs sit above everything, including the status bar.
-        windows.paint(dl ctx.tr pageW pageH)
+        ; Dialogs and floating charts sit above everything, including the
+        ; status bar. Each window is painted and then immediately asked for its
+        ; content, so a chart's drawing lands inside its own frame and under
+        ; whatever is stacked on top of it — a dialog opened over a chart is
+        ; not drawn through.
+        def wi:int 0
+        while (wi < (array_length windows.windows)) {
+            def wnd:EVGWindow (itemAt windows.windows wi)
+            wnd.paint(dl ctx.tr pageW pageH)
+            chartLayer.paintContent(dl model ctx.tr wnd)
+            wi = (wi + 1)
+        }
 
         return dl
     }
@@ -786,6 +827,90 @@ class GridView {
                 def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
                 this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
                 ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+            }
+            ; Vector ink: a chart's bars, wedges and grid lines arrive as
+            ; flattened rings, exactly as the WebGL backend gets them. Without
+            ; these two the browser would show a chart and the PNG would show
+            ; an empty box, which is the disagreement the display list exists
+            ; to prevent.
+            if (c.kind == 6) {
+                this.fillRings(c)
+            }
+            if (c.kind == 7) {
+                this.strokeRings(c)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; One ring of a path command, as a flat point list.
+    fn ringAt:[double] (c:EVGDrawCmd index:int) {
+        def out:[double]
+        def start:int 0
+        if (index > 0) {
+            start = (itemAt c.ringEnds (index - 1))
+        }
+        def stop:int (itemAt c.ringEnds index)
+        def k:int start
+        while (k < stop) {
+            push out (itemAt c.pts k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn fillRings:void (c:EVGDrawCmd) {
+        def alpha:int (to_int (c.a * 255.0))
+        if (alpha <= 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringAt(c i))
+            ctx.fillPolygon(ring c.r c.g c.b alpha)
+            i = (i + 1)
+        }
+    }
+
+    ; A stroke becomes a quad per segment — the same expansion the WebGL
+    ; backend does, so the two agree on what a one-pixel grid line looks like.
+    fn strokeRings:void (c:EVGDrawCmd) {
+        def alpha:int (to_int (c.a * 255.0))
+        if (alpha <= 0) {
+            return
+        }
+        def half:double (c.thickness / 2.0)
+        if (half < 0.375) {
+            half = 0.375
+        }
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringAt(c i))
+            def n:int (array_length ring)
+            def k:int 0
+            while ((k + 3) < n) {
+                def x1:double (itemAt ring k)
+                def y1:double (itemAt ring (k + 1))
+                def x2:double (itemAt ring (k + 2))
+                def y2:double (itemAt ring (k + 3))
+                def dx:double (x2 - x1)
+                def dy:double (y2 - y1)
+                def len:double (sqrt ((dx * dx) + (dy * dy)))
+                if (len > 0.0001) {
+                    def nx:double (((0.0 - dy) / len) * half)
+                    def ny:double ((dx / len) * half)
+                    def quad:[double]
+                    push quad (x1 + nx)
+                    push quad (y1 + ny)
+                    push quad (x2 + nx)
+                    push quad (y2 + ny)
+                    push quad (x2 - nx)
+                    push quad (y2 - ny)
+                    push quad (x1 - nx)
+                    push quad (y1 - ny)
+                    ctx.fillPolygon(quad c.r c.g c.b alpha)
+                }
+                k = (k + 2)
             }
             i = (i + 1)
         }

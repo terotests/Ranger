@@ -94,6 +94,67 @@ class DumpArtifacts {
             app.pasteDialog.close()
         }
 
+        print "== 06 chart picker on a selection =="
+        def ok5:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok5 {
+            def s6:int 0
+            while (s6 < (app.book.sheetCount())) {
+                def sh6:SpreadsheetModel (app.book.sheetAt(s6))
+                if (sh6.name == "Scratch") {
+                    app.setActiveSheet(s6)
+                }
+                s6 = (s6 + 1)
+            }
+            ; A small table of its own, so the picture shows the feature rather
+            ; than the fixture.
+            app.model.growTo(6 4)
+            app.model.setCell(0 0 "Quarter")
+            app.model.setCell(0 1 "Widgets")
+            app.model.setCell(0 2 "Gadgets")
+            app.model.setCell(1 0 "Q1")
+            app.model.setCell(1 1 "120")
+            app.model.setCell(1 2 "80")
+            app.model.setCell(2 0 "Q2")
+            app.model.setCell(2 1 "150")
+            app.model.setCell(2 2 "95")
+            app.model.setCell(3 0 "Q3")
+            app.model.setCell(3 1 "90")
+            app.model.setCell(3 2 "130")
+            app.model.setCell(4 0 "Q4")
+            app.model.setCell(4 1 "175")
+            app.model.setCell(4 2 "110")
+            app.sheetView.markDirty()
+            app.sheetView.rebuild()
+            app.grid.updateVisible(app.model)
+            app.sel.anchor.row = 0
+            app.sel.anchor.col = 0
+            app.sel.active.row = 4
+            app.sel.active.col = 2
+            app.openChartDialog(0)
+            DumpArtifacts.writePng(app dir "06_chart_picker.png")
+
+            print "== 07 charts floating over the sheet =="
+            app.applyChartDialog()
+            app.sel.anchor.row = 0
+            app.sel.anchor.col = 0
+            app.sel.active.row = 4
+            app.sel.active.col = 1
+            app.openChartDialog(0)
+            app.chartDialog.selectRadio(107)
+            app.chartDialog.selectRadio(202)
+            app.applyChartDialog()
+            ; Put them side by side rather than in the default cascade, so both
+            ; are visible in one screenshot.
+            def p1:ChartPanel (app.view.chartLayer.panelAt(0))
+            p1.win.x = 60
+            p1.win.y = 70
+            def p2:ChartPanel (app.view.chartLayer.panelAt(1))
+            p2.win.x = 458
+            p2.win.y = 70
+            app.view.chartLayer.syncGeometry()
+            DumpArtifacts.writePng(app dir "07_charts_floating.png")
+        }
+
         print "DumpArtifacts DONE"
     }
 }

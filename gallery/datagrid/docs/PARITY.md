@@ -87,4 +87,15 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Custom tools / API | partial | GridApp is the API; no plugin surface |
 | Cooperative editing | todo | single document, no transport |
 | Mobile adaptation | todo | pointer only, no touch gestures |
-| Testing | done | 600+ checks across six suites plus oracles |
+| Testing | done | 600+ checks across seven suites plus oracles |
+
+## Beyond the benchmark
+
+Not scored, because the score measures FortuneSheet and these are not things
+FortuneSheet has:
+
+- **Charts.** A selection becomes a Vega-Lite chart through Vela — eight types,
+  four styles, floating in draggable windows that can be reopened for editing.
+  Charts are on FortuneSheet's roadmap under "more advanced features"; they are
+  not among its completed items, so adding a row here would raise our score by
+  measuring ourselves instead of the benchmark.
