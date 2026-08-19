@@ -94,6 +94,9 @@ npm run docx_viewer:window        # http://127.0.0.1:8770/
 - Per-span font *size* still paints at the visual line's size (layout wraps the
   paragraph at one size); only the face varies per run
 - Selection is a single range: no multi-select, no column selection
+- Tab does not insert tab characters (no tab-stop rendering)
+- Images cannot be selected or resized yet: the caret can reach them, but there
+  are no selection handles and no drag-to-resize
 - Requesting a page past the end renders the last page (clamped); the host
   reports the page it actually drew so the UI cannot offer a phantom one
 - Justify is flagged but not full glyph-distributed justification
@@ -129,6 +132,7 @@ v1 scope: body paragraphs only (not tables/headers yet).
 | Home / End | Start / end of the **visual** line (a wrapped paragraph behaves as it looks) |
 | Ctrl+Home / Ctrl+End | Start / end of the document |
 | Shift + any of the above | Extends the selection instead of moving |
+| Tab / Shift+Tab | Next / previous table cell, selecting its contents; Tab in the last cell appends a row |
 | Ctrl+A | Select the whole body |
 | Ctrl+C / Ctrl+X | Copy / cut the selection to the OS clipboard |
 | Ctrl+V | Paste (see [Paste](#paste)) |
@@ -139,6 +143,32 @@ v1 scope: body paragraphs only (not tables/headers yet).
 A bare arrow with a selection collapses it to the matching edge, as in Word.
 Movement follows the caret onto its page, so ↓ off the bottom of page 1 turns
 the view to page 2.
+
+### Tables
+
+Cell paragraphs are created with `addParagraphOnly`, so they are not body blocks
+and do not appear in the linear caret order — Tab is the way across them.
+`Tab` / `Shift+Tab` step to the next / previous cell and select its contents so
+typing replaces them, wrapping across rows; `Tab` in the last cell appends a row
+matching the last one, as Word does, and one `Ctrl+Z` removes it. Tab just
+before or after a table steps into it. Tab does **not** insert a tab character:
+tab stops are not rendered yet, so a literal tab would advance by the font's
+tiny default rather than to a stop. (On macOS `Cmd+Tab` belongs to the OS and
+never reaches the page; `Shift+Tab` is the "previous" binding.)
+
+### Lists and images
+
+Enter inside a list makes a **new list item**: `splitParagraph` carries the list
+membership (`listNumId` / `listLevel` / `listFmt`) to the new paragraph, and
+because `DocxLayout` renumbers from `listNumId` as it lays the list out, the new
+item takes the next number and the ones after it shift down. Enter on an *empty*
+list item ends the list instead of adding another empty bullet, so there is a
+keyboard way out; one `Ctrl+Z` puts it back.
+
+Clicking a picture places the caret in the paragraph that owns it — before it on
+the left half, behind it on the right — so you can land next to an image and
+press Enter for a new line. ↑ / ↓ stop on a picture when it is the only thing in
+its paragraph.
 
 ### Selection across paragraphs
 

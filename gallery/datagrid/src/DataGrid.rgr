@@ -55,6 +55,9 @@ class DataGrid {
     def resizingCol:int -1
     def resizeStartX:int 0
     def resizeStartW:int 0
+    ; Half-width of the header edge grab zone. 3px was hard to land on with a
+    ; real mouse; Excel's is about this wide.
+    def grabPx:int 4
     def resizingRow:int -1
     def resizeStartY:int 0
     def resizeStartH:int 0
@@ -651,7 +654,7 @@ class DataGrid {
         return p
     }
 
-    ; Row resize hit: near bottom edge of a row header (±3px). Iterates VIEW
+    ; Row resize hit: near bottom edge of a row header. Iterates VIEW
     ; rows so sort / filter order does not shift the grab zone.
     fn hitRowResize:int (model:SpreadsheetModel px:int py:int) {
         def headerTop:int (y + formulaBarH)
@@ -680,7 +683,7 @@ class DataGrid {
             if (d < 0) {
                 d = (0 - d)
             }
-            if (d <= 3) {
+            if (d <= grabPx) {
                 return r
             }
             vr = (vr + 1)
@@ -688,7 +691,7 @@ class DataGrid {
         return -1
     }
 
-    ; Column resize hit: near right edge of a column header (±3px).
+    ; Column resize hit: near right edge of a column header.
     fn hitColResize:int (model:SpreadsheetModel px:int py:int) {
         def headerTop:int (y + formulaBarH)
         def bodyLeft:int (x + rowHeaderW)
@@ -711,7 +714,7 @@ class DataGrid {
             if (d < 0) {
                 d = (0 - d)
             }
-            if (d <= 3) {
+            if (d <= grabPx) {
                 return c
             }
             c = (c + 1)

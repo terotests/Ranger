@@ -231,6 +231,8 @@ async function handleRequest(req, res) {
       else if (dir === "pageDown") viewer.keyPageDown(shift);
       else if (dir === "home") viewer.keyHome(shift, ctrl);
       else if (dir === "end") viewer.keyEnd(shift, ctrl);
+    } else if (type === "tab") {
+      viewer.keyTab(!!ev.shift);
     } else if (type === "selectAll") {
       viewer.keySelectAll();
     } else if (type === "copy") {

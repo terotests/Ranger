@@ -53,6 +53,8 @@ class GridView {
     def pageW:int 900
     def pageH:int 560
     def menuOpen:boolean false
+    def menuW:int 190
+    def menuH:int 170
     def menuCol:int -1
     def menuX:int 0
     def menuY:int 0
@@ -418,6 +420,20 @@ class GridView {
 
         this.popClip(dl)
 
+        ; Live guide while dragging a header edge, so the drop position is visible.
+        if (grid.resizingCol >= 0) {
+            def gx:int ((grid.colScreenX(model grid.resizingCol)) + (model.colWidth(grid.resizingCol)))
+            if (gx > grid.x) {
+                this.pushRect(dl (to_double (gx - 1)) (to_double (grid.y + grid.formulaBarH)) 2.0 (to_double (grid.h - grid.formulaBarH)) theme.activeBorder)
+            }
+        }
+        if (grid.resizingRow >= 0) {
+            def gy:int ((grid.rowScreenY(model grid.resizingRow)) + (model.rowHeight(grid.resizingRow)))
+            if (gy > grid.y) {
+                this.pushRect(dl (to_double (grid.x + grid.rowHeaderW)) (to_double (gy - 1)) (to_double (grid.w - grid.rowHeaderW)) 2.0 theme.activeBorder)
+            }
+        }
+
         ; sheet tabs
         def tabY:int (grid.sheetTabY())
         this.pushRect(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) theme.headerBg)
@@ -449,16 +465,19 @@ class GridView {
 
         ; sort/filter header popup
         if menuOpen {
-            def mw:int 168
-            def mh:int 118
+            def mw:int menuW
+            def mh:int menuH
             this.pushRect(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) theme.formulaBg)
             this.pushBorder(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) 1.0 theme.activeBorder)
-            def title:string (("Column " + (SpreadsheetModel.colLabel(menuCol))) + " filter")
+            def title:string ("Column " + (SpreadsheetModel.colLabel(menuCol)))
             this.pushText(dl title (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
             this.pushText(dl "1  Sort ascending" (to_double (menuX + 8)) (to_double (menuY + 30)) 12.0 theme.cellText)
             this.pushText(dl "2  Sort descending" (to_double (menuX + 8)) (to_double (menuY + 50)) 12.0 theme.cellText)
             this.pushText(dl "3  Filter unique values" (to_double (menuX + 8)) (to_double (menuY + 70)) 12.0 theme.cellText)
             this.pushText(dl "4  Clear filter" (to_double (menuX + 8)) (to_double (menuY + 90)) 12.0 theme.cellText)
+            this.pushText(dl "5  Auto-fit width" (to_double (menuX + 8)) (to_double (menuY + 110)) 12.0 theme.cellText)
+            this.pushText(dl "6  Wider  (+20)" (to_double (menuX + 8)) (to_double (menuY + 130)) 12.0 theme.cellText)
+            this.pushText(dl "7  Narrower  (-20)" (to_double (menuX + 8)) (to_double (menuY + 150)) 12.0 theme.cellText)
         }
 
         ; status bar
@@ -497,6 +516,14 @@ class GridView {
             }
             i = (i + 1)
         }
+    }
+
+    ; Width the grid would paint this text at, for auto-fit.
+    fn measureText:int (text:string) {
+        if ((strlen text) == 0) {
+            return 0
+        }
+        return (to_int (ctx.tr.measureWidth(text fontSize)))
     }
 
     fn render:void (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {

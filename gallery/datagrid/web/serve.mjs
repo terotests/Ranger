@@ -125,6 +125,12 @@ function applyEvent(ev) {
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
     const fn = KEY[ev.key];
     if (fn) liveInput.pushKey(fn());
+  } else if (ev.type === "dblclick") {
+    // Double-click a column header (or its edge) auto-fits the width.
+    lastX = ev.x | 0;
+    lastY = ev.y | 0;
+    app.autoFitAt(lastX, lastY);
+    return null;
   } else if (ev.type === "text") {
     liveInput.setPointerPos(lastX, lastY);
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);

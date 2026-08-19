@@ -27,14 +27,26 @@ let pointerDown = false;
 let frames = 0;
 let fpsT0 = performance.now();
 let fontsReady = null;
+// Logical size of the scene the grid lays out in — NOT the canvas backing
+// store, which is scene × devicePixelRatio.
+let sceneW = 0;
+let sceneH = 0;
 
+/** CSS pixels → the grid's own coordinate space.
+ *
+ *  This must scale by the SCENE size, not canvas.width: the backing store is
+ *  scene × dpr, so scaling by it reported every pointer at dpr× its real
+ *  position on a HiDPI display. Cells picked up wrong and the few-pixel
+ *  column/row resize grab zone became unreachable. */
 function canvasCoords(ev) {
   const rect = canvas.getBoundingClientRect();
-  const sx = canvas.width / rect.width;
-  const sy = canvas.height / rect.height;
+  const w = sceneW || canvas.width;
+  const h = sceneH || canvas.height;
+  const sx = w / Math.max(1, rect.width);
+  const sy = h / Math.max(1, rect.height);
   return {
-    x: Math.max(0, Math.min(canvas.width - 1, Math.floor((ev.clientX - rect.left) * sx))),
-    y: Math.max(0, Math.min(canvas.height - 1, Math.floor((ev.clientY - rect.top) * sy))),
+    x: Math.max(0, Math.min(w - 1, Math.floor((ev.clientX - rect.left) * sx))),
+    y: Math.max(0, Math.min(h - 1, Math.floor((ev.clientY - rect.top) * sy))),
   };
 }
 
@@ -158,6 +170,14 @@ function endPointer(ev) {
   });
 }
 
+// Double-click a column header edge (or the header) to auto-fit its width —
+// no pixel-precise dragging needed.
+canvas.addEventListener("dblclick", (ev) => {
+  ev.preventDefault();
+  const { x, y } = canvasCoords(ev);
+  postInput({ type: "dblclick", x, y });
+});
+
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 
@@ -243,6 +263,8 @@ async function pullScene() {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const cssW = doc.width;
   const cssH = doc.height;
+  sceneW = cssW;
+  sceneH = cssH;
   canvas.style.width = cssW + "px";
   canvas.style.height = cssH + "px";
   const bw = Math.round(cssW * dpr);

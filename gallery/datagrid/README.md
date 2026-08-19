@@ -70,11 +70,25 @@ formula together** in one undo op, and every batch runs inside
 | Delete | Clears value *and* formula over the range, then recalculates dependents |
 | Fill handle | Tiles the source rect, translating relative refs |
 | Ctrl+Z / Ctrl+Y | One step per action — a 3×3 paste, a fill, or a range delete is a single undo |
-| Row / column resize | Drag the header edge (`hitRowResize` / `hitColResize`) |
+| Row / column resize | Drag the header edge (9px grab zone), double-click it to auto-fit |
 
 After any edit the app re-registers just the touched cells
 (`FormulaEngine.syncCell`) and calls `recalcDirty()` **once**; it never
 re-`attach`es the engine, which would drop the whole dependency graph.
+
+### Column and row sizing
+
+| Gesture | Does |
+| --- | --- |
+| Drag a header edge | Resizes that column / row (grab zone is 9px wide) |
+| Drag an edge inside a multi-column selection | Sizes **every** selected column to the same width, as Excel does |
+| Double-click a column header or its edge | Auto-fits the width to the widest painted value |
+| Header menu → 5 / 6 / 7 | Auto-fit, wider (+20), narrower (−20) — no pixel-precise dragging needed |
+
+Auto-fit measures through `GridView.measureText`, the same renderer that paints
+the cells, and scans the used range capped at 5000 rows so a 100k-row sheet
+stays instant. Widths are clamped to 24–600px. A guide line follows the edge
+while you drag.
 
 ## Keyboard
 
@@ -95,9 +109,16 @@ snapshot — no DOM or SDL below the app.
 | End / Ctrl+End | Last used column of the row / bottom-right of the used range | Caret to end |
 | Ctrl+Space / Shift+Space | Select the column / the row | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
+| ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
 | Delete | Clear the selection | Delete at the caret |
 | Backspace | Clear the cell and start typing | Backspace at the caret |
 | Esc | Collapse the selection | Cancel the edit |
+
+A loaded sheet is only as big as its used range, so the caret grows it on
+demand (`GridApp.ensureExtent` → `SpreadsheetModel.growTo`, bounded by Excel's
+1048576×16384). `growTo` only ever grows and preserves row heights and column
+widths — `resize` clears them, so it must never be used to extend a loaded
+workbook. Paste grows the sheet the same way.
 
 `Ctrl+End` is O(1): `SpreadsheetModel` tracks the used-range corner as cells are
 written rather than rescanning a sheet that may declare 100k rows (see

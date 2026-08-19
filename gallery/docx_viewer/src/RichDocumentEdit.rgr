@@ -221,6 +221,15 @@ class RichDocumentEdit {
         np.indentLeftPt = p.indentLeftPt
         np.indentRightPt = p.indentRightPt
         np.indentFirstLinePt = p.indentFirstLinePt
+        ; Carry the list membership too, or Enter inside a list drops out of it
+        ; and leaves a blank line between the items. The marker itself is not
+        ; copied: DocxLayout renumbers from listNumId as it lays the list out,
+        ; so the new paragraph gets the next number and the ones after it shift.
+        np.listKind = p.listKind
+        np.listLevel = p.listLevel
+        np.listNumId = p.listNumId
+        np.listFmt = p.listFmt
+        np.listText = p.listText
         np.text = right
         ; Split spans
         clear np.spans
@@ -345,6 +354,245 @@ class RichDocumentEdit {
             bi = (bi + 1)
         }
         return 0
+    }
+
+    ; --- table cells ----------------------------------------------------------
+    ; Cell paragraphs are created with addParagraphOnly, so they are NOT body
+    ; blocks and bodyOrderOf returns -1 for them. Tab navigation needs to locate
+    ; a caret inside a table instead. Fills [blockIndex, rowIndex, cellIndex,
+    ; paragraphIndexInCell]; blockIndex -1 when the paragraph is not in a table.
+    fn tableCellOf:void (paragraphId:int out:[int]) {
+        clear out
+        push out -1
+        push out -1
+        push out -1
+        push out -1
+        def bi:int 0
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 1) {
+                def t:DocumentTable b.table
+                def ri:int 0
+                while (ri < (array_length t.rows)) {
+                    def row:DocTableRow (itemAt t.rows ri)
+                    def ci:int 0
+                    while (ci < (array_length row.cells)) {
+                        def cell:DocTableCell (itemAt row.cells ci)
+                        def pi:int 0
+                        while (pi < (array_length cell.paragraphs)) {
+                            def cp:Paragraph (itemAt cell.paragraphs pi)
+                            if (cp.id == paragraphId) {
+                                clear out
+                                push out bi
+                                push out ri
+                                push out ci
+                                push out pi
+                                return
+                            }
+                            pi = (pi + 1)
+                        }
+                        ci = (ci + 1)
+                    }
+                    ri = (ri + 1)
+                }
+            }
+            bi = (bi + 1)
+        }
+    }
+
+    fn tableAtBlock:DocumentTable (blockIndex:int) {
+        def b:DocBlock (doc.blockAt(blockIndex))
+        return b.table
+    }
+
+    ; First paragraph of a cell, or 0 when the coordinates are out of range.
+    fn cellParagraphId:int (blockIndex:int rowIndex:int cellIndex:int) {
+        if ((blockIndex < 0) || (blockIndex >= (doc.blockCount()))) {
+            return 0
+        }
+        def b:DocBlock (doc.blockAt(blockIndex))
+        if (b.kind != 1) {
+            return 0
+        }
+        def t:DocumentTable b.table
+        if ((rowIndex < 0) || (rowIndex >= (array_length t.rows))) {
+            return 0
+        }
+        def row:DocTableRow (itemAt t.rows rowIndex)
+        if ((cellIndex < 0) || (cellIndex >= (array_length row.cells))) {
+            return 0
+        }
+        def cell:DocTableCell (itemAt row.cells cellIndex)
+        if ((array_length cell.paragraphs) == 0) {
+            return 0
+        }
+        def first:Paragraph (itemAt cell.paragraphs 0)
+        return first.id
+    }
+
+    fn cellCountInRow:int (blockIndex:int rowIndex:int) {
+        if ((blockIndex < 0) || (blockIndex >= (doc.blockCount()))) {
+            return 0
+        }
+        def b:DocBlock (doc.blockAt(blockIndex))
+        if (b.kind != 1) {
+            return 0
+        }
+        def t:DocumentTable b.table
+        if ((rowIndex < 0) || (rowIndex >= (array_length t.rows))) {
+            return 0
+        }
+        def row:DocTableRow (itemAt t.rows rowIndex)
+        return (array_length row.cells)
+    }
+
+    fn rowCountOfTable:int (blockIndex:int) {
+        if ((blockIndex < 0) || (blockIndex >= (doc.blockCount()))) {
+            return 0
+        }
+        def b:DocBlock (doc.blockAt(blockIndex))
+        if (b.kind != 1) {
+            return 0
+        }
+        def t:DocumentTable b.table
+        return (array_length t.rows)
+    }
+
+    ; First body paragraph appearing after / before a given block index.
+    fn bodyParagraphAfterBlock:int (blockIndex:int) {
+        def bi:int (blockIndex + 1)
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 0) {
+                return b.paragraph.id
+            }
+            bi = (bi + 1)
+        }
+        return 0
+    }
+
+    fn bodyParagraphBeforeBlock:int (blockIndex:int) {
+        def bi:int (blockIndex - 1)
+        while (bi >= 0) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 0) {
+                return b.paragraph.id
+            }
+            bi = (bi - 1)
+        }
+        return 0
+    }
+
+    ; The table block that immediately follows / precedes a body paragraph, or -1.
+    fn tableBlockAfterParagraph:int (paragraphId:int) {
+        def at:int (this.blockIndexOfParagraph(paragraphId))
+        if (at < 0) {
+            return -1
+        }
+        def bi:int (at + 1)
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 1) {
+                return bi
+            }
+            if (b.kind == 0) {
+                return -1
+            }
+            bi = (bi + 1)
+        }
+        return -1
+    }
+
+    fn tableBlockBeforeParagraph:int (paragraphId:int) {
+        def at:int (this.blockIndexOfParagraph(paragraphId))
+        if (at < 0) {
+            return -1
+        }
+        def bi:int (at - 1)
+        while (bi >= 0) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 1) {
+                return bi
+            }
+            if (b.kind == 0) {
+                return -1
+            }
+            bi = (bi - 1)
+        }
+        return -1
+    }
+
+    ; Word adds a row when you Tab out of the last cell. The new row copies the
+    ; last row's cell count and cell chrome so it matches the table.
+    fn appendTableRow:int (blockIndex:int) {
+        if ((blockIndex < 0) || (blockIndex >= (doc.blockCount()))) {
+            return -1
+        }
+        def b:DocBlock (doc.blockAt(blockIndex))
+        if (b.kind != 1) {
+            return -1
+        }
+        def t:DocumentTable b.table
+        def rowN:int (array_length t.rows)
+        if (rowN == 0) {
+            return -1
+        }
+        def template:DocTableRow (itemAt t.rows (rowN - 1))
+        def row:DocTableRow (new DocTableRow)
+        row.heightTwips = template.heightTwips
+        def ci:int 0
+        while (ci < (array_length template.cells)) {
+            def src:DocTableCell (itemAt template.cells ci)
+            def cell:DocTableCell (new DocTableCell)
+            cell.gridSpan = src.gridSpan
+            cell.vAlign = src.vAlign
+            cell.padTopPx = src.padTopPx
+            cell.padRightPx = src.padRightPx
+            cell.padBottomPx = src.padBottomPx
+            cell.padLeftPx = src.padLeftPx
+            cell.borderTop = (new DocTableBorder)
+            cell.borderLeft = (new DocTableBorder)
+            cell.borderBottom = (new DocTableBorder)
+            cell.borderRight = (new DocTableBorder)
+            def p:Paragraph (doc.addParagraphOnly())
+            p.styleId = "Normal"
+            p.spaceBeforePt = 0.0
+            p.spaceAfterPt = 0.0
+            p.lineSpacing = 1.0
+            def sp:TextSpan (TextSpan.create(0 0))
+            if ((array_length src.paragraphs) > 0) {
+                def srcPara:Paragraph (itemAt src.paragraphs 0)
+                p.align = srcPara.align
+                if ((array_length srcPara.spans) > 0) {
+                    def srcSpan:TextSpan (itemAt srcPara.spans 0)
+                    sp.fontSizePt = srcSpan.fontSizePt
+                    sp.fontFamily = srcSpan.fontFamily
+                    sp.colorHex = srcSpan.colorHex
+                }
+            }
+            push p.spans sp
+            push cell.paragraphs p
+            push row.cells cell
+            ci = (ci + 1)
+        }
+        push t.rows row
+        return (array_length t.rows)
+    }
+
+    fn removeLastTableRow:boolean (blockIndex:int) {
+        if ((blockIndex < 0) || (blockIndex >= (doc.blockCount()))) {
+            return false
+        }
+        def b:DocBlock (doc.blockAt(blockIndex))
+        if (b.kind != 1) {
+            return false
+        }
+        def t:DocumentTable b.table
+        if ((array_length t.rows) <= 1) {
+            return false
+        }
+        removeLast t.rows
+        return true
     }
 
     ; Block index of the top-level block holding this paragraph, or -1.

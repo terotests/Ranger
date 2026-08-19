@@ -404,6 +404,28 @@ class DocxEditController {
         }
         def pid:int sel.focus.paragraphId
         def off:int sel.focus.textOffset
+        ; Word: Enter on an empty list item ends the list instead of adding
+        ; another empty bullet, so there is a way out of a list from the keyboard.
+        def cur:Paragraph (adapter.findParagraph(pid))
+        if (cur.listNumId > 0) {
+            if ((strlen cur.text) == 0) {
+                def op0:DocEditOp (new DocEditOp)
+                op0.kind = 7
+                op0.paragraphId = pid
+                op0.start = cur.listNumId
+                op0.end = cur.listLevel
+                op0.newText = cur.listFmt
+                op0.oldText = cur.listText
+                op0.secondId = cur.listKind
+                this.pushUndo(op0)
+                cur.listNumId = 0
+                cur.listKind = 0
+                cur.listLevel = 0
+                cur.listFmt = ""
+                cur.listText = ""
+                return
+            }
+        }
         def newId:int (adapter.splitParagraph(pid off))
         def op:DocEditOp (new DocEditOp)
         op.kind = 1
@@ -781,6 +803,25 @@ class DocxEditController {
 
     ; Body lines in document order, flattened across pages. Returns the flat
     ; index of the caret's line, or -1.
+    ; Lines the caret can occupy, in document order across pages. Picture lines
+    ; count when their paragraph holds nothing else, so ↑ / ↓ can step onto a
+    ; standalone image and Enter can add a line next to it.
+    fn caretStopLine:boolean (line:LaidLine) {
+        if (line.paraIndex <= 0) {
+            return false
+        }
+        if (line.kind == 0) {
+            return true
+        }
+        if (line.kind == 1) {
+            def p:Paragraph (unwrap line.paragraphRef)
+            if ((strlen p.text) == 0) {
+                return true
+            }
+        }
+        return false
+    }
+
     fn flatBodyLines:void (layout:DocxLayout outPage:[int] outLine:[int]) {
         clear outPage
         clear outLine
@@ -790,8 +831,24 @@ class DocxEditController {
             def li:int 0
             while (li < (array_length page.lines)) {
                 def line:LaidLine (itemAt page.lines li)
-                if (line.kind == 0) {
-                    if (line.paraIndex > 0) {
+                if (this.caretStopLine(line)) {
+                    ; An image-only paragraph also emits an empty text line;
+                    ; keep just one stop for it.
+                    def dup:boolean false
+                    if (line.kind == 1) {
+                        def k:int 0
+                        while (k < (array_length outPage)) {
+                            if ((itemAt outPage k) == pi) {
+                                def prevPage:LaidPage (layout.pageAt(pi))
+                                def prevLine:LaidLine (itemAt prevPage.lines (itemAt outLine k))
+                                if (prevLine.paraIndex == line.paraIndex) {
+                                    dup = true
+                                }
+                            }
+                            k = (k + 1)
+                        }
+                    }
+                    if (dup == false) {
                         push outPage pi
                         push outLine li
                     }
@@ -986,6 +1043,120 @@ class DocxEditController {
         }
     }
 
+    ; --- Tab: move between table cells ---------------------------------------
+    ; Word's Tab in a table steps to the next cell and SELECTS its contents, so
+    ; typing replaces them; Shift+Tab steps back. Wrapping past the last cell of
+    ; a row continues on the next row, and past the last cell of the table it
+    ; leaves for the paragraph after it.
+    fn selectCellContents:void (pid:int) {
+        if (pid <= 0) {
+            return
+        }
+        def len:int (adapter.textLength(pid))
+        sel.anchor = (DocumentPosition.create(pid 0))
+        sel.focus = (DocumentPosition.create(pid len))
+        active = true
+    }
+
+    fn inTable:boolean () {
+        if ((this.isActive()) == false) {
+            return false
+        }
+        def at:[int]
+        adapter.tableCellOf(sel.focus.paragraphId at)
+        return ((itemAt at 0) >= 0)
+    }
+
+    ; Returns true when the Tab was consumed as cell navigation.
+    fn tabCell:boolean (forward:boolean) {
+        if ((this.isActive()) == false) {
+            return false
+        }
+        def at:[int]
+        adapter.tableCellOf(sel.focus.paragraphId at)
+        def blk:int (itemAt at 0)
+        if (blk < 0) {
+            ; Not in a table. Tab just before one steps into its first cell,
+            ; Shift+Tab just after one into its last — otherwise leave it alone.
+            def pid:int sel.focus.paragraphId
+            if forward {
+                def nextTbl:int (adapter.tableBlockAfterParagraph(pid))
+                if (nextTbl >= 0) {
+                    def firstId:int (adapter.cellParagraphId(nextTbl 0 0))
+                    if (firstId > 0) {
+                        this.selectCellContents(firstId)
+                        return true
+                    }
+                }
+                return false
+            }
+            def prevTbl:int (adapter.tableBlockBeforeParagraph(pid))
+            if (prevTbl >= 0) {
+                def lastRow:int ((adapter.rowCountOfTable(prevTbl)) - 1)
+                def lastCell:int ((adapter.cellCountInRow(prevTbl lastRow)) - 1)
+                def lastId:int (adapter.cellParagraphId(prevTbl lastRow lastCell))
+                if (lastId > 0) {
+                    this.selectCellContents(lastId)
+                    return true
+                }
+            }
+            return false
+        }
+        def row:int (itemAt at 1)
+        def cell:int (itemAt at 2)
+        def rows:int (adapter.rowCountOfTable(blk))
+        if forward {
+            def nextCell:int (cell + 1)
+            def nextRow:int row
+            if (nextCell >= (adapter.cellCountInRow(blk row))) {
+                nextCell = 0
+                nextRow = (row + 1)
+            }
+            if (nextRow >= rows) {
+                ; Word never tabs out the bottom of a table: it adds a row.
+                def added:int (adapter.appendTableRow(blk))
+                if (added <= 0) {
+                    return true
+                }
+                def op:DocEditOp (new DocEditOp)
+                op.kind = 6
+                op.start = blk
+                this.pushUndo(op)
+                def newId:int (adapter.cellParagraphId(blk (added - 1) 0))
+                if (newId > 0) {
+                    this.setCaret(newId 0)
+                }
+                return true
+            }
+            def nid:int (adapter.cellParagraphId(blk nextRow nextCell))
+            if (nid > 0) {
+                this.selectCellContents(nid)
+            }
+            return true
+        }
+        def prevCell:int (cell - 1)
+        def prevRow:int row
+        if (prevCell < 0) {
+            prevRow = (row - 1)
+            if (prevRow >= 0) {
+                prevCell = ((adapter.cellCountInRow(blk prevRow)) - 1)
+            }
+        }
+        if (prevRow < 0) {
+            def before:int (adapter.bodyParagraphBeforeBlock(blk))
+            if (before > 0) {
+                this.setCaret(before (adapter.textLength(before)))
+                return true
+            }
+            return true
+        }
+        def pid2:int (adapter.cellParagraphId(blk prevRow prevCell))
+        if (pid2 > 0) {
+            this.selectCellContents(pid2)
+        }
+        return true
+    }
+
     fn selectAll:void () {
         def count:int (adapter.bodyParagraphCount())
         if (count == 0) {
@@ -1007,6 +1178,29 @@ class DocxEditController {
         if (op.kind == 0) {
             adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
             this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
+        }
+        if (op.kind == 7) {
+            ; Restore the list membership that "Enter on an empty item" cleared.
+            def lp:Paragraph (adapter.findParagraph(op.paragraphId))
+            lp.listNumId = op.start
+            lp.listLevel = op.end
+            lp.listFmt = op.newText
+            lp.listText = op.oldText
+            lp.listKind = op.secondId
+            this.setCaret(op.paragraphId 0)
+        }
+        if (op.kind == 6) {
+            ; Undo the row Tab appended, and step back into the last cell.
+            def blkIdx:int op.start
+            def rowsBefore:int (adapter.rowCountOfTable(blkIdx))
+            if (adapter.removeLastTableRow(blkIdx)) {
+                def lastRow:int ((adapter.rowCountOfTable(blkIdx)) - 1)
+                def lastCell:int ((adapter.cellCountInRow(blkIdx lastRow)) - 1)
+                def backId:int (adapter.cellParagraphId(blkIdx lastRow lastCell))
+                if (backId > 0) {
+                    this.setCaret(backId (adapter.textLength(backId)))
+                }
+            }
         }
         if (op.kind == 5) {
             ; Multi-paragraph delete: put the text back, newlines re-splitting.
@@ -1078,6 +1272,31 @@ class DocxEditController {
                 }
             }
             i = (i + 1)
+        }
+        ; Clicking the picture itself puts the caret in the paragraph that owns
+        ; it — before it on the left half, after it on the right — so there is a
+        ; way to land next to an image and press Enter. Only when no text line
+        ; already claimed the point.
+        if (found == false) {
+            def ii:int 0
+            while (ii < (array_length page.lines)) {
+                def imgLine:LaidLine (itemAt page.lines ii)
+                if (imgLine.kind == 1) {
+                    if ((y >= imgLine.y) && (y < (imgLine.y + imgLine.height))) {
+                        if ((x >= imgLine.x) && (x < (imgLine.x + imgLine.width))) {
+                            def ip:Paragraph (unwrap imgLine.paragraphRef)
+                            if (ip.id > 0) {
+                                def half:int (imgLine.x + (idiv imgLine.width 2))
+                                if (x < half) {
+                                    return (DocumentPosition.create(ip.id 0))
+                                }
+                                return (DocumentPosition.create(ip.id (strlen ip.text)))
+                            }
+                        }
+                    }
+                }
+                ii = (ii + 1)
+            }
         }
         if (found == false) {
             ; Nearest body line by distance to its content box (2D).

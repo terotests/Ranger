@@ -56,6 +56,26 @@ class DocxTest {
         return false
     }
 
+    ; List marker DocxLayout painted for a paragraph ("2. ", "- ", …), or "".
+    sfn markerOf:string (v:DocxViewer paragraphId:int) {
+        def pi:int 0
+        while (pi < (v.view.layout.pageCount())) {
+            def pg:LaidPage (v.view.layout.pageAt(pi))
+            def li:int 0
+            while (li < (array_length pg.lines)) {
+                def ln:LaidLine (itemAt pg.lines li)
+                if (ln.paraIndex == paragraphId) {
+                    if (ln.docStart == 0) {
+                        return ln.listPrefix
+                    }
+                }
+                li = (li + 1)
+            }
+            pi = (pi + 1)
+        }
+        return ""
+    }
+
     sfn main:void () {
         def c:Checker (new Checker)
         def fix:string "gallery/docx_viewer/fixtures"
@@ -622,6 +642,205 @@ class DocxTest {
         viewer.keyUndo()
         c.ok("undo restores after cut" ((strlen ((viewer.edit.adapter.findParagraph(cp0.id)).text)) > 0))
         viewer.setEditMode(false)
+
+        print "== the caret can reach an image =="
+        c.ok("open images fixture" (viewer.openFile(fix "images_demo.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        ; Find a laid picture line.
+        def imgPage:int -1
+        def imgIdx:int -1
+        def ip0:int 0
+        while (ip0 < (viewer.view.layout.pageCount())) {
+            def ipg:LaidPage (viewer.view.layout.pageAt(ip0))
+            def il0:int 0
+            while (il0 < (array_length ipg.lines)) {
+                def iln:LaidLine (itemAt ipg.lines il0)
+                if (iln.kind == 1) {
+                    if (imgPage < 0) {
+                        imgPage = ip0
+                        imgIdx = il0
+                    }
+                }
+                il0 = (il0 + 1)
+            }
+            ip0 = (ip0 + 1)
+        }
+        c.ok("fixture has a picture" (imgPage >= 0))
+        def ipg2:LaidPage (viewer.view.layout.pageAt(imgPage))
+        def picture:LaidLine (itemAt ipg2.lines imgIdx)
+        def picPara:Paragraph (unwrap picture.paragraphRef)
+        c.ok("picture belongs to a paragraph" (picPara.id > 0))
+        ; Clicking the left half lands before it, the right half behind it —
+        ; picture lines used to be invisible to the hit-test entirely.
+        viewer.setPage(imgPage)
+        def leftX:int (picture.x + (idiv picture.width 4))
+        def midY:int (picture.y + (idiv picture.height 2))
+        def hitLeft:DocumentPosition (viewer.edit.hitTest(viewer.view.layout imgPage leftX midY))
+        c.eqInt("click on the picture finds its paragraph" hitLeft.paragraphId picPara.id)
+        c.eqInt("left half is before it" hitLeft.textOffset 0)
+        def rightX:int ((picture.x + picture.width) - (idiv picture.width 4))
+        def hitRight:DocumentPosition (viewer.edit.hitTest(viewer.view.layout imgPage rightX midY))
+        c.eqInt("right half is the same paragraph" hitRight.paragraphId picPara.id)
+        c.eqInt("and sits behind it" hitRight.textOffset (strlen picPara.text))
+        ; With the caret there, Enter adds an empty line next to the picture.
+        def blocksBeforeImg:int ((viewer.document()).blockCount())
+        viewer.edit.setCaret(picPara.id (strlen picPara.text))
+        viewer.keyEnter()
+        def afterImgDoc:RichDocument (viewer.document())
+        c.eqInt("Enter next to a picture adds a paragraph" (afterImgDoc.blockCount()) (blocksBeforeImg + 1))
+        def newLinePos:DocumentPosition (viewer.edit.caret())
+        def newLinePara:Paragraph (viewer.edit.adapter.findParagraph(newLinePos.paragraphId))
+        c.eqInt("and it is empty" (strlen newLinePara.text) 0)
+        viewer.typeText("after the picture")
+        c.eqStr("which can be typed into" newLinePara.text "after the picture")
+        viewer.renderPage(imgPage)
+        c.ok("still renders" ((buffer_length (viewer.view.raw())) > 1000))
+        viewer.setEditMode(false)
+
+        print "== Enter inside a list makes a new list item =="
+        c.ok("open lists fixture" (viewer.openFile(fix "lists_demo.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def ldoc:RichDocument (viewer.document())
+        ; Find a decimal-numbered item and the one after it in the same list.
+        def numId:int 0
+        def firstNum:int 0
+        def secondNum:int 0
+        def li2:int 0
+        while (li2 < (ldoc.paragraphCount())) {
+            def lp:Paragraph (ldoc.paragraphAt(li2))
+            if (lp.listNumId > 0) {
+                if (lp.listFmt == "decimal") {
+                    if (firstNum == 0) {
+                        firstNum = lp.id
+                        numId = lp.listNumId
+                    } {
+                        if (secondNum == 0) {
+                            if (lp.listNumId == numId) {
+                                if (lp.listLevel == 0) {
+                                    secondNum = lp.id
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            li2 = (li2 + 1)
+        }
+        c.ok("found a numbered list" (firstNum > 0))
+        c.ok("with a following item" (secondNum > 0))
+        def markerBefore:string (DocxTest.markerOf(viewer secondNum))
+        c.eqStr("second item numbered 2" markerBefore "2. ")
+        ; Enter at the end of the first item, then type: Word makes item 2 and
+        ; pushes the old 2 down to 3.
+        viewer.edit.setCaret(firstNum (viewer.edit.adapter.textLength(firstNum)))
+        viewer.keyEnter()
+        viewer.typeText("inserted item")
+        def newPos:DocumentPosition (viewer.edit.caret())
+        def newPara:Paragraph (viewer.edit.adapter.findParagraph(newPos.paragraphId))
+        c.ok("new paragraph is a list item" (newPara.listNumId > 0))
+        c.eqInt("same list" newPara.listNumId numId)
+        c.eqInt("same level" newPara.listLevel 0)
+        c.eqStr("same format" newPara.listFmt "decimal")
+        c.eqStr("new item text" newPara.text "inserted item")
+        viewer.renderPage(0)
+        c.eqStr("new item numbered 2" (DocxTest.markerOf(viewer newPara.id)) "2. ")
+        c.eqStr("the old item 2 became 3" (DocxTest.markerOf(viewer secondNum)) "3. ")
+        c.ok("no unnumbered gap" ((strlen (DocxTest.markerOf(viewer newPara.id))) > 0))
+
+        print "== Enter on an empty list item leaves the list =="
+        ; Caret is at the end of "inserted item"; Enter gives an empty item,
+        ; and Enter again should drop out of the list (Word).
+        viewer.keyEnter()
+        def emptyPos:DocumentPosition (viewer.edit.caret())
+        def emptyPara:Paragraph (viewer.edit.adapter.findParagraph(emptyPos.paragraphId))
+        c.ok("empty item is still in the list" (emptyPara.listNumId > 0))
+        c.eqInt("and is empty" (strlen emptyPara.text) 0)
+        viewer.keyEnter()
+        c.eqInt("second Enter ends the list" emptyPara.listNumId 0)
+        c.eqInt("no marker left" (strlen emptyPara.listFmt) 0)
+        viewer.renderPage(0)
+        c.eqStr("and paints no marker" (DocxTest.markerOf(viewer emptyPara.id)) "")
+        viewer.keyUndo()
+        c.ok("undo puts it back in the list" (emptyPara.listNumId > 0))
+        viewer.setEditMode(false)
+
+        print "== Tab moves between table cells =="
+        c.ok("open table fixture" (viewer.openFile(fix "05-table-basic.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def tdoc:RichDocument (viewer.document())
+        def tbl0:DocumentTable (itemAt tdoc.tables 0)
+        def trow0:DocTableRow (itemAt tbl0.rows 0)
+        def tc00:DocTableCell (itemAt trow0.cells 0)
+        def tp00:Paragraph (itemAt tc00.paragraphs 0)
+        def tc01:DocTableCell (itemAt trow0.cells 1)
+        def tp01:Paragraph (itemAt tc01.paragraphs 0)
+        ; Cell paragraphs are not body blocks, so plain caret order cannot see
+        ; them — Tab is the way across.
+        c.eqInt("cell paragraph has no body order" (viewer.edit.adapter.bodyOrderOf(tp00.id)) -1)
+        def cellAt:[int]
+        viewer.edit.adapter.tableCellOf(tp00.id cellAt)
+        c.ok("locates the table block" ((itemAt cellAt 0) >= 0))
+        c.eqInt("row 0" (itemAt cellAt 1) 0)
+        c.eqInt("cell 0" (itemAt cellAt 2) 0)
+        viewer.edit.setCaret(tp00.id 0)
+        c.ok("caret is in a table" (viewer.caretInTable()))
+        c.ok("tab consumed" (viewer.keyTab(false)))
+        def afterTab:DocumentPosition (viewer.edit.caret())
+        c.eqInt("tab moved to the next cell" afterTab.paragraphId tp01.id)
+        ; Word selects the cell contents so typing replaces them.
+        def tabSel:DocumentRange (viewer.edit.selection())
+        c.ok("cell contents selected" ((tabSel.isCollapsed()) == false))
+        c.eqInt("selection starts at 0" (tabSel.startOffset()) 0)
+        c.eqInt("selection covers the cell" (tabSel.endOffset()) (strlen tp01.text))
+        c.eqStr("selected text is the cell" (viewer.edit.selectedText()) tp01.text)
+        ; Shift+Tab goes back.
+        viewer.keyTab(true)
+        c.eqInt("shift tab returns" ((viewer.edit.caret()).paragraphId) tp00.id)
+
+        print "== Tab wraps rows and leaves the table =="
+        def lastRowIdx:int ((array_length tbl0.rows) - 1)
+        def lastRow:DocTableRow (itemAt tbl0.rows lastRowIdx)
+        def lastCellIdx:int ((array_length lastRow.cells) - 1)
+        ; End of a row continues on the next row's first cell.
+        def row0Last:DocTableCell (itemAt trow0.cells ((array_length trow0.cells) - 1))
+        def row0LastPara:Paragraph (itemAt row0Last.paragraphs 0)
+        def row1:DocTableRow (itemAt tbl0.rows 1)
+        def row1First:DocTableCell (itemAt row1.cells 0)
+        def row1FirstPara:Paragraph (itemAt row1First.paragraphs 0)
+        viewer.edit.setCaret(row0LastPara.id 0)
+        viewer.keyTab(false)
+        c.eqInt("tab wraps to the next row" ((viewer.edit.caret()).paragraphId) row1FirstPara.id)
+        ; Shift+Tab from the first cell of a row goes back to the previous row's last cell.
+        viewer.keyTab(true)
+        c.eqInt("shift tab wraps back" ((viewer.edit.caret()).paragraphId) row0LastPara.id)
+        ; Word never tabs out the bottom of a table — it adds a row.
+        def rowsBefore:int (array_length tbl0.rows)
+        def lastCell:DocTableCell (itemAt lastRow.cells lastCellIdx)
+        def lastCellPara:Paragraph (itemAt lastCell.paragraphs 0)
+        viewer.edit.setCaret(lastCellPara.id 0)
+        viewer.keyTab(false)
+        c.eqInt("a row was appended" (array_length tbl0.rows) (rowsBefore + 1))
+        def newRow:DocTableRow (itemAt tbl0.rows rowsBefore)
+        c.eqInt("new row matches the column count" (array_length newRow.cells) (array_length lastRow.cells))
+        def newFirst:DocTableCell (itemAt newRow.cells 0)
+        def newFirstPara:Paragraph (itemAt newFirst.paragraphs 0)
+        c.eqInt("caret is in the new row" ((viewer.edit.caret()).paragraphId) newFirstPara.id)
+        c.eqStr("new cell starts empty" newFirstPara.text "")
+        c.ok("still inside the table" (viewer.caretInTable()))
+        viewer.renderPage(0)
+        c.ok("renders with the new row" ((buffer_length (viewer.view.raw())) > 1000))
+        ; Typing into the fresh cell works like any other.
+        viewer.typeText("added")
+        c.eqStr("typed into the new cell" newFirstPara.text "added")
+        viewer.keyUndo()
+        viewer.keyUndo()
+        c.eqInt("undo removes the appended row" (array_length tbl0.rows) rowsBefore
+)
+        viewer.setEditMode(false)
+        c.ok("tab is inert outside edit mode" ((viewer.keyTab(false)) == false))
 
         print "== page index never names a page that does not exist =="
         c.ok("open pages for clamp" (viewer.openFile(fix "08-pages.docx")))

@@ -231,6 +231,29 @@ class DocxViewer {
         this.followCaret()
     }
 
+    ; Tab / Shift+Tab: next / previous table cell, selecting its contents the
+    ; way Word does. Outside a table it steps into an adjacent one if there is
+    ; one; it does not insert a tab character (no tab-stop rendering yet).
+    fn keyTab:boolean (backward:boolean) {
+        if ((edit.isEnabled()) == false) {
+            return false
+        }
+        def moved:boolean false
+        if backward {
+            moved = (edit.tabCell(false))
+        } {
+            moved = (edit.tabCell(true))
+        }
+        if moved {
+            this.followCaret()
+        }
+        return moved
+    }
+
+    fn caretInTable:boolean () {
+        return (edit.inTable())
+    }
+
     fn keySelectAll:void () {
         edit.selectAll()
         this.renderPage(currentPage)
