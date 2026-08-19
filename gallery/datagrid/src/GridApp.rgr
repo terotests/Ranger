@@ -40,6 +40,15 @@ class GridApp {
     def resizeCol0:int -1
     def resizeCol1:int -1
     def filling:boolean false
+    ; Dragging the selection's edge moves the block. The source is remembered
+    ; because the drop has to read it after the pointer has left it.
+    def movingRange:boolean false
+    def moveR0:int 0
+    def moveC0:int 0
+    def moveR1:int 0
+    def moveC1:int 0
+    def moveGrabR:int 0
+    def moveGrabC:int 0
     def fillR0:int 0
     def fillC0:int 0
     def fillR1:int 0
@@ -77,6 +86,16 @@ class GridApp {
     def findInFormulas:boolean true
     def findAllSheets:boolean false
     def findStatus:string ""
+    ; The conditional-formatting rule editor.
+    def cfDialog:EVGWindow (new EVGWindow)
+    def cfStatus:string ""
+    ; What the editor was last set to. Kept here rather than read back off the
+    ; dialog, because adding a rule rebuilds it — and a form that forgets what
+    ; you just typed is a form you have to retype.
+    def cfTest:int 601
+    def cfFill:int 621
+    def cfV1:string "0"
+    def cfV2:string ""
     def pendingChart:GridChart (new GridChart)
     ; The chart the picker is editing, or 0 when it is making a new one.
     def chartEditId:int 0
@@ -576,18 +595,20 @@ class GridApp {
         if (formatBrushArmed == false) {
             return
         }
-        def a:CellPos (new CellPos)
-        def b:CellPos (new CellPos)
-        sel.normalized(a b)
         model.beginTx()
-        def r:int a.row
-        while (r <= b.row) {
-            def c:int a.col
-            while (c <= b.col) {
-                model.applyEditStyled(r c (model.getCell(r c)) (model.getFormula(r c)) formatBrush)
-                c = (c + 1)
+        def gi:int 0
+        while (gi < (sel.rangeCount())) {
+            def g:GridRange (sel.rangeAt(gi))
+            def r:int g.r0
+            while (r <= g.r1) {
+                def c:int g.c0
+                while (c <= g.c1) {
+                    model.applyEditStyled(r c (model.getCell(r c)) (model.getFormula(r c)) formatBrush)
+                    c = (c + 1)
+                }
+                r = (r + 1)
             }
-            r = (r + 1)
+            gi = (gi + 1)
         }
         model.endTx()
         formatBrushArmed = false
@@ -849,7 +870,155 @@ class GridApp {
         findDialog.w = 340
         findDialog.title = "Find and replace"
         windows.add(findDialog)
+        cfDialog.w = 330
+        cfDialog.title = "Conditional formatting"
+        windows.add(cfDialog)
         dialogsReady = true
+    }
+
+    ; --- conditional formatting ----------------------------------------------
+    ; Reading the rules a workbook came with was never the hard half; writing
+    ; one was, because a rule needs a range, a test, a number and a colour, and
+    ; a dialog that can only ask yes-or-no cannot collect them. It can now.
+    ; Ids: 601..605 the test, 611/612 the numbers, 621..624 the fill,
+    ; 631..633 the buttons.
+    sfn cfFillFor:int (choice:int) {
+        return choice
+    }
+
+    sfn cfColorHex:string (choice:int) {
+        if (choice == 622) {
+            return "FFE59A"
+        }
+        if (choice == 623) {
+            return "C6EFCE"
+        }
+        if (choice == 624) {
+            return "BDD7EE"
+        }
+        return "FFC7CE"
+    }
+
+    sfn cfOpFor:string (choice:int) {
+        if (choice == 602) {
+            return "lessThan"
+        }
+        if (choice == 603) {
+            return "equal"
+        }
+        if (choice == 604) {
+            return "between"
+        }
+        return "greaterThan"
+    }
+
+    fn openCfDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        def g:GridRange (sel.liveRange())
+        cfDialog.reset()
+        cfDialog.labelW = 64
+        cfDialog.addLabel(("Rule for " + (SpreadsheetModel.cellLabel(g.r0 g.c0)) + ":" + (SpreadsheetModel.cellLabel(g.r1 g.c1))))
+        cfDialog.addSeparator()
+        cfDialog.addLabel("Format cells where the value is")
+        cfDialog.beginColumns(2)
+        cfDialog.addRadio(601 "Greater than" 1 (cfTest == 601))
+        cfDialog.addRadio(602 "Less than" 1 (cfTest == 602))
+        cfDialog.addRadio(603 "Equal to" 1 (cfTest == 603))
+        cfDialog.addRadio(604 "Between" 1 (cfTest == 604))
+        cfDialog.endColumns()
+        cfDialog.addRadio(605 "Colour scale over the range" 1 (cfTest == 605))
+        cfDialog.addInput(611 "Value" cfV1)
+        cfDialog.addInput(612 "and" cfV2)
+        cfDialog.addSeparator()
+        cfDialog.addLabel("Fill")
+        cfDialog.beginColumns(2)
+        cfDialog.addRadio(621 "Red" 2 (cfFill == 621))
+        cfDialog.addRadio(622 "Amber" 2 (cfFill == 622))
+        cfDialog.addRadio(623 "Green" 2 (cfFill == 623))
+        cfDialog.addRadio(624 "Blue" 2 (cfFill == 624))
+        cfDialog.endColumns()
+        def note:string cfStatus
+        if ((strlen note) == 0) {
+            note = ((to_string (model.cfRuleCount())) + " rule(s) on this sheet")
+        }
+        cfDialog.addLabel(note)
+        def ids:[int]
+        def labels:[string]
+        push ids 631
+        push labels "Close"
+        push ids 632
+        push labels "Clear"
+        push ids 633
+        push labels "Add rule"
+        cfDialog.addButtonRow(ids labels 633)
+        cfDialog.finish()
+        def px:int (grid.x + (idiv (W - cfDialog.w) 2))
+        cfDialog.openWithin(px (grid.y + 50) W H)
+        windows.raise(cfDialog)
+        view.focused = true
+    }
+
+    sfn cfNumber:double (text:string) {
+        def p@(optional):double (to_double text)
+        if p {
+            return (unwrap p)
+        }
+        return 0.0
+    }
+
+    ; Read the form into the remembered state, so a rebuild puts it back.
+    fn syncCfDialog:void () {
+        def t:int (cfDialog.selectedInGroup(1))
+        if (t > 0) {
+            cfTest = t
+        }
+        def f:int (cfDialog.selectedInGroup(2))
+        if (f > 0) {
+            cfFill = f
+        }
+        cfV1 = (cfDialog.inputValue(611))
+        cfV2 = (cfDialog.inputValue(612))
+    }
+
+    fn addCfRuleFromDialog:void () {
+        this.syncCfDialog()
+        def g:GridRange (sel.liveRange())
+        def rule:CfRule (new CfRule)
+        rule.r0 = g.r0
+        rule.c0 = g.c0
+        rule.r1 = g.r1
+        rule.c1 = g.c1
+        if (cfTest == 605) {
+            rule.kind = 0
+        } {
+            rule.kind = 1
+            rule.op = (GridApp.cfOpFor(cfTest))
+            rule.v1 = (GridApp.cfNumber(cfV1))
+            rule.v2 = (GridApp.cfNumber(cfV2))
+            rule.fillRgb = ("#" + (GridApp.cfColorHex(cfFill)))
+        }
+        model.addCfRule(rule)
+        cfStatus = ("added — " + (to_string (model.cfRuleCount())) + " rule(s)")
+        def keepX:int cfDialog.x
+        def keepY:int cfDialog.y
+        this.openCfDialog()
+        cfDialog.x = keepX
+        cfDialog.y = keepY
+    }
+
+    fn clearCfRulesFromDialog:void () {
+        this.syncCfDialog()
+        def g:GridRange (sel.liveRange())
+        model.clearCfRulesIn(g.r0 g.c0 g.r1 g.c1)
+        cfStatus = ("cleared — " + (to_string (model.cfRuleCount())) + " rule(s) left")
+        def keepX:int cfDialog.x
+        def keepY:int cfDialog.y
+        this.openCfDialog()
+        cfDialog.x = keepX
+        cfDialog.y = keepY
     }
 
     ; --- charts ---------------------------------------------------------------
@@ -1492,6 +1661,18 @@ class GridApp {
             }
             if (findDialog.activated == 511) {
                 findDialog.close()
+            }
+        }
+        if (cfDialog.activated > 0) {
+            if (cfDialog.activated == 633) {
+                this.addCfRuleFromDialog()
+            }
+            if (cfDialog.activated == 632) {
+                this.clearCfRulesFromDialog()
+            }
+            if (cfDialog.activated == 631) {
+                cfDialog.close()
+                cfStatus = ""
             }
         }
         this.pollChartWindows()
@@ -2232,11 +2413,18 @@ class GridApp {
         engine.recalcDirty()
     }
 
+    ; Everything the selection covers, whatever shape it is in: a Ctrl+click
+    ; selection is several rectangles and Delete has to clear all of them, in
+    ; one transaction, so it is one Ctrl+Z.
     fn clearSelection:void () {
-        def a:CellPos (new CellPos)
-        def b:CellPos (new CellPos)
-        sel.normalized(a b)
-        this.clearRange(a.row a.col b.row b.col)
+        model.beginTx()
+        def i:int 0
+        while (i < (sel.rangeCount())) {
+            def g:GridRange (sel.rangeAt(i))
+            this.clearRange(g.r0 g.c0 g.r1 g.c1)
+            i = (i + 1)
+        }
+        model.endTx()
     }
 
     ; FortuneSheet fill handle: tile source rect; translate relative formula refs.
@@ -2294,10 +2482,123 @@ class GridApp {
 
     ; Pointer press that is neither a sheet tab nor a header resize: fill
     ; handle, header menu, formula bar, or cell selection.
+    ; --- moving a range ------------------------------------------------------
+    ; Drag the selection's border and the cells go with it. Excel calls this
+    ; drag-and-drop; it is a cut and a paste, which means formulas move AS
+    ; WRITTEN — a reference is not re-based, because the cell it names has not
+    ; moved just because this one did.
+    fn moveBlock:void (r0:int c0:int r1:int c1:int toR:int toC:int) {
+        if ((toR == r0) && (toC == c0)) {
+            return
+        }
+        def rows:int ((r1 - r0) + 1)
+        def cols:int ((c1 - c0) + 1)
+        if (toR < 0) {
+            return
+        }
+        if (toC < 0) {
+            return
+        }
+        ; Read the whole block first: source and target can overlap.
+        def vals:[string]
+        def fmls:[string]
+        def sids:[CellStyle]
+        def r:int r0
+        while (r <= r1) {
+            def c:int c0
+            while (c <= c1) {
+                push vals (model.getCell(r c))
+                push fmls (model.getFormula(r c))
+                push sids (model.getCellStyle(r c))
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        this.ensureExtent(((toR + rows) - 1) ((toC + cols) - 1))
+        model.beginTx()
+        def cr:int r0
+        while (cr <= r1) {
+            def cc:int c0
+            while (cc <= c1) {
+                model.applyEdit(cr cc "" "")
+                cc = (cc + 1)
+            }
+            cr = (cr + 1)
+        }
+        def i:int 0
+        def wr:int 0
+        while (wr < rows) {
+            def wc:int 0
+            while (wc < cols) {
+                model.applyEditStyled((toR + wr) (toC + wc) (itemAt vals i) (itemAt fmls i) (itemAt sids i))
+                i = (i + 1)
+                wc = (wc + 1)
+            }
+            wr = (wr + 1)
+        }
+        model.endTx()
+        this.syncTouched()
+        sel.clearExtra()
+        sel.anchor.row = toR
+        sel.anchor.col = toC
+        sel.active.row = ((toR + rows) - 1)
+        sel.active.col = ((toC + cols) - 1)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    ; Where the dragged block would land, given the cell the pointer is over.
+    fn moveTargetRow:int (hitRow:int) {
+        def dr:int (hitRow - moveGrabR)
+        def toR:int (moveR0 + dr)
+        if (toR < 0) {
+            toR = 0
+        }
+        return toR
+    }
+
+    fn moveTargetCol:int (hitCol:int) {
+        def dc:int (hitCol - moveGrabC)
+        def toC:int (moveC0 + dc)
+        if (toC < 0) {
+            toC = 0
+        }
+        return toC
+    }
+
     fn handlePress:void (input:UIInput) {
         def onFill:boolean false
         if (editing == false) {
             onFill = (grid.hitFillHandle(model sel input.pointerX input.pointerY))
+        }
+        if (editing == false) {
+            if (onFill == false) {
+                if ((sel.isSingle()) == false) {
+                    if (grid.hitSelectionEdge(model sel input.pointerX input.pointerY)) {
+                        def start:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                        if ((start.row >= 0) && (start.col >= 0)) {
+                            def g:GridRange (sel.liveRange())
+                            moveR0 = g.r0
+                            moveC0 = g.c0
+                            moveR1 = g.r1
+                            moveC1 = g.c1
+                            moveGrabR = start.row
+                            moveGrabC = start.col
+                            movingRange = true
+                            dragging = false
+                            filling = false
+                            view.focused = true
+                            view.ghostVisible = true
+                            view.ghostR0 = moveR0
+                            view.ghostC0 = moveC0
+                            view.ghostR1 = moveR1
+                            view.ghostC1 = moveC1
+                            return
+                        }
+                    }
+                }
+            }
         }
         if onFill {
             ; FortuneSheet fill-handle drag starts from current selection
@@ -2357,7 +2658,22 @@ class GridApp {
                                     this.commitEdit()
                                 }
                             }
+                            ; Ctrl+click keeps what is selected and starts
+                            ; another rectangle beside it, as Excel does.
+                            ; Moving the active cell collapses the selection, so
+                            ; the rectangle is lifted out first and handed back
+                            ; after.
+                            def keeping:boolean false
+                            def kept:GridRange (sel.liveRange())
+                            if input.ctrlDown {
+                                if (input.shiftDown == false) {
+                                    keeping = true
+                                }
+                            }
                             this.moveActive(hit.row hit.col input.shiftDown)
+                            if keeping {
+                                sel.keepRange(kept)
+                            }
                             dragging = true
                         }
                     }
@@ -2369,6 +2685,19 @@ class GridApp {
 
     ; Pointer drag that is not a resize: fill-handle rubber band or range select.
     fn handleDrag:void (input:UIInput) {
+        if movingRange {
+            def hitM:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+            if ((hitM.row >= 0) && (hitM.col >= 0)) {
+                def toR:int (this.moveTargetRow(hitM.row))
+                def toC:int (this.moveTargetCol(hitM.col))
+                view.ghostVisible = true
+                view.ghostR0 = toR
+                view.ghostC0 = toC
+                view.ghostR1 = ((toR + (moveR1 - moveR0)))
+                view.ghostC1 = ((toC + (moveC1 - moveC0)))
+            }
+            return
+        }
         if filling {
             if (input.pointerPressed == false) {
                 def hitF:CellPos (grid.hitTest(model input.pointerX input.pointerY))
@@ -2480,6 +2809,14 @@ class GridApp {
         }
 
         if input.pointerReleased {
+            if movingRange {
+                def hitD:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                if ((hitD.row >= 0) && (hitD.col >= 0)) {
+                    this.moveBlock(moveR0 moveC0 moveR1 moveC1 (this.moveTargetRow(hitD.row)) (this.moveTargetCol(hitD.col)))
+                }
+                movingRange = false
+                view.ghostVisible = false
+            }
             if formatBrushArmed {
                 if (resizing == false) {
                     if (resizingRows == false) {
@@ -2492,6 +2829,8 @@ class GridApp {
             }
             filling = false
             dragging = false
+            movingRange = false
+            view.ghostVisible = false
             resizing = false
             resizingRows = false
             grid.resizingCol = -1
@@ -2549,6 +2888,13 @@ class GridApp {
                         this.commitEdit()
                     }
                     this.openFindDialog()
+                }
+                if ((ch == 108) || (ch == 76)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    cfStatus = ""
+                    this.openCfDialog()
                 }
                 ; Ctrl+M makes a chart of the selection. Excel's own chart
                 ; keys (F11, Alt+F1) are not keys this input layer carries, and

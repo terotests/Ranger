@@ -1,12 +1,59 @@
 ; ==============================================================================
-; GridSelection - active cell + rectangular range (anchor → active).
+; GridSelection - active cell + rectangular range (anchor → active), plus the
+; rectangles a Ctrl+click left behind.
+; ==============================================================================
+;
+; A selection is one LIVE rectangle — anchor to active, the one a drag is
+; changing — and a list of rectangles that were live earlier and were kept.
+; Keeping them separate is what makes Ctrl+click cheap: nothing has to be
+; re-normalized while the pointer moves, because only the live rectangle moves.
 ; ==============================================================================
 
 Import "SpreadsheetModel.rgr"
 
+; A normalized rectangle of cells. Always r0 <= r1 and c0 <= c1, so anything
+; reading one does not have to sort it first.
+class GridRange {
+    def r0:int 0
+    def c0:int 0
+    def r1:int 0
+    def c1:int 0
+
+    Constructor () {
+    }
+
+    sfn create:GridRange (r0:int c0:int r1:int c1:int) {
+        def g:GridRange (new GridRange)
+        g.r0 = r0
+        g.c0 = c0
+        g.r1 = r1
+        g.c1 = c1
+        return g
+    }
+
+    fn covers:boolean (row:int col:int) {
+        if (row < r0) {
+            return false
+        }
+        if (row > r1) {
+            return false
+        }
+        if (col < c0) {
+            return false
+        }
+        return (col <= c1)
+    }
+
+    fn cellCount:int () {
+        return (((r1 - r0) + 1) * ((c1 - c0) + 1))
+    }
+}
+
 class GridSelection {
     def anchor:CellPos (new CellPos)
     def active:CellPos (new CellPos)
+    ; Rectangles kept from earlier Ctrl+clicks. The live one is not in here.
+    def extra:[GridRange]
 
     Constructor () {
     }
@@ -27,9 +74,81 @@ class GridSelection {
 
     fn collapseToActive:void () {
         anchor.copyFrom(active)
+        clear extra
+    }
+
+    ; --- disjoint ranges ------------------------------------------------------
+    ; Keep the live rectangle and start a new one. This is what Ctrl+click does,
+    ; and it is the only way a rectangle joins the list.
+    fn keepCurrent:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        this.normalized(a b)
+        push extra (GridRange.create(a.row a.col b.row b.col))
+    }
+
+    ; Put a rectangle back into the list. Moving the active cell collapses the
+    ; selection — that is what a plain click means — so a Ctrl+click has to take
+    ; its rectangle out of the way first and hand it back afterwards.
+    fn keepRange:void (g:GridRange) {
+        push extra g
+    }
+
+    fn clearExtra:void () {
+        clear extra
+    }
+
+    fn rangeCount:int () {
+        return ((array_length extra) + 1)
+    }
+
+    ; Index 0..n-1: the kept rectangles first, the live one last.
+    fn rangeAt:GridRange (i:int) {
+        if (i < (array_length extra)) {
+            return (itemAt extra i)
+        }
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        this.normalized(a b)
+        return (GridRange.create(a.row a.col b.row b.col))
+    }
+
+    ; The live rectangle only. Copy and fill read this one, because a clipboard
+    ; block has to be a rectangle.
+    fn liveRange:GridRange () {
+        return (this.rangeAt((array_length extra)))
+    }
+
+    fn isDisjoint:boolean () {
+        return ((array_length extra) > 0)
+    }
+
+    ; Every cell in every rectangle, live one included.
+    fn selectedCount:int () {
+        def total:int 0
+        def i:int 0
+        while (i < (this.rangeCount())) {
+            def g:GridRange (this.rangeAt(i))
+            total = (total + (g.cellCount()))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    fn coversAny:boolean (row:int col:int) {
+        def i:int 0
+        while (i < (this.rangeCount())) {
+            def g:GridRange (this.rangeAt(i))
+            if (g.covers(row col)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn selectAll:void (model:SpreadsheetModel) {
+        clear extra
         anchor.row = 0
         anchor.col = 0
         active.row = (model.rowCount - 1)

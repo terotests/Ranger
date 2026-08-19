@@ -162,6 +162,52 @@ class DumpArtifacts {
             DumpArtifacts.writePng(app dir "07_charts_floating.png")
         }
 
+        print "== 09 find and replace =="
+        def ok9:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok9 {
+            def s9:int 0
+            while (s9 < (app.book.sheetCount())) {
+                def sh9:SpreadsheetModel (app.book.sheetAt(s9))
+                if (sh9.name == "Sales") {
+                    app.setActiveSheet(s9)
+                }
+                s9 = (s9 + 1)
+            }
+            app.moveActive(0 0 false)
+            app.findQuery = "Widget"
+            app.replaceWith = "Gizmo"
+            app.openFindDialog()
+            app.findNext()
+            app.refreshFindDialog()
+            DumpArtifacts.writePng(app dir "09_find_replace.png")
+            app.findDialog.close()
+
+            print "== 10 conditional formatting rule editor =="
+            app.sel.anchor.row = 1
+            app.sel.anchor.col = 5
+            app.sel.active.row = 12
+            app.sel.active.col = 5
+            app.openCfDialog()
+            app.cfDialog.selectRadio(601)
+            app.cfDialog.setInputValue(611 "200")
+            app.cfDialog.selectRadio(623)
+            app.addCfRuleFromDialog()
+            DumpArtifacts.writePng(app dir "10_cf_rule_editor.png")
+            app.cfDialog.close()
+
+            print "== 11 disjoint selection =="
+            app.sel.anchor.row = 1
+            app.sel.anchor.col = 1
+            app.sel.active.row = 4
+            app.sel.active.col = 2
+            app.sel.keepCurrent()
+            app.sel.anchor.row = 7
+            app.sel.anchor.col = 4
+            app.sel.active.row = 10
+            app.sel.active.col = 5
+            DumpArtifacts.writePng(app dir "11_disjoint_selection.png")
+        }
+
         print "DumpArtifacts DONE"
     }
 }

@@ -54,6 +54,13 @@ class GridView {
     ; window layer, because their content is the document's and the frame is
     ; not.
     def chartLayer:ChartLayer (new ChartLayer)
+    ; Where a dragged block would land. Painted as an outline, so the cells it
+    ; would cover are still readable underneath it.
+    def ghostVisible:boolean false
+    def ghostR0:int 0
+    def ghostC0:int 0
+    def ghostR1:int 0
+    def ghostC1:int 0
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -726,33 +733,61 @@ class GridView {
             this.pushRect(dl (to_double bodyLeft) (to_double fy) (to_double vw) 2.0 theme.activeBorder)
         }
 
-        ; selection overlay (cheap rect, not per-cell styles) — clipped to viewport
-        def a:CellPos (new CellPos)
-        def b:CellPos (new CellPos)
-        sel.normalized(a b)
-        def tl:GridRect (grid.cellRect(model a.row a.col))
-        def br:GridRect (grid.cellRect(model b.row b.col))
-        def sx:int tl.x
-        def sy:int tl.y
-        def sw:int ((br.x + br.w) - tl.x)
-        def sh:int ((br.y + br.h) - tl.y)
-        if (sx < bodyLeft) {
-            sw = (sw - (bodyLeft - sx))
-            sx = bodyLeft
+        ; Selection overlay: one cheap rect per rectangle, clipped to the
+        ; viewport. A Ctrl+click selection is several rectangles, and each is
+        ; painted the same way — there is no per-cell pass.
+        def selIdx:int 0
+        while (selIdx < (sel.rangeCount())) {
+            def g:GridRange (sel.rangeAt(selIdx))
+            def live:boolean (selIdx == ((sel.rangeCount()) - 1))
+            def skip:boolean false
+            if live {
+                if (sel.isSingle()) {
+                    if ((sel.isDisjoint()) == false) {
+                        skip = true
+                    }
+                }
+            }
+            if (skip == false) {
+                def tl:GridRect (grid.cellRect(model g.r0 g.c0))
+                def br:GridRect (grid.cellRect(model g.r1 g.c1))
+                def sx:int tl.x
+                def sy:int tl.y
+                def sw:int ((br.x + br.w) - tl.x)
+                def sh:int ((br.y + br.h) - tl.y)
+                if (sx < bodyLeft) {
+                    sw = (sw - (bodyLeft - sx))
+                    sx = bodyLeft
+                }
+                if (sy < bodyTop) {
+                    sh = (sh - (bodyTop - sy))
+                    sy = bodyTop
+                }
+                if ((sx + sw) > (bodyLeft + vw)) {
+                    sw = ((bodyLeft + vw) - sx)
+                }
+                if ((sy + sh) > (bodyTop + vh)) {
+                    sh = ((bodyTop + vh) - sy)
+                }
+                if ((sw > 0) && (sh > 0)) {
+                    this.pushRect(dl (to_double sx) (to_double sy) (to_double sw) (to_double sh) theme.selection)
+                }
+            }
+            selIdx = (selIdx + 1)
         }
-        if (sy < bodyTop) {
-            sh = (sh - (bodyTop - sy))
-            sy = bodyTop
-        }
-        if ((sx + sw) > (bodyLeft + vw)) {
-            sw = ((bodyLeft + vw) - sx)
-        }
-        if ((sy + sh) > (bodyTop + vh)) {
-            sh = ((bodyTop + vh) - sy)
-        }
-        if (sel.isSingle() == false) {
-            if ((sw > 0) && (sh > 0)) {
-                this.pushRect(dl (to_double sx) (to_double sy) (to_double sw) (to_double sh) theme.selection)
+
+        ; drop target for a dragged range
+        if ghostVisible {
+            def gtl:GridRect (grid.cellRect(model ghostR0 ghostC0))
+            def gbr:GridRect (grid.cellRect(model ghostR1 ghostC1))
+            def gx:int gtl.x
+            def gy:int gtl.y
+            def gw:int ((gbr.x + gbr.w) - gtl.x)
+            def gh:int ((gbr.y + gbr.h) - gtl.y)
+            if (gw > 0) {
+                if (gh > 0) {
+                    this.pushBorder(dl (to_double gx) (to_double gy) (to_double gw) (to_double gh) 2.0 theme.activeBorder)
+                }
             }
         }
 

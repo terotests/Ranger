@@ -31,7 +31,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Multiple selection | partial | one rectangular range; no disjoint multi-select |
+| Multiple selection | done | Ctrl+click adds rectangles; delete and format painter cover them all |
 | Borders | done | all OOXML line styles per edge, with colours |
 | Fill | done | including empty-but-formatted cells |
 | Merge cells | done | paint origin + hit-test → origin |
@@ -59,14 +59,14 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Fill handle | done | tiles the source, translating relative refs |
 | Format painter | done | Ctrl+Shift+C arms a brush, next selection takes the style |
 | Find and replace | done | values or formulas, whole cell / case, all sheets, replace all in one undo |
-| Drag and drop | partial | columns reorder via move left/right; no cell-range drag |
+| Drag and drop | done | drag the selection's edge to move the block; columns and rows reorder too |
 
 ## Formulas
 
 | Feature | Status | Notes |
 | --- | --- | --- |
 | Built-in formulas | partial | ~40 functions, AST + dependency recalc; no array formulas |
-| Conditional formatting | partial | colorScale + cellIs on paint; no rule editor |
+| Conditional formatting | done | colorScale + cellIs, read from the file and authored in a rule editor |
 | Data verification | todo | no validation rules |
 
 ## Import / export

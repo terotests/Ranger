@@ -495,6 +495,51 @@ class DataGrid {
         return true
     }
 
+    ; The pixel box of the selection's live rectangle, or a box off screen when
+    ; it is not visible.
+    fn selectionRect:GridRect (model:SpreadsheetModel sel:GridSelection) {
+        def g:GridRange (sel.liveRange())
+        def tl:GridRect (this.cellRect(model g.r0 g.c0))
+        def br:GridRect (this.cellRect(model g.r1 g.c1))
+        return (GridRect.create(tl.x tl.y ((br.x + br.w) - tl.x) ((br.y + br.h) - tl.y)))
+    }
+
+    ; Is the pointer on the SELECTION'S EDGE — the band a drag-move grabs? A
+    ; four-pixel ring just inside the border, minus the fill handle's corner,
+    ; which has its own gesture and wins.
+    fn hitSelectionEdge:boolean (model:SpreadsheetModel sel:GridSelection px:int py:int) {
+        if (this.hitFillHandle(model sel px py)) {
+            return false
+        }
+        def r:GridRect (this.selectionRect(model sel))
+        if (r.w <= 0) {
+            return false
+        }
+        if (r.h <= 0) {
+            return false
+        }
+        def band:int 4
+        if (px < (r.x - band)) {
+            return false
+        }
+        if (py < (r.y - band)) {
+            return false
+        }
+        if (px > ((r.x + r.w) + band)) {
+            return false
+        }
+        if (py > ((r.y + r.h) + band)) {
+            return false
+        }
+        ; Inside the ring means inside the selection but not near an edge.
+        def innerX:boolean ((px > (r.x + band)) && (px < ((r.x + r.w) - band)))
+        def innerY:boolean ((py > (r.y + band)) && (py < ((r.y + r.h) - band)))
+        if (innerX && innerY) {
+            return false
+        }
+        return true
+    }
+
     ; Sheet tab index under pointer, or -1.
     fn hitSheetTab:int (sheetCount:int px:int py:int) {
         def ty:int (this.sheetTabY())

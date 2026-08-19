@@ -62,6 +62,8 @@ npm run datagrid:window
 - **Charts from a selection**: eight Vega-Lite chart types through
   [Vela](../vela/README.md), floating in draggable, resizable windows
 - **Find and replace** across values or formulas, one sheet or all
+- **Disjoint selection** (Ctrl+click) and **drag-to-move** a range
+- **Conditional formatting** read from the file *and* authored in a rule editor
 - **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
@@ -85,6 +87,8 @@ formula together** in one undo op, and every batch runs inside
 | Ctrl+X | Cut + paste moves formulas **as written** (no ref translation) |
 | Delete | Clears value *and* formula over the range, then recalculates dependents |
 | Fill handle | Tiles the source rect, translating relative refs |
+| Ctrl+click | Adds another rectangle to the selection; Delete and the format painter cover them all |
+| Drag the selection's edge | Moves the block — a cut and a paste, so formulas move as written |
 | Ctrl+Z / Ctrl+Y | One step per action — a 3×3 paste, a fill, or a range delete is a single undo |
 | Row / column resize | Drag the header edge (9px grab zone), double-click it to auto-fit |
 
@@ -164,6 +168,7 @@ snapshot — no DOM or SDL below the app.
 | End / Ctrl+End | Last used column of the row / bottom-right of the used range | Caret to end |
 | Ctrl+Space / Shift+Space | Select the column / the row | — |
 | Ctrl+F / Ctrl+H | Find and replace | — |
+| Ctrl+L | Conditional-formatting rule editor | — |
 | Ctrl+M | Chart the selection | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
 | ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
@@ -262,6 +267,17 @@ the cell it is on and moves to the next; *Replace all* runs the whole scan
 inside one transaction, so the batch is a single Ctrl+Z. A hit inside a formula
 is written back to the formula and recalculates.
 
+## Conditional formatting
+
+Rules read from a workbook are painted — colour scales and `cellIs` — and
+`Ctrl+L` now writes them too: pick a test (greater than, less than, equal to,
+between, or a colour scale over the range), a number, and a fill, and the rule
+applies to the selection. *Clear* drops the rules that start inside it.
+
+Rules are sheet metadata rather than cell contents, so they are deliberately
+**not** on the undo stack: undoing a paste must not silently drop a rule the
+paste never touched.
+
 ## Charts
 
 Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
@@ -340,13 +356,13 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   30.0 / 41   73.2%     done 27   partial 6   todo 8
+TOTAL   31.5 / 41   76.8%     done 30   partial 3   todo 8
 ```
 
 `-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
 the score can gate CI once it is where you want it. The biggest gaps left are
-xlsx **export**, rich text inside a cell, images, comments and data
-verification.
+xlsx **export**, rich text inside a cell, images, comments, data verification
+and hyperlinks.
 
 ## Architecture invariant
 
