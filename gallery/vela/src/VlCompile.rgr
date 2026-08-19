@@ -5071,6 +5071,17 @@ class VlCompile {
         return false
     }
 
+    ; Whether either position channel carries an OFFSET sub-scale — a grouped
+    ; bar's series, or a jittered dot's random number. A band holding one of
+    ; those holds a whole scale rather than a single mark, which changes how
+    ; wide the band is.
+    fn hasAnyOffset:boolean () {
+        if (this.hasChannel("xOffset")) {
+            return true
+        }
+        return (this.hasChannel("yOffset"))
+    }
+
     fn bandPaddingInner:double () {
         ; A specification may set the padding for every band scale it draws,
         ; and a heat map that wants its cells to touch says so exactly once.
@@ -5078,15 +5089,15 @@ class VlCompile {
         if (stated >= 0.0) {
             return stated
         }
+        ; A band that holds a whole sub-scale is spaced further apart than one
+        ; holding a single mark, whatever that mark is.
+        if (this.hasAnyOffset()) {
+            return 0.2
+        }
         if (markName == "tick") {
             return 0.25
         }
         if (markName == "bar") {
-            ; A grouped bar chart's bands hold a whole sub-band each, so they
-            ; are spaced further apart than bands holding a single bar.
-            if (this.hasChannel("xOffset")) {
-                return 0.2
-            }
             return 0.1
         }
         ; A BAR leaves a tenth of its band empty and a TICK a quarter;
@@ -5105,7 +5116,7 @@ class VlCompile {
             return stated
         }
         def inner:double (this.bandPaddingInner())
-        if (this.hasChannel("xOffset")) {
+        if (this.hasAnyOffset()) {
             return inner
         }
         return (inner / 2.0)
@@ -5141,6 +5152,13 @@ class VlCompile {
             return "linear"
         }
         if (ch.isDiscrete()) {
+            ; A position scale that carries an offset SUB-scale is a band
+            ; whatever the mark is: the sub-scale spreads across a bandwidth,
+            ; and a point scale has none. Typed as a point, a jittered scatter
+            ; had nothing to jitter within and every dot sat on its own row.
+            if (this.hasChannel((ch.name + "Offset"))) {
+                return "band"
+            }
             if (((markName == "bar") || (markName == "rect")) || (markName == "tick")) {
                 return "band"
             }
@@ -5247,11 +5265,20 @@ class VlCompile {
                     inner = saidInner.num
                 }
             }
-            if ((this.hasChannel("xOffset")) && (axis == "x")) {
-                ; A band that holds a group of bars is as wide as the group
-                ; needs, so its step is computed from the sub-scale rather than
-                ; declared: the twenty pixels are per BAR, not per band.
-                def sub:string (((("20 * bandspace(domain('" + (this.sname("xOffset"))) + "').length, 0, 0) / (1-") + (VlJson.formatNumber(inner 6))) + ")")
+            ; A band holding a sub-scale over CATEGORIES is as wide as the
+            ; group needs, so its step is computed from the sub-scale rather
+            ; than declared: the twenty pixels are per BAR, not per band. One
+            ; holding a sub-scale over NUMBERS is not — a jitter spreads
+            ; across whatever step the chart asked for.
+            def offCh:VlChannel (this.channel((axis + "Offset")))
+            def groupedBands:boolean false
+            if offCh.defined {
+                if (offCh.isDiscrete()) {
+                    groupedBands = true
+                }
+            }
+            if groupedBands {
+                def sub:string (((("20 * bandspace(domain('" + (this.sname((axis + "Offset")))) + "').length, 0, 0) / (1-") + (VlJson.formatNumber(inner 6))) + ")")
                 step.setMember("update" (VlJson.stringValue(sub)))
             } {
                 ; Twenty pixels a band unless the specification said otherwise.
@@ -7506,17 +7533,42 @@ class VlCompile {
     ; The scale a group of bars is spread across INSIDE its band: a band scale
     ; of its own, one step per bar, with nothing between them.
     fn pushOffsetScale:void (out:VlJson) {
-        def ch:VlChannel (this.channel("xOffset"))
+        this.pushOneOffsetScale(out "x")
+        this.pushOneOffsetScale(out "y")
+    }
+
+    ; A sub-scale over CATEGORIES is a band of its own — one sub-band per
+    ; series, which is what a grouped bar chart is. A sub-scale over NUMBERS
+    ; spreads across the band it sits in instead: that is a jitter, and its
+    ; range is the width of the band it scatters within.
+    fn pushOneOffsetScale:void (out:VlJson axis:string) {
+        def name:string (axis + "Offset")
+        def ch:VlChannel (this.channel(name))
         if (! ch.defined) {
             return
         }
         def sc (VlJson.objectValue())
-        sc.setMember("name" (VlJson.stringValue((this.sname("xOffset")))))
-        sc.setMember("type" (VlJson.stringValue("band")))
+        sc.setMember("name" (VlJson.stringValue((this.sname(name)))))
         sc.setMember("domain" (this.domainFor(ch)))
-        def range (VlJson.objectValue())
-        range.setMember("step" (VlJson.numberValue(20.0)))
-        sc.setMember("range" range)
+        if (ch.isDiscrete()) {
+            sc.setMember("type" (VlJson.stringValue("band")))
+            def range (VlJson.objectValue())
+            range.setMember("step" (VlJson.numberValue(20.0)))
+            sc.setMember("range" range)
+            push out.arr sc
+            return
+        }
+        sc.setMember("type" (VlJson.stringValue((this.scaleTypeFor(ch)))))
+        def span (VlJson.arrayValue())
+        push span.arr (VlJson.numberValue(0.0))
+        def far (VlJson.objectValue())
+        far.setMember("signal" (VlJson.stringValue((("bandwidth('" + (this.sname(axis))) + "')"))))
+        push span.arr far
+        sc.setMember("range" span)
+        ; A jitter is measured from where the readings actually are, not from
+        ; zero: a random number between a half and one spreads across the band
+        ; and does not crowd into the top of it.
+        sc.setMember("zero" (VlJson.boolValue(false)))
         push out.arr sc
     }
 
@@ -11532,6 +11584,30 @@ class VlCompile {
         update.setMember(otherSizeB acrossB)
     }
 
+    ; A mark placed on a band that carries a sub-scale is placed TWICE: at its
+    ; band, and then along the sub-scale inside it. Written without the second
+    ; step, four hundred jittered dots all sat on the line of their own row.
+    fn addOffset:void (at:VlJson axis:string) {
+        def off:VlChannel (this.channel((axis + "Offset")))
+        if (! off.defined) {
+            return
+        }
+        ; The sub-scale may be read from a column or given as the ONE name
+        ; this layer stands for — `{"datum": …}`, which is how a repeated
+        ; chart tells its copies apart.
+        if off.hasDatum {
+            def spot (VlJson.objectValue())
+            spot.setMember("scale" (VlJson.stringValue((this.sname((axis + "Offset"))))))
+            spot.setMember("value" off.value)
+            at.setMember("offset" spot)
+            return
+        }
+        if ((strlen (off.outField())) == 0) {
+            return
+        }
+        at.setMember("offset" (this.scaled((axis + "Offset") (off.outField()))))
+    }
+
     fn encodeAxisPair:void (update:VlJson ch:VlChannel axis:string dimension:string) {
         if (! ch.defined) {
             return
@@ -11813,7 +11889,9 @@ class VlCompile {
                 return
             }
         }
-        update.setMember(axis (this.scaled(axis (ch.outField()))))
+        def placed:VlJson (this.scaled(axis (ch.outField())))
+        this.addOffset(placed axis)
+        update.setMember(axis placed)
         ; A bar has LENGTH, so it needs both ends. A stacked one gets them from
         ; the stack; an unstacked one runs from the baseline of its scale.
         if ((markName == "bar") || (markName == "area")) {
