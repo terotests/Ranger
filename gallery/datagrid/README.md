@@ -73,6 +73,7 @@ npm run datagrid:window
 - **~80 formula functions**, lookups over real rectangles, spilling array
   results, and dates as Excel stores them
 - **Rich text**: several styles inside one cell, on one baseline
+- **Images**: drawing anchors and media, painted on both backends
 - **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
@@ -299,6 +300,28 @@ Rules are sheet metadata rather than cell contents, so they are deliberately
 **not** on the undo stack: undoing a paste must not silently drop a rule the
 paste never touched.
 
+## Images
+
+A picture in a spreadsheet is not *in* a cell; it floats over one, anchored by a
+cell plus an offset, and either stretched to a second cell or pinned at its own
+size. That is why the geometry is stored as `(cell, offset)` rather than as
+pixels — widen a column the picture spans and the picture widens with it.
+
+Finding one takes three hops, each of which can be missing: the sheet points at
+a **drawing** part, the drawing names a **relationship**, the relationship names
+the **media** file. The bytes are taken while the package is open, because it is
+closed before the first paint.
+
+| Backend | How it draws them |
+| --- | --- |
+| SoftCanvas | decoded once per part (PNG or JPEG) and blitted, scaled nearest-neighbour, alpha respected |
+| WebGL | an `IMAGE` command names the part; the host serves it at `/media/<part>` and the renderer textures it |
+
+Nearest neighbour is deliberate: a spreadsheet's pictures are logos and diagrams
+shown near their own size, and a blur would be worse than a stairstep. A picture
+that cannot be decoded is drawn as its own outline with the reason in it, rather
+than as nothing at all.
+
 ## Rich text
 
 A cell's style says how the cell is drawn; **rich text** says how parts of it
@@ -500,7 +523,7 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   37.5 / 41   91.5%     done 37   partial 1   todo 3
+TOTAL   38.5 / 41   93.9%     done 38   partial 1   todo 2
 ```
 
 `-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so

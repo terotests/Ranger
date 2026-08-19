@@ -362,6 +362,56 @@ class XlsxTest {
             c.ok("and the runs are gone" ((rtApp.model.hasRichText(4 0)) == false))
         }
 
+        print "== images, three hops from the sheet =="
+        def imApp:GridApp (new GridApp)
+        imApp.init("gallery/pdf_writer/assets/fonts")
+        def imOk:boolean (imApp.loadXlsx("gallery/datagrid/fixtures/images.xlsx"))
+        c.ok("images fixture loaded" imOk)
+        if imOk {
+            c.eqInt("two pictures" (imApp.model.imageCount()) 2)
+            def one:SheetImage (imApp.model.imageAt(0))
+            c.eqStr("the media part was resolved through two relationships" one.src "xl/media/image1.png")
+            c.eqStr("and named" one.name "Stretched")
+            c.eqInt("anchored at column B" one.fromCol 1)
+            c.eqInt("row 3" one.fromRow 2)
+            c.eqInt("offset inside the cell, in pixels not EMUs" one.offX 2)
+            c.eqInt("and vertically" one.offY 3)
+            c.ok("it stretches to a second cell" one.stretched)
+            c.eqInt("which is column D" one.toCol 3)
+            c.ok("its bytes came out of the package" ((buffer_length one.bytes) > 0))
+            c.eqStr("and it knows what kind they are" (one.kind()) "png")
+
+            def two:SheetImage (imApp.model.imageAt(1))
+            c.eqStr("the second picture" two.src "xl/media/image2.png")
+            c.ok("is pinned rather than stretched" (two.stretched == false))
+            c.eqInt("with its own width in pixels" two.widthPx 64)
+            c.eqInt("and height" two.heightPx 48)
+
+            print "-- geometry follows the cells --"
+            def r1:GridRect (GridImages.rectFor(imApp.model imApp.grid one))
+            def beforeW:int r1.w
+            imApp.model.setColWidth(1 ((imApp.model.colWidth(1)) + 60))
+            imApp.sheetView.markDirty()
+            imApp.sheetView.rebuild()
+            imApp.grid.updateVisible(imApp.model)
+            def r2:GridRect (GridImages.rectFor(imApp.model imApp.grid one))
+            c.ok("widening a column it spans widens the picture" (r2.w > beforeW))
+            def p1:GridRect (GridImages.rectFor(imApp.model imApp.grid two))
+            c.eqInt("a pinned picture keeps its size" p1.w 64)
+
+            print "-- decoding --"
+            def scene:string (imApp.sceneJson())
+            c.ok("the scene names the part so a browser can fetch it" (XlsxTest.hasSub(scene "xl/media/image1.png")))
+            def dec:DecodedImage (imApp.view.images.cached("xl/media/image1.png"))
+            c.ok("the PNG decoded" dec.ok)
+            c.eqInt("to its real width" dec.img.width 16)
+            c.eqInt("and height" dec.img.height 12)
+            def decodesAfterFirst:int imApp.view.images.decodes
+            imApp.sceneJson()
+            c.eqInt("a second paint decodes nothing again" imApp.view.images.decodes decodesAfterFirst)
+            c.ok("and it renders" ((strlen scene) > 500))
+        }
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

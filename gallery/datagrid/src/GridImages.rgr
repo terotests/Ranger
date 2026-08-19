@@ -1,0 +1,224 @@
+; ==============================================================================
+; GridImages.rgr — the pictures, decoded once and drawn where the anchors say.
+; ==============================================================================
+;
+; The model holds anchors and a part name; this holds pixels. Keeping them apart
+; matters because they have different lifetimes: an anchor moves whenever a
+; column is resized, and decoding a PNG to move it would be absurd. So the
+; bytes are decoded ONCE per package part, cached by that name, and every
+; redraw is a scale and a blit.
+;
+; Two backends, one display list:
+;
+;   SoftCanvas  gets the pixels, scaled here with a nearest-neighbour sample.
+;               No filtering: a spreadsheet's pictures are logos and diagrams
+;               shown near their own size, and a blur would be worse than a
+;               stairstep.
+;   WebGL       gets an IMAGE command naming the part, and loads it by URL.
+;               The host serves the package's media; nothing is copied through
+;               the scene.
+;
+; The anchor is resolved against the SHEET's geometry rather than the screen's,
+; then offset by the scroll — so a picture is where its cells are, including
+; when they are off screen and it must not be drawn at all.
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "SheetImage.rgr"
+Import "DataGrid.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/lpc/src/png_decoder.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+
+class DecodedImage {
+    def src:string ""
+    def img:ImageBuffer (new ImageBuffer)
+    def ok:boolean false
+    ; Why it could not be shown, when it could not. Painted in the frame rather
+    ; than swallowed, because a picture that silently does not appear is a bug
+    ; report nobody can write.
+    def note:string ""
+
+    Constructor () {
+    }
+}
+
+class GridImages {
+    def cache:[DecodedImage]
+    ; Counted so a test can prove the cache works rather than assume it.
+    def decodes:int 0
+
+    Constructor () {
+    }
+
+    fn cached:DecodedImage (src:string) {
+        def i:int 0
+        while (i < (array_length cache)) {
+            def e:DecodedImage (itemAt cache i)
+            if (e.src == src) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return (new DecodedImage)
+    }
+
+    ; Decode the bytes of one media part, once. The caller reads them out of
+    ; the package — this class never opens a file, so it stays testable with a
+    ; buffer built by hand.
+    fn decode:DecodedImage (src:string kind:string bytes:buffer) {
+        def prev:DecodedImage (this.cached(src))
+        if (prev.src == src) {
+            return prev
+        }
+        def out:DecodedImage (new DecodedImage)
+        out.src = src
+        if ((buffer_length bytes) == 0) {
+            out.note = "missing"
+            push cache out
+            return out
+        }
+        decodes = (decodes + 1)
+        if (kind == "png") {
+            def dec:PNGDecoder (new PNGDecoder)
+            def img:ImageBuffer (dec.decodeBytes(bytes))
+            if (img.width > 0) {
+                out.img = img
+                out.ok = true
+            } {
+                out.note = "unreadable png"
+            }
+        } {
+            if (kind == "jpeg") {
+                def jdec:JPEGDecoder (new JPEGDecoder)
+                def jimg:ImageBuffer (jdec.decodeBytes(bytes))
+                if (jimg.width > 0) {
+                    out.img = jimg
+                    out.ok = true
+                } {
+                    out.note = "unreadable jpeg"
+                }
+            } {
+                out.note = ("no decoder for " + src)
+            }
+        }
+        push cache out
+        return out
+    }
+
+    ; --- geometry -------------------------------------------------------------
+    ; Where the picture lands on screen, in the grid's own coordinates. A
+    ; stretched anchor takes its size from the cells it spans, so widening a
+    ; column widens the picture — which is the whole reason anchors are stored
+    ; as cells rather than pixels.
+    sfn rectFor:GridRect (model:SpreadsheetModel grid:DataGrid img:SheetImage) {
+        def tl:GridRect (grid.cellRect(model img.fromRow img.fromCol))
+        def x:int (tl.x + img.offX)
+        def y:int (tl.y + img.offY)
+        def w:int img.widthPx
+        def h:int img.heightPx
+        if img.stretched {
+            def br:GridRect (grid.cellRect(model img.toRow img.toCol))
+            w = ((br.x + img.toOffX) - x)
+            h = ((br.y + img.toOffY) - y)
+        }
+        if (w < 1) {
+            w = 1
+        }
+        if (h < 1) {
+            h = 1
+        }
+        return (GridRect.create(x y w h))
+    }
+
+    ; --- painting -------------------------------------------------------------
+    ; The display-list side: one IMAGE command per picture, named by its part.
+    ; A backend that can fetch the part draws it; SoftCanvas is handed the
+    ; pixels separately, below.
+    sfn pushImageCmd:void (dl:EVGDisplayList r:GridRect src:string) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 2
+        c.x = (to_double r.x)
+        c.y = (to_double r.y)
+        c.w = (to_double r.w)
+        c.h = (to_double r.h)
+        c.src = src
+        push dl.cmds c
+    }
+
+    ; Scale and composite onto the canvas. Nearest neighbour, alpha respected —
+    ; a logo with a transparent background is the common case and a white box
+    ; behind it would be the obvious failure.
+    fn blitScaled:void (canvas:SoftCanvas img:ImageBuffer x:int y:int w:int h:int clipX:int clipY:int clipW:int clipH:int) {
+        if (img.width <= 0) {
+            return
+        }
+        if (img.height <= 0) {
+            return
+        }
+        def x0:int x
+        def y0:int y
+        def x1:int (x + w)
+        def y1:int (y + h)
+        if (x0 < clipX) {
+            x0 = clipX
+        }
+        if (y0 < clipY) {
+            y0 = clipY
+        }
+        if (x1 > (clipX + clipW)) {
+            x1 = (clipX + clipW)
+        }
+        if (y1 > (clipY + clipH)) {
+            y1 = (clipY + clipH)
+        }
+        def cw:int (canvas.getWidth())
+        def ch:int (canvas.getHeight())
+        if (x1 > cw) {
+            x1 = cw
+        }
+        if (y1 > ch) {
+            y1 = ch
+        }
+        def dy:int y0
+        while (dy < y1) {
+            def sy:int (idiv ((dy - y) * img.height) h)
+            if (sy < 0) {
+                sy = 0
+            }
+            if (sy >= img.height) {
+                sy = (img.height - 1)
+            }
+            def dx:int x0
+            while (dx < x1) {
+                def sx:int (idiv ((dx - x) * img.width) w)
+                if (sx < 0) {
+                    sx = 0
+                }
+                if (sx >= img.width) {
+                    sx = (img.width - 1)
+                }
+                def off:int (((sy * img.width) + sx) * 4)
+                def a:int (buffer_get img.pixels (off + 3))
+                if (a > 0) {
+                    def sr:int (buffer_get img.pixels off)
+                    def sg:int (buffer_get img.pixels (off + 1))
+                    def sb:int (buffer_get img.pixels (off + 2))
+                    if (a >= 255) {
+                        canvas.setPixel(dx dy sr sg sb)
+                    } {
+                        def orr:int (canvas.pixelR(dx dy))
+                        def og:int (canvas.pixelG(dx dy))
+                        def ob:int (canvas.pixelB(dx dy))
+                        def inv:int (255 - a)
+                        canvas.setPixel(dx dy (idiv ((sr * a) + (orr * inv)) 255) (idiv ((sg * a) + (og * inv)) 255) (idiv ((sb * a) + (ob * inv)) 255))
+                    }
+                }
+                dx = (dx + 1)
+            }
+            dy = (dy + 1)
+        }
+    }
+}

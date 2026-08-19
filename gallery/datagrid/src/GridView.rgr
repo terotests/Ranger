@@ -17,6 +17,7 @@ Import "CellStyle.rgr"
 Import "ConditionalFormat.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChartView.rgr"
+Import "GridImages.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -59,6 +60,9 @@ class GridView {
     def chartLayer:ChartLayer (new ChartLayer)
     ; Where a dragged block would land. Painted as an outline, so the cells it
     ; would cover are still readable underneath it.
+    ; The pictures anchored to the sheet, decoded once and drawn where their
+    ; anchors land. The host fills the byte source; the view only draws.
+    def images:GridImages (new GridImages)
     def ghostVisible:boolean false
     def ghostR0:int 0
     def ghostC0:int 0
@@ -824,6 +828,37 @@ class GridView {
             this.pushRect(dl (to_double bodyLeft) (to_double fy) (to_double vw) 2.0 theme.activeBorder)
         }
 
+        ; Pictures sit over the cells and under the selection: they are part of
+        ; the document, not of the chrome. Clipped to the body so one anchored
+        ; near the edge does not paint over the headers.
+        def imgI:int 0
+        while (imgI < (model.imageCount())) {
+            def si:SheetImage (model.imageAt(imgI))
+            def ir:GridRect (GridImages.rectFor(model grid si))
+            def visible:boolean true
+            if ((ir.x + ir.w) < bodyLeft) {
+                visible = false
+            }
+            if ((ir.y + ir.h) < bodyTop) {
+                visible = false
+            }
+            if (ir.x > (bodyLeft + vw)) {
+                visible = false
+            }
+            if (ir.y > (bodyTop + vh)) {
+                visible = false
+            }
+            if visible {
+                ; Decoded on first sight and cached by part name, so scrolling
+                ; past a picture costs a blit rather than a PNG decode.
+                images.decode(si.src (si.kind()) si.bytes)
+                this.pushClip(dl (to_double bodyLeft) (to_double bodyTop) (to_double vw) (to_double vh))
+                GridImages.pushImageCmd(dl ir si.src)
+                this.popClip(dl)
+            }
+            imgI = (imgI + 1)
+        }
+
         ; Selection overlay: one cheap rect per rectangle, clipped to the
         ; viewport. A Ctrl+click selection is several rectangles, and each is
         ; painted the same way — there is no per-cell pass.
@@ -1111,6 +1146,22 @@ class GridView {
                     ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
                 } {
                     ctx.textRotated(c.text (to_int c.x) (to_int c.y) c.fontSize col3 c.rotate)
+                }
+            }
+            if (c.kind == 2) {
+                def entry:DecodedImage (images.cached(c.src))
+                if entry.ok {
+                    images.blitScaled(canvas entry.img (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 0 0 pageW pageH)
+                } {
+                    ; A picture that could not be decoded is drawn as its own
+                    ; outline with the reason in it, rather than as nothing.
+                    ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 1 theme.statusText)
+                    def why:string entry.note
+                    if ((strlen why) == 0) {
+                        why = "image"
+                    }
+                    this.applyFaceStyled(false false)
+                    ctx.text(why ((to_int c.x) + 4) ((to_int c.y) + 4) 11.0 theme.statusText)
                 }
             }
             ; Vector ink: a chart's bars, wedges and grid lines arrive as

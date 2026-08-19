@@ -225,6 +225,13 @@ class DumpArtifacts {
             DumpArtifacts.writePng(app dir "14_rich_text.png")
         }
 
+        print "== 15 anchored pictures =="
+        def ok15:boolean (app.loadXlsx("gallery/datagrid/fixtures/images.xlsx"))
+        if ok15 {
+            app.moveActive(0 0 false)
+            DumpArtifacts.writePng(app dir "15_images.png")
+        }
+
         print "DumpArtifacts DONE"
     }
 }

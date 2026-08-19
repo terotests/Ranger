@@ -80,7 +80,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Images | todo | not read or painted |
+| Images | done | drawing anchors + media, decoded once, painted on SoftCanvas and textured in WebGL |
 | Comments | done | comments part → per-cell notes, marked in the corner and shown for the active cell |
 | Freeze panes | done | freezeRows/Cols + fixed bands |
 | Screenshots | done | tracked artifacts under `artifacts/` |

@@ -6,6 +6,7 @@ Import "XlsxPackage.rgr"
 Import "XlsxWorkbook.rgr"
 Import "XlsxSharedStrings.rgr"
 Import "XlsxWorksheet.rgr"
+Import "XlsxDrawing.rgr"
 Import "XlsxStyles.rgr"
 Import "../WorkbookModel.rgr"
 Import "../CellStyle.rgr"
@@ -139,6 +140,27 @@ class XlsxLoader {
             }
             parser.parse(xml sheet sst)
             parser.parseComments(sheet parser.commentsXml)
+            ; Pictures are three hops away: the sheet points at a drawing, the
+            ; drawing at a relationship, the relationship at the media file.
+            def drawingRel:string (XlsxWorksheet.relTargetOfType(parser.relsXml "/drawing"))
+            if ((strlen drawingRel) > 0) {
+                def drawingPath:string (XlsxLoader.resolveRelPath(info.path drawingRel))
+                def drawingXml:string (pkg.entryText(drawingPath))
+                if ((strlen drawingXml) > 0) {
+                    def drawing:XlsxDrawing (new XlsxDrawing)
+                    drawing.parse(drawingXml (pkg.entryText((XlsxLoader.relsPathFor(drawingPath)))))
+                    def di:int 0
+                    while (di < (array_length drawing.images)) {
+                        def pic:SheetImage (itemAt drawing.images di)
+                        ; The bytes have to be taken now: the package is closed
+                        ; as soon as loading finishes, and a picture decoded on
+                        ; first paint would have nothing left to read.
+                        pic.bytes = (pkg.entryBytes(pic.src))
+                        sheet.addImage(pic)
+                        di = (di + 1)
+                    }
+                }
+            }
             sheet.setStylesFrom(sty.styles)
             book.addSheet(sheet)
             if (info.hidden == false) {

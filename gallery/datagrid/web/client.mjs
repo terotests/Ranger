@@ -4,7 +4,7 @@
  *   INPUT  — mouse/keyboard → POST /input → Node UIInput → GridApp
  *   RENDER — GET /scene.json (EVGDisplayList) → evg-webgl.js (WebGL 2)
  */
-import { renderDisplayList } from "/evg/gl/evg-webgl.js";
+import { renderDisplayList, loadImages } from "/evg/gl/evg-webgl.js";
 
 const canvas = document.getElementById("screen");
 const statusEl = document.getElementById("status");
@@ -255,6 +255,26 @@ async function ensureFonts(doc) {
   if (loads.length) await Promise.all(loads);
 }
 
+const imageCache = new Map();
+
+/** Textures for every IMAGE command in the scene, fetched once per part. */
+async function imagesFor(doc) {
+  const wanted = new Set(
+    doc.list.cmds.filter((c) => c.k === 2 && c.src).map((c) => c.src)
+  );
+  const missing = [...wanted].filter((src) => !imageCache.has(src));
+  if (missing.length) {
+    const fetched = await loadImages(
+      { list: { cmds: missing.map((src) => ({ k: 2, src })) } },
+      { base: "/media/" }
+    );
+    for (const [src, img] of fetched) imageCache.set(src, img);
+  }
+  const out = new Map();
+  for (const src of wanted) out.set(src, imageCache.get(src) || null);
+  return out;
+}
+
 async function pullScene() {
   const res = await fetch("/scene.json?" + Date.now(), { cache: "no-store" });
   if (!res.ok) throw new Error("scene " + res.status);
@@ -282,7 +302,11 @@ async function pullScene() {
   gl.clearColor(0.96, 0.97, 0.98, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 
-  const stats = renderDisplayList(gl, doc, { dpr });
+  // A sheet's pictures are parts of the workbook, served by the host at
+  // /media/<part>. They are fetched once per part and handed to the renderer
+  // as textures; a src that will not load leaves a gap rather than an empty
+  // canvas.
+  const stats = renderDisplayList(gl, doc, { dpr, images: await imagesFor(doc) });
   cmdsEl.textContent = String(doc.list.cmds.length);
   window.__evgStats = stats;
   window.__gridDoc = doc;

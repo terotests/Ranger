@@ -13,6 +13,7 @@
 Import "CellStyle.rgr"
 Import "DataValidation.rgr"
 Import "RichText.rgr"
+Import "SheetImage.rgr"
 Import "XlsxNumberFormat.rgr"
 
 ; Conditional formatting rule (parsed from xlsx cfRule).
@@ -187,6 +188,8 @@ class SpreadsheetModel {
     def spillKeys:[string]
     ; Cells whose text is drawn in pieces. Keyed like everything else, and kept
     ; beside the value rather than inside it — see RichText.
+    ; Pictures floating over this sheet, in the order the drawing listed them.
+    def images:[SheetImage]
     def richCells:[string:RichText]
     def richKeys:[string]
     def links:[string:string]
@@ -959,6 +962,26 @@ class SpreadsheetModel {
         def raw:string (this.getCell(row col))
         def st:CellStyle (this.getCellStyle(row col))
         return (XlsxNumberFormat.format(raw st.numFmt))
+    }
+
+    ; --- images ---------------------------------------------------------------
+    fn addImage:void (img:SheetImage) {
+        push images img
+        version = (version + 1)
+    }
+
+    fn imageCount:int () {
+        return (array_length images)
+    }
+
+    fn imageAt:SheetImage (i:int) {
+        if (i < 0) {
+            return (new SheetImage)
+        }
+        if (i >= (array_length images)) {
+            return (new SheetImage)
+        }
+        return (itemAt images i)
     }
 
     ; --- rich text ------------------------------------------------------------

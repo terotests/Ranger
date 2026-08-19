@@ -99,6 +99,25 @@ let lastX = 80;
 let lastY = 80;
 
 /** Returns a JSON-able reply, or null for "nothing to send back". */
+/** The bytes of one media part, from whichever sheet carries it.
+ *  A Ranger `buffer` arrives here as an ArrayBuffer, which has byteLength
+ *  rather than length — asking for the wrong one silently reads undefined and
+ *  turns every picture into a 404. */
+function mediaBytes(part) {
+  for (let si = 0; si < app.book.sheetCount(); si++) {
+    const sheet = app.book.sheetAt(si);
+    for (let i = 0; i < sheet.imageCount(); i++) {
+      const img = sheet.imageAt(i);
+      if (img.src !== part || !img.bytes) continue;
+      const view = img.bytes instanceof ArrayBuffer
+        ? new Uint8Array(img.bytes)
+        : img.bytes;
+      if (view.length || view.byteLength) return Buffer.from(view);
+    }
+  }
+  return null;
+}
+
 function applyEvent(ev) {
   if (ev.type === "paste") {
     // OS clipboard → grid. Text we exported ourselves keeps the structured
@@ -236,6 +255,25 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(400, { "content-type": "text/plain" });
       res.end(String(e && e.message ? e.message : e));
     }
+    return;
+  }
+
+  // A sheet's pictures. They came out of the .xlsx while it was open and now
+  // live on the model; the browser asks for them by package part name, which
+  // is exactly what the IMAGE commands in the scene carry.
+  if (url.pathname.startsWith("/media/")) {
+    const part = decodeURIComponent(url.pathname.slice("/media/".length));
+    const bytes = mediaBytes(part);
+    if (!bytes) {
+      res.writeHead(404);
+      res.end("no such part");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": part.endsWith(".png") ? "image/png" : "image/jpeg",
+      "cache-control": "no-store",
+    });
+    res.end(bytes);
     return;
   }
 
