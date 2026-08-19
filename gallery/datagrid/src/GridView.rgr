@@ -57,7 +57,7 @@ class GridView {
     def pageH:int 560
     def menuOpen:boolean false
     def menuW:int 190
-    def menuH:int 170
+    def menuH:int 270
     def menuCol:int -1
     def menuX:int 0
     def menuY:int 0
@@ -741,6 +741,12 @@ class GridView {
             this.pushText(dl "5  Auto-fit width" (to_double (menuX + 8)) (to_double (menuY + 110)) 12.0 theme.cellText)
             this.pushText(dl "6  Wider  (+20)" (to_double (menuX + 8)) (to_double (menuY + 130)) 12.0 theme.cellText)
             this.pushText(dl "7  Narrower  (-20)" (to_double (menuX + 8)) (to_double (menuY + 150)) 12.0 theme.cellText)
+            this.pushRect(dl (to_double (menuX + 8)) (to_double (menuY + 168)) (to_double (mw - 16)) 1.0 theme.gridLine)
+            this.pushText(dl "8  Insert column left" (to_double (menuX + 8)) (to_double (menuY + 172)) 12.0 theme.cellText)
+            this.pushText(dl "9  Insert column right" (to_double (menuX + 8)) (to_double (menuY + 192)) 12.0 theme.cellText)
+            this.pushText(dl "10  Delete column" (to_double (menuX + 8)) (to_double (menuY + 212)) 12.0 theme.cellText)
+            this.pushText(dl "11  Move left" (to_double (menuX + 8)) (to_double (menuY + 232)) 12.0 theme.cellText)
+            this.pushText(dl "12  Move right" (to_double (menuX + 8)) (to_double (menuY + 252)) 12.0 theme.cellText)
         }
 
         ; status bar

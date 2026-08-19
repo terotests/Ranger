@@ -34,6 +34,7 @@
 ; Formulas (engine)               | AST + deps + FormulaFunctions + coerce    | partial
 ; Conditional formatting          | colorScale + cellIs paint resolver        | partial
 ; Hidden rows / columns           | geometry height/width 0                   | done
+; Insert / delete / move columns  | data + geometry + merges + formula repair | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
 ;

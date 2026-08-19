@@ -756,6 +756,82 @@ class FormulaParser {
         return 100
     }
 
+    ; Adjust references for a column insert / delete on one sheet.
+    ;   at    the column the operation happened at
+    ;   delta +1 for an insert, -1 for a delete
+    ;   sheet "" matches references with no sheet prefix (same sheet)
+    ; A reference to a DELETED column cannot be repaired — it becomes #REF!,
+    ; exactly as Excel does, rather than silently pointing at the neighbour.
+    sfn adjustColsNode:boolean (n:FormulaNode sheetName:string at:int delta:int) {
+        def broke:boolean false
+        if ((n.kind == 3) || (n.kind == 4)) {
+            def applies:boolean false
+            if ((strlen n.sheet) == 0) {
+                applies = true
+            } {
+                if (n.sheet == sheetName) {
+                    applies = true
+                }
+            }
+            if applies {
+                if (delta < 0) {
+                    if (n.kind == 3) {
+                        if (n.col == at) {
+                            broke = true
+                        }
+                    } {
+                        ; A range collapses only when the whole span goes.
+                        if ((n.col == at) && (n.col2 == at)) {
+                            broke = true
+                        }
+                    }
+                }
+                if (broke == false) {
+                    if (n.col >= at) {
+                        def nc:int (n.col + delta)
+                        if (nc < 0) {
+                            nc = 0
+                        }
+                        n.col = nc
+                    }
+                    if (n.kind == 4) {
+                        if (n.col2 >= at) {
+                            def nc2:int (n.col2 + delta)
+                            if (nc2 < 0) {
+                                nc2 = 0
+                            }
+                            n.col2 = nc2
+                        }
+                    }
+                }
+            }
+        }
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            if (FormulaParser.adjustColsNode((itemAt n.kids i) sheetName at delta)) {
+                broke = true
+            }
+            i = (i + 1)
+        }
+        return broke
+    }
+
+    ; Returns the rewritten formula, or "#REF!" when a reference was destroyed.
+    ; "" means the expression could not be parsed and should be left alone.
+    sfn adjustColumns:string (expr:string sheetName:string at:int delta:int) {
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(expr))
+        if (p.ok == false) {
+            return ""
+        }
+        def broke:boolean (FormulaParser.adjustColsNode(ast sheetName at delta))
+        if broke {
+            return "#REF!"
+        }
+        return (FormulaParser.serializeNode(ast))
+    }
+
     sfn serializeNode:string (n:FormulaNode) {
         if (n.kind == 8) {
             return n.text

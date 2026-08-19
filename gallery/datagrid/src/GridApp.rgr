@@ -269,6 +269,152 @@ class GridApp {
         return false
     }
 
+    ; --- column structure -----------------------------------------------------
+    ; Insert / delete / move a column. The data move lives in SpreadsheetModel;
+    ; what belongs here is repairing every formula in the WORKBOOK that pointed
+    ; into the edited sheet — including cross-sheet references naming it — and
+    ; rebuilding the dependency graph afterwards.
+    fn adjustFormulasForColumns:void (at:int delta:int) {
+        def sheetName:string model.name
+        def si:int 0
+        def sn:int (book.sheetCount())
+        while (si < sn) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            def sameSheet:boolean (si == book.activeIndex)
+            def keys:[string]
+            def texts:[string]
+            sheet.snapshotFormulas(keys texts)
+            def i:int 0
+            while (i < (array_length keys)) {
+                def key:string (itemAt keys i)
+                def expr:string (itemAt texts i)
+                ; On another sheet only qualified references are affected.
+                def nameForMatch:string sheetName
+                if (sameSheet == false) {
+                    nameForMatch = sheetName
+                }
+                def rewritten:string (FormulaParser.adjustColumns(expr nameForMatch at delta))
+                if ((strlen rewritten) > 0) {
+                    if (rewritten != expr) {
+                        set sheet.formulas key rewritten
+                    }
+                }
+                i = (i + 1)
+            }
+            si = (si + 1)
+        }
+        model.version = (model.version + 1)
+    }
+
+    fn afterStructuralChange:void () {
+        sheetView.markDirty()
+        sheetView.rebuild()
+        engine.rebuildAll()
+        grid.updateVisible(model)
+    }
+
+    fn insertColumn:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(1 at 0)
+        model.insertColumnRaw(at)
+        model.endTx()
+        this.adjustFormulasForColumns(at 1)
+        this.afterStructuralChange()
+    }
+
+    fn deleteColumn:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at >= model.colCount) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(2 at 0)
+        model.deleteColumnRaw(at)
+        model.endTx()
+        this.adjustFormulasForColumns(at -1)
+        this.afterStructuralChange()
+    }
+
+    fn moveColumn:void (from:int to:int) {
+        if (from == to) {
+            return
+        }
+        if (from < 0) {
+            return
+        }
+        if (from >= model.colCount) {
+            return
+        }
+        if (to < 0) {
+            return
+        }
+        if (to >= model.colCount) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(3 from to)
+        model.moveColumnRaw(from to)
+        model.endTx()
+        ; A move is a delete followed by an insert, so refs shift twice.
+        this.adjustFormulasForColumns(from -1)
+        this.adjustFormulasForColumns(to 1)
+        this.afterStructuralChange()
+    }
+
+    fn insertColumnLeftOfSelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        this.insertColumn(a.col)
+    }
+
+    fn insertColumnRightOfSelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        this.insertColumn((b.col + 1))
+    }
+
+    fn deleteSelectedColumns:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def count:int ((b.col - a.col) + 1)
+        def i:int 0
+        while (i < count) {
+            this.deleteColumn(a.col)
+            i = (i + 1)
+        }
+        sel.anchor.col = a.col
+        sel.active.col = a.col
+        def p:CellPos (CellPos.create(sel.active.row sel.active.col))
+        model.clampPos(p)
+        sel.setActive(p.row p.col)
+        sel.collapseToActive()
+    }
+
+    fn moveSelectedColumn:void (delta:int) {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def from:int a.col
+        def to:int (from + delta)
+        if (to < 0) {
+            return
+        }
+        if (to >= model.colCount) {
+            return
+        }
+        this.moveColumn(from to)
+        sel.anchor.col = to
+        sel.active.col = to
+    }
+
     ; --- format painter -------------------------------------------------------
     ; Ctrl+Shift+C picks up the active cell's formatting; the next selection it
     ; is applied to gets it, and the brush disarms — like every office app.
@@ -409,8 +555,23 @@ class GridApp {
         if ((ly >= 126) && (ly < 146)) {
             return 6
         }
-        if ((ly >= 146) && (ly < 170)) {
+        if ((ly >= 146) && (ly < 166)) {
             return 7
+        }
+        if ((ly >= 166) && (ly < 186)) {
+            return 8
+        }
+        if ((ly >= 186) && (ly < 206)) {
+            return 9
+        }
+        if ((ly >= 206) && (ly < 226)) {
+            return 10
+        }
+        if ((ly >= 226) && (ly < 246)) {
+            return 11
+        }
+        if ((ly >= 246) && (ly < 270)) {
+            return 12
         }
         return 0
     }
@@ -446,6 +607,21 @@ class GridApp {
         }
         if (action == 7) {
             this.nudgeColumnWidth(col -20)
+        }
+        if (action == 8) {
+            this.insertColumn(col)
+        }
+        if (action == 9) {
+            this.insertColumn((col + 1))
+        }
+        if (action == 10) {
+            this.deleteColumn(col)
+        }
+        if (action == 11) {
+            this.moveColumn(col (col - 1))
+        }
+        if (action == 12) {
+            this.moveColumn(col (col + 1))
         }
         this.closeHeaderMenu()
     }
@@ -566,7 +742,13 @@ class GridApp {
         if editing {
             this.cancelEdit()
         }
+        model.structDirty = false
         def u:CellPos (model.undo())
+        if model.structDirty {
+            model.structDirty = false
+            this.afterStructuralChange()
+            return
+        }
         this.syncTouched()
         this.moveActive(u.row u.col false)
     }
@@ -575,7 +757,13 @@ class GridApp {
         if editing {
             this.cancelEdit()
         }
+        model.structDirty = false
         def r:CellPos (model.redo())
+        if model.structDirty {
+            model.structDirty = false
+            this.afterStructuralChange()
+            return
+        }
         this.syncTouched()
         this.moveActive(r.row r.col false)
     }

@@ -73,6 +73,19 @@ class SpreadsheetUndoOp {
     def beforeStyle:int -1
     def afterStyle:int -1
     def touchStyle:boolean false
+    ; Structural op: 0 none, 1 insert column, 2 delete column, 3 move column.
+    def structKind:int 0
+    def structAt:int 0
+    def structTo:int 0
+    def colValues:[string]
+    def colFormulas:[string]
+    def colStyles:[int]
+    def colWidthSaved:int 0
+    ; Every formula in the sheet before the op. A reference into a deleted
+    ; column becomes #REF!, which no amount of re-shifting can undo, so the
+    ; original text is the only way back.
+    def savedKeys:[string]
+    def savedTexts:[string]
     def txId:int 0
 
     Constructor () {
@@ -88,6 +101,42 @@ class SpreadsheetUndoOp {
         beforeStyle = o.beforeStyle
         afterStyle = o.afterStyle
         touchStyle = o.touchStyle
+        ; The structural payload has to come too — an op that loses structKind
+        ; on its way to the redo stack is replayed as a plain cell edit.
+        structKind = o.structKind
+        structAt = o.structAt
+        structTo = o.structTo
+        colWidthSaved = o.colWidthSaved
+        clear colValues
+        clear colFormulas
+        clear colStyles
+        clear savedKeys
+        clear savedTexts
+        def i:int 0
+        while (i < (array_length o.colValues)) {
+            push colValues (itemAt o.colValues i)
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length o.colFormulas)) {
+            push colFormulas (itemAt o.colFormulas j)
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length o.colStyles)) {
+            push colStyles (itemAt o.colStyles k)
+            k = (k + 1)
+        }
+        def m:int 0
+        while (m < (array_length o.savedKeys)) {
+            push savedKeys (itemAt o.savedKeys m)
+            m = (m + 1)
+        }
+        def n:int 0
+        while (n < (array_length o.savedTexts)) {
+            push savedTexts (itemAt o.savedTexts n)
+            n = (n + 1)
+        }
         txId = o.txId
     }
 }
@@ -127,6 +176,9 @@ class SpreadsheetModel {
     def undoStack:[SpreadsheetUndoOp]
     def redoStack:[SpreadsheetUndoOp]
     def touched:[CellPos]
+    ; Set when an undo / redo replayed a structural op, so the caller knows to
+    ; rebuild the formula engine rather than sync a few cells.
+    def structDirty:boolean false
     def usedMaxRow:int 0
     def usedMaxCol:int 0
     def txCounter:int 0
@@ -286,6 +338,285 @@ class SpreadsheetModel {
     ; Grow the sheet without touching what is already there. resize() clears
     ; rowHeights / colWidths, so it must never be used to extend a loaded
     ; workbook — that would throw away every column width from styles.xml.
+    ; --- column structure -----------------------------------------------------
+    ; Insert / delete / move operate on the used rectangle only, so a sheet that
+    ; declares 100k rows does not pay for its empty ones. Cells, formulas, style
+    ; ids, widths, hidden flags and merges all move together — anything left
+    ; behind would show up as a value with someone else's formatting.
+    fn moveCellRaw:void (fromRow:int fromCol:int toRow:int toCol:int) {
+        def src:string (this.cellKey(fromRow fromCol))
+        def dst:string (this.cellKey(toRow toCol))
+        def v:string ""
+        if (has cells src) {
+            v = (unwrap (get cells src))
+        }
+        set cells dst v
+        set cells src ""
+        def f:string ""
+        if (has formulas src) {
+            f = (unwrap (get formulas src))
+        }
+        this.setFormulaText(toRow toCol f)
+        if (has formulas src) {
+            set formulas src ""
+        }
+        def sid:int -1
+        if (has cellStyleIds src) {
+            sid = (unwrap (get cellStyleIds src))
+        }
+        set cellStyleIds dst sid
+        set cellStyleIds src -1
+    }
+
+    fn clearCellAt:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        set cells k ""
+        if (has formulas k) {
+            set formulas k ""
+        }
+        set cellStyleIds k -1
+    }
+
+    ; Column contents, top to bottom over the used rows — the payload a delete
+    ; has to keep so undo can put the column back.
+    fn snapshotFormulas:void (outKeys:[string] outTexts:[string]) {
+        clear outKeys
+        clear outTexts
+        def i:int 0
+        while (i < (array_length formulaKeys)) {
+            def k:string (itemAt formulaKeys i)
+            if (has formulas k) {
+                def t:string (unwrap (get formulas k))
+                if ((strlen t) > 0) {
+                    push outKeys k
+                    push outTexts t
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn restoreFormulas:void (keys:[string] texts:[string]) {
+        ; Wipe what is there now, then lay the snapshot back down.
+        def i:int 0
+        while (i < (array_length formulaKeys)) {
+            def k:string (itemAt formulaKeys i)
+            if (has formulas k) {
+                set formulas k ""
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length keys)) {
+            def key:string (itemAt keys j)
+            if ((has formulas key) == false) {
+                push formulaKeys key
+            }
+            set formulas key (itemAt texts j)
+            j = (j + 1)
+        }
+        version = (version + 1)
+    }
+
+    fn snapshotColumn:void (col:int outValues:[string] outFormulas:[string] outStyles:[int]) {
+        clear outValues
+        clear outFormulas
+        clear outStyles
+        def last:int (this.usedRow())
+        def r:int 0
+        while (r <= last) {
+            push outValues (this.getCell(r col))
+            push outFormulas (this.getFormula(r col))
+            push outStyles (this.getCellStyleId(r col))
+            r = (r + 1)
+        }
+    }
+
+    fn restoreColumn:void (col:int values:[string] formulas:[string] styles:[int]) {
+        def n:int (array_length values)
+        def r:int 0
+        while (r < n) {
+            this.setCellRaw(r col (itemAt values r))
+            this.setFormulaText(r col (itemAt formulas r))
+            def k:string (this.cellKey(r col))
+            set cellStyleIds k (itemAt styles r)
+            r = (r + 1)
+        }
+    }
+
+    fn remapMergesForColumn:void (at:int delta:int) {
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length merges)) {
+            def m:string (itemAt merges i)
+            def parts:[string] (strsplit m ",")
+            if ((array_length parts) >= 4) {
+                def r1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                def c1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                def r2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
+                def c2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
+                def drop:boolean false
+                if (delta < 0) {
+                    if ((c1 == at) && (c2 == at)) {
+                        drop = true
+                    }
+                }
+                if (c1 >= at) {
+                    c1 = (c1 + delta)
+                }
+                if (c2 >= at) {
+                    c2 = (c2 + delta)
+                }
+                if (c2 < c1) {
+                    drop = true
+                }
+                if (drop == false) {
+                    push kept ((((to_string r1) + ",") + (to_string c1) + ",") + (to_string r2) + "," + (to_string c2))
+                }
+            }
+            i = (i + 1)
+        }
+        clear merges
+        def j:int 0
+        while (j < (array_length kept)) {
+            push merges (itemAt kept j)
+            j = (j + 1)
+        }
+    }
+
+    fn insertColumnRaw:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at > colCount) {
+            return
+        }
+        def lastR:int (this.usedRow())
+        def lastC:int (this.usedCol())
+        ; Right to left, so a destination is never read afterwards.
+        def c:int lastC
+        while (c >= at) {
+            def r:int 0
+            while (r <= lastR) {
+                this.moveCellRaw(r c r (c + 1))
+                r = (r + 1)
+            }
+            c = (c - 1)
+        }
+        def r2:int 0
+        while (r2 <= lastR) {
+            this.clearCellAt(r2 at)
+            r2 = (r2 + 1)
+        }
+        ; Geometry arrays must end up exactly colCount long, or ensureGeometry
+        ; decides they are stale and resets every width to the default.
+        if (at < (array_length colWidths)) {
+            insert colWidths at defaultColW
+        } {
+            push colWidths defaultColW
+        }
+        if (at < (array_length colHidden)) {
+            insert colHidden at false
+        } {
+            push colHidden false
+        }
+        colCount = (colCount + 1)
+        if (usedMaxCol >= at) {
+            usedMaxCol = (usedMaxCol + 1)
+        }
+        this.remapMergesForColumn(at 1)
+        colGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
+    fn deleteColumnRaw:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at >= colCount) {
+            return
+        }
+        if (colCount <= 1) {
+            return
+        }
+        def lastR:int (this.usedRow())
+        def lastC:int (this.usedCol())
+        def c:int at
+        while (c < lastC) {
+            def r:int 0
+            while (r <= lastR) {
+                this.moveCellRaw(r (c + 1) r c)
+                r = (r + 1)
+            }
+            c = (c + 1)
+        }
+        ; Only the column the shift vacated gets cleared. Deleting a column
+        ; BEYOND the used range shifts nothing, and clearing lastC there would
+        ; wipe live data instead.
+        if (at <= lastC) {
+            def r3:int 0
+            while (r3 <= lastR) {
+                this.clearCellAt(r3 lastC)
+                r3 = (r3 + 1)
+            }
+        }
+        if (at < (array_length colWidths)) {
+            remove_index colWidths at
+        }
+        if (at < (array_length colHidden)) {
+            remove_index colHidden at
+        }
+        colCount = (colCount - 1)
+        if (usedMaxCol >= at) {
+            if (usedMaxCol > 0) {
+                usedMaxCol = (usedMaxCol - 1)
+            }
+        }
+        this.remapMergesForColumn(at -1)
+        colGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
+    ; Reorder: lift a column out and drop it at `to` (index in the sheet AFTER
+    ; the lift, the way a drag reads).
+    fn moveColumnRaw:void (from:int to:int) {
+        if (from == to) {
+            return
+        }
+        if (from < 0) {
+            return
+        }
+        if (from >= colCount) {
+            return
+        }
+        if (to < 0) {
+            return
+        }
+        if (to >= colCount) {
+            return
+        }
+        def vals:[string]
+        def fmls:[string]
+        def sids:[int]
+        this.snapshotColumn(from vals fmls sids)
+        def width:int (this.colWidth(from))
+        def hidden:boolean (this.isColHidden(from))
+        this.deleteColumnRaw(from)
+        this.insertColumnRaw(to)
+        this.restoreColumn(to vals fmls sids)
+        if (to < (array_length colWidths)) {
+            set_at colWidths to width
+        }
+        if (to < (array_length colHidden)) {
+            set_at colHidden to hidden
+        }
+        colGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
     fn growTo:void (rows:int cols:int) {
         def changed:boolean false
         if (rows > rowCount) {
@@ -825,7 +1156,59 @@ class SpreadsheetModel {
         this.applyEdit(row col value "")
     }
 
+    ; Record a structural column op so it can be undone as one action.
+    fn pushStructOp:void (kind:int at:int to:int) {
+        def op:SpreadsheetUndoOp (new SpreadsheetUndoOp)
+        op.structKind = kind
+        op.structAt = at
+        op.structTo = to
+        op.txId = curTx
+        op.colWidthSaved = (this.colWidth(at))
+        if (kind == 2) {
+            this.snapshotColumn(at op.colValues op.colFormulas op.colStyles)
+        }
+        this.snapshotFormulas(op.savedKeys op.savedTexts)
+        push undoStack op
+        if (txDepth == 0) {
+            this.trimUndo()
+        }
+        clear redoStack
+    }
+
+    fn applyStructOp:void (op:SpreadsheetUndoOp toAfter:boolean) {
+        if toAfter {
+            if (op.structKind == 1) {
+                this.insertColumnRaw(op.structAt)
+            }
+            if (op.structKind == 2) {
+                this.deleteColumnRaw(op.structAt)
+            }
+            if (op.structKind == 3) {
+                this.moveColumnRaw(op.structAt op.structTo)
+            }
+            return
+        }
+        if (op.structKind == 1) {
+            this.deleteColumnRaw(op.structAt)
+        }
+        if (op.structKind == 2) {
+            this.insertColumnRaw(op.structAt)
+            this.restoreColumn(op.structAt op.colValues op.colFormulas op.colStyles)
+            this.setColWidth(op.structAt op.colWidthSaved)
+        }
+        if (op.structKind == 3) {
+            this.moveColumnRaw(op.structTo op.structAt)
+        }
+        ; Formula text is restored wholesale — see savedKeys.
+        this.restoreFormulas(op.savedKeys op.savedTexts)
+    }
+
     fn applyOp:void (op:SpreadsheetUndoOp toAfter:boolean) {
+        if (op.structKind != 0) {
+            this.applyStructOp(op toAfter)
+            structDirty = true
+            return
+        }
         if toAfter {
             this.setCellRaw(op.row op.col op.after)
             this.setFormulaText(op.row op.col op.afterF)

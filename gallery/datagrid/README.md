@@ -87,6 +87,29 @@ After any edit the app re-registers just the touched cells
 (`FormulaEngine.syncCell`) and calls `recalcDirty()` **once**; it never
 re-`attach`es the engine, which would drop the whole dependency graph.
 
+### Column structure
+
+| Action | Does |
+| --- | --- |
+| Header menu 8 / 9 | Insert a column left / right |
+| Header menu 10 | Delete the column |
+| Header menu 11 / 12 | Move the column left / right |
+| `insertColumnLeftOfSelection` etc. | The same, driven from the selection |
+
+Cells, formulas, style ids, widths, hidden flags and merges all move together —
+anything left behind would surface as a value wearing someone else's
+formatting. Formulas across the **whole workbook** are repaired, including
+cross-sheet references naming the edited sheet: a reference at or past the
+insert point shifts, and a reference *into* a deleted column becomes `#REF!`,
+as Excel does.
+
+Because a `#REF!` cannot be re-derived by shifting back, a structural op
+snapshots every formula in the sheet, and undo restores that text wholesale. A
+delete also keeps the removed column's values, formulas, style ids and width,
+so one Ctrl+Z brings the column back intact.
+
+Rows are not covered yet — the same machinery, transposed, is the next step.
+
 ### Column and row sizing
 
 | Gesture | Does |
@@ -201,13 +224,13 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   25.5 / 41   62.2%     done 23   partial 5   todo 13
+TOTAL   27.0 / 41   65.9%     done 23   partial 8   todo 10
 ```
 
 `-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
 the score can gate CI once it is where you want it. The biggest gaps left are
-xlsx **export**, **insert / delete** rows and columns, rich text inside a cell,
-images, comments and find-and-replace.
+xlsx **export**, insert / delete for **rows**, rich text inside a cell, images,
+comments and find-and-replace.
 
 ## Architecture invariant
 

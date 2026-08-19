@@ -867,6 +867,165 @@ class GridEditTest {
         fpApp.cancelFormatBrush()
         c.ok("brush can be cancelled" (fpApp.formatBrushArmed == false))
 
+        print "== insert / delete / move columns =="
+        def colApp:GridApp (new GridApp)
+        colApp.init("gallery/pdf_writer/assets/fonts")
+        colApp.model.clearSheet()
+        colApp.model.name = "Cols"
+        colApp.model.resize(6 5)
+        colApp.model.setCellRaw(0 0 "A")
+        colApp.model.setCellRaw(0 1 "B")
+        colApp.model.setCellRaw(0 2 "C")
+        colApp.model.setCellRaw(0 3 "D")
+        colApp.model.setColWidth(1 133)
+        def styled:CellStyle (new CellStyle)
+        styled.hasFill = true
+        styled.fillRgb = "#123456"
+        colApp.model.setCellStyleResolved(0 2 styled)
+        colApp.sheetView.markDirty()
+        colApp.sheetView.rebuild()
+        colApp.engine.rebuildAll()
+
+        print "-- insert --"
+        colApp.insertColumn(1)
+        c.eqInt("colCount grew" colApp.model.colCount 6)
+        c.eqStr("A stayed" (colApp.model.getCell(0 0)) "A")
+        c.eqStr("new column is empty" (colApp.model.getCell(0 1)) "")
+        c.eqStr("B moved right" (colApp.model.getCell(0 2)) "B")
+        c.eqStr("C moved right" (colApp.model.getCell(0 3)) "C")
+        c.eqInt("width followed the column" (colApp.model.colWidth(2)) 133)
+        c.ok("style followed the column" ((colApp.model.getCellStyle(0 3)).hasFill))
+        c.ok("inserted column has no style" (((colApp.model.getCellStyle(0 1)).hasFill) == false))
+
+        print "-- undo the insert --"
+        colApp.undoEdit()
+        c.eqInt("colCount back" colApp.model.colCount 5)
+        c.eqStr("B back in place" (colApp.model.getCell(0 1)) "B")
+        c.eqInt("width back" (colApp.model.colWidth(1)) 133)
+        colApp.redoEdit()
+        c.eqStr("redo moved B again" (colApp.model.getCell(0 2)) "B")
+        colApp.undoEdit()
+
+        print "-- delete --"
+        colApp.deleteColumn(1)
+        c.eqInt("colCount shrank" colApp.model.colCount 4)
+        c.eqStr("A stayed" (colApp.model.getCell(0 0)) "A")
+        c.eqStr("C shifted left" (colApp.model.getCell(0 1)) "C")
+        c.eqStr("D shifted left" (colApp.model.getCell(0 2)) "D")
+        colApp.undoEdit()
+        c.eqInt("delete undone" colApp.model.colCount 5)
+        c.eqStr("B restored" (colApp.model.getCell(0 1)) "B")
+        c.eqInt("its width restored" (colApp.model.colWidth(1)) 133)
+
+        print "-- move --"
+        colApp.moveColumn(0 2)
+        c.eqStr("A moved to index 2" (colApp.model.getCell(0 2)) "A")
+        c.eqStr("B shifted left" (colApp.model.getCell(0 0)) "B")
+        c.eqStr("C shifted left" (colApp.model.getCell(0 1)) "C")
+        c.eqStr("D untouched" (colApp.model.getCell(0 3)) "D")
+        colApp.undoEdit()
+        c.eqStr("move undone" (colApp.model.getCell(0 0)) "A")
+        c.eqStr("and B is back" (colApp.model.getCell(0 1)) "B")
+
+        print "== formulas follow the columns =="
+        def fApp:GridApp (new GridApp)
+        fApp.init("gallery/pdf_writer/assets/fonts")
+        fApp.model.clearSheet()
+        fApp.model.name = "Calc"
+        fApp.model.resize(6 6)
+        fApp.model.setCellRaw(0 0 "2")
+        fApp.model.setCellRaw(0 1 "3")
+        fApp.model.setFormula(0 3 "A1+B1")
+        fApp.model.setFormula(1 3 "SUM(A1:B1)")
+        fApp.model.setFormula(2 3 "$A$1*10")
+        fApp.sheetView.markDirty()
+        fApp.sheetView.rebuild()
+        fApp.engine.rebuildAll()
+        c.eqStr("baseline sum" (fApp.model.getCell(0 3)) "5")
+        ; Insert before B: refs at or past it shift right.
+        fApp.insertColumn(1)
+        c.eqStr("relative ref shifted" (fApp.model.getFormula(0 4)) "A1+C1")
+        c.eqStr("range end shifted" (fApp.model.getFormula(1 4)) "SUM(A1:C1)")
+        c.eqStr("absolute ref before the insert is untouched" (fApp.model.getFormula(2 4)) "$A$1*10")
+        c.eqStr("value still right" (fApp.model.getCell(0 4)) "5")
+        fApp.undoEdit()
+        c.eqStr("undo restored the formula text" (fApp.model.getFormula(0 3)) "A1+B1")
+        c.eqStr("and it still calculates" (fApp.model.getCell(0 3)) "5")
+
+        print "-- deleting a referenced column gives #REF! --"
+        fApp.deleteColumn(1)
+        c.eqStr("reference into the deleted column breaks" (fApp.model.getFormula(0 2)) "#REF!")
+        ; One undo brings the original formula back — a #REF! cannot be
+        ; re-derived by shifting, so the text itself has to be restored.
+        fApp.undoEdit()
+        c.eqStr("undo restores the broken formula" (fApp.model.getFormula(0 3)) "A1+B1")
+        c.eqStr("and its value" (fApp.model.getCell(0 3)) "5")
+        ; Deleting an UNreferenced column just shifts the rest.
+        fApp.deleteColumn(4)
+        c.eqStr("unrelated delete keeps the formula" (fApp.model.getFormula(0 3)) "A1+B1")
+        fApp.undoEdit()
+
+        print "== merges follow the columns =="
+        def mApp:GridApp (new GridApp)
+        mApp.init("gallery/pdf_writer/assets/fonts")
+        mApp.model.clearSheet()
+        mApp.model.resize(6 6)
+        mApp.model.addMerge(0 2 0 3)
+        mApp.sheetView.markDirty()
+        mApp.sheetView.rebuild()
+        mApp.engine.rebuildAll()
+        c.ok("merge is at C1:D1" ((strlen (mApp.model.mergeAt(0 2))) > 0))
+        mApp.insertColumn(0)
+        c.ok("merge shifted right" ((strlen (mApp.model.mergeAt(0 3))) > 0))
+        c.ok("and left its old place" ((strlen (mApp.model.mergeAt(0 2))) == 0))
+        mApp.undoEdit()
+        c.ok("merge shifted back" ((strlen (mApp.model.mergeAt(0 2))) > 0))
+
+        print "== selection helpers and menu actions =="
+        def sApp2:GridApp (new GridApp)
+        sApp2.init("gallery/pdf_writer/assets/fonts")
+        sApp2.model.clearSheet()
+        sApp2.model.resize(4 5)
+        sApp2.model.setCellRaw(0 0 "one")
+        sApp2.model.setCellRaw(0 1 "two")
+        sApp2.model.setCellRaw(0 2 "three")
+        sApp2.sheetView.markDirty()
+        sApp2.sheetView.rebuild()
+        sApp2.engine.rebuildAll()
+        GridEditTest.select(sApp2 0 1)
+        sApp2.insertColumnLeftOfSelection()
+        c.eqStr("insert left pushed two right" (sApp2.model.getCell(0 2)) "two")
+        sApp2.undoEdit()
+        GridEditTest.select(sApp2 0 1)
+        sApp2.insertColumnRightOfSelection()
+        c.eqStr("insert right kept two in place" (sApp2.model.getCell(0 1)) "two")
+        c.eqStr("and pushed three right" (sApp2.model.getCell(0 3)) "three")
+        sApp2.undoEdit()
+        ; Deleting a multi-column selection removes them all.
+        GridEditTest.selectRange(sApp2 0 0 0 1)
+        sApp2.deleteSelectedColumns()
+        c.eqStr("both columns gone" (sApp2.model.getCell(0 0)) "three")
+        sApp2.undoEdit()
+        sApp2.undoEdit()
+        c.eqStr("both undos restored them" (sApp2.model.getCell(0 0)) "one")
+        ; Move via the selection helper follows the selection.
+        GridEditTest.select(sApp2 0 0)
+        sApp2.moveSelectedColumn(1)
+        c.eqStr("moved right" (sApp2.model.getCell(0 1)) "one")
+        c.eqInt("selection followed" sApp2.sel.active.col 1)
+        sApp2.undoEdit()
+        ; Menu actions 8..12 map to the same operations.
+        sApp2.openHeaderMenu(1 10 10)
+        sApp2.runHeaderMenu(8)
+        c.eqStr("menu insert left" (sApp2.model.getCell(0 2)) "two")
+        sApp2.undoEdit()
+        sApp2.openHeaderMenu(1 10 10)
+        sApp2.runHeaderMenu(10)
+        c.eqStr("menu delete" (sApp2.model.getCell(0 1)) "three")
+        sApp2.undoEdit()
+        c.eqStr("menu delete undone" (sApp2.model.getCell(0 1)) "two")
+        c.ok("still renders" ((strlen (sApp2.sceneJson())) > 500))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

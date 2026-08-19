@@ -40,8 +40,8 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Insert rows / columns | todo | no insert |
-| Delete rows / columns | todo | no delete |
+| Insert rows / columns | partial | columns: insert left/right with ref repair; rows not yet |
+| Delete rows / columns | partial | columns: delete with #REF! semantics; rows not yet |
 | Hide rows / columns | done | geometry height/width 0 |
 | Sort | done | SheetView order + header menu |
 | Filter | done | unique-value filter + header menu |
@@ -59,7 +59,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Fill handle | done | tiles the source, translating relative refs |
 | Format painter | done | Ctrl+Shift+C arms a brush, next selection takes the style |
 | Find and replace | todo | no search |
-| Drag and drop | todo | no cell-range drag |
+| Drag and drop | partial | columns reorder via move left/right; no cell-range drag |
 
 ## Formulas
 
