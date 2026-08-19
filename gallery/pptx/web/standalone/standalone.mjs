@@ -12,6 +12,10 @@
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
 
+// The page watches for this: if the imports above fail, nothing below runs
+// and the only evidence anywhere is a 404 in the network panel.
+window.__pageStarted = true;
+
 const canvas = document.getElementById("screen");
 const statusEl = document.getElementById("status");
 const backendEl = document.getElementById("backend");
@@ -45,7 +49,45 @@ async function bytesOf(url) {
   return asRangerBuffer(await res.arrayBuffer());
 }
 
-const web = new PptxWeb();
+/**
+ * The engine is a classic <script> beside this module, and it is BUILT rather
+ * than checked in. When it is missing the browser says nothing useful: the tag
+ * 404s, this module runs regardless, and the first mention of the class is a
+ * bare `PptxWeb is not defined` with no hint that a build step was skipped.
+ *
+ * The usual cause is serving the SOURCE directory — index.html and this file
+ * live there, the compiled bundle only ever lands in dist/.
+ */
+function engineOrExplain(name, script, command) {
+  // A classic script's top-level `class X {}` makes a global BINDING but not a
+  // property of globalThis, so both have to be asked.
+  let found = globalThis[name];
+  if (typeof found !== "function") {
+    try {
+      found = (0, eval)("typeof " + name + " === 'function' ? " + name + " : undefined");
+    } catch (_) {
+      found = undefined;
+    }
+  }
+  if (typeof found === "function") return found;
+  const why = window.__engineMissing === script
+    ? script + " did not load (404?)."
+    : script + " loaded but defined no " + name + ".";
+  const help =
+    why + "\n\nThis page needs its compiled engine, which is built rather than " +
+    "checked in:\n\n    npm run " + command + "\n\nThen serve the dist/ directory it " +
+    "writes — not the source directory this file lives in.";
+  statusEl.textContent = "no engine — see below";
+  const box = document.createElement("pre");
+  box.style.cssText =
+    "margin:14px 0;padding:14px;background:#2b1d1d;color:#ffd9d9;border:1px solid #a33;" +
+    "white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace";
+  box.textContent = help;
+  document.body.prepend(box);
+  throw new Error(help);
+}
+
+const web = new (engineOrExplain("PptxWeb", "pptx_web.js", "pptx:web"))();
 web.start(canvas.width, canvas.height);
 
 let lastScene = "";

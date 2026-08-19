@@ -83,6 +83,13 @@ npm run docx_viewer:web:serve   # …and serve it on :8002
 npm run docx_viewer:web:test    # open it in headless Chrome and use it
 ```
 
+Serve the **`dist/`** the build writes, not the source directory beside it:
+`index.html` and `standalone.mjs` live in both, the compiled engine and the
+WebGL module only in `dist/`. Getting that wrong used to leave a page that sat
+at "starting…" with nothing but `DocxWeb is not defined` in the console; the
+page now says which file is missing and which command writes it. The same is
+true of the slide and spreadsheet pages, which are built the same way.
+
 This viewer used to be the odd one out. The spreadsheet and the slide deck have
 built `EVGDisplayList`s for a long time and let WebGL draw them; a document was
 rasterized **on the server** and shipped to the browser as a PNG per page — a
