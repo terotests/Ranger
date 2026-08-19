@@ -445,6 +445,14 @@ class XlsxWriter {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
         out = (out + "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">")
         out = (out + "<dimension ref=\"A1:" + (XlsxWriter.cellRef(lastR lastC)) + "\"/>")
+        ; The sheet's own defaults. Everything below states only what DIFFERS
+        ; from them — a file that repeated the default for every row and column
+        ; would be correct and enormous — so leaving them unsaid means a
+        ; reader falls back on its own idea of a row, and the sheet comes back
+        ; a different shape than it went out.
+        def defH:double (XlsxWriter.pxToRowPoints(m.defaultRowH))
+        def defW:double (XlsxWriter.pxToColWidth(m.defaultColW))
+        out = (out + "<sheetFormatPr defaultRowHeight=\"" + (XlsxWriter.numText(defH)) + "\" defaultColWidth=\"" + (XlsxWriter.numText(defW)) + "\"/>")
 
         ; Freeze panes, as a pane element on the sheet view.
         out = (out + "<sheetViews><sheetView workbookViewId=\"0\">")

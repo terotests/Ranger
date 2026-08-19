@@ -412,6 +412,58 @@ class XlsxTest {
             c.ok("and it renders" ((strlen scene) > 500))
         }
 
+        print "== what other programs leave out: shared formulas, an empty font, the sheet's own defaults =="
+        def shLoader:XlsxLoader (new XlsxLoader)
+        def shBook:WorkbookModel (new WorkbookModel)
+        def shOk:boolean (shLoader.loadPath("gallery/datagrid/fixtures/shared-formulas.xlsx" shBook))
+        c.ok("shared-formulas.xlsx loaded" shOk)
+        if shOk {
+            def sh:SpreadsheetModel (shBook.sheetAt(0))
+
+            print "-- a run of cells written once --"
+            ; E1 carries the text; E2..E4 carry only the run's id, and have to
+            ; be reconstructed by translating E1's formula down the column.
+            c.eqStr("the anchor keeps its own formula" (sh.getFormula(0 4)) "SUM(B1:D1)")
+            c.eqStr("the next member is that formula, moved" (sh.getFormula(1 4)) "SUM(B2:D2)")
+            c.eqStr("and the last" (sh.getFormula(3 4)) "SUM(B4:D4)")
+            c.eqStr("which computes" (sh.getCell(1 4)) "60")
+            c.eqStr("and the total over them" (sh.getCell(5 4)) "6666")
+
+            print "-- so an edit still travels --"
+            ; The point of all this: a member of a shared run is a FORMULA, not
+            ; the number the file happened to cache. Change an input and the
+            ; row total and the grand total both have to move.
+            sh.setCellRaw(1 1 "1000")
+            shLoader.engine.onCellEdited(0 1 1)
+            c.eqStr("the row total followed the input" (sh.getCell(1 4)) "1050")
+            c.eqStr("and the grand total followed the row" (sh.getCell(5 4)) "7656")
+
+            print "-- an empty <font/> still holds its index --"
+            ; The file's font 1 is <font/>. Drop it and font 2 — bold, dark red
+            ; — is read as font 3, which is 12pt and neither.
+            def a1:CellStyle (sh.getCellStyle(0 0))
+            c.ok("the label is bold" a1.bold)
+            c.eqStr("in the colour the file names" a1.textRgb "#C00000")
+            c.ok("at the size it names" ((a1.fontSizePt > 9.9) && (a1.fontSizePt < 10.1)))
+
+            print "-- the sheet's own defaults --"
+            ; 12.75pt rows and 12.63-character columns, stated once in
+            ; <sheetFormatPr> and true of every row and column the file does
+            ; not mention.
+            c.eqInt("default row height, in pixels" sh.defaultRowH 17)
+            c.eqInt("default column width" sh.defaultColW 93)
+            c.eqInt("a column the file sizes keeps its own width" (sh.colWidth(0)) 145)
+            c.eqInt("a column it does not, takes the default" (sh.colWidth(1)) 93)
+            c.eqInt("and a row of ordinary type is the default height" (sh.rowHeight(0)) 17)
+
+            print "-- a row grows to fit type it cannot hold --"
+            ; Row 8 carries 12pt in a sheet whose rows are 12.75pt. The file
+            ; states no height for it because Excel would compute one; so do we,
+            ; by the same rule, or the letters are clipped.
+            c.ok("the 12pt row is taller than the default" ((sh.rowHeight(7)) > 17))
+            c.eqInt("by Excel's own measure" (sh.rowHeight(7)) 21)
+        }
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

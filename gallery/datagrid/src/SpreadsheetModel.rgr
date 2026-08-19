@@ -158,6 +158,12 @@ class SpreadsheetModel {
     ; the right size looking too big for the sheet around it.
     def defaultRowH:int 20
     def defaultColW:int 64
+    ; What a cell with no style of its own is set in. A workbook states this
+    ; once and every unstyled cell wears it: Arial 10 in a sheet written by
+    ; Google, Calibri 11 in one written by Excel. Assuming 11 drew a 10pt
+    ; sheet a tenth too large, and — since a row is as tall as the type in it
+    ; — a tenth too tall as well.
+    def defaultFontPt:double 11.0
     def freezeRows:int 0
     def freezeCols:int 0
     def cells:[string:string]
@@ -959,7 +965,9 @@ class SpreadsheetModel {
                 return (itemAt styles sid)
             }
         }
-        return (CellStyle.createDefault())
+        def plain:CellStyle (CellStyle.createDefault())
+        plain.fontSizePt = defaultFontPt
+        return plain
     }
 
     ; FortuneSheet-style display value: raw cell + number format engine.
@@ -1319,6 +1327,14 @@ class SpreadsheetModel {
 
     fn setStylesFrom:void (list:[CellStyle]) {
         clear styles
+        ; The first entry is the workbook's own default format, which is what
+        ; a cell naming no style is drawn in.
+        if ((array_length list) > 0) {
+            def base:CellStyle (itemAt list 0)
+            if (base.fontSizePt > 0.0) {
+                defaultFontPt = base.fontSizePt
+            }
+        }
         def i:int 0
         def n:int (array_length list)
         while (i < n) {
@@ -1973,6 +1989,42 @@ class SpreadsheetModel {
             return defaultColW
         }
         return (itemAt colWidths col)
+    }
+
+    ; The default row height and column width the FILE states, in pixels, as
+    ; opposed to the ones this program would have chosen. A sheet designed at
+    ; 12.75pt rows and 12.63-character columns, drawn at 20px and 64px, is a
+    ; fifth taller and a third narrower than it was meant to be — enough that
+    ; labels run into the cell beside them and numbers sit off their line.
+    ;
+    ; Rows and columns that already carry the OLD default follow it to the new
+    ; one; anything the file gave an explicit size keeps it. Pass 0 for either
+    ; to leave that one alone.
+    fn setDefaultGeometry:void (rowH:int colW:int) {
+        def oldRow:int defaultRowH
+        def oldCol:int defaultColW
+        if (rowH > 0) {
+            defaultRowH = rowH
+        }
+        if (colW > 0) {
+            defaultColW = colW
+        }
+        def i:int 0
+        while (i < (array_length rowHeights)) {
+            if ((itemAt rowHeights i) == oldRow) {
+                set_at rowHeights i defaultRowH
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length colWidths)) {
+            if ((itemAt colWidths j) == oldCol) {
+                set_at colWidths j defaultColW
+            }
+            j = (j + 1)
+        }
+        rowGeomDirty = true
+        colGeomDirty = true
     }
 
     fn setRowHeight:void (row:int h:int) {

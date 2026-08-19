@@ -176,6 +176,9 @@ class XlsxLoader {
                 }
             }
             sheet.setStylesFrom(sty.styles)
+            ; Only now can a row be measured: until the style table is on the
+            ; sheet, every cell reports the default size rather than its own.
+            parser.autoFitRows(sheet)
             book.addSheet(sheet)
             if (info.hidden == false) {
                 if (firstVisible < 0) {

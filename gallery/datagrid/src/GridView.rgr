@@ -331,24 +331,34 @@ class GridView {
     }
 
     ; Where the text baseline row starts, honouring vertical alignment.
-    fn textTopFor:int (rect:GridRect st:CellStyle lineH:int lines:int) {
+    ; Where the first line's BOX starts, for text of `lines` lines at `cellPx`.
+    ;
+    ; The subtlety is bottom alignment, which is Excel's default and which
+    ; means the baseline sits just above the cell's floor — not the box. The
+    ; box of a webfont is far taller than the letters in it, and almost all of
+    ; that surplus is empty space above the capitals; a row is sized for the
+    ; type, not for the face. Aligning boxes therefore pushed the letters
+    ; through the floor of an ordinary row and the clip cut them off, which is
+    ; how a faithfully-loaded sheet still came out looking wrong. Aligning the
+    ; baseline puts the ink where the row was designed for it and lets the
+    ; empty space fall outside the cell, where there is nothing to see — so
+    ; the returned top may sit above `rect.y`, and is meant to.
+    fn textTopFor:int (rect:GridRect st:CellStyle lineH:int lines:int cellPx:double) {
         def total:int (lineH * lines)
         if (st.valign == "top") {
             return (rect.y + 3)
         }
         if (st.valign == "center") {
-            def mid:int (rect.y + (idiv (rect.h - total) 2))
-            if (mid < (rect.y + 1)) {
-                return (rect.y + 1)
-            }
-            return mid
+            return (rect.y + (idiv (rect.h - total) 2))
         }
-        ; Excel's default is bottom.
-        def bot:int (((rect.y + rect.h) - total) - 2)
-        if (bot < (rect.y + 1)) {
-            return (rect.y + 1)
-        }
-        return bot
+        ; Excel's default is bottom. Room under the baseline is a descender's
+        ; worth of the type size — the letters that actually hang, not the
+        ; face's full declared descent, which no Latin glyph reaches.
+        def asc:double (ctx.tr.ascent(cellPx))
+        def drop:double (cellPx * 0.21)
+        def baseline:double ((((to_double rect.y) + (to_double rect.h)) - 2.0) - drop)
+        def first:double ((baseline - asc) - (to_double (lineH * (lines - 1))))
+        return (to_int first)
     }
 
     fn alignedX:double (rect:GridRect st:CellStyle textW:int) {
@@ -384,7 +394,7 @@ class GridView {
         if (lineH < 8) {
             lineH = 8
         }
-        def top:int (this.textTopFor(rect st lineH (array_length lines)))
+        def top:int (this.textTopFor(rect st lineH (array_length lines) cellPx))
         this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
         def i:int 0
         while (i < (array_length lines)) {
@@ -503,7 +513,7 @@ class GridView {
         if (lineH < 8) {
             lineH = 8
         }
-        def top:int (this.textTopFor(rect base lineH 1))
+        def top:int (this.textTopFor(rect base lineH 1 cellPx))
         def x:double (this.alignedX(rect base total))
         def k:int 0
         while (k < (rt.count())) {
@@ -573,7 +583,7 @@ class GridView {
         if (lineH < 8) {
             lineH = 8
         }
-        def top:int (this.textTopFor(rect st lineH 1))
+        def top:int (this.textTopFor(rect st lineH 1 cellPx))
         def tx:double (this.alignedX(rect st textW))
         ; Room the text may use: its own cell plus any empty neighbours in the
         ; direction it grows.

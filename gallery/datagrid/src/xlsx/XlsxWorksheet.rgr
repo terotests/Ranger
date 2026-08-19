@@ -9,6 +9,7 @@
 Import "XmlLite.rgr"
 Import "XlsxSharedStrings.rgr"
 Import "../SpreadsheetModel.rgr"
+Import "../FormulaEngine.rgr"
 
 class XlsxWorksheet {
     ; The sheet's own relationship part, and the comments part it points at.
@@ -16,6 +17,35 @@ class XlsxWorksheet {
     ; a hyperlink's target and a note's text live outside the sheet XML.
     def relsXml:string ""
     def commentsXml:string ""
+
+    ; Shared formulas. Excel does not repeat a formula it can derive: it writes
+    ; the text once, on the first cell of a run —
+    ;   <f t="shared" ref="O10:O17" si="3">SUM(C10:N10)</f>
+    ; — and every other cell in that run carries only <f t="shared" si="3"/>.
+    ; Reading just the tags that have text left those cells with their cached
+    ; number and no formula at all, which is what "the sums stop delegating"
+    ; looks like from the outside: the totals were no longer formulas, so
+    ; nothing downstream of an edit moved. `si` is the run's id; the run's
+    ; anchor is the cell the text was on, and every other member is that
+    ; formula translated by its offset from the anchor.
+    def sharedText:[string:string]
+    def sharedRow:[string:string]
+    def sharedCol:[string:string]
+
+    ; Row auto-fit. A file states a row's height only when it is NOT the
+    ; automatic one, so a row it says nothing about is as tall as its tallest
+    ; text needs — which is why 12pt text sits comfortably in Excel inside a
+    ; sheet whose stated default is 12.75pt, and was clipped and overlapping
+    ; here.
+    ;
+    ; The sizes themselves cannot be read while parsing: a cell names a style
+    ; by index and the style table is not attached to the sheet until the
+    ; whole part has been read. So parsing records only WHERE the content is,
+    ; per row, and `autoFitRows` — run by the loader once the styles are in
+    ; place — reads the sizes and grows the rows.
+    def rowMinCol:[int]
+    def rowMaxCol:[int]
+    def rowStated:[boolean]
 
     Constructor () {
     }
@@ -276,6 +306,17 @@ class XlsxWorksheet {
 
     fn parse:void (xml:string model:SpreadsheetModel sst:XlsxSharedStrings) {
         model.clearSheet()
+        ; One parser serves every sheet in the book, and `si` is numbered from
+        ; scratch in each of them.
+        def noText:[string:string]
+        def noRow:[string:string]
+        def noCol:[string:string]
+        sharedText = noText
+        sharedRow = noRow
+        sharedCol = noCol
+        clear rowMinCol
+        clear rowMaxCol
+        clear rowStated
         if ((strlen xml) == 0) {
             return
         }
@@ -285,6 +326,29 @@ class XlsxWorksheet {
             def t:XmlTag (p.nextTag())
             if (t.valid == false) {
                 break
+            }
+            ; <sheetFormatPr defaultRowHeight="12.75" defaultColWidth="12.63"/>
+            ; — how big a row or column is when the file does not say. Most
+            ; columns in a real sheet have no <col> entry at all, so ignoring
+            ; this was ignoring most of the sheet's geometry.
+            if ((t.name == "sheetFormatPr") && (t.isEnd == false)) {
+                def defH:int 0
+                def defW:int 0
+                if (t.has("defaultRowHeight")) {
+                    def hpt:double (XlsxWorksheet.parseDouble((t.attr("defaultRowHeight"))))
+                    if (hpt > 0.0) {
+                        defH = (XlsxWorksheet.rowHeightToPx(hpt))
+                    }
+                }
+                if (t.has("defaultColWidth")) {
+                    def wch:double (XlsxWorksheet.parseDouble((t.attr("defaultColWidth"))))
+                    if (wch > 0.0) {
+                        defW = (XlsxWorksheet.colWidthToPx(wch))
+                    }
+                }
+                if ((defH > 0) || (defW > 0)) {
+                    model.setDefaultGeometry(defH defW)
+                }
             }
             if ((t.name == "dimension") && (t.isEnd == false)) {
                 this.applyDimension(model (t.attr("ref")))
@@ -352,6 +416,7 @@ class XlsxWorksheet {
                 if (t.has("ht")) {
                     def ht:double (XlsxWorksheet.parseDouble((t.attr("ht"))))
                     model.setRowHeight(rowIdx (XlsxWorksheet.rowHeightToPx(ht)))
+                    this.noteRowStated(rowIdx)
                 }
                 if (t.has("hidden")) {
                     def rh:string (t.attr("hidden"))
@@ -584,6 +649,113 @@ class XlsxWorksheet {
         model.version = (model.version + 1)
     }
 
+    fn noteRowStated:void (row:int) {
+        while ((array_length rowStated) <= row) {
+            push rowStated false
+        }
+        set_at rowStated row true
+    }
+
+    fn noteRowContent:void (row:int col:int) {
+        while ((array_length rowMinCol) <= row) {
+            push rowMinCol -1
+            push rowMaxCol -1
+        }
+        def lo:int (itemAt rowMinCol row)
+        if ((lo < 0) || (col < lo)) {
+            set_at rowMinCol row col
+        }
+        def hi:int (itemAt rowMaxCol row)
+        if (col > hi) {
+            set_at rowMaxCol row col
+        }
+    }
+
+    ; The largest point size among the cells that have something in them, on
+    ; one row. Only the span the file actually wrote to is looked at, so a
+    ; sheet with a hundred thousand empty columns costs nothing here.
+    fn tallestIn:double (model:SpreadsheetModel row:int) {
+        if (row >= (array_length rowMinCol)) {
+            return 0.0
+        }
+        def lo:int (itemAt rowMinCol row)
+        if (lo < 0) {
+            return 0.0
+        }
+        def hi:int (itemAt rowMaxCol row)
+        if (hi >= model.colCount) {
+            hi = (model.colCount - 1)
+        }
+        def best:double 0.0
+        def c:int lo
+        while (c <= hi) {
+            def txt:string (model.getCell(row c))
+            if ((strlen txt) > 0) {
+                def st:CellStyle (model.getCellStyle(row c))
+                if (st.fontSizePt > best) {
+                    best = st.fontSizePt
+                }
+            }
+            c = (c + 1)
+        }
+        return best
+    }
+
+    ; Grow every row the file did not size to fit the largest text in it. The
+    ; factor is Excel's own: a row is about 1.275 times the point size of its
+    ; text, which is exactly how 10pt text yields the familiar 12.75pt row.
+    ; Rows only ever grow — a height the file stated is what the author chose,
+    ; and clipping is then their decision, not ours.
+    fn autoFitRows:void (model:SpreadsheetModel) {
+        def i:int 0
+        def n:int (array_length rowMinCol)
+        while (i < n) {
+            if (i >= model.rowCount) {
+                break
+            }
+            def stated:boolean false
+            if (i < (array_length rowStated)) {
+                stated = (itemAt rowStated i)
+            }
+            if (stated == false) {
+                def pt:double (this.tallestIn(model i))
+                if (pt > 0.0) {
+                    ; Rounded up, the way Excel does: its own table of row
+                    ; heights is the point size times 1.275 taken to the next
+                    ; whole pixel, which is how 10pt type gives the familiar
+                    ; 12.75pt row exactly.
+                    def wantPt:double (pt * 1.275)
+                    def wantPx:double ((wantPt * 96.0) / 72.0)
+                    def px:int (to_int (wantPx + 0.999))
+                    def have:int (model.rowHeight(i))
+                    if (px > have) {
+                        model.setRowHeight(i px)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The formula for a member of shared run `si`, sitting at (row, col).
+    ; Returns "" when the run's text has not been seen — Excel writes the
+    ; anchor first, but a file that does not gets its cached value rather than
+    ; a guess.
+    fn sharedAt:string (si:string row:int col:int) {
+        if ((has sharedText si) == false) {
+            return ""
+        }
+        def master:string (unwrap (get sharedText si))
+        def ar:int (XlsxWorksheet.parseInt0((unwrap (get sharedRow si))))
+        def ac:int (XlsxWorksheet.parseInt0((unwrap (get sharedCol si))))
+        def dy:int (row - ar)
+        def dx:int (col - ac)
+        if ((dx == 0) && (dy == 0)) {
+            return master
+        }
+        return (FormulaParser.translateFormula(master dx dy))
+    }
+
     fn parseCell:void (p:XmlLite open:XmlTag model:SpreadsheetModel sst:XlsxSharedStrings fallBackRow:int) {
         def ref:string (open.attr("r"))
         def rows:[int]
@@ -627,8 +799,33 @@ class XlsxWorksheet {
                     }
                 }
             } {
-                if ((t.name == "f") && (t.isEnd == false) && (t.selfClose == false)) {
-                    formula = (p.readTextUntilEnd("f"))
+                if ((t.name == "f") && (t.isEnd == false)) {
+                    def fkind:string (t.attr("t"))
+                    def si:string (t.attr("si"))
+                    def body:string ""
+                    if (t.selfClose == false) {
+                        body = (p.readTextUntilEnd("f"))
+                    }
+                    if ((strlen body) > 0) {
+                        formula = body
+                        if (fkind == "shared") {
+                            if ((strlen si) > 0) {
+                                set sharedText si body
+                                set sharedRow si (to_string row)
+                                set sharedCol si (to_string col)
+                            }
+                        }
+                    } {
+                        ; No text: either a member of a shared run, or a
+                        ; formula this reader cannot make sense of. The first
+                        ; can be reconstructed; the second keeps its cached
+                        ; value, as it did before.
+                        if (fkind == "shared") {
+                            if ((strlen si) > 0) {
+                                formula = (this.sharedAt(si row col))
+                            }
+                        }
+                    }
                 }
                 if ((t.name == "v") && (t.isEnd == false) && (t.selfClose == false)) {
                     value = (p.readTextUntilEnd("v"))
@@ -680,6 +877,11 @@ class XlsxWorksheet {
         }
         if ((strlen styleAttr) > 0) {
             model.setCellStyleId(row col (XlsxWorksheet.parseInt0(styleAttr)))
+        }
+        ; Only a cell with something in it can make a row taller; an empty one
+        ; that merely carries a fill should not.
+        if ((strlen display) > 0) {
+            this.noteRowContent(row col)
         }
     }
 }
