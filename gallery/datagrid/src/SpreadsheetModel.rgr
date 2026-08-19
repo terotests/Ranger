@@ -11,6 +11,7 @@
 ; ==============================================================================
 
 Import "CellStyle.rgr"
+Import "DataValidation.rgr"
 Import "XlsxNumberFormat.rgr"
 
 ; Conditional formatting rule (parsed from xlsx cfRule).
@@ -171,6 +172,16 @@ class SpreadsheetModel {
     def sortCol:int -1
     def sortAsc:boolean true
     def cfRules:[CfRule]
+    ; Cell annotations that are not the cell's value: a link to somewhere, a
+    ; note about it, and a rule about what may be typed into it. All three are
+    ; keyed the same way as a cell, and all three are METADATA — they survive
+    ; an edit of the value and are not on the undo stack, which is also why
+    ; they are not in `cells`.
+    def validations:[DataValidation]
+    def links:[string:string]
+    def linkKeys:[string]
+    def notes:[string:string]
+    def noteKeys:[string]
     def sheetHidden:boolean false
     def scrollXSaved:int 0
     def scrollYSaved:int 0
@@ -937,6 +948,165 @@ class SpreadsheetModel {
         def raw:string (this.getCell(row col))
         def st:CellStyle (this.getCellStyle(row col))
         return (XlsxNumberFormat.format(raw st.numFmt))
+    }
+
+    ; --- hyperlinks -----------------------------------------------------------
+    fn setHyperlink:void (row:int col:int target:string) {
+        def k:string (this.cellKey(row col))
+        if ((strlen target) == 0) {
+            this.clearHyperlink(row col)
+            return
+        }
+        if ((has links k) == false) {
+            push linkKeys k
+        }
+        set links k target
+        version = (version + 1)
+    }
+
+    fn hyperlinkAt:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has links k) {
+            return (unwrap (get links k))
+        }
+        return ""
+    }
+
+    fn hasHyperlink:boolean (row:int col:int) {
+        return ((strlen (this.hyperlinkAt(row col))) > 0)
+    }
+
+    fn clearHyperlink:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has links k) {
+            set links k ""
+        }
+        version = (version + 1)
+    }
+
+    fn hyperlinkCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length linkKeys)) {
+            def k:string (itemAt linkKeys i)
+            if (has links k) {
+                if ((strlen (unwrap (get links k))) > 0) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- notes ----------------------------------------------------------------
+    fn setNote:void (row:int col:int text:string) {
+        def k:string (this.cellKey(row col))
+        if ((strlen text) == 0) {
+            this.clearNote(row col)
+            return
+        }
+        if ((has notes k) == false) {
+            push noteKeys k
+        }
+        set notes k text
+        version = (version + 1)
+    }
+
+    fn noteAt:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has notes k) {
+            return (unwrap (get notes k))
+        }
+        return ""
+    }
+
+    fn hasNote:boolean (row:int col:int) {
+        return ((strlen (this.noteAt(row col))) > 0)
+    }
+
+    fn clearNote:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has notes k) {
+            set notes k ""
+        }
+        version = (version + 1)
+    }
+
+    fn noteCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length noteKeys)) {
+            def k:string (itemAt noteKeys i)
+            if (has notes k) {
+                if ((strlen (unwrap (get notes k))) > 0) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- data validation ------------------------------------------------------
+    ; Rules are attached to ranges, so the last one that covers a cell wins —
+    ; the same order Excel resolves overlapping rules in.
+    fn addValidation:void (v:DataValidation) {
+        push validations v
+        version = (version + 1)
+    }
+
+    fn validationAt:DataValidation (row:int col:int) {
+        def i:int ((array_length validations) - 1)
+        while (i >= 0) {
+            def v:DataValidation (itemAt validations i)
+            if (v.covers(row col)) {
+                return v
+            }
+            i = (i - 1)
+        }
+        return (new DataValidation)
+    }
+
+    fn hasValidation:boolean (row:int col:int) {
+        def v:DataValidation (this.validationAt(row col))
+        return ((strlen v.kind) > 0)
+    }
+
+    fn validationCount:int () {
+        return (array_length validations)
+    }
+
+    fn clearValidationsIn:void (r0:int c0:int r1:int c1:int) {
+        def keep:[DataValidation]
+        def i:int 0
+        while (i < (array_length validations)) {
+            def v:DataValidation (itemAt validations i)
+            def inside:boolean true
+            if (v.r0 < r0) {
+                inside = false
+            }
+            if (v.c0 < c0) {
+                inside = false
+            }
+            if (v.r0 > r1) {
+                inside = false
+            }
+            if (v.c0 > c1) {
+                inside = false
+            }
+            if (inside == false) {
+                push keep v
+            }
+            i = (i + 1)
+        }
+        clear validations
+        def k:int 0
+        while (k < (array_length keep)) {
+            push validations (itemAt keep k)
+            k = (k + 1)
+        }
+        version = (version + 1)
     }
 
     ; --- conditional formatting rules -----------------------------------------

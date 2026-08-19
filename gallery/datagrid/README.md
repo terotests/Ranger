@@ -64,6 +64,8 @@ npm run datagrid:window
 - **Find and replace** across values or formulas, one sheet or all
 - **Disjoint selection** (Ctrl+click) and **drag-to-move** a range
 - **Conditional formatting** read from the file *and* authored in a rule editor
+- **Hyperlinks, notes and data validation**: read from the package, painted,
+  enforced, and editable
 - **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
@@ -169,6 +171,9 @@ snapshot — no DOM or SDL below the app.
 | Ctrl+Space / Shift+Space | Select the column / the row | — |
 | Ctrl+F / Ctrl+H | Find and replace | — |
 | Ctrl+L | Conditional-formatting rule editor | — |
+| Ctrl+K | Hyperlink on the active cell | — |
+| Ctrl+E | Data-validation rule for the selection | — |
+| Ctrl+click a link | Follows it — the host is told the target | — |
 | Ctrl+M | Chart the selection | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
 | ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
@@ -278,6 +283,28 @@ Rules are sheet metadata rather than cell contents, so they are deliberately
 **not** on the undo stack: undoing a paste must not silently drop a rule the
 paste never touched.
 
+## Links, notes and validation
+
+Three things a cell can carry that are not its value. All three come out of the
+package — a hyperlink's target from the sheet's *relationships*, a note from the
+*comments* part the relationships point at, a rule from `dataValidation` — and
+all three are editable here.
+
+| | Read from | Shown as | Edited with |
+| --- | --- | --- | --- |
+| Hyperlink | `<hyperlinks>` + `_rels` | link colour, underlined | `Ctrl+K` |
+| Note | `xl/comments1.xml` | corner mark; opened for the active cell | — |
+| Validation | `<dataValidation>` | list arrow on the active cell | `Ctrl+E` |
+
+**A rule is asked before the value is written**, not after: a refusal has to
+leave the cell as it was, and writing then rolling back would let a dependent
+formula see the bad value first. List rules also know their choices, so the
+cell offers a picker rather than making you remember them.
+
+All three are **metadata, not cell content**, so they are deliberately off the
+undo stack — undoing a paste must not drop the note that was pinned to the cell
+before it.
+
 ## Charts
 
 Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
@@ -356,13 +383,13 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   31.5 / 41   76.8%     done 30   partial 3   todo 8
+TOTAL   34.5 / 41   84.1%     done 33   partial 3   todo 5
 ```
 
 `-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
 the score can gate CI once it is where you want it. The biggest gaps left are
-xlsx **export**, rich text inside a cell, images, comments, data verification
-and hyperlinks.
+xlsx **export**, rich text inside a cell, images, and the collaborative
+features (cooperative editing, mobile).
 
 ## Architecture invariant
 

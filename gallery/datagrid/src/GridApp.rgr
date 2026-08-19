@@ -89,6 +89,22 @@ class GridApp {
     ; The conditional-formatting rule editor.
     def cfDialog:EVGWindow (new EVGWindow)
     def cfStatus:string ""
+    ; The last refusal, so a host can show it and a test can read it.
+    def validationError:string ""
+    ; The link the user just followed. The app cannot open a browser; it says
+    ; what was activated and the host decides.
+    def activatedLink:string ""
+    ; Dialogs for the two things a cell can carry besides a value.
+    def linkDialog:EVGWindow (new EVGWindow)
+    def dvDialog:EVGWindow (new EVGWindow)
+    def listDialog:EVGWindow (new EVGWindow)
+    def listValues:[string]
+    def dvKind:int 701
+    def dvOp:int 721
+    def dvV1:string ""
+    def dvV2:string ""
+    def dvBlank:boolean true
+    def dvStatus:string ""
     ; What the editor was last set to. Kept here rather than read back off the
     ; dialog, because adding a rule rebuilds it — and a form that forgets what
     ; you just typed is a form you have to retype.
@@ -873,6 +889,15 @@ class GridApp {
         cfDialog.w = 330
         cfDialog.title = "Conditional formatting"
         windows.add(cfDialog)
+        linkDialog.w = 360
+        linkDialog.title = "Hyperlink"
+        windows.add(linkDialog)
+        dvDialog.w = 330
+        dvDialog.title = "Data validation"
+        windows.add(dvDialog)
+        listDialog.w = 220
+        listDialog.title = "Choose a value"
+        windows.add(listDialog)
         dialogsReady = true
     }
 
@@ -1019,6 +1044,261 @@ class GridApp {
         this.openCfDialog()
         cfDialog.x = keepX
         cfDialog.y = keepY
+    }
+
+    ; --- hyperlinks, notes and validation rules --------------------------------
+    ; Three things a cell can carry that are not its value. They share a shape:
+    ; each is metadata the file may bring, each is editable here, and none of
+    ; them is on the undo stack — undoing a paste must not drop the note that
+    ; was pinned to the cell before it.
+    ;
+    ; Ids: 801/802 the link, 811..813 its buttons; 701..705 the validation kind,
+    ; 711/712 its numbers, 721..723 the operator, 731 allow-blank, 741..743 its
+    ; buttons; 901+ the list picker's values.
+    fn openLinkDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        def r:int sel.active.row
+        def c:int sel.active.col
+        linkDialog.reset()
+        linkDialog.labelW = 60
+        linkDialog.addLabel(("Link on " + (SpreadsheetModel.cellLabel(r c))))
+        linkDialog.addInput(801 "Address" (model.hyperlinkAt(r c)))
+        linkDialog.addInput(802 "Text" (model.getCell(r c)))
+        def ids:[int]
+        def labels:[string]
+        push ids 811
+        push labels "Close"
+        push ids 812
+        push labels "Remove"
+        push ids 813
+        push labels "Set"
+        linkDialog.addButtonRow(ids labels 813)
+        linkDialog.finish()
+        linkDialog.openWithin((grid.x + (idiv (W - linkDialog.w) 2)) (grid.y + 70) W H)
+        windows.raise(linkDialog)
+        linkDialog.focusedId = 801
+        view.focused = true
+    }
+
+    fn applyLinkDialog:void () {
+        def r:int sel.active.row
+        def c:int sel.active.col
+        def target:string (linkDialog.inputValue(801))
+        def text:string (linkDialog.inputValue(802))
+        model.setHyperlink(r c target)
+        if ((strlen text) > 0) {
+            if (text != (model.getCell(r c))) {
+                model.beginTx()
+                model.applyEdit(r c text "")
+                model.endTx()
+                this.syncTouched()
+            }
+        }
+        linkDialog.close()
+    }
+
+    ; Ctrl+click on a linked cell follows it. The app has no browser, so it
+    ; records what was activated; the host opens it.
+    fn followLink:boolean (row:int col:int) {
+        def target:string (model.hyperlinkAt(row col))
+        if ((strlen target) == 0) {
+            return false
+        }
+        activatedLink = target
+        view.status = ("link: " + target)
+        return true
+    }
+
+    fn openValidationDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        def g:GridRange (sel.liveRange())
+        def existing:DataValidation (model.validationAt(g.r0 g.c0))
+        if ((strlen existing.kind) > 0) {
+            if (existing.kind == "list") {
+                dvKind = 701
+            }
+            if (existing.kind == "whole") {
+                dvKind = 702
+            }
+            if (existing.kind == "decimal") {
+                dvKind = 703
+            }
+            if (existing.kind == "textLength") {
+                dvKind = 704
+            }
+            dvV1 = existing.f1
+            dvV2 = existing.f2
+            dvBlank = existing.allowBlank
+            if (existing.op == "greaterThan") {
+                dvOp = 722
+            }
+            if (existing.op == "lessThan") {
+                dvOp = 723
+            }
+        }
+        dvDialog.reset()
+        dvDialog.labelW = 60
+        dvDialog.addLabel(("Rule for " + (SpreadsheetModel.cellLabel(g.r0 g.c0)) + ":" + (SpreadsheetModel.cellLabel(g.r1 g.c1))))
+        dvDialog.addSeparator()
+        dvDialog.addLabel("Allow")
+        dvDialog.beginColumns(2)
+        dvDialog.addRadio(701 "List" 1 (dvKind == 701))
+        dvDialog.addRadio(702 "Whole number" 1 (dvKind == 702))
+        dvDialog.addRadio(703 "Decimal" 1 (dvKind == 703))
+        dvDialog.addRadio(704 "Text length" 1 (dvKind == 704))
+        dvDialog.endColumns()
+        dvDialog.addInput(711 "Values" dvV1)
+        dvDialog.addInput(712 "Max" dvV2)
+        dvDialog.beginColumns(3)
+        dvDialog.addRadio(721 "Between" 2 (dvOp == 721))
+        dvDialog.addRadio(722 "At least" 2 (dvOp == 722))
+        dvDialog.addRadio(723 "At most" 2 (dvOp == 723))
+        dvDialog.endColumns()
+        dvDialog.addCheckbox(731 "Allow blank" dvBlank)
+        def note:string dvStatus
+        if ((strlen note) == 0) {
+            note = ((to_string (model.validationCount())) + " rule(s) on this sheet")
+        }
+        dvDialog.addLabel(note)
+        def ids:[int]
+        def labels:[string]
+        push ids 741
+        push labels "Close"
+        push ids 742
+        push labels "Clear"
+        push ids 743
+        push labels "Add rule"
+        dvDialog.addButtonRow(ids labels 743)
+        dvDialog.finish()
+        dvDialog.openWithin((grid.x + (idiv (W - dvDialog.w) 2)) (grid.y + 50) W H)
+        windows.raise(dvDialog)
+        view.focused = true
+    }
+
+    fn syncValidationDialog:void () {
+        def k:int (dvDialog.selectedInGroup(1))
+        if (k > 0) {
+            dvKind = k
+        }
+        def o:int (dvDialog.selectedInGroup(2))
+        if (o > 0) {
+            dvOp = o
+        }
+        dvV1 = (dvDialog.inputValue(711))
+        dvV2 = (dvDialog.inputValue(712))
+        dvBlank = (dvDialog.isChecked(731))
+    }
+
+    sfn dvKindName:string (choice:int) {
+        if (choice == 702) {
+            return "whole"
+        }
+        if (choice == 703) {
+            return "decimal"
+        }
+        if (choice == 704) {
+            return "textLength"
+        }
+        return "list"
+    }
+
+    sfn dvOpName:string (choice:int) {
+        if (choice == 722) {
+            return "greaterThanOrEqual"
+        }
+        if (choice == 723) {
+            return "lessThanOrEqual"
+        }
+        return "between"
+    }
+
+    fn addValidationFromDialog:void () {
+        this.syncValidationDialog()
+        def g:GridRange (sel.liveRange())
+        def v:DataValidation (new DataValidation)
+        v.kind = (GridApp.dvKindName(dvKind))
+        v.op = (GridApp.dvOpName(dvOp))
+        v.r0 = g.r0
+        v.c0 = g.c0
+        v.r1 = g.r1
+        v.c1 = g.c1
+        v.f1 = dvV1
+        v.f2 = dvV2
+        v.allowBlank = dvBlank
+        model.addValidation(v)
+        dvStatus = ("added — " + (to_string (model.validationCount())) + " rule(s)")
+        def kx:int dvDialog.x
+        def ky:int dvDialog.y
+        this.openValidationDialog()
+        dvDialog.x = kx
+        dvDialog.y = ky
+    }
+
+    fn clearValidationsFromDialog:void () {
+        this.syncValidationDialog()
+        def g:GridRange (sel.liveRange())
+        model.clearValidationsIn(g.r0 g.c0 g.r1 g.c1)
+        dvStatus = ("cleared — " + (to_string (model.validationCount())) + " rule(s) left")
+        def kx:int dvDialog.x
+        def ky:int dvDialog.y
+        this.openValidationDialog()
+        dvDialog.x = kx
+        dvDialog.y = ky
+    }
+
+    ; A list rule knows its choices, so the cell offers them rather than making
+    ; you remember them. Opened by the arrow in the cell, or by Alt-less Enter
+    ; on a list cell — the arrow is what a spreadsheet user looks for.
+    fn openListPicker:void (row:int col:int) {
+        def rule:DataValidation (model.validationAt(row col))
+        if ((rule.isList()) == false) {
+            return
+        }
+        this.buildDialogs()
+        listValues = (rule.listValues())
+        def current:string (model.getCell(row col))
+        listDialog.reset()
+        listDialog.addLabel(("Value for " + (SpreadsheetModel.cellLabel(row col))))
+        def i:int 0
+        while (i < (array_length listValues)) {
+            def val:string (itemAt listValues i)
+            listDialog.addRadio((901 + i) val 1 (val == current))
+            i = (i + 1)
+        }
+        def ids:[int]
+        def labels:[string]
+        push ids 891
+        push labels "Cancel"
+        push ids 892
+        push labels "Choose"
+        listDialog.addButtonRow(ids labels 892)
+        listDialog.finish()
+        def cell:GridRect (grid.cellRect(model row col))
+        listDialog.openWithin(cell.x (cell.y + cell.h) W H)
+        windows.raise(listDialog)
+        view.focused = true
+    }
+
+    fn applyListPicker:void () {
+        def chosen:int (listDialog.selectedInGroup(1))
+        if (chosen >= 901) {
+            def idx:int (chosen - 901)
+            if (idx < (array_length listValues)) {
+                def r:int sel.active.row
+                def c:int sel.active.col
+                model.beginTx()
+                model.applyEdit(r c (itemAt listValues idx) "")
+                model.endTx()
+                this.syncTouched()
+            }
+        }
+        listDialog.close()
     }
 
     ; --- charts ---------------------------------------------------------------
@@ -1675,6 +1955,38 @@ class GridApp {
                 cfStatus = ""
             }
         }
+        if (linkDialog.activated > 0) {
+            if (linkDialog.activated == 813) {
+                this.applyLinkDialog()
+            }
+            if (linkDialog.activated == 812) {
+                model.clearHyperlink(sel.active.row sel.active.col)
+                linkDialog.close()
+            }
+            if (linkDialog.activated == 811) {
+                linkDialog.close()
+            }
+        }
+        if (dvDialog.activated > 0) {
+            if (dvDialog.activated == 743) {
+                this.addValidationFromDialog()
+            }
+            if (dvDialog.activated == 742) {
+                this.clearValidationsFromDialog()
+            }
+            if (dvDialog.activated == 741) {
+                dvDialog.close()
+                dvStatus = ""
+            }
+        }
+        if (listDialog.activated > 0) {
+            if (listDialog.activated == 892) {
+                this.applyListPicker()
+            }
+            if (listDialog.activated == 891) {
+                listDialog.close()
+            }
+        }
         this.pollChartWindows()
         ; Dragging and resizing happened inside the window layer; the charts
         ; keep their own geometry so it survives the window being rebuilt.
@@ -1750,6 +2062,30 @@ class GridApp {
         }
         def r:int sel.active.row
         def c:int sel.active.col
+        ; A validation rule is asked BEFORE the value is written, because a
+        ; refusal has to leave the cell as it was — not write and roll back,
+        ; which would leave a dependent formula having seen the bad value.
+        ; A formula is let through: what it evaluates to is not known yet, and
+        ; Excel checks the typed text too.
+        def rule:DataValidation (model.validationAt(r c))
+        if ((strlen rule.kind) > 0) {
+            def typed:string editBuf
+            def isFormula:boolean false
+            if ((strlen typed) > 0) {
+                isFormula = ((charAt typed 0) == 61)
+            }
+            if (isFormula == false) {
+                if ((rule.accepts(typed)) == false) {
+                    validationError = ((SpreadsheetModel.cellLabel(r c)) + ": " + (rule.message()))
+                    view.status = validationError
+                    editing = false
+                    editBuf = ""
+                    editCaret = 0
+                    return
+                }
+            }
+        }
+        validationError = ""
         model.beginTx()
         if ((strlen editBuf) > 0) {
             if ((charAt editBuf 0) == 61) {
@@ -2568,6 +2904,20 @@ class GridApp {
     }
 
     fn handlePress:void (input:UIInput) {
+        ; The list arrow belongs to the active cell and sits inside it, so it
+        ; has to be asked before the cell is.
+        if (editing == false) {
+            if (model.hasValidation(sel.active.row sel.active.col)) {
+                def dvHere:DataValidation (model.validationAt(sel.active.row sel.active.col))
+                if (dvHere.isList()) {
+                    if (grid.hitListArrow(model sel input.pointerX input.pointerY)) {
+                        view.focused = true
+                        this.openListPicker(sel.active.row sel.active.col)
+                        return
+                    }
+                }
+            }
+        }
         def onFill:boolean false
         if (editing == false) {
             onFill = (grid.hitFillHandle(model sel input.pointerX input.pointerY))
@@ -2667,6 +3017,14 @@ class GridApp {
                             def kept:GridRange (sel.liveRange())
                             if input.ctrlDown {
                                 if (input.shiftDown == false) {
+                                    ; Ctrl+click on a link follows it rather
+                                    ; than starting another rectangle — the
+                                    ; link is the more specific gesture.
+                                    if (model.hasHyperlink(hit.row hit.col)) {
+                                        this.moveActive(hit.row hit.col false)
+                                        this.followLink(hit.row hit.col)
+                                        return
+                                    }
                                     keeping = true
                                 }
                             }
@@ -2895,6 +3253,19 @@ class GridApp {
                     }
                     cfStatus = ""
                     this.openCfDialog()
+                }
+                if ((ch == 107) || (ch == 75)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openLinkDialog()
+                }
+                if ((ch == 101) || (ch == 69)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    dvStatus = ""
+                    this.openValidationDialog()
                 }
                 ; Ctrl+M makes a chart of the selection. Excel's own chart
                 ; keys (F11, Alt+F1) are not keys this input layer carries, and

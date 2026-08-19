@@ -32,6 +32,9 @@ class GridTheme {
     def formulaBg:EVGColor (EVGColor.rgb(255 255 255))
     def formulaText:EVGColor (EVGColor.rgb(30 36 48))
     def selection:EVGColor (EVGColor.rgba(50 120 220 0.22))
+    def linkText:EVGColor (EVGColor.rgb(21 78 172))
+    def noteMark:EVGColor (EVGColor.rgb(214 69 65))
+    def noteBg:EVGColor (EVGColor.rgb(255 252 228))
     def activeBorder:EVGColor (EVGColor.rgb(40 100 210))
     def editBg:EVGColor (EVGColor.rgb(255 252 230))
     def statusBg:EVGColor (EVGColor.rgb(236 240 246))
@@ -541,10 +544,17 @@ class GridView {
                 txt = editBuf
             }
         }
+        ; A cell that links somewhere says so the way every document does: in
+        ; the link colour, underlined. The style's own colour is overridden,
+        ; because a link that looks like text is not a link.
+        def linked:boolean (model.hasHyperlink(r c))
         if ((strlen txt) > 0) {
             def col:EVGColor theme.cellText
             if ((strlen st.textRgb) >= 4) {
                 col = (EVGColor.parse(st.textRgb))
+            }
+            if linked {
+                col = theme.linkText
             }
             ; Cell font size comes from the style (pt → px), bold / italic ride
             ; on the draw command so both backends can honour them.
@@ -556,10 +566,28 @@ class GridView {
                 cellPx = 6.0
             }
             this.applyFaceStyled(st.bold st.italic)
+            def paintStyle:CellStyle st
+            if linked {
+                paintStyle = (st.copy())
+                paintStyle.underline = true
+            }
             if st.wrapText {
-                this.paintWrapped(dl txt rect st cellPx col)
+                this.paintWrapped(dl txt rect paintStyle cellPx col)
             } {
-                this.paintSingleLine(dl model rect st cellPx col txt r c)
+                this.paintSingleLine(dl model rect paintStyle cellPx col txt r c)
+            }
+        }
+        ; A note is marked rather than shown: the text would cover the numbers
+        ; it is about. The corner triangle is the mark every spreadsheet uses.
+        if (model.hasNote(r c)) {
+            def mk:int 6
+            def mx:int ((rect.x + rect.w) - (mk + 1))
+            def my:int (rect.y + 1)
+            def step:int 0
+            while (step < mk) {
+                this.pushRect(dl (to_double (mx + step)) (to_double my) (to_double (mk - step)) 1.0 theme.noteMark)
+                my = (my + 1)
+                step = (step + 1)
             }
         }
         this.paintCellBorders(dl st rect)
@@ -774,6 +802,64 @@ class GridView {
                 }
             }
             selIdx = (selIdx + 1)
+        }
+
+        ; The active cell's note, shown beside it. A marker alone tells you a
+        ; note exists and not what it says; a hover tooltip needs a hover state
+        ; this input layer does not have. The selected cell is the one you are
+        ; asking about, so that is the one whose note is opened.
+        if (model.hasNote(sel.active.row sel.active.col)) {
+            def noteText:string (model.noteAt(sel.active.row sel.active.col))
+            def nr:GridRect (grid.cellRect(model sel.active.row sel.active.col))
+            def boxW:int 210
+            def nx:int (nr.x + nr.w + 6)
+            if ((nx + boxW) > (bodyLeft + vw)) {
+                nx = ((nr.x - boxW) - 6)
+            }
+            if (nx < bodyLeft) {
+                nx = bodyLeft
+            }
+            def lines:[string] (ctx.tr.wrap(noteText 12.0 (to_double (boxW - 16))))
+            def lineH:int (to_int (ctx.tr.lineHeight(12.0)))
+            def boxH:int (((array_length lines) * lineH) + 12)
+            def ny:int nr.y
+            if ((ny + boxH) > (bodyTop + vh)) {
+                ny = ((bodyTop + vh) - boxH)
+            }
+            if (ny < bodyTop) {
+                ny = bodyTop
+            }
+            this.pushRect(dl (to_double nx) (to_double ny) (to_double boxW) (to_double boxH) theme.noteBg)
+            this.pushBorder(dl (to_double nx) (to_double ny) (to_double boxW) (to_double boxH) 1.0 theme.noteMark)
+            def li:int 0
+            while (li < (array_length lines)) {
+                this.pushText(dl (itemAt lines li) (to_double (nx + 8)) (to_double ((ny + 6) + (li * lineH))) 12.0 theme.cellText)
+                li = (li + 1)
+            }
+        }
+
+        ; A list-validated active cell offers its choices.
+        if (model.hasValidation(sel.active.row sel.active.col)) {
+            def dv:DataValidation (model.validationAt(sel.active.row sel.active.col))
+            if (dv.isList()) {
+                def arr:GridRect (grid.listArrowRect(model sel))
+                if (arr.w > 4) {
+                    this.pushRect(dl (to_double arr.x) (to_double arr.y) (to_double arr.w) (to_double arr.h) theme.headerBg)
+                    this.pushBorder(dl (to_double arr.x) (to_double arr.y) (to_double arr.w) (to_double arr.h) 1.0 theme.gridLine)
+                    ; A downward triangle, drawn as narrowing rows.
+                    def tw:int (arr.w - 6)
+                    def tx:int (arr.x + 3)
+                    def ty:int (arr.y + (idiv arr.h 2) - 2)
+                    def k:int 0
+                    while (k < 4) {
+                        if (tw > 0) {
+                            this.pushRect(dl (to_double (tx + k)) (to_double (ty + k)) (to_double tw) 1.0 theme.cellText)
+                        }
+                        tw = (tw - 2)
+                        k = (k + 1)
+                    }
+                }
+            }
         }
 
         ; drop target for a dragged range

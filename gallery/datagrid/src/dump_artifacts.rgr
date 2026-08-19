@@ -208,6 +208,17 @@ class DumpArtifacts {
             DumpArtifacts.writePng(app dir "11_disjoint_selection.png")
         }
 
+        print "== 12 links, notes and a validation list =="
+        def ok12:boolean (app.loadXlsx("gallery/datagrid/fixtures/annotations.xlsx"))
+        if ok12 {
+            app.moveActive(0 2 false)
+            DumpArtifacts.writePng(app dir "12_links_notes.png")
+            app.moveActive(2 0 false)
+            app.openListPicker(2 0)
+            DumpArtifacts.writePng(app dir "13_validation_list.png")
+            app.listDialog.close()
+        }
+
         print "DumpArtifacts DONE"
     }
 }

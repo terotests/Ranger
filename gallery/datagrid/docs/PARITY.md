@@ -25,7 +25,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Automatic line wrapping | done | wrapText → multi-line paint + row auto-fit |
 | Multiple data types | partial | number / string / bool / formula; no rich date type |
 | Cell segmentation style | todo | one style per cell, no rich-text runs inside a cell |
-| Hyperlink | todo | not parsed or painted |
+| Hyperlink | done | rel-resolved external + internal targets, painted as links, Ctrl+click follows |
 
 ## Cells
 
@@ -67,7 +67,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | --- | --- | --- |
 | Built-in formulas | partial | ~40 functions, AST + dependency recalc; no array formulas |
 | Conditional formatting | done | colorScale + cellIs, read from the file and authored in a rule editor |
-| Data verification | todo | no validation rules |
+| Data verification | done | list / whole / decimal / length rules, enforced on entry, with a picker and an editor |
 
 ## Import / export
 
@@ -81,7 +81,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Feature | Status | Notes |
 | --- | --- | --- |
 | Images | todo | not read or painted |
-| Comments | todo | not read or painted |
+| Comments | done | comments part → per-cell notes, marked in the corner and shown for the active cell |
 | Freeze panes | done | freezeRows/Cols + fixed bands |
 | Screenshots | done | tracked artifacts under `artifacts/` |
 | Custom tools / API | partial | GridApp is the API; no plugin surface |

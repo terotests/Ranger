@@ -253,6 +253,71 @@ class XlsxTest {
             c.ok("and the clockwise one too" (XlsxTest.hasSub(scene "\"rot\":45")))
         }
 
+        print "== hyperlinks, notes and validation, read from the file =="
+        def anApp:GridApp (new GridApp)
+        anApp.init("gallery/pdf_writer/assets/fonts")
+        def anOk:boolean (anApp.loadXlsx("gallery/datagrid/fixtures/annotations.xlsx"))
+        c.ok("annotations fixture loaded" anOk)
+        if anOk {
+            c.eqStr("external link resolved through the relationship" (anApp.model.hyperlinkAt(0 0)) "https://example.com/report")
+            c.eqStr("internal link kept as a location" (anApp.model.hyperlinkAt(0 1)) "#Lists!A1")
+            c.eqStr("a cell with no link has none" (anApp.model.hyperlinkAt(2 2)) "")
+            c.eqInt("two links" (anApp.model.hyperlinkCount()) 2)
+
+            c.eqStr("a note read out of the comments part" (anApp.model.noteAt(0 2)) "Reviewer: check this number")
+            c.eqStr("and the second one" (anApp.model.noteAt(2 1)) "Must stay under a hundred")
+            c.eqInt("two notes" (anApp.model.noteCount()) 2)
+
+            c.eqInt("two validation rules" (anApp.model.validationCount()) 2)
+            def listRule:DataValidation (anApp.model.validationAt(2 0))
+            c.eqStr("A3 has the list rule" listRule.kind "list")
+            def choices:[string] (listRule.listValues())
+            c.eqInt("four choices" (array_length choices) 4)
+            c.eqStr("unquoted" (itemAt choices 0) "north")
+            c.eqStr("and split" (itemAt choices 3) "west")
+            c.ok("a listed value is accepted" (listRule.accepts("south")))
+            c.ok("an unlisted one is not" ((listRule.accepts("middle")) == false))
+
+            def numRule:DataValidation (anApp.model.validationAt(2 1))
+            c.eqStr("B3 has the whole-number rule" numRule.kind "whole")
+            c.eqStr("with the file's own message" (numRule.message()) "Enter 1 to 100")
+            c.ok("50 is fine" (numRule.accepts("50")))
+            c.ok("200 is not" ((numRule.accepts("200")) == false))
+            c.ok("nor is 2.5" ((numRule.accepts("2.5")) == false))
+            c.ok("nor is text" ((numRule.accepts("lots")) == false))
+
+            print "-- and enforced when typing --"
+            anApp.moveActive(2 1 false)
+            anApp.beginEdit("200" true)
+            anApp.commitEdit()
+            c.eqStr("the refused value was not written" (anApp.model.getCell(2 1)) "42")
+            c.ok("and the refusal says why" (XlsxTest.hasSub(anApp.validationError "Enter 1 to 100")))
+            anApp.beginEdit("55" true)
+            anApp.commitEdit()
+            c.eqStr("an allowed value goes in" (anApp.model.getCell(2 1)) "55")
+            c.eqStr("with no complaint" anApp.validationError "")
+
+            print "-- the list picker --"
+            anApp.moveActive(2 0 false)
+            anApp.openListPicker(2 0)
+            c.ok("the picker opened" anApp.listDialog.visible)
+            c.eqInt("offering every choice" (array_length anApp.listValues) 4)
+            anApp.listDialog.selectRadio(902)
+            anApp.applyListPicker()
+            c.eqStr("choosing writes the value" (anApp.model.getCell(2 0)) "south")
+            c.ok("and closes" (anApp.listDialog.visible == false))
+
+            print "-- following a link --"
+            c.ok("following reports the target" (anApp.followLink(0 0)))
+            c.eqStr("which the host can open" anApp.activatedLink "https://example.com/report")
+            c.ok("a cell with no link is not followed" ((anApp.followLink(1 1)) == false))
+
+            print "-- link and note painting --"
+            anApp.moveActive(0 0 false)
+            def anScene:string (anApp.sceneJson())
+            c.ok("the scene still builds" ((strlen anScene) > 500))
+        }
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"
