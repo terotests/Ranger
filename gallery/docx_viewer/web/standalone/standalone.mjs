@@ -1,0 +1,328 @@
+/**
+ * The Word viewer with the host taken out — and with the PNG taken out.
+ *
+ *   INPUT   key / click → DocxWeb → DocxEditController          (in this tab)
+ *   RENDER  DocxViewer.sceneJson(page) → EVGDisplayList → WebGL (in this tab)
+ *
+ * The old host rasterized every page on the server and sent a picture of it.
+ * The layout and the painting are unchanged; they just write draw commands
+ * now, and the browser draws them.
+ */
+import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+
+const canvas = document.getElementById("screen");
+const statusEl = document.getElementById("status");
+const backendEl = document.getElementById("backend");
+const cmdsEl = document.getElementById("cmds");
+const pageEl = document.getElementById("slide");
+const fileEl = document.getElementById("file");
+const editEl = document.getElementById("edit");
+const chartToolsEl = document.getElementById("chartTools");
+
+const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+if (!gl) {
+  statusEl.textContent = "WebGL 2 not available";
+  throw new Error("WebGL 2 required");
+}
+backendEl.textContent = "webgl2";
+
+const FONTS = [
+  ["Open Sans", "OpenSans-Regular.ttf"],
+  [null, "OpenSans-Bold.ttf"],
+  [null, "OpenSans-Italic.ttf"],
+  [null, "OpenSans-BoldItalic.ttf"],
+];
+const DOCUMENT = "./document.docx";
+
+function asRangerBuffer(ab) {
+  ab._view = new DataView(ab);
+  return ab;
+}
+
+async function bytesOf(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(url + " → " + res.status);
+  return asRangerBuffer(await res.arrayBuffer());
+}
+
+const web = new DocxWeb();
+web.start();
+
+let page = 0;
+let lastScene = "";
+let sceneW = canvas.width;
+let sceneH = canvas.height;
+const imageCache = new Map();
+const blobUrls = new Map();
+
+/** The document's own picture parts, as object URLs. The bytes came out of the
+ *  package with the document; nothing is fetched. */
+function refreshMedia() {
+  for (const url of blobUrls.values()) if (url) URL.revokeObjectURL(url);
+  blobUrls.clear();
+  imageCache.clear();
+  let parts = [];
+  try {
+    parts = JSON.parse(web.imageParts() || "[]");
+  } catch (_) {
+    parts = [];
+  }
+  for (const part of parts) {
+    const raw = web.imageBytes(part);
+    const view = raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw;
+    if (!view || !(view.length || view.byteLength)) continue;
+    const type = /\.png$/i.test(part) ? "image/png" : "image/jpeg";
+    blobUrls.set(part, URL.createObjectURL(new Blob([view], { type })));
+  }
+}
+
+async function imagesFor(doc) {
+  const wanted = new Set(doc.list.cmds.filter((c) => c.k === 2 && c.src).map((c) => c.src));
+  for (const src of wanted) {
+    if (imageCache.has(src)) continue;
+    const url = blobUrls.get(src) || "";
+    if (!url) {
+      imageCache.set(src, null);
+      continue;
+    }
+    const got = await loadImages({ list: { cmds: [{ k: 2, src: url }] } }, { base: "" });
+    imageCache.set(src, got.get(url) || null);
+  }
+  const out = new Map();
+  for (const src of wanted) out.set(src, imageCache.get(src) || null);
+  return out;
+}
+
+async function draw(force) {
+  const text = web.scene(page);
+  if (!force && text === lastScene) return;
+  lastScene = text;
+  const doc = JSON.parse(text);
+  sceneW = doc.width;
+  sceneH = doc.height;
+
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.style.width = doc.width + "px";
+  canvas.style.height = doc.height + "px";
+  const bw = Math.round(doc.width * dpr);
+  const bh = Math.round(doc.height * dpr);
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
+  }
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(1, 1, 1, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+  const stats = renderDisplayList(gl, doc, { dpr, images: await imagesFor(doc) });
+  page = web.page() | 0;
+  cmdsEl.textContent = String(doc.list.cmds.length);
+  pageEl.textContent = `${page + 1} / ${web.pageCount() | 0}`;
+  if (chartToolsEl) chartToolsEl.hidden = (web.selectedChart() | 0) === 0;
+  window.__evgStats = stats;
+  window.__docxDoc = doc;
+}
+
+function coords(ev) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(sceneW - 1, Math.floor((ev.clientX - rect.left) * (sceneW / Math.max(1, rect.width))))),
+    y: Math.max(0, Math.min(sceneH - 1, Math.floor((ev.clientY - rect.top) * (sceneH / Math.max(1, rect.height))))),
+  };
+}
+
+canvas.addEventListener("pointerdown", async (ev) => {
+  canvas.focus();
+  const { x, y } = coords(ev);
+  web.click(x, y, ev.shiftKey);
+  await draw(true);
+});
+
+const KEYS = {
+  Backspace: "backspace",
+  Delete: "delete",
+  Enter: "enter",
+  Tab: "tab",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  Home: "home",
+  End: "end",
+  PageUp: "pageUp",
+  PageDown: "pageDown",
+};
+
+canvas.addEventListener("keydown", async (ev) => {
+  if (ev.ctrlKey || ev.metaKey) {
+    const k = ev.key.toLowerCase();
+    if (k === "v") return; // the paste event below carries the clipboard
+    if (k === "a") { ev.preventDefault(); web.key("selectAll", false, true); await draw(true); return; }
+    if (k === "z") { ev.preventDefault(); web.key("undo", false, true); await draw(true); return; }
+    if (k === "y") { ev.preventDefault(); web.key("redo", false, true); await draw(true); return; }
+    if (k === "b") { ev.preventDefault(); web.key("bold", false, true); await draw(true); return; }
+    if (k === "c" || k === "x") {
+      ev.preventDefault();
+      const text = k === "c" ? web.copySelection() : web.cutSelection();
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (_) {
+        /* a page without permission still edits */
+      }
+      await draw(true);
+      return;
+    }
+    return;
+  }
+  const name = KEYS[ev.key];
+  if (name) {
+    ev.preventDefault();
+    web.key(name, ev.shiftKey, false);
+    await draw(true);
+    return;
+  }
+  if (ev.key.length === 1 && web.editMode()) {
+    ev.preventDefault();
+    web.typeText(ev.key);
+    await draw(true);
+  }
+});
+
+window.addEventListener("paste", async (ev) => {
+  if (document.activeElement !== canvas) return;
+  ev.preventDefault();
+  const cd = ev.clipboardData;
+  const html = cd ? cd.getData("text/html") : "";
+  const text = cd ? cd.getData("text/plain") : "";
+  web.paste(html, text);
+  await draw(true);
+});
+
+document.getElementById("next")?.addEventListener("click", async () => {
+  page = Math.min((web.pageCount() | 0) - 1, page + 1);
+  await draw(true);
+});
+document.getElementById("prev")?.addEventListener("click", async () => {
+  page = Math.max(0, page - 1);
+  await draw(true);
+});
+editEl?.addEventListener("click", async () => {
+  const on = !web.editMode();
+  web.setEditMode(on);
+  editEl.setAttribute("aria-pressed", String(on));
+  canvas.focus();
+  await draw(true);
+});
+document.getElementById("chartType")?.addEventListener("click", async () => {
+  web.editChart("kind.next", "1");
+  await draw(true);
+});
+document.getElementById("chartStyle")?.addEventListener("click", async () => {
+  web.editChart("style.next", "1");
+  await draw(true);
+});
+document.getElementById("chartDelete")?.addEventListener("click", async () => {
+  web.deleteChart();
+  await draw(true);
+});
+
+fileEl?.addEventListener("change", async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const ok = web.openDocument(asRangerBuffer(await file.arrayBuffer()), file.name);
+  statusEl.textContent = ok ? "opened " + file.name : "could not open: " + web.note;
+  page = 0;
+  refreshMedia();
+  await draw(true);
+});
+
+async function selftest() {
+  const checks = [];
+  const ok = (name, cond) => checks.push({ name, ok: !!cond });
+
+  ok("the context is a WebGL 2 context", typeof WebGL2RenderingContext === "function" && gl instanceof WebGL2RenderingContext);
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  window.__glRenderer = String((info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || "");
+  const stats = window.__evgStats || {};
+  ok("GL draw calls carried the page", (stats.drawn | 0) > 20);
+  ok("the page is text, not one big picture", (stats.textRuns | 0) > 10);
+  ok("a document is open", (web.pageCount() | 0) >= 1);
+
+  // Turning pages.
+  const first = web.scene(0);
+  if ((web.pageCount() | 0) > 1) {
+    page = 1;
+    await draw(true);
+    ok("the next page is a different picture", web.scene(1) !== first);
+    page = 0;
+    await draw(true);
+  } else {
+    ok("the next page is a different picture", true);
+  }
+
+  // Typing, through the same path a keystroke takes.
+  web.setEditMode(true);
+  web.click(120, 200, false);
+  web.typeText("Zx");
+  await draw(true);
+  ok("typing changed the page", web.scene(page) !== first);
+
+  // A chart pasted from the spreadsheet stays a chart, and is drawn by the
+  // same Vela renderer — as geometry, not as a picture of one.
+  const chartHtml = window.__chartHtml || "";
+  if (chartHtml) {
+    const before = (window.__evgStats.paths | 0);
+    web.paste(chartHtml, "");
+    await draw(true);
+    ok("a pasted chart landed in the document", (web.selectedChart() | 0) > 0);
+    ok("and is drawn as geometry", (window.__evgStats.paths | 0) > before);
+    ok("its type can be changed here", web.editChart("kind.next", "1"));
+    await draw(true);
+  }
+
+  const passed = checks.filter((c) => c.ok).length;
+  const el = document.createElement("pre");
+  el.id = "selftest";
+  el.textContent = `selftest ${passed}/${checks.length} :: ` + checks.map((c) => (c.ok ? "PASS " : "FAIL ") + c.name).join(" | ");
+  document.body.appendChild(el);
+  const gpu = document.createElement("pre");
+  gpu.id = "glinfo";
+  const st = window.__evgStats || {};
+  gpu.textContent = `gl ${window.__glRenderer} :: draws ${st.drawn | 0} textRuns ${st.textRuns | 0} paths ${st.paths | 0} images ${st.images | 0}`;
+  document.body.appendChild(gpu);
+  window.__selftest = { passed, total: checks.length };
+}
+
+async function boot() {
+  statusEl.textContent = "loading fonts";
+  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("./fonts/" + file)));
+  FONTS.forEach(([family], i) => {
+    if (family) web.addFont(family, faces[i]);
+    else web.addFace(faces[i]);
+  });
+  await document.fonts.ready;
+
+  statusEl.textContent = "loading document";
+  const bytes = await bytesOf(DOCUMENT);
+  if (web.openDocument(bytes, "document.docx")) {
+    statusEl.textContent = web.title();
+  } else {
+    statusEl.textContent = "could not open: " + web.note;
+  }
+  refreshMedia();
+  await draw(true);
+  window.__docxReady = true;
+
+  // A chart on the clipboard, for the self test to paste. Written by the build
+  // from a real spreadsheet copy; absent in a plain build.
+  try {
+    const res = await fetch("./chart-clip.html");
+    if (res.ok) window.__chartHtml = await res.text();
+  } catch (_) {
+    /* no chart to paste */
+  }
+  if (new URLSearchParams(location.search).has("selftest")) await selftest();
+}
+
+boot().catch((e) => {
+  statusEl.textContent = "error: " + (e && e.message ? e.message : e);
+});

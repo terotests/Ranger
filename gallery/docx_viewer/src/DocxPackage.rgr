@@ -26,6 +26,17 @@ class DocxPackage {
         return openOk
     }
 
+    ; The package from bytes — what a browser has, and what a dropped file is.
+    fn openBytes:boolean (data:buffer name:string) {
+        pathDir = ""
+        pathFile = name
+        openOk = (zip.openBytes(data))
+        if openOk {
+            this.parseRels()
+        }
+        return openOk
+    }
+
     fn close:void () {
         zip.close()
         openOk = false

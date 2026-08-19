@@ -74,6 +74,128 @@ class PptxApp {
         return true
     }
 
+    ; A deck from bytes: the browser build has no file system, so it fetches
+    ; (or is handed) the .pptx and passes it in whole.
+    fn loadBytes:boolean (bytes:buffer name:string) {
+        lastPath = name
+        parser.close()
+        parser = (new PptxParser())
+        def ok:boolean (parser.openBytes(bytes name))
+        if (ok == false) {
+            loaded = false
+            view.status = "failed to open"
+            return false
+        }
+        def raw:PptxPresentation (parser.parsePresentation())
+        presentation = (resolver.resolvePresentation(raw))
+        view.cachePresentationImages(presentation)
+        view.deckName = name
+        index = 0
+        loaded = true
+        view.status = ((to_string (presentation.slideCount())) + " slides")
+        return true
+    }
+
+    ; Start without reading a font directory. The faces arrive as bytes.
+    fn initBare:void () {
+        view.initBare(W H)
+    }
+
+    fn addFontBytes:boolean (family:string data:buffer) {
+        return (view.ctx.tr.loadFontBytes(family data))
+    }
+
+    fn addFaceBytes:boolean (data:buffer) {
+        return (view.ctx.tr.addFaceBytes(data))
+    }
+
+    ; --- the deck's pictures, for a host with no file server ------------------
+    ; The bytes are already on the model — the parser pulled them out of the
+    ; package. A browser needs them as objects it can turn into textures, so
+    ; they are handed over rather than served.
+    fn imagePartsJson:string () {
+        def names:[string]
+        def si:int 0
+        while (si < (presentation.slideCount())) {
+            def slide:PptxSlide (itemAt presentation.slides si)
+            def j:int 0
+            while (j < (array_length slide.shapes)) {
+                PptxApp.collectImageParts((itemAt slide.shapes j) names)
+                j = (j + 1)
+            }
+            si = (si + 1)
+        }
+        def out:string "["
+        def i:int 0
+        while (i < (array_length names)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\"" + (itemAt names i) + "\"")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn collectImageParts:void (shape:PptxShape names:[string]) {
+        if (shape.kind == 1) {
+            if ((strlen shape.imagePart) > 0) {
+                if ((buffer_length shape.imageBytes) > 0) {
+                    def seen:boolean false
+                    def k:int 0
+                    while (k < (array_length names)) {
+                        if ((itemAt names k) == shape.imagePart) {
+                            seen = true
+                        }
+                        k = (k + 1)
+                    }
+                    if (seen == false) {
+                        push names shape.imagePart
+                    }
+                }
+            }
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            PptxApp.collectImageParts((itemAt shape.children i) names)
+            i = (i + 1)
+        }
+    }
+
+    fn imageBytes:buffer (part:string) {
+        def si:int 0
+        while (si < (presentation.slideCount())) {
+            def slide:PptxSlide (itemAt presentation.slides si)
+            def j:int 0
+            while (j < (array_length slide.shapes)) {
+                def found:buffer (PptxApp.findImageBytes((itemAt slide.shapes j) part))
+                if ((buffer_length found) > 0) {
+                    return found
+                }
+                j = (j + 1)
+            }
+            si = (si + 1)
+        }
+        return (buffer_alloc 0)
+    }
+
+    sfn findImageBytes:buffer (shape:PptxShape part:string) {
+        if (shape.kind == 1) {
+            if (shape.imagePart == part) {
+                return shape.imageBytes
+            }
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            def found:buffer (PptxApp.findImageBytes((itemAt shape.children i) part))
+            if ((buffer_length found) > 0) {
+                return found
+            }
+            i = (i + 1)
+        }
+        return (buffer_alloc 0)
+    }
+
     fn basenameOf:string (fullPath:string) {
         def slash:int (lastIndexOf fullPath "/")
         if (slash >= 0) {

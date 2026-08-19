@@ -566,6 +566,9 @@ class WordMlParser {
         if ((buffer_length bytes) < 8) {
             return
         }
+        ; Kept as well as decoded: the package is closed once parsing is done,
+        ; and a browser draws the file rather than the pixels.
+        img.bytes = bytes
         def b0:int (buffer_get bytes 0)
         def b1:int (buffer_get bytes 1)
         if ((b0 == 255) && (b1 == 216)) {

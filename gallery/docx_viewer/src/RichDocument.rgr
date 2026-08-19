@@ -118,6 +118,10 @@ class Paragraph {
 class DocImage {
     def relId:string ""
     def partPath:string ""
+    ; The part's own bytes, kept beside the decoded pixels. The canvas path
+    ; wants pixels; a display-list backend wants the file — a browser turns
+    ; these into a texture itself, and the package is closed by then.
+    def bytes:buffer (buffer_alloc 0)
     def widthEmu:int 0
     def heightEmu:int 0
     def widthPx:int 0

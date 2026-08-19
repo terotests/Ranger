@@ -77,6 +77,16 @@ class OpcPackage {
         return ok
     }
 
+    ; The package from bytes rather than from a path — what a browser has after
+    ; a fetch, and what a dropped file is.
+    fn openBytes:boolean (bytes:buffer name:string) {
+        dir = ""
+        filename = name
+        def ok:boolean (reader.openBytes(bytes))
+        isOpen = ok
+        return ok
+    }
+
     fn close:void () {
         reader.close()
         isOpen = false
