@@ -583,6 +583,449 @@ class GridEditTest {
         c.ok("edge auto-fit widened it" ((dz.model.colWidth(0)) > 45))
         c.ok("still renders" ((strlen (dz.sceneJson())) > 50))
 
+        print "== copy / paste keeps formatting by default =="
+        def fmtApp:GridApp (new GridApp)
+        fmtApp.init("gallery/pdf_writer/assets/fonts")
+        c.ok("load styles-showcase" (fmtApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")))
+        def fm:SpreadsheetModel fmtApp.model
+        ; B3 is an empty cell carrying only a fill; B5 carries a thin red box.
+        def srcFill:CellStyle (fm.getCellStyle(2 1))
+        c.ok("source has a fill" srcFill.hasFill)
+        GridEditTest.select(fmtApp 2 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 25 1)
+        fmtApp.pasteClipboard()
+        def gotFill:CellStyle (fm.getCellStyle(25 1))
+        c.ok("pasted cell has the fill" gotFill.hasFill)
+        c.eqStr("same fill colour" gotFill.fillRgb srcFill.fillRgb)
+        ; Borders travel too.
+        def srcBorder:CellStyle (fm.getCellStyle(4 1))
+        c.ok("source has a border" srcBorder.hasBorder)
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 26 1)
+        fmtApp.pasteClipboard()
+        def gotBorder:CellStyle (fm.getCellStyle(26 1))
+        c.ok("pasted cell has the border" gotBorder.hasBorder)
+        c.eqStr("same edge style" gotBorder.borderTop.style srcBorder.borderTop.style)
+        c.eqStr("same edge colour" gotBorder.borderTop.rgb srcBorder.borderTop.rgb)
+        c.eqStr("value came too" (fm.getCell(26 1)) (fm.getCell(4 1)))
+        ; Font attributes and number format ride along.
+        def srcBold:CellStyle (fm.getCellStyle(14 1))
+        c.ok("source is bold" srcBold.bold)
+        GridEditTest.select(fmtApp 14 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 27 1)
+        fmtApp.pasteClipboard()
+        def gotBold:CellStyle (fm.getCellStyle(27 1))
+        c.ok("pasted cell is bold" gotBold.bold)
+        def srcMoney:CellStyle (fm.getCellStyle(18 3))
+        GridEditTest.select(fmtApp 18 3)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 28 3)
+        fmtApp.pasteClipboard()
+        def gotMoney:CellStyle (fm.getCellStyle(28 3))
+        c.eqStr("number format travels" gotMoney.numFmt srcMoney.numFmt)
+        c.eqStr("and renders the same" (fm.getDisplay(28 3)) (fm.getDisplay(18 3)))
+
+        print "== one undo restores the previous formatting =="
+        def beforeStyleId:int (fm.getCellStyleId(29 1))
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 29 1)
+        fmtApp.pasteClipboard()
+        c.ok("formatting applied" ((fm.getCellStyle(29 1)).hasBorder))
+        fmtApp.undoEdit()
+        c.eqInt("style id restored by undo" (fm.getCellStyleId(29 1)) beforeStyleId)
+        c.ok("no border after undo" (((fm.getCellStyle(29 1)).hasBorder) == false))
+        fmtApp.redoEdit()
+        c.ok("redo puts it back" ((fm.getCellStyle(29 1)).hasBorder))
+
+        print "== paste modes =="
+        ; values only: no formatting, no formula
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 30 1)
+        fmtApp.pasteMode = 1
+        fmtApp.pasteClipboard()
+        fmtApp.pasteMode = 0
+        c.eqStr("values-only pasted the value" (fm.getCell(30 1)) (fm.getCell(4 1)))
+        c.ok("values-only kept no border" (((fm.getCellStyle(30 1)).hasBorder) == false))
+        ; formats only: styling lands, the existing value stays
+        fmtApp.model.setCellRaw(31 1 "keep me")
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 31 1)
+        fmtApp.pasteMode = 2
+        fmtApp.pasteClipboard()
+        fmtApp.pasteMode = 0
+        c.eqStr("formats-only kept the value" (fm.getCell(31 1)) "keep me")
+        c.ok("formats-only applied the border" ((fm.getCellStyle(31 1)).hasBorder))
+        ; no-formatting: value and formula land, styling does not
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 32 1)
+        fmtApp.pasteMode = 3
+        fmtApp.pasteClipboard()
+        fmtApp.pasteMode = 0
+        c.eqStr("no-format pasted the value" (fm.getCell(32 1)) (fm.getCell(4 1)))
+        c.ok("no-format kept no border" (((fm.getCellStyle(32 1)).hasBorder) == false))
+        ; an external TSV paste has no styles to carry
+        fmtApp.setClipboardText("plain")
+        GridEditTest.select(fmtApp 33 1)
+        fmtApp.pasteClipboard()
+        c.eqStr("external paste lands" (fm.getCell(33 1)) "plain")
+        c.ok("external paste has no formatting" (((fm.getCellStyle(33 1)).hasBorder) == false))
+
+        print "== Paste Special dialog (shared EVG window layer) =="
+        def dApp:GridApp (new GridApp)
+        dApp.init("gallery/pdf_writer/assets/fonts")
+        dApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")
+        def dm:SpreadsheetModel dApp.model
+        c.ok("no dialog at rest" ((dApp.windows.anyVisible()) == false))
+        GridEditTest.select(dApp 4 1)
+        dApp.copySelection()
+        GridEditTest.select(dApp 35 1)
+        dApp.openPasteSpecial()
+        c.ok("dialog opened" dApp.pasteDialog.visible)
+        c.ok("manager sees it" (dApp.windows.anyVisible()))
+        c.eqInt("defaults to All" (dApp.pasteDialog.selectedInGroup(1)) 1)
+        ; A modal dialog swallows clicks that land on the grid behind it.
+        def dInput:UIInput (new UIInput)
+        dInput.newFrame()
+        dInput.setPointerPos(5 300)
+        dInput.setPointerDown(true)
+        dApp.update(dInput)
+        c.eqInt("grid selection untouched while modal" dApp.sel.active.row 35)
+        dInput.newFrame()
+        dInput.setPointerDown(false)
+        dApp.update(dInput)
+        ; Pick "Formats only" and press Paste.
+        def rFormats:EVGControl (dApp.pasteDialog.controlById(3))
+        def clickX:int ((dApp.pasteDialog.x + rFormats.x) + 4)
+        def clickY:int ((dApp.pasteDialog.y + rFormats.y) + 4)
+        dInput.newFrame()
+        dInput.setPointerPos(clickX clickY)
+        dInput.setPointerDown(true)
+        dApp.update(dInput)
+        c.eqInt("radio selected" (dApp.pasteDialog.selectedInGroup(1)) 3)
+        dInput.newFrame()
+        dInput.setPointerDown(false)
+        dApp.update(dInput)
+        dm.setCellRaw(35 1 "existing")
+        def okBtn:EVGControl (dApp.pasteDialog.controlById(10))
+        def okX:int ((dApp.pasteDialog.x + okBtn.x) + 10)
+        def okY:int ((dApp.pasteDialog.y + okBtn.y) + 10)
+        dInput.newFrame()
+        dInput.setPointerPos(okX okY)
+        dInput.setPointerDown(true)
+        dApp.update(dInput)
+        c.ok("dialog closed after Paste" (dApp.pasteDialog.visible == false))
+        c.eqStr("formats-only kept the value" (dm.getCell(35 1)) "existing")
+        c.ok("and applied the border" ((dm.getCellStyle(35 1)).hasBorder))
+        c.eqInt("paste mode restored to default" dApp.pasteMode 0)
+        ; Escape closes without pasting.
+        GridEditTest.select(dApp 36 1)
+        dApp.openPasteSpecial()
+        c.ok("reopened" dApp.pasteDialog.visible)
+        dInput.newFrame()
+        dInput.setPointerDown(false)
+        dInput.pushKey((UIKey.escape()))
+        dApp.update(dInput)
+        c.ok("escape closed it" (dApp.pasteDialog.visible == false))
+        c.eqStr("nothing pasted" (dm.getCell(36 1)) "")
+        ; The dialog reaches the scene, so every backend can draw it.
+        dApp.openPasteSpecial()
+        def withDialog:string (dApp.sceneJson())
+        c.ok("dialog paints into the display list" (GridEditTest.hasSub(withDialog "Paste Special")))
+        dApp.pasteDialog.close()
+        def withoutDialog:string (dApp.sceneJson())
+        c.ok("and disappears when closed" ((GridEditTest.hasSub(withoutDialog "Paste Special")) == false))
+
+        print "== EVGWindow basics =="
+        def wnd:EVGWindow (new EVGWindow)
+        wnd.title = "Test"
+        wnd.w = 200
+        wnd.reset()
+        wnd.addLabel("Pick one")
+        wnd.addRadio(1 "One" 1 true)
+        wnd.addRadio(2 "Two" 1 false)
+        wnd.addCheckbox(5 "Also this" false)
+        def wIds:[int]
+        push wIds 9
+        def wLabels:[string]
+        push wLabels "Go"
+        wnd.addButtonRow(wIds wLabels 9)
+        wnd.finish()
+        c.ok("sized to content" (wnd.h > 80))
+        wnd.openAt(40 40)
+        c.ok("point inside" (wnd.containsPoint(60 60)))
+        c.ok("point outside" ((wnd.containsPoint(5 5)) == false))
+        c.ok("title bar hit" (wnd.onTitleBar(60 45)))
+        ; Radios are exclusive.
+        wnd.selectRadio(2)
+        c.eqInt("second radio wins" (wnd.selectedInGroup(1)) 2)
+        c.ok("first cleared" ((wnd.isChecked(1)) == false))
+        ; Checkbox toggles independently.
+        def cb:EVGControl (wnd.controlById(5))
+        def cbX:int ((wnd.x + cb.x) + 4)
+        def cbY:int ((wnd.y + cb.y) + 4)
+        wnd.handlePointer(cbX cbY true true false)
+        c.ok("checkbox toggled on" (wnd.isChecked(5)))
+        wnd.handlePointer(cbX cbY true true false)
+        c.ok("checkbox toggled off" ((wnd.isChecked(5)) == false))
+        ; Enter fires the default button.
+        c.ok("enter fires default" (wnd.handleKey(2 4 2)))
+        c.eqInt("default activated" wnd.activated 9)
+        ; Dragging the title bar moves the window.
+        def ox:int wnd.x
+        wnd.handlePointer((wnd.x + 30) (wnd.y + 8) true true false)
+        wnd.handlePointer((wnd.x + 60) (wnd.y + 8) false true false)
+        c.ok("window moved" (wnd.x != ox))
+        wnd.handlePointer(wnd.x wnd.y false false true)
+        ; A modal window swallows outside clicks; a non-modal one does not.
+        c.ok("modal swallows outside" (wnd.handlePointer(2 2 true true false)))
+        wnd.modal = false
+        c.ok("non-modal lets it through" ((wnd.handlePointer(2 2 true true false)) == false))
+        wnd.close()
+        c.ok("closed window ignores input" ((wnd.handlePointer(60 60 true true false)) == false))
+
+        print "== wrap, vertical align, overflow and truncation =="
+        def wApp:GridApp (new GridApp)
+        wApp.init("gallery/pdf_writer/assets/fonts")
+        c.ok("load showcase" (wApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")))
+        def wm:SpreadsheetModel wApp.model
+        def wrapSt:CellStyle (wm.getCellStyle(20 1))
+        c.ok("wrapText parsed" wrapSt.wrapText)
+        c.eqStr("vertical top parsed" ((wm.getCellStyle(20 2)).valign) "top")
+        c.eqStr("vertical center parsed" ((wm.getCellStyle(20 3)).valign) "center")
+        c.ok("a plain cell does not wrap" (((wm.getCellStyle(18 1)).wrapText) == false))
+        ; Wrapped text needs more height in a narrower column.
+        def longText:string (wm.getCell(20 1))
+        def hNarrow:int (wApp.view.measureWrappedHeight(longText 90 wrapSt))
+        def hWide:int (wApp.view.measureWrappedHeight(longText 400 wrapSt))
+        c.ok("narrower column is taller" (hNarrow > hWide))
+        def plainSt:CellStyle (wm.getCellStyle(18 1))
+        def hNoWrap:int (wApp.view.measureWrappedHeight(longText 90 plainSt))
+        c.ok("without wrap it stays one line" (hNoWrap < hNarrow))
+        ; Row auto-fit grows the row to fit the wrapped lines.
+        def beforeH:int (wm.rowHeight(20))
+        wApp.autoFitRow(20)
+        def afterH:int (wm.rowHeight(20))
+        c.ok("auto-fit grew the row" (afterH > beforeH))
+        c.ok("auto-fit stays sane" (afterH <= 400))
+        ; A row of short text does not balloon.
+        wApp.autoFitRow(18)
+        c.ok("short row stays short" ((wm.rowHeight(18)) < afterH))
+
+        print "-- overflow only over EMPTY neighbours --"
+        def spillRect:GridRect (wApp.grid.cellRect(wm 22 1))
+        def roomEmpty:int (wApp.view.spillWidth(wm spillRect 22 1 true))
+        c.ok("spills past its own width" (roomEmpty > spillRect.w))
+        ; C25 is occupied, so B25 must stop at its own edge.
+        def blockRect:GridRect (wApp.grid.cellRect(wm 24 1))
+        def roomBlocked:int (wApp.view.spillWidth(wm blockRect 24 1 true))
+        c.eqInt("blocked by an occupied neighbour" roomBlocked blockRect.w)
+        c.ok("occupied neighbour really has content" ((strlen (wm.getCell(24 2))) > 0))
+        ; Filling the neighbour stops the spill.
+        wm.setCellRaw(22 2 "now taken")
+        def roomAfter:int (wApp.view.spillWidth(wm spillRect 22 1 true))
+        c.eqInt("spill stops once the neighbour fills" roomAfter spillRect.w)
+        c.ok("still renders" ((strlen (wApp.sceneJson())) > 500))
+
+        print "== format painter =="
+        def fpApp:GridApp (new GridApp)
+        fpApp.init("gallery/pdf_writer/assets/fonts")
+        fpApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")
+        def fpm:SpreadsheetModel fpApp.model
+        c.ok("brush starts disarmed" (fpApp.formatBrushArmed == false))
+        ; Pick up the thin red box from B5.
+        GridEditTest.select(fpApp 4 1)
+        fpApp.copyFormat()
+        c.ok("brush armed" fpApp.formatBrushArmed)
+        c.ok("brush holds the border" fpApp.formatBrush.hasBorder)
+        ; Apply it to a range that already has values.
+        fpm.setCellRaw(40 1 "keep one")
+        fpm.setCellRaw(40 2 "keep two")
+        GridEditTest.selectRange(fpApp 40 1 40 2)
+        fpApp.applyFormatToSelection()
+        c.ok("first cell styled" ((fpm.getCellStyle(40 1)).hasBorder))
+        c.ok("second cell styled" ((fpm.getCellStyle(40 2)).hasBorder))
+        c.eqStr("values untouched" (fpm.getCell(40 1)) "keep one")
+        c.eqStr("second value untouched" (fpm.getCell(40 2)) "keep two")
+        c.ok("brush disarms after use" (fpApp.formatBrushArmed == false))
+        ; One undo puts the whole range back.
+        fpApp.undoEdit()
+        c.ok("undo removed the styling" (((fpm.getCellStyle(40 1)).hasBorder) == false))
+        c.ok("undo removed it from both" (((fpm.getCellStyle(40 2)).hasBorder) == false))
+        c.eqStr("and kept the values" (fpm.getCell(40 1)) "keep one")
+        ; A disarmed brush does nothing.
+        GridEditTest.selectRange(fpApp 41 1 41 2)
+        fpApp.applyFormatToSelection()
+        c.ok("disarmed brush is inert" (((fpm.getCellStyle(41 1)).hasBorder) == false))
+        fpApp.copyFormat()
+        fpApp.cancelFormatBrush()
+        c.ok("brush can be cancelled" (fpApp.formatBrushArmed == false))
+
+        print "== insert / delete / move columns =="
+        def colApp:GridApp (new GridApp)
+        colApp.init("gallery/pdf_writer/assets/fonts")
+        colApp.model.clearSheet()
+        colApp.model.name = "Cols"
+        colApp.model.resize(6 5)
+        colApp.model.setCellRaw(0 0 "A")
+        colApp.model.setCellRaw(0 1 "B")
+        colApp.model.setCellRaw(0 2 "C")
+        colApp.model.setCellRaw(0 3 "D")
+        colApp.model.setColWidth(1 133)
+        def styled:CellStyle (new CellStyle)
+        styled.hasFill = true
+        styled.fillRgb = "#123456"
+        colApp.model.setCellStyleResolved(0 2 styled)
+        colApp.sheetView.markDirty()
+        colApp.sheetView.rebuild()
+        colApp.engine.rebuildAll()
+
+        print "-- insert --"
+        colApp.insertColumn(1)
+        c.eqInt("colCount grew" colApp.model.colCount 6)
+        c.eqStr("A stayed" (colApp.model.getCell(0 0)) "A")
+        c.eqStr("new column is empty" (colApp.model.getCell(0 1)) "")
+        c.eqStr("B moved right" (colApp.model.getCell(0 2)) "B")
+        c.eqStr("C moved right" (colApp.model.getCell(0 3)) "C")
+        c.eqInt("width followed the column" (colApp.model.colWidth(2)) 133)
+        c.ok("style followed the column" ((colApp.model.getCellStyle(0 3)).hasFill))
+        c.ok("inserted column has no style" (((colApp.model.getCellStyle(0 1)).hasFill) == false))
+
+        print "-- undo the insert --"
+        colApp.undoEdit()
+        c.eqInt("colCount back" colApp.model.colCount 5)
+        c.eqStr("B back in place" (colApp.model.getCell(0 1)) "B")
+        c.eqInt("width back" (colApp.model.colWidth(1)) 133)
+        colApp.redoEdit()
+        c.eqStr("redo moved B again" (colApp.model.getCell(0 2)) "B")
+        colApp.undoEdit()
+
+        print "-- delete --"
+        colApp.deleteColumn(1)
+        c.eqInt("colCount shrank" colApp.model.colCount 4)
+        c.eqStr("A stayed" (colApp.model.getCell(0 0)) "A")
+        c.eqStr("C shifted left" (colApp.model.getCell(0 1)) "C")
+        c.eqStr("D shifted left" (colApp.model.getCell(0 2)) "D")
+        colApp.undoEdit()
+        c.eqInt("delete undone" colApp.model.colCount 5)
+        c.eqStr("B restored" (colApp.model.getCell(0 1)) "B")
+        c.eqInt("its width restored" (colApp.model.colWidth(1)) 133)
+
+        print "-- move --"
+        colApp.moveColumn(0 2)
+        c.eqStr("A moved to index 2" (colApp.model.getCell(0 2)) "A")
+        c.eqStr("B shifted left" (colApp.model.getCell(0 0)) "B")
+        c.eqStr("C shifted left" (colApp.model.getCell(0 1)) "C")
+        c.eqStr("D untouched" (colApp.model.getCell(0 3)) "D")
+        colApp.undoEdit()
+        c.eqStr("move undone" (colApp.model.getCell(0 0)) "A")
+        c.eqStr("and B is back" (colApp.model.getCell(0 1)) "B")
+
+        print "== formulas follow the columns =="
+        def fApp:GridApp (new GridApp)
+        fApp.init("gallery/pdf_writer/assets/fonts")
+        fApp.model.clearSheet()
+        fApp.model.name = "Calc"
+        fApp.model.resize(6 6)
+        fApp.model.setCellRaw(0 0 "2")
+        fApp.model.setCellRaw(0 1 "3")
+        fApp.model.setFormula(0 3 "A1+B1")
+        fApp.model.setFormula(1 3 "SUM(A1:B1)")
+        fApp.model.setFormula(2 3 "$A$1*10")
+        fApp.sheetView.markDirty()
+        fApp.sheetView.rebuild()
+        fApp.engine.rebuildAll()
+        c.eqStr("baseline sum" (fApp.model.getCell(0 3)) "5")
+        ; Insert before B: refs at or past it shift right.
+        fApp.insertColumn(1)
+        c.eqStr("relative ref shifted" (fApp.model.getFormula(0 4)) "A1+C1")
+        c.eqStr("range end shifted" (fApp.model.getFormula(1 4)) "SUM(A1:C1)")
+        c.eqStr("absolute ref before the insert is untouched" (fApp.model.getFormula(2 4)) "$A$1*10")
+        c.eqStr("value still right" (fApp.model.getCell(0 4)) "5")
+        fApp.undoEdit()
+        c.eqStr("undo restored the formula text" (fApp.model.getFormula(0 3)) "A1+B1")
+        c.eqStr("and it still calculates" (fApp.model.getCell(0 3)) "5")
+
+        print "-- deleting a referenced column gives #REF! --"
+        fApp.deleteColumn(1)
+        c.eqStr("reference into the deleted column breaks" (fApp.model.getFormula(0 2)) "#REF!")
+        ; One undo brings the original formula back — a #REF! cannot be
+        ; re-derived by shifting, so the text itself has to be restored.
+        fApp.undoEdit()
+        c.eqStr("undo restores the broken formula" (fApp.model.getFormula(0 3)) "A1+B1")
+        c.eqStr("and its value" (fApp.model.getCell(0 3)) "5")
+        ; Deleting an UNreferenced column just shifts the rest.
+        fApp.deleteColumn(4)
+        c.eqStr("unrelated delete keeps the formula" (fApp.model.getFormula(0 3)) "A1+B1")
+        fApp.undoEdit()
+
+        print "== merges follow the columns =="
+        def mApp:GridApp (new GridApp)
+        mApp.init("gallery/pdf_writer/assets/fonts")
+        mApp.model.clearSheet()
+        mApp.model.resize(6 6)
+        mApp.model.addMerge(0 2 0 3)
+        mApp.sheetView.markDirty()
+        mApp.sheetView.rebuild()
+        mApp.engine.rebuildAll()
+        c.ok("merge is at C1:D1" ((strlen (mApp.model.mergeAt(0 2))) > 0))
+        mApp.insertColumn(0)
+        c.ok("merge shifted right" ((strlen (mApp.model.mergeAt(0 3))) > 0))
+        c.ok("and left its old place" ((strlen (mApp.model.mergeAt(0 2))) == 0))
+        mApp.undoEdit()
+        c.ok("merge shifted back" ((strlen (mApp.model.mergeAt(0 2))) > 0))
+
+        print "== selection helpers and menu actions =="
+        def sApp2:GridApp (new GridApp)
+        sApp2.init("gallery/pdf_writer/assets/fonts")
+        sApp2.model.clearSheet()
+        sApp2.model.resize(4 5)
+        sApp2.model.setCellRaw(0 0 "one")
+        sApp2.model.setCellRaw(0 1 "two")
+        sApp2.model.setCellRaw(0 2 "three")
+        sApp2.sheetView.markDirty()
+        sApp2.sheetView.rebuild()
+        sApp2.engine.rebuildAll()
+        GridEditTest.select(sApp2 0 1)
+        sApp2.insertColumnLeftOfSelection()
+        c.eqStr("insert left pushed two right" (sApp2.model.getCell(0 2)) "two")
+        sApp2.undoEdit()
+        GridEditTest.select(sApp2 0 1)
+        sApp2.insertColumnRightOfSelection()
+        c.eqStr("insert right kept two in place" (sApp2.model.getCell(0 1)) "two")
+        c.eqStr("and pushed three right" (sApp2.model.getCell(0 3)) "three")
+        sApp2.undoEdit()
+        ; Deleting a multi-column selection removes them all.
+        GridEditTest.selectRange(sApp2 0 0 0 1)
+        sApp2.deleteSelectedColumns()
+        c.eqStr("both columns gone" (sApp2.model.getCell(0 0)) "three")
+        sApp2.undoEdit()
+        sApp2.undoEdit()
+        c.eqStr("both undos restored them" (sApp2.model.getCell(0 0)) "one")
+        ; Move via the selection helper follows the selection.
+        GridEditTest.select(sApp2 0 0)
+        sApp2.moveSelectedColumn(1)
+        c.eqStr("moved right" (sApp2.model.getCell(0 1)) "one")
+        c.eqInt("selection followed" sApp2.sel.active.col 1)
+        sApp2.undoEdit()
+        ; Menu actions 8..12 map to the same operations.
+        sApp2.openHeaderMenu(1 10 10)
+        sApp2.runHeaderMenu(8)
+        c.eqStr("menu insert left" (sApp2.model.getCell(0 2)) "two")
+        sApp2.undoEdit()
+        sApp2.openHeaderMenu(1 10 10)
+        sApp2.runHeaderMenu(10)
+        c.eqStr("menu delete" (sApp2.model.getCell(0 1)) "three")
+        sApp2.undoEdit()
+        c.eqStr("menu delete undone" (sApp2.model.getCell(0 1)) "two")
+        c.ok("still renders" ((strlen (sApp2.sceneJson())) > 500))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

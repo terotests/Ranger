@@ -1,0 +1,476 @@
+; ==============================================================================
+; GridChartView.rgr — a GridChart, drawn into the grid's display list.
+; ==============================================================================
+;
+; The chart's picture is never stored on the chart, so something has to make it
+; on demand. That is this: given a chart and the box its window left for it,
+; produce EVG commands.
+;
+; TWO PASSES, BECAUSE A CHART IS BIGGER THAN ITS PLOT. Vega sizes the PLOT and
+; then grows the view around it by whatever the axes and legend turn out to
+; need — which is not known until the labels exist. Asking for a 300-wide plot
+; in a 300-wide box therefore overflows by the width of the y axis. So the spec
+; is run once to find out what the guides cost, run again with the plot shrunk
+; by exactly that, and only scaled down if the second answer still does not
+; fit. The usual result is scale 1.0: crisp text, no resampling.
+;
+; THE EXPENSIVE HALF IS CACHED. Compiling and running a specification is real
+; work; turning the resulting commands into EVG is not. So the cache holds the
+; command list, keyed by the specification text and the box size — which means
+; dragging a chart window around costs nothing, and editing a cell it reads
+; costs one recompute.
+; ==============================================================================
+
+Import "GridChart.rgr"
+Import "SpreadsheetModel.rgr"
+Import "../../vela/src/VlJson.rgr"
+Import "../../vela/src/VlCompile.rgr"
+Import "../../vela/src/VlRuntime.rgr"
+Import "../../vela/src/VlCommand.rgr"
+Import "../../vela/src/VlEvgList.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+; One chart's compiled scene, and what it took to fit it.
+class ChartRender {
+    def chartId:int 0
+    def key:string ""
+    def list:VlCommandList (new VlCommandList)
+    def viewW:double 0.0
+    def viewH:double 0.0
+    def originX:double 0.0
+    def originY:double 0.0
+    def ok:boolean false
+    def note:string ""
+
+    Constructor () {
+    }
+}
+
+class GridChartView {
+    def cache:[ChartRender]
+    def bridge:VlEvgList (new VlEvgList)
+    def data:ChartData (new ChartData)
+    ; Breathing room between the window's content rectangle and the drawing.
+    def pad:int 6
+    ; Counted so a test can prove the cache is doing its job rather than
+    ; assuming it.
+    def compiles:int 0
+    def hits:int 0
+
+    Constructor () {
+    }
+
+    sfn compileRun:ChartRender (spec:string) {
+        def out (new ChartRender)
+        def parser (new VlJsonParser())
+        def vl:VlJson (parser.parse(spec))
+        if (parser.ok == false) {
+            out.note = "chart specification did not parse"
+            return out
+        }
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compile(vl))
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(vg))
+        if ((rt.errorCount()) > 0) {
+            out.note = "chart could not be drawn"
+            return out
+        }
+        out.list = (VlSceneCommands.build(scene))
+        out.viewW = (rt.viewWidth())
+        out.viewH = (rt.viewHeight())
+        out.originX = (rt.plotOriginX())
+        out.originY = (rt.plotOriginY())
+        out.ok = true
+        return out
+    }
+
+    fn cached:ChartRender (chartId:int) {
+        def i:int 0
+        while (i < (array_length cache)) {
+            def e:ChartRender (itemAt cache i)
+            if (e.chartId == chartId) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return (new ChartRender)
+    }
+
+    fn store:void (entry:ChartRender) {
+        def i:int 0
+        while (i < (array_length cache)) {
+            def e:ChartRender (itemAt cache i)
+            if (e.chartId == entry.chartId) {
+                set cache i entry
+                return
+            }
+            i = (i + 1)
+        }
+        push cache entry
+    }
+
+    fn forget:void (chartId:int) {
+        def keep:[ChartRender]
+        def i:int 0
+        while (i < (array_length cache)) {
+            def e:ChartRender (itemAt cache i)
+            if (e.chartId != chartId) {
+                push keep e
+            }
+            i = (i + 1)
+        }
+        clear cache
+        def k:int 0
+        while (k < (array_length keep)) {
+            push cache (itemAt keep k)
+            k = (k + 1)
+        }
+    }
+
+    ; Compile the chart for a box of `bw` x `bh`, reusing the last result when
+    ; nothing that matters has changed.
+    fn renderFor:ChartRender (model:SpreadsheetModel ch:GridChart bw:int bh:int) {
+        def plotW:int (bw - (pad * 2))
+        def plotH:int (bh - (pad * 2))
+        if (plotW < 40) {
+            plotW = 40
+        }
+        if (plotH < 40) {
+            plotH = 40
+        }
+        def has:boolean (data.extract(model ch))
+        if (has == false) {
+            def bad (new ChartRender)
+            bad.chartId = ch.id
+            bad.note = "no numbers in " + (ch.rangeLabel())
+            bad.key = ("empty|" + (to_string bw) + "x" + (to_string bh) + "|" + (to_string model.version))
+            this.store(bad)
+            return bad
+        }
+        def spec:string (data.specJson(ch plotW plotH))
+        def key:string ((spec + "|") + (to_string bw) + "x" + (to_string bh))
+        def prev:ChartRender (this.cached(ch.id))
+        if (prev.key == key) {
+            if ((strlen key) > 0) {
+                hits = (hits + 1)
+                return prev
+            }
+        }
+
+        compiles = (compiles + 1)
+        def first:ChartRender (GridChartView.compileRun(spec))
+        def best:ChartRender first
+        if first.ok {
+            ; What the guides cost, now that they exist.
+            def extraW:int (to_int ((first.viewW - (to_double plotW)) + 0.5))
+            def extraH:int (to_int ((first.viewH - (to_double plotH)) + 0.5))
+            if ((extraW > 0) || (extraH > 0)) {
+                def w2:int (plotW - extraW)
+                def h2:int (plotH - extraH)
+                if (w2 < 40) {
+                    w2 = 40
+                }
+                if (h2 < 40) {
+                    h2 = 40
+                }
+                def secondSpec:string (data.specJson(ch w2 h2))
+                def second:ChartRender (GridChartView.compileRun(secondSpec))
+                if second.ok {
+                    best = second
+                }
+            }
+        }
+        best.chartId = ch.id
+        best.key = key
+        if (best.ok == false) {
+            if ((strlen best.note) == 0) {
+                best.note = "chart could not be drawn"
+            }
+        }
+        this.store(best)
+        return best
+    }
+
+    fn pushRect:void (dl:EVGDisplayList x:int y:int w:int h:int col:EVGColor) {
+        def c (new EVGDrawCmd)
+        c.kind = 0
+        c.x = (to_double x)
+        c.y = (to_double y)
+        c.w = (to_double w)
+        c.h = (to_double h)
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushText:void (dl:EVGDisplayList tr:UITextRenderer s:string x:int y:int size:double col:EVGColor) {
+        def c (new EVGDrawCmd)
+        c.kind = 3
+        c.x = (to_double x)
+        c.y = (to_double y)
+        c.w = (tr.measureWidth(s size))
+        c.h = (tr.lineHeight(size))
+        c.text = s
+        c.fontFamily = tr.fontFamily
+        c.fontSize = size
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; Paint the chart into the box the window gave it. The box is filled with
+    ; the style's own background first, so a dark chart is dark to its edges
+    ; rather than a dark card on a white one.
+    fn paint:void (dl:EVGDisplayList model:SpreadsheetModel ch:GridChart tr:UITextRenderer bx:int by:int bw:int bh:int) {
+        def back:EVGColor (EVGColor.parse((ChartStyle.background(ch.style))))
+        this.pushRect(dl bx by bw bh back)
+        def r:ChartRender (this.renderFor(model ch bw bh))
+        if (r.ok == false) {
+            def muted:EVGColor (EVGColor.rgb(150 155 165))
+            this.pushText(dl tr r.note (bx + 10) (by + 10) 12.0 muted)
+            return
+        }
+        def scale:double 1.0
+        if (r.viewW > 0.0) {
+            def sx:double ((to_double (bw - (pad * 2))) / r.viewW)
+            if (sx < scale) {
+                scale = sx
+            }
+        }
+        if (r.viewH > 0.0) {
+            def sy:double ((to_double (bh - (pad * 2))) / r.viewH)
+            if (sy < scale) {
+                scale = sy
+            }
+        }
+        if (scale < 0.2) {
+            scale = 0.2
+        }
+        ; Centre whatever is left over, so a chart that could not use the whole
+        ; box is not stuck against its top-left corner.
+        def drawnW:double (r.viewW * scale)
+        def drawnH:double (r.viewH * scale)
+        def offX:double ((to_double bx) + (((to_double bw) - drawnW) / 2.0))
+        def offY:double ((to_double by) + (((to_double bh) - drawnH) / 2.0))
+        bridge.emit(dl r.list tr (offX + (r.originX * scale)) (offY + (r.originY * scale)) scale)
+    }
+}
+
+; ==============================================================================
+; ChartLayer — the charts floating over one document.
+; ==============================================================================
+;
+; A chart and its window are one thing to the user and two objects here: the
+; chart is the data (a range, a kind, a style) and the window is the frame
+; around it (a position, a size, a drag). Keeping them apart is what lets the
+; window layer stay generic — it knows nothing about spreadsheets — while the
+; chart stays a value that can be saved, copied and compared.
+;
+; This class is the pairing, and it is also where the two are kept in step:
+; drag the window and the chart's stored position follows, so reopening the
+; document puts it back where it was left.
+; ==============================================================================
+
+class ChartPanel {
+    def chart:GridChart (new GridChart)
+    def win:EVGWindow (new EVGWindow)
+
+    Constructor () {
+    }
+}
+
+class ChartLayer {
+    def panels:[ChartPanel]
+    def view:GridChartView (new GridChartView)
+    ; Chart ids are handed out here and never reused, so a stale cache entry
+    ; can never be mistaken for a new chart's.
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    ; Control ids inside a chart's own window.
+    sfn closeId:int ()   { return 1 }
+    sfn editId:int ()    { return 2 }
+    sfn contentId:int () { return 3 }
+
+    fn count:int () {
+        return (array_length panels)
+    }
+
+    fn panelAt:ChartPanel (i:int) {
+        return (itemAt panels i)
+    }
+
+    fn panelForChart:ChartPanel (id:int) {
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:ChartPanel (itemAt panels i)
+            if (p.chart.id == id) {
+                return p
+            }
+            i = (i + 1)
+        }
+        return (new ChartPanel)
+    }
+
+    fn panelForWindow:ChartPanel (wid:int) {
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:ChartPanel (itemAt panels i)
+            if (p.win.wid == wid) {
+                return p
+            }
+            i = (i + 1)
+        }
+        return (new ChartPanel)
+    }
+
+    fn hasChart:boolean (id:int) {
+        def p:ChartPanel (this.panelForChart(id))
+        return (p.chart.id == id)
+    }
+
+    ; The window a chart lives in: a title bar you can drag, a close box, a
+    ; content region this layer paints, and one button to get back to the
+    ; editor. Rebuilt whenever the chart changes, because the caption is part
+    ; of the chart.
+    fn layoutWindow:void (p:ChartPanel) {
+        def wnd:EVGWindow p.win
+        wnd.title = (p.chart.caption())
+        wnd.modal = false
+        wnd.closable = true
+        wnd.closeId = (ChartLayer.closeId())
+        wnd.resizable = true
+        wnd.minW = 220
+        wnd.minH = 170
+        wnd.padX = 6
+        wnd.padY = 6
+        wnd.w = p.chart.w
+        wnd.reset()
+        wnd.addContent((ChartLayer.contentId()) 120)
+        def ids:[int]
+        push ids (ChartLayer.editId())
+        def labels:[string]
+        push labels "Edit…"
+        wnd.addButtonRow(ids labels (ChartLayer.editId()))
+        wnd.finish()
+        wnd.setSize(p.chart.w p.chart.h)
+        wnd.x = p.chart.x
+        wnd.y = p.chart.y
+        wnd.visible = true
+    }
+
+    ; Add a chart described by `spec` (its range, kind, style and box) and give
+    ; it a window. The stored chart is returned so the caller can keep editing
+    ; the one that exists rather than the one it described.
+    fn add:GridChart (mgr:EVGWindowManager spec:GridChart) {
+        seq = (seq + 1)
+        def p (new ChartPanel)
+        p.chart.copyFrom(spec)
+        p.chart.id = seq
+        this.layoutWindow(p)
+        mgr.add(p.win)
+        push panels p
+        return p.chart
+    }
+
+    fn remove:void (mgr:EVGWindowManager id:int) {
+        def keep:[ChartPanel]
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:ChartPanel (itemAt panels i)
+            if (p.chart.id == id) {
+                p.win.visible = false
+                mgr.remove(p.win)
+                view.forget(id)
+            } {
+                push keep p
+            }
+            i = (i + 1)
+        }
+        clear panels
+        def k:int 0
+        while (k < (array_length keep)) {
+            push panels (itemAt keep k)
+            k = (k + 1)
+        }
+    }
+
+    ; Apply an edited description to the chart that is already on screen: what
+    ; it draws may change completely, where it sits does not.
+    fn apply:void (id:int spec:GridChart) {
+        def p:ChartPanel (this.panelForChart(id))
+        if (p.chart.id != id) {
+            return
+        }
+        def keepX:int p.chart.x
+        def keepY:int p.chart.y
+        def keepW:int p.chart.w
+        def keepH:int p.chart.h
+        p.chart.copyFrom(spec)
+        p.chart.id = id
+        p.chart.x = keepX
+        p.chart.y = keepY
+        p.chart.w = keepW
+        p.chart.h = keepH
+        this.layoutWindow(p)
+    }
+
+    ; Dragging and resizing happen inside the window layer, so the chart's own
+    ; geometry is copied back afterwards rather than being written twice.
+    fn syncGeometry:void () {
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:ChartPanel (itemAt panels i)
+            p.chart.x = p.win.x
+            p.chart.y = p.win.y
+            p.chart.w = p.win.w
+            p.chart.h = p.win.h
+            i = (i + 1)
+        }
+    }
+
+    ; Charts belong to a sheet: switching sheets hides the ones that read a
+    ; different one rather than drawing them over the wrong numbers.
+    fn showSheet:void (sheet:int) {
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:ChartPanel (itemAt panels i)
+            p.win.visible = (p.chart.sheet == sheet)
+            i = (i + 1)
+        }
+    }
+
+    ; Paint the chart belonging to this window, if it is one of ours. Called
+    ; straight after the window's own frame, so the drawing lands inside it and
+    ; under anything stacked above.
+    fn paintContent:boolean (dl:EVGDisplayList model:SpreadsheetModel tr:UITextRenderer wnd:EVGWindow) {
+        if (wnd.visible == false) {
+            return false
+        }
+        def p:ChartPanel (this.panelForWindow(wnd.wid))
+        if (p.chart.id == 0) {
+            return false
+        }
+        def bx:int ((wnd.contentX()) + 1)
+        def by:int ((wnd.contentY()) + 1)
+        def bw:int ((wnd.contentW()) - 2)
+        def bh:int ((wnd.contentH()) - 2)
+        if (bw < 8) {
+            return false
+        }
+        if (bh < 8) {
+            return false
+        }
+        view.paint(dl model p.chart tr bx by bw bh)
+        return true
+    }
+}

@@ -1,0 +1,478 @@
+; ==============================================================================
+; ChartTest.rgr — charts made from a selection: data, specification, drawing.
+; ==============================================================================
+;
+; The chart layer has three seams worth testing without a screen:
+;
+;   1. the RANGE READ   — what a rectangle of cells turns into
+;   2. the SPECIFICATION — what Vega-Lite is asked for, and which kinds suit
+;   3. the DRAWING      — that a chart produces EVG commands, and that the
+;                         cache stops it producing them twice
+;
+; Everything below is integer and string comparison; nothing renders pixels.
+; ==============================================================================
+
+Import "../src/GridChart.rgr"
+Import "../src/GridChartView.rgr"
+Import "../src/GridApp.rgr"
+
+class ChartTest {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn check:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+            print (("  PASS " + name) + " (got '" + got + "')")
+        } {
+            failed = (failed + 1)
+            print (((("  FAIL " + name) + " (got '") + got) + "' want '" + want + "')")
+        }
+    }
+
+    fn checkInt:void (name:string got:int want:int) {
+        this.check(name (to_string got) (to_string want))
+    }
+
+    fn checkTrue:void (name:string got:boolean) {
+        this.check(name (to_string got) "true")
+    }
+
+    fn checkFalse:void (name:string got:boolean) {
+        this.check(name (to_string got) "false")
+    }
+
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A small sales sheet: a header row, a label column, two series.
+    sfn salesModel:SpreadsheetModel () {
+        def m (new SpreadsheetModel)
+        m.setCell(0 0 "Month")
+        m.setCell(0 1 "North")
+        m.setCell(0 2 "South")
+        m.setCell(1 0 "Jan")
+        m.setCell(1 1 "120")
+        m.setCell(1 2 "80")
+        m.setCell(2 0 "Feb")
+        m.setCell(2 1 "150")
+        m.setCell(2 2 "95")
+        m.setCell(3 0 "Mar")
+        m.setCell(3 1 "90")
+        m.setCell(3 2 "130")
+        return m
+    }
+
+    sfn chartOver:GridChart (r0:int c0:int r1:int c1:int) {
+        def ch (new GridChart)
+        ch.id = 1
+        ch.r0 = r0
+        ch.c0 = c0
+        ch.r1 = r1
+        ch.c1 = c1
+        return ch
+    }
+
+    fn run:void () {
+        print "== chart data =="
+        def m:SpreadsheetModel (ChartTest.salesModel())
+        def ch:GridChart (ChartTest.chartOver(0 0 3 2))
+        def data (new ChartData)
+        this.checkTrue("range has numbers" (data.extract(m ch)))
+        this.checkInt("three categories" (data.catCount()) 3)
+        this.checkInt("two series" (data.seriesCount()) 2)
+        this.checkInt("six points" data.points 6)
+        this.check("series named by the header" (itemAt data.series 0) "North")
+        this.check("categories from the label column" (itemAt data.cats 1) "Feb")
+        this.checkFalse("month names are not numeric" data.catNumeric)
+
+        print "== which charts suit it =="
+        this.checkTrue("column suits" (data.suits((ChartKind.column()))))
+        this.checkTrue("stacked suits two series" (data.suits((ChartKind.stacked()))))
+        this.checkTrue("line suits three rows" (data.suits((ChartKind.line()))))
+        this.checkFalse("pie does not suit two series" (data.suits((ChartKind.pie()))))
+        this.checkFalse("scatter needs a numeric x" (data.suits((ChartKind.scatter()))))
+        this.checkInt("suggests a column" (data.suggestedKind()) (ChartKind.column()))
+
+        def one:GridChart (ChartTest.chartOver(0 0 3 1))
+        def dataOne (new ChartData)
+        dataOne.extract(m one)
+        this.checkInt("one series" (dataOne.seriesCount()) 1)
+        this.checkTrue("pie suits one series" (dataOne.suits((ChartKind.pie()))))
+        this.checkFalse("stacked needs two series" (dataOne.suits((ChartKind.stacked()))))
+
+        print "== numeric categories =="
+        def nm (new SpreadsheetModel)
+        nm.setCell(0 0 "x")
+        nm.setCell(0 1 "y")
+        nm.setCell(1 0 "1")
+        nm.setCell(1 1 "10")
+        nm.setCell(2 0 "2")
+        nm.setCell(2 1 "40")
+        nm.setCell(3 0 "3")
+        nm.setCell(3 1 "25")
+        def nch:GridChart (ChartTest.chartOver(0 0 3 1))
+        def ndata (new ChartData)
+        ndata.extract(nm nch)
+        this.checkTrue("numeric first column" ndata.catNumeric)
+        this.checkTrue("scatter suits it" (ndata.suits((ChartKind.scatter()))))
+        this.checkInt("suggests a line" (ndata.suggestedKind()) (ChartKind.line()))
+
+        print "== the specification =="
+        def spec:string (data.specJson(ch 300 200))
+        this.checkTrue("asks for a bar mark" (ChartTest.hasSub(spec "\"mark\":\"bar\"")))
+        this.checkTrue("groups the two series" (ChartTest.hasSub(spec "\"xOffset\"")))
+        this.checkTrue("carries the data rows" (ChartTest.hasSub(spec "{\"cat\":\"Jan\",\"series\":\"North\",\"value\":120}")))
+        this.checkTrue("sized as asked" (ChartTest.hasSub(spec "\"width\":300")))
+        ch.kind = (ChartKind.pie())
+        def pieSpec:string (dataOne.specJson(ch 300 200))
+        this.checkTrue("pie is an arc" (ChartTest.hasSub(pieSpec "\"mark\":\"arc\"")))
+        this.checkTrue("pie has a theta" (ChartTest.hasSub(pieSpec "\"theta\"")))
+        this.checkFalse("pie carries only the first series" (ChartTest.hasSub(pieSpec "South")))
+        ch.kind = (ChartKind.donut())
+        this.checkTrue("donut has a hole" (ChartTest.hasSub((dataOne.specJson(ch 300 200)) "innerRadius")))
+        ch.style = (ChartStyle.slate())
+        this.checkTrue("dark style paints a dark page" (ChartTest.hasSub((dataOne.specJson(ch 300 200)) "\"background\":\"#242a33\"")))
+        ch.kind = (ChartKind.column())
+        ch.style = (ChartStyle.vela())
+
+        print "== what counts as a number =="
+        this.checkTrue("plain integer" (ChartData.looksNumeric("120")))
+        this.checkTrue("decimal" (ChartData.looksNumeric("-3.5")))
+        this.checkTrue("exponent" (ChartData.looksNumeric("1.2e3")))
+        this.checkFalse("a date is not a number" (ChartData.looksNumeric("2024-01-01")))
+        this.checkFalse("a percentage is not a number" (ChartData.looksNumeric("14.00%")))
+        this.checkFalse("money is not a number" (ChartData.looksNumeric("$49.00")))
+        this.checkFalse("two dots" (ChartData.looksNumeric("1.2.3")))
+        this.checkFalse("empty" (ChartData.looksNumeric("")))
+
+        print "== numbers survive the round trip =="
+        this.check("whole" (ChartData.num(120.0)) "120")
+        this.check("fraction" (ChartData.num(1.5)) "1.500")
+        this.check("negative" (ChartData.num(-2.25)) "-2.250")
+
+        print "== drawing =="
+        def tr (new UITextRenderer)
+        tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+        def cv (new GridChartView)
+        def dl (new EVGDisplayList)
+        cv.paint(dl m ch tr 0 0 360 240)
+        this.checkTrue("a column chart draws something" ((array_length dl.cmds) > 20))
+        this.checkInt("compiled once" cv.compiles 1)
+        def dl2 (new EVGDisplayList)
+        cv.paint(dl2 m ch tr 0 0 360 240)
+        this.checkInt("second paint came from the cache" cv.compiles 1)
+        this.checkTrue("and drew the same amount" ((array_length dl2.cmds) == (array_length dl.cmds)))
+        m.setCell(1 1 "999")
+        def dl3 (new EVGDisplayList)
+        cv.paint(dl3 m ch tr 0 0 360 240)
+        this.checkInt("an edit recompiles" cv.compiles 2)
+
+        def kinds:[int]
+        push kinds (ChartKind.column())
+        push kinds (ChartKind.bar())
+        push kinds (ChartKind.stacked())
+        push kinds (ChartKind.line())
+        push kinds (ChartKind.area())
+        def ki:int 0
+        while (ki < (array_length kinds)) {
+            def k:int (itemAt kinds ki)
+            def kc:GridChart (ChartTest.chartOver(0 0 3 2))
+            kc.id = (100 + k)
+            kc.kind = k
+            def kdl (new EVGDisplayList)
+            def kview (new GridChartView)
+            kview.paint(kdl m kc tr 0 0 360 240)
+            this.checkTrue(((ChartKind.label(k)) + " draws") ((array_length kdl.cmds) > 10))
+            ki = (ki + 1)
+        }
+        def pieChart:GridChart (ChartTest.chartOver(0 0 3 1))
+        pieChart.id = 200
+        pieChart.kind = (ChartKind.pie())
+        def pdl (new EVGDisplayList)
+        def pview (new GridChartView)
+        pview.paint(pdl m pieChart tr 0 0 300 240)
+        this.checkTrue("pie draws" ((array_length pdl.cmds) > 5))
+
+        print "== an empty range says so =="
+        def blank (new SpreadsheetModel)
+        blank.setCell(0 0 "a")
+        blank.setCell(1 0 "b")
+        def bc:GridChart (ChartTest.chartOver(0 0 1 0))
+        def bdl (new EVGDisplayList)
+        def bview (new GridChartView)
+        bview.paint(bdl blank bc tr 0 0 200 120)
+        def note:string ""
+        def bi:int 0
+        while (bi < (array_length bdl.cmds)) {
+            def bcmd:EVGDrawCmd (itemAt bdl.cmds bi)
+            if (bcmd.kind == 3) {
+                note = bcmd.text
+            }
+            bi = (bi + 1)
+        }
+        this.checkTrue("says which range has no numbers" (ChartTest.hasSub(note "A1:A2")))
+
+        print "== through the app: pick, place, drag, edit, close =="
+        def app (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        ; Well clear of the demo sheet's own data, so the block the picker
+        ; finds is the one this test wrote.
+        app.model.growTo(70 4)
+        app.model.setCell(60 0 "Quarter")
+        app.model.setCell(60 1 "Widgets")
+        app.model.setCell(60 2 "Gadgets")
+        app.model.setCell(61 0 "Q1")
+        app.model.setCell(61 1 "120")
+        app.model.setCell(61 2 "80")
+        app.model.setCell(62 0 "Q2")
+        app.model.setCell(62 1 "150")
+        app.model.setCell(62 2 "95")
+        app.model.setCell(63 0 "Q3")
+        app.model.setCell(63 1 "90")
+        app.model.setCell(63 2 "130")
+
+        ; One cell selected: the picker charts the block around it, as Excel
+        ; does, rather than the single number.
+        app.sel.anchor.row = 62
+        app.sel.anchor.col = 1
+        app.sel.active.row = 62
+        app.sel.active.col = 1
+        app.openChartDialog(0)
+        this.checkTrue("picker opened" app.chartDialog.visible)
+        this.check("found the block around the cell" (app.pendingChart.rangeLabel()) "A61:C64")
+        this.checkTrue("header row guessed" app.pendingChart.useHeaderRow)
+        this.checkTrue("header column guessed" app.pendingChart.useHeaderCol)
+        def pieCtl:EVGControl (app.chartDialog.controlById(100 + (ChartKind.pie())))
+        this.checkFalse("pie offered but disabled" pieCtl.enabled)
+        def colCtl:EVGControl (app.chartDialog.controlById(100 + (ChartKind.column())))
+        this.checkTrue("column offered" colCtl.enabled)
+
+        app.chartDialog.selectRadio(100 + (ChartKind.line()))
+        app.chartDialog.selectRadio(200 + (ChartStyle.mono()))
+        app.applyChartDialog()
+        this.checkInt("one chart on the sheet" (app.view.chartLayer.count()) 1)
+        this.checkFalse("picker closed" app.chartDialog.visible)
+        def panel:ChartPanel (app.view.chartLayer.panelAt(0))
+        this.checkInt("the chosen kind stuck" panel.chart.kind (ChartKind.line()))
+        this.checkInt("the chosen style stuck" panel.chart.style (ChartStyle.mono()))
+        this.checkTrue("its window is up" panel.win.visible)
+        def cap:string panel.win.title
+        this.checkTrue("captioned by what it is" (ChartTest.hasSub(cap "A61:C64")))
+
+        ; The chart draws into the frame the window left for it.
+        def appDl:EVGDisplayList (app.view.buildDisplayList(app.model app.sel app.grid app.editing app.editBuf app.book))
+        def inside:int 0
+        def di:int 0
+        while (di < (array_length appDl.cmds)) {
+            def dc:EVGDrawCmd (itemAt appDl.cmds di)
+            if (dc.kind == 6) {
+                inside = (inside + 1)
+            }
+            if (dc.kind == 7) {
+                inside = (inside + 1)
+            }
+            di = (di + 1)
+        }
+        this.checkTrue("the sheet's own frame carries chart geometry" (inside > 10))
+
+        ; Drag the title bar: the window moves and the chart remembers.
+        def input (new UIInput)
+        def startX:int panel.win.x
+        def startY:int panel.win.y
+        input.newFrame()
+        input.setPointerPos((startX + 40) (startY + 8))
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos((startX + 90) (startY + 38))
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos((startX + 90) (startY + 38))
+        input.setPointerDown(false)
+        app.update(input)
+        this.checkInt("window followed the drag" panel.win.x (startX + 50))
+        this.checkInt("and the chart followed the window" panel.chart.y (startY + 30))
+
+        ; A click on the sheet beside a floating chart still selects a cell:
+        ; a sticky panel is not modal.
+        def cellX:int (app.grid.x + 60)
+        def cellY:int ((app.grid.gridOriginY()) + 4)
+        input.newFrame()
+        input.setPointerPos(cellX cellY)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(cellX cellY)
+        input.setPointerDown(false)
+        app.update(input)
+        this.checkInt("the grid still takes clicks" app.sel.active.row 0)
+
+        ; Reopen the editor from the window's own button.
+        def editBtn:EVGControl (panel.win.controlById((ChartLayer.editId())))
+        def bx:int ((panel.win.x + editBtn.x) + 8)
+        def by:int ((panel.win.y + editBtn.y) + 8)
+        input.newFrame()
+        input.setPointerPos(bx by)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(bx by)
+        input.setPointerDown(false)
+        app.update(input)
+        this.checkTrue("editing reopened" app.chartDialog.visible)
+        this.checkInt("on that chart" app.chartEditId panel.chart.id)
+        this.check("titled as an edit" app.chartDialog.title "Chart")
+        def keptX:int panel.chart.x
+        app.chartDialog.selectRadio(100 + (ChartKind.area()))
+        app.applyChartDialog()
+        this.checkInt("still one chart" (app.view.chartLayer.count()) 1)
+        def edited:ChartPanel (app.view.chartLayer.panelAt(0))
+        this.checkInt("kind changed" edited.chart.kind (ChartKind.area()))
+        this.checkInt("place kept" edited.chart.x keptX)
+
+        ; Drag the grip: the window grows, the chart's box grows with it, and
+        ; the button stays where a button belongs.
+        def gpanel:ChartPanel (app.view.chartLayer.panelAt(0))
+        def gwin:EVGWindow gpanel.win
+        def gside:int (gwin.boxSide())
+        def gx:int (((gwin.x + gwin.w) - gside) + 4)
+        def gy:int (((gwin.y + gwin.h) - gside) + 4)
+        def beforeW:int gwin.w
+        def beforeContentW:int (gwin.contentW())
+        def btn:EVGControl (gwin.controlById((ChartLayer.editId())))
+        def btnRight:int (btn.x + btn.w)
+        input.newFrame()
+        input.setPointerPos(gx gy)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos((gx + 60) (gy + 40))
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos((gx + 60) (gy + 40))
+        input.setPointerDown(false)
+        app.update(input)
+        this.checkInt("the grip resized the window" gwin.w (beforeW + 60))
+        this.checkInt("the content took the width" (gwin.contentW()) (beforeContentW + 60))
+        def btn2:EVGControl (gwin.controlById((ChartLayer.editId())))
+        this.checkInt("the button stayed on the right edge" (btn2.x + btn2.w) (btnRight + 60))
+        def resized:ChartPanel (app.view.chartLayer.panelAt(0))
+        this.checkInt("and the chart remembers its new size" resized.chart.w gwin.w)
+
+        ; The close box takes the chart away.
+        def lastPanel:ChartPanel (app.view.chartLayer.panelAt(0))
+        def win:EVGWindow lastPanel.win
+        def side:int (win.boxSide())
+        def clx:int (((win.x + win.w) - (side + 8)) + 4)
+        def cly:int ((win.y + (idiv (win.titleH - side) 2)) + 4)
+        input.newFrame()
+        input.setPointerPos(clx cly)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(clx cly)
+        input.setPointerDown(false)
+        app.update(input)
+        this.checkInt("closing removed the chart" (app.view.chartLayer.count()) 0)
+
+        print "== two charts: stacking, and the sheet they belong to =="
+        def app2 (new GridApp)
+        app2.init("gallery/pdf_writer/assets/fonts")
+        def loaded:boolean (app2.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        this.checkTrue("fixture loaded" loaded)
+        app2.setActiveSheet(0)
+        app2.sel.anchor.row = 0
+        app2.sel.anchor.col = 3
+        app2.sel.active.row = 6
+        app2.sel.active.col = 5
+        app2.openChartDialog(0)
+        app2.applyChartDialog()
+        app2.openChartDialog(0)
+        app2.applyChartDialog()
+        this.checkInt("two charts" (app2.view.chartLayer.count()) 2)
+        def one:ChartPanel (app2.view.chartLayer.panelAt(0))
+        def two:ChartPanel (app2.view.chartLayer.panelAt(1))
+        ; Overlap them, then click the one underneath.
+        one.win.x = 100
+        one.win.y = 100
+        two.win.x = 120
+        two.win.y = 110
+        def topBefore:EVGWindow (app2.windows.topmost())
+        this.checkInt("the newer chart is on top" topBefore.wid two.win.wid)
+        def input2 (new UIInput)
+        input2.newFrame()
+        input2.setPointerPos(104 106)
+        input2.setPointerDown(true)
+        app2.update(input2)
+        input2.newFrame()
+        input2.setPointerPos(104 106)
+        input2.setPointerDown(false)
+        app2.update(input2)
+        def topAfter:EVGWindow (app2.windows.topmost())
+        this.checkInt("clicking the one underneath raises it" topAfter.wid one.win.wid)
+
+        app2.setActiveSheet(1)
+        this.checkFalse("another sheet hides the charts" one.win.visible)
+        app2.setActiveSheet(0)
+        this.checkTrue("coming back shows them again" one.win.visible)
+
+        ; A modal dialog still wins over the charts, whatever the stacking.
+        app2.openChartDialog(0)
+        def topModal:EVGWindow (app2.windows.topmost())
+        this.checkTrue("the picker is above every chart" topModal.modal)
+        app2.chartDialog.close()
+
+        ; Ctrl+M opens the picker, and the status bar button does the same.
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText("m")
+        app.update(input)
+        this.checkTrue("Ctrl+M opens the picker" app.chartDialog.visible)
+        app.chartDialog.close()
+        input.newFrame()
+        input.setModifiers(false false)
+        def statusTop:int (app.grid.y + app.grid.h)
+        def sbx:int ((GridView.chartButtonX(app.W)) + 6)
+        def sby:int ((GridView.chartButtonY(statusTop)) + 6)
+        this.checkTrue("the status button is where it is painted" (app.chartButtonHit(sbx sby)))
+        input.newFrame()
+        input.setPointerPos(sbx sby)
+        input.setPointerDown(true)
+        app.update(input)
+        this.checkTrue("clicking it opens the picker" app.chartDialog.visible)
+        app.chartDialog.close()
+
+        print ""
+        print (("passed=" + (to_string passed)) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    sfn main:void () {
+        def t (new ChartTest)
+        t.run()
+    }
+}

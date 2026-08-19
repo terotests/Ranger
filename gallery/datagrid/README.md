@@ -24,6 +24,7 @@ EVGDisplayList → SoftCanvas / WebGL
 npm run datagrid:test
 npm run datagrid:edit:test
 npm run datagrid:xlsx:test
+npm run datagrid:chart:test
 npm run datagrid:workbook:test
 npm run datagrid:formula:test
 npm run datagrid:formula:workbook:test
@@ -32,6 +33,7 @@ npm run datagrid:artifacts
 npm run datagrid:xlsx:fixtures
 npm run datagrid:bench -- 100000
 npm run datagrid:oracle:dump
+npm run datagrid:parity
 npm run datagrid:oracles
 npm run datagrid:window
 # older tiny fixture:
@@ -43,14 +45,26 @@ npm run datagrid:window
 
 - Multi-sheet workbook + tabs (hidden sheet metadata)
 - styles.xml → fill / font / align / **XlsxNumberFormat** engine
+- **Cell borders**: all OOXML line styles per edge (solid, dashed, dotted,
+  double, hair→thick) with colours; empty-but-formatted cells keep their fill
+- **Fonts**: bold / italic / underline / strikethrough / size / colour, painted
+  with the real Open Sans faces
+- **Text layout**: `wrapText` → multi-line paint with row auto-fit, vertical
+  alignment, and Excel's overflow rule — text spills into empty neighbours and
+  is clipped once one is occupied
+- **Format painter**: `Ctrl+Shift+C` arms a brush, the next selection takes the
+  formatting only
 - Freeze panes, merges (hit-test → origin), hidden rows/cols
 - Formula bar; FormulaEngine (coerce, abs/rel/cross-sheet refs, fill-translate,
   incremental recalc) + FormulaFunctions; cached `<v>` fallback
 - SheetView drives paint order; header popup for sort/filter
 - Conditional formatting: colorScale + cellIs paint overlay
+- **Charts from a selection**: eight Vega-Lite chart types through
+  [Vela](../vela/README.md), floating in draggable, resizable windows
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
-- Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`, `sparse100k`
+- Fixtures: `sales`, `formats`, `merged`, `formulas`, `business-workbook`,
+  `sparse100k`, `styles-showcase` (FortuneSheet-shaped border/font/format matrix)
 - Oracles: openpyxl semantic; LibreOffice visual + formula CSV when available
 - Bench: `datagrid:bench`, `datagrid:formula:bench`
 
@@ -75,6 +89,29 @@ formula together** in one undo op, and every batch runs inside
 After any edit the app re-registers just the touched cells
 (`FormulaEngine.syncCell`) and calls `recalcDirty()` **once**; it never
 re-`attach`es the engine, which would drop the whole dependency graph.
+
+### Column structure
+
+| Action | Does |
+| --- | --- |
+| Header menu 8 / 9 | Insert a column left / right |
+| Header menu 10 | Delete the column |
+| Header menu 11 / 12 | Move the column left / right |
+| `insertColumnLeftOfSelection` etc. | The same, driven from the selection |
+
+Cells, formulas, style ids, widths, hidden flags and merges all move together —
+anything left behind would surface as a value wearing someone else's
+formatting. Formulas across the **whole workbook** are repaired, including
+cross-sheet references naming the edited sheet: a reference at or past the
+insert point shifts, and a reference *into* a deleted column becomes `#REF!`,
+as Excel does.
+
+Because a `#REF!` cannot be re-derived by shifting back, a structural op
+snapshots every formula in the sheet, and undo restores that text wholesale. A
+delete also keeps the removed column's values, formulas, style ids and width,
+so one Ctrl+Z brings the column back intact.
+
+Rows are not covered yet — the same machinery, transposed, is the next step.
 
 ### Column and row sizing
 
@@ -132,7 +169,24 @@ written rather than rescanning a sheet that may declare 100k rows (see
 | --- | --- | --- |
 | `clipboardTsv` | tab/newline text | any app, and the TSV paste path |
 | `clipboardHtml` | an HTML `<table>` with fill / bold / align per cell | Word, and the Ranger DOCX editor |
-| `clipValues` + `clipFormulas` | the structured block | this grid, so paste can translate refs |
+| `clipValues` + `clipFormulas` + `clipStyles` | the structured block | this grid, so paste can translate refs and keep formatting |
+
+**Formatting travels by default.** Copy carries a resolved `CellStyle` per cell —
+fill, borders, bold/italic/underline/strike, size, colour and number format — and
+paste applies it, the way every spreadsheet behaves. Value, formula and format
+land in one undo op (`SpreadsheetModel.applyEditStyled`), so a single Ctrl+Z puts
+the previous formatting back. Styles are matched into the target sheet's style
+table by value (`styleIdFor`), so a paste survives a hop between sheets.
+
+`Ctrl+Shift+V` opens **Paste Special** to choose something other than the
+default:
+
+| Mode | Lands |
+| --- | --- |
+| All | values, formulas and formatting (the default) |
+| Values only | values, no formulas, target formatting kept |
+| Formats only | formatting only, the target's value stays |
+| Values and formulas, no formats | both, target formatting kept |
 
 In the WebGL host the first two reach the **OS clipboard** as `text/plain` and
 `text/html` — the same two flavours Excel offers. `/input` answers a copy or cut
@@ -149,6 +203,112 @@ table, not as tab-separated text.
 
 Known gaps: cut does not rewrite formulas elsewhere that referenced the moved
 cells; paste does not tile into a larger target range; no cell-style clipboard.
+
+## Dialogs
+
+Paste Special is built on **[`EVGWindow`](../evg/EVGWindow.rgr)**, a small
+window layer that paints into an `EVGDisplayList` rather than onto a canvas —
+so the same dialogs work on SoftCanvas, WebGL and anything added later, and the
+DOCX and PPTX hosts can use them as they are. It provides a draggable titled
+panel, labels, buttons, radio groups, checkboxes and separators, with modal
+input capture: while a modal window is up it swallows clicks meant for the
+document behind it. Geometry is all integers, so behaviour is unit-testable
+without rendering.
+
+The same class is also the **sticky panel** the charts float in — a non-modal
+window with a close box, a resize grip and one *content region* the owner
+paints itself. Non-modal is the whole difference: a floating chart owns only
+the pixels it covers, so clicking the sheet beside it still selects a cell.
+
+The host stays in charge: it passes the `UITextRenderer` it already has,
+forwards the pointer and keys it already receives, and appends the window's
+commands to its own display list.
+
+## Charts
+
+Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
+picker opens on that range. Pick a type and a style, and the chart appears in a
+window floating over the sheet that you can drag, resize, and reopen for
+editing.
+
+Nothing about the drawing is stored. A chart *is* its range: `GridChart` holds
+the rectangle, the kind, the style, the two header flags and the window box, and
+the picture is recomputed from the cells. Edit a number the chart reads and the
+chart follows on the next frame.
+
+| Step | Where |
+| --- | --- |
+| cells → Vega-Lite JSON | `GridChart.rgr` (`ChartData.specJson`) |
+| Vega-Lite → Vega → scene → draw commands | [Vela](../vela/README.md), unchanged |
+| draw commands → `EVGDrawCmd` | [`VlEvgList.rgr`](../vela/src/VlEvgList.rgr) |
+| the window, the drag, the resize | [`EVGWindow`](../evg/EVGWindow.rgr) |
+
+Only the first arrow is new. Everything below it is Vela's, which is checked
+against the official Vega implementation by its own corpus, so a bar here is
+the bar the reference draws.
+
+### What the picker offers
+
+Eight types — column, bar, stacked column, line, area, scatter, pie, donut — and
+four styles (Vela light, Slate dark, Mono, Bold), which are `config` blocks: the
+same marks, painted differently.
+
+**A type that would not work is greyed out rather than hidden**, because
+"a pie is possible, but not of two series" is worth more than a shorter list:
+
+| Type | Needs |
+| --- | --- |
+| Stacked column | two or more series |
+| Line, area | two or more categories |
+| Scatter | a numeric first column |
+| Pie, donut | exactly one series, two or more categories |
+
+The picker opens on the type the data suggests, with the headers already
+guessed: a top row of words over a column of numbers is a header row, not data.
+A single selected cell charts the **block around it**, as Excel assumes too —
+nobody charts one number.
+
+Numbers are read strictly: `2024-01-01` and `14.00%` are *not* numbers, which
+matters because the platform's own `to_double` reads them as `2024` and `14`.
+A column of dates charted as six equal values of 2024 is how that was found.
+
+### The window
+
+| Gesture | Does |
+| --- | --- |
+| Drag the title bar | Moves the chart; the chart remembers where it was left |
+| Drag the bottom-right grip | Resizes it, and the chart redraws to fit |
+| **Edit…** | Reopens the picker on that chart — change type, style or headers |
+| The box in the title bar | Removes the chart |
+
+Charts belong to a sheet: switch sheets and the ones reading another sheet hide
+rather than draw over the wrong numbers.
+
+### Fitting
+
+A Vega view is bigger than its plot — the axes and legend grow it by whatever
+they turn out to need, which is not known until the labels exist. So the spec is
+run once to measure that, run again with the plot shrunk by exactly that much,
+and only scaled if it still does not fit. The usual result is 1:1, so the text
+is crisp rather than resampled. Compiling is cached by specification text and
+box size, which is why dragging a chart costs nothing and editing a cell it
+reads costs one recompute.
+
+## Parity score
+
+`npm run datagrid:parity` scores [`docs/PARITY.md`](docs/PARITY.md) — one row per
+capability **FortuneSheet documents for itself** (its README Features section
+and the completed items on its roadmap), so the number measures the benchmark
+rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
+
+```
+TOTAL   27.0 / 41   65.9%     done 23   partial 8   todo 10
+```
+
+`-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
+the score can gate CI once it is where you want it. The biggest gaps left are
+xlsx **export**, insert / delete for **rows**, rich text inside a cell, images,
+comments and find-and-replace.
 
 ## Architecture invariant
 

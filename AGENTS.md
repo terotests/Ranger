@@ -72,8 +72,13 @@ Short form:
 - **Do not name a method `toString`** — it can crash the compiler; use
   `asString` / `getSymbol` instead (ISSUES.md).
 - **Some method names are reserved.** Defining `contains`, `startsWith`,
-  `endsWith` or `trim` on your own class compiles, but every call site fails
-  with `Class X does not have method …` — the compiler resolves those names
-  elsewhere. Rename (`hasSub`, `beginsWith`, `finishesWith`, `trimWs`).
+  `endsWith`, `trim`, `first` or `last` on your own class compiles, but every
+  call site fails with `Class X does not have method …` — the compiler resolves
+  those names elsewhere. Rename (`hasSub`, `beginsWith`, `finishesWith`,
+  `trimWs`, `lowest`, `highest`).
+- **Arithmetic on a call result needs a variable.** `(w - (Foo.bar() + 8))`
+  fails to parse the `+`; bind the call first (`def b:int (Foo.bar())`) and do
+  the arithmetic on the name. The same applies to `(obj.method()).field` —
+  bind the object, then read the field.
 - No `abs` builtin; inline the absolute value. Prefer flattening over relying on
   the TSX interpreter's limited `extends` / `super`.

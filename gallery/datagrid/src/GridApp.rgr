@@ -16,6 +16,9 @@ Import "SheetView.rgr"
 Import "FormulaEngine.rgr"
 Import "xlsx/XlsxLoader.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
+Import "../../evg/EVGWindow.rgr"
+Import "GridChart.rgr"
+Import "GridChartView.rgr"
 
 class GridApp {
     def book:WorkbookModel (new WorkbookModel)
@@ -49,6 +52,24 @@ class GridApp {
     def clipCols:int 0
     def clipValues:[string]
     def clipFormulas:[string]
+    def clipStyles:[CellStyle]
+    ; 0 = everything (default), 1 = values only, 2 = formats only,
+    ; 3 = values + formulas but no formatting.
+    def pasteMode:int 0
+    ; Shared EVG dialog layer — the same windows the DOCX / PPTX hosts can use.
+    def windows:EVGWindowManager (new EVGWindowManager)
+    def pasteDialog:EVGWindow (new EVGWindow)
+    ; Charts: the picker, and the description it is editing. The charts
+    ; themselves live on the view's ChartLayer, because that is what paints
+    ; them; this side only decides what they are.
+    def chartDialog:EVGWindow (new EVGWindow)
+    def pendingChart:GridChart (new GridChart)
+    ; The chart the picker is editing, or 0 when it is making a new one.
+    def chartEditId:int 0
+    def dialogsReady:boolean false
+    ; Format painter: armed by Ctrl+Shift+C, applied to the next selection.
+    def formatBrush:CellStyle (new CellStyle)
+    def formatBrushArmed:boolean false
     def clipCut:boolean false
     def loadError:string ""
 
@@ -74,6 +95,10 @@ class GridApp {
 
     fn init:void (fontDir:string) {
         view.init(W H fontDir)
+        ; The view paints the windows and the charts, so it is given them once
+        ; here rather than on every frame — anything that builds a display list
+        ; directly (a test, a dump) then sees the same scene the app does.
+        view.windows = windows
         grid.setBounds(0 0 W (H - statusH))
         this.loadDemo()
     }
@@ -136,6 +161,7 @@ class GridApp {
         }
         book.setActive(i)
         this.syncActiveModel()
+        view.chartLayer.showSheet(book.activeIndex)
     }
 
     ; --- column sizing --------------------------------------------------------
@@ -205,12 +231,238 @@ class GridApp {
             this.autoFitColumn(edgeCol)
             return true
         }
+        if (this.autoFitRowAt(px py)) {
+            return true
+        }
         def hit:CellPos (grid.hitTest(model px py))
         if ((hit.row == -2) && (hit.col >= 0)) {
             this.autoFitColumn(hit.col)
             return true
         }
         return false
+    }
+
+    ; Row height that fits wrapped content — the counterpart of column auto-fit.
+    fn autoFitRow:void (row:int) {
+        if (row < 0) {
+            return
+        }
+        if (row >= model.rowCount) {
+            return
+        }
+        def best:int model.defaultRowH
+        def c:int 0
+        def lastCol:int (model.usedCol())
+        while (c <= lastCol) {
+            def txt:string (model.getDisplay(row c))
+            if ((strlen txt) > 0) {
+                def st:CellStyle (model.getCellStyle(row c))
+                def need:int (view.measureWrappedHeight(txt (model.colWidth(c)) st))
+                if (need > best) {
+                    best = need
+                }
+            }
+            c = (c + 1)
+        }
+        if (best > 400) {
+            best = 400
+        }
+        model.setRowHeight(row best)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    ; Double-click on a row header edge auto-fits its height.
+    fn autoFitRowAt:boolean (px:int py:int) {
+        def edgeRow:int (grid.hitRowResize(model px py))
+        if (edgeRow >= 0) {
+            this.autoFitRow(edgeRow)
+            return true
+        }
+        return false
+    }
+
+    ; --- column structure -----------------------------------------------------
+    ; Insert / delete / move a column. The data move lives in SpreadsheetModel;
+    ; what belongs here is repairing every formula in the WORKBOOK that pointed
+    ; into the edited sheet — including cross-sheet references naming it — and
+    ; rebuilding the dependency graph afterwards.
+    fn adjustFormulasForColumns:void (at:int delta:int) {
+        def sheetName:string model.name
+        def si:int 0
+        def sn:int (book.sheetCount())
+        while (si < sn) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            def sameSheet:boolean (si == book.activeIndex)
+            def keys:[string]
+            def texts:[string]
+            sheet.snapshotFormulas(keys texts)
+            def i:int 0
+            while (i < (array_length keys)) {
+                def key:string (itemAt keys i)
+                def expr:string (itemAt texts i)
+                ; On another sheet only qualified references are affected.
+                def nameForMatch:string sheetName
+                if (sameSheet == false) {
+                    nameForMatch = sheetName
+                }
+                def rewritten:string (FormulaParser.adjustColumns(expr nameForMatch at delta))
+                if ((strlen rewritten) > 0) {
+                    if (rewritten != expr) {
+                        set sheet.formulas key rewritten
+                    }
+                }
+                i = (i + 1)
+            }
+            si = (si + 1)
+        }
+        model.version = (model.version + 1)
+    }
+
+    fn afterStructuralChange:void () {
+        sheetView.markDirty()
+        sheetView.rebuild()
+        engine.rebuildAll()
+        grid.updateVisible(model)
+    }
+
+    fn insertColumn:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(1 at 0)
+        model.insertColumnRaw(at)
+        model.endTx()
+        this.adjustFormulasForColumns(at 1)
+        this.afterStructuralChange()
+    }
+
+    fn deleteColumn:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        if (at >= model.colCount) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(2 at 0)
+        model.deleteColumnRaw(at)
+        model.endTx()
+        this.adjustFormulasForColumns(at -1)
+        this.afterStructuralChange()
+    }
+
+    fn moveColumn:void (from:int to:int) {
+        if (from == to) {
+            return
+        }
+        if (from < 0) {
+            return
+        }
+        if (from >= model.colCount) {
+            return
+        }
+        if (to < 0) {
+            return
+        }
+        if (to >= model.colCount) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp(3 from to)
+        model.moveColumnRaw(from to)
+        model.endTx()
+        ; A move is a delete followed by an insert, so refs shift twice.
+        this.adjustFormulasForColumns(from -1)
+        this.adjustFormulasForColumns(to 1)
+        this.afterStructuralChange()
+    }
+
+    fn insertColumnLeftOfSelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        this.insertColumn(a.col)
+    }
+
+    fn insertColumnRightOfSelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        this.insertColumn((b.col + 1))
+    }
+
+    fn deleteSelectedColumns:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def count:int ((b.col - a.col) + 1)
+        def i:int 0
+        while (i < count) {
+            this.deleteColumn(a.col)
+            i = (i + 1)
+        }
+        sel.anchor.col = a.col
+        sel.active.col = a.col
+        def p:CellPos (CellPos.create(sel.active.row sel.active.col))
+        model.clampPos(p)
+        sel.setActive(p.row p.col)
+        sel.collapseToActive()
+    }
+
+    fn moveSelectedColumn:void (delta:int) {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def from:int a.col
+        def to:int (from + delta)
+        if (to < 0) {
+            return
+        }
+        if (to >= model.colCount) {
+            return
+        }
+        this.moveColumn(from to)
+        sel.anchor.col = to
+        sel.active.col = to
+    }
+
+    ; --- format painter -------------------------------------------------------
+    ; Ctrl+Shift+C picks up the active cell's formatting; the next selection it
+    ; is applied to gets it, and the brush disarms — like every office app.
+    fn copyFormat:void () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        formatBrush = (st.copy())
+        formatBrushArmed = true
+        view.status = "format brush armed"
+    }
+
+    fn applyFormatToSelection:void () {
+        if (formatBrushArmed == false) {
+            return
+        }
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        model.beginTx()
+        def r:int a.row
+        while (r <= b.row) {
+            def c:int a.col
+            while (c <= b.col) {
+                model.applyEditStyled(r c (model.getCell(r c)) (model.getFormula(r c)) formatBrush)
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        model.endTx()
+        formatBrushArmed = false
+        view.status = "format applied"
+    }
+
+    fn cancelFormatBrush:void () {
+        formatBrushArmed = false
     }
 
     fn nudgeColumnWidth:void (col:int delta:int) {
@@ -317,8 +569,23 @@ class GridApp {
         if ((ly >= 126) && (ly < 146)) {
             return 6
         }
-        if ((ly >= 146) && (ly < 170)) {
+        if ((ly >= 146) && (ly < 166)) {
             return 7
+        }
+        if ((ly >= 166) && (ly < 186)) {
+            return 8
+        }
+        if ((ly >= 186) && (ly < 206)) {
+            return 9
+        }
+        if ((ly >= 206) && (ly < 226)) {
+            return 10
+        }
+        if ((ly >= 226) && (ly < 246)) {
+            return 11
+        }
+        if ((ly >= 246) && (ly < 270)) {
+            return 12
         }
         return 0
     }
@@ -355,7 +622,398 @@ class GridApp {
         if (action == 7) {
             this.nudgeColumnWidth(col -20)
         }
+        if (action == 8) {
+            this.insertColumn(col)
+        }
+        if (action == 9) {
+            this.insertColumn((col + 1))
+        }
+        if (action == 10) {
+            this.deleteColumn(col)
+        }
+        if (action == 11) {
+            this.moveColumn(col (col - 1))
+        }
+        if (action == 12) {
+            this.moveColumn(col (col + 1))
+        }
         this.closeHeaderMenu()
+    }
+
+    ; --- dialogs --------------------------------------------------------------
+    ; Paste Special, built on the shared EVGWindow layer. Control ids:
+    ;   1..4 the mode radios, 10 OK, 11 Cancel.
+    fn buildDialogs:void () {
+        if dialogsReady {
+            return
+        }
+        pasteDialog.title = "Paste Special"
+        pasteDialog.w = 264
+        pasteDialog.reset()
+        pasteDialog.addLabel("Paste")
+        pasteDialog.addRadio(1 "All (values, formulas, formats)" 1 true)
+        pasteDialog.addRadio(2 "Values only" 1 false)
+        pasteDialog.addRadio(3 "Formats only" 1 false)
+        pasteDialog.addRadio(4 "Values and formulas, no formats" 1 false)
+        pasteDialog.addSeparator()
+        def ids:[int]
+        push ids 11
+        push ids 10
+        def labels:[string]
+        push labels "Cancel"
+        push labels "Paste"
+        pasteDialog.addButtonRow(ids labels 10)
+        pasteDialog.finish()
+        windows.add(pasteDialog)
+        ; The chart picker's contents are rebuilt every time it opens — which
+        ; kinds are offered depends on the selection — so only its place in the
+        ; stack is settled here.
+        chartDialog.w = 300
+        chartDialog.title = "Chart"
+        windows.add(chartDialog)
+        dialogsReady = true
+    }
+
+    ; --- charts ---------------------------------------------------------------
+    ; What a chart made right now would read. A selection of one cell means
+    ; "the block I am standing in", which is what Excel assumes too: nobody
+    ; charts a single number.
+    fn rowHasContent:boolean (r:int c0:int c1:int) {
+        def c:int c0
+        while (c <= c1) {
+            if ((strlen (model.getCell(r c))) > 0) {
+                return true
+            }
+            c = (c + 1)
+        }
+        return false
+    }
+
+    fn selectionChart:void (out:GridChart) {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def r0:int a.row
+        def c0:int a.col
+        def r1:int b.row
+        def c1:int b.col
+        if (r0 == r1) {
+            if (c0 == c1) {
+                while (c0 > 0) {
+                    if ((strlen (model.getCell(r0 (c0 - 1)))) == 0) {
+                        break
+                    }
+                    c0 = (c0 - 1)
+                }
+                while (c1 < (model.colCount - 1)) {
+                    if ((strlen (model.getCell(r0 (c1 + 1)))) == 0) {
+                        break
+                    }
+                    c1 = (c1 + 1)
+                }
+                while (r0 > 0) {
+                    if ((this.rowHasContent((r0 - 1) c0 c1)) == false) {
+                        break
+                    }
+                    r0 = (r0 - 1)
+                }
+                while (r1 < (model.rowCount - 1)) {
+                    if ((this.rowHasContent((r1 + 1) c0 c1)) == false) {
+                        break
+                    }
+                    r1 = (r1 + 1)
+                }
+            }
+        }
+        out.r0 = r0
+        out.c0 = c0
+        out.r1 = r1
+        out.c1 = c1
+        out.sheet = book.activeIndex
+        ; Headers are guessed the way a reader would: a top row of words over a
+        ; column of numbers is a header, not data.
+        def flag:[boolean]
+        ChartData.asNumber((model.getCell(r0 c1)) flag)
+        def topIsText:boolean true
+        if ((array_length flag) > 0) {
+            topIsText = ((itemAt flag 0) == false)
+        }
+        out.useHeaderRow = false
+        if (r1 > r0) {
+            out.useHeaderRow = topIsText
+        }
+        ChartData.asNumber((model.getCell(r1 c0)) flag)
+        def leftIsText:boolean true
+        if ((array_length flag) > 0) {
+            leftIsText = ((itemAt flag 0) == false)
+        }
+        out.useHeaderCol = false
+        if (c1 > c0) {
+            out.useHeaderCol = leftIsText
+        }
+    }
+
+    ; Open the picker: on the current selection when `editId` is 0, on an
+    ; existing chart otherwise.
+    fn openChartDialog:void (editId:int) {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        chartEditId = editId
+        if (editId > 0) {
+            def p:ChartPanel (view.chartLayer.panelForChart(editId))
+            if (p.chart.id != editId) {
+                return
+            }
+            pendingChart.copyFrom(p.chart)
+        } {
+            def fresh:GridChart (new GridChart)
+            this.selectionChart(fresh)
+            pendingChart.copyFrom(fresh)
+        }
+        def probe:ChartData (new ChartData)
+        def has:boolean (probe.extract(model pendingChart))
+        if (editId == 0) {
+            if has {
+                pendingChart.kind = (probe.suggestedKind())
+            }
+        }
+        ; Never open on a choice that cannot be drawn.
+        if has {
+            if ((probe.suits(pendingChart.kind)) == false) {
+                def k2:int (ChartKind.lowest())
+                while (k2 <= (ChartKind.highest())) {
+                    if (probe.suits(k2)) {
+                        pendingChart.kind = k2
+                        k2 = ((ChartKind.highest()) + 1)
+                    } {
+                        k2 = (k2 + 1)
+                    }
+                }
+            }
+        }
+
+        chartDialog.title = "Insert chart"
+        if (editId > 0) {
+            chartDialog.title = "Chart"
+        }
+        chartDialog.reset()
+        chartDialog.addLabel(("Data: " + (pendingChart.rangeLabel())))
+        chartDialog.addSeparator()
+        chartDialog.addLabel("Chart type")
+        chartDialog.beginColumns(2)
+        def k:int (ChartKind.lowest())
+        while (k <= (ChartKind.highest())) {
+            def id:int (100 + k)
+            chartDialog.addRadio(id (ChartKind.label(k)) 1 (k == pendingChart.kind))
+            def c:EVGControl (chartDialog.controlById(id))
+            def ok:boolean false
+            if has {
+                ok = (probe.suits(k))
+            }
+            c.enabled = ok
+            if (ok == false) {
+                c.checked = false
+            }
+            k = (k + 1)
+        }
+        chartDialog.endColumns()
+        chartDialog.addSeparator()
+        chartDialog.addLabel("Style")
+        chartDialog.beginColumns(2)
+        def st:int (ChartStyle.lowest())
+        while (st <= (ChartStyle.highest())) {
+            chartDialog.addRadio((200 + st) (ChartStyle.label(st)) 2 (st == pendingChart.style))
+            st = (st + 1)
+        }
+        chartDialog.endColumns()
+        chartDialog.addSeparator()
+        chartDialog.addCheckbox(301 "First row names the series" pendingChart.useHeaderRow)
+        chartDialog.addCheckbox(302 "First column labels the categories" pendingChart.useHeaderCol)
+        def ids:[int]
+        def labels:[string]
+        if (editId > 0) {
+            push ids 402
+            push labels "Delete"
+        }
+        push ids 401
+        push labels "Cancel"
+        push ids 403
+        if (editId > 0) {
+            push labels "Apply"
+        } {
+            push labels "Create"
+        }
+        chartDialog.addButtonRow(ids labels 403)
+        chartDialog.finish()
+        def px:int (grid.x + (idiv (W - chartDialog.w) 2))
+        def py:int (grid.y + 40)
+        chartDialog.openWithin(px py W H)
+        windows.raise(chartDialog)
+        view.focused = true
+    }
+
+    ; Read the picker back into the chart and put it on the sheet.
+    fn applyChartDialog:void () {
+        def chosen:int (chartDialog.selectedInGroup(1))
+        if (chosen > 100) {
+            pendingChart.kind = (chosen - 100)
+        }
+        def st:int (chartDialog.selectedInGroup(2))
+        if (st > 200) {
+            pendingChart.style = (st - 200)
+        }
+        pendingChart.useHeaderRow = (chartDialog.isChecked(301))
+        pendingChart.useHeaderCol = (chartDialog.isChecked(302))
+        if (chartEditId > 0) {
+            view.chartLayer.apply(chartEditId pendingChart)
+        } {
+            ; New charts cascade, so the second one is not hidden under the
+            ; first.
+            def step:int ((view.chartLayer.count()) % 5)
+            pendingChart.x = ((grid.x + 96) + (step * 26))
+            pendingChart.y = ((grid.y + 64) + (step * 22))
+            if ((pendingChart.x + pendingChart.w) > W) {
+                pendingChart.x = (W - (pendingChart.w + 12))
+            }
+            if (pendingChart.x < 4) {
+                pendingChart.x = 4
+            }
+            view.chartLayer.add(windows pendingChart)
+        }
+        chartDialog.close()
+        chartEditId = 0
+    }
+
+    ; A chart window's own buttons: the close box removes the chart, "Edit…"
+    ; brings the picker back. Both are collected before anything is removed,
+    ; because removing rewrites the list being walked.
+    fn pollChartWindows:void () {
+        def layer:ChartLayer view.chartLayer
+        def openEdit:int 0
+        def closing:int 0
+        def i:int 0
+        while (i < (layer.count())) {
+            def p:ChartPanel (layer.panelAt(i))
+            if (p.win.activated == (ChartLayer.editId())) {
+                openEdit = p.chart.id
+            }
+            if (p.win.activated == (ChartLayer.closeId())) {
+                closing = p.chart.id
+            }
+            i = (i + 1)
+        }
+        if (closing > 0) {
+            layer.remove(windows closing)
+        }
+        if (openEdit > 0) {
+            this.openChartDialog(openEdit)
+        }
+    }
+
+    ; The status bar's "+ Chart" button.
+    fn chartButtonHit:boolean (px:int py:int) {
+        def statusTop:int (grid.y + grid.h)
+        def bx:int (GridView.chartButtonX(W))
+        def by:int (GridView.chartButtonY(statusTop))
+        if (px < bx) {
+            return false
+        }
+        if (py < by) {
+            return false
+        }
+        def bw:int (GridView.chartButtonW())
+        def bh:int (GridView.chartButtonH())
+        if (px >= (bx + bw)) {
+            return false
+        }
+        return (py < (by + bh))
+    }
+
+    fn openPasteSpecial:void () {
+        this.buildDialogs()
+        ; Reflect the current default so the dialog opens on "All".
+        pasteDialog.selectRadio(1)
+        if (pasteMode == 1) {
+            pasteDialog.selectRadio(2)
+        }
+        if (pasteMode == 2) {
+            pasteDialog.selectRadio(3)
+        }
+        if (pasteMode == 3) {
+            pasteDialog.selectRadio(4)
+        }
+        def px:int (grid.x + (idiv (W - pasteDialog.w) 2))
+        def py:int (grid.y + 70)
+        pasteDialog.openAt(px py)
+        ; A dialog opened over a floating chart has to be in front of it.
+        windows.raise(pasteDialog)
+        view.focused = true
+    }
+
+    ; Route the frame through the window layer, then read what it produced.
+    ;
+    ; The return value is what the grid uses to decide whether the frame is
+    ; still its own, and it is not the same question as "is a window open".
+    ; A MODAL dialog owns everything until it closes. A floating chart owns
+    ; only the pixels it covers: clicking the sheet beside it must still select
+    ; a cell, or a chart would freeze the document it is a view of.
+    fn updateDialogs:boolean (input:UIInput) {
+        if ((windows.anyVisible()) == false) {
+            return false
+        }
+        def blocking:boolean (windows.anyModalVisible())
+        def consumed:boolean (windows.handlePointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased))
+        def ki:int 0
+        def kn:int (input.keyCount())
+        while (ki < kn) {
+            windows.handleKey((input.keyAt(ki)) (UIKey.escape()) (UIKey.enter()))
+            ki = (ki + 1)
+        }
+        if (pasteDialog.activated == 10) {
+            def chosen:int (pasteDialog.selectedInGroup(1))
+            def mode:int 0
+            if (chosen == 2) {
+                mode = 1
+            }
+            if (chosen == 3) {
+                mode = 2
+            }
+            if (chosen == 4) {
+                mode = 3
+            }
+            pasteDialog.close()
+            def prev:int pasteMode
+            pasteMode = mode
+            this.pasteClipboard()
+            pasteMode = prev
+        }
+        if (pasteDialog.activated == 11) {
+            pasteDialog.close()
+        }
+        if (chartDialog.activated == 403) {
+            this.applyChartDialog()
+        }
+        if (chartDialog.activated == 401) {
+            chartDialog.close()
+            chartEditId = 0
+        }
+        if (chartDialog.activated == 402) {
+            if (chartEditId > 0) {
+                view.chartLayer.remove(windows chartEditId)
+            }
+            chartDialog.close()
+            chartEditId = 0
+        }
+        this.pollChartWindows()
+        ; Dragging and resizing happened inside the window layer; the charts
+        ; keep their own geometry so it survives the window being rebuilt.
+        view.chartLayer.syncGeometry()
+        if blocking {
+            return true
+        }
+        return consumed
     }
 
     fn resize:void (nw:int nh:int) {
@@ -391,7 +1049,13 @@ class GridApp {
         if editing {
             this.cancelEdit()
         }
+        model.structDirty = false
         def u:CellPos (model.undo())
+        if model.structDirty {
+            model.structDirty = false
+            this.afterStructuralChange()
+            return
+        }
         this.syncTouched()
         this.moveActive(u.row u.col false)
     }
@@ -400,7 +1064,13 @@ class GridApp {
         if editing {
             this.cancelEdit()
         }
+        model.structDirty = false
         def r:CellPos (model.redo())
+        if model.structDirty {
+            model.structDirty = false
+            this.afterStructuralChange()
+            return
+        }
         this.syncTouched()
         this.moveActive(r.row r.col false)
     }
@@ -866,6 +1536,7 @@ class GridApp {
         clipCut = false
         clear clipValues
         clear clipFormulas
+        clear clipStyles
         def out:string ""
         def html:string "<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\">"
         def r:int a.row
@@ -884,6 +1555,10 @@ class GridApp {
                 html = (html + (this.cellHtml(r c)))
                 push clipValues v
                 push clipFormulas (model.getFormula(r c))
+                ; Formatting travels with the cell, so a paste looks like the
+                ; source by default — the way every spreadsheet behaves.
+                def cst:CellStyle (model.getCellStyle(r c))
+                push clipStyles (cst.copy())
                 c = (c + 1)
             }
             html = (html + "</tr>")
@@ -910,6 +1585,7 @@ class GridApp {
         clipCut = false
         clear clipValues
         clear clipFormulas
+        clear clipStyles
         clipRows = 0
         clipCols = 0
     }
@@ -953,17 +1629,32 @@ class GridApp {
                 def tc:int (startC + ci)
                 if ((tr < model.rowCount) && (tc < model.colCount)) {
                     def f:string (itemAt clipFormulas idx)
-                    def wrote:boolean false
+                    def srcStyle:CellStyle (itemAt clipStyles idx)
+                    def newValue:string (itemAt clipValues idx)
+                    def newFormula:string ""
                     if ((strlen f) > 0) {
                         def translated:string (FormulaParser.translateFormula(f dx dy))
                         if ((strlen translated) > 0) {
-                            model.applyEdit(tr tc "" translated)
-                            wrote = true
+                            newFormula = translated
+                            newValue = ""
                         }
                     }
-                    if (wrote == false) {
-                        model.applyEdit(tr tc (itemAt clipValues idx) "")
+                    ; Paste mode picks which of the three parts land.
+                    ;   0 everything (default)  1 values only
+                    ;   2 formats only          3 values + formulas, no formats
+                    if (pasteMode == 1) {
+                        newFormula = ""
+                        newValue = (itemAt clipValues idx)
                     }
+                    if (pasteMode == 2) {
+                        newFormula = (model.getFormula(tr tc))
+                        newValue = (model.getCell(tr tc))
+                    }
+                    def useStyle:CellStyle srcStyle
+                    if ((pasteMode == 1) || (pasteMode == 3)) {
+                        useStyle = (model.getCellStyle(tr tc))
+                    }
+                    model.applyEditStyled(tr tc newValue newFormula useStyle)
                     engine.syncCell(book.activeIndex tr tc)
                     if (tr > maxR) {
                         maxR = tr
@@ -1217,7 +1908,15 @@ class GridApp {
     }
 
     fn update:void (input:UIInput) {
+        ; A visible dialog owns the frame.
+        if (this.updateDialogs(input)) {
+            return
+        }
         if input.pointerPressed {
+            if (this.chartButtonHit(input.pointerX input.pointerY)) {
+                this.openChartDialog(0)
+                return
+            }
             def tab:int (grid.hitSheetTab((book.sheetCount()) input.pointerX input.pointerY))
             if (tab >= 0) {
                 this.setActiveSheet(tab)
@@ -1277,6 +1976,13 @@ class GridApp {
         }
 
         if input.pointerReleased {
+            if formatBrushArmed {
+                if (resizing == false) {
+                    if (resizingRows == false) {
+                        this.applyFormatToSelection()
+                    }
+                }
+            }
             if filling {
                 this.fillFromSource()
             }
@@ -1309,7 +2015,11 @@ class GridApp {
                     if editing {
                         this.commitEdit()
                     }
-                    this.copySelection()
+                    if input.shiftDown {
+                        this.copyFormat()
+                    } {
+                        this.copySelection()
+                    }
                 }
                 if ((ch == 120) || (ch == 88)) {
                     if editing {
@@ -1318,7 +2028,20 @@ class GridApp {
                     this.cutSelection()
                 }
                 if ((ch == 118) || (ch == 86)) {
-                    this.pasteClipboard()
+                    if input.shiftDown {
+                        this.openPasteSpecial()
+                    } {
+                        this.pasteClipboard()
+                    }
+                }
+                ; Ctrl+M makes a chart of the selection. Excel's own chart
+                ; keys (F11, Alt+F1) are not keys this input layer carries, and
+                ; the browser host keeps most of the rest.
+                if ((ch == 109) || (ch == 77)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openChartDialog(0)
                 }
                 if ((ch == 122) || (ch == 90)) {
                     this.undoEdit()
@@ -1365,6 +2088,7 @@ class GridApp {
     fn render:void () {
         view.status = ("v" + (to_string model.version))
         view.editCaret = editCaret
+        view.windows = windows
         view.render(model sel grid editing editBuf book)
     }
 
@@ -1375,6 +2099,7 @@ class GridApp {
     fn sceneJson:string () {
         view.status = ("v" + (to_string model.version))
         view.editCaret = editCaret
+        view.windows = windows
         return (view.sceneJson(model sel grid editing editBuf book))
     }
 

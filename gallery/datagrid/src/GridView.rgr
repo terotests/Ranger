@@ -15,6 +15,8 @@ Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "CellStyle.rgr"
 Import "ConditionalFormat.rgr"
+Import "../../evg/EVGWindow.rgr"
+Import "GridChartView.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -46,6 +48,12 @@ class GridView {
     def theme:GridTheme (new GridTheme)
     def status:string ""
     def editCaret:int 0
+    ; Dialogs painted on top of the grid, from the shared EVG window layer.
+    def windows:EVGWindowManager (new EVGWindowManager)
+    ; The charts floating over the sheet. Painted here rather than by the
+    ; window layer, because their content is the document's and the frame is
+    ; not.
+    def chartLayer:ChartLayer (new ChartLayer)
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -54,7 +62,7 @@ class GridView {
     def pageH:int 560
     def menuOpen:boolean false
     def menuW:int 190
-    def menuH:int 170
+    def menuH:int 270
     def menuCol:int -1
     def menuX:int 0
     def menuY:int 0
@@ -69,6 +77,11 @@ class GridView {
         ctx.attach(canvas)
         ctx.tr.addFontDir(fontDir)
         def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
+        ; Only Regular used to be loaded, so every bold / italic cell silently
+        ; fell back to it — styles.xml said bold, the grid painted regular.
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Italic.ttf")
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-BoldItalic.ttf")
         if (ok == false) {
             status = "bitmap-font fallback"
         } {
@@ -137,6 +150,64 @@ class GridView {
         push dl.cmds c
     }
 
+    ; Select the raster face. It must go through fontFamily: UITextRenderer
+    ; re-applies the face from it on every measure and draw, so setting rt
+    ; directly is undone by the next call.
+    fn applyFace:void (bold:boolean) {
+        this.applyFaceStyled(bold false)
+    }
+
+    fn applyFaceStyled:void (bold:boolean italic:boolean) {
+        def want:string "Open Sans"
+        if bold {
+            want = "Open Sans-Bold"
+            if italic {
+                want = "Open Sans-BoldItalic"
+            }
+        } {
+            if italic {
+                want = "Open Sans-Italic"
+            }
+        }
+        if (ctx.tr.fontFamily == want) {
+            return
+        }
+        def face:TrueTypeFont (ctx.tr.fm.getFont(want))
+        if (face.unitsPerEm > 0) {
+            ctx.tr.fontFamily = want
+            ctx.tr.applyFace()
+        }
+    }
+
+    ; Text with per-cell weight / slant. The face is selected before measuring
+    ; so the width recorded on the command matches what gets painted.
+    fn pushStyledText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor bold:boolean italic:boolean) {
+        if ((strlen text) == 0) {
+            return
+        }
+        this.applyFaceStyled(bold italic)
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = (ctx.tr.measureWidth(text size))
+        c.h = (ctx.tr.lineHeight(size))
+        c.text = text
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        if bold {
+            c.fontWeight = "bold"
+        }
+        if italic {
+            c.textAlign = "italic"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
     fn pushClip:void (dl:EVGDisplayList x:double y:double w:double h:double) {
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 4
@@ -158,6 +229,197 @@ class GridView {
             return (EVGColor.parse(hex))
         }
         return fallback
+    }
+
+    ; --- cell borders ---------------------------------------------------------
+    ; One edge, honouring the OOXML line style: solid, dashed, dotted or double.
+    ; Drawn as rects so it works on every EVG backend.
+    fn pushEdge:void (dl:EVGDisplayList b:CellBorder x:int y:int len:int horizontal:boolean) {
+        if ((b.has()) == false) {
+            return
+        }
+        if (len <= 0) {
+            return
+        }
+        def col:EVGColor (this.colorOr(b.rgb theme.gridLine))
+        def w:int (b.width())
+        def pat:int (b.pattern())
+        if (pat == 3) {
+            ; double: two hairlines with a gap
+            if horizontal {
+                this.pushRect(dl (to_double x) (to_double y) (to_double len) 1.0 col)
+                this.pushRect(dl (to_double x) (to_double (y + 2)) (to_double len) 1.0 col)
+            } {
+                this.pushRect(dl (to_double x) (to_double y) 1.0 (to_double len) col)
+                this.pushRect(dl (to_double (x + 2)) (to_double y) 1.0 (to_double len) col)
+            }
+            return
+        }
+        if (pat == 0) {
+            if horizontal {
+                this.pushRect(dl (to_double x) (to_double y) (to_double len) (to_double w) col)
+            } {
+                this.pushRect(dl (to_double x) (to_double y) (to_double w) (to_double len) col)
+            }
+            return
+        }
+        ; dashed / dotted: run of segments
+        def on:int 4
+        def off:int 3
+        if (pat == 2) {
+            on = 1
+            off = 2
+        }
+        def at:int 0
+        while (at < len) {
+            def seg:int on
+            if ((at + seg) > len) {
+                seg = (len - at)
+            }
+            if horizontal {
+                this.pushRect(dl (to_double (x + at)) (to_double y) (to_double seg) (to_double w) col)
+            } {
+                this.pushRect(dl (to_double x) (to_double (y + at)) (to_double w) (to_double seg) col)
+            }
+            at = (at + on + off)
+        }
+    }
+
+    ; Where the text baseline row starts, honouring vertical alignment.
+    fn textTopFor:int (rect:GridRect st:CellStyle lineH:int lines:int) {
+        def total:int (lineH * lines)
+        if (st.valign == "top") {
+            return (rect.y + 3)
+        }
+        if (st.valign == "center") {
+            def mid:int (rect.y + (idiv (rect.h - total) 2))
+            if (mid < (rect.y + 1)) {
+                return (rect.y + 1)
+            }
+            return mid
+        }
+        ; Excel's default is bottom.
+        def bot:int (((rect.y + rect.h) - total) - 2)
+        if (bot < (rect.y + 1)) {
+            return (rect.y + 1)
+        }
+        return bot
+    }
+
+    fn alignedX:double (rect:GridRect st:CellStyle textW:int) {
+        if (st.align == "right") {
+            return (to_double ((rect.x + rect.w) - textW - 4))
+        }
+        if (st.align == "center") {
+            return (to_double (rect.x + (to_int ((to_double (rect.w - textW)) / 2.0))))
+        }
+        return (to_double (rect.x + 4))
+    }
+
+    fn paintDecoration:void (dl:EVGDisplayList st:CellStyle tx:double top:int textW:int cellPx:double col:EVGColor) {
+        if st.underline {
+            this.pushRect(dl tx (to_double (top + (to_int cellPx))) (to_double textW) 1.0 col)
+        }
+        if st.strike {
+            this.pushRect(dl tx (to_double (top + (to_int (cellPx * 0.55)))) (to_double textW) 1.0 col)
+        }
+    }
+
+    ; wrapText: break to the cell width and paint the lines that fit.
+    fn paintWrapped:void (dl:EVGDisplayList txt:string rect:GridRect st:CellStyle cellPx:double col:EVGColor) {
+        def avail:int (rect.w - 8)
+        if (avail < 12) {
+            avail = 12
+        }
+        def lines:[string] (ctx.tr.wrap(txt cellPx (to_double avail)))
+        if ((array_length lines) == 0) {
+            push lines txt
+        }
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        def top:int (this.textTopFor(rect st lineH (array_length lines)))
+        this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            def lw:int (to_int (ctx.tr.measureWidth(line cellPx)))
+            def lx:double (this.alignedX(rect st lw))
+            def ly:int (top + (i * lineH))
+            this.pushStyledText(dl line lx (to_double ly) cellPx col st.bold st.italic)
+            this.paintDecoration(dl st lx ly lw cellPx col)
+            i = (i + 1)
+        }
+        this.popClip(dl)
+    }
+
+    ; No wrap: Excel spills into EMPTY neighbours and clips at the first
+    ; occupied one. Text used to always spill, painting over live cells.
+    fn spillWidth:int (model:SpreadsheetModel rect:GridRect r:int c:int toRight:boolean) {
+        def total:int rect.w
+        def step:int 1
+        if (toRight == false) {
+            step = -1
+        }
+        def probe:int (c + step)
+        def guard:int 0
+        while (guard < 32) {
+            if (probe < 0) {
+                return total
+            }
+            if (probe >= model.colCount) {
+                return total
+            }
+            if ((strlen (model.getCell(r probe))) > 0) {
+                return total
+            }
+            total = (total + (model.colWidth(probe)))
+            probe = (probe + step)
+            guard = (guard + 1)
+        }
+        return total
+    }
+
+    fn paintSingleLine:void (dl:EVGDisplayList model:SpreadsheetModel rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string r:int c:int) {
+        def textW:int (to_int (ctx.tr.measureWidth(txt cellPx)))
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        def top:int (this.textTopFor(rect st lineH 1))
+        def tx:double (this.alignedX(rect st textW))
+        ; Room the text may use: its own cell plus any empty neighbours in the
+        ; direction it grows.
+        def clipX:int rect.x
+        def clipW:int rect.w
+        if ((textW + 8) > rect.w) {
+            def toRight:boolean true
+            if (st.align == "right") {
+                toRight = false
+            }
+            def room:int (this.spillWidth(model rect r c toRight))
+            if toRight {
+                clipW = room
+            } {
+                clipX = ((rect.x + rect.w) - room)
+                clipW = room
+            }
+        }
+        this.pushClip(dl (to_double clipX) (to_double rect.y) (to_double clipW) (to_double rect.h))
+        this.pushStyledText(dl txt tx (to_double top) cellPx col st.bold st.italic)
+        this.paintDecoration(dl st tx top textW cellPx col)
+        this.popClip(dl)
+    }
+
+    fn paintCellBorders:void (dl:EVGDisplayList st:CellStyle rect:GridRect) {
+        if (st.hasBorder == false) {
+            return
+        }
+        this.pushEdge(dl st.borderTop rect.x rect.y rect.w true)
+        this.pushEdge(dl st.borderBottom rect.x ((rect.y + rect.h) - (st.borderBottom.width())) rect.w true)
+        this.pushEdge(dl st.borderLeft rect.x rect.y rect.h false)
+        this.pushEdge(dl st.borderRight ((rect.x + rect.w) - (st.borderRight.width())) rect.y rect.h false)
     }
 
     fn paintCell:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string r:int c:int) {
@@ -195,17 +457,23 @@ class GridView {
             if ((strlen st.textRgb) >= 4) {
                 col = (EVGColor.parse(st.textRgb))
             }
-            def tx:double (to_double (rect.x + 4))
-            if (st.align == "right") {
-                def tw:int (to_int (ctx.tr.measureWidth(txt fontSize)))
-                tx = (to_double ((rect.x + rect.w) - tw - 4))
+            ; Cell font size comes from the style (pt → px), bold / italic ride
+            ; on the draw command so both backends can honour them.
+            def cellPx:double fontSize
+            if (st.fontSizePt > 0.0) {
+                cellPx = ((st.fontSizePt * 96.0) / 72.0)
             }
-            if (st.align == "center") {
-                def tw2:int (to_int (ctx.tr.measureWidth(txt fontSize)))
-                tx = (to_double (rect.x + (to_int ((to_double (rect.w - tw2)) / 2.0))))
+            if (cellPx < 6.0) {
+                cellPx = 6.0
             }
-            this.pushText(dl txt tx (to_double (rect.y + 3)) fontSize col)
+            this.applyFaceStyled(st.bold st.italic)
+            if st.wrapText {
+                this.paintWrapped(dl txt rect st cellPx col)
+            } {
+                this.paintSingleLine(dl model rect st cellPx col txt r c)
+            }
         }
+        this.paintCellBorders(dl st rect)
     }
 
     ; r0..r1 / c0..c1 are VIEW indices when grid.hasView.
@@ -227,6 +495,25 @@ class GridView {
             }
             r = (r + 1)
         }
+    }
+
+    ; The status bar's chart button. Static so the hit test and the paint read
+    ; the same rectangle rather than two copies of it.
+    sfn chartButtonW:int () {
+        return 68
+    }
+
+    sfn chartButtonH:int () {
+        return 17
+    }
+
+    sfn chartButtonX:int (pageW:int) {
+        def bw:int (GridView.chartButtonW())
+        return (pageW - (bw + 8))
+    }
+
+    sfn chartButtonY:int (statusTop:int) {
+        return (statusTop + 2)
     }
 
     fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
@@ -478,6 +765,12 @@ class GridView {
             this.pushText(dl "5  Auto-fit width" (to_double (menuX + 8)) (to_double (menuY + 110)) 12.0 theme.cellText)
             this.pushText(dl "6  Wider  (+20)" (to_double (menuX + 8)) (to_double (menuY + 130)) 12.0 theme.cellText)
             this.pushText(dl "7  Narrower  (-20)" (to_double (menuX + 8)) (to_double (menuY + 150)) 12.0 theme.cellText)
+            this.pushRect(dl (to_double (menuX + 8)) (to_double (menuY + 168)) (to_double (mw - 16)) 1.0 theme.gridLine)
+            this.pushText(dl "8  Insert column left" (to_double (menuX + 8)) (to_double (menuY + 172)) 12.0 theme.cellText)
+            this.pushText(dl "9  Insert column right" (to_double (menuX + 8)) (to_double (menuY + 192)) 12.0 theme.cellText)
+            this.pushText(dl "10  Delete column" (to_double (menuX + 8)) (to_double (menuY + 212)) 12.0 theme.cellText)
+            this.pushText(dl "11  Move left" (to_double (menuX + 8)) (to_double (menuY + 232)) 12.0 theme.cellText)
+            this.pushText(dl "12  Move right" (to_double (menuX + 8)) (to_double (menuY + 252)) 12.0 theme.cellText)
         }
 
         ; status bar
@@ -491,6 +784,26 @@ class GridView {
             }
             def info:string ("sheet " + (book.activeName()) + "  sel " + (SpreadsheetModel.cellLabel(sel.active.row sel.active.col)) + "  visible " + (to_string grid.firstVisibleRow) + ".." + (to_string grid.lastVisibleRow) + "  rows=" + (to_string model.rowCount) + "  " + src + "  " + status)
             this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.statusText)
+            ; The one control on the status bar: making a chart out of what is
+            ; selected. A shortcut alone would be a feature nobody finds.
+            def cbx:int (GridView.chartButtonX(pageW))
+            def cby:int (GridView.chartButtonY(sy2))
+            this.pushRect(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) theme.headerBg)
+            this.pushBorder(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) 1.0 theme.gridLine)
+            this.pushText(dl "+ Chart" (to_double (cbx + 10)) (to_double (cby + 1)) 12.0 theme.statusText)
+        }
+
+        ; Dialogs and floating charts sit above everything, including the
+        ; status bar. Each window is painted and then immediately asked for its
+        ; content, so a chart's drawing lands inside its own frame and under
+        ; whatever is stacked on top of it — a dialog opened over a chart is
+        ; not drawn through.
+        def wi:int 0
+        while (wi < (array_length windows.windows)) {
+            def wnd:EVGWindow (itemAt windows.windows wi)
+            wnd.paint(dl ctx.tr pageW pageH)
+            chartLayer.paintContent(dl model ctx.tr wnd)
+            wi = (wi + 1)
         }
 
         return dl
@@ -512,10 +825,124 @@ class GridView {
             }
             if (c.kind == 3) {
                 def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
                 ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+            }
+            ; Vector ink: a chart's bars, wedges and grid lines arrive as
+            ; flattened rings, exactly as the WebGL backend gets them. Without
+            ; these two the browser would show a chart and the PNG would show
+            ; an empty box, which is the disagreement the display list exists
+            ; to prevent.
+            if (c.kind == 6) {
+                this.fillRings(c)
+            }
+            if (c.kind == 7) {
+                this.strokeRings(c)
             }
             i = (i + 1)
         }
+    }
+
+    ; One ring of a path command, as a flat point list.
+    fn ringAt:[double] (c:EVGDrawCmd index:int) {
+        def out:[double]
+        def start:int 0
+        if (index > 0) {
+            start = (itemAt c.ringEnds (index - 1))
+        }
+        def stop:int (itemAt c.ringEnds index)
+        def k:int start
+        while (k < stop) {
+            push out (itemAt c.pts k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn fillRings:void (c:EVGDrawCmd) {
+        def alpha:int (to_int (c.a * 255.0))
+        if (alpha <= 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringAt(c i))
+            ctx.fillPolygon(ring c.r c.g c.b alpha)
+            i = (i + 1)
+        }
+    }
+
+    ; A stroke becomes a quad per segment — the same expansion the WebGL
+    ; backend does, so the two agree on what a one-pixel grid line looks like.
+    fn strokeRings:void (c:EVGDrawCmd) {
+        def alpha:int (to_int (c.a * 255.0))
+        if (alpha <= 0) {
+            return
+        }
+        def half:double (c.thickness / 2.0)
+        if (half < 0.375) {
+            half = 0.375
+        }
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringAt(c i))
+            def n:int (array_length ring)
+            def k:int 0
+            while ((k + 3) < n) {
+                def x1:double (itemAt ring k)
+                def y1:double (itemAt ring (k + 1))
+                def x2:double (itemAt ring (k + 2))
+                def y2:double (itemAt ring (k + 3))
+                def dx:double (x2 - x1)
+                def dy:double (y2 - y1)
+                def len:double (sqrt ((dx * dx) + (dy * dy)))
+                if (len > 0.0001) {
+                    def nx:double (((0.0 - dy) / len) * half)
+                    def ny:double ((dx / len) * half)
+                    def quad:[double]
+                    push quad (x1 + nx)
+                    push quad (y1 + ny)
+                    push quad (x2 + nx)
+                    push quad (y2 + ny)
+                    push quad (x2 - nx)
+                    push quad (y2 - ny)
+                    push quad (x1 - nx)
+                    push quad (y1 - ny)
+                    ctx.fillPolygon(quad c.r c.g c.b alpha)
+                }
+                k = (k + 2)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Height the wrapped text needs in a column of `colW`, for row auto-fit.
+    fn measureWrappedHeight:int (text:string colW:int st:CellStyle) {
+        def cellPx:double fontSize
+        if (st.fontSizePt > 0.0) {
+            cellPx = ((st.fontSizePt * 96.0) / 72.0)
+        }
+        if (cellPx < 6.0) {
+            cellPx = 6.0
+        }
+        this.applyFaceStyled(st.bold st.italic)
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        if (st.wrapText == false) {
+            return (lineH + 6)
+        }
+        def avail:int (colW - 8)
+        if (avail < 12) {
+            avail = 12
+        }
+        def lines:[string] (ctx.tr.wrap(text cellPx (to_double avail)))
+        def n:int (array_length lines)
+        if (n < 1) {
+            n = 1
+        }
+        return ((lineH * n) + 6)
     }
 
     ; Width the grid would paint this text at, for auto-fit.

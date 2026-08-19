@@ -20,19 +20,21 @@
 ; Row / column headers            | painted chrome                            | done
 ; Resize columns                  | edge drag / dbl-click auto-fit / menu     | done
 ; Resize rows                     | row header edge drag (hitRowResize)       | done
-; Copy / paste / cut              | Ctrl+C/X/V, formula-aware block clipboard | done
+; Copy / paste / cut              | Ctrl+C/X/V, formats kept, Paste Special    | done
 ; Fill handle                     | drag active-cell handle (copy fill)       | done
 ; Merge cells                     | paint origin + hit-test → origin          | done
 ; Multiple sheets                 | tabs + hidden metadata + scroll save      | done
 ; Freeze panes                    | freezeRows/Cols + fixed bands             | done
 ; Undo / redo                     | transactional, value + formula per op     | done
-; Cell formatting (fill/font/…)   | styles.xml → CellStyle → EVG              | done
+; Cell formatting (fill/font/…)   | fill, bold/italic/underline/strike, size  | done
+; Cell borders                    | 4 edges, all OOXML line styles + colours  | done
 ; Number formats                  | XlsxNumberFormat engine (practical set)   | done
 ; Text wrap / rotation            |                                           | todo
 ; Sort / filter                   | SheetView paint + header popup UI         | done
 ; Formulas (engine)               | AST + deps + FormulaFunctions + coerce    | partial
 ; Conditional formatting          | colorScale + cellIs paint resolver        | partial
 ; Hidden rows / columns           | geometry height/width 0                   | done
+; Insert / delete / move columns  | data + geometry + merges + formula repair | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
 ;
@@ -45,6 +47,13 @@
 ; the sheet. Ctrl+End is O(1): SpreadsheetModel tracks usedMaxRow/usedMaxCol on
 ; write (Excel-like: it grows, it does not shrink) instead of rescanning.
 ; UIKey gained pageUp/pageDown/f2 (12/13/14).
+;
+; Clipboard carries a resolved CellStyle per cell, so formatting survives a
+; paste by default; value + formula + style land in ONE undo op via
+; applyEditStyled, and styleIdFor matches the style into the target sheet's
+; table by value. Ctrl+Shift+V opens Paste Special (all / values / formats /
+; no-formats), built on gallery/evg/EVGWindow — a shared window layer that
+; paints into an EVGDisplayList so DOCX and PPTX can reuse it.
 ;
 ; Clipboard: Ctrl+C/X fill clipboardTsv + the structured block. The WebGL host
 ; answers a copy/cut POST with {"clipboard": tsv} so the browser can put it on
@@ -78,7 +87,15 @@
 ; Screenshots: gallery/datagrid/artifacts/*.png|jpg (tracked).
 ;
 ; Number formats: General, 0, 0.00, #,##0(.00), %, currency, scientific,
-; dates/times, @, pos;neg;zero sections.
+; dates/times, @, pos;neg;zero sections. Quoted literals ("$"#,##0.00 and
+; 0" kg"), \x escapes, _x / *x and [Red] / [$-409] decorations are handled;
+; sections split outside quotes and brackets.
+;
+; Borders: styles.xml <borders> → CellBorder per edge (style + colour), painted
+; as rects so every backend shows them — solid / dashed / dotted / double, hair
+; thin medium thick and the dash-dot family, per-edge and defaulting to black.
+; An empty but formatted cell (<c r="B3" s="2"/>) keeps its fill and borders.
+; Fixture: styles-showcase.xlsx, artifact 04_styles_showcase.png.
 ;
 ; Oracles: openpyxl semantic + LibreOffice visual (SKIP if LO absent).
 ; Perf: grid_bench + sparse100k fixture (sheet size ≠ painted cells).

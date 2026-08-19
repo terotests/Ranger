@@ -29,6 +29,99 @@ class XlsxNumberFormat {
     Constructor () {
     }
 
+    ; Excel quotes literal text in a format code: "$"#,##0.00 shows a $, not a
+    ; quoted $. Also handles \x escapes, _x (a space the width of x), *x (fill)
+    ; and [Red] / [$-409] decorations. Elapsed-time brackets [h] [m] [s] stay.
+    ; Characters that are part of a numeric pattern rather than literal text.
+    sfn isPatternChar:boolean (ch:int) {
+        if ((ch == 35) || (ch == 48)) {
+            return true
+        }
+        if ((ch == 46) || (ch == 44)) {
+            return true
+        }
+        if ((ch == 63) || (ch == 37)) {
+            return true
+        }
+        if ((ch == 69) || (ch == 101)) {
+            return true
+        }
+        if ((ch == 43) || (ch == 45)) {
+            return true
+        }
+        return false
+    }
+
+    sfn unquotePattern:string (pat:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen pat)
+        while (i < n) {
+            def ch:int (charAt pat i)
+            if (ch == 34) {
+                i = (i + 1)
+                while (i < n) {
+                    def q:int (charAt pat i)
+                    if (q == 34) {
+                        i = (i + 1)
+                        break
+                    }
+                    out = (out + (strfromcode q))
+                    i = (i + 1)
+                }
+            } {
+                if (ch == 92) {
+                    i = (i + 1)
+                    if (i < n) {
+                        out = (out + (strfromcode (charAt pat i)))
+                        i = (i + 1)
+                    }
+                } {
+                    if (ch == 95) {
+                        ; _x reserves the width of x; a space is close enough.
+                        out = (out + " ")
+                        i = (i + 2)
+                    } {
+                        if (ch == 42) {
+                            ; *x repeats x to fill the cell; drop it.
+                            i = (i + 2)
+                        } {
+                            if (ch == 91) {
+                                def close:int (i + 1)
+                                while (close < n) {
+                                    if ((charAt pat close) == 93) {
+                                        break
+                                    }
+                                    close = (close + 1)
+                                }
+                                def inner:string (substring pat (i + 1) close)
+                                ; keep elapsed-time codes, drop colour / locale
+                                def keep:boolean false
+                                if ((inner == "h") || (inner == "hh")) {
+                                    keep = true
+                                }
+                                if ((inner == "m") || (inner == "mm")) {
+                                    keep = true
+                                }
+                                if ((inner == "s") || (inner == "ss")) {
+                                    keep = true
+                                }
+                                if keep {
+                                    out = (out + "[" + inner + "]")
+                                }
+                                i = (close + 1)
+                            } {
+                                out = (out + (strfromcode ch))
+                                i = (i + 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
     sfn compile:CompiledNumberFormat (code:string) {
         def c:CompiledNumberFormat (new CompiledNumberFormat)
         if ((strlen code) == 0) {
@@ -37,22 +130,52 @@ class XlsxNumberFormat {
             return c
         }
         c.rawCode = code
-        ; Split on ';' outside quotes (simple: no quote handling for v1)
+        ; Split on ';' — but not one inside a quoted literal or a [ ] group.
         def parts:[string]
         def cur:string ""
         def i:int 0
         def n:int (strlen code)
+        def inQuote:boolean false
+        def inBracket:boolean false
         while (i < n) {
             def ch:int (charAt code i)
-            if (ch == 59) {
-                push parts cur
-                cur = ""
-            } {
+            if (ch == 34) {
+                inQuote = (inQuote == false)
                 cur = (cur + (strfromcode ch))
+            } {
+                if (ch == 91) {
+                    inBracket = true
+                    cur = (cur + (strfromcode ch))
+                } {
+                    if (ch == 93) {
+                        inBracket = false
+                        cur = (cur + (strfromcode ch))
+                    } {
+                        if ((ch == 59) && (inQuote == false) && (inBracket == false)) {
+                            push parts cur
+                            cur = ""
+                        } {
+                            cur = (cur + (strfromcode ch))
+                        }
+                    }
+                }
             }
             i = (i + 1)
         }
         push parts cur
+        ; Literals become plain text once the sections are separated.
+        def unq:[string]
+        def ui:int 0
+        while (ui < (array_length parts)) {
+            push unq (XlsxNumberFormat.unquotePattern((itemAt parts ui)))
+            ui = (ui + 1)
+        }
+        clear parts
+        def uj:int 0
+        while (uj < (array_length unq)) {
+            push parts (itemAt unq uj)
+            uj = (uj + 1)
+        }
         c.sectionCount = (array_length parts)
         c.pos = (itemAt parts 0)
         if (c.sectionCount >= 2) {
@@ -197,6 +320,21 @@ class XlsxNumberFormat {
                 }
                 core = (substring core pi pn)
             }
+        }
+        ; Trailing literal text, e.g. 0" kg" → suffix " kg". `suffix` was
+        ; declared but never filled, so anything after the number was dropped.
+        def sn:int (strlen core)
+        def se:int sn
+        while (se > 0) {
+            def sc:int (charAt core (se - 1))
+            if (XlsxNumberFormat.isPatternChar(sc)) {
+                break
+            }
+            se = (se - 1)
+        }
+        if (se < sn) {
+            suffix = (substring core se sn)
+            core = (substring core 0 se)
         }
         def body3:string (XlsxNumberFormat.formatNumberBody(v core))
         if forceMinus {
