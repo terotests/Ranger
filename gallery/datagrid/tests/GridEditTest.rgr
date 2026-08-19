@@ -790,6 +790,83 @@ class GridEditTest {
         wnd.close()
         c.ok("closed window ignores input" ((wnd.handlePointer(60 60 true true false)) == false))
 
+        print "== wrap, vertical align, overflow and truncation =="
+        def wApp:GridApp (new GridApp)
+        wApp.init("gallery/pdf_writer/assets/fonts")
+        c.ok("load showcase" (wApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")))
+        def wm:SpreadsheetModel wApp.model
+        def wrapSt:CellStyle (wm.getCellStyle(20 1))
+        c.ok("wrapText parsed" wrapSt.wrapText)
+        c.eqStr("vertical top parsed" ((wm.getCellStyle(20 2)).valign) "top")
+        c.eqStr("vertical center parsed" ((wm.getCellStyle(20 3)).valign) "center")
+        c.ok("a plain cell does not wrap" (((wm.getCellStyle(18 1)).wrapText) == false))
+        ; Wrapped text needs more height in a narrower column.
+        def longText:string (wm.getCell(20 1))
+        def hNarrow:int (wApp.view.measureWrappedHeight(longText 90 wrapSt))
+        def hWide:int (wApp.view.measureWrappedHeight(longText 400 wrapSt))
+        c.ok("narrower column is taller" (hNarrow > hWide))
+        def plainSt:CellStyle (wm.getCellStyle(18 1))
+        def hNoWrap:int (wApp.view.measureWrappedHeight(longText 90 plainSt))
+        c.ok("without wrap it stays one line" (hNoWrap < hNarrow))
+        ; Row auto-fit grows the row to fit the wrapped lines.
+        def beforeH:int (wm.rowHeight(20))
+        wApp.autoFitRow(20)
+        def afterH:int (wm.rowHeight(20))
+        c.ok("auto-fit grew the row" (afterH > beforeH))
+        c.ok("auto-fit stays sane" (afterH <= 400))
+        ; A row of short text does not balloon.
+        wApp.autoFitRow(18)
+        c.ok("short row stays short" ((wm.rowHeight(18)) < afterH))
+
+        print "-- overflow only over EMPTY neighbours --"
+        def spillRect:GridRect (wApp.grid.cellRect(wm 22 1))
+        def roomEmpty:int (wApp.view.spillWidth(wm spillRect 22 1 true))
+        c.ok("spills past its own width" (roomEmpty > spillRect.w))
+        ; C25 is occupied, so B25 must stop at its own edge.
+        def blockRect:GridRect (wApp.grid.cellRect(wm 24 1))
+        def roomBlocked:int (wApp.view.spillWidth(wm blockRect 24 1 true))
+        c.eqInt("blocked by an occupied neighbour" roomBlocked blockRect.w)
+        c.ok("occupied neighbour really has content" ((strlen (wm.getCell(24 2))) > 0))
+        ; Filling the neighbour stops the spill.
+        wm.setCellRaw(22 2 "now taken")
+        def roomAfter:int (wApp.view.spillWidth(wm spillRect 22 1 true))
+        c.eqInt("spill stops once the neighbour fills" roomAfter spillRect.w)
+        c.ok("still renders" ((strlen (wApp.sceneJson())) > 500))
+
+        print "== format painter =="
+        def fpApp:GridApp (new GridApp)
+        fpApp.init("gallery/pdf_writer/assets/fonts")
+        fpApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")
+        def fpm:SpreadsheetModel fpApp.model
+        c.ok("brush starts disarmed" (fpApp.formatBrushArmed == false))
+        ; Pick up the thin red box from B5.
+        GridEditTest.select(fpApp 4 1)
+        fpApp.copyFormat()
+        c.ok("brush armed" fpApp.formatBrushArmed)
+        c.ok("brush holds the border" fpApp.formatBrush.hasBorder)
+        ; Apply it to a range that already has values.
+        fpm.setCellRaw(40 1 "keep one")
+        fpm.setCellRaw(40 2 "keep two")
+        GridEditTest.selectRange(fpApp 40 1 40 2)
+        fpApp.applyFormatToSelection()
+        c.ok("first cell styled" ((fpm.getCellStyle(40 1)).hasBorder))
+        c.ok("second cell styled" ((fpm.getCellStyle(40 2)).hasBorder))
+        c.eqStr("values untouched" (fpm.getCell(40 1)) "keep one")
+        c.eqStr("second value untouched" (fpm.getCell(40 2)) "keep two")
+        c.ok("brush disarms after use" (fpApp.formatBrushArmed == false))
+        ; One undo puts the whole range back.
+        fpApp.undoEdit()
+        c.ok("undo removed the styling" (((fpm.getCellStyle(40 1)).hasBorder) == false))
+        c.ok("undo removed it from both" (((fpm.getCellStyle(40 2)).hasBorder) == false))
+        c.eqStr("and kept the values" (fpm.getCell(40 1)) "keep one")
+        ; A disarmed brush does nothing.
+        GridEditTest.selectRange(fpApp 41 1 41 2)
+        fpApp.applyFormatToSelection()
+        c.ok("disarmed brush is inert" (((fpm.getCellStyle(41 1)).hasBorder) == false))
+        fpApp.copyFormat()
+        fpApp.cancelFormatBrush()
+        c.ok("brush can be cancelled" (fpApp.formatBrushArmed == false))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

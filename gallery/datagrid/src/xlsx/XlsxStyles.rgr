@@ -413,6 +413,14 @@ class XlsxStyles {
                                     if ((strlen h) > 0) {
                                         st.align = h
                                     }
+                                    def vv:string (at.attr("vertical"))
+                                    if ((strlen vv) > 0) {
+                                        st.valign = vv
+                                    }
+                                    def wt:string (at.attr("wrapText"))
+                                    if ((wt == "1") || (wt == "true")) {
+                                        st.wrapText = true
+                                    }
                                 }
                             }
                         }

@@ -58,6 +58,9 @@ class GridApp {
     def windows:EVGWindowManager (new EVGWindowManager)
     def pasteDialog:EVGWindow (new EVGWindow)
     def dialogsReady:boolean false
+    ; Format painter: armed by Ctrl+Shift+C, applied to the next selection.
+    def formatBrush:CellStyle (new CellStyle)
+    def formatBrushArmed:boolean false
     def clipCut:boolean false
     def loadError:string ""
 
@@ -214,12 +217,92 @@ class GridApp {
             this.autoFitColumn(edgeCol)
             return true
         }
+        if (this.autoFitRowAt(px py)) {
+            return true
+        }
         def hit:CellPos (grid.hitTest(model px py))
         if ((hit.row == -2) && (hit.col >= 0)) {
             this.autoFitColumn(hit.col)
             return true
         }
         return false
+    }
+
+    ; Row height that fits wrapped content — the counterpart of column auto-fit.
+    fn autoFitRow:void (row:int) {
+        if (row < 0) {
+            return
+        }
+        if (row >= model.rowCount) {
+            return
+        }
+        def best:int model.defaultRowH
+        def c:int 0
+        def lastCol:int (model.usedCol())
+        while (c <= lastCol) {
+            def txt:string (model.getDisplay(row c))
+            if ((strlen txt) > 0) {
+                def st:CellStyle (model.getCellStyle(row c))
+                def need:int (view.measureWrappedHeight(txt (model.colWidth(c)) st))
+                if (need > best) {
+                    best = need
+                }
+            }
+            c = (c + 1)
+        }
+        if (best > 400) {
+            best = 400
+        }
+        model.setRowHeight(row best)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    ; Double-click on a row header edge auto-fits its height.
+    fn autoFitRowAt:boolean (px:int py:int) {
+        def edgeRow:int (grid.hitRowResize(model px py))
+        if (edgeRow >= 0) {
+            this.autoFitRow(edgeRow)
+            return true
+        }
+        return false
+    }
+
+    ; --- format painter -------------------------------------------------------
+    ; Ctrl+Shift+C picks up the active cell's formatting; the next selection it
+    ; is applied to gets it, and the brush disarms — like every office app.
+    fn copyFormat:void () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        formatBrush = (st.copy())
+        formatBrushArmed = true
+        view.status = "format brush armed"
+    }
+
+    fn applyFormatToSelection:void () {
+        if (formatBrushArmed == false) {
+            return
+        }
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        model.beginTx()
+        def r:int a.row
+        while (r <= b.row) {
+            def c:int a.col
+            while (c <= b.col) {
+                model.applyEditStyled(r c (model.getCell(r c)) (model.getFormula(r c)) formatBrush)
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        model.endTx()
+        formatBrushArmed = false
+        view.status = "format applied"
+    }
+
+    fn cancelFormatBrush:void () {
+        formatBrushArmed = false
     }
 
     fn nudgeColumnWidth:void (col:int delta:int) {
@@ -1394,6 +1477,13 @@ class GridApp {
         }
 
         if input.pointerReleased {
+            if formatBrushArmed {
+                if (resizing == false) {
+                    if (resizingRows == false) {
+                        this.applyFormatToSelection()
+                    }
+                }
+            }
             if filling {
                 this.fillFromSource()
             }
@@ -1426,7 +1516,11 @@ class GridApp {
                     if editing {
                         this.commitEdit()
                     }
-                    this.copySelection()
+                    if input.shiftDown {
+                        this.copyFormat()
+                    } {
+                        this.copySelection()
+                    }
                 }
                 if ((ch == 120) || (ch == 88)) {
                     if editing {

@@ -280,6 +280,133 @@ class GridView {
         }
     }
 
+    ; Where the text baseline row starts, honouring vertical alignment.
+    fn textTopFor:int (rect:GridRect st:CellStyle lineH:int lines:int) {
+        def total:int (lineH * lines)
+        if (st.valign == "top") {
+            return (rect.y + 3)
+        }
+        if (st.valign == "center") {
+            def mid:int (rect.y + (idiv (rect.h - total) 2))
+            if (mid < (rect.y + 1)) {
+                return (rect.y + 1)
+            }
+            return mid
+        }
+        ; Excel's default is bottom.
+        def bot:int (((rect.y + rect.h) - total) - 2)
+        if (bot < (rect.y + 1)) {
+            return (rect.y + 1)
+        }
+        return bot
+    }
+
+    fn alignedX:double (rect:GridRect st:CellStyle textW:int) {
+        if (st.align == "right") {
+            return (to_double ((rect.x + rect.w) - textW - 4))
+        }
+        if (st.align == "center") {
+            return (to_double (rect.x + (to_int ((to_double (rect.w - textW)) / 2.0))))
+        }
+        return (to_double (rect.x + 4))
+    }
+
+    fn paintDecoration:void (dl:EVGDisplayList st:CellStyle tx:double top:int textW:int cellPx:double col:EVGColor) {
+        if st.underline {
+            this.pushRect(dl tx (to_double (top + (to_int cellPx))) (to_double textW) 1.0 col)
+        }
+        if st.strike {
+            this.pushRect(dl tx (to_double (top + (to_int (cellPx * 0.55)))) (to_double textW) 1.0 col)
+        }
+    }
+
+    ; wrapText: break to the cell width and paint the lines that fit.
+    fn paintWrapped:void (dl:EVGDisplayList txt:string rect:GridRect st:CellStyle cellPx:double col:EVGColor) {
+        def avail:int (rect.w - 8)
+        if (avail < 12) {
+            avail = 12
+        }
+        def lines:[string] (ctx.tr.wrap(txt cellPx (to_double avail)))
+        if ((array_length lines) == 0) {
+            push lines txt
+        }
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        def top:int (this.textTopFor(rect st lineH (array_length lines)))
+        this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            def lw:int (to_int (ctx.tr.measureWidth(line cellPx)))
+            def lx:double (this.alignedX(rect st lw))
+            def ly:int (top + (i * lineH))
+            this.pushStyledText(dl line lx (to_double ly) cellPx col st.bold st.italic)
+            this.paintDecoration(dl st lx ly lw cellPx col)
+            i = (i + 1)
+        }
+        this.popClip(dl)
+    }
+
+    ; No wrap: Excel spills into EMPTY neighbours and clips at the first
+    ; occupied one. Text used to always spill, painting over live cells.
+    fn spillWidth:int (model:SpreadsheetModel rect:GridRect r:int c:int toRight:boolean) {
+        def total:int rect.w
+        def step:int 1
+        if (toRight == false) {
+            step = -1
+        }
+        def probe:int (c + step)
+        def guard:int 0
+        while (guard < 32) {
+            if (probe < 0) {
+                return total
+            }
+            if (probe >= model.colCount) {
+                return total
+            }
+            if ((strlen (model.getCell(r probe))) > 0) {
+                return total
+            }
+            total = (total + (model.colWidth(probe)))
+            probe = (probe + step)
+            guard = (guard + 1)
+        }
+        return total
+    }
+
+    fn paintSingleLine:void (dl:EVGDisplayList model:SpreadsheetModel rect:GridRect st:CellStyle cellPx:double col:EVGColor txt:string r:int c:int) {
+        def textW:int (to_int (ctx.tr.measureWidth(txt cellPx)))
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        def top:int (this.textTopFor(rect st lineH 1))
+        def tx:double (this.alignedX(rect st textW))
+        ; Room the text may use: its own cell plus any empty neighbours in the
+        ; direction it grows.
+        def clipX:int rect.x
+        def clipW:int rect.w
+        if ((textW + 8) > rect.w) {
+            def toRight:boolean true
+            if (st.align == "right") {
+                toRight = false
+            }
+            def room:int (this.spillWidth(model rect r c toRight))
+            if toRight {
+                clipW = room
+            } {
+                clipX = ((rect.x + rect.w) - room)
+                clipW = room
+            }
+        }
+        this.pushClip(dl (to_double clipX) (to_double rect.y) (to_double clipW) (to_double rect.h))
+        this.pushStyledText(dl txt tx (to_double top) cellPx col st.bold st.italic)
+        this.paintDecoration(dl st tx top textW cellPx col)
+        this.popClip(dl)
+    }
+
     fn paintCellBorders:void (dl:EVGDisplayList st:CellStyle rect:GridRect) {
         if (st.hasBorder == false) {
             return
@@ -335,23 +462,10 @@ class GridView {
                 cellPx = 6.0
             }
             this.applyFaceStyled(st.bold st.italic)
-            def tw3:int (to_int (ctx.tr.measureWidth(txt cellPx)))
-            def tx:double (to_double (rect.x + 4))
-            if (st.align == "right") {
-                tx = (to_double ((rect.x + rect.w) - tw3 - 4))
-            }
-            if (st.align == "center") {
-                tx = (to_double (rect.x + (to_int ((to_double (rect.w - tw3)) / 2.0))))
-            }
-            def ty:double (to_double (rect.y + 3))
-            this.pushStyledText(dl txt tx ty cellPx col st.bold st.italic)
-            if st.underline {
-                def uy:int ((rect.y + 3) + (to_int cellPx))
-                this.pushRect(dl tx (to_double uy) (to_double tw3) 1.0 col)
-            }
-            if st.strike {
-                def sy:int ((rect.y + 3) + (to_int (cellPx * 0.55)))
-                this.pushRect(dl tx (to_double sy) (to_double tw3) 1.0 col)
+            if st.wrapText {
+                this.paintWrapped(dl txt rect st cellPx col)
+            } {
+                this.paintSingleLine(dl model rect st cellPx col txt r c)
             }
         }
         this.paintCellBorders(dl st rect)
@@ -669,6 +783,35 @@ class GridView {
             }
             i = (i + 1)
         }
+    }
+
+    ; Height the wrapped text needs in a column of `colW`, for row auto-fit.
+    fn measureWrappedHeight:int (text:string colW:int st:CellStyle) {
+        def cellPx:double fontSize
+        if (st.fontSizePt > 0.0) {
+            cellPx = ((st.fontSizePt * 96.0) / 72.0)
+        }
+        if (cellPx < 6.0) {
+            cellPx = 6.0
+        }
+        this.applyFaceStyled(st.bold st.italic)
+        def lineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+        if (lineH < 8) {
+            lineH = 8
+        }
+        if (st.wrapText == false) {
+            return (lineH + 6)
+        }
+        def avail:int (colW - 8)
+        if (avail < 12) {
+            avail = 12
+        }
+        def lines:[string] (ctx.tr.wrap(text cellPx (to_double avail)))
+        def n:int (array_length lines)
+        if (n < 1) {
+            n = 1
+        }
+        return ((lineH * n) + 6)
     }
 
     ; Width the grid would paint this text at, for auto-fit.

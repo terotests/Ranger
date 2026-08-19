@@ -32,6 +32,7 @@ npm run datagrid:artifacts
 npm run datagrid:xlsx:fixtures
 npm run datagrid:bench -- 100000
 npm run datagrid:oracle:dump
+npm run datagrid:parity
 npm run datagrid:oracles
 npm run datagrid:window
 # older tiny fixture:
@@ -47,6 +48,11 @@ npm run datagrid:window
   double, hair→thick) with colours; empty-but-formatted cells keep their fill
 - **Fonts**: bold / italic / underline / strikethrough / size / colour, painted
   with the real Open Sans faces
+- **Text layout**: `wrapText` → multi-line paint with row auto-fit, vertical
+  alignment, and Excel's overflow rule — text spills into empty neighbours and
+  is clipped once one is occupied
+- **Format painter**: `Ctrl+Shift+C` arms a brush, the next selection takes the
+  formatting only
 - Freeze panes, merges (hit-test → origin), hidden rows/cols
 - Formula bar; FormulaEngine (coerce, abs/rel/cross-sheet refs, fill-translate,
   incremental recalc) + FormulaFunctions; cached `<v>` fallback
@@ -186,6 +192,22 @@ without rendering.
 The host stays in charge: it passes the `UITextRenderer` it already has,
 forwards the pointer and keys it already receives, and appends the window's
 commands to its own display list.
+
+## Parity score
+
+`npm run datagrid:parity` scores [`docs/PARITY.md`](docs/PARITY.md) — one row per
+capability **FortuneSheet documents for itself** (its README Features section
+and the completed items on its roadmap), so the number measures the benchmark
+rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
+
+```
+TOTAL   25.5 / 41   62.2%     done 23   partial 5   todo 13
+```
+
+`-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
+the score can gate CI once it is where you want it. The biggest gaps left are
+xlsx **export**, **insert / delete** rows and columns, rich text inside a cell,
+images, comments and find-and-replace.
 
 ## Architecture invariant
 

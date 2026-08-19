@@ -126,12 +126,20 @@ XFS = ['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>']
 XF = {"plain": 0}
 
 
-def add_xf(name, *, font=0, fill=0, border=0, numfmt=0, align=None):
+def add_xf(name, *, font=0, fill=0, border=0, numfmt=0, align=None,
+           valign=None, wrap=False):
     attrs = (f'numFmtId="{numfmt}" fontId="{font}" fillId="{fill}" '
              f'borderId="{border}" xfId="0" applyFont="1" applyFill="1" '
              f'applyBorder="1" applyNumberFormat="1"')
+    parts = []
     if align:
-        XFS.append(f'<xf {attrs} applyAlignment="1"><alignment horizontal="{align}"/></xf>')
+        parts.append(f'horizontal="{align}"')
+    if valign:
+        parts.append(f'vertical="{valign}"')
+    if wrap:
+        parts.append('wrapText="1"')
+    if parts:
+        XFS.append(f'<xf {attrs} applyAlignment="1"><alignment {" ".join(parts)}/></xf>')
     else:
         XFS.append(f"<xf {attrs}/>")
     XF[name] = len(XFS) - 1
@@ -157,6 +165,10 @@ add_xf("f_color", font=7)
 add_xf("n_2dp", numfmt=2, align="right")
 add_xf("n_pct", numfmt=9, align="right")
 add_xf("n_money", numfmt=164, align="right")
+add_xf("a_wrap", wrap=True, valign="top")
+add_xf("a_top", valign="top")
+add_xf("a_middle", valign="center")
+add_xf("a_bottom", valign="bottom")
 
 STYLES = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -226,6 +238,16 @@ put("C16", "18pt", "f_big")
 put("D16", "8pt", "f_small")
 put("B17", "coloured", "f_color")
 
+put("A21", "Wrap", "f_bold")
+put("B21", "This sentence is far too long for one cell and must wrap onto several lines.", "a_wrap")
+put("C21", "top", "a_top")
+put("D21", "middle", "a_middle")
+put("A23", "Overflow", "f_bold")
+put("B23", "This long text spills across the empty neighbours to its right")
+put("A25", "Truncate", "f_bold")
+put("B25", "This long text is cut because the next cell is occupied")
+put("C25", "blocked")
+
 put("A19", "Format", "f_bold")
 put("B19", "0.25", "n_2dp", numeric=True)
 put("C19", "0.25", "n_pct", numeric=True)
@@ -238,7 +260,7 @@ for rnum in sorted(rows):
 
 SHEET = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <dimension ref="A1:D19"/>
+  <dimension ref="A1:D25"/>
   <cols>
     <col min="1" max="1" width="16" customWidth="1"/>
     <col min="2" max="4" width="18" customWidth="1"/>

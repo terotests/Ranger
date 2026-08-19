@@ -102,6 +102,8 @@ class CellStyle {
     def strike:boolean false
     def fontSizePt:double 11.0
     def align:string "left"
+    def valign:string "bottom"
+    def wrapText:boolean false
     def numFmt:string "General"
     def hasFill:boolean false
     def hasBorder:boolean false
@@ -127,6 +129,8 @@ class CellStyle {
         o.strike = strike
         o.fontSizePt = fontSizePt
         o.align = align
+        o.valign = valign
+        o.wrapText = wrapText
         o.numFmt = numFmt
         o.hasFill = hasFill
         o.hasBorder = hasBorder
@@ -160,6 +164,12 @@ class CellStyle {
             return false
         }
         if (align != o.align) {
+            return false
+        }
+        if (valign != o.valign) {
+            return false
+        }
+        if (wrapText != o.wrapText) {
             return false
         }
         if (numFmt != o.numFmt) {
