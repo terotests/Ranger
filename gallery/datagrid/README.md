@@ -92,6 +92,28 @@ the tab and never uploaded anywhere.
 > writes the result into the DOM where headless Chrome's `--dump-dom` can be
 > read back.
 
+**Is it really WebGL?** "backend: webgl2" is a label the page writes about
+itself, so the self test checks the facts under it: that the context really is a
+`WebGL2RenderingContext`, that it has the stencil buffer a filled path needs,
+that the scene left GL draw calls behind, and that no fill was skipped. It also
+prints what is actually rasterizing:
+
+```text
+gl ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …)) :: draws 118 textRuns 49 paths 19 images 0
+```
+
+That line is from a container with no GPU, where Chrome falls back to
+SwiftShader — a CPU implementation of the same API. On a machine with a GPU the
+same page names the GPU. The pipeline is the same either way.
+
+One honest qualification about text: every rect, border, path, stroke and image
+is geometry the GPU draws, but **glyphs are rasterized by Canvas2D into a
+texture atlas** once per changed scene and composited by GL as instanced
+textured quads. That is the usual way to do text in WebGL — the shaping and
+positioning are already settled by EVG, so the backend only needs a picture of
+each run — but it does mean a CPU pass over the text whenever the scene
+changes.
+
 ### The render seam, and why the browser asks so often
 
 The host holds the document; the browser is a renderer. Every frame it asks

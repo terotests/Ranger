@@ -352,6 +352,18 @@ async function selftest() {
   const checks = [];
   const ok = (name, cond) => checks.push({ name, ok: !!cond });
 
+  // Is the picture actually going through the GPU pipeline, or is something
+  // quietly falling back? "backend: webgl2" is a label the page writes about
+  // itself; these are the facts under it.
+  ok("the context is a WebGL 2 context", typeof WebGL2RenderingContext === "function" && gl instanceof WebGL2RenderingContext);
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  const renderer = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  window.__glRenderer = String(renderer || "");
+  ok("it has a stencil buffer (paths need one)", gl.getContextAttributes().stencil === true);
+  const stats = window.__evgStats || {};
+  ok("GL draw calls carried the scene", (stats.drawn | 0) > 20);
+  ok("no fill was skipped for want of a stencil", (stats.skippedFills | 0) === 0);
+
   const before = web.scene();
   ok("a workbook is open", (web.app.book.sheetCount() | 0) > 1);
   ok("the scene has commands", JSON.parse(before).list.cmds.length > 40);
@@ -388,6 +400,11 @@ async function selftest() {
   const el = document.createElement("pre");
   el.id = "selftest";
   el.textContent = `selftest ${passed}/${checks.length} :: ${line}`;
+  const gpu = document.createElement("pre");
+  gpu.id = "glinfo";
+  const st = window.__evgStats || {};
+  gpu.textContent = `gl ${window.__glRenderer} :: draws ${st.drawn | 0} textRuns ${st.textRuns | 0} paths ${st.paths | 0} images ${st.images | 0}`;
+  document.body.appendChild(gpu);
   document.body.appendChild(el);
   window.__selftest = { passed, total: checks.length, checks };
 }
