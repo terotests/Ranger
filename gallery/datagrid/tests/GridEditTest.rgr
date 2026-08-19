@@ -583,6 +583,213 @@ class GridEditTest {
         c.ok("edge auto-fit widened it" ((dz.model.colWidth(0)) > 45))
         c.ok("still renders" ((strlen (dz.sceneJson())) > 50))
 
+        print "== copy / paste keeps formatting by default =="
+        def fmtApp:GridApp (new GridApp)
+        fmtApp.init("gallery/pdf_writer/assets/fonts")
+        c.ok("load styles-showcase" (fmtApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")))
+        def fm:SpreadsheetModel fmtApp.model
+        ; B3 is an empty cell carrying only a fill; B5 carries a thin red box.
+        def srcFill:CellStyle (fm.getCellStyle(2 1))
+        c.ok("source has a fill" srcFill.hasFill)
+        GridEditTest.select(fmtApp 2 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 25 1)
+        fmtApp.pasteClipboard()
+        def gotFill:CellStyle (fm.getCellStyle(25 1))
+        c.ok("pasted cell has the fill" gotFill.hasFill)
+        c.eqStr("same fill colour" gotFill.fillRgb srcFill.fillRgb)
+        ; Borders travel too.
+        def srcBorder:CellStyle (fm.getCellStyle(4 1))
+        c.ok("source has a border" srcBorder.hasBorder)
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 26 1)
+        fmtApp.pasteClipboard()
+        def gotBorder:CellStyle (fm.getCellStyle(26 1))
+        c.ok("pasted cell has the border" gotBorder.hasBorder)
+        c.eqStr("same edge style" gotBorder.borderTop.style srcBorder.borderTop.style)
+        c.eqStr("same edge colour" gotBorder.borderTop.rgb srcBorder.borderTop.rgb)
+        c.eqStr("value came too" (fm.getCell(26 1)) (fm.getCell(4 1)))
+        ; Font attributes and number format ride along.
+        def srcBold:CellStyle (fm.getCellStyle(14 1))
+        c.ok("source is bold" srcBold.bold)
+        GridEditTest.select(fmtApp 14 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 27 1)
+        fmtApp.pasteClipboard()
+        def gotBold:CellStyle (fm.getCellStyle(27 1))
+        c.ok("pasted cell is bold" gotBold.bold)
+        def srcMoney:CellStyle (fm.getCellStyle(18 3))
+        GridEditTest.select(fmtApp 18 3)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 28 3)
+        fmtApp.pasteClipboard()
+        def gotMoney:CellStyle (fm.getCellStyle(28 3))
+        c.eqStr("number format travels" gotMoney.numFmt srcMoney.numFmt)
+        c.eqStr("and renders the same" (fm.getDisplay(28 3)) (fm.getDisplay(18 3)))
+
+        print "== one undo restores the previous formatting =="
+        def beforeStyleId:int (fm.getCellStyleId(29 1))
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 29 1)
+        fmtApp.pasteClipboard()
+        c.ok("formatting applied" ((fm.getCellStyle(29 1)).hasBorder))
+        fmtApp.undoEdit()
+        c.eqInt("style id restored by undo" (fm.getCellStyleId(29 1)) beforeStyleId)
+        c.ok("no border after undo" (((fm.getCellStyle(29 1)).hasBorder) == false))
+        fmtApp.redoEdit()
+        c.ok("redo puts it back" ((fm.getCellStyle(29 1)).hasBorder))
+
+        print "== paste modes =="
+        ; values only: no formatting, no formula
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 30 1)
+        fmtApp.pasteMode = 1
+        fmtApp.pasteClipboard()
+        fmtApp.pasteMode = 0
+        c.eqStr("values-only pasted the value" (fm.getCell(30 1)) (fm.getCell(4 1)))
+        c.ok("values-only kept no border" (((fm.getCellStyle(30 1)).hasBorder) == false))
+        ; formats only: styling lands, the existing value stays
+        fmtApp.model.setCellRaw(31 1 "keep me")
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 31 1)
+        fmtApp.pasteMode = 2
+        fmtApp.pasteClipboard()
+        fmtApp.pasteMode = 0
+        c.eqStr("formats-only kept the value" (fm.getCell(31 1)) "keep me")
+        c.ok("formats-only applied the border" ((fm.getCellStyle(31 1)).hasBorder))
+        ; no-formatting: value and formula land, styling does not
+        GridEditTest.select(fmtApp 4 1)
+        fmtApp.copySelection()
+        GridEditTest.select(fmtApp 32 1)
+        fmtApp.pasteMode = 3
+        fmtApp.pasteClipboard()
+        fmtApp.pasteMode = 0
+        c.eqStr("no-format pasted the value" (fm.getCell(32 1)) (fm.getCell(4 1)))
+        c.ok("no-format kept no border" (((fm.getCellStyle(32 1)).hasBorder) == false))
+        ; an external TSV paste has no styles to carry
+        fmtApp.setClipboardText("plain")
+        GridEditTest.select(fmtApp 33 1)
+        fmtApp.pasteClipboard()
+        c.eqStr("external paste lands" (fm.getCell(33 1)) "plain")
+        c.ok("external paste has no formatting" (((fm.getCellStyle(33 1)).hasBorder) == false))
+
+        print "== Paste Special dialog (shared EVG window layer) =="
+        def dApp:GridApp (new GridApp)
+        dApp.init("gallery/pdf_writer/assets/fonts")
+        dApp.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx")
+        def dm:SpreadsheetModel dApp.model
+        c.ok("no dialog at rest" ((dApp.windows.anyVisible()) == false))
+        GridEditTest.select(dApp 4 1)
+        dApp.copySelection()
+        GridEditTest.select(dApp 35 1)
+        dApp.openPasteSpecial()
+        c.ok("dialog opened" dApp.pasteDialog.visible)
+        c.ok("manager sees it" (dApp.windows.anyVisible()))
+        c.eqInt("defaults to All" (dApp.pasteDialog.selectedInGroup(1)) 1)
+        ; A modal dialog swallows clicks that land on the grid behind it.
+        def dInput:UIInput (new UIInput)
+        dInput.newFrame()
+        dInput.setPointerPos(5 300)
+        dInput.setPointerDown(true)
+        dApp.update(dInput)
+        c.eqInt("grid selection untouched while modal" dApp.sel.active.row 35)
+        dInput.newFrame()
+        dInput.setPointerDown(false)
+        dApp.update(dInput)
+        ; Pick "Formats only" and press Paste.
+        def rFormats:EVGControl (dApp.pasteDialog.controlById(3))
+        def clickX:int ((dApp.pasteDialog.x + rFormats.x) + 4)
+        def clickY:int ((dApp.pasteDialog.y + rFormats.y) + 4)
+        dInput.newFrame()
+        dInput.setPointerPos(clickX clickY)
+        dInput.setPointerDown(true)
+        dApp.update(dInput)
+        c.eqInt("radio selected" (dApp.pasteDialog.selectedInGroup(1)) 3)
+        dInput.newFrame()
+        dInput.setPointerDown(false)
+        dApp.update(dInput)
+        dm.setCellRaw(35 1 "existing")
+        def okBtn:EVGControl (dApp.pasteDialog.controlById(10))
+        def okX:int ((dApp.pasteDialog.x + okBtn.x) + 10)
+        def okY:int ((dApp.pasteDialog.y + okBtn.y) + 10)
+        dInput.newFrame()
+        dInput.setPointerPos(okX okY)
+        dInput.setPointerDown(true)
+        dApp.update(dInput)
+        c.ok("dialog closed after Paste" (dApp.pasteDialog.visible == false))
+        c.eqStr("formats-only kept the value" (dm.getCell(35 1)) "existing")
+        c.ok("and applied the border" ((dm.getCellStyle(35 1)).hasBorder))
+        c.eqInt("paste mode restored to default" dApp.pasteMode 0)
+        ; Escape closes without pasting.
+        GridEditTest.select(dApp 36 1)
+        dApp.openPasteSpecial()
+        c.ok("reopened" dApp.pasteDialog.visible)
+        dInput.newFrame()
+        dInput.setPointerDown(false)
+        dInput.pushKey((UIKey.escape()))
+        dApp.update(dInput)
+        c.ok("escape closed it" (dApp.pasteDialog.visible == false))
+        c.eqStr("nothing pasted" (dm.getCell(36 1)) "")
+        ; The dialog reaches the scene, so every backend can draw it.
+        dApp.openPasteSpecial()
+        def withDialog:string (dApp.sceneJson())
+        c.ok("dialog paints into the display list" (GridEditTest.hasSub(withDialog "Paste Special")))
+        dApp.pasteDialog.close()
+        def withoutDialog:string (dApp.sceneJson())
+        c.ok("and disappears when closed" ((GridEditTest.hasSub(withoutDialog "Paste Special")) == false))
+
+        print "== EVGWindow basics =="
+        def wnd:EVGWindow (new EVGWindow)
+        wnd.title = "Test"
+        wnd.w = 200
+        wnd.reset()
+        wnd.addLabel("Pick one")
+        wnd.addRadio(1 "One" 1 true)
+        wnd.addRadio(2 "Two" 1 false)
+        wnd.addCheckbox(5 "Also this" false)
+        def wIds:[int]
+        push wIds 9
+        def wLabels:[string]
+        push wLabels "Go"
+        wnd.addButtonRow(wIds wLabels 9)
+        wnd.finish()
+        c.ok("sized to content" (wnd.h > 80))
+        wnd.openAt(40 40)
+        c.ok("point inside" (wnd.containsPoint(60 60)))
+        c.ok("point outside" ((wnd.containsPoint(5 5)) == false))
+        c.ok("title bar hit" (wnd.onTitleBar(60 45)))
+        ; Radios are exclusive.
+        wnd.selectRadio(2)
+        c.eqInt("second radio wins" (wnd.selectedInGroup(1)) 2)
+        c.ok("first cleared" ((wnd.isChecked(1)) == false))
+        ; Checkbox toggles independently.
+        def cb:EVGControl (wnd.controlById(5))
+        def cbX:int ((wnd.x + cb.x) + 4)
+        def cbY:int ((wnd.y + cb.y) + 4)
+        wnd.handlePointer(cbX cbY true true false)
+        c.ok("checkbox toggled on" (wnd.isChecked(5)))
+        wnd.handlePointer(cbX cbY true true false)
+        c.ok("checkbox toggled off" ((wnd.isChecked(5)) == false))
+        ; Enter fires the default button.
+        c.ok("enter fires default" (wnd.handleKey(2 4 2)))
+        c.eqInt("default activated" wnd.activated 9)
+        ; Dragging the title bar moves the window.
+        def ox:int wnd.x
+        wnd.handlePointer((wnd.x + 30) (wnd.y + 8) true true false)
+        wnd.handlePointer((wnd.x + 60) (wnd.y + 8) false true false)
+        c.ok("window moved" (wnd.x != ox))
+        wnd.handlePointer(wnd.x wnd.y false false true)
+        ; A modal window swallows outside clicks; a non-modal one does not.
+        c.ok("modal swallows outside" (wnd.handlePointer(2 2 true true false)))
+        wnd.modal = false
+        c.ok("non-modal lets it through" ((wnd.handlePointer(2 2 true true false)) == false))
+        wnd.close()
+        c.ok("closed window ignores input" ((wnd.handlePointer(60 60 true true false)) == false))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

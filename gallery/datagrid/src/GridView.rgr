@@ -15,6 +15,7 @@ Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "CellStyle.rgr"
 Import "ConditionalFormat.rgr"
+Import "../../evg/EVGWindow.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -46,6 +47,8 @@ class GridView {
     def theme:GridTheme (new GridTheme)
     def status:string ""
     def editCaret:int 0
+    ; Dialogs painted on top of the grid, from the shared EVG window layer.
+    def windows:EVGWindowManager (new EVGWindowManager)
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -638,6 +641,9 @@ class GridView {
             def info:string ("sheet " + (book.activeName()) + "  sel " + (SpreadsheetModel.cellLabel(sel.active.row sel.active.col)) + "  visible " + (to_string grid.firstVisibleRow) + ".." + (to_string grid.lastVisibleRow) + "  rows=" + (to_string model.rowCount) + "  " + src + "  " + status)
             this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.statusText)
         }
+
+        ; Dialogs sit above everything, including the status bar.
+        windows.paint(dl ctx.tr pageW pageH)
 
         return dl
     }

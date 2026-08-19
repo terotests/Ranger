@@ -76,6 +76,24 @@ class DumpArtifacts {
             DumpArtifacts.writePng(app dir "04_styles_showcase.png")
         }
 
+        print "== 05 paste special dialog (shared EVG window layer) =="
+        def ok4:boolean (app.loadXlsx("gallery/datagrid/fixtures/styles-showcase.xlsx"))
+        if ok4 {
+            app.sel.anchor.row = 4
+            app.sel.anchor.col = 1
+            app.sel.active.row = 6
+            app.sel.active.col = 3
+            app.copySelection()
+            app.sel.anchor.row = 22
+            app.sel.anchor.col = 1
+            app.sel.active.row = 22
+            app.sel.active.col = 1
+            app.openPasteSpecial()
+            app.pasteDialog.selectRadio(3)
+            DumpArtifacts.writePng(app dir "05_paste_special.png")
+            app.pasteDialog.close()
+        }
+
         print "DumpArtifacts DONE"
     }
 }

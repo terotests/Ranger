@@ -20,7 +20,7 @@
 ; Row / column headers            | painted chrome                            | done
 ; Resize columns                  | edge drag / dbl-click auto-fit / menu     | done
 ; Resize rows                     | row header edge drag (hitRowResize)       | done
-; Copy / paste / cut              | Ctrl+C/X/V, formula-aware block clipboard | done
+; Copy / paste / cut              | Ctrl+C/X/V, formats kept, Paste Special    | done
 ; Fill handle                     | drag active-cell handle (copy fill)       | done
 ; Merge cells                     | paint origin + hit-test → origin          | done
 ; Multiple sheets                 | tabs + hidden metadata + scroll save      | done
@@ -46,6 +46,13 @@
 ; the sheet. Ctrl+End is O(1): SpreadsheetModel tracks usedMaxRow/usedMaxCol on
 ; write (Excel-like: it grows, it does not shrink) instead of rescanning.
 ; UIKey gained pageUp/pageDown/f2 (12/13/14).
+;
+; Clipboard carries a resolved CellStyle per cell, so formatting survives a
+; paste by default; value + formula + style land in ONE undo op via
+; applyEditStyled, and styleIdFor matches the style into the target sheet's
+; table by value. Ctrl+Shift+V opens Paste Special (all / values / formats /
+; no-formats), built on gallery/evg/EVGWindow — a shared window layer that
+; paints into an EVGDisplayList so DOCX and PPTX can reuse it.
 ;
 ; Clipboard: Ctrl+C/X fill clipboardTsv + the structured block. The WebGL host
 ; answers a copy/cut POST with {"clipboard": tsv} so the browser can put it on

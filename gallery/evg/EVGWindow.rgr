@@ -1,0 +1,586 @@
+; ==============================================================================
+; EVGWindow - a small, backend-agnostic window / dialog layer over EVG.
+; ==============================================================================
+;
+; The gallery's document apps (DataGrid, DOCX viewer, PPTX viewer) all present
+; through an EVGDisplayList, so a dialog that paints into one works on every
+; backend they use — SoftCanvas PNG, WebGL, and anything added later. That is
+; the whole reason this lives in gallery/evg rather than inside one app: the
+; grid's ad-hoc header popup could not be reused by the other two.
+;
+; The layer is deliberately small. It owns:
+;   * a floating panel with a title bar you can drag
+;   * labels, buttons, radio groups, checkboxes and separators
+;   * hit-testing and pointer / key routing, with modal capture
+;   * painting into an EVGDisplayList
+;
+; It does NOT own a font, a canvas, or an event loop. The host passes the
+; UITextRenderer it already has for measurement, forwards the pointer and keys
+; it already receives, and appends the window's commands to its own display
+; list. Everything is integer geometry, so behaviour is identical on every
+; target and can be unit-tested without rendering.
+; ==============================================================================
+
+Import "EVGColor.rgr"
+Import "EVGDisplayList.rgr"
+Import "../game_engine/ui/UITextRenderer.rgr"
+
+class EVGControlKind {
+    sfn label:int ()     { return 0 }
+    sfn button:int ()    { return 1 }
+    sfn radio:int ()     { return 2 }
+    sfn checkbox:int ()  { return 3 }
+    sfn separator:int () { return 4 }
+}
+
+class EVGControl {
+    def id:int 0
+    def kind:int 0
+    def text:string ""
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    def group:int 0
+    def checked:boolean false
+    def enabled:boolean true
+    ; A default button also fires on Enter.
+    def isDefault:boolean false
+
+    Constructor () {
+    }
+
+    fn contains:boolean (px:int py:int) {
+        if (px < x) {
+            return false
+        }
+        if (py < y) {
+            return false
+        }
+        if (px >= (x + w)) {
+            return false
+        }
+        if (py >= (y + h)) {
+            return false
+        }
+        return true
+    }
+}
+
+class EVGWindowTheme {
+    def panel:EVGColor (EVGColor.rgb(252 253 255))
+    def titleBg:EVGColor (EVGColor.rgb(31 78 121))
+    def titleText:EVGColor (EVGColor.rgb(255 255 255))
+    def text:EVGColor (EVGColor.rgb(32 38 48))
+    def muted:EVGColor (EVGColor.rgb(120 130 145))
+    def border:EVGColor (EVGColor.rgb(70 110 160))
+    def buttonBg:EVGColor (EVGColor.rgb(238 242 248))
+    def buttonHot:EVGColor (EVGColor.rgb(219 231 245))
+    def accent:EVGColor (EVGColor.rgb(26 115 232))
+    def scrim:EVGColor (EVGColor.create(20.0 30.0 45.0 0.28))
+
+    Constructor () {
+    }
+}
+
+class EVGWindow {
+    def title:string ""
+    def x:int 0
+    def y:int 0
+    def w:int 300
+    def h:int 160
+    def visible:boolean false
+    def modal:boolean true
+    def controls:[EVGControl]
+    def theme:EVGWindowTheme (new EVGWindowTheme)
+    def titleH:int 26
+    def padX:int 14
+    def padY:int 10
+    def rowH:int 22
+    def fontSize:double 13.0
+    ; Control id activated on the last pointer / key pass, or -1.
+    def activated:int -1
+    def hot:int -1
+    def dragging:boolean false
+    def dragDX:int 0
+    def dragDY:int 0
+    ; Where the next added control goes.
+    def cursorY:int 0
+
+    Constructor () {
+    }
+
+    ; --- building -------------------------------------------------------------
+    fn reset:void () {
+        clear controls
+        cursorY = (titleH + padY)
+        activated = -1
+        hot = -1
+    }
+
+    fn addControl:EVGControl (id:int kind:int text:string height:int) {
+        def c:EVGControl (new EVGControl)
+        c.id = id
+        c.kind = kind
+        c.text = text
+        c.x = padX
+        c.y = cursorY
+        c.w = (w - (padX * 2))
+        c.h = height
+        push controls c
+        cursorY = (cursorY + height + 4)
+        return c
+    }
+
+    fn addLabel:void (text:string) {
+        this.addControl(-1 (EVGControlKind.label()) text rowH)
+    }
+
+    fn addSeparator:void () {
+        this.addControl(-1 (EVGControlKind.separator()) "" 8)
+    }
+
+    fn addRadio:void (id:int text:string group:int selected:boolean) {
+        def c:EVGControl (this.addControl(id (EVGControlKind.radio()) text rowH))
+        c.group = group
+        c.checked = selected
+    }
+
+    fn addCheckbox:void (id:int text:string selected:boolean) {
+        def c:EVGControl (this.addControl(id (EVGControlKind.checkbox()) text rowH))
+        c.checked = selected
+    }
+
+    ; Buttons sit on one row at the bottom, laid out right to left.
+    fn addButtonRow:void (ids:[int] labels:[string] defaultId:int) {
+        def n:int (array_length ids)
+        if (n == 0) {
+            return
+        }
+        def bw:int 92
+        def bh:int 26
+        def gap:int 8
+        def rowY:int (cursorY + 6)
+        def right:int (w - padX)
+        def i:int (n - 1)
+        while (i >= 0) {
+            def c:EVGControl (new EVGControl)
+            c.id = (itemAt ids i)
+            c.kind = (EVGControlKind.button())
+            c.text = (itemAt labels i)
+            c.w = bw
+            c.h = bh
+            c.x = (right - bw)
+            c.y = rowY
+            if (c.id == defaultId) {
+                c.isDefault = true
+            }
+            push controls c
+            right = ((right - bw) - gap)
+            i = (i - 1)
+        }
+        cursorY = (rowY + bh + padY)
+    }
+
+    ; Call once the controls are in: sizes the panel to its content.
+    fn finish:void () {
+        h = cursorY
+        if (h < (titleH + 40)) {
+            h = (titleH + 40)
+        }
+    }
+
+    fn openAt:void (px:int py:int) {
+        x = px
+        y = py
+        visible = true
+        activated = -1
+        dragging = false
+    }
+
+    fn close:void () {
+        visible = false
+        dragging = false
+        hot = -1
+    }
+
+    ; --- state ----------------------------------------------------------------
+    fn controlById:EVGControl (id:int) {
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if (c.id == id) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new EVGControl)
+    }
+
+    fn isChecked:boolean (id:int) {
+        def c:EVGControl (this.controlById(id))
+        return c.checked
+    }
+
+    fn setChecked:void (id:int value:boolean) {
+        def c:EVGControl (this.controlById(id))
+        c.checked = value
+    }
+
+    ; Selecting a radio clears the rest of its group.
+    fn selectRadio:void (id:int) {
+        def target:EVGControl (this.controlById(id))
+        def g:int target.group
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if (c.kind == (EVGControlKind.radio())) {
+                if (c.group == g) {
+                    c.checked = false
+                }
+            }
+            i = (i + 1)
+        }
+        target.checked = true
+    }
+
+    fn selectedInGroup:int (group:int) {
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if (c.kind == (EVGControlKind.radio())) {
+                if (c.group == group) {
+                    if c.checked {
+                        return c.id
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn defaultButtonId:int () {
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if c.isDefault {
+                return c.id
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- hit-testing ----------------------------------------------------------
+    fn containsPoint:boolean (px:int py:int) {
+        if (px < x) {
+            return false
+        }
+        if (py < y) {
+            return false
+        }
+        if (px >= (x + w)) {
+            return false
+        }
+        if (py >= (y + h)) {
+            return false
+        }
+        return true
+    }
+
+    fn onTitleBar:boolean (px:int py:int) {
+        if ((this.containsPoint(px py)) == false) {
+            return false
+        }
+        return (py < (y + titleH))
+    }
+
+    ; Control under the pointer, or -1. Coordinates are window-relative inside.
+    fn controlAt:int (px:int py:int) {
+        if ((this.containsPoint(px py)) == false) {
+            return -1
+        }
+        def lx:int (px - x)
+        def ly:int (py - y)
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            def interactive:boolean false
+            if (c.kind == (EVGControlKind.button())) {
+                interactive = true
+            }
+            if (c.kind == (EVGControlKind.radio())) {
+                interactive = true
+            }
+            if (c.kind == (EVGControlKind.checkbox())) {
+                interactive = true
+            }
+            if (interactive && c.enabled) {
+                if (c.contains(lx ly)) {
+                    return c.id
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- input ----------------------------------------------------------------
+    ; Returns true when the window consumed the event, so the host can skip its
+    ; own handling. A modal window swallows everything outside it too.
+    fn handlePointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        activated = -1
+        if (visible == false) {
+            return false
+        }
+        hot = (this.controlAt(px py))
+        if dragging {
+            if down {
+                x = (px - dragDX)
+                y = (py - dragDY)
+                return true
+            }
+            dragging = false
+            return true
+        }
+        if pressed {
+            if (this.onTitleBar(px py)) {
+                dragging = true
+                dragDX = (px - x)
+                dragDY = (py - y)
+                return true
+            }
+            def id:int (this.controlAt(px py))
+            if (id >= 0) {
+                def c:EVGControl (this.controlById(id))
+                if (c.kind == (EVGControlKind.radio())) {
+                    this.selectRadio(id)
+                }
+                if (c.kind == (EVGControlKind.checkbox())) {
+                    c.checked = (c.checked == false)
+                }
+                if (c.kind == (EVGControlKind.button())) {
+                    activated = id
+                }
+                return true
+            }
+            if (this.containsPoint(px py)) {
+                return true
+            }
+            ; Outside a modal window: swallow, so the document behind is safe.
+            if modal {
+                return true
+            }
+            return false
+        }
+        if (this.containsPoint(px py)) {
+            return true
+        }
+        return modal
+    }
+
+    ; escapeKey / enterKey are the host's UIKey codes.
+    fn handleKey:boolean (key:int escapeKey:int enterKey:int) {
+        activated = -1
+        if (visible == false) {
+            return false
+        }
+        if (key == escapeKey) {
+            this.close()
+            return true
+        }
+        if (key == enterKey) {
+            def d:int (this.defaultButtonId())
+            if (d >= 0) {
+                activated = d
+            }
+            return true
+        }
+        return modal
+    }
+
+    ; --- painting -------------------------------------------------------------
+    fn rect:void (dl:EVGDisplayList rx:int ry:int rw:int rh:int col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = (to_double rx)
+        c.y = (to_double ry)
+        c.w = (to_double rw)
+        c.h = (to_double rh)
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn frame:void (dl:EVGDisplayList rx:int ry:int rw:int rh:int thick:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 1
+        c.x = (to_double rx)
+        c.y = (to_double ry)
+        c.w = (to_double rw)
+        c.h = (to_double rh)
+        c.thickness = thick
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn text:void (dl:EVGDisplayList s:string tx:int ty:int size:double col:EVGColor tr:UITextRenderer bold:boolean) {
+        if ((strlen s) == 0) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = (to_double tx)
+        c.y = (to_double ty)
+        c.w = (tr.measureWidth(s size))
+        c.h = (tr.lineHeight(size))
+        c.text = s
+        c.fontFamily = tr.fontFamily
+        c.fontSize = size
+        if bold {
+            c.fontWeight = "bold"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; Appends this window to the host's display list. `pageW/pageH` are only
+    ; used to draw the modal scrim behind it.
+    fn paint:void (dl:EVGDisplayList tr:UITextRenderer pageW:int pageH:int) {
+        if (visible == false) {
+            return
+        }
+        if modal {
+            this.rect(dl 0 0 pageW pageH theme.scrim)
+        }
+        this.rect(dl x y w h theme.panel)
+        this.frame(dl x y w h 1.0 theme.border)
+        this.rect(dl x y w titleH theme.titleBg)
+        this.text(dl title (x + padX) (y + 6) fontSize theme.titleText tr true)
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            def cx:int (x + c.x)
+            def cy:int (y + c.y)
+            if (c.kind == (EVGControlKind.label())) {
+                this.text(dl c.text cx (cy + 4) fontSize theme.text tr false)
+            }
+            if (c.kind == (EVGControlKind.separator())) {
+                this.rect(dl cx (cy + 3) c.w 1 theme.muted)
+            }
+            if (c.kind == (EVGControlKind.radio())) {
+                def rr:int 12
+                def ry2:int (cy + (idiv (c.h - rr) 2))
+                this.frame(dl cx ry2 rr rr 1.0 theme.border)
+                if c.checked {
+                    this.rect(dl (cx + 3) (ry2 + 3) (rr - 6) (rr - 6) theme.accent)
+                }
+                this.text(dl c.text (cx + rr + 8) (cy + 4) fontSize theme.text tr false)
+            }
+            if (c.kind == (EVGControlKind.checkbox())) {
+                def br:int 12
+                def by2:int (cy + (idiv (c.h - br) 2))
+                this.frame(dl cx by2 br br 1.0 theme.border)
+                if c.checked {
+                    this.rect(dl (cx + 3) (by2 + 3) (br - 6) (br - 6) theme.accent)
+                }
+                this.text(dl c.text (cx + br + 8) (cy + 4) fontSize theme.text tr false)
+            }
+            if (c.kind == (EVGControlKind.button())) {
+                def bg:EVGColor theme.buttonBg
+                if (hot == c.id) {
+                    bg = theme.buttonHot
+                }
+                this.rect(dl cx cy c.w c.h bg)
+                def edge:EVGColor theme.border
+                if (c.isDefault == false) {
+                    edge = theme.muted
+                }
+                this.frame(dl cx cy c.w c.h 1.0 edge)
+                def tw:int (to_int (tr.measureWidth(c.text fontSize)))
+                def tx2:int (cx + (idiv (c.w - tw) 2))
+                this.text(dl c.text tx2 (cy + 5) fontSize theme.text tr c.isDefault)
+            }
+            i = (i + 1)
+        }
+    }
+}
+
+; A stack of windows. The topmost visible one gets input first; painting goes
+; bottom-up so it lands on top.
+class EVGWindowManager {
+    def windows:[EVGWindow]
+
+    Constructor () {
+    }
+
+    fn add:void (win:EVGWindow) {
+        push windows win
+    }
+
+    fn anyVisible:boolean () {
+        def i:int 0
+        while (i < (array_length windows)) {
+            def wnd:EVGWindow (itemAt windows i)
+            if wnd.visible {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn topmost:EVGWindow () {
+        def i:int ((array_length windows) - 1)
+        while (i >= 0) {
+            def wnd:EVGWindow (itemAt windows i)
+            if wnd.visible {
+                return wnd
+            }
+            i = (i - 1)
+        }
+        return (new EVGWindow)
+    }
+
+    fn handlePointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        def i:int ((array_length windows) - 1)
+        while (i >= 0) {
+            def wnd:EVGWindow (itemAt windows i)
+            if wnd.visible {
+                return (wnd.handlePointer(px py pressed down released))
+            }
+            i = (i - 1)
+        }
+        return false
+    }
+
+    fn handleKey:boolean (key:int escapeKey:int enterKey:int) {
+        def i:int ((array_length windows) - 1)
+        while (i >= 0) {
+            def wnd:EVGWindow (itemAt windows i)
+            if wnd.visible {
+                return (wnd.handleKey(key escapeKey enterKey))
+            }
+            i = (i - 1)
+        }
+        return false
+    }
+
+    fn paint:void (dl:EVGDisplayList tr:UITextRenderer pageW:int pageH:int) {
+        def i:int 0
+        while (i < (array_length windows)) {
+            def wnd:EVGWindow (itemAt windows i)
+            wnd.paint(dl tr pageW pageH)
+            i = (i + 1)
+        }
+    }
+}

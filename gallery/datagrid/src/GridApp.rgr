@@ -16,6 +16,7 @@ Import "SheetView.rgr"
 Import "FormulaEngine.rgr"
 Import "xlsx/XlsxLoader.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
+Import "../../evg/EVGWindow.rgr"
 
 class GridApp {
     def book:WorkbookModel (new WorkbookModel)
@@ -49,6 +50,14 @@ class GridApp {
     def clipCols:int 0
     def clipValues:[string]
     def clipFormulas:[string]
+    def clipStyles:[CellStyle]
+    ; 0 = everything (default), 1 = values only, 2 = formats only,
+    ; 3 = values + formulas but no formatting.
+    def pasteMode:int 0
+    ; Shared EVG dialog layer — the same windows the DOCX / PPTX hosts can use.
+    def windows:EVGWindowManager (new EVGWindowManager)
+    def pasteDialog:EVGWindow (new EVGWindow)
+    def dialogsReady:boolean false
     def clipCut:boolean false
     def loadError:string ""
 
@@ -356,6 +365,89 @@ class GridApp {
             this.nudgeColumnWidth(col -20)
         }
         this.closeHeaderMenu()
+    }
+
+    ; --- dialogs --------------------------------------------------------------
+    ; Paste Special, built on the shared EVGWindow layer. Control ids:
+    ;   1..4 the mode radios, 10 OK, 11 Cancel.
+    fn buildDialogs:void () {
+        if dialogsReady {
+            return
+        }
+        pasteDialog.title = "Paste Special"
+        pasteDialog.w = 264
+        pasteDialog.reset()
+        pasteDialog.addLabel("Paste")
+        pasteDialog.addRadio(1 "All (values, formulas, formats)" 1 true)
+        pasteDialog.addRadio(2 "Values only" 1 false)
+        pasteDialog.addRadio(3 "Formats only" 1 false)
+        pasteDialog.addRadio(4 "Values and formulas, no formats" 1 false)
+        pasteDialog.addSeparator()
+        def ids:[int]
+        push ids 11
+        push ids 10
+        def labels:[string]
+        push labels "Cancel"
+        push labels "Paste"
+        pasteDialog.addButtonRow(ids labels 10)
+        pasteDialog.finish()
+        windows.add(pasteDialog)
+        dialogsReady = true
+    }
+
+    fn openPasteSpecial:void () {
+        this.buildDialogs()
+        ; Reflect the current default so the dialog opens on "All".
+        pasteDialog.selectRadio(1)
+        if (pasteMode == 1) {
+            pasteDialog.selectRadio(2)
+        }
+        if (pasteMode == 2) {
+            pasteDialog.selectRadio(3)
+        }
+        if (pasteMode == 3) {
+            pasteDialog.selectRadio(4)
+        }
+        def px:int (grid.x + (idiv (W - pasteDialog.w) 2))
+        def py:int (grid.y + 70)
+        pasteDialog.openAt(px py)
+        view.focused = true
+    }
+
+    ; Returns true when a dialog handled the frame, so the grid stays inert.
+    fn updateDialogs:boolean (input:UIInput) {
+        if ((windows.anyVisible()) == false) {
+            return false
+        }
+        def consumed:boolean (windows.handlePointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased))
+        def ki:int 0
+        def kn:int (input.keyCount())
+        while (ki < kn) {
+            windows.handleKey((input.keyAt(ki)) (UIKey.escape()) (UIKey.enter()))
+            ki = (ki + 1)
+        }
+        if (pasteDialog.activated == 10) {
+            def chosen:int (pasteDialog.selectedInGroup(1))
+            def mode:int 0
+            if (chosen == 2) {
+                mode = 1
+            }
+            if (chosen == 3) {
+                mode = 2
+            }
+            if (chosen == 4) {
+                mode = 3
+            }
+            pasteDialog.close()
+            def prev:int pasteMode
+            pasteMode = mode
+            this.pasteClipboard()
+            pasteMode = prev
+        }
+        if (pasteDialog.activated == 11) {
+            pasteDialog.close()
+        }
+        return true
     }
 
     fn resize:void (nw:int nh:int) {
@@ -866,6 +958,7 @@ class GridApp {
         clipCut = false
         clear clipValues
         clear clipFormulas
+        clear clipStyles
         def out:string ""
         def html:string "<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\">"
         def r:int a.row
@@ -884,6 +977,10 @@ class GridApp {
                 html = (html + (this.cellHtml(r c)))
                 push clipValues v
                 push clipFormulas (model.getFormula(r c))
+                ; Formatting travels with the cell, so a paste looks like the
+                ; source by default — the way every spreadsheet behaves.
+                def cst:CellStyle (model.getCellStyle(r c))
+                push clipStyles (cst.copy())
                 c = (c + 1)
             }
             html = (html + "</tr>")
@@ -910,6 +1007,7 @@ class GridApp {
         clipCut = false
         clear clipValues
         clear clipFormulas
+        clear clipStyles
         clipRows = 0
         clipCols = 0
     }
@@ -953,17 +1051,32 @@ class GridApp {
                 def tc:int (startC + ci)
                 if ((tr < model.rowCount) && (tc < model.colCount)) {
                     def f:string (itemAt clipFormulas idx)
-                    def wrote:boolean false
+                    def srcStyle:CellStyle (itemAt clipStyles idx)
+                    def newValue:string (itemAt clipValues idx)
+                    def newFormula:string ""
                     if ((strlen f) > 0) {
                         def translated:string (FormulaParser.translateFormula(f dx dy))
                         if ((strlen translated) > 0) {
-                            model.applyEdit(tr tc "" translated)
-                            wrote = true
+                            newFormula = translated
+                            newValue = ""
                         }
                     }
-                    if (wrote == false) {
-                        model.applyEdit(tr tc (itemAt clipValues idx) "")
+                    ; Paste mode picks which of the three parts land.
+                    ;   0 everything (default)  1 values only
+                    ;   2 formats only          3 values + formulas, no formats
+                    if (pasteMode == 1) {
+                        newFormula = ""
+                        newValue = (itemAt clipValues idx)
                     }
+                    if (pasteMode == 2) {
+                        newFormula = (model.getFormula(tr tc))
+                        newValue = (model.getCell(tr tc))
+                    }
+                    def useStyle:CellStyle srcStyle
+                    if ((pasteMode == 1) || (pasteMode == 3)) {
+                        useStyle = (model.getCellStyle(tr tc))
+                    }
+                    model.applyEditStyled(tr tc newValue newFormula useStyle)
                     engine.syncCell(book.activeIndex tr tc)
                     if (tr > maxR) {
                         maxR = tr
@@ -1217,6 +1330,10 @@ class GridApp {
     }
 
     fn update:void (input:UIInput) {
+        ; A visible dialog owns the frame.
+        if (this.updateDialogs(input)) {
+            return
+        }
         if input.pointerPressed {
             def tab:int (grid.hitSheetTab((book.sheetCount()) input.pointerX input.pointerY))
             if (tab >= 0) {
@@ -1318,7 +1435,11 @@ class GridApp {
                     this.cutSelection()
                 }
                 if ((ch == 118) || (ch == 86)) {
-                    this.pasteClipboard()
+                    if input.shiftDown {
+                        this.openPasteSpecial()
+                    } {
+                        this.pasteClipboard()
+                    }
                 }
                 if ((ch == 122) || (ch == 90)) {
                     this.undoEdit()
@@ -1365,6 +1486,7 @@ class GridApp {
     fn render:void () {
         view.status = ("v" + (to_string model.version))
         view.editCaret = editCaret
+        view.windows = windows
         view.render(model sel grid editing editBuf book)
     }
 
@@ -1375,6 +1497,7 @@ class GridApp {
     fn sceneJson:string () {
         view.status = ("v" + (to_string model.version))
         view.editCaret = editCaret
+        view.windows = windows
         return (view.sceneJson(model sel grid editing editBuf book))
     }
 

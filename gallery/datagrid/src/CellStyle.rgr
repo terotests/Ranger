@@ -27,6 +27,13 @@ class CellBorder {
         rgb = o.rgb
     }
 
+    fn sameAs:boolean (o:CellBorder) {
+        if (style != o.style) {
+            return false
+        }
+        return (rgb == o.rgb)
+    }
+
     ; Painted thickness in px.
     fn width:int () {
         if (style == "thick") {
@@ -108,6 +115,81 @@ class CellStyle {
 
     sfn createDefault:CellStyle () {
         return (new CellStyle)
+    }
+
+    fn copy:CellStyle () {
+        def o:CellStyle (new CellStyle)
+        o.fillRgb = fillRgb
+        o.textRgb = textRgb
+        o.bold = bold
+        o.italic = italic
+        o.underline = underline
+        o.strike = strike
+        o.fontSizePt = fontSizePt
+        o.align = align
+        o.numFmt = numFmt
+        o.hasFill = hasFill
+        o.hasBorder = hasBorder
+        o.borderTop.copyFrom(borderTop)
+        o.borderRight.copyFrom(borderRight)
+        o.borderBottom.copyFrom(borderBottom)
+        o.borderLeft.copyFrom(borderLeft)
+        return o
+    }
+
+    fn sameAs:boolean (o:CellStyle) {
+        if (fillRgb != o.fillRgb) {
+            return false
+        }
+        if (textRgb != o.textRgb) {
+            return false
+        }
+        if (bold != o.bold) {
+            return false
+        }
+        if (italic != o.italic) {
+            return false
+        }
+        if (underline != o.underline) {
+            return false
+        }
+        if (strike != o.strike) {
+            return false
+        }
+        if (fontSizePt != o.fontSizePt) {
+            return false
+        }
+        if (align != o.align) {
+            return false
+        }
+        if (numFmt != o.numFmt) {
+            return false
+        }
+        if (hasFill != o.hasFill) {
+            return false
+        }
+        if (hasBorder != o.hasBorder) {
+            return false
+        }
+        if ((borderTop.sameAs(o.borderTop)) == false) {
+            return false
+        }
+        if ((borderRight.sameAs(o.borderRight)) == false) {
+            return false
+        }
+        if ((borderBottom.sameAs(o.borderBottom)) == false) {
+            return false
+        }
+        if ((borderLeft.sameAs(o.borderLeft)) == false) {
+            return false
+        }
+        return true
+    }
+
+    ; True when nothing is set — a default style needs no table entry.
+    fn isPlain:boolean () {
+        def d:CellStyle (new CellStyle)
+        return (this.sameAs(d))
     }
 }
 

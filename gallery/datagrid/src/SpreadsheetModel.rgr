@@ -70,6 +70,9 @@ class SpreadsheetUndoOp {
     def after:string ""
     def beforeF:string ""
     def afterF:string ""
+    def beforeStyle:int -1
+    def afterStyle:int -1
+    def touchStyle:boolean false
     def txId:int 0
 
     Constructor () {
@@ -82,6 +85,9 @@ class SpreadsheetUndoOp {
         after = o.after
         beforeF = o.beforeF
         afterF = o.afterF
+        beforeStyle = o.beforeStyle
+        afterStyle = o.afterStyle
+        touchStyle = o.touchStyle
         txId = o.txId
     }
 }
@@ -348,6 +354,41 @@ class SpreadsheetModel {
     fn setCellStyleId:void (row:int col:int styleId:int) {
         def k:string (this.cellKey(row col))
         set cellStyleIds k styleId
+    }
+
+    fn getCellStyleId:int (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has cellStyleIds k) {
+            return (unwrap (get cellStyleIds k))
+        }
+        return -1
+    }
+
+    ; Index of an equal style in this sheet's table, adding it when new. Paste
+    ; carries a resolved CellStyle rather than an index, so it survives a hop
+    ; between sheets (each sheet holds its own copy of the style table).
+    fn styleIdFor:int (st:CellStyle) {
+        if (st.isPlain()) {
+            return -1
+        }
+        def i:int 0
+        def n:int (array_length styles)
+        while (i < n) {
+            def cand:CellStyle (itemAt styles i)
+            if (cand.sameAs(st)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        push styles (st.copy())
+        return ((array_length styles) - 1)
+    }
+
+    fn setCellStyleResolved:void (row:int col:int st:CellStyle) {
+        def id:int (this.styleIdFor(st))
+        def k:string (this.cellKey(row col))
+        set cellStyleIds k id
+        version = (version + 1)
     }
 
     fn getCellStyle:CellStyle (row:int col:int) {
@@ -757,6 +798,29 @@ class SpreadsheetModel {
         this.setFormulaText(row col formula)
     }
 
+    ; Value + formula + formatting in ONE undo op — what a paste writes.
+    fn applyEditStyled:void (row:int col:int value:string formula:string st:CellStyle) {
+        def before:string (this.getCell(row col))
+        def beforeF:string (this.getFormula(row col))
+        def beforeSid:int (this.getCellStyleId(row col))
+        def afterSid:int (this.styleIdFor(st))
+        if ((before == value) && (beforeF == formula) && (beforeSid == afterSid)) {
+            return
+        }
+        this.pushUndoOp(row col before value beforeF formula)
+        def n:int (array_length undoStack)
+        if (n > 0) {
+            def op:SpreadsheetUndoOp (itemAt undoStack (n - 1))
+            op.beforeStyle = beforeSid
+            op.afterStyle = afterSid
+            op.touchStyle = true
+        }
+        this.setCellRaw(row col value)
+        this.setFormulaText(row col formula)
+        def k:string (this.cellKey(row col))
+        set cellStyleIds k afterSid
+    }
+
     fn setCell:void (row:int col:int value:string) {
         this.applyEdit(row col value "")
     }
@@ -768,6 +832,14 @@ class SpreadsheetModel {
         } {
             this.setCellRaw(op.row op.col op.before)
             this.setFormulaText(op.row op.col op.beforeF)
+        }
+        if op.touchStyle {
+            def sid:int op.beforeStyle
+            if toAfter {
+                sid = op.afterStyle
+            }
+            def k:string (this.cellKey(op.row op.col))
+            set cellStyleIds k sid
         }
         push touched (CellPos.create(op.row op.col))
     }

@@ -137,7 +137,24 @@ written rather than rescanning a sheet that may declare 100k rows (see
 | --- | --- | --- |
 | `clipboardTsv` | tab/newline text | any app, and the TSV paste path |
 | `clipboardHtml` | an HTML `<table>` with fill / bold / align per cell | Word, and the Ranger DOCX editor |
-| `clipValues` + `clipFormulas` | the structured block | this grid, so paste can translate refs |
+| `clipValues` + `clipFormulas` + `clipStyles` | the structured block | this grid, so paste can translate refs and keep formatting |
+
+**Formatting travels by default.** Copy carries a resolved `CellStyle` per cell —
+fill, borders, bold/italic/underline/strike, size, colour and number format — and
+paste applies it, the way every spreadsheet behaves. Value, formula and format
+land in one undo op (`SpreadsheetModel.applyEditStyled`), so a single Ctrl+Z puts
+the previous formatting back. Styles are matched into the target sheet's style
+table by value (`styleIdFor`), so a paste survives a hop between sheets.
+
+`Ctrl+Shift+V` opens **Paste Special** to choose something other than the
+default:
+
+| Mode | Lands |
+| --- | --- |
+| All | values, formulas and formatting (the default) |
+| Values only | values, no formulas, target formatting kept |
+| Formats only | formatting only, the target's value stays |
+| Values and formulas, no formats | both, target formatting kept |
 
 In the WebGL host the first two reach the **OS clipboard** as `text/plain` and
 `text/html` — the same two flavours Excel offers. `/input` answers a copy or cut
@@ -154,6 +171,21 @@ table, not as tab-separated text.
 
 Known gaps: cut does not rewrite formulas elsewhere that referenced the moved
 cells; paste does not tile into a larger target range; no cell-style clipboard.
+
+## Dialogs
+
+Paste Special is built on **[`EVGWindow`](../evg/EVGWindow.rgr)**, a small
+window layer that paints into an `EVGDisplayList` rather than onto a canvas —
+so the same dialogs work on SoftCanvas, WebGL and anything added later, and the
+DOCX and PPTX hosts can use them as they are. It provides a draggable titled
+panel, labels, buttons, radio groups, checkboxes and separators, with modal
+input capture: while a modal window is up it swallows clicks meant for the
+document behind it. Geometry is all integers, so behaviour is unit-testable
+without rendering.
+
+The host stays in charge: it passes the `UITextRenderer` it already has,
+forwards the pointer and keys it already receives, and appends the window's
+commands to its own display list.
 
 ## Architecture invariant
 
