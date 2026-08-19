@@ -3,7 +3,7 @@
  *   INPUT  — keys / clicks / fixture select → PptxApp
  *   RENDER — GET /scene.json → renderDisplayList (WebGL 2)
  */
-import { renderDisplayList } from "/evg/gl/evg-webgl.js";
+import { renderDisplayList, loadImages } from "/evg/gl/evg-webgl.js";
 
 const canvas = document.getElementById("view");
 const metaEl = document.getElementById("meta");
@@ -40,10 +40,13 @@ async function redraw() {
     canvas.width = bw;
     canvas.height = bh;
   }
+  // Display-list IMAGE cmds use OPC part paths (ppt/media/…). Serve them via
+  // /part/… and upload textures before painting — otherwise WebGL skips them.
+  const images = await loadImages(doc, { base: "/part/" });
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0.07, 0.08, 0.11, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-  renderDisplayList(gl, doc, { dpr });
+  renderDisplayList(gl, doc, { dpr, images });
   await refreshMeta();
 }
 
