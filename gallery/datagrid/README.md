@@ -25,6 +25,7 @@ npm run datagrid:test
 npm run datagrid:edit:test
 npm run datagrid:xlsx:test
 npm run datagrid:chart:test
+npm run datagrid:export:test
 npm run datagrid:workbook:test
 npm run datagrid:formula:test
 npm run datagrid:formula:workbook:test
@@ -66,6 +67,7 @@ npm run datagrid:window
 - **Conditional formatting** read from the file *and* authored in a rule editor
 - **Hyperlinks, notes and data validation**: read from the package, painted,
   enforced, and editable
+- **.xlsx export**: `Ctrl+S`, round-tripped by our own loader and by openpyxl
 - **Text rotation**: OOXML `textRotation`, turned in the display list
 - Tracked screenshots in `artifacts/` (PNG + JPEG)
 - Sort / filter via SheetView (programmatic + header popup)
@@ -173,6 +175,7 @@ snapshot — no DOM or SDL below the app.
 | Ctrl+L | Conditional-formatting rule editor | — |
 | Ctrl+K | Hyperlink on the active cell | — |
 | Ctrl+E | Data-validation rule for the selection | — |
+| Ctrl+S | Save the workbook as .xlsx | — |
 | Ctrl+click a link | Follows it — the host is told the target | — |
 | Ctrl+M | Chart the selection | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
@@ -305,6 +308,41 @@ All three are **metadata, not cell content**, so they are deliberately off the
 undo stack — undoing a paste must not drop the note that was pinned to the cell
 before it.
 
+## Saving
+
+`Ctrl+S` writes the workbook back out as **.xlsx**, beside the file it came
+from and under a name that cannot overwrite it (`sales.xlsx` →
+`sales-export.xlsx`). `GridApp.saveXlsx(dir name)` puts it wherever you like.
+
+The writer and the loader share one model, so a round trip is a test rather
+than a hope — and `npm run datagrid:export:test` runs both halves of it:
+
+1. **Ours**: build a workbook, write it, load it back with the ordinary loader,
+   compare everything (48 checks).
+2. **Theirs**: `tools/check_export.py` reads the same file with **openpyxl**,
+   a library that has never seen our model (29 checks). Two halves of one
+   codebase can share a misunderstanding; an outside reader cannot join in.
+
+| Survives the trip | Not written yet |
+| --- | --- |
+| values, formulas (with cached results), styles — font, fill, borders, alignment, wrap, rotation, number formats | cell comments |
+| column widths, row heights, hidden rows and columns | conditional-formatting rules |
+| merges, freeze panes, sheet names and hidden sheets | charts and images |
+| hyperlinks (external via relationships, internal by location), data validation rules | |
+
+Two decisions worth knowing: strings go out **inline** rather than through a
+shared-string table (a shared table is a size optimisation whose only failure
+mode is an index pointing at the wrong string), and entries are **stored**
+rather than deflated, which the OPC specification allows and every reader
+accepts.
+
+Fixing this turned up a bug in the shared zip writer: `CRC32` masked its
+running value to 24 bits and let JavaScript's signed bitwise operators keep the
+result negative, so **every archive the repository has ever written had wrong
+CRCs**. Our own reader ignores CRCs and never noticed; Python's `zipfile`
+refuses the file outright. The same bug lived in a second copy of `CRC32.rgr`
+under `game_engine`, and both are fixed.
+
 ## Charts
 
 Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
@@ -383,13 +421,13 @@ and the completed items on its roadmap), so the number measures the benchmark
 rather than our own wish list. `done` counts 1, `partial` 0.5, `todo` 0.
 
 ```
-TOTAL   34.5 / 41   84.1%     done 33   partial 3   todo 5
+TOTAL   35.5 / 41   86.6%     done 34   partial 3   todo 4
 ```
 
 `-- --todo` lists what is missing; `-- --check 60` fails below a threshold, so
-the score can gate CI once it is where you want it. The biggest gaps left are
-xlsx **export**, rich text inside a cell, images, and the collaborative
-features (cooperative editing, mobile).
+the score can gate CI once it is where you want it. What is left is rich text
+inside a cell, images, and the collaborative features — cooperative editing and
+mobile adaptation — plus array formulas and a plugin surface.
 
 ## Architecture invariant
 

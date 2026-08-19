@@ -259,7 +259,12 @@ class XlsxWorksheet {
             cols = (col + 1)
         }
         if ((rows != model.rowCount) || (cols != model.colCount)) {
-            model.resize(rows cols)
+            ; growTo, NOT resize: `resize` rebuilds the width and height arrays
+            ; from the defaults, and this runs in the middle of parsing — after
+            ; <cols> has already said how wide column A is. A file that widens
+            ; an early column and then mentions a later one lost the first
+            ; width entirely.
+            model.growTo(rows cols)
         }
     }
 

@@ -74,7 +74,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Feature | Status | Notes |
 | --- | --- | --- |
 | .xlsx import | done | package, styles, formulas, merges, freeze, CF |
-| .xlsx export | todo | read-only; no writer |
+| .xlsx export | done | package, styles, formulas, merges, freeze, links, validations — read back by openpyxl |
 
 ## Extras
 

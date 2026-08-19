@@ -85,8 +85,9 @@ const KEY_MAP = {
 // Z undo, Y redo, Space select column.
 // Ctrl chords the app understands: select-all, copy, cut, paste, undo,
 // redo, row/column select (space), m for "make a chart of the selection",
-// f / h for find and replace, and l for the conditional-format rule editor.
-const CTRL_CHORD = /^[acxvzymfhlACXVZYMFHL ]$/;
+// f / h for find and replace, l for the conditional-format rule editor,
+// k for a hyperlink, e for a validation rule, and s to save the workbook.
+const CTRL_CHORD = /^[acxvzymfhlkesACXVZYMFHLKES ]$/;
 
 /** Put the selection on the OS clipboard as BOTH flavours a spreadsheet
  *  offers: text/plain TSV and text/html holding a <table>. The HTML flavour is

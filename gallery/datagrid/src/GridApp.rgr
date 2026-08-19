@@ -15,6 +15,7 @@ Import "GridView.rgr"
 Import "SheetView.rgr"
 Import "FormulaEngine.rgr"
 Import "xlsx/XlsxLoader.rgr"
+Import "xlsx/XlsxWriter.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChart.rgr"
@@ -121,6 +122,9 @@ class GridApp {
     def formatBrushArmed:boolean false
     def clipCut:boolean false
     def loadError:string ""
+    ; Where the last save went, so a host can tell the user — and so a test
+    ; can check that it went anywhere at all.
+    def savedPath:string ""
 
     Constructor () {
     }
@@ -179,6 +183,81 @@ class GridApp {
         loadError = loader.lastError
         view.status = loadError
         return false
+    }
+
+    ; --- saving ---------------------------------------------------------------
+    ; The workbook, written back out as .xlsx. The loader and the writer share
+    ; the model, so what comes back is what was there — see XlsxWriteTest, and
+    ; tools/check_export.py for the same file read by openpyxl.
+    fn saveXlsx:boolean (dir:string name:string) {
+        if editing {
+            this.commitEdit()
+        }
+        def w:XlsxWriter (new XlsxWriter)
+        def ok:boolean (w.write(book dir name))
+        if ok {
+            savedPath = (dir + "/" + name)
+            view.status = ("saved " + savedPath)
+        } {
+            savedPath = ""
+            view.status = ("save failed: " + w.lastError)
+        }
+        return ok
+    }
+
+    ; Where Ctrl+S puts it when nobody said: beside the file it came from, with
+    ; a name that cannot overwrite it.
+    sfn exportDir:string (source:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen source)) {
+            if ((charAt source i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring source 0 cut)
+    }
+
+    sfn exportName:string (source:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen source)) {
+            if ((charAt source i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        def file:string source
+        if (cut >= 0) {
+            file = (substring source (cut + 1) (strlen source))
+        }
+        if ((strlen file) == 0) {
+            return "workbook-export.xlsx"
+        }
+        def dot:int -1
+        def k:int 0
+        while (k < (strlen file)) {
+            if ((charAt file k) == 46) {
+                dot = k
+            }
+            k = (k + 1)
+        }
+        if (dot > 0) {
+            file = (substring file 0 dot)
+        }
+        return (file + "-export.xlsx")
+    }
+
+    fn saveXlsxDefault:boolean () {
+        def src:string book.sourcePath
+        if ((strlen src) == 0) {
+            return (this.saveXlsx("." "workbook-export.xlsx"))
+        }
+        return (this.saveXlsx((GridApp.exportDir(src)) (GridApp.exportName(src))))
     }
 
     fn setActiveSheet:void (i:int) {
@@ -3266,6 +3345,9 @@ class GridApp {
                     }
                     dvStatus = ""
                     this.openValidationDialog()
+                }
+                if ((ch == 115) || (ch == 83)) {
+                    this.saveXlsxDefault()
                 }
                 ; Ctrl+M makes a chart of the selection. Excel's own chart
                 ; keys (F11, Alt+F1) are not keys this input layer carries, and
