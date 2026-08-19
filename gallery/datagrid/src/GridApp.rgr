@@ -1730,6 +1730,9 @@ class GridApp {
 
     ; Open the picker: on the current selection when `editId` is 0, on an
     ; existing chart otherwise.
+    ; Ids: 100+kind for the type, 200+style for the look, 301/302 the header
+    ; questions, 303 the legend, 311 the title field, 401..403 the buttons, and
+    ; 500 the preview region.
     fn openChartDialog:void (editId:int) {
         this.buildDialogs()
         if editing {
@@ -1768,16 +1771,37 @@ class GridApp {
                 }
             }
         }
+        this.layoutChartDialog(editId)
+        def px:int (grid.x + (idiv (W - chartDialog.w) 2))
+        def py:int (grid.y + 26)
+        chartDialog.openWithin(px py W H)
+        windows.raise(chartDialog)
+        view.focused = true
+    }
 
+    ; Build the picker's controls. Called again whenever something changes, so
+    ; the radio states and the preview stay in step — the panel is cheap to
+    ; rebuild and there is then only one description of what it looks like.
+    fn layoutChartDialog:void (editId:int) {
+        def probe:ChartData (new ChartData)
+        def has:boolean (probe.extract(model pendingChart))
         chartDialog.title = "Insert chart"
         if (editId > 0) {
             chartDialog.title = "Chart"
         }
+        chartDialog.w = 720
+        chartDialog.labelW = 44
         chartDialog.reset()
-        chartDialog.addLabel(("Data: " + (pendingChart.rangeLabel())))
+        ; The preview lives on the right. Bounding the FLOW keeps every radio,
+        ; checkbox and field in the left column instead of being laid out
+        ; underneath the picture, which is where they went before.
+        chartDialog.flowW = 396
+        chartDialog.addLabel(("Data: " + (pendingChart.rangeLabel()) + "   —   " + (to_string (probe.catCount())) + " rows x " + (to_string (probe.seriesCount())) + " series"))
         chartDialog.addSeparator()
         chartDialog.addLabel("Chart type")
-        chartDialog.beginColumns(2)
+        ; Twenty types in three columns: a single column would be taller than
+        ; the window it has to fit in.
+        chartDialog.beginColumns(3)
         def k:int (ChartKind.lowest())
         while (k <= (ChartKind.highest())) {
             def id:int (100 + k)
@@ -1796,7 +1820,7 @@ class GridApp {
         chartDialog.endColumns()
         chartDialog.addSeparator()
         chartDialog.addLabel("Style")
-        chartDialog.beginColumns(2)
+        chartDialog.beginColumns(3)
         def st:int (ChartStyle.lowest())
         while (st <= (ChartStyle.highest())) {
             chartDialog.addRadio((200 + st) (ChartStyle.label(st)) 2 (st == pendingChart.style))
@@ -1805,7 +1829,9 @@ class GridApp {
         chartDialog.endColumns()
         chartDialog.addSeparator()
         chartDialog.addCheckbox(301 "First row names the series" pendingChart.useHeaderRow)
-        chartDialog.addCheckbox(302 "First column labels the categories" pendingChart.useHeaderCol)
+        chartDialog.addCheckbox(302 "First column labels the rows" pendingChart.useHeaderCol)
+        chartDialog.addCheckbox(303 "Show legend" pendingChart.showLegend)
+        chartDialog.addInput(311 "Title" pendingChart.title)
         def ids:[int]
         def labels:[string]
         if (editId > 0) {
@@ -1820,17 +1846,29 @@ class GridApp {
         } {
             push labels "Create"
         }
+        ; The preview sits BESIDE the options rather than under them — the list
+        ; is long enough already, and a picture next to the choice that made it
+        ; is the point of having one at all.
+        def prevX:int 412
+        def prevY:int 44
+        ; Reserve the preview's own height in the flow BEFORE the buttons are
+        ; placed. The button row is right-aligned across the whole panel, so a
+        ; row laid out while the flow was still shorter than the preview would
+        ; end up drawn on top of it.
+        if (chartDialog.cursorY < (prevY + 236)) {
+            chartDialog.cursorY = (prevY + 236)
+        }
         chartDialog.addButtonRow(ids labels 403)
         chartDialog.finish()
-        def px:int (grid.x + (idiv (W - chartDialog.w) 2))
-        def py:int (grid.y + 40)
-        chartDialog.openWithin(px py W H)
-        windows.raise(chartDialog)
-        view.focused = true
+        def prevW:int ((chartDialog.w - prevX) - chartDialog.padX)
+        def prevH:int ((chartDialog.h - prevY) - 46)
+        chartDialog.addContentAt(500 prevX prevY prevW prevH)
     }
 
-    ; Read the picker back into the chart and put it on the sheet.
-    fn applyChartDialog:void () {
+    ; Read the picker's controls back into the pending chart. Runs every frame
+    ; the dialog is up, which is what makes the preview live: clicking a radio
+    ; changes the chart, and the chart is what the preview draws.
+    fn syncChartDialog:void () {
         def chosen:int (chartDialog.selectedInGroup(1))
         if (chosen > 100) {
             pendingChart.kind = (chosen - 100)
@@ -1841,6 +1879,42 @@ class GridApp {
         }
         pendingChart.useHeaderRow = (chartDialog.isChecked(301))
         pendingChart.useHeaderCol = (chartDialog.isChecked(302))
+        pendingChart.showLegend = (chartDialog.isChecked(303))
+        pendingChart.title = (chartDialog.inputValue(311))
+    }
+
+    ; The header checkboxes change which cells are data, which changes which
+    ; kinds are possible — so the offered list has to be rebuilt, and a choice
+    ; that has just become impossible has to move.
+    fn refreshChartDialog:void () {
+        def keepX:int chartDialog.x
+        def keepY:int chartDialog.y
+        def keepFocus:int chartDialog.focusedId
+        def probe:ChartData (new ChartData)
+        def has:boolean (probe.extract(model pendingChart))
+        if has {
+            if ((probe.suits(pendingChart.kind)) == false) {
+                def k:int (ChartKind.lowest())
+                while (k <= (ChartKind.highest())) {
+                    if (probe.suits(k)) {
+                        pendingChart.kind = k
+                        k = ((ChartKind.highest()) + 1)
+                    } {
+                        k = (k + 1)
+                    }
+                }
+            }
+        }
+        this.layoutChartDialog(chartEditId)
+        chartDialog.x = keepX
+        chartDialog.y = keepY
+        chartDialog.focusedId = keepFocus
+        chartDialog.visible = true
+    }
+
+    ; Read the picker back into the chart and put it on the sheet.
+    fn applyChartDialog:void () {
+        this.syncChartDialog()
         if (chartEditId > 0) {
             view.chartLayer.apply(chartEditId pendingChart)
         } {
@@ -2283,6 +2357,23 @@ class GridApp {
         }
         if (pasteDialog.activated == 11) {
             pasteDialog.close()
+        }
+        ; The picker is live: whatever its controls say is what the pending
+        ; chart is, every frame, and the preview draws the pending chart.
+        if chartDialog.visible {
+            def beforeHeaders:string ((to_string pendingChart.useHeaderRow) + (to_string pendingChart.useHeaderCol))
+            this.syncChartDialog()
+            def afterHeaders:string ((to_string pendingChart.useHeaderRow) + (to_string pendingChart.useHeaderCol))
+            if (beforeHeaders != afterHeaders) {
+                ; Which cells are data just changed, so which charts are
+                ; possible changed with it.
+                this.refreshChartDialog()
+            }
+            view.previewChart.copyFrom(pendingChart)
+            view.previewChart.id = -1
+            view.previewWid = chartDialog.wid
+        } {
+            view.previewWid = 0
         }
         if (chartDialog.activated == 403) {
             this.applyChartDialog()

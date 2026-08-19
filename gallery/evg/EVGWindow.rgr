@@ -130,6 +130,11 @@ class EVGWindow {
     ; taller than a dialog wants to be; `beginColumns` lays the next controls
     ; out side by side instead, in the same order.
     def columns:int 1
+    ; How wide the control FLOW is allowed to be. Zero means the whole panel,
+    ; which is what nearly every dialog wants. A dialog that puts something
+    ; beside its controls — a live preview — sets this to the width of the
+    ; column the controls own, so nothing is laid out underneath the picture.
+    def flowW:int 0
     def colIndex:int 0
     def colTop:int 0
     def colRowH:int 0
@@ -175,6 +180,7 @@ class EVGWindow {
         columns = 1
         colIndex = 0
         focusedId = -1
+        flowW = 0
     }
 
     fn addControl:EVGControl (id:int kind:int text:string height:int) {
@@ -183,8 +189,9 @@ class EVGWindow {
         c.kind = kind
         c.text = text
         c.h = height
+        def flow:int (this.flowWidth())
         if (columns > 1) {
-            def cw:int (idiv (w - (padX * 2)) columns)
+            def cw:int (idiv flow columns)
             c.x = (padX + (colIndex * cw))
             c.y = colTop
             c.w = (cw - 8)
@@ -197,11 +204,24 @@ class EVGWindow {
         } {
             c.x = padX
             c.y = cursorY
-            c.w = (w - (padX * 2))
+            c.w = flow
             cursorY = ((cursorY + height) + 4)
         }
         push controls c
         return c
+    }
+
+    ; The width controls are laid out into: the panel minus its margins, or
+    ; the narrower flow a dialog asked for.
+    fn flowWidth:int () {
+        def full:int (w - (padX * 2))
+        if (flowW <= 0) {
+            return full
+        }
+        if (flowW > full) {
+            return full
+        }
+        return flowW
     }
 
     fn beginColumns:void (n:int) {
@@ -249,6 +269,31 @@ class EVGWindow {
         def c:EVGControl (this.addControl(id (EVGControlKind.content()) "" height))
         hasContent = true
         contentId = id
+    }
+
+    ; A content region placed by hand rather than in the flow — what a dialog
+    ; needs when something has to sit BESIDE its controls instead of under
+    ; them. A live preview is the case: put the options down the left, the
+    ; picture down the right, and neither has to know how tall the other is.
+    fn addContentAt:void (id:int x0:int y0:int w0:int h0:int) {
+        def c:EVGControl (new EVGControl)
+        c.id = id
+        c.kind = (EVGControlKind.content())
+        c.x = x0
+        c.y = y0
+        c.w = w0
+        c.h = h0
+        push controls c
+        hasContent = true
+        contentId = id
+    }
+
+    ; Make sure the panel is at least this tall. `finish` sizes it to the
+    ; control FLOW, which knows nothing about anything placed beside it.
+    fn growHeight:void (minH:int) {
+        if (h < minH) {
+            h = minH
+        }
     }
 
     fn contentControl:EVGControl () {

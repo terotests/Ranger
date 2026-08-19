@@ -67,6 +67,10 @@ class GridView {
     ; The host's custom tools, drawn as buttons on the status bar. The view
     ; only paints them; what they mean is the host's business.
     def commands:GridCommandTable (new GridCommandTable)
+    ; The chart the picker is previewing, and which window to draw it in. Set
+    ; by the host every frame the picker is up; zero means nothing to preview.
+    def previewChart:GridChart (new GridChart)
+    def previewWid:int 0
     def ghostVisible:boolean false
     def ghostR0:int 0
     def ghostC0:int 0
@@ -1147,6 +1151,17 @@ class GridView {
             def wnd:EVGWindow (itemAt windows.windows wi)
             wnd.paint(dl ctx.tr pageW pageH)
             chartLayer.paintContent(dl model ctx.tr wnd)
+            ; The picker's own preview, drawn into the region it left for it.
+            ; Same renderer, same cache, same everything as a chart on the
+            ; sheet — which is the point: what you see is what you will get.
+            if (previewWid > 0) {
+                if ((wnd.wid == previewWid) && wnd.visible) {
+                    if (wnd.hasContent) {
+                        def pc:EVGControl (wnd.contentControl())
+                        chartLayer.view.paint(dl model previewChart ctx.tr ((wnd.x + pc.x) + 1) ((wnd.y + pc.y) + 1) (pc.w - 2) (pc.h - 2))
+                    }
+                }
+            }
             wi = (wi + 1)
         }
 

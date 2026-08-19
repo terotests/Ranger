@@ -71,7 +71,11 @@ class GridChartView {
             return out
         }
         def compiler (new VlCompile())
-        def vg:VlJson (compiler.compile(vl))
+        ; `compileSpec`, not `compile`: the difference is the CONFIG block, which
+        ; compile leaves behind. Every style this file offers lives in there, so
+        ; compiled the short way each chart came out in Vega's defaults —
+        ; #ddd gridlines and a tableau palette, whatever the style said.
+        def vg:VlJson (compiler.compileSpec(vl))
         def rt (new VlRuntime())
         def scene:VlSceneMark (rt.run(vg))
         if ((rt.errorCount()) > 0) {

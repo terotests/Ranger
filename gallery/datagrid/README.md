@@ -62,7 +62,7 @@ npm run datagrid:window
   incremental recalc) + FormulaFunctions; cached `<v>` fallback
 - SheetView drives paint order; header popup for sort/filter
 - Conditional formatting: colorScale + cellIs paint overlay
-- **Charts from a selection**: eight Vega-Lite chart types through
+- **Charts from a selection**: twenty Vega-Lite chart types, previewed live in the picker, through
   [Vela](../vela/README.md), floating in draggable, resizable windows
 - **Find and replace** across values or formulas, one sheet or all
 - **Disjoint selection** (Ctrl+click) and **drag-to-move** a range
@@ -184,7 +184,7 @@ snapshot — no DOM or SDL below the app.
 | Ctrl+E | Data-validation rule for the selection | — |
 | Ctrl+S | Save the workbook as .xlsx | — |
 | Ctrl+click a link | Follows it — the host is told the target | — |
-| Ctrl+M | Chart the selection | — |
+| Ctrl+M | Chart the selection (live preview in the picker) | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
 | ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
 | Delete | Clear the selection | Delete at the caret |
@@ -471,19 +471,61 @@ the bar the reference draws.
 
 ### What the picker offers
 
-Eight types — column, bar, stacked column, line, area, scatter, pie, donut — and
-four styles (Vela light, Slate dark, Mono, Bold), which are `config` blocks: the
-same marks, painted differently.
+**Twenty types**, grouped by what they are made of, and **six styles**:
+
+| Group | Types |
+| --- | --- |
+| Bars | Column, Bar, Stacked, 100% stacked, Histogram |
+| Lines | Line, Line + points, Step, Smooth |
+| Areas | Area, Stacked area, Stream |
+| Points | Scatter, Bubble, Strip |
+| Parts of a whole | Pie, Donut, Radial |
+| Matrices | Heatmap, Box plot |
+
+Styles — Vela light, Slate dark, Mono, Bold, Ocean, Sunset — are `config`
+blocks: the same marks, painted differently. What makes them look like charts
+rather than diagrams is mostly what they leave out: no border around the plot, a
+grid light enough to read past, ticks that do not compete with the data.
+
+> The config block only reaches Vega through `VlCompile.compileSpec`; `compile`
+> alone drops it. Compiled the short way every chart came out in Vega's
+> defaults — `#ddd` gridlines, a tableau palette — whatever the style said, and
+> the styles looked identical for exactly as long as nobody compared two of
+> them. `ChartTest` now renders the same chart in two styles and requires the
+> pictures to differ.
+
+Categories keep the order the **sheet** put them in (`"sort": null`). Vega-Lite
+sorts a nominal domain alphabetically, which turns Jan…Jun into
+Apr, Feb, Jan, Jun, Mar, May — right for a chart of names, wrong for every
+table a spreadsheet draws.
 
 **A type that would not work is greyed out rather than hidden**, because
 "a pie is possible, but not of two series" is worth more than a shorter list:
 
 | Type | Needs |
 | --- | --- |
-| Stacked column | two or more series |
-| Line, area | two or more categories |
-| Scatter | a numeric first column |
-| Pie, donut | exactly one series, two or more categories |
+| Stacked, 100% stacked, stacked area, stream | two or more series |
+| Line, area, step, smooth | two or more categories |
+| Scatter, strip | two numeric value columns |
+| Bubble | three — x, y and the size |
+| Pie, donut, radial | exactly one series, two or more categories |
+| Box plot | several values per series |
+
+### The live preview
+
+The picker draws **the chart it is describing**, beside the options, and
+redraws it as they change — click a type, switch a style, type a title, and the
+picture follows on the next frame. Nothing is created and nothing has to be
+undone to try the next one.
+
+It is the same renderer, the same cache and the same specification as a chart on
+the sheet, drawn into a content region the window reserves
+(`EVGWindow.addContentAt`) rather than a preview mode of its own — so what you
+see is what you get, by construction rather than by care.
+
+The options are bounded to the left column (`EVGWindow.flowW`); laid out across
+the full panel they were placed *underneath* the picture, and a third of the
+types could not be clicked.
 
 The picker opens on the type the data suggests, with the headers already
 guessed: a top row of words over a column of numbers is a header row, not data.

@@ -22,6 +22,47 @@ class DumpArtifacts {
         print ("wrote " + dir + "/" + file)
     }
 
+    ; A small table with two numeric columns, so every kind in the gallery has
+    ; something it can be made of — including the ones that plot one column
+    ; against the other rather than against the categories.
+    sfn gallerySheet:void (app:GridApp) {
+        app.model.growTo(8 4)
+        app.model.setCell(0 0 "Month")
+        app.model.setCell(0 1 "Widgets")
+        app.model.setCell(0 2 "Gadgets")
+        def names:[string]
+        push names "Jan"
+        push names "Feb"
+        push names "Mar"
+        push names "Apr"
+        push names "May"
+        push names "Jun"
+        def widgets:[string]
+        push widgets "120"
+        push widgets "150"
+        push widgets "90"
+        push widgets "175"
+        push widgets "140"
+        push widgets "165"
+        def gadgets:[string]
+        push gadgets "80"
+        push gadgets "95"
+        push gadgets "130"
+        push gadgets "110"
+        push gadgets "125"
+        push gadgets "85"
+        def ri:int 0
+        while (ri < (array_length names)) {
+            app.model.setCell((ri + 1) 0 (itemAt names ri))
+            app.model.setCell((ri + 1) 1 (itemAt widgets ri))
+            app.model.setCell((ri + 1) 2 (itemAt gadgets ri))
+            ri = (ri + 1)
+        }
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.grid.updateVisible(app.model)
+    }
+
     sfn main:void () {
         def dir:string "gallery/datagrid/artifacts"
         def app:GridApp (new GridApp)
@@ -138,6 +179,12 @@ class DumpArtifacts {
             app.sel.active.row = 4
             app.sel.active.col = 2
             app.openChartDialog(0)
+            app.chartDialog.selectRadio(100 + (ChartKind.column()))
+            app.chartDialog.setInputValue(311 "Quarterly units")
+            app.syncChartDialog()
+            app.view.previewChart.copyFrom(app.pendingChart)
+            app.view.previewChart.id = -1
+            app.view.previewWid = app.chartDialog.wid
             DumpArtifacts.writePng(app dir "06_chart_picker.png")
 
             print "== 07 charts floating over the sheet =="
@@ -239,6 +286,66 @@ class DumpArtifacts {
             app.addCustomCommand("acme.sync" "Sync" "Tools")
             app.runCommand("nav.goto" "C4")
             DumpArtifacts.writePng(app dir "16_custom_tools.png")
+        }
+
+        print "== 17 the range of chart types, side by side =="
+        def ok17:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok17 {
+            def s17:int 0
+            while (s17 < (app.book.sheetCount())) {
+                def sh17:SpreadsheetModel (app.book.sheetAt(s17))
+                if (sh17.name == "Scratch") {
+                    app.setActiveSheet(s17)
+                }
+                s17 = (s17 + 1)
+            }
+            DumpArtifacts.gallerySheet(app)
+            ; Six kinds in six styles, tiled: what the picker offers, drawn from
+            ; one table so the differences are the CHART rather than the data.
+            def kinds:[int]
+            def styles:[int]
+            def cols:[int]
+            push kinds (ChartKind.stacked())
+            push styles (ChartStyle.vela())
+            push cols 2
+            push kinds (ChartKind.smooth())
+            push styles (ChartStyle.slate())
+            push cols 2
+            push kinds (ChartKind.stackedArea())
+            push styles (ChartStyle.ocean())
+            push cols 2
+            push kinds (ChartKind.scatter())
+            push styles (ChartStyle.mono())
+            push cols 2
+            push kinds (ChartKind.pie())
+            push styles (ChartStyle.sunset())
+            push cols 1
+            push kinds (ChartKind.heatmap())
+            push styles (ChartStyle.bold())
+            push cols 2
+            def gi:int 0
+            while (gi < (array_length kinds)) {
+                def spec:GridChart (new GridChart)
+                spec.sheet = app.book.activeIndex
+                spec.r0 = 0
+                spec.c0 = 0
+                spec.r1 = 6
+                spec.c1 = (itemAt cols gi)
+                spec.kind = (itemAt kinds gi)
+                spec.style = (itemAt styles gi)
+                ; A pie with no key is a coloured circle, so that one keeps
+                ; its legend; the rest are here for their shape.
+                spec.showLegend = ((itemAt kinds gi) == (ChartKind.pie()))
+                spec.title = (ChartKind.label((itemAt kinds gi)))
+                spec.w = 296
+                spec.h = 268
+                spec.x = (2 + ((gi % 3) * 299))
+                spec.y = (6 + ((idiv gi 3) * 272))
+                app.view.chartLayer.add(app.windows spec)
+                gi = (gi + 1)
+            }
+            app.view.chartLayer.syncGeometry()
+            DumpArtifacts.writePng(app dir "17_chart_gallery.png")
         }
 
         print "DumpArtifacts DONE"

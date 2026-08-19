@@ -104,8 +104,9 @@ interface nobody exercised.
 Not scored, because the score measures FortuneSheet and these are not things
 FortuneSheet has:
 
-- **Charts.** A selection becomes a Vega-Lite chart through Vela — eight types,
-  four styles, floating in draggable windows that can be reopened for editing.
+- **Charts.** A selection becomes a Vega-Lite chart through Vela — twenty types,
+  six styles, previewed live in the picker as the parameters change, and floating
+  in draggable windows that can be reopened for editing.
   Charts are on FortuneSheet's roadmap under "more advanced features"; they are
   not among its completed items, so adding a row here would raise our score by
   measuring ourselves instead of the benchmark.

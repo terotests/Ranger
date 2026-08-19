@@ -28,48 +28,97 @@
 Import "SpreadsheetModel.rgr"
 
 ; The chart types offered, as small integers so they can be radio-button ids.
+;
+; Every one of these was rendered from THIS generator's own data shape before it
+; was put on the list — see the probe that produced them: twenty specifications,
+; twenty scenes, no errors. A picker that offers a chart Vela cannot draw is
+; worse than a shorter picker.
 class ChartKind {
-    sfn column:int ()  { return 1 }
-    sfn bar:int ()     { return 2 }
-    sfn stacked:int () { return 3 }
-    sfn line:int ()    { return 4 }
-    sfn area:int ()    { return 5 }
-    sfn scatter:int () { return 6 }
-    sfn pie:int ()     { return 7 }
-    sfn donut:int ()   { return 8 }
+    sfn column:int ()      { return 1 }
+    sfn bar:int ()         { return 2 }
+    sfn stacked:int ()     { return 3 }
+    sfn normalized:int ()  { return 4 }
+    sfn histogram:int ()   { return 5 }
+    sfn line:int ()        { return 6 }
+    sfn lineDots:int ()    { return 7 }
+    sfn step:int ()        { return 8 }
+    sfn smooth:int ()      { return 9 }
+    sfn area:int ()        { return 10 }
+    sfn stackedArea:int () { return 11 }
+    sfn stream:int ()      { return 12 }
+    sfn scatter:int ()     { return 13 }
+    sfn bubble:int ()      { return 14 }
+    sfn strip:int ()       { return 15 }
+    sfn pie:int ()         { return 16 }
+    sfn donut:int ()       { return 17 }
+    sfn radial:int ()      { return 18 }
+    sfn heatmap:int ()     { return 19 }
+    sfn boxplot:int ()     { return 20 }
     ; `first` / `last` are names the compiler keeps for itself, hence these.
     sfn lowest:int ()  { return 1 }
-    sfn highest:int () { return 8 }
+    sfn highest:int () { return 20 }
 
     sfn label:string (kind:int) {
-        if (kind == 1) { return "Column" }
-        if (kind == 2) { return "Bar" }
-        if (kind == 3) { return "Stacked column" }
-        if (kind == 4) { return "Line" }
-        if (kind == 5) { return "Area" }
-        if (kind == 6) { return "Scatter" }
-        if (kind == 7) { return "Pie" }
-        if (kind == 8) { return "Donut" }
+        if (kind == 1)  { return "Column" }
+        if (kind == 2)  { return "Bar" }
+        if (kind == 3)  { return "Stacked" }
+        if (kind == 4)  { return "100% stacked" }
+        if (kind == 5)  { return "Histogram" }
+        if (kind == 6)  { return "Line" }
+        if (kind == 7)  { return "Line + points" }
+        if (kind == 8)  { return "Step" }
+        if (kind == 9)  { return "Smooth" }
+        if (kind == 10) { return "Area" }
+        if (kind == 11) { return "Stacked area" }
+        if (kind == 12) { return "Stream" }
+        if (kind == 13) { return "Scatter" }
+        if (kind == 14) { return "Bubble" }
+        if (kind == 15) { return "Strip" }
+        if (kind == 16) { return "Pie" }
+        if (kind == 17) { return "Donut" }
+        if (kind == 18) { return "Radial" }
+        if (kind == 19) { return "Heatmap" }
+        if (kind == 20) { return "Box plot" }
         return "Column"
+    }
+
+    ; Which of the two data shapes a kind reads. Most want the long form —
+    ; one row per (category, series, value) — but a scatter needs two numeric
+    ; columns plotted against each other, which is a different question about
+    ; the same selection.
+    sfn wantsXY:boolean (kind:int) {
+        if (kind == 13) {
+            return true
+        }
+        return (kind == 14)
     }
 }
 
 ; A visual style is a `config` block and a background: the same data drawn by
 ; the same marks, painted differently. Kept as presets rather than a colour
 ; picker because what a chart in a spreadsheet needs is to match the others.
+;
+; What makes these look like charts rather than diagrams is mostly what they
+; LEAVE OUT: no border around the plot, a grid light enough to read past, ticks
+; that do not compete with the data, and a legend that is a key rather than a
+; caption. The default Vega look draws all of those at full strength.
 class ChartStyle {
-    sfn vela:int ()  { return 1 }
-    sfn slate:int () { return 2 }
-    sfn mono:int ()  { return 3 }
-    sfn bold:int ()  { return 4 }
+    sfn vela:int ()    { return 1 }
+    sfn slate:int ()   { return 2 }
+    sfn mono:int ()    { return 3 }
+    sfn bold:int ()    { return 4 }
+    sfn ocean:int ()   { return 5 }
+    sfn sunset:int ()  { return 6 }
     sfn lowest:int ()  { return 1 }
-    sfn highest:int () { return 4 }
+    sfn highest:int () { return 6 }
 
     sfn label:string (style:int) {
         if (style == 1) { return "Vela light" }
         if (style == 2) { return "Slate dark" }
         if (style == 3) { return "Mono" }
         if (style == 4) { return "Bold" }
+        if (style == 5) { return "Ocean" }
+        if (style == 6) { return "Sunset" }
         return "Vela light"
     }
 
@@ -77,8 +126,8 @@ class ChartStyle {
     ; does not sit on a white card inside a dark panel.
     sfn background:string (style:int) {
         if (style == 2) { return "#242a33" }
-        if (style == 3) { return "#ffffff" }
-        if (style == 4) { return "#ffffff" }
+        if (style == 5) { return "#f4f9fd" }
+        if (style == 6) { return "#fffaf4" }
         return "#ffffff"
     }
 
@@ -88,18 +137,88 @@ class ChartStyle {
         return (style == 2)
     }
 
+    ; The colours a categorical scale runs through. Named schemes Vela knows,
+    ; so a style is a choice among things that exist rather than a list of hex
+    ; codes nobody checked.
+    sfn scheme:string (style:int) {
+        if (style == 2) { return "category20b" }
+        if (style == 3) { return "greys" }
+        if (style == 4) { return "category10" }
+        if (style == 5) { return "tableau10" }
+        if (style == 6) { return "category" }
+        return "category"
+    }
+
     ; The `config` member, without the surrounding braces of the spec.
-    sfn configJson:string (style:int) {
+    ; `levelX` asks for horizontal labels along the foot. Vega-Lite stands
+    ; category names on end by default, which is right for a dozen long ones
+    ; and needless for four short ones — so the caller, which can see the
+    ; labels, decides.
+    sfn configJson:string (style:int levelX:boolean) {
+        def ink:string "#3d4653"
+        def muted:string "#8a95a5"
+        def grid:string "#e6eaf0"
+        def view:string ""
         if (style == 2) {
-            return "\"config\":{\"range\":{\"category\":{\"scheme\":\"category20b\"}},\"axis\":{\"labelColor\":\"#c9d1d9\",\"titleColor\":\"#c9d1d9\",\"domainColor\":\"#586069\",\"tickColor\":\"#586069\",\"gridColor\":\"#39414c\"},\"legend\":{\"labelColor\":\"#c9d1d9\",\"titleColor\":\"#c9d1d9\"},\"view\":{\"stroke\":\"#39414c\"}}"
+            ink = "#d6dde8"
+            muted = "#8b97a8"
+            grid = "#39414c"
         }
         if (style == 3) {
-            return "\"config\":{\"range\":{\"category\":{\"scheme\":\"greys\"}},\"axis\":{\"grid\":false,\"domainColor\":\"#666666\",\"tickColor\":\"#666666\",\"labelColor\":\"#333333\",\"titleColor\":\"#333333\"},\"view\":{\"stroke\":\"#cccccc\"}}"
+            ink = "#333333"
+            muted = "#777777"
+            grid = "#e2e2e2"
         }
         if (style == 4) {
-            return "\"config\":{\"range\":{\"category\":{\"scheme\":\"category10\"}},\"axis\":{\"grid\":false,\"labelFontSize\":12,\"titleFontSize\":12},\"view\":{\"stroke\":\"\"}}"
+            ink = "#1b2330"
+            muted = "#5b6676"
+            grid = "#eceff4"
         }
-        return "\"config\":{\"range\":{\"category\":{\"scheme\":\"category\"}}}"
+        if (style == 5) {
+            ink = "#20384d"
+            muted = "#6d8397"
+            grid = "#dce9f4"
+        }
+        if (style == 6) {
+            ink = "#4a3527"
+            muted = "#977f6b"
+            grid = "#f0e4d6"
+        }
+        ; Whether to say anything about the grid at all. Left unsaid, the
+        ; reference draws one behind a CONTINUOUS axis and none behind a
+        ; discrete one — which is what a chart wants, and which saying
+        ; `"grid": true` everywhere undoes: four vertical rules between four
+        ; quarters made the preview look like a table.
+        def gridOff:boolean false
+        if (style == 3) {
+            gridOff = true
+        }
+        if (style == 4) {
+            gridOff = true
+        }
+        def out:string "\"config\":{"
+        out = (out + "\"range\":{\"category\":{\"scheme\":\"" + (ChartStyle.scheme(style)) + "\"}},")
+        ; An axis is scaffolding: the labels stay readable, the furniture
+        ; recedes. Domain and ticks are dropped entirely where a grid does the
+        ; same job, which is what makes the data the darkest thing on the page.
+        out = (out + "\"axis\":{")
+        if gridOff {
+            out = (out + "\"grid\":false,")
+        }
+        out = (out + "\"gridColor\":\"" + grid + "\",\"gridWidth\":1,")
+        out = (out + "\"domainColor\":\"" + grid + "\",\"tickColor\":\"" + grid + "\",\"tickSize\":4,")
+        out = (out + "\"labelColor\":\"" + muted + "\",\"labelFontSize\":10,\"labelPadding\":4,")
+        out = (out + "\"titleColor\":\"" + ink + "\",\"titleFontSize\":11,\"titlePadding\":6},")
+        out = (out + "\"legend\":{\"labelColor\":\"" + muted + "\",\"labelFontSize\":10,\"titleColor\":\"" + ink + "\",\"titleFontSize\":10,\"symbolSize\":60},")
+        out = (out + "\"title\":{\"color\":\"" + ink + "\",\"fontSize\":13,\"offset\":8},")
+        ; No box around the plot. Vega draws one by default and it is the
+        ; single thing that makes a chart look like a table cell.
+        out = (out + "\"view\":{\"stroke\":\"" + view + "\"},")
+        if levelX {
+            out = (out + "\"axisX\":{\"labelAngle\":0},")
+        }
+        out = (out + "\"axisY\":{\"domain\":false,\"ticks\":false}")
+        return (out + "}")
     }
 }
 
@@ -121,7 +240,10 @@ class GridChart {
     ; Both default on, which is what a spreadsheet selection usually looks like.
     def useHeaderRow:boolean true
     def useHeaderCol:boolean true
+    ; Drawn above the plot, and used as the window's caption when it is set —
+    ; one title, in both places it belongs.
     def title:string ""
+    def showLegend:boolean true
     ; Window rectangle, in page pixels.
     def x:int 0
     def y:int 0
@@ -145,6 +267,7 @@ class GridChart {
         useHeaderRow = o.useHeaderRow
         useHeaderCol = o.useHeaderCol
         title = o.title
+        showLegend = o.showLegend
         x = o.x
         y = o.y
         w = o.w
@@ -374,28 +497,65 @@ class ChartData {
     }
 
     ; Can this selection be drawn as `kind` at all? The picker greys out what
-    ; answers false rather than drawing something misleading.
+    ; answers false rather than drawing something misleading — a pie of six
+    ; series, a line of one point, a scatter with nothing to plot against.
     fn suits:boolean (kind:int) {
         if (points == 0) {
             return false
         }
         def nc:int (this.catCount())
         def ns:int (this.seriesCount())
+        ; Stacking needs something to stack.
         if (kind == (ChartKind.stacked())) {
             return (ns >= 2)
         }
-        if (kind == (ChartKind.line())) {
-            return (nc >= 2)
+        if (kind == (ChartKind.normalized())) {
+            return (ns >= 2)
         }
-        if (kind == (ChartKind.area())) {
-            return (nc >= 2)
-        }
-        if (kind == (ChartKind.scatter())) {
-            if (catNumeric == false) {
+        if (kind == (ChartKind.stackedArea())) {
+            if (ns < 2) {
                 return false
             }
             return (nc >= 2)
         }
+        if (kind == (ChartKind.stream())) {
+            if (ns < 2) {
+                return false
+            }
+            return (nc >= 3)
+        }
+        ; A line, an area or a strip of one point is a dot.
+        if (kind == (ChartKind.line())) {
+            return (nc >= 2)
+        }
+        if (kind == (ChartKind.lineDots())) {
+            return (nc >= 2)
+        }
+        if (kind == (ChartKind.step())) {
+            return (nc >= 2)
+        }
+        if (kind == (ChartKind.smooth())) {
+            return (nc >= 3)
+        }
+        if (kind == (ChartKind.area())) {
+            return (nc >= 2)
+        }
+        if (kind == (ChartKind.strip())) {
+            return (nc >= 2)
+        }
+        ; A scatter plots one numeric column against another, so it needs two;
+        ; a bubble needs a third for the size.
+        if (kind == (ChartKind.scatter())) {
+            return (ns >= 2)
+        }
+        if (kind == (ChartKind.bubble())) {
+            return (ns >= 3)
+        }
+        ; A histogram bins ONE column of numbers.
+        if (kind == (ChartKind.histogram())) {
+            return (points >= 3)
+        }
+        ; A circle divides one series into slices.
         if (kind == (ChartKind.pie())) {
             if (ns != 1) {
                 return false
@@ -408,19 +568,50 @@ class ChartData {
             }
             return (nc >= 2)
         }
+        if (kind == (ChartKind.radial())) {
+            if (ns != 1) {
+                return false
+            }
+            return (nc >= 2)
+        }
+        ; A grid of colour needs a grid.
+        if (kind == (ChartKind.heatmap())) {
+            if (ns < 2) {
+                return false
+            }
+            return (nc >= 2)
+        }
+        ; A box needs a spread to describe.
+        if (kind == (ChartKind.boxplot())) {
+            return (nc >= 3)
+        }
         return true
     }
 
     ; The kind to open the picker on: what the shape of the data suggests.
     fn suggestedKind:int () {
         def ns:int (this.seriesCount())
+        def nc:int (this.catCount())
         if catNumeric {
             if (ns == 1) {
                 return (ChartKind.line())
             }
         }
+        if (ns >= 4) {
+            if (nc >= 4) {
+                return (ChartKind.heatmap())
+            }
+        }
         if (ns >= 3) {
             return (ChartKind.stacked())
+        }
+        if (ns == 1) {
+            if (nc >= 6) {
+                return (ChartKind.column())
+            }
+            if (nc >= 2) {
+                return (ChartKind.pie())
+            }
         }
         return (ChartKind.column())
     }
@@ -542,6 +733,56 @@ class ChartData {
         return "nominal"
     }
 
+    ; One row per point in the XY shape: the first value column against the
+    ; second, with a third as the size when there is one. A scatter is asking a
+    ; different question of the same selection than a column chart is — "how do
+    ; these two columns move together" rather than "how big is each category" —
+    ; and that question needs its own rows.
+    fn rowsXyJson:string () {
+        def out:string ""
+        def ns:int (this.seriesCount())
+        def nc:int (this.catCount())
+        if (ns < 2) {
+            return ""
+        }
+        def wrote:int 0
+        def ci:int 0
+        while (ci < nc) {
+            def base:int (ci * ns)
+            def haveX:boolean (itemAt filled base)
+            def haveY:boolean (itemAt filled (base + 1))
+            if (haveX && haveY) {
+                if (wrote > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "{\"x\":" + (ChartData.num((itemAt values base))))
+                out = (out + ",\"y\":" + (ChartData.num((itemAt values (base + 1)))))
+                if (ns >= 3) {
+                    def sz:double 0.0
+                    if (itemAt filled (base + 2)) {
+                        sz = (itemAt values (base + 2))
+                    }
+                    out = (out + ",\"size\":" + (ChartData.num(sz)))
+                }
+                out = ((out + ",\"label\":\"") + (ChartData.jsonEscape((itemAt cats ci))) + "\"")
+                out = (out + "}")
+                wrote = (wrote + 1)
+            }
+            ci = (ci + 1)
+        }
+        return out
+    }
+
+    ; The colour channel, or nothing. A chart of one series has nothing to tell
+    ; apart, and a legend of one entry is furniture.
+    fn colourJson:string (ch:GridChart field:string title:string) {
+        def out:string ("\"color\":{\"field\":\"" + field + "\",\"type\":\"nominal\"" + (ChartData.titleMember(title)))
+        if (ch.showLegend == false) {
+            out = (out + ",\"legend\":null")
+        }
+        return (out + "}")
+    }
+
     ; The whole Vega-Lite specification, sized to the box it will be drawn in.
     fn specJson:string (ch:GridChart plotW:int plotH:int) {
         def kind:int ch.kind
@@ -552,32 +793,43 @@ class ChartData {
         if (kind == (ChartKind.donut())) {
             single = true
         }
-        def rows:string (this.rowsJson(single))
+        if (kind == (ChartKind.radial())) {
+            single = true
+        }
         def out:string "{"
         out = ((out + "\"width\":") + (to_string plotW) + ",\"height\":" + (to_string plotH))
         out = ((out + ",\"background\":\"") + (ChartStyle.background(ch.style)) + "\"")
-        out = ((out + ",\"data\":{\"values\":[") + rows + "]}")
+        if ((strlen ch.title) > 0) {
+            out = ((out + ",\"title\":\"") + (ChartData.jsonEscape(ch.title)) + "\"")
+        }
+        if (ChartKind.wantsXY(kind)) {
+            out = ((out + ",\"data\":{\"values\":[") + (this.rowsXyJson()) + "]}")
+        } {
+            out = ((out + ",\"data\":{\"values\":[") + (this.rowsJson(single)) + "]}")
+        }
 
         def multi:boolean ((this.seriesCount()) > 1)
-        def colour:string ("\"color\":{\"field\":\"series\",\"type\":\"nominal\"" + (ChartData.titleMember(seriesTitle)) + "}")
+        def colour:string (this.colourJson(ch "series" seriesTitle))
+        def catColour:string (this.colourJson(ch "cat" catTitle))
         def valueField:string ("\"field\":\"value\",\"type\":\"quantitative\"" + (ChartData.titleMember(valueTitle)))
-        def catField:string ("\"field\":\"cat\",\"type\":\"" + (this.catType(kind)) + "\"" + (ChartData.titleMember(catTitle)))
+        ; Categories keep the order the SHEET put them in. Vega-Lite sorts a
+        ; nominal domain alphabetically, which turned Jan..Jun into
+        ; Apr, Feb, Jan, Jun, Mar, May — right for a bar chart of names,
+        ; wrong for every table a spreadsheet draws.
+        def catOrder:string ""
+        if ((this.catType(kind)) != "quantitative") {
+            catOrder = ",\"sort\":null"
+        }
+        def catField:string ("\"field\":\"cat\",\"type\":\"" + (this.catType(kind)) + "\"" + (ChartData.titleMember(catTitle)) + catOrder)
+        def sumField:string ("\"field\":\"value\",\"type\":\"quantitative\",\"aggregate\":\"sum\"" + (ChartData.titleMember(valueTitle)))
 
-        if (kind == (ChartKind.pie())) {
-            out = (out + ",\"mark\":\"arc\",\"encoding\":{\"theta\":{" + valueField + "},\"color\":{\"field\":\"cat\",\"type\":\"nominal\"" + (ChartData.titleMember(catTitle)) + "}}")
-        }
-        if (kind == (ChartKind.donut())) {
-            out = (out + ",\"mark\":{\"type\":\"arc\",\"innerRadius\":40},\"encoding\":{\"theta\":{" + valueField + "},\"color\":{\"field\":\"cat\",\"type\":\"nominal\"" + (ChartData.titleMember(catTitle)) + "}}")
-        }
+        ; --- bars ---
         if (kind == (ChartKind.column())) {
             out = (out + ",\"mark\":\"bar\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
             if multi {
                 out = (out + "," + colour + ",\"xOffset\":{\"field\":\"series\",\"type\":\"nominal\"}")
             }
             out = (out + "}")
-        }
-        if (kind == (ChartKind.stacked())) {
-            out = (out + ",\"mark\":\"bar\",\"encoding\":{\"x\":{" + catField + "},\"y\":{\"field\":\"value\",\"type\":\"quantitative\",\"aggregate\":\"sum\"}," + colour + "}")
         }
         if (kind == (ChartKind.bar())) {
             out = (out + ",\"mark\":\"bar\",\"encoding\":{\"y\":{" + catField + "},\"x\":{" + valueField + "}")
@@ -586,28 +838,129 @@ class ChartData {
             }
             out = (out + "}")
         }
+        if (kind == (ChartKind.stacked())) {
+            out = (out + ",\"mark\":\"bar\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + sumField + "}," + colour + "}")
+        }
+        if (kind == (ChartKind.normalized())) {
+            out = (out + ",\"mark\":\"bar\",\"encoding\":{\"x\":{" + catField + "},\"y\":{\"field\":\"value\",\"type\":\"quantitative\",\"aggregate\":\"sum\",\"stack\":\"normalize\"}," + colour + "}")
+        }
+        if (kind == (ChartKind.histogram())) {
+            out = (out + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"value\",\"type\":\"quantitative\",\"bin\":true" + (ChartData.titleMember(valueTitle)) + "},\"y\":{\"aggregate\":\"count\"}}")
+        }
+
+        ; --- lines ---
         if (kind == (ChartKind.line())) {
+            out = (out + ",\"mark\":\"line\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            if multi {
+                out = (out + "," + colour)
+            }
+            out = (out + "}")
+        }
+        if (kind == (ChartKind.lineDots())) {
             out = (out + ",\"mark\":{\"type\":\"line\",\"point\":true},\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
             if multi {
                 out = (out + "," + colour)
             }
             out = (out + "}")
         }
+        if (kind == (ChartKind.step())) {
+            out = (out + ",\"mark\":{\"type\":\"line\",\"interpolate\":\"step-after\"},\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            if multi {
+                out = (out + "," + colour)
+            }
+            out = (out + "}")
+        }
+        if (kind == (ChartKind.smooth())) {
+            out = (out + ",\"mark\":{\"type\":\"line\",\"interpolate\":\"monotone\"},\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            if multi {
+                out = (out + "," + colour)
+            }
+            out = (out + "}")
+        }
+
+        ; --- areas ---
         if (kind == (ChartKind.area())) {
-            out = (out + ",\"mark\":\"area\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            out = (out + ",\"mark\":{\"type\":\"area\",\"opacity\":0.85},\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
             if multi {
                 out = (out + "," + colour)
             }
             out = (out + "}")
         }
+        if (kind == (ChartKind.stackedArea())) {
+            out = (out + ",\"mark\":\"area\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + sumField + "}," + colour + "}")
+        }
+        if (kind == (ChartKind.stream())) {
+            out = (out + ",\"mark\":\"area\",\"encoding\":{\"x\":{" + catField + "},\"y\":{\"field\":\"value\",\"type\":\"quantitative\",\"stack\":\"center\"}," + colour + "}")
+        }
+
+        ; --- points ---
         if (kind == (ChartKind.scatter())) {
-            out = (out + ",\"mark\":\"point\",\"encoding\":{\"x\":{" + catField + "},\"y\":{" + valueField + "}")
+            out = (out + ",\"mark\":{\"type\":\"point\",\"filled\":true,\"size\":70},\"encoding\":{\"x\":{\"field\":\"x\",\"type\":\"quantitative\"" + (ChartData.titleMember((this.seriesName(0)))) + "},\"y\":{\"field\":\"y\",\"type\":\"quantitative\"" + (ChartData.titleMember((this.seriesName(1)))) + "}}")
+        }
+        if (kind == (ChartKind.bubble())) {
+            out = (out + ",\"mark\":{\"type\":\"point\",\"filled\":true,\"opacity\":0.7},\"encoding\":{\"x\":{\"field\":\"x\",\"type\":\"quantitative\"" + (ChartData.titleMember((this.seriesName(0)))) + "},\"y\":{\"field\":\"y\",\"type\":\"quantitative\"" + (ChartData.titleMember((this.seriesName(1)))) + "},\"size\":{\"field\":\"size\",\"type\":\"quantitative\"" + (ChartData.titleMember((this.seriesName(2)))) + "}}")
+        }
+        if (kind == (ChartKind.strip())) {
+            out = (out + ",\"mark\":{\"type\":\"tick\",\"thickness\":2},\"encoding\":{\"x\":{" + valueField + "},\"y\":{" + catField + "}")
             if multi {
                 out = (out + "," + colour)
             }
             out = (out + "}")
         }
-        out = ((out + ",") + (ChartStyle.configJson(ch.style)))
+
+        ; --- circles ---
+        if (kind == (ChartKind.pie())) {
+            out = (out + ",\"mark\":\"arc\",\"encoding\":{\"theta\":{" + valueField + "}," + catColour + "}")
+        }
+        if (kind == (ChartKind.donut())) {
+            out = (out + ",\"mark\":{\"type\":\"arc\",\"innerRadius\":40},\"encoding\":{\"theta\":{" + valueField + "}," + catColour + "}")
+        }
+        if (kind == (ChartKind.radial())) {
+            out = (out + ",\"mark\":{\"type\":\"arc\",\"innerRadius\":18},\"encoding\":{\"theta\":{" + valueField + "},\"radius\":{\"field\":\"value\",\"type\":\"quantitative\",\"scale\":{\"type\":\"sqrt\",\"zero\":true,\"rangeMin\":18}}," + catColour + "}")
+        }
+
+        ; --- matrices ---
+        if (kind == (ChartKind.heatmap())) {
+            out = (out + ",\"mark\":\"rect\",\"encoding\":{\"x\":{" + catField + "},\"y\":{\"field\":\"series\",\"type\":\"nominal\"" + (ChartData.titleMember(seriesTitle)) + "},\"color\":{" + valueField)
+            if (ch.showLegend == false) {
+                out = (out + ",\"legend\":null")
+            }
+            out = (out + "}}")
+        }
+        if (kind == (ChartKind.boxplot())) {
+            out = (out + ",\"mark\":\"boxplot\",\"encoding\":{\"x\":{\"field\":\"series\",\"type\":\"nominal\"" + (ChartData.titleMember(seriesTitle)) + "},\"y\":{" + valueField + "}}")
+        }
+
+        out = ((out + ",") + (ChartStyle.configJson(ch.style (this.levelLabels()))))
         return (out + "}")
+    }
+
+    ; Whether the category names are short enough to read lying down. Six
+    ; characters and a dozen of them is what fits under a chart the size of a
+    ; sticky panel; past that they are stood on end, as Vega-Lite does.
+    fn levelLabels:boolean () {
+        if ((array_length cats) > 12) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length cats)) {
+            def c:string (itemAt cats i)
+            if ((strlen c) > 6) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The name of the nth value column, for the axis titles of an XY chart.
+    fn seriesName:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length series)) {
+            return ""
+        }
+        return (itemAt series i)
     }
 }
