@@ -116,6 +116,27 @@ void ranger_buffer_set(int64_t handle, int32_t offset, int32_t value) {
   d->data[offset] = (uint8_t)(value & 0xff);
 }
 
+/* Fill [start, end) with one byte value. Clamped to the buffer the way
+ * ranger_int_buffer_fill clamps its own, so an out-of-range end is a short
+ * fill rather than a stray write. */
+void ranger_buffer_fill(int64_t handle, int32_t value, int32_t start,
+                        int32_t end) {
+  RtByteBuffer *d = byte_buf(handle);
+  int32_t i;
+  if (d == NULL || d->data == NULL) {
+    return;
+  }
+  if (start < 0) {
+    start = 0;
+  }
+  if (end > d->len) {
+    end = d->len;
+  }
+  for (i = start; i < end; i++) {
+    d->data[i] = (uint8_t)(value & 0xff);
+  }
+}
+
 int64_t ranger_buffer_read_file(const char *path, const char *filename) {
   char full[8192];
   FILE *f;

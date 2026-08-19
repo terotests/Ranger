@@ -89,6 +89,12 @@ docs/site/src/content/docs/reference/not-covered.mdx
 # Game engine interpreter — compiled module built on demand by tests/runtime-conformance.test.ts
 gallery/game_engine/v2/interp/bin/
 
+# Ranger engine — compiler/VM/CLI bundles and the native rangercli, all built on
+# demand by tests/ranger-engine.test.ts, which already calls this directory
+# gitignored. The rule itself was missing, so a test run left six untracked
+# build artifacts (including a 178 KB binary) behind.
+gallery/ranger_engine/bin/
+
 # TS parser — native binary built on demand (rustc -O ts_parser_main.rs)
 gallery/ts_parser/bin/ts_parser_native
 

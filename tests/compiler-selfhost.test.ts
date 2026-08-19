@@ -346,8 +346,12 @@ describe("self-hosting: the compiler compiles for Kotlin", () => {
     expect(code).toMatch(/else\s+->\s*\{\s*\n\s*b_found = false;/);
     // a lambda is an anonymous function, so `return` inside it is legal
     expect(code).toMatch(/fun\(item : \w+, index : \w+\)/);
-    // a systemclass reaches the output under its Kotlin name
-    expect(code).not.toContain("JSONValueUnion");
+    // a systemclass reaches the output under its Kotlin name. String LITERALS
+    // are stripped first: the LLVM backend has to recognise the JSON
+    // systemclasses by name, so it names them in quoted strings, and matching
+    // the bare text failed on code that was perfectly correct.
+    const codeNoStrings = code.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+    expect(codeNoStrings).not.toContain("JSONValueUnion");
     // org.json is not on the classpath — the polyfill declares the classes
     expect(code).not.toContain("import org.json");
   }, 300000);

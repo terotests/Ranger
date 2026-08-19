@@ -145,6 +145,7 @@ inline std::string rg_path_dirname(const std::string& p) {
   }  
   pathname _:string (path:string) {
       templates {
+          llvm ( "(path_dirname " (e 1) ")" )
           python ( "rg_path_dirname(" (e 1) ")" (imp "os")
           (create_polyfill "
 # Path helpers for the compiler's own file handling. os.path.normpath drops a

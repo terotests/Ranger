@@ -207,15 +207,47 @@ class RangerGenericClassWriter {
       }
     }
   }
+  ; A double literal that renders as a whole number needs a `.0` so the target
+  ; reads it as a double and not an integer.
+  ;
+  ; This used to ask the question by rendering `to_int` of the value and
+  ; comparing the two strings. `int` is 32 bits wide on the native backends, so
+  ; the round trip overflowed for anything past 2^31 and answered "not whole"
+  ; for 2^52 -- `4503599627370496` was written where every other target wrote
+  ; `4503599627370496.0`. The rendering already says whether it has a fraction;
+  ; nothing needs to be converted to ask.
+  fn doubleNeedsPointZero:boolean (dd_str:string) {
+    if ((strlen dd_str) == 0) {
+      return false
+    }
+    ; `Infinity` / `NaN` / an exponent form are already unambiguous, and `.0`
+    ; would only make them unparseable
+    if ((indexOf dd_str ".") >= 0) {
+      return false
+    }
+    if ((indexOf dd_str "e") >= 0) {
+      return false
+    }
+    if ((indexOf dd_str "E") >= 0) {
+      return false
+    }
+    def first:int (charAt dd_str 0)
+    if ((first == (ccode "-")) || (first == (ccode "+"))) {
+      if ((strlen dd_str) < 2) {
+        return false
+      }
+      first = (charAt dd_str 1)
+    }
+    return ((first >= (ccode "0")) && (first <= (ccode "9")))
+  }
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
         def dd_str ("" + node.double_value)
-        def ii_str ("" + (to_int node.double_value))
-        if( dd_str == ii_str ) {
-          wr.outMapped(("" + node.double_value+".0") node false "")
+        if( this.doubleNeedsPointZero(dd_str) ) {
+          wr.outMapped((dd_str + ".0") node false "")
         } {
-          wr.outMapped(("" + node.double_value) node false "")
+          wr.outMapped(dd_str node false "")
         }
       }
       case RangerNodeType.String {

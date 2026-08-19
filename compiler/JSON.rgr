@@ -391,6 +391,7 @@ inline std::string rg_json_arr_to_string(const rg_json_arr& a) { std::string out
 
     getStr _@(optional):string (e:JSONDataObject key:string) {
          templates {
+             llvm ( "(getStr " (e 1) " " (e 2) ")" )
              csharp ( "RgJson.GetStr(" (e 1) ", " (e 2) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -912,6 +913,7 @@ fn r_json_get_str(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     getInt _@(optional):int (e:JSONDataObject key:string) {
          templates {
+             llvm ( "(getInt " (e 1) " " (e 2) ")" )
              csharp ( "RgJson.GetInt(" (e 1) ", " (e 2) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -1302,6 +1304,7 @@ fn r_json_get_int(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     getDouble _@(optional):double (e:JSONDataObject key:string) {
          templates {
+             llvm ( "(getDouble " (e 1) " " (e 2) ")" )
              csharp ( "RgJson.GetDouble(" (e 1) ", " (e 2) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -1688,6 +1691,7 @@ fn r_json_get_double(o: &std::collections::HashMap<String, RJson>, k: &str) -> O
 
     getBoolean _@(optional):boolean (e:JSONDataObject key:string) {
          templates {
+             llvm ( "(getBoolean " (e 1) " " (e 2) ")" )
              csharp ( "RgJson.GetBool(" (e 1) ", " (e 2) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -2022,6 +2026,7 @@ fn r_json_get_bool(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opt
 
     getObject _@(optional):JSONDataObject (e:JSONDataObject key:string) {
          templates {
+             llvm ( "(getObject " (e 1) " " (e 2) ")" )
              csharp ( "RgJson.GetObj(" (e 1) ", " (e 2) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -2374,6 +2379,7 @@ fn r_json_get_obj(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
     ; todo: proper array detection for optionals
     getArray _@(optional):JSONArrayObject (e:JSONDataObject key:string) {
          templates {
+             llvm ( "(getArray " (e 1) " " (e 2) ")" )
              csharp ( "RgJson.GetArr(" (e 1) ", " (e 2) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -2708,6 +2714,7 @@ fn r_json_get_arr(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     keys _:[string] (e:JSONDataObject) {
         templates {
+            llvm ( "(keys " (e 1) ")" )
             csharp ( "new System.Collections.Generic.List<String>(" (e 1) ".Keys)" )
             dart ( (e 1) ".keys.toList()" )
             cpp ( "rg_json_keys(" (e 1) ")"
@@ -2814,6 +2821,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     isArray _:boolean (e:JSONValueUnion) {
         templates {
+            llvm ( "(isArray " (e 1) ")" )
             csharp ( "(" (e 1) " is System.Collections.Generic.List<object>)" )
             dart ( "(" (e 1) " is List)" )
             cpp ( "std::holds_alternative<rg_json_arr>(" (e 1) ")"
@@ -2879,6 +2887,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     asArray _@(optional):JSONArrayObject (e:JSONValueUnion) {
         templates {
+            llvm ( "(asArray " (e 1) ")" )
             csharp ( "RgJson.AsArr(" (e 1) ")"
             (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -3158,6 +3167,7 @@ fn r_json_as_arr(v: &RJson) -> Option<Vec<RJson>> {
 
     getValue _:JSONValueUnion (e:JSONArrayObject index:int) {
         templates {
+            llvm ( "(getValue " (e 1) " " (e 2) ")" )
             csharp ( "RgJson.At(" (e 1) ", " (e 2) ")"
             (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -3426,6 +3436,7 @@ fn r_json_at(a: &Vec<RJson>, i: i64) -> RJson {
 
     array_length _:int (e:JSONArrayObject) {
         templates {
+            llvm ( "(array_length " (e 1) ")" )
             csharp ( (e 1) ".Count" )
             dart ( (e 1) ".length" )
             cpp ( "rg_json_len(" (e 1) ")"
@@ -3486,6 +3497,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:enum) {
         templates {
+            llvm ( nl "set " (e 1) " " (e 2) " " (e 3) nl )
             csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
@@ -3571,6 +3583,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:string) {
         templates {
+            llvm ( nl "set " (e 1) " " (e 2) " " (e 3) nl )
             csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
@@ -3656,6 +3669,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:int) {
         templates {
+            llvm ( nl "set " (e 1) " " (e 2) " " (e 3) nl )
             csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
@@ -3741,6 +3755,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:double) {
         templates {
+            llvm ( nl "set " (e 1) " " (e 2) " " (e 3) nl )
             csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
@@ -3826,6 +3841,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:boolean) {
         templates {
+            llvm ( nl "set " (e 1) " " (e 2) " " (e 3) nl )
             csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
@@ -3911,6 +3927,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:JSONValueUnion) {
         templates {
+            llvm ( nl "set " (e 1) " " (e 2) " " (e 3) nl )
             csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
@@ -4044,6 +4061,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     from_string _@(throws):JSONDataObject (txt:string) {
          templates {
+             llvm ( "(from_string " (e 1) ")" )
              csharp ( "RgJson.Parse(" (e 1) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -4517,6 +4535,7 @@ fn r_json_parse_obj(text: &str) -> std::collections::HashMap<String, RJson> {
 
     to_string _:string (e:JSONDataObject) {
          templates {
+             llvm ( "(to_string " (e 1) ")" )
              csharp ( "RgJson.Str(" (e 1) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -4895,6 +4914,7 @@ fn r_json_to_string(v: &RJson) -> String {
 
     to_string _:string (e:JSONArrayObject) {
          templates {
+             llvm ( "(to_string " (e 1) ")" )
              csharp ( "RgJson.Str(" (e 1) ")"
              (polyfill "after_imports" "
 // The JSON value on the C# target: an object is a Dictionary, an array is a
@@ -5261,6 +5281,7 @@ fn r_json_to_string(v: &RJson) -> String {
 
     push _@(moves@( 2 1 ) ):void ( e@(mutates):JSONArrayObject el:JSONArrayUnion) {
         templates {
+            llvm ( nl "push " (e 1) " " (e 2) nl )
             csharp ( (e 1) ".Add(" (e 2) ");" )
             dart ( (e 1) ".add(" (e 2) ");" )
             cpp ( "rg_json_push(" (e 1) ", " (e 2) ");"
@@ -5357,6 +5378,7 @@ impl RJsonValue for RJson { fn r_json_value(&self) -> RJson { self.clone() } }
     }
     json_array json@(expands):JSONArrayObject () {
         templates {
+            llvm ( "(json_array)" )
             csharp ( "new System.Collections.Generic.List<object>()" )
             dart ( "<dynamic>[]" )
             cpp ( "rg_json_new_arr()"
@@ -5416,6 +5438,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
     }
     json_object json:JSONDataObject () {
         templates {
+            llvm ( "(json_object)" )
             csharp ( "new System.Collections.Generic.Dictionary<string, object>()" )
             dart ( "<String, dynamic>{}" )
             cpp ( "rg_json_new_obj()"

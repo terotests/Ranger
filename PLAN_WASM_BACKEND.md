@@ -108,3 +108,23 @@ Suositeltu j�rjestys: export-funktiot ? haarat WASM:ssa ? string/struct Low IR
 4. Low IR -plugin-rajapinta (PLAN_WASM_PLUGINS Phase 3)
 5. ~~Lang array/map -operaattorit~~ (vaihe 1 valmis, ks. PLAN_WASM_OPERATORS.md)
 6. `--target=wasm32-wasi` / `wasm32-hosted-debug` CLI
+
+
+## Kaantajan kaantaminen LLVM:lle (elokuu 2026)
+
+Aiempi arvio "ei realistinen lyhyella aikavalilla" koski koko kaantajan
+ajamista WASM:ssa. Natiivi LLVM-polku sen sijaan yltaa nyt kauas:
+
+- `npm run selfhost:compile:llvm` -> **0 virhetta** (aiemmin 631)
+- `npm run selfhost:check:llvm` -> `opt -passes=verify` hyvaksyy 22 MB IR:n
+- `npm run selfhost:build:llvm` -> `clang` linkittaa 3 MB `rangerc`-binaarin
+- `npm run selfhost:round:llvm` -> **binaari kaantaa kaantajan**
+
+Kaantaja **self-hostaa nyt LLVM:lla**. Natiivi binaari kaantaa
+`compiler/ng_Compiler.rgr`:n, ja tulos on tavulleen sama kuin Node-buildin
+tuottama. Tuo tulos on itsekin toimiva kaantaja: silla kaannetty kaantaja on
+tavulleen sama kuin se itse, eli ketju on kiintopisteessa.
+
+Yksityiskohdat ja jaljella olevat rajoitukset (sulkeumien kaappausten
+kirjoitus takaisin, poikkeukset, pluginit): TARGET_NOTES.md, luku
+"The compiler on LLVM: how far it gets".

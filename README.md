@@ -102,7 +102,7 @@ a compiler flag. Support is uneven:
 | Go / Python / Kotlin / C# / Rust / C++ | Large programs verified (TS engine and/or jpeg / parsers); expect remaining edge cases |
 | Dart / Swift | Strong for substantial modules (ts_parser; TS engine builds and matches Node on both when toolchains are present); Flutter packages via `-l=dart -pubspec` |
 | PHP / Java / Scala | Templates + syntax-app coverage; fewer end-to-end goldens |
-| **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. Another codegen path from the same sources, not a separate surface language. See `npm run test:llvm`, `npm run game:build:llvm`. |
+| **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. Another codegen path from the same sources, not a separate surface language. **The compiler self-hosts on LLVM.** It compiles for LLVM with no errors, the 22 MB of IR it emits for itself passes `opt -passes=verify` and links into a native `rangerc` — and that binary compiles the compiler, producing JavaScript byte-identical to the Node build's, which then reproduces itself (`npm run selfhost:round:llvm`). See [`TARGET_NOTES.md`](TARGET_NOTES.md#the-compiler-on-llvm-how-far-it-gets), `npm run test:llvm`, `npm run selfhost:check:llvm`, `npm run game:build:llvm`. |
 | Gallery examples | Good for understanding direction and capability, but some require manual setup or platform-specific tooling |
 
 **Targets are not equally demanding of the source.** A target with a garbage

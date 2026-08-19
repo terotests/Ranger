@@ -7,11 +7,12 @@
 > parses, type-checks and lowers to a record class per case plus a union over
 > them; `match` covers a family with the compiler checking that every case is
 > handled exactly once; `@(value)` / `@(reference)` give each case declared
-> copy-and-compare semantics with the equality generated per shape; six targets
+> copy-and-compare semantics with the equality generated per shape; eleven targets
 > carry the family in their own representation — TypeScript/ES6/Python as a
 > tagged object (`__rg_kind`), Kotlin/C#/Dart as an interface the cases
-> implement, Swift and Rust as a native `enum`, Go as a tagged struct, and C++
-> as a variant that holds its scalar cases inline; and **shape methods** lower
+> implement, Swift and Rust as a native `enum`, Go as a tagged struct, C++
+> as a variant that holds its scalar cases inline, and LLVM as the case object's
+> own runtime type descriptor; and **shape methods** lower
 > through a generated ops class. **Stages C0–C6** (§7) extend groups into a
 > closed-family capability system: group/case methods, required operations,
 > field projection, subgroup widening, and static exhaustive dispatch.
@@ -552,7 +553,7 @@ The implemented subset, against the design above:
 | Group field projection through a group-typed value | ✅ C5 — `get_`/`set_` on group ops |
 | `==` rewritten to the generated equality | ✖ later — needs operand types during operator matching |
 | `Shape.Case(…)` construction without `new` | ✖ sugar |
-| Native per-target representations | ✅ S5 on TS/ES6/Python/Kotlin/C#/Dart/Rust/C++/Go/Swift |
+| Native per-target representations | ✅ S5 on TS/ES6/Python/Kotlin/C#/Dart/Rust/C++/Go/Swift/LLVM |
 
 ### 3.9 Explicitly not in v1
 

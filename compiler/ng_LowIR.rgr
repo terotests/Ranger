@@ -17,6 +17,13 @@ class LowIRUtil {
       case "double" {
         return "f64"
       }
+      ; A `char` is a code unit -- charAt and ccode both answer one, and every
+      ; other target treats it as an integer. Leaving it out of this table made
+      ; isObjectTypeName call it an object, so `firstC == (ccode "-")` compared
+      ; an i32 against a value the backend had decided was pointer sized.
+      case "char" {
+        return "i32"
+      }
       case "void" {
         return "void"
       }
@@ -29,7 +36,116 @@ class LowIRUtil {
     return ((strlen t) > 0)
   }
 
+  ; `strlen` and `charAt` count CODEPOINTS on JavaScript and BYTES on the C
+  ; runtime. Measured, not assumed: `def em:string "<em-dash>"` answers
+  ; strlen 1 / charAt 8212 under Node and strlen 3 / charAt 226 native.
+  ;
+  ; Everything that needs a string's UTF-8 BYTES goes through utf8Bytes below,
+  ; so the escaper and the byte count cannot drift apart. They used to compute
+  ; the same thing separately and agree with EACH OTHER while both were wrong,
+  ; which is precisely what hid the double-encoding bug: the `[N x i8]` sizes
+  ; matched the escapes, the IR was valid, it linked and ran, and only the
+  ; message text was mojibake.
+  ;
+  ; Deciding which semantics we are under cannot be done per character -- a
+  ; value in 128..255 is a plain byte natively and a Latin-1 codepoint on JS.
+  ; It IS decidable per string: a byte-semantics string is well-formed UTF-8
+  ; when read as bytes, and a codepoint-semantics string almost never is (a
+  ; lone U+00E9 is a lead byte with no continuation). Deliberately NOT the
+  ; tempting shortcut "emit 128..255 raw" -- that fixes native and silently
+  ; breaks Node for every codepoint in U+0080..U+00FF.
+  static fn looksLikeUtf8Bytes:boolean (text:string) {
+    def n:int (strlen text)
+    def i:int 0
+    while (i < n) {
+      def c:int (charAt text i)
+      ; Above 255 it cannot be a byte, so this is a codepoint string.
+      if (c > 255) {
+        return false
+      }
+      if (c >= 128) {
+        def extra:int 0
+        if (c >= 240) {
+          extra = 3
+        } {
+          if (c >= 224) {
+            extra = 2
+          } {
+            if (c >= 192) {
+              extra = 1
+            } {
+              ; A continuation byte with no lead byte before it.
+              return false
+            }
+          }
+        }
+        if ((i + extra) >= n) {
+          return false
+        }
+        def k:int 1
+        while (k <= extra) {
+          def cc:int (charAt text (i + k))
+          if (cc < 128) {
+            return false
+          }
+          if (cc > 191) {
+            return false
+          }
+          k = k + 1
+        }
+        i = i + extra
+      }
+      i = i + 1
+    }
+    return true
+  }
+
+  static fn utf8Bytes:[int] (text:string) {
+    def out:[int]
+    def n:int (strlen text)
+    def i:int 0
+    ; Already bytes (native, and any all-ASCII string on either target): the
+    ; charAt sequence IS the UTF-8 encoding, so copy it through untouched.
+    if (LowIRUtil.looksLikeUtf8Bytes(text)) {
+      while (i < n) {
+        push out (charAt text i)
+        i = i + 1
+      }
+      return out
+    }
+    ; Codepoints (JavaScript): encode each one.
+    while (i < n) {
+      def code:int (charAt text i)
+      if (code < 128) {
+        push out code
+      } {
+        if (code < 2048) {
+          def hi6:int (to_int (code / 64))
+          push out (192 + hi6)
+          push out (128 + (code - (hi6 * 64)))
+        } {
+          def c1:int (to_int (code / 4096))
+          def rem:int (code - (c1 * 4096))
+          def mid:int (to_int (rem / 64))
+          push out (224 + c1)
+          push out (128 + mid)
+          push out (128 + (rem - (mid * 64)))
+        }
+      }
+      i = i + 1
+    }
+    return out
+  }
+
+  ; `charbuffer` is the string's own bytes on this backend -- `to_charbuffer`
+  ; hands back the pointer it was given, the way the C++ template answers
+  ; `c_str()`. Treating it as anything else made a charbuffer FIELD an object:
+  ; the assignment emitted ranger_obj_retain over an i8*, and `length` on one
+  ; went to the collection path and answered the pointer.
   static fn isStringType:boolean (typeName:string) {
+    if (typeName == "charbuffer") {
+      return true
+    }
     return (typeName == "string")
   }
 
@@ -42,6 +158,20 @@ class LowIRUtil {
 
   static fn isBufferTypeName:boolean (typeName:string) {
     return (((typeName == "buffer") || (typeName == "int_buffer")) || (typeName == "double_buffer"))
+  }
+
+  ; The JSON systemclasses. They have no Ranger-side class body, so the backend
+  ; can not learn their shape from a layout: every one of them is a handle into
+  ; the C JSON runtime (runtime/ranger_json.c), and the operators that touch
+  ; them are lowered to RtJson_* calls rather than to field reads.
+  static fn isJsonTypeName:boolean (typeName:string) {
+    if (typeName == "JSONDataObject") { return true }
+    if (typeName == "JSONArrayObject") { return true }
+    if (typeName == "JSONValueUnion") { return true }
+    if (typeName == "JSONArrayUnion") { return true }
+    if (typeName == "JSONObjectUnion") { return true }
+    if (typeName == "JSONKeyValue") { return true }
+    return false
   }
 
   static fn isSupportedParam:boolean (typeName:string) {
@@ -220,6 +350,12 @@ class LowIRModule {
   def lambdaTableFuncs:[string]
   ; distinct call_indirect signatures ("t0,t1,…:ret") that need a `(type …)`.
   def lambdaSigs:[string]
+  ; the module contains a `throw` or an `error_msg`, so it needs the global that
+  ; carries the thrown message from the one to the other
+  def usesErrorMsg:boolean false
+  ; the @main body was emitted as @__rg_main_body and needs the entry-point shim
+  ; that runs it on a thread with a large stack (see writeBigStackMain).
+  def bigStackMain:boolean false
 }
 
 ; Compile-session singleton ? holds the module being built for one translation unit.
@@ -242,6 +378,11 @@ class LowIRBuilder {
   def blockCounter:int 0
   def blocks:[LowIRBlock]
   def currentBlock@(optional weak):LowIRBlock
+  ; SSA name -> the IR type the instruction that defines it produces. Asking
+  ; the SOURCE node what type an expression has is guesswork in a few shapes
+  ; (a parenthesised comparison, a narrowed map read); asking what was actually
+  ; emitted is not.
+  def destTypes:[string:string]
 
   Constructor (module:LowIRModule) {
     irModule = module
@@ -287,7 +428,19 @@ class LowIRBuilder {
   fn emit:LowIRInstr (instr:LowIRInstr) {
     def cur (unwrap this.currentBlock)
     push cur.instrs instr
+    if ((strlen instr.dest) > 0) {
+      set destTypes instr.dest instr.irType
+    }
     return instr
+  }
+
+  ; The IR type of an already-emitted value, or "" for a name this builder did
+  ; not produce (a parameter, a global).
+  fn emittedType:string (value:string) {
+    if (has destTypes value) {
+      return (unwrap (get destTypes value))
+    }
+    return ""
   }
 
   ; Allocas must live in the entry block so their SSA value dominates every
@@ -331,7 +484,12 @@ class LowIRBuilder {
     return (this.emitIcmpTyped(pred "i32" lhs rhs))
   }
 
-  fn emitIcmpTyped:string (pred:string operandType:string lhs:string rhs:string) {
+  fn emitIcmpTyped:string (pred:string operandType:string lhsIn:string rhsIn:string) {
+    ; Both operands must have the compared type. The lowering picks it from the
+    ; source node and a few shapes hide the truth (a boolean from a C helper, a
+    ; captured value), so reconcile against what was emitted.
+    def lhs:string (this.coerceTo(lhsIn operandType))
+    def rhs:string (this.coerceTo(rhsIn operandType))
     def tag:string "p"
     def dest (this.freshTemp(tag))
     def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -369,7 +527,71 @@ class LowIRBuilder {
     this.emit(ins)
   }
 
-  fn emitCallWithSig:string (fnName:string retType:string callSig:string args:[string] argTypes:[string]) {
+  ; Every argument must have the declared parameter type. The lowering decides
+  ; these from the source node, which a handful of shapes hide (a captured
+  ; collection, an optional over a primitive, a lambda-typed parameter), and a
+  ; width mismatch at a call boundary is IR that will not assemble. What the
+  ; builder actually EMITTED for a value is known here, so the fix belongs
+  ; here: insert the integer widen/narrow rather than leave a broken call.
+  fn coerceCallArgs:[string] (args:[string] argTypes:[string]) {
+    def out:[string]
+    def n (array_length args)
+    def i:int 0
+    while (i < n) {
+      def a:string (itemAt args i)
+      def want:string "i32"
+      if (i < (array_length argTypes)) {
+        want = (itemAt argTypes i)
+      }
+      def got:string ""
+      if (has destTypes a) {
+        got = (unwrap (get destTypes a))
+      }
+      def fixed:string a
+      if ((strlen got) > 0) {
+        if (got != want) {
+          if ((want == "i64") && (got == "i32")) {
+            fixed = (this.emitCast("zext" "i64" "i32" a))
+          }
+          if ((want == "i64") && (got == "i1")) {
+            fixed = (this.emitCast("zext" "i64" "i1" a))
+          }
+          if ((want == "i32") && (got == "i64")) {
+            fixed = (this.emitCast("trunc" "i32" "i64" a))
+          }
+          if ((want == "i32") && (got == "i1")) {
+            fixed = (this.emitZextI1ToI32(a))
+          }
+          ; A missing value answers a zero of the wrong shape when the
+          ; parameter is a pointer; a null of the right one keeps the call
+          ; well typed.
+          if (want == "i8*") {
+            if (((got == "i32") || (got == "i64")) || (got == "i1")) {
+              fixed = (this.emitIntToI8Ptr(a got))
+            }
+          }
+          ; ...and the mirror: a pointer where an integer is declared.
+          if (got == "i8*") {
+            if ((want == "i32") || (want == "i64")) {
+              def asInt (this.emitPtrToInt(a))
+              fixed = asInt
+              if (want == "i32") {
+                if (this.irModule.ptrType == "i64") {
+                  fixed = (this.emitCast("trunc" "i32" "i64" asInt))
+                }
+              }
+            }
+          }
+        }
+      }
+      push out fixed
+      i = i + 1
+    }
+    return out
+  }
+
+  fn emitCallWithSig:string (fnName:string retType:string callSig:string rawArgs:[string] argTypes:[string]) {
+    def args (this.coerceCallArgs(rawArgs argTypes))
     def voidType:string "void"
     if (retType == voidType) {
       def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -460,7 +682,12 @@ class LowIRBuilder {
     return dest
   }
 
-  fn emitStore:void (irType:string value:string slotName:string) {
+  fn emitStore:void (irType:string valueIn:string slotName:string) {
+    ; The stored value has to have the slot's type. Every mismatch the lowering
+    ; could not see from the source node -- a captured collection, an optional
+    ; over a primitive, a boolean from a C helper -- otherwise lands here as
+    ; `store i64 <i32 value>`, which does not assemble.
+    def value:string (this.coerceTo(valueIn irType))
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "store"
     ins.irType = irType
@@ -506,13 +733,34 @@ class LowIRBuilder {
     return dest
   }
 
-  fn emitIntToI8Ptr:string (addr:string addrType:string) {
+  fn emitIntToI8Ptr:string (addr:string addrTypeIn:string) {
     def tag:string "s"
+    ; The SOURCE width has to match the value: an i32 handed to `inttoptr i64`
+    ; does not assemble. Trust what was emitted for it over what the caller
+    ; assumed.
+    def addrType:string addrTypeIn
+    def addrVal:string addr
+    if (has destTypes addr) {
+      def at:string (unwrap (get destTypes addr))
+      if ((at == "i32") || (at == "i64")) {
+        addrType = at
+      }
+      ; An i1 is not an address at all. Widening it first keeps the
+      ; instruction well formed; the value was already wrong upstream.
+      if (at == "i1") {
+        addrVal = (this.emitZextI1ToI32(addr))
+        addrType = "i32"
+      }
+    }
     def dest (this.freshTemp(tag))
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "inttoptr_i8"
     ins.dest = dest
-    ins.arg1 = addr
+    ; The result IS an i8*. Leaving irType at its i32 default made destTypes
+    ; report a pointer as a 32-bit integer, and every decision that consults it
+    ; (widen-before-push, condition type, comparison width) then went wrong.
+    ins.irType = "i8*"
+    ins.arg1 = addrVal
     ins.arg2 = addrType
     this.emit(ins)
     return dest
@@ -532,8 +780,24 @@ class LowIRBuilder {
     return dest
   }
 
-  fn emitCast:string (castOp:string destType:string srcType:string value:string) {
+  fn emitCast:string (castOp:string destType:string srcTypeIn:string value:string) {
     def tag:string "cast"
+    ; The SOURCE type has to be the one the value really has: a widen written
+    ; as `zext i32 <i1 value>` does not assemble. Callers name the type they
+    ; expect, and a handful of shapes (a boolean from a map or an array) hand
+    ; over an i1 instead.
+    def srcType:string srcTypeIn
+    if (has destTypes value) {
+      def got:string (unwrap (get destTypes value))
+      if ((got == "i1") || (got == "i32")) {
+        if ((srcTypeIn == "i1") || (srcTypeIn == "i32")) {
+          srcType = got
+        }
+      }
+    }
+    if (srcType == destType) {
+      return value
+    }
     def dest (this.freshTemp(tag))
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = castOp
@@ -573,6 +837,18 @@ class LowIRBuilder {
     return dest
   }
 
+  ; The integer width an ADDRESS value actually has. Defaults to the module's
+  ; pointer type for anything this builder did not produce.
+  fn addrWidthOf:string (ptr:string) {
+    if (has destTypes ptr) {
+      def t:string (unwrap (get destTypes ptr))
+      if ((t == "i32") || (t == "i64")) {
+        return t
+      }
+    }
+    return this.irModule.ptrType
+  }
+
   fn emitPtrLoad:string (ptr:string) {
     return (this.emitPtrLoadTyped(ptr this.irModule.ptrType))
   }
@@ -585,7 +861,9 @@ class LowIRBuilder {
     ins.dest = dest
     ins.irType = valueType
     ins.arg1 = ptr
-    ins.arg2 = this.irModule.ptrType
+    ; The ADDRESS operand's width has to match the value: an i32 address in an
+    ; `inttoptr i64` does not assemble.
+    ins.arg2 = (this.addrWidthOf(ptr))
     this.emit(ins)
     return dest
   }
@@ -602,8 +880,8 @@ class LowIRBuilder {
     ins.dest = ("ps" + ("" + n))
     ins.irType = valueType
     ins.arg1 = ptr
-    ins.arg2 = value
-    ins.arg3 = this.irModule.ptrType
+    ins.arg2 = (this.coerceTo(value valueType))
+    ins.arg3 = (this.addrWidthOf(ptr))
     this.emit(ins)
   }
 
@@ -694,7 +972,8 @@ class LowIRBuilder {
   ; indirect call through the function table. args already include the closure
   ; env as the first entry; `selector` is the table index (fn_index) loaded from
   ; the closure record. callSig ("t0,t1,…:ret") selects the wasm (type …).
-  fn emitCallIndirect:string (retType:string callSig:string args:[string] argTypes:[string] selector:string) {
+  fn emitCallIndirect:string (retType:string callSig:string rawArgs:[string] argTypes:[string] selector:string) {
+    def args (this.coerceCallArgs(rawArgs argTypes))
     def voidType:string "void"
     if (retType == voidType) {
       def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -735,9 +1014,36 @@ class LowIRBuilder {
     ins.op = "ptr_store"
     ins.irType = "i32"
     ins.arg1 = addr
-    ins.arg2 = value
-    ins.arg3 = pt
+    ins.arg2 = (this.coerceTo(value "i32"))
+    ins.arg3 = (this.addrWidthOf(addr))
     this.emit(ins)
+  }
+
+  ; Typed variants of the two above. The closure record used the i32 pair for
+  ; every capture, which truncated a pointer on a 64-bit target -- and the
+  ; store said i32 while emitLoadI32At read a pointer-sized word back, so the
+  ; two did not even agree with each other.
+  fn emitStoreTypedAt:void (base:string byteOff:int value:string valueType:string) {
+    def pt (this.irModule.ptrType)
+    def off (this.emitConst(pt ("" + byteOff)))
+    def addr (this.emitBin("add" pt base off))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_store"
+    ins.irType = valueType
+    ins.arg1 = addr
+    ins.arg2 = (this.coerceTo(value valueType))
+    ins.arg3 = (this.addrWidthOf(addr))
+    this.emit(ins)
+  }
+
+  fn emitLoadTypedAt:string (base:string byteOff:int valueType:string) {
+    def pt (this.irModule.ptrType)
+    if (byteOff == 0) {
+      return (this.emitPtrLoadTyped(base valueType))
+    }
+    def off (this.emitConst(pt ("" + byteOff)))
+    def addr (this.emitBin("add" pt base off))
+    return (this.emitPtrLoadTyped(addr valueType))
   }
 
   fn emitLoadI32At:string (base:string byteOff:int) {
@@ -771,7 +1077,10 @@ class LowIRBuilder {
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "typedesc_ptr"
     ins.dest = dest
-    ins.irType = "i32"
+    ; An address, so it is as wide as one. It was pinned to i32, which is right
+    ; only on wasm; on a 64-bit native target a comparison against it was made
+    ; at the wrong width.
+    ins.irType = this.irModule.ptrType
     ins.arg1 = className
     this.emit(ins)
     return dest
@@ -790,7 +1099,68 @@ class LowIRBuilder {
     cur.termTarget = target
   }
 
+  ; A branch condition must be an i1. A few lowerings hand over the raw i32 a
+  ; C helper answered; comparing it against zero here is what every consumer
+  ; meant anyway.
+  ; Adjust an already-emitted value to `want`, when the change is an ordinary
+  ; integer widen/narrow or a pointer/integer reinterpretation.
+  fn coerceTo:string (v:string want:string) {
+    if ((has destTypes v) == false) {
+      return v
+    }
+    def got:string (unwrap (get destTypes v))
+    if (got == want) {
+      return v
+    }
+    if ((want == "i1") && ((got == "i32") || (got == "i64"))) {
+      def z (this.emitConst(got "0"))
+      return (this.emitIcmpTyped("ne" got v z))
+    }
+    if ((want == "i32") && (got == "i1")) {
+      return (this.emitZextI1ToI32(v))
+    }
+    if ((want == "i64") && (got == "i1")) {
+      return (this.emitCast("zext" "i64" "i1" v))
+    }
+    if ((want == "i64") && (got == "i32")) {
+      return (this.emitCast("zext" "i64" "i32" v))
+    }
+    if ((want == "i32") && (got == "i64")) {
+      return (this.emitCast("trunc" "i32" "i64" v))
+    }
+    if ((want == "i8*") && ((got == "i32") || (got == "i64") || (got == "i1"))) {
+      return (this.emitIntToI8Ptr(v got))
+    }
+    if (got == "i8*") {
+      if ((want == "i32") || (want == "i64")) {
+        def asInt (this.emitPtrToInt(v))
+        if (want == "i32") {
+          if (this.irModule.ptrType == "i64") {
+            return (this.emitCast("trunc" "i32" "i64" asInt))
+          }
+        }
+        return asInt
+      }
+    }
+    return v
+  }
+
+  fn asI1:string (v:string) {
+    if (has destTypes v) {
+      def t:string (unwrap (get destTypes v))
+      if (t == "i1") {
+        return v
+      }
+      if ((t == "i32") || (t == "i64")) {
+        def z (this.emitConst(t "0"))
+        return (this.emitIcmpTyped("ne" t v z))
+      }
+    }
+    return v
+  }
+
   fn terminateBrIf:void (cond:string ifTrue:string ifFalse:string) {
+    cond = (this.asI1(cond))
     def cur (unwrap this.currentBlock)
     cur.termKind = "br_if"
     cur.termValue = cond

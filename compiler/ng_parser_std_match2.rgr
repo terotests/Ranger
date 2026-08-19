@@ -928,7 +928,10 @@ extension RangerFlowParser {
             def toItem:CodeNode (ann.getSecond())
             def cA:CodeNode (itemAt callArgs.children from.int_value)
             def cA2:CodeNode (itemAt callArgs.children toItem.int_value)
-            if cA.hasParamDesc {
+            ; both sides need a descriptor: the move has no meaning without a
+            ; target, and only JavaScript survives asking an absent one whether
+            ; it is an allocated type
+            if (cA.hasParamDesc && cA2.hasParamDesc) {
               def pp:RangerAppParamDesc cA.paramDesc
               def pp2:RangerAppParamDesc cA2.paramDesc
               ; `@(move 0 1)` on a call whose two arguments are the same
@@ -946,6 +949,15 @@ extension RangerFlowParser {
           if (nameNode.hasFlag("returns")) {
 ;              print "==> returns flag for " + (callArgs.getLineAsString())
             def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
+            ; getCurrentMethod answers a FRESH descriptor when there is no
+            ; enclosing method, and a fresh one has no nameNode -- so a `return`
+            ; that is not inside a function read a null here. JavaScript throws
+            ; and the compiler's own catch turns that into "Unexpected compiler
+            ; error"; every other host dies on the spot. Say what is wrong.
+            if (null? activeFn.nameNode) {
+              ctx.addError(callArgs "return outside of a function")
+              return false
+            }
             if ( (activeFn.nameNode.type_name != "void") || (activeFn.nameNode.value_type == RangerNodeType.ExpressionType)) {
               
               if ( (array_length callArgs.children) < 2 ) {

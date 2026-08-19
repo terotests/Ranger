@@ -27,11 +27,10 @@ class RangerKotlinClassWriter {
         ; output. `def value:double 0.0` in a CRLF file wrote `= lue`.
         ; The `.0` suffix is what makes the literal a Double rather than an Int.
         def dd_str:string ("" + node.double_value)
-        def ii_str:string ("" + (to_int node.double_value))
-        if (dd_str == ii_str) {
-          wr.out((("" + node.double_value) + ".0") false)
+        if (this.doubleNeedsPointZero(dd_str)) {
+          wr.out((dd_str + ".0") false)
         } {
-          wr.out(("" + node.double_value) false)
+          wr.out(dd_str false)
         }
       }
       case RangerNodeType.String {

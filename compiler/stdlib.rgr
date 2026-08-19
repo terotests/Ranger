@@ -14,6 +14,7 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):boolean code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
             ; A union that holds a primitive is not sealable, so its Go type is
             ; interface{} and there is no tag struct: the generic overload below
             ; wrote `x.tag == interface{}_tag_string`, which is not even Go
@@ -64,6 +65,7 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):int code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
             ; A union that holds a primitive is not sealable, so its Go type is
             ; interface{} and there is no tag struct: the generic overload below
             ; wrote `x.tag == interface{}_tag_string`, which is not even Go
@@ -120,6 +122,7 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):double code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
             ; A union that holds a primitive is not sealable, so its Go type is
             ; interface{} and there is no tag struct: the generic overload below
             ; wrote `x.tag == interface{}_tag_string`, which is not even Go
@@ -177,6 +180,7 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):string code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
             ; A union that holds a primitive is not sealable, so its Go type is
             ; interface{} and there is no tag struct: the generic overload below
             ; wrote `x.tag == interface{}_tag_string`, which is not even Go
@@ -244,6 +248,7 @@ operators {
     ; so without these the reader of an array of objects reads nothing.
     case             _@(newcontext):void           ( arg@(union):T item2@(define):JSONDataObject code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
             ; A union that holds a primitive is not sealable, so its Go type is
             ; interface{} and there is no tag struct: the generic overload below
             ; wrote `x.tag == interface{}_tag_string`, which is not even Go
@@ -352,6 +357,7 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):JSONArrayObject code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
             ; A union that holds a primitive is not sealable, so its Go type is
             ; interface{} and there is no tag struct: the generic overload below
             ; wrote `x.tag == interface{}_tag_string`, which is not even Go
@@ -460,6 +466,12 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item@(define):T code:block )  {
         templates {
+            ; LLVM is a code generator, not a source writer: this template only
+            ; has to exist so the operator matches for the target and the front
+            ; end binds `item`. lowerShapeCase reads the call node itself and
+            ; emits a type-descriptor compare against the case's @X_typeDesc.
+            llvm ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
+                        I (block 3) i nl "}" nl )
             ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
                         I (block 3) i nl "}" nl
             )
@@ -568,6 +580,9 @@ operators {
     ; target evaluates (e 1) more than once.
     is _:boolean ( arg@(union):T item@(noeval):T ) {
         templates {
+            ; as for `case` above -- a marker so the operator matches for LLVM;
+            ; lowerShapeIs emits the descriptor compare
+            llvm ( "(is " (e 1) " " (typeof 2) ")" )
             ranger ( "(is " (e 1) " " (typeof 2) ")" )
             ; S5 FlatTaggedObject: the stable kind tag, no `var x = …` after it
             es6    ( "(" (e 1) " != null && " (e 1) ".__rg_kind === \"" (typeof 2) "\")" )

@@ -11,6 +11,64 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
+#include <pthread.h>
+
+/* --- entry point ---
+ *
+ * A process gets 8MB of stack, and a recursive-descent walk over a real
+ * program -- which is what this language is for -- overflows it, dying with a
+ * segmentation fault and no diagnostic. A thread's stack size is ours to
+ * choose, so the generated entry point hands its body here and we run it on a
+ * thread that has room. The Rust target spawns the same 512MB thread.
+ *
+ * If the thread cannot be created (a system that refuses the size, or has no
+ * threads at all), the body still runs -- on the process stack, exactly as it
+ * did before. Better a program that may run out of stack than one that does
+ * not start.
+ */
+
+/* The ptr-array runtime lives in ranger_mem.c; a map whose values are ARRAYS
+ * owns them the way it owns objects and strings, so it needs both halves. */
+void ranger_ptrarray_retain(int64_t desc_addr);
+void ranger_ptrarray_release(int64_t desc_addr);
+
+typedef int (*RangerMainFn)(int, char **);
+
+static RangerMainFn g_main_fn;
+static int g_main_argc;
+static char **g_main_argv;
+static int g_main_rc;
+
+static void *ranger_main_thread(void *unused) {
+  (void)unused;
+  g_main_rc = g_main_fn(g_main_argc, g_main_argv);
+  return NULL;
+}
+
+int ranger_run_main(int argc, char **argv, void *body) {
+  pthread_attr_t attr;
+  pthread_t th;
+
+  g_main_fn = (RangerMainFn)body;
+  g_main_argc = argc;
+  g_main_argv = argv;
+  g_main_rc = 0;
+
+  if (pthread_attr_init(&attr) != 0) {
+    return g_main_fn(argc, argv);
+  }
+  if (pthread_attr_setstacksize(&attr, (size_t)512 * 1024 * 1024) != 0) {
+    pthread_attr_destroy(&attr);
+    return g_main_fn(argc, argv);
+  }
+  if (pthread_create(&th, &attr, ranger_main_thread, NULL) != 0) {
+    pthread_attr_destroy(&attr);
+    return g_main_fn(argc, argv);
+  }
+  pthread_attr_destroy(&attr);
+  pthread_join(th, NULL);
+  return g_main_rc;
+}
 
 /* --- CLI --- */
 
@@ -27,6 +85,16 @@ int ranger_shell_arg_cnt(void) {
     return 0;
   }
   return g_argc - 1;
+}
+
+/* argv[0] itself. ranger_shell_arg skips it (a Ranger program's argument 0 is
+ * the first real argument), and install_directory needs the executable. */
+const char *ranger_argv0(void) {
+  static char empty[] = "";
+  if (g_argc <= 0 || g_argv == NULL) {
+    return empty;
+  }
+  return g_argv[0];
 }
 
 const char *ranger_shell_arg(int index) {
@@ -105,17 +173,55 @@ int ranger_str2int(const char *text) {
   return (int)strtol(text, NULL, 10);
 }
 
+/* Always a HEAP copy, including for NULL and for an allocation failure: the
+ * result is owned by the caller and ranger_str_release frees it. Handing back
+ * a static buffer aborted the process the first time such a string went out
+ * of scope ("munmap_chunk(): invalid pointer"). */
+/* `a + b` where both sides are already strings.
+ *
+ * The general concat path measures with snprintf, allocates, formats with
+ * sprintf and then strdups the result: five traversals of the operands and two
+ * allocations for every `+`, all of it through printf's format machinery.
+ * callgrind on the compiler compiling itself put strlen at 46% of all
+ * instructions and malloc at another 11%. This is one traversal of each
+ * operand and one allocation.
+ *
+ * A NULL operand is the empty string, the same convention ranger_strdup uses. */
+char *ranger_str_concat2(const char *a, const char *b) {
+  size_t la, lb;
+  char *out;
+  if (a == NULL) {
+    a = "";
+  }
+  if (b == NULL) {
+    b = "";
+  }
+  la = strlen(a);
+  lb = strlen(b);
+  out = (char *)malloc(la + lb + 1);
+  if (out == NULL) {
+    return NULL;
+  }
+  memcpy(out, a, la);
+  memcpy(out + la, b, lb);
+  out[la + lb] = '\0';
+  return out;
+}
+
 char *ranger_strdup(const char *text) {
-  static char empty[] = "";
   size_t n;
   char *copy;
   if (text == NULL) {
-    return empty;
+    copy = (char *)malloc(1);
+    if (copy != NULL) {
+      copy[0] = '\0';
+    }
+    return copy;
   }
   n = strlen(text);
   copy = (char *)malloc(n + 1);
   if (copy == NULL) {
-    return empty;
+    return NULL;
   }
   memcpy(copy, text, n + 1);
   return copy;
@@ -131,7 +237,14 @@ char *ranger_str_fromcode(int code) {
   if (code < 0) {
     code = 0;
   }
-  if (code < 0x80) {
+  /* A string is BYTES on this target and charAt hands back one byte, so
+   * `strfromcode (charAt s i)` has to round-trip. Re-encoding a 0x80..0xFF byte
+   * as two-byte UTF-8 turned every non-ASCII character the compiler copied out
+   * of a source file into mojibake -- the box-drawing and check-mark literals
+   * in CLIProgress came back as "â". This matches the C++ target, whose
+   * strfromcode is std::string(1, char(x)). Real codepoints above 0xFF, which
+   * no byte-wise read can produce, are still encoded. */
+  if (code < 0x100) {
     out[n++] = (char)code;
   } else if (code < 0x800) {
     out[n++] = (char)(0xC0 | (code >> 6));
@@ -171,7 +284,13 @@ const char *ranger_read_file(const char *path, const char *filename) {
   if (path == NULL || filename == NULL) {
     return NULL;
   }
-  snprintf(full, sizeof(full), "%s/%s", path, filename);
+  /* An empty path means the filename is the whole path (see
+   * ranger_file_exists). */
+  if (path[0] == '\0') {
+    snprintf(full, sizeof(full), "%s", filename);
+  } else {
+    snprintf(full, sizeof(full), "%s/%s", path, filename);
+  }
   f = fopen(full, "rb");
   if (f == NULL) {
     return NULL;
@@ -326,7 +445,7 @@ typedef struct {
   int32_t live;         /* entries with key != NULL */
   int32_t *index;       /* open-addressed: entry slot + 1, or 0 when empty */
   int32_t index_cap;
-  int32_t valkind;      /* 0 plain / 1 owned object / 2 owned string */
+  int32_t valkind;      /* 0 plain / 1 owned object / 2 owned string / 3 owned array */
   int32_t rc;           /* shared maps: a field and a local can both hold one */
 } RtSMap;
 
@@ -365,10 +484,27 @@ extern void ranger_obj_retain(int64_t body);
 extern void ranger_obj_release(int64_t body);
 extern int ranger_obj_refcount(int64_t body);
 
-static void rt_smap_retain_value(RtSMap *m, int64_t v) {
-  if (m->valkind == 1 && v != 0) {
-    ranger_obj_retain(v);
+/* Answers the value to STORE. An owned-object value is retained; an owned
+ * STRING value is copied, which is what makes the map's copy independent of
+ * the caller's temporary -- the header above has always said "copied on put"
+ * and the copy was missing, so a map of strings held pointers into memory the
+ * caller had already freed. */
+static int64_t rt_smap_own_value(RtSMap *m, int64_t v) {
+  if (v == 0) {
+    return v;
   }
+  if (m->valkind == 1) {
+    ranger_obj_retain(v);
+    return v;
+  }
+  if (m->valkind == 2) {
+    return (int64_t)(intptr_t)ranger_strdup((const char *)(intptr_t)v);
+  }
+  if (m->valkind == 3) {
+    ranger_ptrarray_retain(v);
+    return v;
+  }
+  return v;
 }
 
 static void rt_smap_release_value(RtSMap *m, int64_t v) {
@@ -379,6 +515,8 @@ static void rt_smap_release_value(RtSMap *m, int64_t v) {
     ranger_obj_release(v);
   } else if (m->valkind == 2) {
     free((void *)(intptr_t)v);
+  } else if (m->valkind == 3) {
+    ranger_ptrarray_release(v);
   }
 }
 
@@ -482,13 +620,13 @@ void RtSMap_put(int64_t map, const char *key, int64_t value) {
   h = rt_smap_hash(key);
   ei = rt_smap_find(m, key, h);
   if (ei >= 0) {
-    /* retain BEFORE releasing: putting a value back over itself must not free it */
-    rt_smap_retain_value(m, value);
+    /* own BEFORE releasing: putting a value back over itself must not free it */
+    int64_t owned = rt_smap_own_value(m, value);
     rt_smap_release_value(m, m->entries[ei].value);
-    m->entries[ei].value = value; /* replace: keeps the original position */
+    m->entries[ei].value = owned; /* replace: keeps the original position */
     return;
   }
-  rt_smap_retain_value(m, value);
+  value = rt_smap_own_value(m, value);
   if (m->count == m->cap) {
     int32_t nc = m->cap * 2;
     RtSMapEntry *ne = (RtSMapEntry *)realloc(m->entries, (size_t)nc * sizeof(RtSMapEntry));
@@ -555,7 +693,21 @@ void RtSMap_remove(int64_t map, const char *key) {
 /* Live entry count. */
 int RtSMap_size(int64_t map) {
   RtSMap *m = (RtSMap *)(intptr_t)map;
-  return (m == NULL) ? 0 : m->live;
+  if (m == NULL) {
+    return 0;
+  }
+#ifdef RANGER_SMAP_GUARD
+  /* Temporary diagnostic: a handle that is not a map at all reads a wild
+   * `live`, and the walk that follows allocates until the process dies. */
+  if (m->live < 0 || m->cap < 0 || m->count < 0 || m->live > m->count ||
+      m->count > m->cap) {
+    fprintf(stderr,
+            "RtSMap_size: implausible map %p live=%d count=%d cap=%d\n",
+            (void *)m, (int)m->live, (int)m->count, (int)m->cap);
+    abort();
+  }
+#endif
+  return m->live;
 }
 
 /* The i-th LIVE key in insertion order, or NULL. Callers walk 0..size-1. */
@@ -657,7 +809,7 @@ typedef struct {
   int32_t cap;    /* power of two, 0 until the first put */
   int32_t live;
   int32_t used;   /* live + tombstones, drives the resize */
-  int32_t valkind; /* 0 plain / 1 owned object / 2 owned string */
+  int32_t valkind; /* 0 plain / 1 owned object / 2 owned string / 3 owned array */
   int32_t rc;
 } RtIMap;
 
@@ -670,8 +822,13 @@ static uint32_t rt_imap_hash(int64_t k) {
 }
 
 static void rt_imap_retain_value(RtIMap *m, int64_t v) {
-  if (m->valkind == 1 && v != 0) {
+  if (v == 0) {
+    return;
+  }
+  if (m->valkind == 1) {
     ranger_obj_retain(v);
+  } else if (m->valkind == 3) {
+    ranger_ptrarray_retain(v);
   }
 }
 
@@ -683,6 +840,8 @@ static void rt_imap_release_value(RtIMap *m, int64_t v) {
     ranger_obj_release(v);
   } else if (m->valkind == 2) {
     free((void *)(intptr_t)v);
+  } else if (m->valkind == 3) {
+    ranger_ptrarray_release(v);
   }
 }
 
@@ -890,11 +1049,13 @@ int RtSMap_put_if_present(int64_t map, const char *key, int64_t value) {
   if (ei < 0) {
     return 0;
   }
-  /* retain BEFORE releasing, exactly as RtSMap_put does: assigning a value
-   * over itself must not free it. */
-  rt_smap_retain_value(m, value);
-  rt_smap_release_value(m, m->entries[ei].value);
-  m->entries[ei].value = value;
+  /* own BEFORE releasing, exactly as RtSMap_put does: assigning a value over
+   * itself must not free it. */
+  {
+    int64_t owned = rt_smap_own_value(m, value);
+    rt_smap_release_value(m, m->entries[ei].value);
+    m->entries[ei].value = owned;
+  }
   return 1;
 }
 
@@ -1054,7 +1215,14 @@ int ranger_file_exists(const char *path, const char *filename) {
   if (full == NULL) {
     return 0;
   }
-  snprintf(full, n, "%s/%s", path, filename);
+  /* An EMPTY path means the filename is the whole path. Joining with "/"
+   * turned a relative `tmp/probe/x.rgr` into the absolute `/tmp/probe/x.rgr`,
+   * so the compiler reported "File not found" for a file that was there. */
+  if (path[0] == '\0') {
+    snprintf(full, n, "%s", filename);
+  } else {
+    snprintf(full, n, "%s/%s", path, filename);
+  }
   f = fopen(full, "rb");
   free(full);
   if (f == NULL) {
@@ -1159,7 +1327,6 @@ int64_t ranger_str_split(const char *text, const char *sep) {
  * reads back as the same double. */
 char *ranger_double_to_string(double v) {
   char buf[64];
-  int prec;
   if (v != v) {
     return ranger_strdup("NaN");
   }
@@ -1172,19 +1339,85 @@ char *ranger_double_to_string(double v) {
   if (v == 0.0) {
     return ranger_strdup("0");
   }
+  /* Everything else follows ECMA-262 Number::toString, which "%g" does not
+   * implement: JavaScript switches to exponent form only outside 1e-6 .. 1e21,
+   * and never pads the exponent to two digits. %g switches at 1e-4 and pads,
+   * so it wrote 1e-6 for 0.000001 and 1e-07 for 1e-7 -- and the compiler
+   * emitting a JS source file then differed from the reference build.
+   *
+   * Take the SHORTEST decimal that reads back as the same double, then place
+   * the point the way the spec says. */
   {
-    double a = v < 0 ? -v : v;
-    /* floor(a) == a means integral; below 1e21 JavaScript writes it out */
-    if (a < 1e21 && a == (double)(long long)a) {
-      snprintf(buf, sizeof(buf), "%lld", (long long)v);
-      return ranger_strdup(buf);
+    char sci[64];
+    char digits[32];
+    char *out = buf;
+    const char *q;
+    int p, k, n, expv, i, neg = 0;
+
+    for (p = 0; p < 17; p++) {
+      snprintf(sci, sizeof(sci), "%.*e", p, v);
+      if (strtod(sci, NULL) == v) {
+        break;
+      }
     }
-  }
-  for (prec = 15; prec <= 17; prec++) {
-    snprintf(buf, sizeof(buf), "%.*g", prec, v);
-    if (strtod(buf, NULL) == v) {
-      break;
+    if (p >= 17) {
+      snprintf(sci, sizeof(sci), "%.17e", v);
     }
+
+    q = sci;
+    if (*q == '-') {
+      neg = 1;
+      q++;
+    }
+    k = 0;
+    while (*q != '\0' && *q != 'e' && *q != 'E') {
+      if (*q >= '0' && *q <= '9' && k < (int)sizeof(digits) - 1) {
+        digits[k++] = *q;
+      }
+      q++;
+    }
+    digits[k] = '\0';
+    expv = (*q == 'e' || *q == 'E') ? atoi(q + 1) : 0;
+    /* trailing zeros carry no information once the point is placed by hand */
+    while (k > 1 && digits[k - 1] == '0') {
+      digits[--k] = '\0';
+    }
+    n = expv + 1; /* the point sits after n digits */
+
+    if (neg) {
+      *out++ = '-';
+    }
+    if (n >= k && n <= 21) {
+      memcpy(out, digits, (size_t)k);
+      out += k;
+      for (i = 0; i < n - k; i++) {
+        *out++ = '0';
+      }
+    } else if (n > 0 && n <= 21) {
+      memcpy(out, digits, (size_t)n);
+      out += n;
+      *out++ = '.';
+      memcpy(out, digits + n, (size_t)(k - n));
+      out += k - n;
+    } else if (n > -6 && n <= 0) {
+      *out++ = '0';
+      *out++ = '.';
+      for (i = 0; i < -n; i++) {
+        *out++ = '0';
+      }
+      memcpy(out, digits, (size_t)k);
+      out += k;
+    } else {
+      *out++ = digits[0];
+      if (k > 1) {
+        *out++ = '.';
+        memcpy(out, digits + 1, (size_t)(k - 1));
+        out += k - 1;
+      }
+      *out++ = 'e';
+      out += snprintf(out, 12, "%+d", n - 1);
+    }
+    *out = '\0';
   }
   return ranger_strdup(buf);
 }
@@ -1268,3 +1501,496 @@ char *ranger_str_trim(const char *text) {
   out[n] = '\0';
   return out;
 }
+
+/* `startsWith` / `endsWith`. The Ranger operators answer a boolean; the C
+ * helpers answer 0/1 and the lowering compares against zero (Ranger booleans
+ * are i1, so returning i32 straight into an `||` would emit `or i1 <i32>`). */
+int ranger_str_starts_with(const char *text, const char *prefix) {
+  size_t tn;
+  size_t pn;
+  if (text == NULL || prefix == NULL) {
+    return 0;
+  }
+  tn = strlen(text);
+  pn = strlen(prefix);
+  if (pn > tn) {
+    return 0;
+  }
+  return memcmp(text, prefix, pn) == 0 ? 1 : 0;
+}
+
+int ranger_str_ends_with(const char *text, const char *suffix) {
+  size_t tn;
+  size_t sn;
+  if (text == NULL || suffix == NULL) {
+    return 0;
+  }
+  tn = strlen(text);
+  sn = strlen(suffix);
+  if (sn > tn) {
+    return 0;
+  }
+  return memcmp(text + (tn - sn), suffix, sn) == 0 ? 1 : 0;
+}
+
+/* `indexOfFrom`: search starts at startPos. A start past the end is not an
+ * error -- every other target answers -1 rather than reading out of bounds. */
+int ranger_str_index_of_from(const char *text, const char *key, int startPos) {
+  const char *hit;
+  size_t tn;
+  if (text == NULL || key == NULL) {
+    return -1;
+  }
+  if (startPos < 0) {
+    startPos = 0;
+  }
+  tn = strlen(text);
+  if ((size_t)startPos > tn) {
+    return -1;
+  }
+  hit = strstr(text + startPos, key);
+  if (hit == NULL) {
+    return -1;
+  }
+  return (int)(hit - text);
+}
+
+/* `replace` changes EVERY occurrence, matching the operator's contract on the
+ * other targets. An empty `from` would loop forever, so it answers a copy. */
+char *ranger_str_replace(const char *text, const char *from, const char *to) {
+  size_t fromLen;
+  size_t toLen;
+  size_t hits = 0;
+  size_t outLen;
+  const char *p;
+  const char *hit;
+  char *out;
+  char *w;
+  if (text == NULL) {
+    return ranger_strdup("");
+  }
+  if (from == NULL || to == NULL) {
+    return ranger_strdup(text);
+  }
+  fromLen = strlen(from);
+  toLen = strlen(to);
+  if (fromLen == 0) {
+    return ranger_strdup(text);
+  }
+  for (p = text; (hit = strstr(p, from)) != NULL; p = hit + fromLen) {
+    hits++;
+  }
+  if (hits == 0) {
+    return ranger_strdup(text);
+  }
+  outLen = strlen(text) + hits * toLen - hits * fromLen;
+  out = (char *)malloc(outLen + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  w = out;
+  for (p = text; (hit = strstr(p, from)) != NULL; p = hit + fromLen) {
+    size_t lead = (size_t)(hit - p);
+    memcpy(w, p, lead);
+    w += lead;
+    memcpy(w, to, toLen);
+    w += toLen;
+  }
+  strcpy(w, p);
+  return out;
+}
+
+/* --- Directories, writes and the environment ---------------------------- */
+
+int ranger_dir_exists(const char *path) {
+  struct stat st;
+  if (path == NULL || path[0] == '\0') {
+    return 0;
+  }
+  if (stat(path, &st) != 0) {
+    return 0;
+  }
+  return S_ISDIR(st.st_mode) ? 1 : 0;
+}
+
+/* mkdir -p. Every other target's create_dir is recursive (mkdirs,
+ * create_dir_all, createSync(recursive: true)), and the compiler writes its
+ * output into a directory several levels deep that may not exist at all. */
+void ranger_create_dir(const char *path) {
+  char *work;
+  size_t n;
+  size_t i;
+  if (path == NULL || path[0] == '\0') {
+    return;
+  }
+  n = strlen(path);
+  work = (char *)malloc(n + 1);
+  if (work == NULL) {
+    return;
+  }
+  memcpy(work, path, n + 1);
+  for (i = 1; i <= n; i++) {
+    if (work[i] == '/' || work[i] == '\0') {
+      char saved = work[i];
+      work[i] = '\0';
+      if (work[0] != '\0') {
+        mkdir(work, 0777);
+      }
+      work[i] = saved;
+    }
+  }
+  free(work);
+}
+
+/* `write_file path name data`. `path` may be empty, in which case `name` is
+ * the whole filename -- the same rule the Kotlin and C# polyfills use. */
+void ranger_write_file(const char *path, const char *filename, const char *data) {
+  char *full;
+  size_t pn;
+  size_t fn;
+  FILE *f;
+  if (filename == NULL) {
+    return;
+  }
+  pn = (path == NULL) ? 0 : strlen(path);
+  fn = strlen(filename);
+  full = (char *)malloc(pn + fn + 2);
+  if (full == NULL) {
+    return;
+  }
+  if (pn > 0) {
+    memcpy(full, path, pn);
+    full[pn] = '/';
+    memcpy(full + pn + 1, filename, fn + 1);
+  } else {
+    memcpy(full, filename, fn + 1);
+  }
+  f = fopen(full, "wb");
+  if (f != NULL) {
+    if (data != NULL) {
+      fwrite(data, 1, strlen(data), f);
+    }
+    fclose(f);
+  }
+  free(full);
+}
+
+/* `env_var` is optional:string -- an unset (or empty) variable answers NULL,
+ * which is what `null?` compares a string against on this backend. The result
+ * is a private copy: getenv's buffer belongs to the environment. */
+char *ranger_env_var(const char *name) {
+  const char *v;
+  if (name == NULL) {
+    return NULL;
+  }
+  v = getenv(name);
+  if (v == NULL || v[0] == '\0') {
+    return NULL;
+  }
+  return ranger_strdup(v);
+}
+
+/* --- SHA-256 ------------------------------------------------------------
+ * The compiler hashes two class bodies into a service GUID, so this is on the
+ * self-host path. Same digest as the C++ polyfill in Lang.rgr, written out
+ * here rather than pulled from a header at build time. */
+
+static uint32_t rt_sha_rotr(uint32_t x, int n) {
+  return (x >> n) | (x << (32 - n));
+}
+
+char *ranger_sha256_hex(const char *text) {
+  static const uint32_t K[64] = {
+      0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu,
+      0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u, 0xd807aa98u, 0x12835b01u,
+      0x243185beu, 0x550c7dc3u, 0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u,
+      0xc19bf174u, 0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
+      0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau, 0x983e5152u,
+      0xa831c66du, 0xb00327c8u, 0xbf597fc7u, 0xc6e00bf3u, 0xd5a79147u,
+      0x06ca6351u, 0x14292967u, 0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu,
+      0x53380d13u, 0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
+      0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u, 0xd192e819u,
+      0xd6990624u, 0xf40e3585u, 0x106aa070u, 0x19a4c116u, 0x1e376c08u,
+      0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu,
+      0x682e6ff3u, 0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
+      0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u};
+  uint32_t h[8] = {0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+                   0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u};
+  unsigned char *msg;
+  size_t n;
+  size_t total;
+  size_t off;
+  size_t i;
+  char *out;
+  uint64_t bits;
+
+  n = (text == NULL) ? 0 : strlen(text);
+  /* message + 0x80 + zero padding to 56 mod 64 + 8 length bytes */
+  total = n + 1;
+  while ((total % 64) != 56) {
+    total++;
+  }
+  total += 8;
+  msg = (unsigned char *)calloc(total, 1);
+  if (msg == NULL) {
+    return ranger_strdup("");
+  }
+  if (n > 0) {
+    memcpy(msg, text, n);
+  }
+  msg[n] = 0x80;
+  bits = (uint64_t)n * 8u;
+  for (i = 0; i < 8; i++) {
+    msg[total - 1 - i] = (unsigned char)((bits >> (8 * i)) & 0xffu);
+  }
+
+  for (off = 0; off < total; off += 64) {
+    uint32_t w[64];
+    uint32_t a, b, c, d, e, f, g, hh;
+    int t;
+    for (t = 0; t < 16; t++) {
+      w[t] = ((uint32_t)msg[off + t * 4] << 24) |
+             ((uint32_t)msg[off + t * 4 + 1] << 16) |
+             ((uint32_t)msg[off + t * 4 + 2] << 8) |
+             ((uint32_t)msg[off + t * 4 + 3]);
+    }
+    for (t = 16; t < 64; t++) {
+      uint32_t s0 = rt_sha_rotr(w[t - 15], 7) ^ rt_sha_rotr(w[t - 15], 18) ^
+                    (w[t - 15] >> 3);
+      uint32_t s1 = rt_sha_rotr(w[t - 2], 17) ^ rt_sha_rotr(w[t - 2], 19) ^
+                    (w[t - 2] >> 10);
+      w[t] = w[t - 16] + s0 + w[t - 7] + s1;
+    }
+    a = h[0]; b = h[1]; c = h[2]; d = h[3];
+    e = h[4]; f = h[5]; g = h[6]; hh = h[7];
+    for (t = 0; t < 64; t++) {
+      uint32_t S1 = rt_sha_rotr(e, 6) ^ rt_sha_rotr(e, 11) ^ rt_sha_rotr(e, 25);
+      uint32_t ch = (e & f) ^ ((~e) & g);
+      uint32_t temp1 = hh + S1 + ch + K[t] + w[t];
+      uint32_t S0 = rt_sha_rotr(a, 2) ^ rt_sha_rotr(a, 13) ^ rt_sha_rotr(a, 22);
+      uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+      uint32_t temp2 = S0 + maj;
+      hh = g; g = f; f = e;
+      e = d + temp1;
+      d = c; c = b; b = a;
+      a = temp1 + temp2;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d;
+    h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  }
+  free(msg);
+
+  out = (char *)malloc(65);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  for (i = 0; i < 8; i++) {
+    sprintf(out + i * 8, "%08x", (unsigned)h[i]);
+  }
+  out[64] = '\0';
+  return out;
+}
+
+/* `join xs sep` over the ptr-array of strings strsplit also produces. */
+char *ranger_str_join(int64_t desc_addr, const char *sep) {
+  RtSplitDesc *d;
+  int64_t *data;
+  size_t seplen;
+  size_t total = 0;
+  int32_t i;
+  char *out;
+  char *w;
+  if (desc_addr == 0) {
+    return ranger_strdup("");
+  }
+  d = (RtSplitDesc *)(intptr_t)desc_addr;
+  seplen = (sep == NULL) ? 0 : strlen(sep);
+  data = (int64_t *)(intptr_t)d->data;
+  for (i = 0; i < d->len; i++) {
+    const char *s = (const char *)(intptr_t)data[i];
+    if (s != NULL) {
+      total += strlen(s);
+    }
+    if (i + 1 < d->len) {
+      total += seplen;
+    }
+  }
+  out = (char *)malloc(total + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  w = out;
+  for (i = 0; i < d->len; i++) {
+    const char *s = (const char *)(intptr_t)data[i];
+    size_t n;
+    if (s != NULL) {
+      n = strlen(s);
+      memcpy(w, s, n);
+      w += n;
+    }
+    if (i + 1 < d->len && seplen > 0) {
+      memcpy(w, sep, seplen);
+      w += seplen;
+    }
+  }
+  *w = '\0';
+  return out;
+}
+
+/* `trim_right` -- trailing whitespace only. */
+char *ranger_str_trim_right(const char *text) {
+  const char *e;
+  char *out;
+  size_t n;
+  if (text == NULL) {
+    return ranger_strdup("");
+  }
+  e = text + strlen(text);
+  while (e > text) {
+    char c = *(e - 1);
+    if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+      break;
+    }
+    e--;
+  }
+  n = (size_t)(e - text);
+  out = (char *)malloc(n + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  memcpy(out, text, n);
+  out[n] = '\0';
+  return out;
+}
+
+/* --- Paths --------------------------------------------------------------
+ * `normalize`, `path_dirname`, `install_directory` and `current_directory`.
+ * The same rules the polyfills in Lang.rgr spell out for the other targets:
+ * "." and ".." are resolved textually, a trailing slash is kept unless the
+ * result is the root, and dirname of a bare name is ".". */
+char *ranger_path_normalize(const char *p) {
+  size_t n;
+  int absolute;
+  int trailing;
+  char *work;
+  char **parts;
+  size_t nparts = 0;
+  size_t i;
+  size_t start;
+  size_t outLen;
+  char *out;
+  if (p == NULL || p[0] == '\0') {
+    return ranger_strdup("");
+  }
+  n = strlen(p);
+  absolute = (p[0] == '/');
+  trailing = (n > 1 && p[n - 1] == '/');
+  work = (char *)malloc(n + 1);
+  parts = (char **)malloc((n + 1) * sizeof(char *));
+  if (work == NULL || parts == NULL) {
+    free(work);
+    free(parts);
+    return ranger_strdup(p);
+  }
+  memcpy(work, p, n + 1);
+  start = 0;
+  for (i = 0; i <= n; i++) {
+    if (work[i] == '/' || work[i] == '\0') {
+      work[i] = '\0';
+      if (start < i) {
+        char *seg = work + start;
+        if (strcmp(seg, ".") == 0) {
+          /* drop */
+        } else if (strcmp(seg, "..") == 0) {
+          if (nparts > 0 && strcmp(parts[nparts - 1], "..") != 0) {
+            nparts--;
+          } else if (!absolute) {
+            parts[nparts++] = seg;
+          }
+        } else {
+          parts[nparts++] = seg;
+        }
+      }
+      start = i + 1;
+    }
+  }
+  outLen = 1;
+  for (i = 0; i < nparts; i++) {
+    outLen += strlen(parts[i]) + 1;
+  }
+  outLen += 2;
+  out = (char *)malloc(outLen);
+  if (out == NULL) {
+    free(work);
+    free(parts);
+    return ranger_strdup(p);
+  }
+  out[0] = '\0';
+  if (absolute) {
+    strcat(out, "/");
+  }
+  for (i = 0; i < nparts; i++) {
+    if (i > 0) {
+      strcat(out, "/");
+    }
+    strcat(out, parts[i]);
+  }
+  if (out[0] == '\0') {
+    strcat(out, absolute ? "/" : ".");
+  }
+  if (trailing && strcmp(out, "/") != 0) {
+    strcat(out, "/");
+  }
+  free(work);
+  free(parts);
+  return out;
+}
+
+char *ranger_path_dirname(const char *p) {
+  char *s = ranger_path_normalize(p);
+  size_t n;
+  char *pos;
+  char *out;
+  if (s == NULL) {
+    return ranger_strdup(".");
+  }
+  n = strlen(s);
+  if (n > 1 && s[n - 1] == '/') {
+    s[n - 1] = '\0';
+  }
+  pos = strrchr(s, '/');
+  if (pos == NULL) {
+    free(s);
+    return ranger_strdup(".");
+  }
+  if (pos == s) {
+    free(s);
+    return ranger_strdup("/");
+  }
+  *pos = '\0';
+  out = ranger_strdup(s);
+  free(s);
+  return out;
+}
+
+char *ranger_current_directory(void) {
+  char buf[4096];
+  if (getcwd(buf, sizeof(buf)) == NULL) {
+    return ranger_strdup(".");
+  }
+  return ranger_strdup(buf);
+}
+
+/* The directory of argv[0], which is where the compiler looks for Lang.rgr
+ * and lib/ -- the same rule the C++ build uses. */
+char *ranger_install_directory(void) {
+  const char *argv0 = ranger_argv0();
+  if (argv0 == NULL || argv0[0] == '\0') {
+    return ranger_current_directory();
+  }
+  return ranger_path_dirname(argv0);
+}
+
+/* `is_tty` -- whether stdout is a terminal, which is what the progress output
+ * asks before it emits colours. */
+int ranger_is_tty(void) { return isatty(1) != 0 ? 1 : 0; }

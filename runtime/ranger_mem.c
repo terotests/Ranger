@@ -363,6 +363,20 @@ int ranger_obj_refcount(int64_t body) {
   return (int)((RangerObjHeader *)((char *)(intptr_t)body - RANGER_HEADER_SIZE))->rc;
 }
 
+/* The type descriptor an object was created with, as a plain address. This is
+ * the object's RUNTIME class: emitted code compares it against the &X_typeDesc
+ * of each candidate to dispatch a method call through a base-class reference,
+ * which is how a target with no vtables of its own resolves an override.
+ * Returns 0 for a null body, which falls through to the base implementation. */
+int64_t ranger_obj_type(int64_t body) {
+  if (body == 0) {
+    return 0;
+  }
+  return (int64_t)(intptr_t)((RangerObjHeader *)((char *)(intptr_t)body -
+                                                 RANGER_HEADER_SIZE))
+      ->type;
+}
+
 void ranger_mem_reset_stats(void) { g_live_objects = 0; }
 
 static void ranger_destroy_field(int64_t body, const RangerFieldDesc *f) {
@@ -889,8 +903,17 @@ static int rt_obj_pool_enabled(void) {
   return g_obj_pool_on;
 }
 
-/* Bucket index for a body size, or -1 when the size is not poolable. */
+/* Bucket index for a body size, or -1 when the size is not poolable.
+ *
+ * A pooled block keeps its free-list link in the BODY (block + header), so a
+ * body smaller than a pointer has nowhere to put it. A class with no fields at
+ * all -- the compiler's own sources have several -- has size 0, and pooling one
+ * wrote eight bytes past the end of the allocation and read them back on the
+ * next alloc, which corrupts the malloc arena. Such bodies are never pooled. */
 static int rt_pool_bucket(uint32_t size) {
+  if (size < (uint32_t)sizeof(char *)) {
+    return -1;
+  }
   if (size > RT_POOL_MAX_SIZE) {
     return -1;
   }
@@ -1120,4 +1143,85 @@ char *ranger_strdup(const char *text) {
   }
   memcpy(copy, text, n + 1);
   return copy;
+}
+
+/* `insert xs i v` / `remove xs i` / `array_extract xs i`.
+ *
+ * The RtPtrArray_* routines are emitted as LLVM IR and only cover new / len /
+ * get / set / push, so the three operators that shift elements are written
+ * here against the same descriptor layout, the way ranger_str_split builds a
+ * result array in C.
+ *
+ * An out-of-range index is a no-op rather than a wild write: `insert xs 0 v`
+ * on an empty array is how the compiler prepends, and the guard has to accept
+ * index == len for exactly that. */
+void ranger_ptrarray_insert(int64_t desc_addr, int32_t index, int64_t val) {
+  RtPtrArrayDesc *d;
+  int64_t *data;
+  int32_t new_cap;
+  int32_t k;
+  if (desc_addr == 0) {
+    return;
+  }
+  d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
+  if (index < 0 || index > d->len) {
+    return;
+  }
+  if (d->owned == 1 && val != 0) {
+    ranger_obj_retain(val);
+  }
+  if (d->len >= d->cap) {
+    new_cap = (d->cap == 0) ? 4 : (d->cap * 2);
+    data = (int64_t *)realloc((void *)(intptr_t)d->data,
+                              (size_t)new_cap * sizeof(int64_t));
+    if (data == NULL) {
+      return;
+    }
+    d->data = (int64_t)(intptr_t)data;
+    d->cap = new_cap;
+  }
+  data = (int64_t *)(intptr_t)d->data;
+  for (k = d->len; k > index; k--) {
+    data[k] = data[k - 1];
+  }
+  data[index] = val;
+  d->len = d->len + 1;
+}
+
+/* Answers the element that was taken out, which is what `array_extract` needs.
+ * The reference is HANDED TO THE CALLER: an owned array does not release it
+ * here, because `array_extract` is declared @(strong) and the value lives on.
+ * `remove` throws the answer away, so an owned element leaks rather than being
+ * freed twice -- see TARGET_NOTES.md. */
+int64_t ranger_ptrarray_remove(int64_t desc_addr, int32_t index) {
+  RtPtrArrayDesc *d;
+  int64_t *data;
+  int64_t out;
+  int32_t k;
+  if (desc_addr == 0) {
+    return 0;
+  }
+  d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
+  if (index < 0 || index >= d->len) {
+    return 0;
+  }
+  data = (int64_t *)(intptr_t)d->data;
+  out = data[index];
+  for (k = index; k < (d->len - 1); k++) {
+    data[k] = data[k + 1];
+  }
+  d->len = d->len - 1;
+  return out;
+}
+
+/* `clear xs` -- drop every element. Owned elements are NOT released here, for
+ * the same reason ranger_ptrarray_remove does not: leaking is safer than a
+ * double free while the ownership analysis on this backend is young. */
+void ranger_ptrarray_clear(int64_t desc_addr) {
+  RtPtrArrayDesc *d;
+  if (desc_addr == 0) {
+    return;
+  }
+  d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
+  d->len = 0;
 }

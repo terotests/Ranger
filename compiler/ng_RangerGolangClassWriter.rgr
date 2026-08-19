@@ -135,11 +135,10 @@ class RangerGolangClassWriter {
         ; the node's recorded position, and a macro-shifted position slices
         ; unrelated bytes into the output
         def dd_str ("" + node.double_value)
-        def ii_str ("" + (to_int node.double_value))
-        if (dd_str == ii_str) {
-          wr.out(("" + node.double_value+".0") false)
+        if (this.doubleNeedsPointZero(dd_str)) {
+          wr.out((dd_str + ".0") false)
         } {
-          wr.out(("" + node.double_value) false)
+          wr.out(dd_str false)
         }
       }
       case RangerNodeType.String {

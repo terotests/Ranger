@@ -140,6 +140,586 @@ for C#, `go build` for Go, `kotlinc` for Kotlin
 (`tests/compiler-selfhost.test.ts`). The binary build and the bootstrap rounds
 are a manual step.
 
+## The compiler on LLVM: how far it gets
+
+LLVM is the seventh target the compiler has been compiled for, and the first
+one that is a **code generator rather than a source writer**: there is no
+text template to fall back on, every construct has to be lowered to IR, and
+nothing about the result is checked by another compiler's front end.
+
+```bash
+npm run selfhost:compile:llvm   # generate the IR, report the error count
+npm run selfhost:check:llvm     # ...and run `opt -passes=verify` over it
+npm run selfhost:build:llvm     # ...and link ./tmp/selfhost-llvm/rangerc
+npm run selfhost:round:llvm     # ...and compile the compiler WITH that binary
+```
+
+**Where it stands: LLVM is the seventh self-hosting target, and it now carries
+every language feature the others do.** The compiler compiles for LLVM with
+**zero errors** (631 before this work), the ~490k lines / 20 MB of IR it
+produces for itself **pass `opt -passes=verify`**, `clang` links them with the C
+runtime into a 3 MB `rangerc`, and **that binary compiles the compiler**. It
+also compiles and runs `ComponentEngine.rgr`, the JavaScript interpreter in
+`gallery/game_engine/` — see *Shapes, and the game engine's interpreter* below.
+
+Two measurements worth keeping, both taken compiling the compiler itself
+(3.06 MB of ES6 out, 4-core Xeon 2.10 GHz, best of five on an otherwise idle
+machine, all three builds verified byte-identical — md5 `70d5ed57e861` — before
+anything was timed):
+
+| | time | vs C++ | binary | peak RSS | vs C++ |
+|---|---|---|---|---|---|
+| C++ `g++ -O2` | 4,196 ms | 1.00x | 6,307,336 B | 803 MB | 1.00x |
+| Node `bin/output.js` | 9,044 ms | 2.16x | — | 1,078 MB | 1.34x |
+| LLVM `clang -O2` | 8,607 ms | 2.05x | **1,791,048 B** | 1,604 MB | 2.00x |
+
+**Read the ratios, not the absolute times.** This is a shared cloud host, and a
+re-run of the identical binaries some hours later moved every wall-clock number
+by roughly a fifth (C++ 3,519 -> 4,196 ms, LLVM 7,121 -> 8,607, Node
+7,071 -> 9,044) while the C++ build's source and flags had not changed at all.
+Peak RSS, which does not care about CPU contention, reproduced to within 1.5%
+across the same two rounds (C++ 797 -> 803 MB, LLVM 1,596 -> 1,604, Node
+1,093 -> 1,078). So memory figures can be compared as absolutes; times only as
+ratios against C++ measured in the same run. On that basis LLVM has held
+2.02x -> 2.05x of C++ across rounds, i.e. reference boxing cost nothing this
+setup can resolve.
+
+So the native binary lands around 2x behind C++ and roughly level with the Node
+build, while being **3.5x smaller** than the C++ one — it emits direct code over
+a small C runtime where C++ instantiates `std::string`/`std::vector`/
+`std::shared_ptr` throughout. Memory is the weak spot: at 2.00x the C++ build it
+is the one metric where LLVM is worst of the three, and it is retention rather
+than leakage — valgrind puts 97% of the outstanding bytes in *still reachable*.
+Objects are released, but late, so memory grows nearly monotonically and is
+reclaimed at process exit. That is survivable for a batch compiler and would not
+be for a language server.
+
+### Build time: the two native routes
+
+That table is how fast the compiler RUNS. How fast it BUILDS is a different
+question with a different answer, and the LLVM route wins it decisively. Both
+routes below start from the same `compiler/ng_Compiler.rgr` with the same
+driver, so the only variable is the backend and its toolchain:
+
+| stage | C++ route | LLVM route |
+|---|---|---|
+| codegen (`node bin/output.js`) | 11,536 ms -> 2.86 MB `.cpp` | 9,923 ms -> 21.0 MB `.ll` |
+| toolchain, debug | `g++ -O0` 45,743 ms | `clang -O0` **3,408 ms** |
+| toolchain, release | `g++ -O2` 137,143 ms | `clang -O2` **23,691 ms** |
+| **end to end, debug** | **57.3 s** | **13.3 s** (4.3x faster) |
+| **end to end, release** | **148.7 s** | **33.6 s** (4.4x faster) |
+
+The codegen step is a wash — LLVM is marginally cheaper (9.9 s vs 11.5 s)
+despite emitting 7x more text, because IR is mechanical to print while C++
+output is not. The whole difference is the toolchain: `g++` has to parse
+headers and instantiate `std::string`/`std::vector`/`std::shared_ptr` across a
+2.86 MB single translation unit, while `clang` is handed code that is already
+lowered. At `-O0` that is a **13x** gap. Of clang's 23.7 s at `-O2`, the four C
+runtime files are 0.9 s; the 21 MB of IR is the rest.
+
+Binaries out of each route, which is also where the LLVM target keeps its edge:
+
+| | `-O0` | `-O1` | `-O2` |
+|---|---|---|---|
+| C++ | 17,551,376 B | 5,924,984 B | 6,307,336 B |
+| LLVM | 2,984,736 B | — | **1,791,048 B** |
+
+One caveat that matters for a fully self-hosted rebuild: the figures above are
+NODE-driven. Driving codegen with the native binary instead, `.cpp` output takes
+33,669 ms (2.9x node) and `.ll` output takes **2,483 s — 41 minutes**, against
+node's 9.9 s for the same file. That is a 250x gap and it is the single worst
+number on this target.
+
+Emitting 21 MB through the native string builder is the pathological case, and
+the shape of it — 7x the output, 250x the time — is what quadratic concatenation
+looks like. It is the same class of defect `ranger_str_concat2` already fixed
+once on the ES6 path, so there is a known place to start. Until it is chased
+down, the fast build is the node-driven one, and a from-scratch rebuild with no
+Node anywhere is technically possible but not practical.
+
+`npm run selfhost:round:llvm` runs the whole chain and checks the two things
+that make it self-hosting rather than merely finishing:
+
+```
+==> gen2: the native rangerc compiles the compiler
+    3027537 bytes
+==> reference: the Node build compiles the same sources
+    identical to the Node build
+==> gen3: gen2 compiles the compiler
+    gen2 == gen3 -- fixed point
+```
+
+The native binary reproduces the Node build's output **byte for byte** from the
+same sources, and the JavaScript it emits is itself a working compiler that
+reproduces itself. Smaller files check out the same way: `ng_writer.rgr` (50 KB
+of output), `ng_CodeNode.rgr` (29 KB, with an `@serialize` class) and
+`CLIProgress.rgr` all come out byte-identical.
+
+`lib/CmdParams.rgr` -- the compiler's own command-line parser, which has a
+`main` of its own -- is the useful small program to check against, because it
+exercises the shapes that broke first (a `[string:string]` map, `strsplit`,
+`join`, `remove_index`) and it now answers correctly natively:
+
+```bash
+RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" node bin/output.js \
+  -l=llvm ./lib/CmdParams.rgr -nodecli -d=tmp/probe -o=cmdparams.ll \
+  -target=native-linux-gnu
+clang -O0 tmp/probe/cmdparams.ll runtime/ranger_rt.c runtime/ranger_mem.c \
+  runtime/ranger_json.c runtime/ranger_buffer.c -o tmp/probe/cmdparams -lm
+./tmp/probe/cmdparams -l=es6 x.rgr -d=out -o=x.js
+#   l = es6 / d = out / o = x.js, flag nodecli, value x.rgr
+```
+
+Getting that far took two runtime fixes worth naming, because both were
+silent: a `[string:string]` map stored the pointer it was given rather than a
+copy, so it held memory the caller had already freed (the compiler's own
+`-o=` value came back out as another string), and `remove_index` had no
+lowering at all, so it did nothing.
+
+### What LLVM took
+
+The front-end half was the same shape as the C++ round, and the JSON gap was
+the same gap:
+
+1. **JSON had no LLVM support at all** — 421 of the last 435 errors, every one
+   of them in the generated `extension CompilerInterface`. Each `@serialize`
+   class generates a `toDictionary` / `fromDictionary` pair, so a target with
+   no JSON cannot compile the compiler at all. `runtime/ranger_json.c` is a
+   reference-counted tagged value with insertion-ordered objects, a parser and
+   a writer; `case v x:JSONDataObject` lowers to a kind test plus one read.
+2. **Operators with no `llvm` entry did not match at all**, so the call failed
+   type checking rather than falling back to something wrong: startsWith,
+   endsWith, replace, indexOfFrom, sort, reverse, insert, remove, cast,
+   nullify, error_msg, sha256, dir_exists, create_dir, write_file, env_var,
+   normalize, path_dirname, install_directory, current_directory, is_tty, the
+   ANSI escapes, and `for` over a `[string:T]` map.
+3. **Operators that carried a `*` template but no lowering** were worse: they
+   type checked and then emitted their own name as a value. `ccode`, the
+   ternary (`max` and `min` expand to it), `join`, `array_extract`,
+   `to_charbuffer`, `current_time_ms`, `charcode` — and `removeLast`, `clear`
+   and `remove_index`, which compiled to *nothing at all*, a silent no-op. The
+   compiler pops the last segment off a path with `removeLast` when it builds
+   its library search path, so every candidate directory kept the file name on
+   it; `remove_index` is how `-o=x.js` becomes the key `o` and the value
+   `x.js`, so without it every parameter kept its own name in its value.
+
+The second half had no precedent on the other targets, because nothing had
+ever run the compiler's own IR through the verifier:
+
+4. **Enum members emitted a bare `%RangerNodeType.NoType`** — 900 undefined
+   values. An enum member is an integer constant, an enum-typed field is an
+   i32, and an enum-typed value is not an object (a call returning one had its
+   result handed to `ranger_obj_release`).
+5. **Inherited fields were missing from the flat struct**, so every read of one
+   was `getelementptr … i32 -1`. Inherited *methods* are emitted once, under
+   the class that declares them, so a call to one named the derived class and
+   referenced a function the module did not contain.
+6. **The synthetic `operatorsOf…` classes were skipped whole** — the holders
+   the matcher creates for `operator type:T { fn forEach … }`. 44 functions
+   were called and never emitted.
+7. **Closures were WAT-only.** The LLVM writer had no `call_indirect` case at
+   all, and the hoisting pass that assigns each lambda its table index ran only
+   under `-wat`: on the native path every closure record carried index 0 into
+   an empty table and the call jumped to address 0. The record also used
+   four-byte slots and i32 stores for every capture, which truncates a pointer
+   on a 64-bit target.
+8. **Widths.** Booleans (i1) and ints (i32) and pointers (i64) disagreed at
+   almost every boundary — array elements, map values, call arguments, branch
+   conditions, comparisons, returns, closure captures. The lowering decided
+   these from the shape of the source node, which a dozen constructs hide. The
+   builder now **records the IR type it actually emitted for each SSA name**,
+   and the store / call / compare / branch paths reconcile against that. This
+   is the single change that closed most of the tail.
+
+### What the RUN took
+
+Nothing above is visible until the binary runs, and nine defects stood between
+"links" and "writes correct JavaScript". Every one of them was silent — no
+diagnostic, no verifier complaint, usually not even a crash at the site of the
+mistake. They are worth naming because they are the shape of the problem for
+any code-generating target:
+
+9. **`switch` had templates but no lowering**, so the whole statement — every
+   case with it — was dropped. Every writer in the compiler dispatches on a
+   switch, which is why the binary emitted bare identifiers
+   (`classDemosfnmprintreturn`) instead of code. `try` was the same: the body
+   was lowered and the handler thrown away.
+10. **A `def` that redeclares a live name shared its slot.** With a narrower
+    outer type — ng_TTypes' `baseTypeAsEval` declares `vType` as an enum and
+    again, in the else branch, as a string — an 8-byte `store i8*` went into an
+    `alloca i32` and smashed the locals beside it. With the *same* type it was
+    worse: `convertToUnion` takes `wr:CodeWriter` and does `def wr (new
+    CodeWriter)` inside an `if`, so the name joined the owned-object list and
+    the single scope-end release freed whatever the slot held — on the paths
+    where that `if` never ran, the caller's writer.
+11. **Lowering did not stop at a terminator.** A LowIRBlock keeps its
+    terminator apart from its instructions and the writer prints the
+    instructions first, so anything lowered after a `return` was emitted
+    *before* the `ret` and therefore ran. `WalkCollectMethods` has a bare
+    `return` with a page of dead code after it: every owned local was released
+    twice, and the operator nodes it had just built went back to the allocator
+    while `stdCommands` still pointed at them.
+12. **Method calls bound statically.** This target emits one plain function per
+    method, named after the class that *declares* it, so
+    `langWriter.writeClass(…)` — `langWriter` is declared
+    `RangerGenericClassWriter` and holds a `RangerJavaScriptClassWriter` — went
+    to the base implementation. The compiler is one base writer plus a dozen
+    overriding subclasses, so nothing target-specific was ever reached and every
+    language got the base writer's output. Dispatch is now by runtime type
+    descriptor: `ranger_obj_type` hands back the descriptor an object was
+    created with, and a generated `__vd_<class>_<method>` compares it against
+    each candidate.
+13. **Closures nested inside closures captured nothing.** The frontend's
+    capture set is per lambda, so a name only an *inner* lambda reads reached
+    neither env. And `myLambdas` is flat, so the pass that names lambdas
+    reached the same descriptor twice and renamed it — the capture layout
+    cached while lowering the resulting dead copy was the one the live nested
+    lambda used.
+14. **A captured local that a lambda MUTATES was copied**, so the write was
+    never seen outside. The flow parser counts a method's `static` prefix that
+    way, so every `static fn` in a class was read one child off.
+15. **The object pool wrote past the end of a zero-field object.** A pooled
+    block keeps its free-list link in the body; a class with no fields has none,
+    so the link went eight bytes past the allocation and corrupted the arena.
+16. **`strfromcode` UTF-8-encoded its argument.** A string is bytes here and
+    `charAt` hands back one byte, so the round-trip `strfromcode (charAt s i)`
+    — which is how the compiler copies a string literal through `EncodeString`
+    — turned every non-ASCII character into mojibake.
+
+### What the SELF-HOST ROUND took
+
+Eight more, after the binary already ran and wrote correct code for a small
+class. Every one of them needed the compiler's own sources to show up at all:
+
+17. **A `Constructor` that is not one.** The field-default initialisation was
+    injected into any instance method NAMED `Constructor`, on the strength of
+    the name. RangerFlowParser has one that is the handler for the `constructor`
+    keyword, so calling it reset every field of the live parser -- `walkAlso`
+    lost the generated `@serialize` extensions before StartWalk could walk them,
+    which left every generated method with no fnCtx.
+18. **The closure record reserved four bytes for the lambda-table index**, which
+    is stored and read back pointer sized. The first capture landed at offset 4
+    and overwrote the top half of the index, so the call jumped through a
+    garbage slot of the table.
+19. **Lambda bodies were lowered in naming order.** A capture layout is computed
+    where the closure is CREATED, and a nested lambda is created inside its
+    parent's body -- so a child named first had its body emitted before anything
+    knew what it captured. Bodies now go outermost first.
+20. **A lambda released a string it only captured.** The closure record owns its
+    captures; assigning to one took the ordinary owned-local path, and the
+    scope-end release freed the record's own buffer, which the record then freed
+    again.
+21. **An array literal passed straight to a call was never built.**
+    `fromList( ([] _:CodeNode (a b c)) )` -- what the variadic `r.expression`
+    macro expands to -- handed the callee the FIRST element. A single-child
+    expression is still a grouping, not a one-element literal.
+22. **Lambdas inside operator classes had no names.** collectLambdas skipped
+    those classes although their static methods are emitted, so the closure got
+    table index 0 and jumped to whatever lambda was first in the module.
+23. **An expression receiver whose shape the table did not recognise became
+    NULL.** The front end has already resolved which method the call names, so
+    its declaring class is now the fallback.
+24. **A local or parameter did not shadow a class field** of the same name, so
+    `hasDuplicateMethodSignature(fnDesc: ...)` read RangerAppClassDesc's own
+    inherited `fnDesc` field -- an overloaded method anywhere in a program
+    crashed the compiler.
+
+### Every source in `compiler/` and `lib/`, one at a time
+
+The round compiles the compiler as one program, with every Import in place.
+Handing the binary a single source *without* its dependencies is a harsher
+test, because the front end then meets names it cannot resolve — and a name it
+cannot resolve is exactly where the reference build shrugs and a native binary
+does not. Where JavaScript reads a property off `undefined` and carries an
+`undefined` forward until something reports an error, the same code natively
+dereferences a null pointer and the process dies with no diagnostic at all.
+
+```bash
+export RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr"
+for f in compiler/*.rgr lib/*.rgr; do
+  tmp/selfhost-llvm/rangerc -l=es6 "$f" -d=tmp/sweep -o=out.js
+  [ $? -gt 1 ] && echo "died: $f"
+done
+```
+
+That sweep killed the binary on **40 of the 155 files** when it first ran. It
+now kills it on **none**: every file either compiles or reports its errors and
+exits. The fixes are all source-level guards in the front end, in the places
+where a lookup that can answer *nothing* was read as though it always answers
+something:
+
+- `RangerFlowParser.findParamDesc` called `findVariable` on a class descriptor
+  that `findClass` had already failed to produce, and read `varDesc.nameNode`
+  one statement *before* the null check on `varDesc` — then fell through to
+  `varDesc.getTypeName()` after reporting the error rather than stopping.
+- `RangerAppClassDesc` walked `extends_classes` at five sites and called a
+  method on the result of `findClass` for a base class the program never
+  declares (a missing Import, or a typo).
+- `stdParamMatch` checked that the SOURCE argument of an `@(moves a b)` call
+  has a descriptor and then moved the reference to the target's, which may not
+  have one.
+- `cmdNew` recorded a class usage for `new Foo` where `Foo` names no class, and
+  `CollectMethods` joined a trait whose class the imports never bring in.
+- `extension X` for an undeclared X made *nothing* the current class, and every
+  `fn` walked after it read that nothing.
+
+The last group is a different shape, and `compiler/Lang.rgr` — the keyword and
+polyfill tables, which are data, not a program — is the file that shows it. A
+word in a program's own data can collide with a keyword: `union _union` and
+`enum _enum` in a C++ reserved-word table look like declarations with their
+member list missing, and `import _import` looks like an import whose file name
+is the empty string, which resolves to the search directory itself — a path
+that exists and cannot be read. Each handler now checks its arity, or its
+argument, and says so.
+
+None of these are LLVM defects — they are places where the compiler's own
+sources rely on JavaScript's willingness to keep going. Every one is a real
+diagnostic on all eight targets now instead of an "Unexpected compiler error",
+and on the seven that are not JavaScript, a live process instead of a dead one.
+
+### The entry point runs on a stack big enough for the job
+
+Running the same sweep over the rest of the repository — the other ~1330 `.rgr`
+files — found one further crash, and only one, repeated across every file under
+`gallery/game_engine/v2/` that transitively imports `ComponentEngine.rgr`. It
+was not a null anywhere: gdb showed 1888 frames of `RangerLispParser_parseBuf`
+with the fault address exactly at the stack pointer. A process gets 8MB of
+stack, and a recursive-descent walk over a program that size does not fit in
+it.
+
+The reference build meets the same wall — the repo's own
+`scripts/build-engine-module.sh` has always passed `node --stack-size=8000` for
+exactly these files — and the Rust target already answers it by spawning `main`
+on a 512MB thread. LLVM now does the same: on a libc target the `@main` body is
+emitted as `@__rg_main_body`, and the entry point is a shim that hands it to
+`ranger_run_main` in the C runtime, which runs it on a thread with room. If the
+thread cannot be created the body still runs on the process stack, exactly as
+before. Freestanding WASM has no threads and keeps the plain entry point.
+
+That uncovered a defect the overflow had been hiding: `isObjectPtrArrayTypeNode`
+spelled out only `"int"` as a non-reference element type, so a `[boolean]` or
+`[char]` array was built with element kind 1 — owned objects — and its
+scope-end release called `ranger_obj_release` on the literal `true`. Those
+element types now take the same plain-value path `[double]` takes.
+
+### The four the game engine took
+
+With the stack no longer the limit, the native binary reached code no earlier
+round had run, and four defects came out of it in a row. Each was reduced to a
+program of about thirty lines before it was fixed, and the yardstick was the
+same every time: the Node build compiles these files (with
+`--stack-size=8000`), so the native binary must produce **the same bytes**.
+
+25. **A map whose values are arrays owned nothing.** `smapValueOwnKind` knew
+    objects (kind 1) and strings (kind 2); a `[string:[string]]` fell through
+    to kind 0, so the map stored the descriptor with no retain while the local
+    it was built in was released at scope end. The map was left pointing at a
+    freed array. Both map runtimes gained kind 3 — retain and release through
+    `ranger_ptrarray_*`.
+26. **Reading an array OUT of a collection bound an owned local with no
+    matching retain.** `def gs:[string] (unwrap (get m k))` names an array the
+    map still holds; `retainAliasedArray` only recognised a bare VRef as an
+    alias, so the scope-end release freed it out from under the map.
+27. **The `for` loop read the array's length ONCE, before the loop.**
+    JavaScript's `i < arr.length` and C++'s `i < v.size()` are both
+    re-evaluated. `expandShapesInScope` walks a scope's children and inserts
+    the classes each shape desugars to into that very list — so on LLVM the
+    loop stopped at the old count and the second shape in a file was never
+    expanded. Its case fields ended up read as the preceding class's, which is
+    why `EvalValue.rgr` answered "Duplicate class property 'value' in class
+    EvMapEntry" natively and compiled cleanly everywhere else.
+28. **Doubles did not print the way JavaScript prints them.** Two separate
+    halves. In the writers, `.0` was appended to a whole-number literal by
+    rendering `to_int` of the value and comparing the strings — and `int` is 32
+    bits wide on the native backends, so the round trip overflowed and `2^52`
+    lost its suffix. That is a source-level bug on every non-JavaScript target,
+    now one shared `doubleNeedsPointZero` that asks the rendering instead. In
+    the C runtime, `%g` switches to exponent form at 1e-4 (JavaScript switches
+    at 1e-6), pads the exponent to two digits (`1e-07` for `1e-7`), and the
+    integral fast path printed a large double's exact value rather than its
+    shortest form. `ranger_double_to_string` now implements ECMA-262
+    `Number::toString` directly; it agrees with `String(v)` on 4623 values —
+    4000 random 64-bit patterns and every power of ten from 1e-320 to 1e308.
+
+`EvalValue.rgr`, `EvHandle.rgr`, `ComponentEngine.rgr` (2.09 MB of output) and
+`RgRegistryBridge.rgr` (2.58 MB) now come out of the native binary byte for
+byte the same as out of the Node build.
+
+### Shapes, and the game engine's interpreter
+
+A `shape` -- a closed variant family -- is the one language feature LLVM did not
+carry. PLAN_SHAPES.md listed ten targets that give a family its own
+representation and LLVM was not among them, so `ComponentEngine.rgr`, the
+JavaScript interpreter this repo writes in Ranger and the largest shape user in
+it, compiled TO JavaScript through the native binary but could not be compiled
+FOR it: 203 "Could not match argument types for case" and 19 for `is`.
+
+The representation costs nothing new. A shape already desugars to one record
+class per case plus a union over them, every object already carries its
+`RangerTypeDesc`, and the virtual dispatcher already narrows on it. So on this
+backend a shape value **is** the pointer to its case object:
+
+- `is v _:Shape.Case` is `ranger_obj_type(v) == @Shape_Case_typeDesc`
+- `case v x:Shape.Case { … }` is that same test, with the arm bound to the very
+  same pointer -- nothing copied, the way C#/Kotlin/Dart narrow
+- `to <Union> v`, the widening the front end inserts, is the identity
+- a union over SYSTEM classes (the JSON family, which lives in
+  `ranger_json.c` and has no object header) is not a descriptor compare and is
+  left alone
+
+An operator only matches when it has a template for the target
+(`findLanguageOper`), so `case` and `is` needed `llvm` entries in `stdlib.rgr`.
+LLVM is a code generator rather than a source writer, so those templates are
+markers that exist to make the operator bind; the lowering reads the call node.
+
+Six defects stood between that and a working shape, and only the first is about
+shapes at all:
+
+29. **No `record` ever had a constructor emitted**, shapes or not. The
+    synthesized constructor of a `record` carries a keyword MARKER parameter
+    beside each value parameter; the marker has no type, so `canLowerMethod`
+    refused the whole constructor. Every other writer filters those out
+    (`RangerCppClassWriter.writeArgsDef`). `record Pt { def x:int 0 }` did not
+    work on this backend at all.
+30. **`hasNewOper` is set on the enclosing node as well as on the `new`**, so a
+    caller's `node.getThird()` hands back the whole `(new Class (args))` rather
+    than the argument list -- which it does for a dotted class name like
+    `new Val.Num(42)`.
+31. **`to` had no lowering**, so every widened operand became the constant 0 and
+    `Value.equals(a b)` compared 0 with 0. This one lowering took the fixtures
+    from 14 passing to 26.
+32. **`identical` had no lowering** and answered false for every pair, including
+    a value and its own alias.
+33. **An int-keyed reference map FIELD was flagged both `isIntMap` and
+    `isObject`** -- the int-map branch fell through to the object fallback below
+    it. Field kinds are asked in order and object comes first, so the destructor
+    handed an `RtIMap` pointer to `ranger_obj_release`, which read an object
+    header that was never there: `free(): invalid pointer`.
+34. **An array literal in RETURN position was never built.** `return ([] "a" "b"
+    …)` answered its FIRST ELEMENT, so `UnicodeProps.names()` returned an `i8*`
+    from a function declared to return a ptr-array -- IR that does not parse.
+    The argument position had the same hole (defect 21); this is its twin.
+
+Also fixed on the way, and not shape-specific: `to_string` of a BOOLEAN wrote
+`1` / `0` through `"%d"` where every other target writes `true` / `false`.
+
+**Where it stands:** all 28 shape fixtures produce output identical to the ES6
+build, and all 16 negative fixtures are rejected with the same diagnostics. The
+native `engine_probe` loads a JS script, calls `init()` and `tick()`, and
+answers 42; `probe_main` evaluates arbitrary JavaScript and agrees with the ES6
+build on arithmetic, loops, `[3,1,2].sort().join("-")`,
+`"abc".toUpperCase()`, `Object.keys`, and a recursive `fib(15)`.
+
+### What is left
+
+Three of the four entries this section used to hold are closed. What follows is
+what is actually true today, each checked against the ES6 build rather than
+assumed.
+
+- **Plugins cannot work.** `load_compiler_plugin` loads an npm module; a native
+  binary has no Node to load it into. A boundary, not a gap — nothing here will
+  close it.
+- **Memory is held, not leaked, and it is held too long.** Valgrind on the
+  compiler compiling `lib/CmdParams.rgr` puts 69.7 MB in *still reachable*
+  against 2.2 MB genuinely lost, so this is retention rather than leakage — but
+  the retention is real: 109 MB peak against the C++ build's 32 MB on the same
+  input, and 1.6 GB against 797 MB compiling the compiler. Objects are released
+  at scope end and almost nothing else, so memory grows monotonically and comes
+  back at process exit. Fine for a batch compiler; disqualifying for a language
+  server or a watch mode. This is the largest piece of work left on this target,
+  and it is a resource problem, not a correctness one.
+- **`remove` and `clear` leak** an owned element instead of releasing it. That
+  is deliberate: leaking is safer than a double free while the ownership
+  analysis on this backend is young. `array_extract` hands the element to the
+  caller, which is what its `@(strong)` says. A block-scoped redeclaration
+  leaks for the same reason.
+- **A lambda that is only ever CALLED, never constructed in the same module,
+  loses its captures.** The capture layout is computed where the closure is
+  BUILT; with no construction site there is nothing to compute it from, and the
+  calls such a lambda makes through an unresolved receiver are dropped rather
+  than emitted -- which keeps the module valid and loses the call.
+- **`strlen` and `charAt` count CODEPOINTS on JS and BYTES natively.** The
+  writer bug this caused is fixed (below), but the divergence itself is still
+  there and is a language-level fact, not a backend detail: measured, the same
+  `def em:string "<em-dash>"` answers `strlen 1, charAt 8212` under Node and
+  `strlen 3, charAt 226` native. Any Ranger program that INDEXES a non-ASCII
+  string means something different on the two targets. Everything in the
+  compiler that needs bytes now goes through `LowIRUtil.utf8Bytes`; anything
+  else that indexes strings has not been audited.
+
+**Closed since this section was written:**
+
+- **The LLVM writer double-encoded every non-ASCII literal.**
+  `llvmEscapeCString` and `utf8ByteLen` each walked a string and UTF-8-*encoded*
+  every code >= 128 — right for a codepoint, a second encoding for a byte that
+  was already UTF-8 — so the native binary emitting LLVM IR turned `—`
+  (`E2 80 94`) into `C3 A2 C2 80 C2 94`, across 53 literals of the compiler's
+  own IR, every one a diagnostic string.
+
+  Worth keeping for the shape of it: the two functions computed the same thing
+  separately and agreed with EACH OTHER while both were wrong. The `[N x i8]`
+  sizes matched the escapes, so the IR was valid, linked, and ran — only the
+  message text was mojibake. Mutual consistency is what hid it, so the fix makes
+  both derive from one `LowIRUtil.utf8Bytes` where they cannot drift again.
+
+  Nothing in the suite could have caught it: `selfhost:round:llvm` checks the
+  native binary emitting **ES6**, never emitting **LLVM IR**, and the ES6 writer
+  copies literals verbatim without inspecting a character. It takes a compiler
+  that READS a non-ASCII literal and RE-ENCODES it, which only happens compiling
+  the compiler *to LLVM* *with* the LLVM build. That case now has a check.
+
+  Which semantics we are under is not decidable per character — a value in
+  128..255 is a byte natively and a Latin-1 codepoint on JS — but it is
+  decidable per string, so `looksLikeUtf8Bytes` validates the UTF-8 structure:
+  nothing above 255, every lead byte carrying its continuation bytes. Two
+  rejected alternatives are worth recording. "Emit 128..255 raw" fixes native
+  and silently breaks Node for every codepoint in U+0080..U+00FF. A
+  `(strlen "<em-dash>")` probe is briefer but stakes the compiler's encoding
+  correctness on one non-ASCII source character surviving every future editor —
+  and line 2 of `ng_LowIR.rgr` still carries an ASCII `?` where an em-dash was
+  lost to a bad transcode, so that is a live risk in this repo, not a
+  theoretical one.
+
+  Verified: Node's IR byte-identical to before the fix; the rebuilt native
+  binary's IR for the whole compiler **byte-identical to Node's** — 20,962,553
+  bytes, 495,821 lines, all 53 literals — where it used to differ; ES6
+  self-hosting intact; `test:llvm` 40/40; and a 1,485-file sweep with 0 crashes.
+
+- *"boxing covers `i32`/`i1` locals only"* — it now covers **every** local a
+  capturing lambda assigns to: `i32`, `i1`, `f64`, strings and object or
+  collection references. All five capture kinds match the ES6 build; three of
+  the five were silently wrong.
+
+  This took three attempts, and the two that were reverted were reverted on a
+  wrong diagnosis worth recording. The failures looked like "a reference is
+  consumed by paths a cell cannot serve", and they were not. An audit of all 28
+  direct slot accesses — classifying each as a read, a write, or a consumer
+  that wants the cell itself — found the actual causes, three of them in the
+  PROMOTION rather than in any consumer:
+
+  - the class was not recorded before promoting, and a method call resolves its
+    receiver through `objectSlots`, so `x.copy()` on a boxed receiver lowered
+    to a null;
+  - a string cell held a borrowed pointer, because promotion returned before
+    `emitOwnedStringInit` would have copied it;
+  - `nullify` stored into the SLOT, dropping the cell;
+  - and reads had to go through `loadSlot` rather than one branch of
+    `lowerExpr`, so that every consumer agrees.
+
+  One crash was not about boxing at all: `ng_RangerFlowParser` line 583 reads
+  `p.nameNode.type_name` with no null check, inside a `try` that catches a
+  raised unwrap and not a plain field read. Boxing exposed it, because that
+  loop advances both a captured string and a captured object — promoting only
+  the string made the object look up a new name in the old class. **Partial
+  boxing is worse than none:** captures have to move together, or their
+  mutation semantics diverge from each other.
+- *"`error_msg` answers the same placeholder the C++ template does"* — it now
+  answers the message that was thrown. `throw` itself used to be dropped
+  entirely, so control ran on past it into the rest of the `try` body.
+- *"shapes are not carried on this target"* — see *Shapes, and the game
+  engine's interpreter* above. All 28 shape fixtures match ES6 and
+  ComponentEngine runs.
+
 ### What C++ took
 
 Seven kinds of defect, and only one of them was in the C++ writer's own
