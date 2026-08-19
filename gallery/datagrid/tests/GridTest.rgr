@@ -140,7 +140,9 @@ class GridTest {
         def originX:int (app.grid.gridOriginX())
         def col0x:int (app.model.colToX(0))
         def edgeX:int (((originX + col0x + beforeW) - 1))
-        def headerY:int (app.grid.y + app.grid.formulaBarH + 8)
+        ; The column header sits under the toolbar and the formula bar now, so
+        ; ask the grid where it is rather than adding the pieces up here.
+        def headerY:int ((app.grid.headerTop()) + 8)
         input.newFrame()
         input.setPointerPos(edgeX headerY)
         input.setPointerDown(true)

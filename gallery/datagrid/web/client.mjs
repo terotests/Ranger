@@ -95,7 +95,8 @@ const KEY_MAP = {
 // redo, row/column select (space), m for "make a chart of the selection",
 // f / h for find and replace, l for the conditional-format rule editor,
 // k for a hyperlink, e for a validation rule, and s to save the workbook.
-const CTRL_CHORD = /^[acxvzymfhlkesACXVZYMFHLKES ]$/;
+// b / i / u joined the list when the formatting commands arrived.
+const CTRL_CHORD = /^[abcefhiklmsuvxyzABCEFHIKLMSUVXYZ ]$/;
 
 /** Put whatever was just copied on the OS clipboard.
  *

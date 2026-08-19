@@ -211,7 +211,8 @@ const KEY_MAP = {
   PageDown: "pageDown",
   F2: "f2",
 };
-const CTRL_CHORD = /^[acxvzymfhlkesACXVZYMFHLKES ]$/;
+// b / i / u joined the list when the formatting commands arrived.
+const CTRL_CHORD = /^[abcefhiklmsuvxyzABCEFHIKLMSUVXYZ ]$/;
 
 canvas.addEventListener("pointerdown", async (ev) => {
   canvas.setPointerCapture(ev.pointerId);

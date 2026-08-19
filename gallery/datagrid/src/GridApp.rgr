@@ -20,6 +20,7 @@ Import "DateSerial.rgr"
 Import "GridCommands.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGWindow.rgr"
+Import "GridFormat.rgr"
 Import "GridChart.rgr"
 Import "GridChartView.rgr"
 Import "GridClip.rgr"
@@ -183,6 +184,8 @@ class GridApp {
         view.windows = windows
         this.buildCommands()
         view.commands = commands
+        view.toolbar.build()
+        grid.toolbarH = (view.toolbar.heightFor(W))
         grid.setBounds(0 0 W (H - statusH))
         this.loadDemo()
     }
@@ -196,6 +199,8 @@ class GridApp {
         view.windows = windows
         this.buildCommands()
         view.commands = commands
+        view.toolbar.build()
+        grid.toolbarH = (view.toolbar.heightFor(W))
         grid.setBounds(0 0 W (H - statusH))
     }
 
@@ -296,6 +301,27 @@ class GridApp {
         commands.add("move.row.down" "Move row down" "Insert" "")
         commands.add("move.column.left" "Move column left" "Insert" "")
         commands.add("move.column.right" "Move column right" "Insert" "")
+        ; Formatting. The grid could paint every one of these and set none of
+        ; them; a toolbar with nothing behind it would have been a picture of a
+        ; spreadsheet.
+        commands.add("format.bold" "Bold" "Format" "Ctrl+B")
+        commands.add("format.italic" "Italic" "Format" "Ctrl+I")
+        commands.add("format.underline" "Underline" "Format" "Ctrl+U")
+        commands.add("format.strike" "Strikethrough" "Format" "")
+        commands.addArg("format.align" "Horizontal alignment" "Format" "")
+        commands.addArg("format.valign" "Vertical alignment" "Format" "")
+        commands.add("format.wrap" "Wrap text" "Format" "")
+        commands.add("format.merge" "Merge or unmerge cells" "Format" "")
+        commands.addArg("format.border" "Borders" "Format" "")
+        commands.addArg("format.fill" "Fill colour" "Format" "")
+        commands.addArg("format.color" "Text colour" "Format" "")
+        commands.addArg("format.numfmt" "Number format" "Format" "")
+        commands.addArg("format.decimals" "Decimal places" "Format" "")
+        commands.add("format.size.up" "Bigger text" "Format" "")
+        commands.add("format.size.down" "Smaller text" "Format" "")
+        commands.add("format.clear" "Clear formatting" "Format" "")
+        commands.add("view.freeze.here" "Freeze panes here" "View" "")
+        commands.add("view.freeze.none" "Unfreeze panes" "View" "")
         commands.add("format.autofit.column" "Auto-fit column width" "Format" "")
         commands.add("format.autofit.row" "Auto-fit row height" "Format" "")
         commands.add("format.conditional" "Conditional formatting…" "Format" "Ctrl+L")
@@ -383,6 +409,30 @@ class GridApp {
         }
         if (id == "edit.redo") {
             this.redoEdit()
+            return true
+        }
+        ; Everything the toolbar's formatting buttons do. One place, so the
+        ; keyboard, the buttons and a host over a socket cannot drift.
+        if ((strlen id) > 7) {
+            if ((substring id 0 7) == "format.") {
+                def handled:boolean (this.runFormatCommand(id arg))
+                if handled {
+                    return true
+                }
+            }
+        }
+        if (id == "view.freeze.here") {
+            model.freezeRows = sel.active.row
+            model.freezeCols = sel.active.col
+            model.version = (model.version + 1)
+            grid.updateVisible(model)
+            return true
+        }
+        if (id == "view.freeze.none") {
+            model.freezeRows = 0
+            model.freezeCols = 0
+            model.version = (model.version + 1)
+            grid.updateVisible(model)
             return true
         }
         if (id == "edit.copy") {
@@ -2112,6 +2162,79 @@ class GridApp {
         return 0
     }
 
+    ; --- formatting -----------------------------------------------------------
+    ; `format.*` over the selection. Merge is the odd one: it is a property of
+    ; the range rather than of each cell's style, so it goes to the model.
+    fn runFormatCommand:boolean (id:string arg:string) {
+        if (id == "format.merge") {
+            return (this.toggleMerge())
+        }
+        if (id == "format.size.up") {
+            return (GridFormat.apply(model sel "size" "1"))
+        }
+        if (id == "format.size.down") {
+            return (GridFormat.apply(model sel "size" "-1"))
+        }
+        def op:string (substring id 7 (strlen id))
+        if ((GridFormat.known(op)) == false) {
+            return false
+        }
+        def done:boolean (GridFormat.apply(model sel op arg))
+        if done {
+            sheetView.markDirty()
+            grid.updateVisible(model)
+        }
+        return done
+    }
+
+    ; Merge the selection, or take an existing merge apart when the caret is
+    ; already inside one — the same button, as every spreadsheet does it.
+    fn toggleMerge:boolean () {
+        def existing:string (model.mergeAt(sel.active.row sel.active.col))
+        if ((strlen existing) > 0) {
+            model.removeMerge(sel.active.row sel.active.col)
+            model.version = (model.version + 1)
+            return true
+        }
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        if ((a.row == b.row) && (a.col == b.col)) {
+            return false
+        }
+        model.addMerge(a.row a.col b.row b.col)
+        model.version = (model.version + 1)
+        return true
+    }
+
+    ; --- the toolbar ----------------------------------------------------------
+    ; A click on a button runs its command; hovering lights it up and puts its
+    ; name in the status bar, which is this app's tooltip.
+    fn toolbarHit:int (px:int py:int) {
+        if (grid.toolbarH <= 0) {
+            return -1
+        }
+        if (py < (grid.toolbarY())) {
+            return -1
+        }
+        if (py >= ((grid.toolbarY()) + grid.toolbarH)) {
+            return -1
+        }
+        return (view.toolbar.hit(px py))
+    }
+
+    fn runToolbarItem:boolean (i:int) {
+        def t:ToolItem (view.toolbar.at(i))
+        if ((strlen t.command) == 0) {
+            return false
+        }
+        def ok:boolean (this.runCommand(t.command t.arg))
+        if ok {
+            view.status = t.label
+        }
+        return ok
+    }
+
     ; Which custom tool button is under the pointer, or -1.
     fn toolButtonHit:int (px:int py:int) {
         def statusTop:int (grid.y + grid.h)
@@ -3745,7 +3868,17 @@ class GridApp {
         if (this.updateDialogs(input)) {
             return
         }
+        ; The toolbar lights up under the pointer whether or not a button is
+        ; pressed — without that it is a row of shapes rather than something
+        ; that looks clickable.
+        view.toolbar.hot = (this.toolbarHit(input.pointerX input.pointerY))
         if input.pointerPressed {
+            def hitTool:int (this.toolbarHit(input.pointerX input.pointerY))
+            if (hitTool >= 0) {
+                view.focused = true
+                this.runToolbarItem(hitTool)
+                return
+            }
             if (this.chartButtonHit(input.pointerX input.pointerY)) {
                 this.openChartDialog(0)
                 return
@@ -3920,6 +4053,27 @@ class GridApp {
                     }
                     cfStatus = ""
                     this.openCfDialog()
+                }
+                ; Bold, italic, underline — the three every spreadsheet binds,
+                ; and which had nothing behind them until the formatting
+                ; commands existed.
+                if ((ch == 98) || (ch == 66)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.runCommand("format.bold" "")
+                }
+                if ((ch == 105) || (ch == 73)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.runCommand("format.italic" "")
+                }
+                if ((ch == 117) || (ch == 85)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.runCommand("format.underline" "")
                 }
                 if ((ch == 107) || (ch == 75)) {
                     if editing {

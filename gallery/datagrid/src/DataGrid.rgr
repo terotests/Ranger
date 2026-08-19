@@ -38,6 +38,10 @@ class DataGrid {
     def y:int 0
     def w:int 720
     def h:int 440
+    ; The toolbar strip above the formula bar. Zero when a host does not want
+    ; one — a printed page or an oracle dump has no use for buttons — so the
+    ; geometry below is written in terms of it rather than around it.
+    def toolbarH:int 0
     def formulaBarH:int 28
     def colHeaderH:int 24
     def rowHeaderW:int 48
@@ -246,8 +250,21 @@ class DataGrid {
         return (x + rowHeaderW)
     }
 
+    fn toolbarY:int () {
+        return y
+    }
+
+    fn formulaBarY:int () {
+        return (y + toolbarH)
+    }
+
+    ; Top of the column header strip — where the sheet proper begins.
+    fn headerTop:int () {
+        return ((y + toolbarH) + formulaBarH)
+    }
+
     fn gridOriginY:int () {
-        return (y + formulaBarH + colHeaderH)
+        return (((y + toolbarH) + formulaBarH) + colHeaderH)
     }
 
     fn viewportW:int () {
@@ -259,7 +276,7 @@ class DataGrid {
     }
 
     fn viewportH:int () {
-        def vh:int (h - formulaBarH - colHeaderH - sheetTabH)
+        def vh:int ((((h - toolbarH) - formulaBarH) - colHeaderH) - sheetTabH)
         if (vh < 1) {
             return 1
         }
@@ -688,10 +705,10 @@ class DataGrid {
         if (py >= (y + h)) {
             return miss
         }
-        if (py < (y + formulaBarH)) {
+        if (py < (this.headerTop())) {
             return (CellPos.create(-3 -3))
         }
-        def headerTop:int (y + formulaBarH)
+        def headerTop:int (this.headerTop())
         def bodyLeft:int (x + rowHeaderW)
         def bodyTop:int (headerTop + colHeaderH)
         if ((px < bodyLeft) && (py < bodyTop)) {
@@ -776,7 +793,7 @@ class DataGrid {
     ; Row resize hit: near bottom edge of a row header. Iterates VIEW
     ; rows so sort / filter order does not shift the grab zone.
     fn hitRowResize:int (model:SpreadsheetModel px:int py:int) {
-        def headerTop:int (y + formulaBarH)
+        def headerTop:int (this.headerTop())
         def bodyLeft:int (x + rowHeaderW)
         def bodyTop:int (headerTop + colHeaderH)
         if (px < x) {
@@ -812,7 +829,7 @@ class DataGrid {
 
     ; Column resize hit: near right edge of a column header.
     fn hitColResize:int (model:SpreadsheetModel px:int py:int) {
-        def headerTop:int (y + formulaBarH)
+        def headerTop:int (this.headerTop())
         def bodyLeft:int (x + rowHeaderW)
         def bodyTop:int (headerTop + colHeaderH)
         if (py < headerTop) {

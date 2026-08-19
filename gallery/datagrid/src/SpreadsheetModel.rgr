@@ -1545,6 +1545,32 @@ class SpreadsheetModel {
         push merges key
     }
 
+    ; Take apart the merge that contains this cell, if any. The same button
+    ; that made it undoes it, which is how every spreadsheet behaves.
+    fn removeMerge:boolean (row:int col:int) {
+        def key:string (this.mergeAt(row col))
+        if ((strlen key) == 0) {
+            return false
+        }
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length merges)) {
+            def m:string (itemAt merges i)
+            if (m != key) {
+                push kept m
+            }
+            i = (i + 1)
+        }
+        clear merges
+        def j:int 0
+        while (j < (array_length kept)) {
+            push merges (itemAt kept j)
+            j = (j + 1)
+        }
+        version = (version + 1)
+        return true
+    }
+
     ; Returns merge key containing (row,col), or "".
     fn mergeAt:string (row:int col:int) {
         def i:int 0

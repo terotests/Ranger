@@ -17,12 +17,12 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Style (fill, font) | done | styles.xml → CellStyle; bold/italic/underline/strike/size/colour, real faces |
-| Text alignment | done | horizontal left/center/right, vertical top/center/bottom |
+| Style (fill, font) | done | styles.xml → CellStyle and set from the toolbar: bold/italic/underline/strike/size/colour, real faces |
+| Text alignment | done | horizontal and vertical, read from the file and set from the toolbar |
 | Text rotation | done | OOXML textRotation, turned in the display list; 255 stacks |
 | Text truncation | done | clipped at the cell once a neighbour is occupied |
 | Overflow | done | spills into empty neighbours only, as Excel does |
-| Automatic line wrapping | done | wrapText → multi-line paint + row auto-fit |
+| Automatic line wrapping | done | wrapText → multi-line paint + row auto-fit; toggled from the toolbar |
 | Multiple data types | done | number / string / bool / formula / date — typed, stored as a serial, formatted back |
 | Cell segmentation style | done | rich-text runs read, painted on one baseline, and written back |
 | Hyperlink | done | rel-resolved external + internal targets, painted as links, Ctrl+click follows |
@@ -32,9 +32,9 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | Feature | Status | Notes |
 | --- | --- | --- |
 | Multiple selection | done | Ctrl+click adds rectangles; delete and format painter cover them all |
-| Borders | done | all OOXML line styles per edge, with colours |
-| Fill | done | including empty-but-formatted cells |
-| Merge cells | done | paint origin + hit-test → origin |
+| Borders | done | all OOXML line styles per edge, with colours; all/outline/none from the toolbar |
+| Fill | done | including empty-but-formatted cells; set from the toolbar |
+| Merge cells | done | paint origin + hit-test → origin; one toolbar button merges and unmerges |
 
 ## Row and column
 
@@ -82,7 +82,7 @@ of `done` / `partial` / `todo`, and sections are `## ` headings.
 | --- | --- | --- |
 | Images | done | drawing anchors + media, decoded once, painted on SoftCanvas and textured in WebGL |
 | Comments | done | comments part → per-cell notes, marked in the corner and shown for the active cell |
-| Freeze panes | done | freezeRows/Cols + fixed bands |
+| Freeze panes | done | freezeRows/Cols + fixed bands; set and cleared from the toolbar |
 | Screenshots | done | tracked artifacts under `artifacts/` |
 | Custom tools / API | done | a named-command table a host enumerates, drives and extends — over HTTP too |
 | Cooperative editing | todo | single document, no transport — an I/O shape, deliberately not claimed |
@@ -98,6 +98,15 @@ cannot be written is the proof, because neither can be tested the way
 everything above is — by driving the model and reading the answer back. They
 are therefore left at `todo` rather than claimed on the strength of an
 interface nobody exercised.
+
+## A note on what "done" means here
+
+A row is `done` when the capability is **reachable by a person using the app**,
+not merely present in the model. That distinction cost a correction: every
+formatting row above was marked done while the grid could read and paint a
+style and had no way to set one — the whole point of a spreadsheet. The
+formatting commands and the toolbar closed that, and the notes now say which
+half of each row is which.
 
 ## Beyond the benchmark
 

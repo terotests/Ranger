@@ -600,7 +600,7 @@ class GridEditTest {
         dz.sheetView.rebuild()
         dz.model.setColWidth(0 45)
         dz.grid.updateVisible(dz.model)
-        def hdrY:int (dz.grid.y + dz.grid.formulaBarH + 8)
+        def hdrY:int ((dz.grid.headerTop()) + 8)
         def hdrX:int ((dz.grid.gridOriginX()) + 10)
         c.ok("double-click on the header hits" (dz.autoFitAt(hdrX hdrY)))
         c.ok("and widened it" ((dz.model.colWidth(0)) > 45))
@@ -1503,6 +1503,153 @@ class GridEditTest {
         c.eqInt("a colour scale is a rule too" (cf.model.cfRuleCount()) 1)
         c.ok("and it paints the range" ((strlen (ConditionalFormat.resolveFill(cf.model 1 0))) > 0))
         c.ok("scene builds with the editor up" ((strlen (cf.sceneJson())) > 500))
+
+        print "== the toolbar, and the formatting behind it =="
+        def tb:GridApp (new GridApp)
+        tb.init("gallery/pdf_writer/assets/fonts")
+        def bar:GridToolbar tb.view.toolbar
+        c.ok("there are buttons" ((bar.count()) > 20))
+
+        ; Every button names a command the app actually answers to. A typo in
+        ; a command string would otherwise be a button that quietly does
+        ; nothing, which is the worst kind of button.
+        def unknown:string ""
+        def bi:int 0
+        while (bi < (bar.count())) {
+            def it:ToolItem (bar.at(bi))
+            if (it.isSeparator == false) {
+                if ((tb.commands.has(it.command)) == false) {
+                    unknown = it.command
+                }
+                if ((strlen it.label) == 0) {
+                    unknown = ("unlabelled " + it.command)
+                }
+            }
+            bi = (bi + 1)
+        }
+        c.eqStr("every button names a real command" unknown ""
+        )
+
+        ; …and the buttons stay inside their own strip.
+        bar.layout(0 0 900)
+        def escaped:int 0
+        def bj:int 0
+        while (bj < (bar.count())) {
+            def it2:ToolItem (bar.at(bj))
+            if (it2.w > 0) {
+                if (((it2.x + it2.w) > 900) || (it2.x < 0)) {
+                    escaped = (escaped + 1)
+                }
+                if ((it2.y + it2.h) > bar.height) {
+                    escaped = (escaped + 1)
+                }
+            }
+            bj = (bj + 1)
+        }
+        c.eqInt("nothing hangs off the strip" escaped 0)
+        ; A narrow window wraps rather than dropping the last buttons.
+        def tallness:int (bar.heightFor(420))
+        c.ok("a narrow strip grows instead of losing buttons" (tallness > 30))
+        def visible:int 0
+        def bk:int 0
+        while (bk < (bar.count())) {
+            def it3:ToolItem (bar.at(bk))
+            if (it3.w > 0) {
+                visible = (visible + 1)
+            }
+            bk = (bk + 1)
+        }
+        c.ok("all of them are still laid out" (visible > 30))
+        bar.layout(0 0 900)
+
+        print "== clicking a button formats the selection =="
+        GridEditTest.selectRange(tb 1 0 2 1)
+        def boldIdx:int -1
+        def bx:int 0
+        while (bx < (bar.count())) {
+            def cand:ToolItem (bar.at(bx))
+            if (cand.command == "format.bold") {
+                boldIdx = bx
+            }
+            bx = (bx + 1)
+        }
+        c.ok("there is a Bold button" (boldIdx >= 0))
+        c.ok("it runs" (tb.runToolbarItem(boldIdx)))
+        def stA:CellStyle (tb.model.getCellStyle(1 0))
+        def stB:CellStyle (tb.model.getCellStyle(2 1))
+        c.ok("the whole selection went bold" (stA.bold && stB.bold))
+        c.ok("and the button knows it" (bar.isPressed(boldIdx tb.model tb.sel)))
+        c.ok("clicking again takes it off" (tb.runToolbarItem(boldIdx)))
+        def stC:CellStyle (tb.model.getCellStyle(1 0))
+        c.ok("bold is gone" (stC.bold == false))
+        c.ok("and one undo puts it back" true)
+        tb.undoEdit()
+        def stD:CellStyle (tb.model.getCellStyle(1 0))
+        c.ok("undo restored the bold" stD.bold)
+
+        print "== the rest of the formatting commands =="
+        GridEditTest.selectRange(tb 4 0 4 2)
+        c.ok("centre" (tb.runCommand("format.align" "center")))
+        def alignSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("alignment took" alignSt.align "center"
+        )
+        c.ok("middle" (tb.runCommand("format.valign" "center")))
+        def vSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("vertical alignment took" vSt.valign "center"
+        )
+        c.ok("currency" (tb.runCommand("format.numfmt" "currency")))
+        def numSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("number format took" numSt.numFmt "$#,##0.00"
+        )
+        c.ok("one more decimal" (tb.runCommand("format.decimals" "more")))
+        def decSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("the format grew a place" decSt.numFmt "$#,##0.000"
+        )
+        c.ok("one fewer" (tb.runCommand("format.decimals" "less")))
+        def dec2:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("and lost it again" dec2.numFmt "$#,##0.00"
+        )
+        c.ok("borders" (tb.runCommand("format.border" "all")))
+        def bSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("a border was set" bSt.hasBorder)
+        c.ok("bigger" (tb.runCommand("format.size.up" "")))
+        def sizeSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("the text grew" (sizeSt.fontSizePt > 11.0))
+        c.ok("fill" (tb.runCommand("format.fill" "#FFF2CC")))
+        def fillSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("the fill took" fillSt.hasFill)
+        c.ok("clearing" (tb.runCommand("format.clear" "")))
+        def clearSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("everything is plain again" ((clearSt.hasFill == false) && (clearSt.align == "left")))
+
+        print "== merge and freeze from the toolbar =="
+        GridEditTest.selectRange(tb 8 0 8 2)
+        c.ok("merge" (tb.runCommand("format.merge" "")))
+        c.ok("the range is merged" ((strlen (tb.model.mergeAt(8 1))) > 0))
+        c.ok("and the same button unmerges" (tb.runCommand("format.merge" "")))
+        c.ok("it is gone" ((strlen (tb.model.mergeAt(8 1))) == 0))
+        GridEditTest.select(tb 3 2)
+        c.ok("freeze here" (tb.runCommand("view.freeze.here" "")))
+        c.eqInt("rows frozen" tb.model.freezeRows 3)
+        c.eqInt("columns frozen" tb.model.freezeCols 2)
+        c.ok("and unfreeze" (tb.runCommand("view.freeze.none" "")))
+        c.eqInt("no rows frozen" tb.model.freezeRows 0)
+
+        ; Ctrl+B, through the keyboard rather than the button.
+        def kb (new UIInput)
+        GridEditTest.select(tb 6 1)
+        kb.newFrame()
+        kb.setModifiers(false true)
+        kb.pushText("b")
+        tb.update(kb)
+        def kbSt:CellStyle (tb.model.getCellStyle(6 1))
+        c.ok("Ctrl+B bolds the cell" kbSt.bold)
+        kb.newFrame()
+        kb.setModifiers(false true)
+        kb.pushText("i")
+        tb.update(kb)
+        def kbSt2:CellStyle (tb.model.getCellStyle(6 1))
+        c.ok("Ctrl+I italicises it" kbSt2.italic)
 
         print "== the grid is the size Excel says it is =="
         ; A column width in a file is measured in CHARACTERS of the default

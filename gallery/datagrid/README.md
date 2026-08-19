@@ -745,6 +745,43 @@ is crisp rather than resampled. Compiling is cached by specification text and
 box size, which is why dragging a chart costs nothing and editing a cell it
 reads costs one recompute.
 
+## The toolbar
+
+The grid could read and paint every style a workbook carries and could not set
+a single one of them: no bold, no alignment, no fill, no border, no merge, no
+number format. Everything the app *could* do was a keyboard shortcut or a
+command string — fine for a host driving it over a socket, useless for a person
+looking at it.
+
+So there is a toolbar now, and there are commands behind it:
+
+| Group | Buttons |
+| --- | --- |
+| File and history | Save, Undo, Redo, Format painter |
+| Text | Bold, Italic, Underline, Strikethrough, Bigger, Smaller, Text colour, Fill |
+| Layout | Align left / centre / right, Top / Middle / Bottom, Wrap, Merge |
+| Borders | All, Outline, None |
+| Numbers | Currency, Percent, Thousands, More / fewer decimals, Clear formatting |
+| Structure | Insert row, Insert column, Delete rows, Sort ▲▼, Freeze panes |
+| Insert | Chart, Link, Find, Conditional formatting, Data validation |
+
+It is drawn by the **app**, not by the page: it is part of the display list, so
+every host gets it — the browser, the PNG dumps, anything an SDL window would
+present — and a screenshot of the app is a screenshot of the app people use.
+The strip wraps to as many rows as the window needs rather than dropping the
+last six buttons, which are exactly the ones a newcomer looks for.
+
+Each button names a **command**, the same string the keyboard and a remote host
+use, so a button cannot do something the command surface cannot; a test walks
+the toolbar and fails if any button names a command the table does not have.
+Toggles read the cell the caret is on — select a mixed range with the caret on a
+plain cell and one click makes it all bold, as every spreadsheet does.
+
+[`GridFormat.rgr`](src/GridFormat.rgr) is the single place that knows how a
+style changes: one operation per name, applied over every selected range inside
+one transaction, so a formatting change is one Ctrl+Z. Ctrl+B / Ctrl+I / Ctrl+U
+run the same commands.
+
 ## Metrics: the grid is the size the file says
 
 A column width in a `.xlsx` is measured in **characters** of the default font,
