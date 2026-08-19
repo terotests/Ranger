@@ -1,0 +1,210 @@
+; ==============================================================================
+; GlAtlasTest — what the native OpenGL host actually hands the GPU for text
+; ==============================================================================
+;
+; The SDL host cannot run here: it wants SDL2, a GPU and a screen. But the half
+; of it that decides what text LOOKS like is `EvgGlPainter.buildAtlas`, and that
+; is plain SoftCanvas work with no native call in it — so it compiles to JS and
+; can be examined a pixel at a time.
+;
+; Two bugs are pinned here, both of which turned into the same picture: a
+; spreadsheet whose every label was a solid rectangle of colour, the exact width
+; and height of the words that should have been there.
+;
+;   * The atlas is painted white-on-black, and the shader was sampling its
+;     ALPHA. SoftCanvas has no transparent surface — `clear` writes opaque black
+;     and the blitter keeps the destination opaque — so every texel has alpha
+;     255 and the coverage was 1 everywhere. The coverage is real, but it is in
+;     the COLOUR channels: white over black leaves r = g = b = coverage.
+;
+;   * The glyphs were rasterized at page scale and magnified onto a Retina
+;     drawable. Type has to be rasterized at the size it will be drawn.
+; ==============================================================================
+
+Import "../platform/sdl/EvgGlPainter.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class GlAtlasCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d <= tol))
+    }
+}
+
+class GlAtlasTest {
+    sfn addText:void (dl:EVGDisplayList text:string x:double y:double size:double bold:boolean) {
+        def c (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.text = text
+        c.fontSize = size
+        c.fontFamily = "Open Sans"
+        if bold {
+            c.fontWeight = "bold"
+        }
+        c.r = 20
+        c.g = 25
+        c.b = 40
+        c.a = 1.0
+        push dl.cmds c
+    }
+
+    sfn countAlpha:int (c:SoftCanvas want:int) {
+        def n:int 0
+        def i:int 0
+        def total:int (c.w * c.h)
+        while (i < total) {
+            def off:int ((i * 4) + 3)
+            if ((buffer_get c.px off) == want) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Pixels whose red is neither off nor full — the anti-aliased edge, which is
+    ; the whole reason a coverage channel is worth reading.
+    sfn countPartial:int (c:SoftCanvas) {
+        def n:int 0
+        def i:int 0
+        def total:int (c.w * c.h)
+        while (i < total) {
+            def r:int (buffer_get c.px (i * 4))
+            if (r > 8) {
+                if (r < 247) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn countInk:int (c:SoftCanvas) {
+        def n:int 0
+        def i:int 0
+        def total:int (c.w * c.h)
+        while (i < total) {
+            if ((buffer_get c.px (i * 4)) > 8) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn maxRed:int (c:SoftCanvas) {
+        def hi:int 0
+        def i:int 0
+        def total:int (c.w * c.h)
+        while (i < total) {
+            def r:int (buffer_get c.px (i * 4))
+            if (r > hi) {
+                hi = r
+            }
+            i = (i + 1)
+        }
+        return hi
+    }
+
+    sfn main:void () {
+        def c (new GlAtlasCheck)
+
+        def tr (new UITextRenderer)
+        tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        def loaded:boolean (tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf"))
+        tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        c.ok("a real face is loaded — a bitmap fallback would prove nothing" loaded)
+
+        def dl (new EVGDisplayList)
+        GlAtlasTest.addText(dl "Kassa kuun alussa" 88.0 120.0 13.333 false)
+        GlAtlasTest.addText(dl "Kuukausi" 88.0 140.0 13.333 true)
+        GlAtlasTest.addText(dl "-6890.0" 700.0 160.0 12.0 false)
+
+        print "== the atlas, at page scale =="
+        def p (new EvgGlPainter)
+        p.buildAtlas(dl tr 1.0)
+        c.eqInt("one slot per run" (array_length p.slots) 3)
+        c.ok("the atlas has pixels" ((p.atlasW > 0) && (p.atlasH > 0)))
+
+        print "-- its alpha says nothing --"
+        def texels:int (p.atlas.w * p.atlas.h)
+        c.eqInt("every texel is opaque, glyph or not" (GlAtlasTest.countAlpha(p.atlas 255)) texels)
+        c.eqInt("so nothing in it is transparent" (GlAtlasTest.countAlpha(p.atlas 0)) 0)
+
+        print "-- its colour says everything --"
+        c.eqInt("the middle of a stem is white" (GlAtlasTest.maxRed(p.atlas)) 255)
+        c.ok("and the edges are in between" ((GlAtlasTest.countPartial(p.atlas)) > 40))
+        ; This is the difference between reading alpha and reading red: alpha
+        ; would draw every texel of every slot, red draws only the ink.
+        def ink1:int (GlAtlasTest.countInk(p.atlas))
+        def quarter:int (idiv texels 4)
+        c.ok("the ink is a small part of the sheet it sits on" (ink1 < quarter))
+        c.ok("but there is ink" (ink1 > 200))
+
+        print "-- and the UV window covers exactly the slot --"
+        def s0:AtlasSlot (p.slotFor(0))
+        c.eqInt("slot 0 is the first run" s0.cmdIndex 0)
+        def uw:double (s0.u1 - s0.u0)
+        c.near("u spans the slot's width" uw (s0.dw / (to_double p.atlasW)) 0.0005)
+        def vh:double (s0.v1 - s0.v0)
+        c.near("v spans its height" vh (s0.dh / (to_double p.atlasH)) 0.0005)
+        c.ok("and stays inside the texture" ((s0.u1 <= 1.0001) && (s0.v1 <= 1.0001)))
+        c.near("at page scale the two rectangles are the same" s0.w s0.dw 0.001)
+        c.near("and the margin is two page pixels" s0.pad 2.0 0.001)
+
+        print "== the same atlas on a Retina drawable =="
+        def p2 (new EvgGlPainter)
+        p2.buildAtlas(dl tr 2.0)
+        def t0:AtlasSlot (p2.slotFor(0))
+        ; The contract, exactly: the device rectangle is the page rectangle
+        ; times the drawable's scale. That is what makes the quad land where
+        ; the display list asked while the texels behind it are real type.
+        def ratio1:double (s0.dw / s0.w)
+        def ratio2:double (t0.dw / t0.w)
+        c.near("at page scale a slot's two rectangles agree" ratio1 1.0 0.001)
+        c.near("at twice the scale the device one is twice the size" ratio2 2.0 0.001)
+        ; Twice the type, rasterized — not the same type magnified. (Not exactly
+        ; twice the pixels: a slot also carries a fixed margin so bilinear
+        ; sampling cannot fetch its neighbour, and a margin is a device-pixel
+        ; concern that does not scale with the type.)
+        def grew:double (t0.dw / s0.dw)
+        c.ok("so there is nearly twice as much type in the atlas" ((grew > 1.7) && (grew < 2.05)))
+        ; …while the quad it is drawn on is the same size on the page, because
+        ; the display list and the projection are both in page units.
+        c.near("and the quad on the page is the size it always was" t0.w s0.w 4.0)
+        c.near("with the margin still two device pixels" t0.pad 1.0 0.001)
+        c.ok("so the atlas holds more ink" ((GlAtlasTest.countInk(p2.atlas)) > ink1))
+        c.eqInt("and it is still opaque throughout" (GlAtlasTest.countAlpha(p2.atlas 0)) 0)
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
