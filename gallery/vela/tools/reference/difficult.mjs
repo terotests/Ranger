@@ -164,7 +164,20 @@ export const DIFFICULT = {
     + 'that labels it, so there is no strip of axes under the trellis at all. '
     + 'A bar with nothing on the other axis is the other half: it has no band '
     + 'to sit in, so it crosses the whole panel, centred, as thick as the '
-    + 'panel unless the mark says otherwise'
+    + 'panel unless the mark says otherwise',
+
+  interactive_index_chart:
+    'a selection that nobody can touch still HAS a state — the one its '
+    + 'initial value put it in — and that is the frame the reference draws '
+    + 'too. Three things follow: a point selection names its fields by '
+    + 'CHANNEL where the parameter said which channels it selects on, so '
+    + '{"x": …} is the column the x axis reads and not a column called "x"; a '
+    + 'date written as its parts is the instant those parts name, read in the '
+    + 'chart\'s own time zone; and a lookup against the selection is a lookup '
+    + 'against the chart\'s own rows cut down to it, writing what it found '
+    + 'under the selection\'s name — unnamed, the chart found its baseline '
+    + 'row and could not say so, and every line came out flat along nought '
+    + 'per cent'
 };
 
 /** The names, in the order they were won. */

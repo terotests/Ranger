@@ -5745,31 +5745,10 @@ class VlCompile {
                     if (! (lkFrom.isObject())) {
                         this.fail("a lookup needs a `from`")
                     } {
-                    def lkData:VlJson (lkFrom.get("data"))
-                    if (! (lkData.isObject())) {
-                        ; `{"from": {"param": …}} is a lookup against what a
-                        ; selection holds, which needs interaction.
-                        this.fail("a lookup against a selection needs interaction, which is not compiled here")
+                    def tableName:string (this.lookupTable(lkFrom))
+                    if ((strlen tableName) == 0) {
+                        ; the reason is already recorded against the chart
                     } {
-                        def table (VlJson.objectValue())
-                        def tableName:string ("source_" + (VlJson.intToText(((array_length sideData) + 1))))
-                        table.setMember("name" (VlJson.stringValue(tableName)))
-                        if (lkData.has("values")) {
-                            table.setMember("values" (lkData.get("values")))
-                        }
-                        if (lkData.has("url")) {
-                            table.setMember("url" (lkData.get("url")))
-                        }
-                        def namedSet:string (lkData.stringOr("name" ""))
-                        if ((strlen namedSet) > 0) {
-                            def sets:VlJson (rootSource.get("datasets"))
-                            if (sets.isObject()) {
-                                if (sets.has(namedSet)) {
-                                    table.setMember("values" (sets.get(namedSet)))
-                                }
-                            }
-                        }
-                        push sideData table
                         def lk (VlJson.objectValue())
                         lk.setMember("type" (VlJson.stringValue("lookup")))
                         lk.setMember("from" (VlJson.stringValue(tableName)))
@@ -5788,6 +5767,19 @@ class VlCompile {
                                 lk.setMember("as" one)
                             } {
                                 lk.setMember("as" lkAs)
+                            }
+                        } {
+                            ; A lookup against a SELECTION writes the row it
+                            ; found under the selection's own name, which is
+                            ; what the chart then reads it back by. Left
+                            ; unnamed, an index chart found its baseline row
+                            ; and could not say so, and every line came out
+                            ; flat along nought per cent.
+                            def viaParam:string (lkFrom.stringOr("param" ""))
+                            if ((strlen viaParam) > 0) {
+                                def named (VlJson.arrayValue())
+                                push named.arr (VlJson.stringValue(viaParam))
+                                lk.setMember("as" named)
                             }
                         }
                         if (t.has("default")) {
@@ -6201,6 +6193,68 @@ class VlCompile {
     ; known before the bin boundaries can be chosen, and the boundaries then
     ; have to be readable by the scale — a binned axis ticks on the bin edges
     ; rather than wherever a tick algorithm would have put them.
+    ; The table a lookup joins against, written beside the chart's own data and
+    ; answered by name.
+    ;
+    ; It is usually a data set in its own right — values, a url, or one of the
+    ; chart's named sets. It may instead be a SELECTION, and then it is the
+    ; chart's own rows filtered down to what the selection holds. There is
+    ; nothing here to click on, but that is an answer rather than a refusal:
+    ; the selection stands where its initial value put it, which is exactly
+    ; where the reference's own first frame stands.
+    fn lookupTable:string (lkFrom:VlJson) {
+        def tableName:string ("source_" + (VlJson.intToText(((array_length sideData) + 1))))
+        def table (VlJson.objectValue())
+        table.setMember("name" (VlJson.stringValue(tableName)))
+        def lkData:VlJson (lkFrom.get("data"))
+        if (! (lkData.isObject())) {
+            def paramName:string (lkFrom.stringOr("param" ""))
+            if ((strlen paramName) == 0) {
+                this.fail("a lookup needs a `from` naming either data or a param")
+                return ""
+            }
+            def pred (VlJson.objectValue())
+            pred.setMember("param" (VlJson.stringValue(paramName)))
+            def chosen:string (this.selectionExpr(pred))
+            if ((strlen chosen) == 0) {
+                this.fail("a lookup against a selection needs the selection to say where it starts")
+                return ""
+            }
+            ; The rows are read from the chart's own source and prepared the
+            ; same way the chart prepares them — a date compared against an
+            ; instant has to BE an instant — and then cut down to the
+            ; selection.
+            table.setMember("source" (VlJson.stringValue("source_0")))
+            def prep (VlJson.arrayValue())
+            this.pushNestedFields(prep)
+            this.pushTimeParse(prep)
+            def keep (VlJson.objectValue())
+            keep.setMember("type" (VlJson.stringValue("filter")))
+            keep.setMember("expr" (VlJson.stringValue(chosen)))
+            push prep.arr keep
+            table.setMember("transform" prep)
+            push sideData table
+            return tableName
+        }
+        if (lkData.has("values")) {
+            table.setMember("values" (lkData.get("values")))
+        }
+        if (lkData.has("url")) {
+            table.setMember("url" (lkData.get("url")))
+        }
+        def namedSet:string (lkData.stringOr("name" ""))
+        if ((strlen namedSet) > 0) {
+            def sets:VlJson (rootSource.get("datasets"))
+            if (sets.isObject()) {
+                if (sets.has(namedSet)) {
+                    table.setMember("values" (sets.get(namedSet)))
+                }
+            }
+        }
+        push sideData table
+        return tableName
+    }
+
     fn pushBin:void (transforms:VlJson) {
         for channels ch:VlChannel ci {
             if ch.hasBin {
@@ -6969,6 +7023,28 @@ class VlCompile {
         }
     }
 
+    ; Which column a selection's initial value is about. A parameter that says
+    ; which channels it selects on names them by channel, and the column is
+    ; whatever that channel reads; anything else is already a column name.
+    fn selectionColumn:string (param:VlJson key:string) {
+        def encodings:VlJson ((param.get("select")).get("encodings"))
+        if (! (encodings.isArray())) {
+            return key
+        }
+        def k:int 0
+        while (k < (encodings.count())) {
+            if (((encodings.at(k)).asString()) == key) {
+                def ch:VlChannel (this.channel(key))
+                if ((strlen ch.field) > 0) {
+                    return ch.field
+                }
+                return key
+            }
+            k = (k + 1)
+        }
+        return key
+    }
+
     ; A POINT selection's initial value is a list of rows, each naming the
     ; fields that must match — `[{"Cylinders": 4, "Year": 1977}]` selects the
     ; four-cylinder cars of 1977. An INTERVAL's is a map of channel to range.
@@ -6981,7 +7057,13 @@ class VlCompile {
                 def row:VlJson (initial.at(k))
                 def one:string ""
                 for row.keys field:string fi {
-                    def piece:string ((("datum[\"" + field) + "\"] === ") + (this.literalOf((row.get(field)))))
+                    ; A point selection names its fields by CHANNEL where the
+                    ; parameter said which channels it selects on: `{"x": …}`
+                    ; is the column the x axis reads, not a column called "x".
+                    ; Read literally, an index chart tested every row against a
+                    ; column nobody has and selected nothing.
+                    def column:string (this.selectionColumn(param field))
+                    def piece:string ((("datum[\"" + column) + "\"] === ") + (this.literalOf((row.get(field)))))
                     if ((strlen one) > 0) {
                         one = ((one + " && ") + piece)
                     } {
@@ -7323,8 +7405,32 @@ class VlCompile {
     ; array of scalars, which is why the writer does the work; a date written
     ; as `{"year": 2012}` is not, and is refused rather than compared against
     ; whatever an object stringifies to.
+    ; A date given as its PARTS — `{"year": 2005, "month": 1, "date": 1}` — is
+    ; the instant those parts name, read in the chart's own time zone. Vega
+    ; counts months from zero and vega-lite from one, so the month moves down
+    ; on the way through; a part nobody stated is the start of its range.
+    sfn dateTimeExpr:string (value:VlJson) {
+        if (! (value.has("year"))) {
+            return ""
+        }
+        if (! ((value.get("year")).isNumber())) {
+            return ""
+        }
+        def out:string ("datetime(" + (VlJson.intToText((to_int (value.doubleOr("year" 0.0))))))
+        out = ((out + ", ") + (VlJson.intToText(((to_int (value.doubleOr("month" 1.0))) - 1))))
+        out = ((out + ", ") + (VlJson.intToText((to_int (value.doubleOr("date" 1.0))))))
+        out = ((out + ", ") + (VlJson.intToText((to_int (value.doubleOr("hours" 0.0))))))
+        out = ((out + ", ") + (VlJson.intToText((to_int (value.doubleOr("minutes" 0.0))))))
+        out = ((out + ", ") + (VlJson.intToText((to_int (value.doubleOr("seconds" 0.0))))))
+        return (out + ")")
+    }
+
     fn literalOf:string (value:VlJson) {
         if (value.isObject()) {
+            def asDate:string (VlCompile.dateTimeExpr(value))
+            if ((strlen asDate) > 0) {
+                return asDate
+            }
             this.fail("a filter compared against a date object is not compiled here")
             return ""
         }
@@ -11481,6 +11587,16 @@ class VlCompile {
             if (! text.hasValue) {
                 def signal (VlJson.objectValue())
                 def expr:string (VlCompile.describeOne((text.outField()) (text.isDiscrete())))
+                ; A time unit's value is an INSTANT however the channel
+                ; declared its type, so a label over one reads as a date in
+                ; the unit's own format — "Jan 2005", not thirteen digits.
+                if ((strlen text.timeUnit) > 0) {
+                    expr = (VlCompile.describeUnit((text.outField()) (VlTime.unitFormat(text.timeUnits))))
+                } {
+                if (text.kind == "temporal") {
+                    expr = (VlCompile.describeDate((text.outField())))
+                }
+                }
                 signal.setMember("signal" (VlJson.stringValue(expr)))
                 update.setMember("text" signal)
             }
