@@ -14,6 +14,10 @@ Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "gfx_datagrid_sdl.rgr"
 
+; One text run's place in the atlas. Two rectangles, and telling them apart is
+; the whole of HiDPI here: `x/y/dw/dh` are DEVICE pixels — where the glyphs
+; were actually rasterized and what the UV window covers — while `w/h/pad` are
+; PAGE units, which is what the display list and the projection speak.
 class AtlasSlot {
     def u0:double 0.0
     def v0:double 0.0
@@ -21,6 +25,8 @@ class AtlasSlot {
     def v1:double 0.0
     def x:double 0.0
     def y:double 0.0
+    def dw:double 0.0
+    def dh:double 0.0
     def w:double 0.0
     def h:double 0.0
     def pad:double 2.0
@@ -67,10 +73,25 @@ class EvgGlPainter {
         return p
     }
 
-    ; Pack every TEXT command into one white-on-clear atlas (WebGL buildTextAtlas).
-    fn buildAtlas:void (dl:EVGDisplayList tr:UITextRenderer) {
+    ; Pack every TEXT command into one white-on-black atlas (WebGL buildTextAtlas).
+    ;
+    ; `scale` is the window's device-pixel ratio — 2 on a Retina display. The
+    ; glyphs are RASTERIZED at that scale and the quads are placed in page
+    ; coordinates, so a 13-pixel label is drawn from 26 real pixels of type
+    ; rather than from 13 magnified ones. Rasterizing at 1x and letting the GPU
+    ; enlarge is exactly the softness the whole display-list path was meant to
+    ; get rid of; it is also what evg-webgl.js has always done (`c.size * dpr`).
+    fn buildAtlas:void (dl:EVGDisplayList tr:UITextRenderer scale:double) {
         clear slots
+        def sc:double scale
+        if (sc < 0.5) {
+            sc = 1.0
+        }
+        if (sc > 4.0) {
+            sc = 4.0
+        }
         def pad:int 2
+        def padPage:double ((to_double pad) / sc)
         def measured:[AtlasSlot]
         def i:int 0
         def n:int (dl.count())
@@ -78,13 +99,27 @@ class EvgGlPainter {
             def c:EVGDrawCmd (dl.at(i))
             if ((c.kind == 3) && ((strlen c.text) > 0)) {
                 this.applyFace(tr (c.fontWeight == "bold") false)
-                def wf:double (tr.measureWidth(c.text c.fontSize))
-                def hf:double (tr.lineHeight(c.fontSize))
+                def px:double (c.fontSize * sc)
+                def wf:double (tr.measureWidth(c.text px))
+                def hf:double (tr.lineHeight(px))
+                ; The slot has to hold the image the renderer actually makes,
+                ; which is a whole pixel wider and taller than the measurement
+                ; plus a pixel of its own margin (UITextRenderer.getCachedLine).
+                ; Sizing it from the raw measurement left the last row of a
+                ; descender outside the slot's UV window — clipped here, and
+                ; bleeding into whatever was packed underneath there.
+                def imgW:double (to_double ((to_int (wf + 1.0)) + 2))
+                def imgH:double (to_double ((to_int (hf + 1.0)) + 2))
                 def slot:AtlasSlot (new AtlasSlot)
                 slot.cmdIndex = i
-                slot.w = (wf + (to_double (pad * 2)))
-                slot.h = (hf + (to_double (pad * 2)))
-                slot.pad = (to_double pad)
+                ; Device pixels for packing and for the UV window …
+                slot.dw = (imgW + (to_double (pad * 2)))
+                slot.dh = (imgH + (to_double (pad * 2)))
+                ; … page units for the quad, because the display list is in
+                ; page units and the projection is too.
+                slot.w = (slot.dw / sc)
+                slot.h = (slot.dh / sc)
+                slot.pad = padPage
                 push measured slot
             }
             i = (i + 1)
@@ -100,7 +135,7 @@ class EvgGlPainter {
         def mi:int 0
         while (mi < (array_length measured)) {
             def m:AtlasSlot (itemAt measured mi)
-            def mw:int (to_int m.w)
+            def mw:int (to_int m.dw)
             if (mw > maxW) {
                 maxW = mw
             }
@@ -117,8 +152,8 @@ class EvgGlPainter {
         mi = 0
         while (mi < (array_length measured)) {
             def m2:AtlasSlot (itemAt measured mi)
-            def bw:int (to_int m2.w)
-            def bh:int (to_int m2.h)
+            def bw:int (to_int m2.dw)
+            def bh:int (to_int m2.dh)
             if ((x + bw) > atlasW) {
                 x = 0
                 y = (y + rowH)
@@ -139,7 +174,13 @@ class EvgGlPainter {
         }
         atlas.init(atlasW atlasH)
         atlas.clear(0 0 0)
-        ; Paint white glyphs; fragment shader multiplies by the run colour.
+        ; White glyphs on black, and the shader reads a COLOUR channel as
+        ; coverage — not alpha. SoftCanvas has no transparent surface: `clear`
+        ; writes opaque black and the blitter keeps the destination opaque, so
+        ; every texel here has alpha 255 and a shader sampling alpha draws
+        ; solid rectangles. White over black leaves r = g = b = coverage
+        ; exactly, which is what evg_gl_native.cpp samples. The two only work
+        ; together; changing either one alone breaks text.
         def ctx:UIContext (new UIContext)
         ctx.attach(atlas)
         ctx.tr = tr
@@ -151,11 +192,11 @@ class EvgGlPainter {
             def col:EVGColor (EVGColor.rgb(255 255 255))
             def tx:int ((to_int m3.x) + pad)
             def ty:int ((to_int m3.y) + pad)
-            ctx.text(cmd.text tx ty cmd.fontSize col)
+            ctx.text(cmd.text tx ty (cmd.fontSize * sc) col)
             m3.u0 = (m3.x / (to_double atlasW))
             m3.v0 = (m3.y / (to_double atlasH))
-            m3.u1 = ((m3.x + m3.w) / (to_double atlasW))
-            m3.v1 = ((m3.y + m3.h) / (to_double atlasH))
+            m3.u1 = ((m3.x + m3.dw) / (to_double atlasW))
+            m3.v1 = ((m3.y + m3.dh) / (to_double atlasH))
             push slots m3
             mi = (mi + 1)
         }
@@ -268,7 +309,6 @@ class EvgGlPainter {
     }
 
     fn draw:void (dl:EVGDisplayList pageW:int pageH:int tr:UITextRenderer images:GridImages) {
-        this.buildAtlas(dl tr)
         def drawW:int (dgfx_drawable_width)
         def drawH:int (dgfx_drawable_height)
         if (drawW < 1) {
@@ -277,6 +317,14 @@ class EvgGlPainter {
         if (drawH < 1) {
             drawH = pageH
         }
+        ; The drawable is bigger than the page on a HiDPI screen, and the type
+        ; has to be rasterized at that size to be worth having. This has to be
+        ; known BEFORE the atlas is built, which is why it is read first.
+        def scale:double 1.0
+        if (pageW > 0) {
+            scale = ((to_double drawW) / (to_double pageW))
+        }
+        this.buildAtlas(dl tr scale)
         dgfx_evg_begin pageW pageH drawW drawH
         dgfx_evg_set_atlas (atlas.raw()) atlasW atlasH
 
@@ -296,8 +344,12 @@ class EvgGlPainter {
             if (c.kind == 3) {
                 def s:AtlasSlot (this.slotFor(i))
                 if (s.cmdIndex == i) {
+                    ; The glyph sits `pad` in from the slot's corner on both
+                    ; axes, so the quad starts `pad` before the command's
+                    ; corner on both. Subtracting it only in x put every run
+                    ; two pixels low.
                     def tx:double (c.x - s.pad)
-                    def ty:double c.y
+                    def ty:double (c.y - s.pad)
                     dgfx_evg_text tx ty s.w s.h s.u0 s.v0 s.u1 s.v1 rf gf bf c.a c.rotate
                 }
             }

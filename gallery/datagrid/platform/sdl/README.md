@@ -20,6 +20,35 @@ SoftCanvas is used only to rasterize **text runs into an atlas** (the WebGL host
 uses Canvas2D for that). The page itself is not blitted as a bitmap — that was
 what distorted on Retina.
 
+## The one thing the two backends do not share
+
+The browser builds its text atlas with Canvas2D, where `clearRect` leaves the
+surface transparent and `fillText` writes each glyph's coverage into **alpha**.
+`SoftCanvas` has no transparent surface: `clear` writes opaque black and the
+blitter keeps the destination opaque. So the native atlas has alpha 255 in every
+texel, and a shader that samples alpha gives every run a coverage of 1 — each
+label comes out as a solid rectangle of colour, the exact width and height of
+the words that should have been there.
+
+The coverage is real; it is in the **colour** channels. White glyphs composited
+over black leave `r = g = b = coverage`, and that is what the fragment shader
+reads. `EvgGlPainter.buildAtlas` paints white-on-black for exactly that reason —
+the two only work together, and changing either alone breaks text.
+
+The atlas is also rasterized at the **drawable's** scale, not the page's: a
+13-pixel label on a Retina display is drawn from 26 real pixels of type rather
+than 13 magnified ones. An `AtlasSlot` therefore carries two rectangles —
+`x/y/dw/dh` in device pixels, which is what the UV window covers, and `w/h/pad`
+in page units, which is what the quad is placed with.
+
+```bash
+npm run datagrid:gl:test
+```
+
+`buildAtlas` is plain SoftCanvas work with no native call in it, so it compiles
+to JS and can be examined a pixel at a time without SDL, a GPU or a screen.
+That test asserts both halves of the contract above.
+
 ## Requirements (macOS)
 
 ```bash

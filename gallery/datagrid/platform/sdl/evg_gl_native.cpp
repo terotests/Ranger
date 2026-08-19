@@ -194,7 +194,20 @@ void main() {
     return;
   }
   if (vMode > 0.5) {
-    float cov = texture(uAtlas, vUV).a;
+    // Coverage comes from a COLOUR channel, not from alpha.
+    //
+    // The browser builds this atlas with Canvas2D, where clearRect leaves the
+    // surface transparent and fillText writes the glyph's coverage into alpha.
+    // The native host builds it with SoftCanvas, which has no transparent
+    // surface: `clear` writes opaque black and the blitter keeps the
+    // destination opaque, so every texel of the atlas has alpha 255 and
+    // sampling alpha here made every run a solid rectangle in its own colour.
+    //
+    // What SoftCanvas does give is exact coverage in the colour channels:
+    // white glyphs composited over black leave r = g = b = coverage. So read
+    // one of those. EvgGlPainter.buildAtlas paints white-on-black precisely so
+    // this holds — the two have to be changed together.
+    float cov = texture(uAtlas, vUV).r;
     if (cov <= 0.001) discard;
     outColor = vec4(vColor.rgb, vColor.a * cov);
     return;
