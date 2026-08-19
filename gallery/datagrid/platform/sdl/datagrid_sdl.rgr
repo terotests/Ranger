@@ -59,21 +59,42 @@ class DataGridSdl {
         return ok
     }
 
+    ; Follow the window. `dgfx_open` asks for a size and the system gives
+    ; whatever it gives; after that the user can drag the corner. Everything —
+    ; layout, hit testing, the projection — is in window points, so this is the
+    ; one number that has to be right.
+    fn syncWindowSize:void () {
+        def ww:int (dgfx_window_width)
+        def wh:int (dgfx_window_height)
+        if (ww < 320) {
+            return
+        }
+        if (wh < 240) {
+            return
+        }
+        if ((ww == pw) && (wh == ph)) {
+            return
+        }
+        pw = ww
+        ph = wh
+        app.resize(pw ph)
+    }
+
     ; Map one SDL frame into UIInput and tick the app.
     fn pumpInput:void () {
         dgfx_poll
         input.newFrame()
+        ; The window may have been resized — or opened at a size other than
+        ; the one asked for, which is normal. The page is laid out in WINDOW
+        ; POINTS, so this is also what makes the pointer and the picture agree.
+        this.syncWindowSize()
+        ; SDL reports the pointer in window points, the same space the page is
+        ; laid out in, so there is nothing to convert. Dividing it by the
+        ; drawable ratio — which is 2 on a Retina screen — put every click
+        ; half way to the top left corner of the window, which is a couple of
+        ; hundred pixels out by the middle of a spreadsheet.
         def mx:int (dgfx_mouse_x)
         def my:int (dgfx_mouse_y)
-        ; HiDPI: some drivers report mouse in drawable pixels; map back to page.
-        def dw:int (dgfx_drawable_width)
-        def dh:int (dgfx_drawable_height)
-        if ((dw > 0) && (dw != pw)) {
-            mx = (idiv (mx * pw) dw)
-        }
-        if ((dh > 0) && (dh != ph)) {
-            my = (idiv (my * ph) dh)
-        }
         def btn:int (dgfx_mouse_buttons)
         def down:boolean false
         if ((bit_and btn 1) != 0) {
@@ -102,6 +123,43 @@ class DataGridSdl {
             k = (dgfx_pop_key)
         }
         app.update(input)
+        this.serveFileRequest()
+    }
+
+    ; The app cannot open a picker — it does not know what it is running in —
+    ; so it says what it wants and this answers. `file.open` / Ctrl+O and
+    ; `file.saveAs` / Ctrl+Shift+S both come through here.
+    fn serveFileRequest:void () {
+        def want:string app.fileRequest
+        if ((strlen want) == 0) {
+            return
+        }
+        app.fileRequest = ""
+        if (want == "open") {
+            def path:string (dgfx_pick_open_file "Open a workbook")
+            if ((strlen path) == 0) {
+                app.view.status = "open cancelled"
+                return
+            }
+            if (this.loadWorkbook(path)) {
+                app.resize(pw ph)
+            }
+            return
+        }
+        if (want == "saveAs") {
+            ; Suggest what it is already called, not a name with a suffix
+            ; bolted on: the person is about to choose one.
+            def suggest:string (GridApp.baseName(xlsxPath))
+            if ((strlen xlsxPath) == 0) {
+                suggest = "workbook.xlsx"
+            }
+            def target:string (dgfx_pick_save_file "Save the workbook as" suggest)
+            if ((strlen target) == 0) {
+                app.view.status = "save cancelled"
+                return
+            }
+            app.saveXlsx((GridApp.exportDir(target)) (GridApp.baseName(target)))
+        }
     }
 
     ; WebGL-style path: display list → OpenGL (not a SoftCanvas blit).
