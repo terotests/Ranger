@@ -15,7 +15,7 @@
 ; FortuneSheet checklist          | Ranger DataGrid                         | st
 ; ------------------------------------------------------------------------------
 ; Multiple selection              | GridSelection range + shift/drag          | done
-; Keyboard navigation             | arrows / tab / enter / home / end         | done
+; Keyboard navigation             | Excel arrows/Ctrl/Shift, page, home/end   | done
 ; Inline edit + formula bar       | address + formula/value bar               | done
 ; Row / column headers            | painted chrome                            | done
 ; Resize columns                  | header edge drag                          | done
@@ -35,6 +35,21 @@
 ; Hidden rows / columns           | geometry height/width 0                   | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
+;
+; Keyboard (GridApp.handleKey, fed by a portable UIInput): arrows move;
+; Ctrl+arrow jumps to the data-block edge (edgeJump); Shift extends; Ctrl+Shift
+; does both. Enter/Shift+Enter step down/up, Tab/Shift+Tab right/left, F2 opens
+; the cell for edit. PageUp/PageDown move one viewport (pageRows). Ctrl+Home →
+; A1, Ctrl+End → used-range corner, End → last used column in the row.
+; Ctrl+Space selects the column, Shift+Space the row, Ctrl+Shift+Space / Ctrl+A
+; the sheet. Ctrl+End is O(1): SpreadsheetModel tracks usedMaxRow/usedMaxCol on
+; write (Excel-like: it grows, it does not shrink) instead of rescanning.
+; UIKey gained pageUp/pageDown/f2 (12/13/14).
+;
+; Clipboard: Ctrl+C/X fill clipboardTsv + the structured block. The WebGL host
+; answers a copy/cut POST with {"clipboard": tsv} so the browser can put it on
+; the OS clipboard; the native paste event carries text back. Text the host
+; exported itself still takes the formula-aware block paste.
 ;
 ; Editing stack: SpreadsheetModel.applyEdit(row col value formula) is the only
 ; tracked mutation — it records value AND formula in one undo op. beginTx/endTx

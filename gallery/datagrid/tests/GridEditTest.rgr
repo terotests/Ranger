@@ -46,6 +46,16 @@ class GridEditTest {
         app.sel.active.col = c1
     }
 
+    ; One key press through the real UIInput path, with modifiers.
+    sfn pressKey:void (app:GridApp input:UIInput key:int shift:boolean ctrl:boolean) {
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushKey(key)
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+    }
+
     sfn typeInto:void (app:GridApp r:int c:int text:string) {
         GridEditTest.select(app r c)
         app.beginEdit(text true)
@@ -239,6 +249,136 @@ class GridEditTest {
         input.setPointerDown(false)
         app.update(input)
         c.ok("row taller" ((app.model.rowHeight(0)) > beforeH))
+
+        print "== Ctrl+Arrow jumps to the data edge =="
+        ; Fresh sheet so the demo seed does not interfere with the block scan.
+        def nav:GridApp (new GridApp)
+        nav.init("gallery/pdf_writer/assets/fonts")
+        nav.model.clearSheet()
+        nav.model.resize(60 12)
+        def bi:int 2
+        while (bi <= 6) {
+            nav.model.setCellRaw(bi 1 "x")
+            nav.model.setCellRaw(bi 2 "y")
+            bi = (bi + 1)
+        }
+        nav.model.setCellRaw(20 1 "far")
+        def input2:UIInput (new UIInput)
+        GridEditTest.select(nav 2 1)
+        ; inside a run → last filled cell of the run
+        GridEditTest.pressKey(nav input2 (UIKey.down()) false true)
+        c.eqInt("ctrl down to block end" nav.sel.active.row 6)
+        ; on the last filled cell, next is blank → next filled cell below
+        GridEditTest.pressKey(nav input2 (UIKey.down()) false true)
+        c.eqInt("ctrl down to next block" nav.sel.active.row 20)
+        ; nothing below → sheet edge
+        GridEditTest.pressKey(nav input2 (UIKey.down()) false true)
+        c.eqInt("ctrl down to sheet edge" nav.sel.active.row 59)
+        GridEditTest.pressKey(nav input2 (UIKey.up()) false true)
+        c.eqInt("ctrl up back to data" nav.sel.active.row 20)
+        GridEditTest.select(nav 2 1)
+        GridEditTest.pressKey(nav input2 (UIKey.right()) false true)
+        c.eqInt("ctrl right to run end" nav.sel.active.col 2)
+
+        print "== Ctrl+Shift+Arrow extends to the data edge =="
+        GridEditTest.select(nav 2 1)
+        GridEditTest.pressKey(nav input2 (UIKey.down()) true true)
+        c.eqInt("extended active" nav.sel.active.row 6)
+        c.eqInt("anchor held" nav.sel.anchor.row 2)
+        c.ok("range selected" (nav.sel.isSingle() == false))
+        nav.copySelection()
+        c.eqInt("copied rows" nav.clipRows 5)
+        c.eqStr("copied tsv" nav.clipboardTsv "x\nx\nx\nx\nx")
+
+        print "== PageDown / PageUp =="
+        GridEditTest.select(nav 0 0)
+        nav.grid.scrollY = 0
+        nav.grid.updateVisible(nav.model)
+        def page:int (nav.pageRows())
+        c.ok("page span > 1" (page > 1))
+        GridEditTest.pressKey(nav input2 (UIKey.pageDown()) false false)
+        c.eqInt("page down" nav.sel.active.row page)
+        GridEditTest.pressKey(nav input2 (UIKey.pageUp()) false false)
+        c.eqInt("page up" nav.sel.active.row 0)
+        GridEditTest.pressKey(nav input2 (UIKey.pageDown()) true false)
+        c.ok("shift page extends" (nav.sel.isSingle() == false))
+        c.eqInt("shift page anchor" nav.sel.anchor.row 0)
+
+        print "== Ctrl+Home / Ctrl+End / Home / End =="
+        GridEditTest.select(nav 12 5)
+        GridEditTest.pressKey(nav input2 (UIKey.home()) false false)
+        c.eqInt("home to col 0" nav.sel.active.col 0)
+        c.eqInt("home keeps row" nav.sel.active.row 12)
+        GridEditTest.pressKey(nav input2 (UIKey.home()) false true)
+        c.eqInt("ctrl home row" nav.sel.active.row 0)
+        c.eqInt("ctrl home col" nav.sel.active.col 0)
+        GridEditTest.pressKey(nav input2 (UIKey.end()) false true)
+        c.eqInt("ctrl end row" nav.sel.active.row 20)
+        c.eqInt("ctrl end col" nav.sel.active.col 2)
+        GridEditTest.select(nav 2 0)
+        GridEditTest.pressKey(nav input2 (UIKey.end()) false false)
+        c.eqInt("end to last used col in row" nav.sel.active.col 2)
+
+        print "== Enter / Shift+Enter / Tab / Shift+Tab step between cells =="
+        GridEditTest.select(nav 4 4)
+        GridEditTest.pressKey(nav input2 (UIKey.enter()) false false)
+        c.eqInt("enter steps down" nav.sel.active.row 5)
+        GridEditTest.pressKey(nav input2 (UIKey.enter()) true false)
+        c.eqInt("shift enter steps up" nav.sel.active.row 4)
+        GridEditTest.pressKey(nav input2 (UIKey.tab()) false false)
+        c.eqInt("tab steps right" nav.sel.active.col 5)
+        GridEditTest.pressKey(nav input2 (UIKey.tab()) true false)
+        c.eqInt("shift tab steps left" nav.sel.active.col 4)
+        c.ok("stepping does not edit" (nav.editing == false))
+
+        print "== F2 opens the cell for edit =="
+        nav.model.setCellRaw(4 4 "keep")
+        GridEditTest.select(nav 4 4)
+        GridEditTest.pressKey(nav input2 (UIKey.f2()) false false)
+        c.ok("f2 editing" nav.editing)
+        c.eqStr("f2 keeps content" nav.editBuf "keep")
+        c.eqInt("f2 caret at end" nav.editCaret 4)
+        input2.newFrame()
+        input2.pushKey((UIKey.escape()))
+        nav.update(input2)
+
+        print "== Ctrl+Space column, Shift+Space row =="
+        GridEditTest.select(nav 3 2)
+        input2.newFrame()
+        input2.setModifiers(false true)
+        input2.pushText(" ")
+        nav.update(input2)
+        input2.newFrame()
+        input2.setModifiers(false false)
+        c.ok("column covers first row" (nav.sel.contains(0 2)))
+        c.ok("column covers last row" (nav.sel.contains((nav.model.rowCount - 1) 2)))
+        c.ok("column excludes other cols" ((nav.sel.contains(0 3)) == false))
+        c.eqInt("column active at top" nav.sel.active.row 0)
+        c.eqInt("column pinned" nav.sel.active.col 2)
+        GridEditTest.select(nav 3 2)
+        input2.newFrame()
+        input2.setModifiers(true false)
+        input2.pushText(" ")
+        nav.update(input2)
+        input2.newFrame()
+        input2.setModifiers(false false)
+        c.ok("row covers first col" (nav.sel.contains(3 0)))
+        c.ok("row covers last col" (nav.sel.contains(3 (nav.model.colCount - 1))))
+        c.ok("row excludes other rows" ((nav.sel.contains(4 0)) == false))
+        c.eqInt("row active at left" nav.sel.active.col 0)
+        c.eqInt("row pinned" nav.sel.active.row 3)
+        c.ok("shift+space did not type" (nav.editing == false))
+
+        print "== Ctrl+C over a multi-cell selection =="
+        GridEditTest.selectRange(nav 2 1 3 2)
+        input2.newFrame()
+        input2.setModifiers(false true)
+        input2.pushText("c")
+        nav.update(input2)
+        input2.newFrame()
+        input2.setModifiers(false false)
+        nav.update(input2)
+        c.eqStr("tsv block" nav.clipboardTsv "x\ty\nx\ty")
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

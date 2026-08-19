@@ -108,6 +108,48 @@ class GridBench {
         def t15:double (wall_clock_ms)
         GridBench.report("Ctrl+A + paint" (t15 - t14))
 
+        ; Keyboard navigation on a tall sheet: Ctrl+End must not rescan it.
+        app.moveActive(0 0 false)
+        def t16:double (wall_clock_ms)
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushKey((UIKey.end()))
+        app.update(input)
+        app.render()
+        def t17:double (wall_clock_ms)
+        GridBench.report("Ctrl+End + paint" (t17 - t16))
+        print ("  landed on " + (SpreadsheetModel.cellLabel(app.sel.active.row app.sel.active.col)))
+
+        app.moveActive(0 0 false)
+        def t18:double (wall_clock_ms)
+        def k:int 0
+        while (k < 20) {
+            input.newFrame()
+            input.setModifiers(false true)
+            input.pushKey((UIKey.down()))
+            app.update(input)
+            k = (k + 1)
+        }
+        input.newFrame()
+        input.setModifiers(false false)
+        app.update(input)
+        app.render()
+        def t19:double (wall_clock_ms)
+        GridBench.report("20× Ctrl+Down + paint" (t19 - t18))
+
+        app.moveActive(0 0 false)
+        def t20:double (wall_clock_ms)
+        def pg:int 0
+        while (pg < 50) {
+            input.newFrame()
+            input.pushKey((UIKey.pageDown()))
+            app.update(input)
+            pg = (pg + 1)
+        }
+        app.render()
+        def t21:double (wall_clock_ms)
+        GridBench.report("50× PageDown + paint" (t21 - t20))
+
         print ("  sceneJson bytes≈" + (to_string (strlen (app.sceneJson()))))
         print "== done =="
     }

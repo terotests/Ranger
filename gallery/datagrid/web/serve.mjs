@@ -85,12 +85,31 @@ const KEY = {
   del: () => UIKey.del(),
   home: () => UIKey.home(),
   end: () => UIKey.end(),
+  pageUp: () => UIKey.pageUp(),
+  pageDown: () => UIKey.pageDown(),
+  f2: () => UIKey.f2(),
 };
+
+// Last TSV this host handed to the browser clipboard. When it comes back on a
+// paste we know nothing external changed it, so the formula-aware block paste
+// (which translates relative refs) is still the right one to run.
+let lastExportedTsv = "";
 
 let lastX = 80;
 let lastY = 80;
 
+/** Returns a JSON-able reply, or null for "nothing to send back". */
 function applyEvent(ev) {
+  if (ev.type === "paste") {
+    // OS clipboard → grid. Text we exported ourselves keeps the structured
+    // block (formulas translate); anything else pastes as plain TSV values.
+    const text = String(ev.text || "");
+    if (!(text && text === lastExportedTsv)) {
+      app.setClipboardText(text);
+    }
+    app.pasteClipboard();
+    return null;
+  }
   liveInput.newFrame();
   if (ev.type === "pointer") {
     lastX = ev.x | 0;
@@ -111,9 +130,16 @@ function applyEvent(ev) {
     liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
     liveInput.pushText(String(ev.text || ""));
   } else {
-    return;
+    return null;
   }
   app.update(liveInput);
+  // Ctrl+C / Ctrl+X: hand the TSV back so the browser can put it on the OS
+  // clipboard (a Node process cannot reach it directly).
+  if (ev.type === "text" && ev.ctrl && /^[cxCX]$/.test(String(ev.text || ""))) {
+    lastExportedTsv = app.clipboardTsv || "";
+    return { clipboard: lastExportedTsv };
+  }
+  return null;
 }
 
 function sceneBody() {
@@ -187,9 +213,18 @@ const server = http.createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     try {
-      applyEvent(JSON.parse(body || "{}"));
-      res.writeHead(204);
-      res.end();
+      const reply = applyEvent(JSON.parse(body || "{}"));
+      if (reply) {
+        const payload = JSON.stringify(reply);
+        res.writeHead(200, {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
+        });
+        res.end(payload);
+      } else {
+        res.writeHead(204);
+        res.end();
+      }
     } catch (e) {
       res.writeHead(400, { "content-type": "text/plain" });
       res.end(String(e && e.message ? e.message : e));

@@ -121,6 +121,8 @@ class SpreadsheetModel {
     def undoStack:[SpreadsheetUndoOp]
     def redoStack:[SpreadsheetUndoOp]
     def touched:[CellPos]
+    def usedMaxRow:int 0
+    def usedMaxCol:int 0
     def txCounter:int 0
     def txDepth:int 0
     def curTx:int 0
@@ -158,6 +160,8 @@ class SpreadsheetModel {
         sortCol = -1
         sortAsc = true
         sheetHidden = false
+        usedMaxRow = 0
+        usedMaxCol = 0
         rowCount = 1
         colCount = 1
         rowGeomDirty = true
@@ -597,7 +601,41 @@ class SpreadsheetModel {
         ; Keep empty strings as present keys so clear is a normal set (map
         ; remove is target-fragile); getCell still returns "".
         set cells k value
+        ; Used range, for Ctrl+End. Like Excel it only grows: clearing cells
+        ; does not shrink it, and it stays O(1) instead of rescanning a sheet
+        ; that may declare 100k rows.
+        if ((strlen value) > 0) {
+            if (row > usedMaxRow) {
+                usedMaxRow = row
+            }
+            if (col > usedMaxCol) {
+                usedMaxCol = col
+            }
+        }
         version = (version + 1)
+    }
+
+    ; Bottom-right of the used range, clamped to the sheet.
+    fn usedRow:int () {
+        def r:int usedMaxRow
+        if (r >= rowCount) {
+            r = (rowCount - 1)
+        }
+        if (r < 0) {
+            r = 0
+        }
+        return r
+    }
+
+    fn usedCol:int () {
+        def c:int usedMaxCol
+        if (c >= colCount) {
+            c = (colCount - 1)
+        }
+        if (c < 0) {
+            c = 0
+        }
+        return c
     }
 
     ; --- transactions -------------------------------------------------------
@@ -956,7 +994,7 @@ class SpreadsheetModel {
         this.setCellRaw(5 0 "Ranger EVG DataGrid")
         this.setCellRaw(5 1 "virtualized")
         this.setCellRaw(5 2 "batched")
-        this.setCellRaw(6 0 "Click a cell, type, Enter to commit.")
+        this.setCellRaw(6 0 "Type to replace, F2 to edit, Enter/Tab to step.")
         this.setColWidth(0 160)
         this.setColWidth(3 110)
         this.setRowHeight(0 28)

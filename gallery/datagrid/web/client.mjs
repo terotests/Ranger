@@ -39,11 +39,17 @@ function canvasCoords(ev) {
 }
 
 async function postInput(payload) {
-  await fetch("/input", {
+  const res = await fetch("/input", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
   });
+  if (res.status === 204) return null;
+  try {
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
 }
 
 const KEY_MAP = {
@@ -58,7 +64,41 @@ const KEY_MAP = {
   Delete: "del",
   Home: "home",
   End: "end",
+  PageUp: "pageUp",
+  PageDown: "pageDown",
+  F2: "f2",
 };
+
+// Ctrl/Cmd chords the grid handles: A select-all, C copy, X cut, V paste,
+// Z undo, Y redo, Space select column.
+const CTRL_CHORD = /^[acxvzyACXVZY ]$/;
+
+/** Put text on the OS clipboard, falling back to execCommand when the
+ *  async Clipboard API is unavailable or denied (e.g. non-secure origin). */
+async function writeClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    canvas.focus();
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
 
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
@@ -114,7 +154,7 @@ canvas.addEventListener(
   { passive: false }
 );
 
-canvas.addEventListener("keydown", (ev) => {
+canvas.addEventListener("keydown", async (ev) => {
   const special = KEY_MAP[ev.key];
   if (special) {
     ev.preventDefault();
@@ -127,14 +167,20 @@ canvas.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.ctrlKey || ev.metaKey) {
-    if (/^[acvzyACVZY]$/.test(ev.key)) {
+    // Ctrl+V is served by the native "paste" event below, which hands us the
+    // OS clipboard without a permission prompt.
+    if (ev.key === "v" || ev.key === "V") return;
+    if (CTRL_CHORD.test(ev.key)) {
       ev.preventDefault();
-      postInput({
+      const reply = await postInput({
         type: "text",
         text: ev.key,
         shift: ev.shiftKey,
         ctrl: true,
       });
+      if (reply && typeof reply.clipboard === "string" && reply.clipboard) {
+        await writeClipboard(reply.clipboard);
+      }
     }
     return;
   }
@@ -147,6 +193,15 @@ canvas.addEventListener("keydown", (ev) => {
       ctrl: false,
     });
   }
+});
+
+// Ctrl+V / Cmd+V: the browser hands us the OS clipboard here. The server
+// recognizes text it exported itself and keeps the formula-aware block paste.
+window.addEventListener("paste", (ev) => {
+  if (document.activeElement !== canvas) return;
+  ev.preventDefault();
+  const text = ev.clipboardData ? ev.clipboardData.getData("text/plain") : "";
+  postInput({ type: "paste", text });
 });
 
 async function ensureFonts(doc) {

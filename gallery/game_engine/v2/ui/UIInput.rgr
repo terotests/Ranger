@@ -33,6 +33,9 @@ class UIKey {
     sfn del:int ()       { return 9 }
     sfn home:int ()      { return 10 }
     sfn end:int ()       { return 11 }
+    sfn pageUp:int ()    { return 12 }
+    sfn pageDown:int ()  { return 13 }
+    sfn f2:int ()        { return 14 }
 }
 
 class UIInput {

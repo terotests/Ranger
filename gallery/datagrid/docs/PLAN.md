@@ -42,5 +42,9 @@
 ;   with AST ref translation, caret editing in the cell buffer, interactive row
 ;   resize, precedence-aware formula serialization, and per-cell engine
 ;   resync (never re-attach, which drops the dependency graph).
+; Milestone 7 (keyboard + clipboard): Excel key semantics — Ctrl/Shift arrow
+;   edge jumps, PageUp/PageDown, Ctrl+Home/End over an O(1) used range,
+;   Enter/Tab stepping, F2, Ctrl+Space / Shift+Space band selection — and a
+;   real OS clipboard round-trip through the WebGL host.
 ; Stretch: conditional formatting resolver.
 ; ==============================================================================

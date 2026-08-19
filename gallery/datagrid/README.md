@@ -76,6 +76,45 @@ After any edit the app re-registers just the touched cells
 (`FormulaEngine.syncCell`) and calls `recalcDirty()` **once**; it never
 re-`attach`es the engine, which would drop the whole dependency graph.
 
+## Keyboard
+
+Excel key semantics, resolved in `GridApp.handleKey` from a portable `UIInput`
+snapshot — no DOM or SDL below the app.
+
+| Key | Not editing | Editing |
+| --- | --- | --- |
+| ← ↑ → ↓ | Move one cell | Move the caret (← →) |
+| Ctrl + arrow | Jump to the edge of the data block | — |
+| Shift + arrow | Extend the selection | — |
+| Ctrl+Shift + arrow | Extend to the data-block edge | — |
+| Enter / Shift+Enter | Step down / up | Commit, then step down / up |
+| Tab / Shift+Tab | Step right / left | Commit, then step right / left |
+| F2 | Open the cell for edit, caret at end | — |
+| PageUp / PageDown | Move one viewport (Shift extends) | — |
+| Home / Ctrl+Home | First column of the row / A1 | Caret to start |
+| End / Ctrl+End | Last used column of the row / bottom-right of the used range | Caret to end |
+| Ctrl+Space / Shift+Space | Select the column / the row | — |
+| Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
+| Delete | Clear the selection | Delete at the caret |
+| Backspace | Clear the cell and start typing | Backspace at the caret |
+| Esc | Collapse the selection | Cancel the edit |
+
+`Ctrl+End` is O(1): `SpreadsheetModel` tracks the used-range corner as cells are
+written rather than rescanning a sheet that may declare 100k rows (see
+`Ctrl+End + paint` in `npm run datagrid:bench -- 100000`).
+
+### Clipboard
+
+`Ctrl+C` / `Ctrl+X` build TSV in `GridApp.clipboardTsv` plus a structured block
+that keeps formulas. In the WebGL host that TSV also reaches the **OS
+clipboard**: `/input` answers a copy or cut with `{"clipboard": "…"}`, and
+`web/client.mjs` writes it out (`navigator.clipboard`, falling back to a hidden
+textarea + `execCommand` on non-secure origins). Pasting goes the other way
+through the browser's native `paste` event, so no clipboard-read permission is
+needed. The host remembers the text it exported: paste it back and the
+formula-aware block paste still runs; paste anything else and it lands as plain
+TSV values.
+
 Known gaps: cut does not rewrite formulas elsewhere that referenced the moved
 cells; paste does not tile into a larger target range; no cell-style clipboard.
 
