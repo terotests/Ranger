@@ -206,6 +206,7 @@
     "datagrid:oracle:dump": "mkdir -p gallery/datagrid/harness/out/business && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/src/xlsx_oracle_dump.rgr -d=./gallery/datagrid/bin -o=xlsx_oracle_dump.js -nodecli && node ./gallery/datagrid/bin/xlsx_oracle_dump.js | tee /tmp/xlsx_oracle_dump.log | awk '/---INSPECT---/{p=1;next} p&&/^wrote /{exit} p' > gallery/datagrid/harness/out/business/inspect.json && test -s gallery/datagrid/harness/out/business/inspect.json",
     "datagrid:parity": "python3 gallery/datagrid/tools/parity_score.py",
     "datagrid:oracles": "npm run datagrid:oracle:dump && npm run datagrid:oracle:formula && node gallery/datagrid/harness/run_oracles.mjs",
+    "docx_viewer:chart:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/tests/ChartPasteTest.rgr -d=./gallery/docx_viewer/bin -o=ChartPasteTest.js -nodecli && node ./gallery/docx_viewer/bin/ChartPasteTest.js",
     "docx_viewer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/tests/DocxTest.rgr -d=./gallery/docx_viewer/bin -o=DocxTest.js -nodecli && node ./gallery/docx_viewer/bin/DocxTest.js",
     "docx_viewer:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/src/docx_demo.rgr -d=./gallery/docx_viewer/bin -o=docx_demo.js -nodecli && node ./gallery/docx_viewer/bin/docx_demo.js",
     "docx_viewer:fixtures": "python3 gallery/docx_viewer/fixtures/make_fixtures.py",

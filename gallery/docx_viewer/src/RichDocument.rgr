@@ -146,6 +146,27 @@ class DocImage {
     }
 }
 
+; A chart in the document. Not a picture of one: `json` is the whole Vela
+; chart document — the specification, the numbers it was made of, and how it is
+; presented — so the chart can be re-rendered at any size and EDITED here, in
+; the word processor, long after the spreadsheet it came from was closed.
+;
+; The pixels are never stored. A chart is its data, exactly as it is in the
+; grid; the picture is recomputed whenever the page is painted.
+class DocChart {
+    def id:int 0
+    def json:string ""
+    ; Box on the page, in CSS pixels. A pasted chart arrives at the size it was
+    ; on the sheet and can be made bigger or smaller here.
+    def widthPx:int 380
+    def heightPx:int 260
+    ; What the last render made of it, for a host that wants to say so.
+    def note:string ""
+
+    Constructor () {
+    }
+}
+
 class DocSection {
     def pageWTwips:int 12240
     def pageHTwips:int 15840
@@ -256,9 +277,17 @@ class DocBlock {
     def kind:int 0
     def paragraph:Paragraph (new Paragraph)
     def table:DocumentTable (new DocumentTable)
+    def chart:DocChart (new DocChart)
     def sectionIndex:int 0
 
     Constructor () {
+    }
+
+    sfn chartBlock:DocBlock (c:DocChart) {
+        def b:DocBlock (new DocBlock)
+        b.kind = 4
+        b.chart = c
+        return b
     }
 
     sfn para:DocBlock (p:Paragraph) {
@@ -296,8 +325,10 @@ class RichDocument {
     def tables:[DocumentTable]
     def sections:[DocSection]
     def section:DocSection (new DocSection)
+    def charts:[DocChart]
     def nextParaId:int 1
     def nextTableId:int 1
+    def nextChartId:int 1
 
     Constructor () {
         push sections section
@@ -345,6 +376,44 @@ class RichDocument {
         nextTableId = (nextTableId + 1)
         push tables t
         return t
+    }
+
+    ; A chart, appended. `nextChartId` hands out ids that are never reused, so
+    ; a selection cannot come to mean a different chart after an edit.
+    fn addChart:DocChart (json:string) {
+        def c:DocChart (new DocChart)
+        c.id = nextChartId
+        nextChartId = (nextChartId + 1)
+        c.json = json
+        push charts c
+        push blocks (DocBlock.chartBlock(c))
+        return c
+    }
+
+    fn chartCount:int () {
+        return (array_length charts)
+    }
+
+    fn chartAt:DocChart (i:int) {
+        if (i < 0) {
+            return (new DocChart)
+        }
+        if (i >= (array_length charts)) {
+            return (new DocChart)
+        }
+        return (itemAt charts i)
+    }
+
+    fn chartById:DocChart (id:int) {
+        def i:int 0
+        while (i < (array_length charts)) {
+            def c:DocChart (itemAt charts i)
+            if (c.id == id) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new DocChart)
     }
 
     fn addPageBreak:void () {

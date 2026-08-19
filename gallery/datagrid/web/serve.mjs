@@ -184,6 +184,11 @@ function takeClipboard() {
     out.clipboardPng = app.clipboardPng || "";
     out.clipboardSvg = app.clipboardSvg || "";
     out.clipboardName = app.clipboardName || "chart";
+    // The chart as a Vela document — the specification, its numbers and how it
+    // is presented. It also rides inside the HTML flavour, which is how the
+    // DOCX editor gets it through a plain OS paste; this is for a host that
+    // wants it directly.
+    out.clipboardChart = app.clipboardChartJson || "";
   }
   return out;
 }
@@ -326,6 +331,7 @@ const server = http.createServer(async (req, res) => {
       html: app.clipboardHtml || "",
       png: app.clipboardPng || "",
       svg: app.clipboardSvg || "",
+      chart: app.clipboardChartJson || "",
       note: app.clipboardNote || "",
       seq: app.clipboardSeq | 0,
     }));

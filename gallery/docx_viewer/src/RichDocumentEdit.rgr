@@ -636,6 +636,68 @@ class RichDocumentEdit {
         return t
     }
 
+    ; A chart, inserted before the paragraph the caret is in. Same shape as a
+    ; table paste: a chart is a block, and the paragraph it interrupts has
+    ; already been split in two.
+    fn insertChartBefore:DocChart (paragraphId:int json:string) {
+        def c:DocChart (doc.addChart(json))
+        ; addChart appended a block for it; take that back off and put it
+        ; where the caret is instead.
+        removeLast doc.blocks
+        def at:int (this.blockIndexOfParagraph(paragraphId))
+        if (at < 0) {
+            push doc.blocks (DocBlock.chartBlock(c))
+            return c
+        }
+        def rest:[DocBlock]
+        def rj:int at
+        while (rj < (doc.blockCount())) {
+            push rest (doc.blockAt(rj))
+            rj = (rj + 1)
+        }
+        while ((array_length doc.blocks) > at) {
+            removeLast doc.blocks
+        }
+        push doc.blocks (DocBlock.chartBlock(c))
+        def rk:int 0
+        while (rk < (array_length rest)) {
+            push doc.blocks (itemAt rest rk)
+            rk = (rk + 1)
+        }
+        return c
+    }
+
+    ; Remove the block holding this chart (used to undo a chart paste, and to
+    ; delete one).
+    fn removeChartBlock:boolean (chartId:int) {
+        def keep:[DocBlock]
+        def found:boolean false
+        def i:int 0
+        while (i < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(i))
+            def drop:boolean false
+            if (b.kind == 4) {
+                if (b.chart.id == chartId) {
+                    drop = true
+                    found = true
+                }
+            }
+            if (drop == false) {
+                push keep b
+            }
+            i = (i + 1)
+        }
+        if found {
+            clear doc.blocks
+            def k:int 0
+            while (k < (array_length keep)) {
+                push doc.blocks (itemAt keep k)
+                k = (k + 1)
+            }
+        }
+        return found
+    }
+
     ; Remove the block holding this table (used to undo a table paste).
     fn removeTableById:boolean (tableId:int) {
         def at:int -1

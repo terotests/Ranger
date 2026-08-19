@@ -9,6 +9,7 @@ Import "RichDocument.rgr"
 Import "DocxView.rgr"
 Import "DocxEditController.rgr"
 Import "ClipboardTable.rgr"
+Import "../../datagrid/src/ChartDoc.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 
 class DocxViewer {
@@ -298,6 +299,22 @@ class DocxViewer {
         if ((edit.isActive()) == false) {
             return false
         }
+        ; A chart first: the HTML a chart copy puts on the clipboard is an
+        ; <img> carrying the chart's whole Vela document as an attribute. Read
+        ; as a table it would be nothing; read as a picture it would be dead
+        ; pixels. Read as what it is, it stays a chart.
+        if ((strlen html) > 0) {
+            def cdoc:ChartDoc (ChartDocCodec.fromHtml(html))
+            if cdoc.ok {
+                def json:string (ChartDocCodec.jsonFromHtml(html))
+                def made:int (edit.pasteChart(json cdoc.chart.w cdoc.chart.h))
+                if (made > 0) {
+                    view.selectedChartId = made
+                    this.renderPage(currentPage)
+                    return true
+                }
+            }
+        }
         def tbl:ClipboardTable (new ClipboardTable)
         def got:boolean false
         if ((strlen html) > 0) {
@@ -316,6 +333,92 @@ class DocxViewer {
         def typed:boolean (edit.pasteText(text))
         this.renderPage(currentPage)
         return typed
+    }
+
+    ; --- charts in the document -----------------------------------------------
+    ; Everything a host needs to make a pasted chart editable: find one under
+    ; the pointer, select it, and change it. Each edit regenerates the chart's
+    ; specification from its own numbers, so what is drawn afterwards is a real
+    ; chart of that kind rather than the old picture with a new label.
+    fn chartAtPoint:int (x:int y:int) {
+        def pg:LaidPage (view.layout.pageAt(view.pageIndex))
+        def i:int 0
+        while (i < (array_length pg.lines)) {
+            def line:LaidLine (itemAt pg.lines i)
+            if (line.kind == 6) {
+                if (x >= line.x) {
+                    if (x <= (line.x + line.width)) {
+                        if (y >= line.y) {
+                            if (y <= (line.y + line.height)) {
+                                return line.chartId
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    fn selectChart:void (id:int) {
+        view.selectedChartId = id
+        this.renderPage(currentPage)
+    }
+
+    fn selectedChart:int () {
+        return view.selectedChartId
+    }
+
+    ; Click-to-select, so a chart behaves like the pictures beside it. Returns
+    ; true when the click landed on one, so the host knows the caret should not
+    ; move there.
+    fn clickChart:boolean (x:int y:int) {
+        def id:int (this.chartAtPoint(x y))
+        if (id == 0) {
+            if (view.selectedChartId != 0) {
+                view.selectedChartId = 0
+                this.renderPage(currentPage)
+            }
+            return false
+        }
+        this.selectChart(id)
+        return true
+    }
+
+    fn editChart:boolean (what:string arg:string) {
+        def id:int view.selectedChartId
+        if (id == 0) {
+            return false
+        }
+        def done:boolean (edit.editChart(id what arg))
+        if done {
+            ; The render cache is keyed by chart id and box, and the chart it
+            ; describes has changed, so the old picture has to go.
+            view.charts.forget(id)
+            this.renderPage(currentPage)
+        }
+        return done
+    }
+
+    fn deleteChart:boolean () {
+        def id:int view.selectedChartId
+        if (id == 0) {
+            return false
+        }
+        def done:boolean (edit.deleteChart(id))
+        if done {
+            view.charts.forget(id)
+            view.selectedChartId = 0
+            this.renderPage(currentPage)
+        }
+        return done
+    }
+
+    ; The chart's own document, for a host that wants to show or export it.
+    fn chartJson:string (id:int) {
+        def c:DocChart (doc.chartById(id))
+        return c.json
     }
 
     fn toggleBold:void () {

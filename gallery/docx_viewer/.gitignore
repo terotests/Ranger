@@ -1,3 +1,9 @@
 bin/
 *.png
 harness/out/
+
+# …except the two that show a chart living in a document: pasted from the
+# spreadsheet, then edited here. Tracked so a review can see them, the way
+# gallery/datagrid/artifacts/ is.
+!docx_chart_pasted.png
+!docx_chart_edited.png

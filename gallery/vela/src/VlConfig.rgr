@@ -462,6 +462,32 @@ class VlConfig {
         if (name == "category20b") {
             return (VlConfig.ramp("393b795254a36b6ecf9c9ede6379398ca252b5cf6bcedb9c8c6d31bd9e39e7ba52e7cb94843c39ad494ad6616be7969c7b4173a55194ce6dbdde9ed6"))
         }
+        ; ColorBrewer Set2 and Dark2, as Vega names them. Both are qualitative
+        ; palettes meant for a light page; Set2 is the one that also reads on a
+        ; DARK one, which is what a chart on a slate background needs — the
+        ; twenty-colour palette starts at #393b79 and disappears into it.
+        if (name == "set2") {
+            push out "#66c2a5"
+            push out "#fc8d62"
+            push out "#8da0cb"
+            push out "#e78ac3"
+            push out "#a6d854"
+            push out "#ffd92f"
+            push out "#e5c494"
+            push out "#b3b3b3"
+            return out
+        }
+        if (name == "dark2") {
+            push out "#1b9e77"
+            push out "#d95f02"
+            push out "#7570b3"
+            push out "#e7298a"
+            push out "#66a61e"
+            push out "#e6ab02"
+            push out "#a6761d"
+            push out "#666666"
+            return out
+        }
         if (name == "category10") {
             push out "#1f77b4"
             push out "#ff7f0e"

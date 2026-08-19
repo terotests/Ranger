@@ -1,0 +1,260 @@
+; ==============================================================================
+; ChartPasteTest — copy a chart in the spreadsheet, paste it in the word
+; processor, edit it there.
+; ==============================================================================
+;
+; Both applications are in this one test on purpose. The interesting claim is
+; not "the grid can encode a chart" or "the editor can decode one" — each of
+; those can pass while the pair is broken. It is that a chart copied HERE
+; arrives THERE as a chart: the same numbers, drawn by the same renderer, and
+; still editable afterwards.
+;
+; So this drives the real seam. GridApp copies (which is what fills the
+; clipboard's HTML flavour); DocxViewer pastes that exact string; and what the
+; document then holds is asked to draw itself and to change.
+; ==============================================================================
+
+Import "../src/DocxViewer.rgr"
+Import "../../datagrid/src/GridApp.rgr"
+Import "../../datagrid/src/ChartDoc.rgr"
+
+class ChartPasteCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class ChartPasteTest {
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= (strlen hay)) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; How much of the page is not the paper colour — a picture drawn or not.
+    sfn inkOn:int (view:DocxView) {
+        def px:buffer (view.raw())
+        def n:int (buffer_length px)
+        def marked:int 0
+        def i:int 0
+        while ((i + 3) < n) {
+            def r:int (buffer_get px i)
+            def g:int (buffer_get px (i + 1))
+            def b:int (buffer_get px (i + 2))
+            if (((r < 240) || (g < 240)) || (b < 240)) {
+                marked = (marked + 1)
+            }
+            i = (i + 4)
+        }
+        return marked
+    }
+
+    sfn main:void () {
+        def c (new ChartPasteCheck)
+        def fonts:string "gallery/pdf_writer/assets/fonts"
+        def fix:string "gallery/docx_viewer/fixtures"
+
+        print "== the spreadsheet copies a chart =="
+        def app (new GridApp)
+        app.init(fonts)
+        app.model.growTo(8 3)
+        app.model.setCell(0 0 "Month")
+        app.model.setCell(0 1 "Widgets")
+        app.model.setCell(0 2 "Gadgets")
+        app.model.setCell(1 0 "Jan")
+        app.model.setCell(1 1 "120")
+        app.model.setCell(1 2 "80")
+        app.model.setCell(2 0 "Feb")
+        app.model.setCell(2 1 "150")
+        app.model.setCell(2 2 "95")
+        app.model.setCell(3 0 "Mar")
+        app.model.setCell(3 1 "90")
+        app.model.setCell(3 2 "130")
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.grid.updateVisible(app.model)
+        app.sel.anchor.row = 0
+        app.sel.anchor.col = 0
+        app.sel.active.row = 3
+        app.sel.active.col = 2
+        app.openChartDialog(0)
+        app.chartDialog.selectRadio(100 + (ChartKind.column()))
+        app.chartDialog.setInputValue(311 "Units by month")
+        app.applyChartDialog()
+        def panel:ChartPanel (app.view.chartLayer.panelAt(0))
+        c.ok("the grid made a chart" (panel.chart.id > 0))
+        def copied:int (app.copyChart(panel.chart.id))
+        c.ok("and copied it" (copied > 0))
+        def html:string app.clipboardHtml
+        c.ok("the clipboard html carries the chart document" (ChartPasteTest.hasSub(html "data-ranger-chart")))
+        c.ok("and a picture, for programs that only take pictures" (ChartPasteTest.hasSub(html "data:image/png;base64,")))
+
+        print "== the word processor pastes it as a chart =="
+        def viewer (new DocxViewer)
+        viewer.init(fonts)
+        c.ok("open a document" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def doc:RichDocument (viewer.document())
+        def before:int (doc.blockCount())
+        def target:Paragraph (doc.paragraphAt(1))
+        viewer.edit.setCaret(target.id (strlen target.text))
+        def inkBefore:int (ChartPasteTest.inkOn(viewer.view))
+        c.ok("paste" (viewer.pasteClipboard(html app.clipboardTsv)))
+
+        def doc2:RichDocument (viewer.document())
+        c.eqInt("one chart in the document" (doc2.chartCount()) 1)
+        def chartBlocks:int 0
+        def bi:int 0
+        while (bi < (doc2.blockCount())) {
+            def b:DocBlock (doc2.blockAt(bi))
+            if (b.kind == 4) {
+                chartBlocks = (chartBlocks + 1)
+            }
+            bi = (bi + 1)
+        }
+        c.eqInt("as a block of its own" chartBlocks 1)
+        c.ok("it was not pasted as a table instead" ((doc2.blockCount()) == (before + 2)))
+
+        def dc:DocChart (doc2.chartAt(0))
+        c.ok("carrying the whole document" (ChartPasteTest.hasSub(dc.json "\"ranger\":\"vela-chart\"")))
+        def decoded:ChartDoc (ChartDocCodec.decode(dc.json))
+        c.ok("which decodes here" decoded.ok)
+        c.eqStr("with its title" decoded.chart.title "Units by month")
+        c.eqInt("its numbers" (decoded.rows()) 4)
+        c.eqStr("the actual values" (decoded.cells.getCell(2 1)) "150")
+        c.eqInt("and the kind it was drawn as" decoded.chart.kind (ChartKind.column()))
+        c.ok("no pixels were carried" ((ChartPasteTest.hasSub(dc.json "base64")) == false))
+
+        print "== and draws it, with the same engine =="
+        viewer.renderPage(0)
+        def inkAfter:int (ChartPasteTest.inkOn(viewer.view))
+        def inkFloor:int (inkBefore + 3000)
+        c.ok("the page has a picture on it now" (inkAfter > inkFloor))
+        def laid:LaidPage (viewer.view.layout.pageAt(0))
+        def chartLines:int 0
+        def li:int 0
+        while (li < (array_length laid.lines)) {
+            def ln:LaidLine (itemAt laid.lines li)
+            if (ln.kind == 6) {
+                chartLines = (chartLines + 1)
+                c.eqInt("the chart line names the chart" ln.chartId dc.id)
+                c.ok("and has the size it was copied at" (ln.width > 200))
+            }
+            li = (li + 1)
+        }
+        c.eqInt("one chart on the page" chartLines 1)
+
+        print "== and it is still editable =="
+        def cy:int (ChartPasteTest.chartY(laid))
+        def hitY:int (cy + 20)
+        def hitX:int (laid.contentX + 20)
+        c.eqInt("clicking it selects it" (viewer.chartAtPoint(hitX hitY)) dc.id)
+        viewer.selectChart(dc.id)
+        c.eqInt("selected" (viewer.selectedChart()) dc.id)
+
+        def before2:string dc.json
+        c.ok("change the kind" (viewer.editChart("kind" (to_string (ChartKind.line())))))
+        def dc1:DocChart (doc2.chartAt(0))
+        def after:ChartDoc (ChartDocCodec.decode(dc1.json))
+        c.eqInt("it is a line chart now" after.chart.kind (ChartKind.line()))
+        c.ok("and the specification says so" (ChartPasteTest.hasSub(after.spec "\"line\"")))
+        c.ok("the numbers did not change" ((after.cells.getCell(2 1)) == "150"))
+        def dcNow:DocChart (doc2.chartAt(0))
+        c.ok("the document changed" (dcNow.json != before2))
+
+        c.ok("change the style" (viewer.editChart("style" (to_string (ChartStyle.slate())))))
+        def dc2:DocChart (doc2.chartAt(0))
+        def styled:ChartDoc (ChartDocCodec.decode(dc2.json))
+        c.eqInt("dark now" styled.chart.style (ChartStyle.slate())
+        )
+        c.ok("which reaches the specification" (ChartPasteTest.hasSub(styled.spec "#242a33")))
+
+        c.ok("rename it" (viewer.editChart("title" "Sales in units")))
+        def dc3:DocChart (doc2.chartAt(0))
+        def renamed:ChartDoc (ChartDocCodec.decode(dc3.json))
+        c.eqStr("the title took" renamed.chart.title "Sales in units")
+        c.ok("and is drawn" (ChartPasteTest.hasSub(renamed.spec "Sales in units")))
+
+        c.ok("turn the legend off" (viewer.editChart("legend" "")))
+        def dc4:DocChart (doc2.chartAt(0))
+        def noLegend:ChartDoc (ChartDocCodec.decode(dc4.json))
+        c.ok("legend gone" (noLegend.chart.showLegend == false))
+
+        ; "Next type" walks past the kinds this chart's own numbers cannot be.
+        c.ok("next type" (viewer.editChart("kind.next" "1")))
+        def dc5:DocChart (doc2.chartAt(0))
+        def stepped:ChartDoc (ChartDocCodec.decode(dc5.json))
+        c.ok("landed on something it can actually be" (stepped.suits(stepped.chart.kind)))
+        c.ok("a pie of two series is refused" ((viewer.editChart("kind" (to_string (ChartKind.pie())))) == false))
+
+        viewer.renderPage(0)
+        def inkLater:int (ChartPasteTest.inkOn(viewer.view))
+        c.ok("still drawing after all that" (inkLater > inkFloor))
+
+        c.ok("delete it" (viewer.deleteChart()))
+        c.eqInt("nothing selected afterwards" (viewer.selectedChart()) 0)
+        viewer.renderPage(0)
+        def laidGone:LaidPage (viewer.view.layout.pageAt(0))
+        def gone:int 0
+        def gi:int 0
+        while (gi < (array_length laidGone.lines)) {
+            def gl:LaidLine (itemAt laidGone.lines gi)
+            if (gl.kind == 6) {
+                gone = (gone + 1)
+            }
+            gi = (gi + 1)
+        }
+        c.eqInt("and it is off the page" gone 0)
+
+        print ""
+        print (("passed=" + (to_string c.passed)) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    ; Where the chart line landed, so a click can be aimed at it.
+    sfn chartY:int (pg:LaidPage) {
+        def i:int 0
+        while (i < (array_length pg.lines)) {
+            def ln:LaidLine (itemAt pg.lines i)
+            if (ln.kind == 6) {
+                return ln.y
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+}

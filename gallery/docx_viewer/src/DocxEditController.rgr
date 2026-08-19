@@ -10,6 +10,7 @@
 Import "RichDocument.rgr"
 Import "RichDocumentEdit.rgr"
 Import "ClipboardTable.rgr"
+Import "../../datagrid/src/ChartDoc.rgr"
 Import "DocxTextMetrics.rgr"
 Import "DocxLayout.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
@@ -512,6 +513,162 @@ class DocxEditController {
         this.pushUndo(op)
         this.setCaret(afterId 0)
         return true
+    }
+
+    ; A chart pasted from the grid. Same shape as a table paste — the paragraph
+    ; splits and the chart lands between the halves — but what is inserted is
+    ; the chart's own JSON document, not a rendering of it, so it stays
+    ; editable here.
+    fn pasteChart:int (json:string w:int h:int) {
+        if ((this.isActive()) == false) {
+            return 0
+        }
+        if ((strlen json) == 0) {
+            return 0
+        }
+        def pid:int sel.focus.paragraphId
+        this.splitAtCaret()
+        def afterId:int sel.focus.paragraphId
+        def c:DocChart (adapter.insertChartBefore(afterId json))
+        if (w > 0) {
+            c.widthPx = w
+        }
+        if (h > 0) {
+            c.heightPx = h
+        }
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 5
+        op.paragraphId = pid
+        op.secondId = afterId
+        op.start = c.id
+        this.pushUndo(op)
+        this.setCaret(afterId 0)
+        return c.id
+    }
+
+    ; --- editing a chart in the document --------------------------------------
+    ; The chart is a Vela document, so an edit is: decode, change one thing,
+    ; regenerate the specification through the same generator the spreadsheet
+    ; uses, encode again. Nothing here writes a specification by hand.
+    fn editChart:boolean (chartId:int what:string arg:string) {
+        def c:DocChart (adapter.doc.chartById(chartId))
+        if (c.id != chartId) {
+            return false
+        }
+        def doc:ChartDoc (ChartDocCodec.decode(c.json))
+        if (doc.ok == false) {
+            return false
+        }
+        def changed:boolean false
+        if (what == "kind") {
+            def want:int (DocxEditController.intOr(arg doc.chart.kind))
+            if (want != doc.chart.kind) {
+                if (doc.suits(want)) {
+                    doc.chart.kind = want
+                    changed = true
+                }
+            }
+        }
+        if (what == "kind.next") {
+            def step:int (DocxEditController.intOr(arg 1))
+            def next:int (DocxEditController.nextSuitable(doc doc.chart.kind step))
+            if (next != doc.chart.kind) {
+                doc.chart.kind = next
+                changed = true
+            }
+        }
+        if (what == "style") {
+            def st:int (DocxEditController.intOr(arg doc.chart.style))
+            if (st >= (ChartStyle.lowest())) {
+                if (st <= (ChartStyle.highest())) {
+                    doc.chart.style = st
+                    changed = true
+                }
+            }
+        }
+        if (what == "style.next") {
+            def sstep:int (DocxEditController.intOr(arg 1))
+            def ns:int (doc.chart.style + sstep)
+            while (ns > (ChartStyle.highest())) {
+                ns = (ns - (ChartStyle.highest()))
+            }
+            while (ns < (ChartStyle.lowest())) {
+                ns = (ns + (ChartStyle.highest()))
+            }
+            doc.chart.style = ns
+            changed = true
+        }
+        if (what == "title") {
+            doc.chart.title = arg
+            changed = true
+        }
+        if (what == "legend") {
+            doc.chart.showLegend = (doc.chart.showLegend == false)
+            changed = true
+        }
+        if (what == "width") {
+            def nw:int (DocxEditController.intOr(arg c.widthPx))
+            if (nw >= 120) {
+                c.widthPx = nw
+                doc.chart.w = nw
+                changed = true
+            }
+        }
+        if (what == "height") {
+            def nh:int (DocxEditController.intOr(arg c.heightPx))
+            if (nh >= 90) {
+                c.heightPx = nh
+                doc.chart.h = nh
+                changed = true
+            }
+        }
+        if (changed == false) {
+            return false
+        }
+        doc.rebuildSpec(c.widthPx c.heightPx)
+        c.json = (ChartDocCodec.encode(doc.cells doc.chart))
+        return true
+    }
+
+    sfn intOr:int (s:string fallback:int) {
+        if ((strlen s) == 0) {
+            return fallback
+        }
+        def v@(optional):int (to_int s)
+        if v {
+            return (unwrap v)
+        }
+        return fallback
+    }
+
+    ; The next kind this chart's own numbers can actually be drawn as. Walking
+    ; past the ones that do not suit is what makes "next chart type" a usable
+    ; control rather than a way to reach an error message.
+    sfn nextSuitable:int (doc:ChartDoc from:int step:int) {
+        def dir:int 1
+        if (step < 0) {
+            dir = -1
+        }
+        def k:int from
+        def guard:int 0
+        while (guard < (ChartKind.highest())) {
+            k = (k + dir)
+            if (k > (ChartKind.highest())) {
+                k = (ChartKind.lowest())
+            }
+            if (k < (ChartKind.lowest())) {
+                k = (ChartKind.highest())
+            }
+            if (doc.suits(k)) {
+                return k
+            }
+            guard = (guard + 1)
+        }
+        return from
+    }
+
+    fn deleteChart:boolean (chartId:int) {
+        return (adapter.removeChartBlock(chartId))
     }
 
     ; Plain text paste: newlines become paragraph splits.

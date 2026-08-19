@@ -141,7 +141,10 @@ class ChartStyle {
     ; so a style is a choice among things that exist rather than a list of hex
     ; codes nobody checked.
     sfn scheme:string (style:int) {
-        if (style == 2) { return "category20b" }
+        ; Set2 on the dark style: a qualitative palette light enough to read on
+        ; a slate background. category20b begins at #393b79, which on #242a33
+        ; is very nearly nothing.
+        if (style == 2) { return "set2" }
         if (style == 3) { return "greys" }
         if (style == 4) { return "category10" }
         if (style == 5) { return "tableau10" }

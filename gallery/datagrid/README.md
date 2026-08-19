@@ -571,6 +571,52 @@ A host that puts CF_HTML on a Windows clipboard wraps that fragment in the
 CF_HTML header; a browser hands `text/html` to `navigator.clipboard` and the
 wrapping is the browser's problem.
 
+### The chart as a document
+
+A picture is what a program can *paste*; it is not something it can **edit**.
+So the same `<img>` carries the chart itself, as JSON, in an attribute:
+
+```html
+<img src="data:image/png;base64,…" data-ranger-chart="{&quot;ranger&quot;:&quot;vela-chart&quot;,…}">
+```
+
+```jsonc
+{
+  "ranger": "vela-chart", "v": 1,
+  "title": "Units by month", "kind": 1, "style": 1, "legend": true,
+  "headerRow": true, "headerCol": true, "w": 380, "h": 270,
+  "source": "A1:C7",
+  "cells": [["Month","Widgets","Gadgets"], ["Jan","120","80"], …],
+  "spec":  { "mark": "bar", "encoding": { … }, "data": { "values": [ … ] }, … }
+}
+```
+
+Both halves are there on purpose:
+
+| Member | For | Why |
+| --- | --- | --- |
+| `spec` | a **renderer** | hand it to Vela unchanged and a chart comes out; no spreadsheet involved |
+| `cells` + the settings | an **editor** | ask for a different kind and get a different chart, not a differently-labelled one |
+
+`spec` is never edited by hand. Every change regenerates it from `cells`
+through `ChartData.specJson` — the *same* generator the spreadsheet uses — which
+is what stops the two halves from drifting. The carried table is a tiny
+`SpreadsheetModel`, the same class the grid holds its cells in, so "the same
+generator" is literal rather than approximate.
+
+A program that does not know the attribute pastes the picture and loses nothing
+it ever had. A program that does — [the DOCX editor](../docx_viewer/README.md#charts-from-the-spreadsheet)
+— pastes a chart it can go on editing, in the document, with the same Vela
+renderer drawing it. `GridApp.clipboardChartJson` holds it, `GET /clipboard`
+returns it as `chart`, and [`ChartDoc.rgr`](src/ChartDoc.rgr) is both ends of
+the codec.
+
+> The three files that make up the chart component — `GridChart.rgr` (the model
+> and the spec generator), `GridChartView.rgr` (compile, fit, cache, draw) and
+> `ChartDoc.rgr` (the interchange format) — are used by the DOCX editor as they
+> stand. They live here because this is where charts are authored, not because
+> they are the spreadsheet's private business.
+
 All of them are built from **one render** ([`GridClip.rgr`](src/GridClip.rgr)) —
 the same display list the sheet draws, painted onto an off-screen surface by the
 same [`SoftPainter`](src/SoftPainter.rgr). The picture in the document is the

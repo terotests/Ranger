@@ -65,6 +65,10 @@ class GridApp {
     def clipboardKind:string "cells"
     def clipboardPng:string ""
     def clipboardSvg:string ""
+    ; The chart as a Vela document: the specification, the numbers it was made
+    ; of, and how it is presented. A host hands this to anything that can draw
+    ; Vela — the DOCX editor pastes it and keeps editing it.
+    def clipboardChartJson:string ""
     def clipboardName:string ""
     def clipboardNote:string ""
     ; Bumped by every copy. A host polls this to notice that something new is
@@ -2035,6 +2039,7 @@ class GridApp {
         clipboardHtml = clip.html
         clipboardPng = clip.pngBase64
         clipboardSvg = clip.svg
+        clipboardChartJson = clip.chartJson
         clipboardName = clip.name
         clipboardKind = "chart"
         clipboardNote = ""
@@ -3160,6 +3165,8 @@ class GridApp {
         clipboardKind = "cells"
         clipboardPng = ""
         clipboardSvg = ""
+        clipboardChartJson = ""
+        clipboardChartJson = ""
         clipboardName = ""
         clipboardSeq = (clipboardSeq + 1)
     }

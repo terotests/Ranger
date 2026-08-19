@@ -11,6 +11,7 @@ Import "WordNumbering.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 
 ; kind: 0=text 1=image 2=tableCellBg 3=tableBorder 4=headerText 5=footerText
+;        6=chart (chartId names the DocChart; the picture is rendered at paint)
 class LaidLine {
     def paraIndex:int 0
     def text:string ""
@@ -28,6 +29,9 @@ class LaidLine {
     def listPrefix:string ""
     def kind:int 0
     def imageIndex:int 0
+    ; Which DocChart this line draws, by id rather than by index — an edit may
+    ; add or remove charts between layout and paint.
+    def chartId:int 0
     def bold:boolean false
     def italic:boolean false
     def underline:boolean false
@@ -170,6 +174,45 @@ class DocxLayout {
                     }
                 }
                 y = (this.layoutParagraph(p ml y contentW))
+            }
+            if (b.kind == 4) {
+                def ch:DocChart b.chart
+                def cw:int ch.widthPx
+                if (cw > contentW) {
+                    cw = contentW
+                }
+                def chh:int ch.heightPx
+                ; A chart is not split across a page boundary: half a chart is
+                ; not a chart. It moves to the next page whole, as Word moves a
+                ; picture.
+                if ((y + chh) > curMaxY) {
+                    this.paintChrome(curPage curSec)
+                    curPage = (this.newPage(curSec curSecIdx))
+                    ml = (curSec.marginLeftPx())
+                    mt = (curSec.marginTopPx())
+                    mb = (curSec.marginBottomPx())
+                    headerH = (this.measureHeaderFooter(curSec.headerParas contentW))
+                    footerH = (this.measureHeaderFooter(curSec.footerParas contentW))
+                    y = mt
+                    if (headerH > 0) {
+                        y = (mt + headerH + 8)
+                    }
+                    curMaxY = ((curPage.height - mb) - footerH)
+                    if (footerH > 0) {
+                        curMaxY = (curMaxY - 8)
+                    }
+                }
+                def cl (new LaidLine)
+                cl.kind = 6
+                cl.chartId = ch.id
+                cl.x = ml
+                cl.y = y
+                cl.width = cw
+                cl.height = chh
+                cl.boxX = ml
+                cl.boxW = cw
+                push curPage.lines cl
+                y = ((y + chh) + 10)
             }
             if (b.kind == 1) {
                 def tbl:DocumentTable b.table
