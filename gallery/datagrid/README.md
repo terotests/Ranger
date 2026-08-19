@@ -15,7 +15,7 @@ SheetView (hidden / filter / sort)
    ↓
 DataGrid (virtualized + freeze)
    ↓
-EVGDisplayList → SoftCanvas / WebGL
+EVGDisplayList → SoftCanvas / WebGL / SDL2+OpenGL
 ```
 
 ## Run
@@ -39,12 +39,25 @@ npm run datagrid:oracle:dump
 npm run datagrid:parity
 npm run datagrid:oracles
 npm run datagrid:window
+npm run datagrid:sdl            # Ranger → C++ → SDL2 + OpenGL binary (macOS/Linux)
+npm run datagrid:sdl:smoke      # headless dummy driver, open+save smoke
 # older tiny fixture:
 # npm run datagrid:module && node gallery/datagrid/web/serve.mjs --open --xlsx gallery/datagrid/fixtures/sales.xlsx
 ```
 
 `datagrid:window` rebuilds the module and opens the WebGL host. **Default workbook is
 `business-workbook.xlsx`** (not the old `sales.xlsx`).
+
+### Native desktop (SDL2 + OpenGL, C++)
+
+Same `GridApp`, disk `.xlsx` open/save, SoftCanvas paint uploaded as an OpenGL
+texture each frame. Lives under [`platform/sdl/`](platform/sdl/README.md):
+
+```bash
+brew install sdl2                 # macOS
+npm run datagrid:sdl
+./tmp/datagrid-sdl/datagrid_sdl gallery/datagrid/fixtures/business-workbook.xlsx
+```
 
 ### Running it with no host at all
 

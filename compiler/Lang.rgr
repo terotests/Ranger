@@ -3500,7 +3500,10 @@ inline std::string r_double_to_string(double v) {
                 es6 ( "(" (e 1) " >>> " (e 2) ")" )
                 go ( "int64(uint64(" (e 1) ") >> uint(" (e 2) "))" )
                 rust ( "(((" (e 1) ") as u64 >> (" (e 2) ")) as i64)" )
-                cpp ( "(int64_t)((uint64_t)(" (e 1) ") >> (" (e 2) "))" )
+                ; Cast through uint32_t first: `(uint64_t)(int)-1` is 2^64-1, so a
+                ; 64-bit shift would not match JS `>>>` (32-bit). CRC32 and ZIP
+                ; writers depend on the 32-bit semantics.
+                cpp ( "(int)(((uint32_t)(" (e 1) ")) >> (" (e 2) "))" (imp "<cstdint>") )
                 java7 ( "((" (e 1) ") >>> (" (e 2) "))" )
                 python ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 dart ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
@@ -6052,7 +6055,9 @@ inline std::string r_double_to_string(double v) {
         to_string  _:string       ( value:boolean ) { 
             templates {
                 ranger ( "(to_string " (e 1) ")")
-                cpp ( "(" (e 1) " ? \"true\" : \"false\")" )
+                ; std::string so `(to_string a) + (to_string b)` concatenates;
+                ; a bare ternary is const char* and C++ rejects char* + char*.
+                cpp ( "std::string(" (e 1) " ? \"true\" : \"false\")" (imp "<string>") )
                 java7 ( "String.valueOf(" (e 1) " )") 
                 php ( "(" (e 1) " ? \"true\" : \"false\")") 
                 scala ( "(" (e 1) ".toString)")

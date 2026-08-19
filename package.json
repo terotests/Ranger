@@ -462,7 +462,10 @@
     "selfhost:round:llvm": "bash scripts/selfhost-llvm.sh round",
     "test:core": "vitest run --config tests/vitest.core.config.ts",
     "esprobes:gen": "node scripts/gen-es-conformance-probes.cjs",
-    "test:esconformance": "vitest run --config tests/vitest.esconformance.config.ts"
+    "test:esconformance": "vitest run --config tests/vitest.esconformance.config.ts",
+    "datagrid:sdl": "bash gallery/datagrid/platform/sdl/build.sh",
+    "datagrid:sdl:run": "bash gallery/datagrid/platform/sdl/build.sh --run",
+    "datagrid:sdl:smoke": "bash gallery/datagrid/platform/sdl/build.sh && SDL_VIDEODRIVER=dummy ./tmp/datagrid-sdl/datagrid_sdl gallery/datagrid/fixtures/sales.xlsx 20 --save"
   },
   "repository": {
     "type": "git",

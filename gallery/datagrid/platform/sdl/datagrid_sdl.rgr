@@ -1,0 +1,191 @@
+; ==============================================================================
+; datagrid_sdl — macOS / desktop SDL2 + OpenGL host for the EVG DataGrid.
+; ==============================================================================
+;
+; Same GridApp / UIInput contract as the WebGL host: this file only opens a
+; window, maps SDL events into UIInput, calls app.update / app.render, and
+; presents the SoftCanvas RGBA buffer through OpenGL.
+;
+; Excel open/save is on disk already (`loadXlsx` / `saveXlsx` / Ctrl+S).
+;
+; Usage (after build.sh):
+;   ./tmp/datagrid-sdl/datagrid_sdl [workbook.xlsx] [frames]
+;   ./tmp/datagrid-sdl/datagrid_sdl gallery/datagrid/fixtures/business-workbook.xlsx
+;   SDL_VIDEODRIVER=dummy ./tmp/datagrid-sdl/datagrid_sdl … 30   # headless smoke
+;
+; Optional second arg = frame count then exit (smoke / CI). Absent = run until
+; the window is closed.
+; ==============================================================================
+
+Import "../../src/GridApp.rgr"
+Import "gfx_datagrid_sdl.rgr"
+
+class DataGridSdl {
+    def app:GridApp (new GridApp)
+    def input:UIInput (new UIInput)
+    def pw:int 1100
+    def ph:int 700
+    def frames:int 0
+    def hasWindow:boolean false
+    def xlsxPath:string ""
+    def fontDir:string "gallery/pdf_writer/assets/fonts"
+    def saveOnExit:boolean false
+
+    fn openWindow:void () {
+        def ok:int (dgfx_open "Ranger DataGrid (SDL2 / OpenGL)" pw ph)
+        if (ok == 1) {
+            hasWindow = true
+        } {
+            print "dgfx_open failed (no display?) — still painting into SoftCanvas"
+        }
+    }
+
+    fn loadWorkbook:boolean (path:string) {
+        if ((strlen path) == 0) {
+            app.loadDemo()
+            xlsxPath = ""
+            return true
+        }
+        def ok:boolean (app.loadXlsx(path))
+        if ok {
+            xlsxPath = path
+            print ("loaded " + path)
+        } {
+            print ("load failed: " + app.loadError)
+        }
+        return ok
+    }
+
+    ; Map one SDL frame into UIInput and tick the app.
+    fn pumpInput:void () {
+        dgfx_poll
+        input.newFrame()
+        def mx:int (dgfx_mouse_x)
+        def my:int (dgfx_mouse_y)
+        def btn:int (dgfx_mouse_buttons)
+        def down:boolean false
+        if ((bit_and btn 1) != 0) {
+            down = true
+        }
+        input.setPointerPos(mx my)
+        input.setPointerDown(down)
+        def wy:int (dgfx_wheel)
+        if (wy != 0) {
+            input.addScroll(wy)
+        }
+        def wx:int (dgfx_wheel_x)
+        if (wx != 0) {
+            input.addScrollX(wx)
+        }
+        def shift:boolean (dgfx_shift_down)
+        def ctrl:boolean (dgfx_ctrl_down)
+        input.setModifiers(shift ctrl)
+        def text:string (dgfx_take_text)
+        if ((strlen text) > 0) {
+            input.pushText(text)
+        }
+        def k:int (dgfx_pop_key)
+        while (k != 0) {
+            input.pushKey(k)
+            k = (dgfx_pop_key)
+        }
+        app.update(input)
+    }
+
+    fn draw:void () {
+        app.render()
+        if hasWindow {
+            dgfx_present (app.raw()) pw ph
+        }
+    }
+
+    fn run:void (maxFrames:int) {
+        app.W = pw
+        app.H = ph
+        app.init(fontDir)
+        if ((strlen xlsxPath) > 0) {
+            def ok:boolean (this.loadWorkbook(xlsxPath))
+            if (ok == false) {
+                app.loadDemo()
+            }
+        } {
+            app.loadDemo()
+        }
+        this.openWindow()
+        def running:boolean true
+        while (running) {
+            this.pumpInput()
+            this.draw()
+            frames = (frames + 1)
+            def sc:boolean (dgfx_should_close)
+            if sc {
+                running = false
+            }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+        if saveOnExit {
+            def saved:boolean (app.saveXlsxDefault())
+            if saved {
+                print ("saved " + app.savedPath)
+            } {
+                print ("save failed")
+            }
+        }
+        if hasWindow {
+            dgfx_close
+        }
+    }
+
+    ; Parse CLI: optional .xlsx path, optional frame count, optional --save.
+    sfn main:void () {
+        def host:DataGridSdl (new DataGridSdl)
+        def maxFrames:int 0
+        def i:int 0
+        def n:int (shell_arg_cnt)
+        while (i < n) {
+            def a:string (shell_arg i)
+            if (a == "--save") {
+                host.saveOnExit = true
+            } {
+                if (a == "--demo") {
+                    host.xlsxPath = ""
+                } {
+                    def last:int ((strlen a) - 1)
+                    def isNum:boolean true
+                    def ci:int 0
+                    if ((strlen a) == 0) {
+                        isNum = false
+                    }
+                    while (ci < (strlen a)) {
+                        def ch:int (charAt a ci)
+                        if ((ch < 48) || (ch > 57)) {
+                            isNum = false
+                        }
+                        ci = (ci + 1)
+                    }
+                    if isNum {
+                        def parsed@(optional):int (to_int a)
+                        if (!null? parsed) {
+                            maxFrames = (unwrap parsed)
+                        }
+                    } {
+                        host.xlsxPath = a
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen host.xlsxPath) == 0) {
+            if (maxFrames == 0) {
+                ; Interactive default: the showcase workbook.
+                host.xlsxPath = "gallery/datagrid/fixtures/business-workbook.xlsx"
+            }
+        }
+        host.run(maxFrames)
+        print ("datagrid-sdl done: frames=" + (to_string host.frames))
+    }
+}
