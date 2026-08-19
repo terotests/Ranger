@@ -76,7 +76,7 @@ fi
 
 cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"
 
-echo "==> 2/3 $CXX -> native binary (SDL2 + OpenGL)"
+echo "==> 2/3 $CXX -> native binary (SDL2 + OpenGL + EVG GL)"
 GL_FLAGS=""
 if [[ "$(uname -s)" == "Darwin" ]]; then
   GL_FLAGS="-framework OpenGL -DGL_SILENCE_DEPRECATION -Wno-deprecated-declarations"
@@ -92,8 +92,12 @@ else
 fi
 
 CXX_OPT="${CXX_OPT:--O3}"
+EVG_GL_NATIVE="$ROOT/gallery/datagrid/platform/sdl/evg_gl_native.cpp"
 # shellcheck disable=SC2086
-"$CXX" $CXX_OPT -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS
+"$CXX" $CXX_OPT -std=c++17 \
+  -I"$ROOT/gallery/datagrid/platform/sdl" \
+  "$CPP_FILE" "$EVG_GL_NATIVE" \
+  -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS
 
 echo "==> 3/3 Ready: $BIN_FILE"
 

@@ -3,8 +3,9 @@
 ; ==============================================================================
 ;
 ; Same GridApp / UIInput contract as the WebGL host: this file only opens a
-; window, maps SDL events into UIInput, calls app.update / app.render, and
-; presents the SoftCanvas RGBA buffer through OpenGL.
+; window, maps SDL events into UIInput, and draws the EVG display list with
+; OpenGL (evg_gl_native — same seam as gallery/evg/gl/evg-webgl.js). SoftCanvas
+; is used only to rasterize text runs into an atlas, not as the page framebuffer.
 ;
 ; Excel open/save is on disk already (`loadXlsx` / `saveXlsx` / Ctrl+S).
 ;
@@ -19,10 +20,12 @@
 
 Import "../../src/GridApp.rgr"
 Import "gfx_datagrid_sdl.rgr"
+Import "EvgGlPainter.rgr"
 
 class DataGridSdl {
     def app:GridApp (new GridApp)
     def input:UIInput (new UIInput)
+    def glPainter:EvgGlPainter (new EvgGlPainter)
     def pw:int 1100
     def ph:int 700
     def frames:int 0
@@ -36,7 +39,7 @@ class DataGridSdl {
         if (ok == 1) {
             hasWindow = true
         } {
-            print "dgfx_open failed (no display?) — still painting into SoftCanvas"
+            print "dgfx_open failed (no display?) — SoftCanvas fallback for smoke"
         }
     }
 
@@ -62,6 +65,15 @@ class DataGridSdl {
         input.newFrame()
         def mx:int (dgfx_mouse_x)
         def my:int (dgfx_mouse_y)
+        ; HiDPI: some drivers report mouse in drawable pixels; map back to page.
+        def dw:int (dgfx_drawable_width)
+        def dh:int (dgfx_drawable_height)
+        if ((dw > 0) && (dw != pw)) {
+            mx = (idiv (mx * pw) dw)
+        }
+        if ((dh > 0) && (dh != ph)) {
+            my = (idiv (my * ph) dh)
+        }
         def btn:int (dgfx_mouse_buttons)
         def down:boolean false
         if ((bit_and btn 1) != 0) {
@@ -92,10 +104,17 @@ class DataGridSdl {
         app.update(input)
     }
 
+    ; WebGL-style path: display list → OpenGL (not a SoftCanvas blit).
     fn draw:void () {
-        app.render()
+        app.view.status = ("v" + (to_string app.model.version))
+        app.view.editCaret = app.editCaret
+        app.view.windows = app.windows
+        def dl:EVGDisplayList (app.view.buildDisplayList(app.model app.sel app.grid app.editing app.editBuf app.book))
         if hasWindow {
-            dgfx_present (app.raw()) pw ph
+            glPainter.draw(dl pw ph app.view.ctx.tr app.view.images)
+        } {
+            ; Headless / no GL: still exercise the app via SoftCanvas.
+            app.view.paintSoftCanvas(dl)
         }
     }
 

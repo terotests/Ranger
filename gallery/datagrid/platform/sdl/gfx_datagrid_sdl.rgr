@@ -33,6 +33,18 @@ operators {
 #include <GL/gl.h>
 #include <GL/glext.h>
 #endif
+// Declarations for gallery/datagrid/platform/sdl/evg_gl_native.cpp (linked separately).
+extern \"C\" {
+int evggl_init(void);
+void evggl_begin(int pageW, int pageH, int drawW, int drawH);
+void evggl_set_atlas(const uint8_t* rgba, int w, int h);
+void evggl_rect(float x, float y, float w, float h, float r, float g, float b, float a, float radius);
+void evggl_border(float x, float y, float w, float h, float thickness, float r, float g, float b, float a, float radius);
+void evggl_text(float x, float y, float w, float h, float u0, float v0, float u1, float v1, float r, float g, float b, float a, float rotDeg);
+void evggl_image(float x, float y, float w, float h, const uint8_t* rgba, int tw, int th, float radius);
+void evggl_tris_doubles(const double* xy, int nFloats, float r, float g, float b, float a);
+void evggl_flush(void);
+}
 
 static SDL_Window* g_dgfx_win = nullptr;
 static SDL_GLContext g_dgfx_glctx = nullptr;
@@ -225,36 +237,62 @@ static int dgfx_open(const std::string& title, int w, int h) {
         SDL_Log(\"[dgfx] SDL_Init failed: %s\", SDL_GetError());
         return 0;
     }
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+    // OpenGL 3.2+ core: same shader model as WebGL 2 / evg-webgl.js.
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
     g_dgfx_win = SDL_CreateWindow(title.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h,
-        SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+        SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (g_dgfx_win == nullptr) {
         SDL_Log(\"[dgfx] CreateWindow failed: %s\", SDL_GetError());
         return 0;
     }
     g_dgfx_glctx = SDL_GL_CreateContext(g_dgfx_win);
     if (g_dgfx_glctx == nullptr) {
-        SDL_Log(\"[dgfx] GL context failed: %s\", SDL_GetError());
-        SDL_DestroyWindow(g_dgfx_win);
-        g_dgfx_win = nullptr;
-        return 0;
+        SDL_Log(\"[dgfx] GL 3.2 core failed (%s) — trying GL 2.1\", SDL_GetError());
+        SDL_GL_ResetAttributes();
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        g_dgfx_glctx = SDL_GL_CreateContext(g_dgfx_win);
+        if (g_dgfx_glctx == nullptr) {
+            SDL_Log(\"[dgfx] GL context failed: %s\", SDL_GetError());
+            SDL_DestroyWindow(g_dgfx_win);
+            g_dgfx_win = nullptr;
+            return 0;
+        }
     }
     SDL_GL_SetSwapInterval(1);
     SDL_StartTextInput();
     g_dgfx_fb_w = w;
     g_dgfx_fb_h = h;
+    // Prefer the EVG→GL path (evg_gl_native). SoftCanvas blit remains as dgfx_present.
+    if (!evggl_init()) {
+        SDL_Log(\"[dgfx] evggl_init failed — SoftCanvas blit still available\");
+    }
     if (!dgfx_gl_init()) {
-        SDL_GL_DeleteContext(g_dgfx_glctx);
-        g_dgfx_glctx = nullptr;
-        SDL_DestroyWindow(g_dgfx_win);
-        g_dgfx_win = nullptr;
-        return 0;
+        // Blit shaders optional when EVG GL works.
     }
     return 1;
 }
+
+static int dgfx_drawable_width() {
+    if (g_dgfx_win == nullptr) { return g_dgfx_fb_w; }
+    int w = 0, h = 0;
+    SDL_GL_GetDrawableSize(g_dgfx_win, &w, &h);
+    return w;
+}
+static int dgfx_drawable_height() {
+    if (g_dgfx_win == nullptr) { return g_dgfx_fb_h; }
+    int w = 0, h = 0;
+    SDL_GL_GetDrawableSize(g_dgfx_win, &w, &h);
+    return h;
+}
+static int dgfx_window_width() { return g_dgfx_fb_w; }
+static int dgfx_window_height() { return g_dgfx_fb_h; }
 
 static void dgfx_present(const uint8_t* pixels, int w, int h) {
     if (g_dgfx_win == nullptr || g_dgfx_glctx == nullptr || pixels == nullptr) { return; }
@@ -442,6 +480,81 @@ static void dgfx_close() {
     dgfx_delay _:void (ms:int) {
         templates {
             cpp ( "SDL_Delay((Uint32)(" (e 1) "))" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; --- EVG display-list → OpenGL (evg_gl_native / same seam as evg-webgl.js) ---
+    dgfx_drawable_width _:int () {
+        templates {
+            cpp ( "dgfx_drawable_width()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    dgfx_drawable_height _:int () {
+        templates {
+            cpp ( "dgfx_drawable_height()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    dgfx_window_width _:int () {
+        templates {
+            cpp ( "dgfx_window_width()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    dgfx_window_height _:int () {
+        templates {
+            cpp ( "dgfx_window_height()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    dgfx_evg_begin _:void (pageW:int pageH:int drawW:int drawH:int) {
+        templates {
+            cpp ( "evggl_begin(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_set_atlas _:void (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "evggl_set_atlas(" (e 1) ".data(), " (e 2) ", " (e 3) ")" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_rect _:void (x:double y:double w:double h:double r:double g:double b:double a:double radius:double) {
+        templates {
+            cpp ( "evggl_rect((float)(" (e 1) "), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "), (float)(" (e 5) "), (float)(" (e 6) "), (float)(" (e 7) "), (float)(" (e 8) "), (float)(" (e 9) "))" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_border _:void (x:double y:double w:double h:double thick:double r:double g:double b:double a:double radius:double) {
+        templates {
+            cpp ( "evggl_border((float)(" (e 1) "), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "), (float)(" (e 5) "), (float)(" (e 6) "), (float)(" (e 7) "), (float)(" (e 8) "), (float)(" (e 9) "), (float)(" (e 10) "))" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_text _:void (x:double y:double w:double h:double u0:double v0:double u1:double v1:double r:double g:double b:double a:double rot:double) {
+        templates {
+            cpp ( "evggl_text((float)(" (e 1) "), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "), (float)(" (e 5) "), (float)(" (e 6) "), (float)(" (e 7) "), (float)(" (e 8) "), (float)(" (e 9) "), (float)(" (e 10) "), (float)(" (e 11) "), (float)(" (e 12) "), (float)(" (e 13) "))" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_image _:void (x:double y:double w:double h:double pixels:buffer tw:int th:int radius:double) {
+        templates {
+            cpp ( "evggl_image((float)(" (e 1) "), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "), " (e 5) ".data(), " (e 6) ", " (e 7) ", (float)(" (e 8) "))" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_tris_d _:void (pts:[double] r:double g:double b:double a:double) {
+        templates {
+            cpp ( "evggl_tris_doubles(" (e 1) ".data(), (int)" (e 1) ".size(), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "), (float)(" (e 5) "))" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_end _:void () {
+        templates {
+            cpp ( "{ evggl_flush(); if (g_dgfx_win) SDL_GL_SwapWindow(g_dgfx_win); }" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }
