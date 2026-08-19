@@ -797,6 +797,75 @@ class GridApp {
         grid.updateVisible(model)
     }
 
+    ; Grow one row to fit what is now in it — and only grow.
+    ;
+    ; A spreadsheet makes room when the type gets bigger: put 20pt in a row and
+    ; the row becomes 20pt tall, in Excel and in Sheets alike. It does not take
+    ; the room back when you make the type small again, because by then the
+    ; height might be one you dragged out yourself, and there is no way to tell
+    ; the two apart. So this only ever adds.
+    fn growRowToFit:boolean (row:int) {
+        if (row < 0) {
+            return false
+        }
+        if (row >= model.rowCount) {
+            return false
+        }
+        def want:int model.defaultRowH
+        def c:int 0
+        def lastCol:int (model.usedCol())
+        while (c <= lastCol) {
+            def txt:string (model.getDisplay(row c))
+            ; A cell counts if it has something in it OR a format of its own:
+            ; set an empty cell to 20 point and the row makes room for 20
+            ; point, which is what happens when you do it in a spreadsheet.
+            def counts:boolean ((strlen txt) > 0)
+            if ((model.getCellStyleId(row c)) >= 0) {
+                counts = true
+            }
+            if counts {
+                def st:CellStyle (model.getCellStyle(row c))
+                def need:int (view.measureWrappedHeight(txt (model.colWidth(c)) st))
+                if (need > want) {
+                    want = need
+                }
+            }
+            c = (c + 1)
+        }
+        if (want > 400) {
+            want = 400
+        }
+        if (want <= (model.rowHeight(row))) {
+            return false
+        }
+        model.setRowHeight(row want)
+        return true
+    }
+
+    ; The same over every row the selection touches, plus the caret's own row,
+    ; refreshing the view once if anything moved.
+    fn growSelectedRowsToFit:void () {
+        def moved:boolean (this.growRowToFit(sel.active.row))
+        def i:int 0
+        while (i < (sel.rangeCount())) {
+            def rg:GridRange (sel.rangeAt(i))
+            def r:int rg.r0
+            def last:int rg.r1
+            while (r <= last) {
+                if (this.growRowToFit(r)) {
+                    moved = true
+                }
+                r = (r + 1)
+            }
+            i = (i + 1)
+        }
+        if moved {
+            sheetView.markDirty()
+            sheetView.rebuild()
+            grid.updateVisible(model)
+        }
+    }
+
     ; Double-click on a row header edge auto-fits its height.
     fn autoFitRowAt:boolean (px:int py:int) {
         def edgeRow:int (grid.hitRowResize(model px py))
@@ -2170,9 +2239,14 @@ class GridApp {
             return (this.toggleMerge())
         }
         if (id == "format.size.up") {
-            return (GridFormat.apply(model sel "size" "1"))
+            def up:boolean (GridFormat.apply(model sel "size" "1"))
+            if up {
+                this.growSelectedRowsToFit()
+            }
+            return up
         }
         if (id == "format.size.down") {
+            ; Smaller type never shrinks a row — see growRowToFit.
             return (GridFormat.apply(model sel "size" "-1"))
         }
         def op:string (substring id 7 (strlen id))
@@ -2181,6 +2255,7 @@ class GridApp {
         }
         def done:boolean (GridFormat.apply(model sel op arg))
         if done {
+            this.growSelectedRowsToFit()
             sheetView.markDirty()
             grid.updateVisible(model)
         }
@@ -2857,6 +2932,8 @@ class GridApp {
         engine.resetStats()
         engine.syncCell(book.activeIndex r c)
         engine.recalcDirty()
+        ; Wrapped text that now needs a second line needs the room for it.
+        this.growRowToFit(r)
         editing = false
         editBuf = ""
         editCaret = 0

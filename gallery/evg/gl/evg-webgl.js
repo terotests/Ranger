@@ -292,9 +292,20 @@ function buildTextAtlas(cmds, dpr) {
   const measured = runs.map((c) => {
     ctx.font = `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${c.font}", sans-serif`;
     const m = ctx.measureText(c.text);
+    // Two different ascents, and the difference between them is the whole of
+    // where a run sits. `actualBoundingBox*` is the INK of these particular
+    // letters — "moon" has no ascender and no descender, "Ãg" has both — and
+    // is what the slot has to be big enough to hold. `fontBoundingBoxAscent`
+    // is the FACE's ascent, the same number for every string in the font, and
+    // is what EVG means: a TEXT command's y is the top of the line box, and
+    // the baseline sits one face-ascent below it. Placing the ink at y
+    // instead pushed every run up by the height of the empty space above its
+    // capitals — a couple of pixels for a caption, most of a line for a
+    // heading — which in a spreadsheet is text climbing out of its row.
     const asc = m.actualBoundingBoxAscent || c.size * dpr * 0.8;
     const desc = m.actualBoundingBoxDescent || c.size * dpr * 0.25;
-    return { c, w: Math.ceil(m.width) + pad * 2, h: Math.ceil(asc + desc) + pad * 2, asc };
+    const faceAsc = m.fontBoundingBoxAscent || (c.h ? c.h * dpr * 0.78 : c.size * dpr * 1.05);
+    return { c, w: Math.ceil(m.width) + pad * 2, h: Math.ceil(asc + desc) + pad * 2, asc, faceAsc };
   });
   const maxW = Math.max(512, ...measured.map((m) => m.w));
   let x = 0, y = 0, rowH = 0, atlasW = Math.min(2048, nextPow2(maxW)), atlasH = 0;
@@ -319,6 +330,7 @@ function buildTextAtlas(cmds, dpr) {
       u0: m.x / canvas.width, v0: m.y / canvas.height,
       u1: (m.x + m.w) / canvas.width, v1: (m.y + m.h) / canvas.height,
       w: m.w / dpr, h: m.h / dpr, asc: m.asc / dpr, pad: pad / dpr,
+      faceAsc: m.faceAsc / dpr,
     });
   }
   return { canvas, slots };
@@ -436,9 +448,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
     if (c.k === KIND.TEXT) {
       const s = slots.get(c);
       if (!s) continue;
-      // The run is drawn where EVG put its box; the atlas slot carries the
-      // ascent so the baseline lands in the same place it did in the PDF.
-      rects.push(c.x - s.pad, c.y, s.w, s.h);
+      // EVG's y is the top of the LINE BOX, so the baseline goes one
+      // face-ascent below it; inside the slot the baseline is pad + ink
+      // ascent down from the top. Line the two up. This is the same rule the
+      // software canvas draws by, which is what makes a page look the same
+      // whichever backend drew it.
+      rects.push(c.x - s.pad, c.y + s.faceAsc - (s.pad + s.asc), s.w, s.h);
       uvs.push(s.u0, s.v0, s.u1, s.v1);
       shapes.push(0, 0, MODE.TEXT);
     } else {

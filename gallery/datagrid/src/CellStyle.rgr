@@ -121,6 +121,24 @@ class CellStyle {
     Constructor () {
     }
 
+    ; The row height one line of this type needs, in pixels.
+    ;
+    ; Excel's own rule: the point size times 1.275, taken up to the next whole
+    ; pixel. It is what makes 10pt type give the familiar 12.75pt row, and it
+    ; is deliberately NOT the face's line box — a webfont declares a box far
+    ; taller than its letters and a row sized by that is a fifth too tall.
+    ; Loading a file and auto-fitting a row in the app have to agree about
+    ; this, so they ask here.
+    sfn rowHeightForPt:int (pt:double) {
+        def use:double pt
+        if (use <= 0.0) {
+            use = 11.0
+        }
+        def pts:double (use * 1.275)
+        def px:double ((pts * 96.0) / 72.0)
+        return (to_int (px + 0.999))
+    }
+
     sfn createDefault:CellStyle () {
         return (new CellStyle)
     }

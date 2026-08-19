@@ -860,6 +860,37 @@ ordinary row and the cell clip then cut them off. `GridView.textTopFor` places
 the baseline and lets the empty space fall outside the cell, where there is
 nothing to see.
 
+### …and both backends have to mean the same thing by it
+
+A `TEXT` command carries the top of its line box. The software canvas has
+always drawn it that way; the WebGL backend was drawing the run's **ink** at
+that y instead, which lifted every run by the empty space above its own
+capitals — a couple of pixels for a caption, most of a line for a heading. On a
+page it read as slightly-off leading. In a spreadsheet, where the row is only
+as tall as the type, it read as text climbing out of its row, and it is why the
+same workbook looked right in the PNG and wrong in the browser.
+
+The two ascents are easy to confuse and the difference between them is the
+whole of it: `actualBoundingBoxAscent` is the ink of *these particular
+letters* — "moon" has neither ascender nor descender, "Ãg" has both — and is
+what the atlas slot must be big enough to hold; `fontBoundingBoxAscent` is the
+**face's** ascent, the same number for every string in the font, and is what
+the baseline is measured from. `gallery/evg/gl/evg-webgl.js` now places the
+baseline one face-ascent below the command's y, which is what
+`UITextRenderer.drawText` does on the software side. The two paths draw the
+same picture again.
+
+### A row makes room when the type grows
+
+Sheets and Excel both grow a row when the type in it gets bigger, and so does
+this: `format.size.up`, any formatting change, and committing an edit all ask
+the affected rows to fit what is now in them. It only ever adds height — by
+then a row's height may be one you dragged out yourself, and there is no way to
+tell that apart from one a font size produced, so making the type smaller
+again leaves the room where it is. `CellStyle.rowHeightForPt` is the single
+rule, asked by the loader and by the app alike, so a row is the same height
+whether it arrived in a file or was typed here.
+
 ## Recalculation: dependencies first, not sweeps
 
 `FormulaEngine.recalcDirty` used to sweep: walk every formula, evaluate the ones
