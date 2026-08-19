@@ -45,6 +45,14 @@ class XlsxPackage {
         return openOk
     }
 
+    ; The package from bytes rather than from a path — what a browser has.
+    fn openBytes:boolean (bytes:buffer) {
+        pathDir = ""
+        pathName = "workbook.xlsx"
+        openOk = (zip.openBytes(bytes))
+        return openOk
+    }
+
     fn close:void () {
         if openOk {
             zip.close()

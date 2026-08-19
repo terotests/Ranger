@@ -187,6 +187,28 @@ class GridApp {
         this.loadDemo()
     }
 
+    ; Start without touching the file system: the browser build has no fonts to
+    ; read and no workbook to open until it has fetched them. Everything else —
+    ; the command table, the window layer, the grid's bounds — is the same as
+    ; `init` does.
+    fn initBare:void () {
+        view.initBare(W H)
+        view.windows = windows
+        this.buildCommands()
+        view.commands = commands
+        grid.setBounds(0 0 W (H - statusH))
+    }
+
+    ; A face, from bytes. The first one loaded becomes the family the grid
+    ; draws with; the rest are the bold and italic cuts it switches to.
+    fn addFontBytes:boolean (family:string data:buffer) {
+        return (view.ctx.tr.loadFontBytes(family data))
+    }
+
+    fn addFaceBytes:boolean (data:buffer) {
+        return (view.ctx.tr.addFaceBytes(data))
+    }
+
     fn loadDemo:void () {
         book.clear()
         def sheet:SpreadsheetModel (new SpreadsheetModel)
@@ -198,6 +220,25 @@ class GridApp {
         engine.rebuildAll()
         this.syncActiveModel()
         loadError = ""
+    }
+
+    ; The workbook from bytes: what a browser has after a fetch, and what a
+    ; drag-and-dropped file is. Same path as `loadXlsx` past the read.
+    fn loadXlsxBytes:boolean (bytes:buffer name:string) {
+        def loader:XlsxLoader (new XlsxLoader)
+        def ok:boolean (loader.loadBytes(bytes book))
+        if ok {
+            view.chartLayer.removeAll(windows)
+            book.sourcePath = name
+            engine = loader.engine
+            this.syncActiveModel()
+            loadError = ""
+            view.status = ("loaded " + name)
+            return true
+        }
+        loadError = loader.lastError
+        view.status = loadError
+        return false
     }
 
     fn loadXlsx:boolean (fullPath:string) {

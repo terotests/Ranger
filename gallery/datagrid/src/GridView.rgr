@@ -100,6 +100,16 @@ class GridView {
     Constructor () {
     }
 
+    ; Everything `init` does except read font files, which a browser cannot do.
+    ; The faces arrive as bytes afterwards, through `loadFontBytes`.
+    fn initBare:void (w:int h:int) {
+        pageW = w
+        pageH = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        status = "no fonts yet"
+    }
+
     fn init:void (w:int h:int fontDir:string) {
         pageW = w
         pageH = h

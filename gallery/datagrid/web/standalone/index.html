@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger DataGrid — running entirely in the browser</title>
+    <style>
+      @font-face {
+        font-family: "Open Sans";
+        src: url("./fonts/OpenSans-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "Open Sans";
+        src: url("./fonts/OpenSans-Bold.ttf") format("truetype");
+        font-weight: 700;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "Open Sans";
+        src: url("./fonts/OpenSans-Italic.ttf") format("truetype");
+        font-weight: 400;
+        font-style: italic;
+      }
+      :root {
+        --bg: #e8eef5;
+        --panel: #f7f9fc;
+        --ink: #1e2430;
+        --muted: #5c6b80;
+        --accent: #2864d2;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(1100px 520px at 0% 0%, #d5e4f7 0%, transparent 55%),
+          linear-gradient(180deg, #edf2f8 0%, #dde6f0 100%);
+        color: var(--ink);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body { display: grid; place-items: start center; padding: 24px; }
+      .stage { width: min(1100px, 100%); }
+      h1 { margin: 0 0 6px; font-size: 1.35rem; font-weight: 650; }
+      p.hint { margin: 0 0 14px; color: var(--muted); font-size: 0.9rem; }
+      .frame {
+        background: var(--panel);
+        border: 1px solid #c5d0de;
+        padding: 10px;
+        box-shadow: 0 16px 40px rgba(30, 50, 80, 0.12);
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #f5f7fa;
+        cursor: cell;
+        outline: none;
+      }
+      .bar {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        align-items: center;
+      }
+      .bar strong { color: var(--accent); font-weight: 600; }
+      input[type="file"] { font-size: 0.8rem; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>Ranger DataGrid · no server</h1>
+      <p class="hint">
+        The whole editor is in this page: the Ranger app compiled to JavaScript,
+        building an <code>EVGDisplayList</code> and drawing it with WebGL 2.
+        Nothing is fetched while you work — no <code>/input</code>, no
+        <code>/scene.json</code>. Open a workbook of your own with the file
+        picker; it is read here, not uploaded anywhere.
+      </p>
+      <div class="frame">
+        <canvas id="screen" tabindex="0" width="900" height="560"></canvas>
+      </div>
+      <div class="bar">
+        <span>status: <strong id="status">starting…</strong></span>
+        <span>backend: <strong id="backend">—</strong></span>
+        <span>cmds: <strong id="cmds">—</strong></span>
+        <span>redraws/s: <strong id="fps">—</strong></span>
+        <label>open a .xlsx <input id="file" type="file" accept=".xlsx" /></label>
+      </div>
+    </div>
+    <script src="./datagrid_web.js"></script>
+    <script type="module" src="./standalone.mjs"></script>
+  </body>
+</html>

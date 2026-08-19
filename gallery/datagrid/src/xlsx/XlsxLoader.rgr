@@ -31,6 +31,20 @@ class XlsxLoader {
         return ok
     }
 
+    ; The same, from bytes. `loadPath` is this with a file read in front of it;
+    ; the browser build has no file read and calls straight in here.
+    fn loadBytes:boolean (bytes:buffer book:WorkbookModel) {
+        lastError = ""
+        def pkg:XlsxPackage (new XlsxPackage)
+        if ((pkg.openBytes(bytes)) == false) {
+            lastError = "could not open the workbook: not a zip"
+            return false
+        }
+        def ok:boolean (this.loadPackage(pkg book))
+        pkg.close()
+        return ok
+    }
+
     ; "xl/worksheets/sheet1.xml" → "xl/worksheets/_rels/sheet1.xml.rels".
     sfn relsPathFor:string (partPath:string) {
         def cut:int -1

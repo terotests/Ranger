@@ -46,6 +46,52 @@ npm run datagrid:window
 `datagrid:window` rebuilds the module and opens the WebGL host. **Default workbook is
 `business-workbook.xlsx`** (not the old `sales.xlsx`).
 
+### Running it with no host at all
+
+```bash
+npm run datagrid:web          # build gallery/datagrid/web/standalone/dist
+npm run datagrid:web:serve    # …and serve it on :8000 with python's file server
+npm run datagrid:web:test     # open it in headless Chrome and make it work
+```
+
+The Node host was never part of the architecture. The seam is the **display
+list**: the app builds an `EVGDisplayList` and something draws it. HTTP was one
+way to carry the list from the app to the drawer, and the only reason there was
+a server — a browser fetching `scene.json` sixty times a second from a process
+on the same machine, to draw a picture that machine had just computed.
+
+Ranger compiles to JavaScript, so the app can simply *be* in the page:
+
+```text
+hosted                                   standalone
+browser event → POST /input → GridApp    browser event → GridApp        (this tab)
+GET /scene.json → EVGDisplayList → GL    GridApp.sceneJson() → GL       (this tab)
+```
+
+Same `GridApp`, same `UIInput`, same display list, same `evg-webgl.js`. What is
+left of the host is a static file server, and `python3 -m http.server` is one of
+those. The output is an HTML file, one compiled script, the renderer, four font
+files and a workbook.
+
+The only thing a browser cannot do is read files, and the app used the file
+system for exactly two things — the fonts and the workbook. Both now have
+byte-taking entry points beside the path-taking ones (`loadFontBytes`,
+`loadXlsxBytes`, and `ZipReader.openBytes` under them), so the page fetches the
+bytes and hands them over. A workbook you pick with the file input is read in
+the tab and never uploaded anywhere.
+
+> The build **checks** that the bundle is loadable by a browser rather than
+> assuming it: it loads the compiled script with `require` undefined — which is
+> what a browser looks like — and asks for its class. The EVG stack keeps its
+> file-reading functions; they are simply never on the path this page takes, and
+> a stray one at load time would compile fine and fail only when somebody opened
+> the page.
+>
+> There is no browser-driver library here, so the page tests itself: `?selftest=1`
+> types into a cell, copies, opens the chart picker and makes a chart, then
+> writes the result into the DOM where headless Chrome's `--dump-dom` can be
+> read back.
+
 ### The render seam, and why the browser asks so often
 
 The host holds the document; the browser is a renderer. Every frame it asks
