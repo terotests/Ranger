@@ -486,9 +486,36 @@ class GridApp {
         return n
     }
 
+    ; Excel's grid has no edge you can walk off: pressing Down on the last row
+    ; gives you a new one. A loaded sheet is only as big as its used range, so
+    ; grow it as the caret (or a paste) reaches the end. Bounded by Excel's own
+    ; limits so a runaway cannot allocate without end.
+    fn ensureExtent:void (row:int col:int) {
+        def rows:int (row + 1)
+        def cols:int (col + 1)
+        if (rows > 1048576) {
+            rows = 1048576
+        }
+        if (cols > 16384) {
+            cols = 16384
+        }
+        if ((rows <= model.rowCount) && (cols <= model.colCount)) {
+            return
+        }
+        model.growTo(rows cols)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
     fn moveActive:void (row:int col:int extend:boolean) {
         if editing {
             this.commitEdit()
+        }
+        if (row >= 0) {
+            if (col >= 0) {
+                this.ensureExtent(row col)
+            }
         }
         def p:CellPos (CellPos.create(row col))
         model.clampPos(p)
@@ -803,6 +830,7 @@ class GridApp {
             dy = 0
             dx = 0
         }
+        this.ensureExtent(((startR + clipRows) - 1) ((startC + clipCols) - 1))
         def maxR:int startR
         def maxC:int startC
         model.beginTx()
@@ -860,6 +888,8 @@ class GridApp {
         def startC:int sel.active.col
         def maxR:int startR
         def maxC:int startC
+        def firstCols:[string] (strsplit (itemAt lines 0) "\t")
+        this.ensureExtent(((startR + (array_length lines)) - 1) ((startC + (array_length firstCols)) - 1))
         model.beginTx()
         engine.resetStats()
         def ri:int 0

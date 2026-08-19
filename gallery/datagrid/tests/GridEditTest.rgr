@@ -456,6 +456,50 @@ class GridEditTest {
         nav.setClipboardText("a\tb")
         c.eqStr("external clears html" nav.clipboardHtml "")
 
+        print "== the grid grows as the caret walks off the end =="
+        def grow:GridApp (new GridApp)
+        grow.init("gallery/pdf_writer/assets/fonts")
+        grow.model.clearSheet()
+        grow.model.resize(6 4)
+        grow.model.setColWidth(0 137)
+        grow.model.setRowHeight(0 33)
+        grow.sheetView.markDirty()
+        grow.sheetView.rebuild()
+        c.eqInt("starts small" grow.model.rowCount 6)
+        GridEditTest.select(grow 5 3)
+        def growInput:UIInput (new UIInput)
+        GridEditTest.pressKey(grow growInput (UIKey.down()) false false)
+        c.eqInt("down past the last row moves" grow.sel.active.row 6)
+        c.eqInt("and the sheet grew" grow.model.rowCount 7)
+        GridEditTest.pressKey(grow growInput (UIKey.right()) false false)
+        c.eqInt("right past the last column moves" grow.sel.active.col 4)
+        c.eqInt("and the sheet grew" grow.model.colCount 5)
+        ; growTo must never wipe sizes the way resize() does.
+        c.eqInt("column width kept" (grow.model.colWidth(0)) 137)
+        c.eqInt("row height kept" (grow.model.rowHeight(0)) 33)
+        ; A brand new cell is editable like any other.
+        grow.beginEdit("new cell" true)
+        grow.commitEdit()
+        c.eqStr("typed into the new cell" (grow.model.getCell(6 4)) "new cell")
+        ; growTo only ever grows.
+        grow.model.growTo(2 2)
+        c.eqInt("growTo never shrinks rows" grow.model.rowCount 7)
+        c.eqInt("growTo never shrinks cols" grow.model.colCount 5)
+        c.ok("still renders" ((strlen (grow.sceneJson())) > 50))
+
+        print "== paste can land outside the current extent =="
+        def pasteGrow:GridApp (new GridApp)
+        pasteGrow.init("gallery/pdf_writer/assets/fonts")
+        pasteGrow.model.clearSheet()
+        pasteGrow.model.resize(4 3)
+        pasteGrow.setClipboardText("a\tb\nc\td")
+        GridEditTest.select(pasteGrow 3 2)
+        pasteGrow.pasteClipboard()
+        c.ok("sheet grew for the paste" (pasteGrow.model.rowCount >= 5))
+        c.ok("columns grew too" (pasteGrow.model.colCount >= 4))
+        c.eqStr("first pasted cell" (pasteGrow.model.getCell(3 2)) "a")
+        c.eqStr("cell past the old edge" (pasteGrow.model.getCell(4 3)) "d")
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

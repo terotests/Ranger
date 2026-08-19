@@ -277,6 +277,49 @@ class SpreadsheetModel {
         }
     }
 
+    ; Grow the sheet without touching what is already there. resize() clears
+    ; rowHeights / colWidths, so it must never be used to extend a loaded
+    ; workbook — that would throw away every column width from styles.xml.
+    fn growTo:void (rows:int cols:int) {
+        def changed:boolean false
+        if (rows > rowCount) {
+            def sameLen:boolean ((array_length rowHeights) == rowCount)
+            def suppLen:boolean ((array_length rowSuppressed) == rowCount)
+            if sameLen {
+                def r:int rowCount
+                while (r < rows) {
+                    push rowHeights defaultRowH
+                    push rowHidden false
+                    if suppLen {
+                        push rowSuppressed false
+                    }
+                    r = (r + 1)
+                }
+            }
+            rowCount = rows
+            rowGeomDirty = true
+            changed = true
+        }
+        if (cols > colCount) {
+            def sameCols:boolean ((array_length colWidths) == colCount)
+            if sameCols {
+                def c:int colCount
+                while (c < cols) {
+                    push colWidths defaultColW
+                    push colHidden false
+                    c = (c + 1)
+                }
+            }
+            colCount = cols
+            colGeomDirty = true
+            changed = true
+        }
+        if changed {
+            version = (version + 1)
+            this.ensureGeometry()
+        }
+    }
+
     fn resize:void (rows:int cols:int) {
         if (rows < 1) {
             rows = 1

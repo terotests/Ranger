@@ -986,6 +986,120 @@ class DocxEditController {
         }
     }
 
+    ; --- Tab: move between table cells ---------------------------------------
+    ; Word's Tab in a table steps to the next cell and SELECTS its contents, so
+    ; typing replaces them; Shift+Tab steps back. Wrapping past the last cell of
+    ; a row continues on the next row, and past the last cell of the table it
+    ; leaves for the paragraph after it.
+    fn selectCellContents:void (pid:int) {
+        if (pid <= 0) {
+            return
+        }
+        def len:int (adapter.textLength(pid))
+        sel.anchor = (DocumentPosition.create(pid 0))
+        sel.focus = (DocumentPosition.create(pid len))
+        active = true
+    }
+
+    fn inTable:boolean () {
+        if ((this.isActive()) == false) {
+            return false
+        }
+        def at:[int]
+        adapter.tableCellOf(sel.focus.paragraphId at)
+        return ((itemAt at 0) >= 0)
+    }
+
+    ; Returns true when the Tab was consumed as cell navigation.
+    fn tabCell:boolean (forward:boolean) {
+        if ((this.isActive()) == false) {
+            return false
+        }
+        def at:[int]
+        adapter.tableCellOf(sel.focus.paragraphId at)
+        def blk:int (itemAt at 0)
+        if (blk < 0) {
+            ; Not in a table. Tab just before one steps into its first cell,
+            ; Shift+Tab just after one into its last — otherwise leave it alone.
+            def pid:int sel.focus.paragraphId
+            if forward {
+                def nextTbl:int (adapter.tableBlockAfterParagraph(pid))
+                if (nextTbl >= 0) {
+                    def firstId:int (adapter.cellParagraphId(nextTbl 0 0))
+                    if (firstId > 0) {
+                        this.selectCellContents(firstId)
+                        return true
+                    }
+                }
+                return false
+            }
+            def prevTbl:int (adapter.tableBlockBeforeParagraph(pid))
+            if (prevTbl >= 0) {
+                def lastRow:int ((adapter.rowCountOfTable(prevTbl)) - 1)
+                def lastCell:int ((adapter.cellCountInRow(prevTbl lastRow)) - 1)
+                def lastId:int (adapter.cellParagraphId(prevTbl lastRow lastCell))
+                if (lastId > 0) {
+                    this.selectCellContents(lastId)
+                    return true
+                }
+            }
+            return false
+        }
+        def row:int (itemAt at 1)
+        def cell:int (itemAt at 2)
+        def rows:int (adapter.rowCountOfTable(blk))
+        if forward {
+            def nextCell:int (cell + 1)
+            def nextRow:int row
+            if (nextCell >= (adapter.cellCountInRow(blk row))) {
+                nextCell = 0
+                nextRow = (row + 1)
+            }
+            if (nextRow >= rows) {
+                ; Word never tabs out the bottom of a table: it adds a row.
+                def added:int (adapter.appendTableRow(blk))
+                if (added <= 0) {
+                    return true
+                }
+                def op:DocEditOp (new DocEditOp)
+                op.kind = 6
+                op.start = blk
+                this.pushUndo(op)
+                def newId:int (adapter.cellParagraphId(blk (added - 1) 0))
+                if (newId > 0) {
+                    this.setCaret(newId 0)
+                }
+                return true
+            }
+            def nid:int (adapter.cellParagraphId(blk nextRow nextCell))
+            if (nid > 0) {
+                this.selectCellContents(nid)
+            }
+            return true
+        }
+        def prevCell:int (cell - 1)
+        def prevRow:int row
+        if (prevCell < 0) {
+            prevRow = (row - 1)
+            if (prevRow >= 0) {
+                prevCell = ((adapter.cellCountInRow(blk prevRow)) - 1)
+            }
+        }
+        if (prevRow < 0) {
+            def before:int (adapter.bodyParagraphBeforeBlock(blk))
+            if (before > 0) {
+                this.setCaret(before (adapter.textLength(before)))
+                return true
+            }
+            return true
+        }
+        def pid2:int (adapter.cellParagraphId(blk prevRow prevCell))
+        if (pid2 > 0) {
+            this.selectCellContents(pid2)
+        }
+        return true
+    }
+
     fn selectAll:void () {
         def count:int (adapter.bodyParagraphCount())
         if (count == 0) {
@@ -1007,6 +1121,19 @@ class DocxEditController {
         if (op.kind == 0) {
             adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
             this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
+        }
+        if (op.kind == 6) {
+            ; Undo the row Tab appended, and step back into the last cell.
+            def blkIdx:int op.start
+            def rowsBefore:int (adapter.rowCountOfTable(blkIdx))
+            if (adapter.removeLastTableRow(blkIdx)) {
+                def lastRow:int ((adapter.rowCountOfTable(blkIdx)) - 1)
+                def lastCell:int ((adapter.cellCountInRow(blkIdx lastRow)) - 1)
+                def backId:int (adapter.cellParagraphId(blkIdx lastRow lastCell))
+                if (backId > 0) {
+                    this.setCaret(backId (adapter.textLength(backId)))
+                }
+            }
         }
         if (op.kind == 5) {
             ; Multi-paragraph delete: put the text back, newlines re-splitting.

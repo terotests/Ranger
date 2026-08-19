@@ -95,9 +95,16 @@ snapshot — no DOM or SDL below the app.
 | End / Ctrl+End | Last used column of the row / bottom-right of the used range | Caret to end |
 | Ctrl+Space / Shift+Space | Select the column / the row | — |
 | Ctrl+Shift+Space, Ctrl+A | Select the whole sheet | — |
+| ↓ / → past the last row / column | Grows the sheet, as Excel's unbounded grid does | — |
 | Delete | Clear the selection | Delete at the caret |
 | Backspace | Clear the cell and start typing | Backspace at the caret |
 | Esc | Collapse the selection | Cancel the edit |
+
+A loaded sheet is only as big as its used range, so the caret grows it on
+demand (`GridApp.ensureExtent` → `SpreadsheetModel.growTo`, bounded by Excel's
+1048576×16384). `growTo` only ever grows and preserves row heights and column
+widths — `resize` clears them, so it must never be used to extend a loaded
+workbook. Paste grows the sheet the same way.
 
 `Ctrl+End` is O(1): `SpreadsheetModel` tracks the used-range corner as cells are
 written rather than rescanning a sheet that may declare 100k rows (see

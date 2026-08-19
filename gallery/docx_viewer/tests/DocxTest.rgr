@@ -623,6 +623,82 @@ class DocxTest {
         c.ok("undo restores after cut" ((strlen ((viewer.edit.adapter.findParagraph(cp0.id)).text)) > 0))
         viewer.setEditMode(false)
 
+        print "== Tab moves between table cells =="
+        c.ok("open table fixture" (viewer.openFile(fix "05-table-basic.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def tdoc:RichDocument (viewer.document())
+        def tbl0:DocumentTable (itemAt tdoc.tables 0)
+        def trow0:DocTableRow (itemAt tbl0.rows 0)
+        def tc00:DocTableCell (itemAt trow0.cells 0)
+        def tp00:Paragraph (itemAt tc00.paragraphs 0)
+        def tc01:DocTableCell (itemAt trow0.cells 1)
+        def tp01:Paragraph (itemAt tc01.paragraphs 0)
+        ; Cell paragraphs are not body blocks, so plain caret order cannot see
+        ; them — Tab is the way across.
+        c.eqInt("cell paragraph has no body order" (viewer.edit.adapter.bodyOrderOf(tp00.id)) -1)
+        def cellAt:[int]
+        viewer.edit.adapter.tableCellOf(tp00.id cellAt)
+        c.ok("locates the table block" ((itemAt cellAt 0) >= 0))
+        c.eqInt("row 0" (itemAt cellAt 1) 0)
+        c.eqInt("cell 0" (itemAt cellAt 2) 0)
+        viewer.edit.setCaret(tp00.id 0)
+        c.ok("caret is in a table" (viewer.caretInTable()))
+        c.ok("tab consumed" (viewer.keyTab(false)))
+        def afterTab:DocumentPosition (viewer.edit.caret())
+        c.eqInt("tab moved to the next cell" afterTab.paragraphId tp01.id)
+        ; Word selects the cell contents so typing replaces them.
+        def tabSel:DocumentRange (viewer.edit.selection())
+        c.ok("cell contents selected" ((tabSel.isCollapsed()) == false))
+        c.eqInt("selection starts at 0" (tabSel.startOffset()) 0)
+        c.eqInt("selection covers the cell" (tabSel.endOffset()) (strlen tp01.text))
+        c.eqStr("selected text is the cell" (viewer.edit.selectedText()) tp01.text)
+        ; Shift+Tab goes back.
+        viewer.keyTab(true)
+        c.eqInt("shift tab returns" ((viewer.edit.caret()).paragraphId) tp00.id)
+
+        print "== Tab wraps rows and leaves the table =="
+        def lastRowIdx:int ((array_length tbl0.rows) - 1)
+        def lastRow:DocTableRow (itemAt tbl0.rows lastRowIdx)
+        def lastCellIdx:int ((array_length lastRow.cells) - 1)
+        ; End of a row continues on the next row's first cell.
+        def row0Last:DocTableCell (itemAt trow0.cells ((array_length trow0.cells) - 1))
+        def row0LastPara:Paragraph (itemAt row0Last.paragraphs 0)
+        def row1:DocTableRow (itemAt tbl0.rows 1)
+        def row1First:DocTableCell (itemAt row1.cells 0)
+        def row1FirstPara:Paragraph (itemAt row1First.paragraphs 0)
+        viewer.edit.setCaret(row0LastPara.id 0)
+        viewer.keyTab(false)
+        c.eqInt("tab wraps to the next row" ((viewer.edit.caret()).paragraphId) row1FirstPara.id)
+        ; Shift+Tab from the first cell of a row goes back to the previous row's last cell.
+        viewer.keyTab(true)
+        c.eqInt("shift tab wraps back" ((viewer.edit.caret()).paragraphId) row0LastPara.id)
+        ; Word never tabs out the bottom of a table — it adds a row.
+        def rowsBefore:int (array_length tbl0.rows)
+        def lastCell:DocTableCell (itemAt lastRow.cells lastCellIdx)
+        def lastCellPara:Paragraph (itemAt lastCell.paragraphs 0)
+        viewer.edit.setCaret(lastCellPara.id 0)
+        viewer.keyTab(false)
+        c.eqInt("a row was appended" (array_length tbl0.rows) (rowsBefore + 1))
+        def newRow:DocTableRow (itemAt tbl0.rows rowsBefore)
+        c.eqInt("new row matches the column count" (array_length newRow.cells) (array_length lastRow.cells))
+        def newFirst:DocTableCell (itemAt newRow.cells 0)
+        def newFirstPara:Paragraph (itemAt newFirst.paragraphs 0)
+        c.eqInt("caret is in the new row" ((viewer.edit.caret()).paragraphId) newFirstPara.id)
+        c.eqStr("new cell starts empty" newFirstPara.text "")
+        c.ok("still inside the table" (viewer.caretInTable()))
+        viewer.renderPage(0)
+        c.ok("renders with the new row" ((buffer_length (viewer.view.raw())) > 1000))
+        ; Typing into the fresh cell works like any other.
+        viewer.typeText("added")
+        c.eqStr("typed into the new cell" newFirstPara.text "added")
+        viewer.keyUndo()
+        viewer.keyUndo()
+        c.eqInt("undo removes the appended row" (array_length tbl0.rows) rowsBefore
+)
+        viewer.setEditMode(false)
+        c.ok("tab is inert outside edit mode" ((viewer.keyTab(false)) == false))
+
         print "== page index never names a page that does not exist =="
         c.ok("open pages for clamp" (viewer.openFile(fix "08-pages.docx")))
         viewer.renderPage(0)

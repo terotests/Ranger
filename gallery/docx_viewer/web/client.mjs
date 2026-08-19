@@ -265,6 +265,19 @@ window.addEventListener("keydown", async (ev) => {
   const tag = (ev.target && ev.target.tagName) || "";
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
 
+  // Tab moves between table cells. preventDefault keeps the browser from
+  // moving focus off the page. (Cmd+Tab belongs to macOS and never reaches us;
+  // Shift+Tab is the "previous cell" binding.)
+  if (ev.key === "Tab") {
+    ev.preventDefault();
+    const data = await sendInput({ type: "tab", shift: ev.shiftKey });
+    if (data && typeof data.page === "number" && data.page !== page) {
+      page = data.page;
+      await refreshPage();
+    }
+    return;
+  }
+
   const move = MOVE_KEYS[ev.key];
   if (move) {
     ev.preventDefault();
