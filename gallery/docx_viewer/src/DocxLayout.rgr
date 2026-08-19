@@ -1,0 +1,808 @@
+; ==============================================================================
+; DocxLayout - section-aware pagination + tables for RichDocument.
+; ==============================================================================
+; Returns LaidPage[] with resolved geometry. EVG paints Placed* only — Word
+; pagination semantics stay here (not in SoftCanvas).
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "WordNumbering.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+; kind: 0=text 1=image 2=tableCellBg 3=tableBorder 4=headerText 5=footerText
+class LaidLine {
+    def paraIndex:int 0
+    def text:string ""
+    def x:int 0
+    def y:int 0
+    def baseline:int 0
+    def height:int 0
+    def width:int 0
+    ; Hit-test content box (full wrap column / cell inner), not just glyph bounds.
+    ; x/width are painted text origin+advance; boxX/boxW decide which line owns a click
+    ; when several lines share a Y band (table row cells).
+    def boxX:int 0
+    def boxW:int 0
+    def align:int 0
+    def listPrefix:string ""
+    def kind:int 0
+    def imageIndex:int 0
+    def bold:boolean false
+    def italic:boolean false
+    def underline:boolean false
+    def fontSizePx:double 14.0
+    def colorHex:string "000000"
+    def fillHex:string ""
+    def borderColor:string "666666"
+    def paragraphRef:Paragraph
+    ; Offset range into paragraph.text covered by this visual line (excludes list prefix).
+    def docStart:int 0
+    def docEnd:int 0
+
+    Constructor () {
+    }
+}
+
+class LaidPage {
+    def index:int 0
+    def lines:[LaidLine]
+    def width:int 0
+    def height:int 0
+    def sectionIndex:int 0
+    def contentX:int 0
+    def contentY:int 0
+    def contentW:int 0
+    def contentH:int 0
+
+    Constructor () {
+    }
+}
+
+class DocxLayout {
+    def pages:[LaidPage]
+    def tr:UITextRenderer
+    def contentW:int 500
+    def numbering:WordNumbering (new WordNumbering)
+    def listCounters:[int:int]
+    def docRef:RichDocument
+    def curPage:LaidPage (new LaidPage)
+    def curSec:DocSection (new DocSection)
+    def curSecIdx:int 0
+    def curMaxY:int 0
+
+    Constructor () {
+    }
+
+    sfn ptToPx:double (pt:double) {
+        return ((pt * 96.0) / 72.0)
+    }
+
+    sfn twipsToPx:int (tw:int) {
+        return (to_int (((to_double tw) * 96.0) / 1440.0))
+    }
+
+    fn layout:void (doc:RichDocument textRenderer:UITextRenderer nums:WordNumbering) {
+        tr = textRenderer
+        numbering = nums
+        docRef = doc
+        clear pages
+        def freshCounters:[int:int]
+        listCounters = freshCounters
+
+        curSecIdx = 0
+        curSec = (doc.sectionAt(0))
+        curPage = (this.newPage(curSec curSecIdx))
+        def ml:int (curSec.marginLeftPx())
+        def mt:int (curSec.marginTopPx())
+        def mb:int (curSec.marginBottomPx())
+        contentW = (curSec.contentWidthPx())
+        def y:int mt
+        def headerH:int (this.measureHeaderFooter(curSec.headerParas contentW))
+        def footerH:int (this.measureHeaderFooter(curSec.footerParas contentW))
+        if (headerH > 0) {
+            y = (mt + headerH + 8)
+        }
+        curMaxY = ((curPage.height - mb) - footerH)
+        if (footerH > 0) {
+            curMaxY = (curMaxY - 8)
+        }
+
+        def bi:int 0
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 2) {
+                this.paintChrome(curPage curSec)
+                curPage = (this.newPage(curSec curSecIdx))
+                ml = (curSec.marginLeftPx())
+                mt = (curSec.marginTopPx())
+                mb = (curSec.marginBottomPx())
+                contentW = (curSec.contentWidthPx())
+                headerH = (this.measureHeaderFooter(curSec.headerParas contentW))
+                footerH = (this.measureHeaderFooter(curSec.footerParas contentW))
+                y = mt
+                if (headerH > 0) {
+                    y = (mt + headerH + 8)
+                }
+                curMaxY = ((curPage.height - mb) - footerH)
+                if (footerH > 0) {
+                    curMaxY = (curMaxY - 8)
+                }
+            }
+            if (b.kind == 3) {
+                this.paintChrome(curPage curSec)
+                curSecIdx = b.sectionIndex
+                curSec = (doc.sectionAt(curSecIdx))
+                curPage = (this.newPage(curSec curSecIdx))
+                ml = (curSec.marginLeftPx())
+                mt = (curSec.marginTopPx())
+                mb = (curSec.marginBottomPx())
+                contentW = (curSec.contentWidthPx())
+                headerH = (this.measureHeaderFooter(curSec.headerParas contentW))
+                footerH = (this.measureHeaderFooter(curSec.footerParas contentW))
+                y = mt
+                if (headerH > 0) {
+                    y = (mt + headerH + 8)
+                }
+                curMaxY = ((curPage.height - mb) - footerH)
+                if (footerH > 0) {
+                    curMaxY = (curMaxY - 8)
+                }
+            }
+            if (b.kind == 0) {
+                def p:Paragraph b.paragraph
+                def need:int (this.estimateParaHeight(p contentW))
+                if ((y + need) > curMaxY) {
+                    this.paintChrome(curPage curSec)
+                    curPage = (this.newPage(curSec curSecIdx))
+                    ml = (curSec.marginLeftPx())
+                    mt = (curSec.marginTopPx())
+                    mb = (curSec.marginBottomPx())
+                    headerH = (this.measureHeaderFooter(curSec.headerParas contentW))
+                    footerH = (this.measureHeaderFooter(curSec.footerParas contentW))
+                    y = mt
+                    if (headerH > 0) {
+                        y = (mt + headerH + 8)
+                    }
+                    curMaxY = ((curPage.height - mb) - footerH)
+                    if (footerH > 0) {
+                        curMaxY = (curMaxY - 8)
+                    }
+                }
+                y = (this.layoutParagraph(p ml y contentW))
+            }
+            if (b.kind == 1) {
+                def tbl:DocumentTable b.table
+                def th:int (this.estimateTableHeight(tbl contentW))
+                if ((y + th) > curMaxY) {
+                    this.paintChrome(curPage curSec)
+                    curPage = (this.newPage(curSec curSecIdx))
+                    ml = (curSec.marginLeftPx())
+                    mt = (curSec.marginTopPx())
+                    mb = (curSec.marginBottomPx())
+                    headerH = (this.measureHeaderFooter(curSec.headerParas contentW))
+                    footerH = (this.measureHeaderFooter(curSec.footerParas contentW))
+                    y = mt
+                    if (headerH > 0) {
+                        y = (mt + headerH + 8)
+                    }
+                    curMaxY = ((curPage.height - mb) - footerH)
+                    if (footerH > 0) {
+                        curMaxY = (curMaxY - 8)
+                    }
+                }
+                y = (this.layoutTable(tbl ml y contentW))
+            }
+            bi = (bi + 1)
+        }
+        this.paintChrome(curPage curSec)
+    }
+
+    fn newPage:LaidPage (sec:DocSection secIdx:int) {
+        def page:LaidPage (new LaidPage)
+        page.width = (sec.pageWidthPx())
+        page.height = (sec.pageHeightPx())
+        page.index = (array_length pages)
+        page.sectionIndex = secIdx
+        page.contentX = (sec.marginLeftPx())
+        page.contentY = (sec.marginTopPx())
+        page.contentW = (sec.contentWidthPx())
+        page.contentH = (((sec.pageHeightPx()) - (sec.marginTopPx())) - (sec.marginBottomPx()))
+        push pages page
+        return page
+    }
+
+    fn paintChrome:void (page:LaidPage sec:DocSection) {
+        def ml:int (sec.marginLeftPx())
+        def mt:int (sec.marginTopPx())
+        def mb:int (sec.marginBottomPx())
+        def cw:int (sec.contentWidthPx())
+        ; header
+        def hy:int mt
+        def hi:int 0
+        while (hi < (array_length sec.headerParas)) {
+            def hp:Paragraph (itemAt sec.headerParas hi)
+            hy = (this.layoutChromePara(page hp ml hy cw 4))
+            hi = (hi + 1)
+        }
+        ; footer
+        def fh:int (this.measureHeaderFooter(sec.footerParas cw))
+        def fy:int ((page.height - mb) - fh)
+        def fi:int 0
+        while (fi < (array_length sec.footerParas)) {
+            def fp:Paragraph (itemAt sec.footerParas fi)
+            fy = (this.layoutChromePara(page fp ml fy cw 5))
+            fi = (fi + 1)
+        }
+    }
+
+    fn layoutChromePara:int (page:LaidPage p:Paragraph x0:int y:int wrapW:int kind:int) {
+        def fontPx:double 11.0
+        if ((array_length p.spans) > 0) {
+            def s0:TextSpan (itemAt p.spans 0)
+            fontPx = (DocxLayout.ptToPx(s0.fontSizePt))
+        }
+        if (fontPx < 8.0) {
+            fontPx = 8.0
+        }
+        def lh:int (to_int ((tr.lineHeight(fontPx)) * p.lineSpacing))
+        if (lh < 10) {
+            lh = 10
+        }
+        def wrapped:[string] (tr.wrap(p.text fontPx (to_double wrapW)))
+        if ((array_length wrapped) == 0) {
+            push wrapped p.text
+        }
+        def li:int 0
+        while (li < (array_length wrapped)) {
+            def line:LaidLine (new LaidLine)
+            line.kind = kind
+            line.paragraphRef = p
+            line.text = (itemAt wrapped li)
+            line.height = lh
+            line.y = y
+            line.fontSizePx = fontPx
+            line.align = p.align
+            if ((array_length p.spans) > 0) {
+                def sp:TextSpan (itemAt p.spans 0)
+                line.bold = sp.bold
+                line.italic = sp.italic
+                line.underline = sp.underline
+                line.colorHex = sp.colorHex
+            }
+            def tw:int (to_int (tr.measureWidth(line.text fontPx)))
+            def x:int x0
+            if (p.align == 1) {
+                x = (x0 + (to_int ((wrapW - tw) / 2)))
+            }
+            if (p.align == 2) {
+                x = (x0 + (wrapW - tw))
+            }
+            line.x = x
+            line.width = tw
+            push curPage.lines line
+            y = (y + lh)
+            li = (li + 1)
+        }
+        return y
+    }
+
+    fn measureHeaderFooter:int (paras:[Paragraph] wrapW:int) {
+        def h:int 0
+        def i:int 0
+        while (i < (array_length paras)) {
+            def p:Paragraph (itemAt paras i)
+            h = (h + (this.estimateParaHeight(p wrapW)))
+            i = (i + 1)
+        }
+        return h
+    }
+
+    fn estimateParaHeight:int (p:Paragraph wrapW:int) {
+        def before:int (to_int (DocxLayout.ptToPx(p.spaceBeforePt)))
+        def after:int (to_int (DocxLayout.ptToPx(p.spaceAfterPt)))
+        def fontPx:double 14.0
+        if ((array_length p.spans) > 0) {
+            def s0:TextSpan (itemAt p.spans 0)
+            fontPx = (DocxLayout.ptToPx(s0.fontSizePt))
+        }
+        if (fontPx < 8.0) {
+            fontPx = 8.0
+        }
+        def lh:int (to_int ((tr.lineHeight(fontPx)) * p.lineSpacing))
+        if (lh < 12) {
+            lh = 12
+        }
+        def indent:int (to_int (DocxLayout.ptToPx(p.indentLeftPt)))
+        def wrap:double (to_double (wrapW - indent))
+        if (wrap < 40.0) {
+            wrap = 40.0
+        }
+        def lines:int 1
+        if ((strlen p.text) > 0) {
+            def wrapped:[string] (tr.wrap(p.text fontPx wrap))
+            lines = (array_length wrapped)
+            if (lines < 1) {
+                lines = 1
+            }
+        }
+        def imgH:int 0
+        def ii:int 0
+        while (ii < (array_length p.images)) {
+            def dimg:DocImage (itemAt p.images ii)
+            def ih:int dimg.heightPx
+            def iw:int dimg.widthPx
+            if (iw > wrapW) {
+                def scale:double ((to_double wrapW) / (to_double iw))
+                ih = (to_int ((to_double ih) * scale))
+            }
+            imgH = (imgH + ih + 8)
+            ii = (ii + 1)
+        }
+        return (((before + after) + (lines * lh)) + imgH)
+    }
+
+    fn estimateTableHeight:int (tbl:DocumentTable wrapW:int) {
+        def h:int 8
+        def ri:int 0
+        while (ri < (array_length tbl.rows)) {
+            def row:DocTableRow (itemAt tbl.rows ri)
+            def rowH:int 28
+            def ci:int 0
+            while (ci < (array_length row.cells)) {
+                def cell:DocTableCell (itemAt row.cells ci)
+                def ch:int ((cell.padTopPx + cell.padBottomPx) + 4)
+                def pi:int 0
+                while (pi < (array_length cell.paragraphs)) {
+                    def cp:Paragraph (itemAt cell.paragraphs pi)
+                    ch = (ch + (this.estimateParaHeight(cp 120)))
+                    pi = (pi + 1)
+                }
+                if (ch > rowH) {
+                    rowH = ch
+                }
+                ci = (ci + 1)
+            }
+            h = (h + rowH)
+            ri = (ri + 1)
+        }
+        return h
+    }
+
+    fn breakPage:int (yUnused:int) {
+        this.paintChrome(curPage curSec)
+        curPage = (this.newPage(curSec curSecIdx))
+        contentW = (curSec.contentWidthPx())
+        def headerH:int (this.measureHeaderFooter(curSec.headerParas contentW))
+        def footerH:int (this.measureHeaderFooter(curSec.footerParas contentW))
+        def y:int (curSec.marginTopPx())
+        if (headerH > 0) {
+            y = (y + headerH + 8)
+        }
+        curMaxY = ((curPage.height - (curSec.marginBottomPx())) - footerH)
+        if (footerH > 0) {
+            curMaxY = (curMaxY - 8)
+        }
+        return y
+    }
+
+    fn layoutParagraph:int (p:Paragraph ml:int y:int contentW:int) {
+        def before:int (to_int (DocxLayout.ptToPx(p.spaceBeforePt)))
+        def after:int (to_int (DocxLayout.ptToPx(p.spaceAfterPt)))
+        y = (y + before)
+
+        def prefix:string ""
+        def indent:int (to_int (DocxLayout.ptToPx(p.indentLeftPt)))
+        def firstExtra:int (to_int (DocxLayout.ptToPx(p.indentFirstLinePt)))
+        if (p.listNumId > 0) {
+            def lv:NumLevel (numbering.levelFor(p.listNumId p.listLevel))
+            numbering.bumpCounter(listCounters p.listNumId p.listLevel lv.start)
+            prefix = (numbering.formatMarker(p.listNumId p.listLevel listCounters))
+        }
+
+        def fontPx:double 14.0
+        def bold:boolean false
+        def underline:boolean false
+        def colorHex:string "000000"
+        if ((array_length p.spans) > 0) {
+            def s0:TextSpan (itemAt p.spans 0)
+            fontPx = (DocxLayout.ptToPx(s0.fontSizePt))
+            bold = s0.bold
+            underline = s0.underline
+            colorHex = s0.colorHex
+        }
+        if (fontPx < 8.0) {
+            fontPx = 8.0
+        }
+        def lh:int (to_int ((tr.lineHeight(fontPx)) * p.lineSpacing))
+        if (lh < 12) {
+            lh = 12
+        }
+
+        if ((strlen p.text) > 0) {
+            def prefixW:int 0
+            if ((strlen prefix) > 0) {
+                prefixW = (to_int (tr.measureWidth(prefix fontPx)))
+            }
+            def wrapW:double (to_double ((contentW - indent) - prefixW))
+            if (wrapW < 40.0) {
+                wrapW = 40.0
+            }
+            ; Wrap body text only so doc offsets stay accurate for editing hit-test.
+            def wrapped:[string] (tr.wrap(p.text fontPx wrapW))
+            if ((array_length wrapped) == 0) {
+                push wrapped ""
+            }
+            def cursor:int 0
+            def li:int 0
+            while (li < (array_length wrapped)) {
+                if ((y + lh) > curMaxY) {
+                    y = (this.breakPage(y))
+                    ml = (curSec.marginLeftPx())
+                }
+                def chunk:string (itemAt wrapped li)
+                def line:LaidLine (new LaidLine)
+                line.kind = 0
+                line.paragraphRef = p
+                line.paraIndex = p.id
+                line.docStart = cursor
+                line.docEnd = (cursor + (strlen chunk))
+                cursor = line.docEnd
+                if ((li == 0) && ((strlen prefix) > 0)) {
+                    line.text = (prefix + chunk)
+                    line.listPrefix = prefix
+                } {
+                    line.text = chunk
+                    line.listPrefix = ""
+                }
+                line.height = lh
+                line.y = y
+                line.baseline = (y + (to_int (fontPx * 0.8)))
+                line.align = p.align
+                line.bold = bold
+                line.underline = underline
+                line.fontSizePx = fontPx
+                line.colorHex = colorHex
+                if ((array_length p.spans) > 0) {
+                    def sp:TextSpan (itemAt p.spans 0)
+                    line.bold = sp.bold
+                    line.italic = sp.italic
+                    line.underline = sp.underline
+                    line.colorHex = sp.colorHex
+                    line.fontSizePx = (DocxLayout.ptToPx(sp.fontSizePt))
+                }
+                def tw:int (to_int (tr.measureWidth(line.text fontPx)))
+                def x0:int (ml + indent)
+                if (li == 0) {
+                    x0 = (x0 + firstExtra)
+                }
+                if (p.align == 1) {
+                    x0 = (ml + (to_int (((contentW - indent) - tw) / 2)))
+                }
+                if (p.align == 2) {
+                    x0 = (ml + ((contentW - indent) - tw))
+                }
+                if (x0 < ml) {
+                    x0 = ml
+                }
+                line.x = x0
+                line.width = tw
+                line.boxX = (ml + indent)
+                line.boxW = (contentW - indent)
+                if (line.boxW < 4) {
+                    line.boxW = 4
+                }
+                push curPage.lines line
+                y = (y + lh)
+                li = (li + 1)
+            }
+        } {
+            ; Empty paragraph still occupies a line so it can receive the caret.
+            if ((y + lh) > curMaxY) {
+                y = (this.breakPage(y))
+                ml = (curSec.marginLeftPx())
+            }
+            def emptyLine:LaidLine (new LaidLine)
+            emptyLine.kind = 0
+            emptyLine.paragraphRef = p
+            emptyLine.paraIndex = p.id
+            emptyLine.docStart = 0
+            emptyLine.docEnd = 0
+            emptyLine.text = ""
+            emptyLine.height = lh
+            emptyLine.y = y
+            emptyLine.baseline = (y + (to_int (fontPx * 0.8)))
+            emptyLine.align = p.align
+            emptyLine.fontSizePx = fontPx
+            emptyLine.x = (ml + indent)
+            emptyLine.width = 4
+            emptyLine.boxX = (ml + indent)
+            emptyLine.boxW = (contentW - indent)
+            if (emptyLine.boxW < 4) {
+                emptyLine.boxW = 4
+            }
+            push curPage.lines emptyLine
+            y = (y + lh)
+            if ((array_length p.images) == 0) {
+                ; already advanced
+            }
+        }
+
+        def ii:int 0
+        while (ii < (array_length p.images)) {
+            def dimg:DocImage (itemAt p.images ii)
+            def iw:int dimg.widthPx
+            def ih:int dimg.heightPx
+            if (iw > contentW) {
+                def scale:double ((to_double contentW) / (to_double iw))
+                iw = contentW
+                ih = (to_int ((to_double ih) * scale))
+            }
+            if ((y + ih) > curMaxY) {
+                y = (this.breakPage(y))
+                ml = (curSec.marginLeftPx())
+            }
+            def iline:LaidLine (new LaidLine)
+            iline.kind = 1
+            iline.paragraphRef = p
+            iline.paraIndex = p.id
+            iline.imageIndex = ii
+            iline.x = ml
+            iline.y = y
+            iline.height = ih
+            iline.width = iw
+            iline.align = p.align
+            if (p.align == 1) {
+                iline.x = (ml + (to_int ((contentW - iw) / 2)))
+            }
+            if (p.align == 2) {
+                iline.x = (ml + (contentW - iw))
+            }
+            push curPage.lines iline
+            y = (y + ih + 8)
+            ii = (ii + 1)
+        }
+
+        y = (y + after)
+        return y
+    }
+
+    fn layoutTable:int (tbl:DocumentTable ml:int y:int contentW:int) {
+        def cols:int (array_length tbl.colWidthsTwips)
+        if (cols < 1) {
+            return (y + 4)
+        }
+        def totalTw:int 0
+        def ci0:int 0
+        while (ci0 < cols) {
+            totalTw = (totalTw + (itemAt tbl.colWidthsTwips ci0))
+            ci0 = (ci0 + 1)
+        }
+        if (totalTw < 1) {
+            totalTw = 1
+        }
+        def colPx:[int]
+        def ci1:int 0
+        while (ci1 < cols) {
+            def tw:int (itemAt tbl.colWidthsTwips ci1)
+            def px:int (to_int (((to_double tw) * (to_double contentW)) / (to_double totalTw)))
+            if (px < 24) {
+                px = 24
+            }
+            push colPx px
+            ci1 = (ci1 + 1)
+        }
+
+        def ri:int 0
+        while (ri < (array_length tbl.rows)) {
+            def row:DocTableRow (itemAt tbl.rows ri)
+            ; Measure row height
+            def rowH:int 24
+            def cellHeights:[int]
+            def c:int 0
+            def gridCol:int 0
+            while (c < (array_length row.cells)) {
+                def cell:DocTableCell (itemAt row.cells c)
+                def span:int cell.gridSpan
+                if (span < 1) {
+                    span = 1
+                }
+                def cw:int 0
+                def s:int 0
+                while ((s < span) && ((gridCol + s) < (array_length colPx))) {
+                    cw = (cw + (itemAt colPx (gridCol + s)))
+                    s = (s + 1)
+                }
+                def innerW:int ((cw - cell.padLeftPx) - cell.padRightPx)
+                if (innerW < 20) {
+                    innerW = 20
+                }
+                def ch:int (cell.padTopPx + cell.padBottomPx)
+                def pi:int 0
+                while (pi < (array_length cell.paragraphs)) {
+                    def cp:Paragraph (itemAt cell.paragraphs pi)
+                    ch = (ch + (this.estimateParaHeight(cp innerW)))
+                    pi = (pi + 1)
+                }
+                if (ch < 24) {
+                    ch = 24
+                }
+                push cellHeights ch
+                if (ch > rowH) {
+                    rowH = ch
+                }
+                gridCol = (gridCol + span)
+                c = (c + 1)
+            }
+
+            ; Draw cells
+            def x:int ml
+            gridCol = 0
+            c = 0
+            while (c < (array_length row.cells)) {
+                def cell2:DocTableCell (itemAt row.cells c)
+                def span2:int cell2.gridSpan
+                if (span2 < 1) {
+                    span2 = 1
+                }
+                def cw2:int 0
+                def s2:int 0
+                while ((s2 < span2) && ((gridCol + s2) < (array_length colPx))) {
+                    cw2 = (cw2 + (itemAt colPx (gridCol + s2)))
+                    s2 = (s2 + 1)
+                }
+                ; background
+                if ((strlen cell2.fillHex) == 6) {
+                    def bg:LaidLine (new LaidLine)
+                    bg.kind = 2
+                    bg.x = x
+                    bg.y = y
+                    bg.width = cw2
+                    bg.height = rowH
+                    bg.fillHex = cell2.fillHex
+                    push curPage.lines bg
+                }
+                ; borders
+                def bcol:string cell2.borderTop.colorHex
+                if ((strlen bcol) != 6) {
+                    bcol = tbl.borderColor
+                }
+                if (cell2.borderTop.style != "nil") {
+                    if (cell2.borderTop.style != "none") {
+                        def bt:LaidLine (new LaidLine)
+                        bt.kind = 3
+                        bt.x = x
+                        bt.y = y
+                        bt.width = cw2
+                        bt.height = 1
+                        bt.borderColor = bcol
+                        push curPage.lines bt
+                    }
+                }
+                if (cell2.borderBottom.style != "nil") {
+                    if (cell2.borderBottom.style != "none") {
+                        def bb:LaidLine (new LaidLine)
+                        bb.kind = 3
+                        bb.x = x
+                        bb.y = ((y + rowH) - 1)
+                        bb.width = cw2
+                        bb.height = 1
+                        bb.borderColor = bcol
+                        push curPage.lines bb
+                    }
+                }
+                if (cell2.borderLeft.style != "nil") {
+                    if (cell2.borderLeft.style != "none") {
+                        def bl:LaidLine (new LaidLine)
+                        bl.kind = 3
+                        bl.x = x
+                        bl.y = y
+                        bl.width = 1
+                        bl.height = rowH
+                        bl.borderColor = bcol
+                        push curPage.lines bl
+                    }
+                }
+                if (cell2.borderRight.style != "nil") {
+                    if (cell2.borderRight.style != "none") {
+                        def br:LaidLine (new LaidLine)
+                        br.kind = 3
+                        br.x = ((x + cw2) - 1)
+                        br.y = y
+                        br.width = 1
+                        br.height = rowH
+                        br.borderColor = bcol
+                        push curPage.lines br
+                    }
+                }
+                ; cell paragraphs
+                def cy:int (y + cell2.padTopPx)
+                def innerW2:int ((cw2 - cell2.padLeftPx) - cell2.padRightPx)
+                if (innerW2 < 20) {
+                    innerW2 = 20
+                }
+                def pi2:int 0
+                while (pi2 < (array_length cell2.paragraphs)) {
+                    def cp2:Paragraph (itemAt cell2.paragraphs pi2)
+                    cy = (this.layoutCellPara(cp2 (x + cell2.padLeftPx) cy innerW2))
+                    pi2 = (pi2 + 1)
+                }
+                x = (x + cw2)
+                gridCol = (gridCol + span2)
+                c = (c + 1)
+            }
+            y = (y + rowH)
+            ri = (ri + 1)
+        }
+        return (y + 10)
+    }
+
+    fn layoutCellPara:int (p:Paragraph x0:int y:int wrapW:int) {
+        def fontPx:double 12.0
+        if ((array_length p.spans) > 0) {
+            def s0:TextSpan (itemAt p.spans 0)
+            fontPx = (DocxLayout.ptToPx(s0.fontSizePt))
+        }
+        if (fontPx < 8.0) {
+            fontPx = 8.0
+        }
+        def lh:int (to_int (tr.lineHeight(fontPx)))
+        if (lh < 12) {
+            lh = 12
+        }
+        def wrapped:[string] (tr.wrap(p.text fontPx (to_double wrapW)))
+        if ((array_length wrapped) == 0) {
+            push wrapped ""
+        }
+        def cursor:int 0
+        def li:int 0
+        while (li < (array_length wrapped)) {
+            def chunk:string (itemAt wrapped li)
+            def line:LaidLine (new LaidLine)
+            line.kind = 0
+            line.paragraphRef = p
+            line.paraIndex = p.id
+            line.docStart = cursor
+            line.docEnd = (cursor + (strlen chunk))
+            cursor = line.docEnd
+            line.text = chunk
+            line.height = lh
+            line.y = y
+            line.fontSizePx = fontPx
+            line.align = p.align
+            if ((array_length p.spans) > 0) {
+                def sp:TextSpan (itemAt p.spans 0)
+                line.bold = sp.bold
+                line.italic = sp.italic
+                line.underline = sp.underline
+                line.colorHex = sp.colorHex
+            }
+            def tw:int (to_int (tr.measureWidth(line.text fontPx)))
+            def x:int x0
+            if (p.align == 1) {
+                x = (x0 + (to_int ((wrapW - tw) / 2)))
+            }
+            if (p.align == 2) {
+                x = (x0 + (wrapW - tw))
+            }
+            line.x = x
+            line.width = tw
+            line.boxX = x0
+            line.boxW = wrapW
+            if (line.boxW < 4) {
+                line.boxW = 4
+            }
+            push curPage.lines line
+            y = (y + lh)
+            li = (li + 1)
+        }
+        return (y + 2)
+    }
+
+    fn pageCount:int () {
+        return (array_length pages)
+    }
+
+    fn pageAt:LaidPage (i:int) {
+        return (itemAt pages i)
+    }
+}

@@ -1,0 +1,238 @@
+; ==============================================================================
+; EditorLayout - visible range, caret geometry, hit-testing.
+; ==============================================================================
+;
+; Owns scroll + line metrics. Does not own the document (EditorBuffer) or the
+; pixels (EditorView). Font advances come from UITextRenderer / EVG measurer.
+; ==============================================================================
+
+Import "EditorBuffer.rgr"
+Import "EditorSelection.rgr"
+Import "EditorStyle.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+Import "../../evg/EVGCodepoint.rgr"
+
+class EditorLayout {
+    def x:int 0
+    def y:int 0
+    def w:int 640
+    def h:int 400
+    def gutterW:int 48
+    def padX:int 8
+    def padY:int 6
+    def fontSize:double 14.0
+    def lineHeight:int 20
+    def scrollLine:int 0
+    def preferCol:int 0
+    def showLineNumbers:boolean true
+
+    Constructor () {
+    }
+
+    fn setBounds:void (bx:int by:int bw:int bh:int) {
+        x = bx
+        y = by
+        w = bw
+        h = bh
+    }
+
+    fn syncMetrics:void (tr:UITextRenderer) {
+        def lh:int (to_int (tr.lineHeight(fontSize)))
+        if (lh < 12) {
+            lh = 12
+        }
+        lineHeight = (lh + 4)
+        if showLineNumbers {
+            gutterW = 48
+        } {
+            gutterW = 0
+        }
+    }
+
+    fn contentX:int () {
+        return (x + gutterW + padX)
+    }
+
+    fn contentY:int () {
+        return (y + padY)
+    }
+
+    fn contentW:int () {
+        def cw:int (w - gutterW - padX - padX)
+        if (cw < 1) {
+            return 1
+        }
+        return cw
+    }
+
+    fn listPad:int (buf:EditorBuffer line:int) {
+        def st:LineStyle (buf.styleAt(line))
+        if (st.listKind == 0) {
+            return 0
+        }
+        return 22
+    }
+
+    ; Left edge of the text (after gutter + list marker indent), before align.
+    fn textBaseX:int (buf:EditorBuffer line:int) {
+        return ((this.contentX()) + (this.listPad(buf line)))
+    }
+
+    ; Horizontal origin after align (left/center/right). SoftCanvas uses one face.
+    fn lineOriginX:int (tr:UITextRenderer buf:EditorBuffer line:int) {
+        def base:int (this.textBaseX(buf line))
+        def st:LineStyle (buf.styleAt(line))
+        if (st.align == 0) {
+            return base
+        }
+        def s:string (buf.lineAt(line))
+        def tw:int (to_int (tr.measureWidth(s fontSize)))
+        def avail:int ((this.contentW()) - (this.listPad(buf line)))
+        if (avail < 1) {
+            avail = 1
+        }
+        if (st.align == 1) {
+            def mid:int (base + (to_int ((avail - tw) / 2)))
+            if (mid < base) {
+                return base
+            }
+            return mid
+        }
+        def right:int (base + (avail - tw))
+        if (right < base) {
+            return base
+        }
+        return right
+    }
+
+    fn contentH:int () {
+        def ch:int (h - padY - padY)
+        if (ch < 1) {
+            return 1
+        }
+        return ch
+    }
+
+    fn visibleLineCount:int () {
+        def n:int (to_int ((to_double (this.contentH())) / (to_double lineHeight)))
+        if (n < 1) {
+            return 1
+        }
+        return n
+    }
+
+    fn firstVisible:int () {
+        return scrollLine
+    }
+
+    fn lastVisible:int (buf:EditorBuffer) {
+        def last:int ((scrollLine + (this.visibleLineCount())) - 1)
+        def maxL:int ((buf.lineCount()) - 1)
+        if (last > maxL) {
+            last = maxL
+        }
+        if (last < 0) {
+            last = 0
+        }
+        return last
+    }
+
+    fn clampScroll:void (buf:EditorBuffer) {
+        def maxScroll:int ((buf.lineCount()) - (this.visibleLineCount()))
+        if (maxScroll < 0) {
+            maxScroll = 0
+        }
+        if (scrollLine < 0) {
+            scrollLine = 0
+        }
+        if (scrollLine > maxScroll) {
+            scrollLine = maxScroll
+        }
+    }
+
+    fn scrollByLines:void (buf:EditorBuffer delta:int) {
+        scrollLine = (scrollLine + delta)
+        this.clampScroll(buf)
+    }
+
+    fn ensureCaretVisible:void (buf:EditorBuffer sel:EditorSelection) {
+        def cl:int sel.caret.line
+        if (cl < scrollLine) {
+            scrollLine = cl
+        }
+        def bottom:int ((scrollLine + (this.visibleLineCount())) - 1)
+        if (cl > bottom) {
+            scrollLine = ((cl - (this.visibleLineCount())) + 1)
+        }
+        this.clampScroll(buf)
+    }
+
+    fn jumpToLine:void (buf:EditorBuffer line:int) {
+        scrollLine = line
+        this.clampScroll(buf)
+    }
+
+    ; Pixel X of a column on a line (content-absolute).
+    fn caretPixelX:int (tr:UITextRenderer buf:EditorBuffer line:int col:int) {
+        def s:string (buf.lineAt(line))
+        def len:int (strlen s)
+        if (col < 0) {
+            col = 0
+        }
+        if (col > len) {
+            col = len
+        }
+        def pre:string (substring s 0 col)
+        def mw:int (to_int (tr.measureWidth(pre fontSize)))
+        return ((this.lineOriginX(tr buf line)) + mw)
+    }
+
+    fn caretPixelY:int (line:int) {
+        return ((this.contentY()) + ((line - scrollLine) * lineHeight))
+    }
+
+    ; Hit-test content coordinates -> EditorPos. Uses binary search on advances.
+    fn hitTest:EditorPos (tr:UITextRenderer buf:EditorBuffer px:int py:int) {
+        def localY:int (py - (this.contentY()))
+        def line:int (scrollLine + (to_int ((to_double localY) / (to_double lineHeight))))
+        if (line < 0) {
+            line = 0
+        }
+        def maxL:int ((buf.lineCount()) - 1)
+        if (line > maxL) {
+            line = maxL
+        }
+        def s:string (buf.lineAt(line))
+        def len:int (strlen s)
+        def origin:int (this.lineOriginX(tr buf line))
+        def localX:int (px - origin)
+        if (localX <= 0) {
+            return (EditorPos.create(line 0))
+        }
+        def lo:int 0
+        def hi:int len
+        while (lo < hi) {
+            def mid:int (to_int ((lo + hi) / 2))
+            ; advance mid to a codepoint boundary
+            def m2:int mid
+            if (m2 > 0) {
+                if (m2 < len) {
+                    if (EVGCodepoint.isLowSurrogate((charAt s m2))) {
+                        m2 = (m2 - 1)
+                    }
+                }
+            }
+            def pre:string (substring s 0 m2)
+            def mw:int (to_int (tr.measureWidth(pre fontSize)))
+            if (mw < localX) {
+                lo = (m2 + (EVGCodepoint.unitsAt(s m2)))
+                if (lo > len) {
+                    lo = len
+                }
+            } {
+                hi = m2
+            }
+        }
+        return (EditorPos.create(line lo))
+    }
+}

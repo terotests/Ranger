@@ -1,0 +1,15 @@
+{
+  "name": "ranger-text-editor-compare",
+  "private": true,
+  "type": "module",
+  "description": "Side-by-side bench: Ranger EVG editor vs @hufe921/canvas-editor",
+  "scripts": {
+    "compare": "node run.mjs",
+    "compare:1k": "node run.mjs --lines 1000",
+    "compare:10k": "node run.mjs --lines 10000"
+  },
+  "dependencies": {
+    "@hufe921/canvas-editor": "1.0.1",
+    "puppeteer-core": "^24.8.0"
+  }
+}

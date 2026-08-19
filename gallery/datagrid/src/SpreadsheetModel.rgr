@@ -1,0 +1,810 @@
+; ==============================================================================
+; SpreadsheetModel - sparse cell store + row/column geometry for DataGrid.
+; ==============================================================================
+;
+; EVG paints cells; EVG is NOT the spreadsheet model. Geometry (row heights,
+; column widths, prefix offsets) lives here so DataGrid can virtualize without
+; CSS grid / one View per cell.
+;
+; Cell keys are "row,col" strings. Empty cells are absent from the map — a
+; 100k×26 sheet costs almost nothing until cells are written.
+; ==============================================================================
+
+Import "CellStyle.rgr"
+Import "XlsxNumberFormat.rgr"
+
+; Conditional formatting rule (parsed from xlsx cfRule).
+class CfRule {
+    ; 0 colorScale | 1 cellIs
+    def kind:int 0
+    def r0:int 0
+    def c0:int 0
+    def r1:int 0
+    def c1:int 0
+    def op:string ""
+    def v1:double 0.0
+    def v2:double 0.0
+    def fillRgb:string ""
+    def color0:string "F8696B"
+    def color1:string "FFEB84"
+    def color2:string "63BE7B"
+
+    Constructor () {
+    }
+}
+
+class CellPos {
+    def row:int 0
+    def col:int 0
+
+    Constructor () {
+    }
+
+    sfn create:CellPos (row:int col:int) {
+        def p:CellPos (new CellPos)
+        p.row = row
+        p.col = col
+        return p
+    }
+
+    fn copyFrom:void (other:CellPos) {
+        row = other.row
+        col = other.col
+    }
+
+    fn equals:boolean (other:CellPos) {
+        if (row != other.row) {
+            return false
+        }
+        return (col == other.col)
+    }
+}
+
+class SpreadsheetUndoOp {
+    def row:int 0
+    def col:int 0
+    def before:string ""
+    def after:string ""
+
+    Constructor () {
+    }
+}
+
+class SpreadsheetModel {
+    def name:string ""
+    def rowCount:int 1000
+    def colCount:int 26
+    def defaultRowH:int 22
+    def defaultColW:int 100
+    def freezeRows:int 0
+    def freezeCols:int 0
+    def cells:[string:string]
+    def formulas:[string:string]
+    def formulaKeys:[string]
+    def cellStyleIds:[string:int]
+    def styles:[CellStyle]
+    def merges:[string]
+    def rowHeights:[int]
+    def colWidths:[int]
+    def rowOffsets:[int]
+    def colOffsets:[int]
+    def rowHidden:[boolean]
+    def colHidden:[boolean]
+    def rowSuppressed:[boolean]
+    def filterCol:int -1
+    def filterValues:[string]
+    def filterEnabled:boolean false
+    def sortCol:int -1
+    def sortAsc:boolean true
+    def cfRules:[CfRule]
+    def sheetHidden:boolean false
+    def scrollXSaved:int 0
+    def scrollYSaved:int 0
+    def rowGeomDirty:boolean true
+    def colGeomDirty:boolean true
+    def undoStack:[SpreadsheetUndoOp]
+    def redoStack:[SpreadsheetUndoOp]
+    def maxUndo:int 200
+    def version:int 0
+
+    Constructor () {
+    }
+
+    fn clearSheet:void () {
+        def emptyCells:[string:string]
+        def emptyFormulas:[string:string]
+        def emptyStyleIds:[string:int]
+        cells = emptyCells
+        formulas = emptyFormulas
+        cellStyleIds = emptyStyleIds
+        clear formulaKeys
+        clear styles
+        clear merges
+        clear cfRules
+        clear rowHeights
+        clear colWidths
+        clear rowOffsets
+        clear colOffsets
+        clear rowHidden
+        clear colHidden
+        clear rowSuppressed
+        clear filterValues
+        clear undoStack
+        clear redoStack
+        freezeRows = 0
+        freezeCols = 0
+        filterCol = -1
+        filterEnabled = false
+        sortCol = -1
+        sortAsc = true
+        sheetHidden = false
+        rowCount = 1
+        colCount = 1
+        rowGeomDirty = true
+        colGeomDirty = true
+        version = (version + 1)
+        this.ensureGeometry()
+    }
+
+    fn cellKey:string (row:int col:int) {
+        return ((to_string row) + "," + (to_string col))
+    }
+
+    ; A1, B17, AA3 — 0-based row/col in, Excel-style label out.
+    sfn colLabel:string (col:int) {
+        def c:int col
+        def out:string ""
+        while (c >= 0) {
+            def rem:int (c - ((to_int (c / 26)) * 26))
+            out = ((strfromcode (65 + rem)) + out)
+            c = ((to_int (c / 26)) - 1)
+        }
+        return out
+    }
+
+    sfn cellLabel:string (row:int col:int) {
+        return ((SpreadsheetModel.colLabel(col)) + (to_string (row + 1)))
+    }
+
+    fn ensureGeometry:void () {
+        def needRows:int (rowCount + 1)
+        def needCols:int (colCount + 1)
+        if ((array_length rowHeights) != rowCount) {
+            clear rowHeights
+            clear rowHidden
+            def i:int 0
+            while (i < rowCount) {
+                push rowHeights defaultRowH
+                push rowHidden false
+                i = (i + 1)
+            }
+            rowGeomDirty = true
+        }
+        if ((array_length colWidths) != colCount) {
+            clear colWidths
+            clear colHidden
+            def j:int 0
+            while (j < colCount) {
+                push colWidths defaultColW
+                push colHidden false
+                j = (j + 1)
+            }
+            colGeomDirty = true
+        }
+        if ((array_length rowHidden) != rowCount) {
+            clear rowHidden
+            clear rowSuppressed
+            def hi:int 0
+            while (hi < rowCount) {
+                push rowHidden false
+                push rowSuppressed false
+                hi = (hi + 1)
+            }
+        }
+        if ((array_length colHidden) != colCount) {
+            clear colHidden
+            def hj:int 0
+            while (hj < colCount) {
+                push colHidden false
+                hj = (hj + 1)
+            }
+        }
+        if rowGeomDirty {
+            clear rowOffsets
+            def acc:int 0
+            push rowOffsets 0
+            def r:int 0
+            while (r < rowCount) {
+                def rh:int (itemAt rowHeights r)
+                if ((r < (array_length rowHidden)) && (itemAt rowHidden r)) {
+                    rh = 0
+                }
+                if ((r < (array_length rowSuppressed)) && (itemAt rowSuppressed r)) {
+                    rh = 0
+                }
+                acc = (acc + rh)
+                push rowOffsets acc
+                r = (r + 1)
+            }
+            rowGeomDirty = false
+        }
+        if colGeomDirty {
+            clear colOffsets
+            def acc2:int 0
+            push colOffsets 0
+            def c:int 0
+            while (c < colCount) {
+                def cw:int (itemAt colWidths c)
+                if ((c < (array_length colHidden)) && (itemAt colHidden c)) {
+                    cw = 0
+                }
+                acc2 = (acc2 + cw)
+                push colOffsets acc2
+                c = (c + 1)
+            }
+            colGeomDirty = false
+        }
+        ; silence unused in some targets
+        if (needRows < 0) {
+            needRows = 0
+        }
+        if (needCols < 0) {
+            needCols = 0
+        }
+    }
+
+    fn resize:void (rows:int cols:int) {
+        if (rows < 1) {
+            rows = 1
+        }
+        if (cols < 1) {
+            cols = 1
+        }
+        rowCount = rows
+        colCount = cols
+        clear rowHeights
+        clear colWidths
+        rowGeomDirty = true
+        colGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
+    fn getCell:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has cells k) {
+            return (unwrap (get cells k))
+        }
+        return ""
+    }
+
+    fn setCellStyleId:void (row:int col:int styleId:int) {
+        def k:string (this.cellKey(row col))
+        set cellStyleIds k styleId
+    }
+
+    fn getCellStyle:CellStyle (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has cellStyleIds k) {
+            def sid:int (unwrap (get cellStyleIds k))
+            if ((sid >= 0) && (sid < (array_length styles))) {
+                return (itemAt styles sid)
+            }
+        }
+        return (CellStyle.createDefault())
+    }
+
+    ; FortuneSheet-style display value: raw cell + number format engine.
+    fn getDisplay:string (row:int col:int) {
+        def raw:string (this.getCell(row col))
+        def st:CellStyle (this.getCellStyle(row col))
+        return (XlsxNumberFormat.format(raw st.numFmt))
+    }
+
+    fn setStylesFrom:void (list:[CellStyle]) {
+        clear styles
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            push styles (itemAt list i)
+            i = (i + 1)
+        }
+    }
+
+    fn setFreeze:void (rows:int cols:int) {
+        if (rows < 0) {
+            rows = 0
+        }
+        if (cols < 0) {
+            cols = 0
+        }
+        freezeRows = rows
+        freezeCols = cols
+        version = (version + 1)
+    }
+
+    fn frozenHeight:int () {
+        this.ensureGeometry()
+        if (freezeRows <= 0) {
+            return 0
+        }
+        if (freezeRows >= rowCount) {
+            return (this.totalHeight())
+        }
+        return (this.rowToY(freezeRows))
+    }
+
+    fn frozenWidth:int () {
+        this.ensureGeometry()
+        if (freezeCols <= 0) {
+            return 0
+        }
+        if (freezeCols >= colCount) {
+            return (this.totalWidth())
+        }
+        return (this.colToX(freezeCols))
+    }
+
+    fn getFormula:string (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has formulas k) {
+            return (unwrap (get formulas k))
+        }
+        return ""
+    }
+
+    fn setFormula:void (row:int col:int formula:string) {
+        def k:string (this.cellKey(row col))
+        if (has formulas k) {
+        } {
+            push formulaKeys k
+        }
+        set formulas k formula
+    }
+
+    fn clearFormula:void (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has formulas k) {
+            set formulas k ""
+        }
+    }
+
+    fn hasFormula:boolean (row:int col:int) {
+        def k:string (this.cellKey(row col))
+        if (has formulas k) {
+            def f:string (unwrap (get formulas k))
+            if ((strlen f) > 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn collectFormulaKeys:void (sheetIdx:int out:[string]) {
+        def i:int 0
+        def n:int (array_length formulaKeys)
+        while (i < n) {
+            def k:string (itemAt formulaKeys i)
+            push out (((to_string sheetIdx) + "!") + k)
+            i = (i + 1)
+        }
+    }
+
+    fn setRowHidden:void (row:int hidden:boolean) {
+        this.ensureGeometry()
+        if ((row < 0) || (row >= rowCount)) {
+            return
+        }
+        set_at rowHidden row hidden
+        rowGeomDirty = true
+        version = (version + 1)
+    }
+
+    fn setColHidden:void (col:int hidden:boolean) {
+        this.ensureGeometry()
+        if ((col < 0) || (col >= colCount)) {
+            return
+        }
+        set_at colHidden col hidden
+        colGeomDirty = true
+        version = (version + 1)
+    }
+
+    fn isRowHidden:boolean (row:int) {
+        this.ensureGeometry()
+        if ((row < 0) || (row >= (array_length rowHidden))) {
+            return false
+        }
+        return (itemAt rowHidden row)
+    }
+
+    fn isColHidden:boolean (col:int) {
+        this.ensureGeometry()
+        if ((col < 0) || (col >= (array_length colHidden))) {
+            return false
+        }
+        return (itemAt colHidden col)
+    }
+
+    fn setFilter:void (col:int enabled:boolean values:[string]) {
+        filterCol = col
+        filterEnabled = enabled
+        clear filterValues
+        def i:int 0
+        def n:int (array_length values)
+        while (i < n) {
+            push filterValues (itemAt values i)
+            i = (i + 1)
+        }
+        this.ensureGeometry()
+        if ((array_length rowSuppressed) != rowCount) {
+            clear rowSuppressed
+            def hi:int 0
+            while (hi < rowCount) {
+                push rowSuppressed false
+                hi = (hi + 1)
+            }
+        }
+        def r:int 0
+        while (r < rowCount) {
+            def suppress:boolean false
+            if enabled {
+                if (r >= freezeRows) {
+                    def v:string (this.getCell(r col))
+                    def ok:boolean false
+                    def j:int 0
+                    while (j < n) {
+                        if (v == (itemAt filterValues j)) {
+                            ok = true
+                        }
+                        j = (j + 1)
+                    }
+                    if (n == 0) {
+                        ok = true
+                    }
+                    if (ok == false) {
+                        suppress = true
+                    }
+                }
+            }
+            set_at rowSuppressed r suppress
+            r = (r + 1)
+        }
+        rowGeomDirty = true
+        version = (version + 1)
+    }
+
+    fn setSort:void (col:int ascending:boolean) {
+        sortCol = col
+        sortAsc = ascending
+        version = (version + 1)
+    }
+
+    ; Formula bar text: "=SUM(...)" when present, else display value.
+    fn formulaBarText:string (row:int col:int) {
+        def f:string (this.getFormula(row col))
+        if ((strlen f) > 0) {
+            if ((charAt f 0) == 61) {
+                return f
+            }
+            return ("=" + f)
+        }
+        return (this.getDisplay(row col))
+    }
+
+    fn addMerge:void (r1:int c1:int r2:int c2:int) {
+        if (r2 < r1) {
+            def t:int r1
+            r1 = r2
+            r2 = t
+        }
+        if (c2 < c1) {
+            def t2:int c1
+            c1 = c2
+            c2 = t2
+        }
+        def key:string ((((to_string r1) + ",") + (to_string c1) + ",") + (to_string r2) + "," + (to_string c2))
+        push merges key
+    }
+
+    ; Returns merge key containing (row,col), or "".
+    fn mergeAt:string (row:int col:int) {
+        def i:int 0
+        def n:int (array_length merges)
+        while (i < n) {
+            def m:string (itemAt merges i)
+            def parts:[string] (strsplit m ",")
+            if ((array_length parts) >= 4) {
+                def r1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                def c1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                def r2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
+                def c2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
+                if ((row >= r1) && (row <= r2) && (col >= c1) && (col <= c2)) {
+                    return m
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn isMergeOrigin:boolean (row:int col:int) {
+        def m:string (this.mergeAt(row col))
+        if ((strlen m) == 0) {
+            return true
+        }
+        def parts:[string] (strsplit m ",")
+        def r1:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+        def c1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+        if (row != r1) {
+            return false
+        }
+        return (col == c1)
+    }
+
+    sfn parseInt0:int (s:string) {
+        def parsed@(optional):int (to_int s)
+        if parsed {
+            return (unwrap parsed)
+        }
+        return 0
+    }
+
+    fn setCellRaw:void (row:int col:int value:string) {
+        def k:string (this.cellKey(row col))
+        ; Keep empty strings as present keys so clear is a normal set (map
+        ; remove is target-fragile); getCell still returns "".
+        set cells k value
+        version = (version + 1)
+    }
+
+    fn setCell:void (row:int col:int value:string) {
+        def before:string (this.getCell(row col))
+        if (before == value) {
+            return
+        }
+        def op:SpreadsheetUndoOp (new SpreadsheetUndoOp)
+        op.row = row
+        op.col = col
+        op.before = before
+        op.after = value
+        push undoStack op
+        while ((array_length undoStack) > maxUndo) {
+            remove_index undoStack 0
+        }
+        clear redoStack
+        this.setCellRaw(row col value)
+    }
+
+    fn undo:CellPos () {
+        def n:int (array_length undoStack)
+        if (n <= 0) {
+            return (CellPos.create(0 0))
+        }
+        def op:SpreadsheetUndoOp (itemAt undoStack (n - 1))
+        removeLast undoStack
+        this.setCellRaw(op.row op.col op.before)
+        push redoStack op
+        return (CellPos.create(op.row op.col))
+    }
+
+    fn redo:CellPos () {
+        def n:int (array_length redoStack)
+        if (n <= 0) {
+            return (CellPos.create(0 0))
+        }
+        def op:SpreadsheetUndoOp (itemAt redoStack (n - 1))
+        removeLast redoStack
+        this.setCellRaw(op.row op.col op.after)
+        def u:SpreadsheetUndoOp (new SpreadsheetUndoOp)
+        u.row = op.row
+        u.col = op.col
+        u.before = op.before
+        u.after = op.after
+        push undoStack u
+        return (CellPos.create(op.row op.col))
+    }
+
+    fn rowHeight:int (row:int) {
+        this.ensureGeometry()
+        if (row < 0) {
+            return defaultRowH
+        }
+        if (row >= rowCount) {
+            return defaultRowH
+        }
+        return (itemAt rowHeights row)
+    }
+
+    fn colWidth:int (col:int) {
+        this.ensureGeometry()
+        if (col < 0) {
+            return defaultColW
+        }
+        if (col >= colCount) {
+            return defaultColW
+        }
+        return (itemAt colWidths col)
+    }
+
+    fn setRowHeight:void (row:int h:int) {
+        this.ensureGeometry()
+        if (row < 0) {
+            return
+        }
+        if (row >= rowCount) {
+            return
+        }
+        if (h < 8) {
+            h = 8
+        }
+        if (h > 400) {
+            h = 400
+        }
+        set_at rowHeights row h
+        rowGeomDirty = true
+        version = (version + 1)
+    }
+
+    fn setColWidth:void (col:int w:int) {
+        this.ensureGeometry()
+        if (col < 0) {
+            return
+        }
+        if (col >= colCount) {
+            return
+        }
+        if (w < 24) {
+            w = 24
+        }
+        if (w > 600) {
+            w = 600
+        }
+        set_at colWidths col w
+        colGeomDirty = true
+        version = (version + 1)
+    }
+
+    ; Content-space Y of the top edge of `row` (prefix sum).
+    fn rowToY:int (row:int) {
+        this.ensureGeometry()
+        if (row <= 0) {
+            return 0
+        }
+        if (row >= rowCount) {
+            return (itemAt rowOffsets rowCount)
+        }
+        return (itemAt rowOffsets row)
+    }
+
+    fn colToX:int (col:int) {
+        this.ensureGeometry()
+        if (col <= 0) {
+            return 0
+        }
+        if (col >= colCount) {
+            return (itemAt colOffsets colCount)
+        }
+        return (itemAt colOffsets col)
+    }
+
+    fn totalHeight:int () {
+        this.ensureGeometry()
+        return (itemAt rowOffsets rowCount)
+    }
+
+    fn totalWidth:int () {
+        this.ensureGeometry()
+        return (itemAt colOffsets colCount)
+    }
+
+    ; Binary search on prefix offsets: content Y → row index.
+    fn yToRow:int (y:int) {
+        this.ensureGeometry()
+        if (y <= 0) {
+            return 0
+        }
+        def total:int (itemAt rowOffsets rowCount)
+        if (y >= total) {
+            return (rowCount - 1)
+        }
+        def lo:int 0
+        def hi:int (rowCount - 1)
+        while (lo < hi) {
+            def mid:int (to_int ((lo + hi + 1) / 2))
+            if ((itemAt rowOffsets mid) <= y) {
+                lo = mid
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return lo
+    }
+
+    fn xToCol:int (x:int) {
+        this.ensureGeometry()
+        if (x <= 0) {
+            return 0
+        }
+        def total:int (itemAt colOffsets colCount)
+        if (x >= total) {
+            return (colCount - 1)
+        }
+        def lo:int 0
+        def hi:int (colCount - 1)
+        while (lo < hi) {
+            def mid:int (to_int ((lo + hi + 1) / 2))
+            if ((itemAt colOffsets mid) <= x) {
+                lo = mid
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return lo
+    }
+
+    fn clampPos:void (p:CellPos) {
+        if (p.row < 0) {
+            p.row = 0
+        }
+        if (p.col < 0) {
+            p.col = 0
+        }
+        if (p.row >= rowCount) {
+            p.row = (rowCount - 1)
+        }
+        if (p.col >= colCount) {
+            p.col = (colCount - 1)
+        }
+    }
+
+    ; Seed a demo sheet: headers + a few sample rows. Sparse — rest stay empty.
+    fn seedDemo:void () {
+        this.clearSheet()
+        this.name = "Demo"
+        this.resize(1000 26)
+        this.setCellRaw(0 0 "Product")
+        this.setCellRaw(0 1 "Qty")
+        this.setCellRaw(0 2 "Price")
+        this.setCellRaw(0 3 "Total")
+        this.setCellRaw(1 0 "Widget")
+        this.setCellRaw(1 1 "12")
+        this.setCellRaw(1 2 "4.50")
+        this.setCellRaw(1 3 "54.00")
+        this.setCellRaw(2 0 "Gadget")
+        this.setCellRaw(2 1 "3")
+        this.setCellRaw(2 2 "19.90")
+        this.setCellRaw(2 3 "59.70")
+        this.setCellRaw(3 0 "Doohickey")
+        this.setCellRaw(3 1 "100")
+        this.setCellRaw(3 2 "0.25")
+        this.setCellRaw(3 3 "25.00")
+        this.setCellRaw(5 0 "Ranger EVG DataGrid")
+        this.setCellRaw(5 1 "virtualized")
+        this.setCellRaw(5 2 "batched")
+        this.setCellRaw(6 0 "Click a cell, type, Enter to commit.")
+        this.setColWidth(0 160)
+        this.setColWidth(3 110)
+        this.setRowHeight(0 28)
+        clear undoStack
+        clear redoStack
+    }
+
+    ; Fill many cells for scroll benches without storing empty rows.
+    fn seedBench:void (rows:int cols:int fillEvery:int) {
+        this.resize(rows cols)
+        def r:int 0
+        while (r < rows) {
+            if ((r - ((to_int (r / fillEvery)) * fillEvery)) == 0) {
+                def c:int 0
+                while (c < cols) {
+                    this.setCellRaw(r c (("R" + (to_string r)) + "C" + (to_string c)))
+                    c = (c + 1)
+                }
+            }
+            r = (r + 1)
+        }
+        clear undoStack
+        clear redoStack
+    }
+}

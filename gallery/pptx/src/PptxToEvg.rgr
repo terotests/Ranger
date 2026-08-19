@@ -1,0 +1,698 @@
+; ==============================================================================
+; PptxToEvg - ResolvedSlide → EVGElement tree (+ display-list painter helpers)
+; ==============================================================================
+;
+; PowerPoint slides are absolute scenes — no flex/grid needed. Each shape
+; becomes a positioned View (div) with background / border / text / image.
+; Groups nest as EVG groups with the same transform box.
+;
+; EMU → pt already happened in the model; here we map pt → CSS px at 96dpi
+; (1pt = 96/72 px) so SoftCanvas / WebGL paint at screen pixels.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+Import "PptxGeom.rgr"
+Import "PptxChartVela.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class PptxToEvg {
+    def scale:double 1.0        ; extra zoom on top of pt→px
+
+    Constructor () {
+    }
+
+    fn setScale:void (s:double) {
+        scale = s
+    }
+
+    ; 1 typographic point → CSS px
+    fn ptToPx:double (pt:double) {
+        return ((pt * (96.0 / 72.0)) * scale)
+    }
+
+    fn colorFrom:EVGColor (c:PptxColor) {
+        if (c.isSet == false) {
+            return (EVGColor.rgba(0 0 0 0.0))
+        }
+        def hex:string ("#" + c.srgb)
+        def col:EVGColor (EVGColor.parse(hex))
+        if (c.alpha < 0.999) {
+            return (EVGColor.create((to_double (col.red())) (to_double (col.green())) (to_double (col.blue())) c.alpha))
+        }
+        return col
+    }
+
+    fn hexCss:string (c:PptxColor) {
+        if (c.isSet == false) {
+            return "transparent"
+        }
+        return ("#" + c.srgb)
+    }
+
+    fn alignCss:string (algn:string) {
+        if (algn == "ctr") {
+            return "center"
+        }
+        if (algn == "r") {
+            return "right"
+        }
+        if (algn == "just") {
+            return "justify"
+        }
+        return "left"
+    }
+
+    fn alignToken:string (algn:string) {
+        if (algn == "ctr") {
+            return "center"
+        }
+        if (algn == "r") {
+            return "right"
+        }
+        return "left"
+    }
+
+    fn applyBox:void (el:EVGElement shape:PptxShape) {
+        el.left = (EVGUnit.px((this.ptToPx(shape.x))))
+        el.top = (EVGUnit.px((this.ptToPx(shape.y))))
+        el.width = (EVGUnit.px((this.ptToPx(shape.width))))
+        el.height = (EVGUnit.px((this.ptToPx(shape.height))))
+        el.position = "absolute"
+        if (shape.rotation != 0.0) {
+            el.rotate = shape.rotation
+        }
+        if (shape.fill.isSet) {
+            el.backgroundColor = (this.colorFrom(shape.fill))
+        }
+        if ((shape.line.isSet) && (shape.lineWidthPt > 0.0)) {
+            el.borderWidth = (EVGUnit.px((this.ptToPx(shape.lineWidthPt))))
+            el.borderColor = (this.colorFrom(shape.line))
+        }
+        if (shape.preset == "ellipse") {
+            ; Approximate ellipse with a large border-radius
+            def rx:double (this.ptToPx((shape.width * 0.5)))
+            el.setAttribute("border-radius" ((to_string (to_int rx)) + "px"))
+        }
+        if (shape.preset == "roundRect") {
+            el.setAttribute("border-radius" "12px")
+        }
+    }
+
+    fn textElement:EVGElement (shape:PptxShape) {
+        def box (EVGElement.createDiv())
+        this.applyBox(box shape)
+        def body:PptxTextBody shape.text
+        def padL:double (this.ptToPx(body.insetL))
+        def padT:double (this.ptToPx(body.insetT))
+        box.paddingLeft = (EVGUnit.px(padL))
+        box.paddingTop = (EVGUnit.px(padT))
+        box.paddingRight = (EVGUnit.px((this.ptToPx(body.insetR))))
+        box.paddingBottom = (EVGUnit.px((this.ptToPx(body.insetB))))
+        def plain:string (body.plainText())
+        box.textContent = plain
+        if ((array_length body.paragraphs) > 0) {
+            def para:PptxParagraph (itemAt body.paragraphs 0)
+            box.textAlign = (this.alignCss(para.align))
+            if ((array_length para.runs) > 0) {
+                def run:PptxTextRun (itemAt para.runs 0)
+                box.fontSize = (EVGUnit.px((this.ptToPx(run.fontSizePt))))
+                if ((strlen run.fontFamily) > 0) {
+                    box.fontFamily = run.fontFamily
+                }
+                if run.bold {
+                    box.fontWeight = "bold"
+                }
+                if (run.color.isSet) {
+                    box.color = (this.colorFrom(run.color))
+                }
+            }
+        }
+        return box
+    }
+
+    fn mapGroupChild:PptxShape (shape:PptxShape child:PptxShape) {
+        def mapped (new PptxShape())
+        mapped.kind = child.kind
+        mapped.name = child.name
+        mapped.preset = child.preset
+        mapped.fill = child.fill
+        mapped.line = child.line
+        mapped.lineWidthPt = child.lineWidthPt
+        mapped.hasText = child.hasText
+        mapped.text = child.text
+        mapped.imageRid = child.imageRid
+        mapped.imagePart = child.imagePart
+        mapped.imageBytes = child.imageBytes
+        mapped.imageOk = child.imageOk
+        mapped.rotation = (child.rotation + shape.rotation)
+        mapped.children = child.children
+        mapped.chX = child.chX
+        mapped.chY = child.chY
+        mapped.chW = child.chW
+        mapped.chH = child.chH
+        mapped.isPlaceholder = child.isPlaceholder
+        mapped.phType = child.phType
+        mapped.phIdx = child.phIdx
+        mapped.inherited = child.inherited
+        def sx:double 1.0
+        def sy:double 1.0
+        if ((shape.chW > 0.0) && (shape.width > 0.0)) {
+            sx = (shape.width / shape.chW)
+        }
+        if ((shape.chH > 0.0) && (shape.height > 0.0)) {
+            sy = (shape.height / shape.chH)
+        }
+        mapped.x = ((child.x - shape.chX) * sx)
+        mapped.y = ((child.y - shape.chY) * sy)
+        mapped.width = (child.width * sx)
+        mapped.height = (child.height * sy)
+        mapped.hasXfrm = true
+        return mapped
+    }
+
+    fn shapeElement:EVGElement (shape:PptxShape) {
+        if (shape.kind == 1) {
+            def img (EVGElement.createImg())
+            this.applyBox(img shape)
+            if ((strlen shape.imagePart) > 0) {
+                img.src = shape.imagePart
+            }
+            return img
+        }
+        if (shape.kind == 2) {
+            def grp (EVGElement.createDiv())
+            this.applyBox(grp shape)
+            def i:int 0
+            while (i < (array_length shape.children)) {
+                def child:PptxShape (itemAt shape.children i)
+                def mapped:PptxShape (this.mapGroupChild(shape child))
+                ; Nested absolute coords are page-relative after mapping — but
+                ; as EVG children of the group we want group-local coords.
+                mapped.x = mapped.x
+                mapped.y = mapped.y
+                grp.addChild((this.shapeElement(mapped)))
+                i = (i + 1)
+            }
+            return grp
+        }
+        if shape.hasText {
+            return (this.textElement(shape))
+        }
+        def el (EVGElement.createDiv())
+        this.applyBox(el shape)
+        return el
+    }
+
+    fn slideToEvg:EVGElement (slide:PptxSlide) {
+        def page (EVGElement.createDiv())
+        page.width = (EVGUnit.px((this.ptToPx(slide.width))))
+        page.height = (EVGUnit.px((this.ptToPx(slide.height))))
+        if (slide.bg.isSet) {
+            page.backgroundColor = (this.colorFrom(slide.bg))
+        } {
+            page.backgroundColor = (EVGColor.parse("#FFFFFF"))
+        }
+        page.position = "relative"
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            page.addChild((this.shapeElement((itemAt slide.shapes i))))
+            i = (i + 1)
+        }
+        return page
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Direct display-list emission for the SoftCanvas / WebGL viewer path.
+    ; --------------------------------------------------------------------------
+
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushBorder:void (dl:EVGDisplayList x:double y:double w:double h:double thickness:double col:EVGColor) {
+        def c (new EVGDrawCmd())
+        c.kind = 1
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.thickness = thickness
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushTextCmd:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor fontFamily:string rotate:double align:string boxW:double bold:boolean maxW:double) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def c (new EVGDrawCmd())
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = boxW
+        c.h = size
+        c.text = text
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        c.textAlign = align
+        c.maxWidth = maxW
+        if bold {
+            c.fontWeight = "bold"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        c.rotate = rotate
+        push dl.cmds c
+    }
+
+    fn pushImage:void (dl:EVGDisplayList src:string x:double y:double w:double h:double) {
+        def c (new EVGDrawCmd())
+        c.kind = 2
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.src = src
+        c.a = 1.0
+        push dl.cmds c
+    }
+
+    fn estimateTextBlockHeight:double (body:PptxTextBody contentW:double) {
+        def h:double 0.0
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            def fontSize:double 18.0
+            if ((array_length para.runs) > 0) {
+                def r0:PptxTextRun (itemAt para.runs 0)
+                fontSize = (this.ptToPx(r0.fontSizePt))
+            }
+            def lineH:double (fontSize * (para.lineSpacingPct / 100.0) * 1.2)
+            if (lineH < (fontSize * 1.15)) {
+                lineH = (fontSize * 1.15)
+            }
+            ; Rough wrap estimate: ~0.5em average char width
+            def chars:int 0
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def rr:PptxTextRun (itemAt para.runs ri)
+                chars = (chars + (strlen rr.text))
+                ri = (ri + 1)
+            }
+            def avgW:double (fontSize * 0.5)
+            def lines:int 1
+            if ((avgW > 0.0) && (contentW > 0.0) && body.wrap) {
+                def need:double (((to_double chars) * avgW) / contentW)
+                lines = (to_int (need + 0.999))
+                if (lines < 1) {
+                    lines = 1
+                }
+            }
+            h = (h + (this.ptToPx(para.spaceBeforePt)))
+            h = (h + ((to_double lines) * lineH))
+            h = (h + (this.ptToPx(para.spaceAfterPt)))
+            pi = (pi + 1)
+        }
+        return h
+    }
+
+    fn emitTextBody:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
+        def body:PptxTextBody shape.text
+        def padL:double (this.ptToPx(body.insetL))
+        def padT:double (this.ptToPx(body.insetT))
+        def padR:double (this.ptToPx(body.insetR))
+        def padB:double (this.ptToPx(body.insetB))
+        def contentW:double ((w - padL) - padR)
+        if (contentW < 8.0) {
+            contentW = 8.0
+        }
+        def contentH:double ((h - padT) - padB)
+        def blockH:double (this.estimateTextBlockHeight(body contentW))
+        def originY:double (y + padT)
+        if (body.anchor == "ctr") {
+            originY = (y + padT + ((contentH - blockH) * 0.5))
+        }
+        if (body.anchor == "b") {
+            originY = (y + padT + (contentH - blockH))
+        }
+        if (originY < (y + padT)) {
+            originY = (y + padT)
+        }
+        def ty:double originY
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            ty = (ty + (this.ptToPx(para.spaceBeforePt)))
+            def align:string (this.alignToken(para.align))
+            def maxW:double 0.0
+            if body.wrap {
+                maxW = contentW
+            }
+            def bulletPrefix:string ""
+            def textOriginX:double (x + padL)
+            if para.hasBullet {
+                bulletPrefix = (para.bulletChar + " ")
+                textOriginX = (textOriginX + ((to_double para.level) * (this.ptToPx(18.0))) + (this.ptToPx(12.0)))
+            }
+            ; Approximate total line width so ctr/r can place multi-run lines.
+            def approxW:double 0.0
+            def ri0:int 0
+            def lineSize:double 14.0
+            while (ri0 < (array_length para.runs)) {
+                def r0:PptxTextRun (itemAt para.runs ri0)
+                def fs0:double (this.ptToPx(r0.fontSizePt))
+                if (fs0 > lineSize) {
+                    lineSize = fs0
+                }
+                approxW = (approxW + ((to_double (strlen r0.text)) * fs0 * 0.52))
+                ri0 = (ri0 + 1)
+            }
+            if para.hasBullet {
+                approxW = (approxW + ((to_double (strlen bulletPrefix)) * lineSize * 0.52))
+            }
+            def runX:double textOriginX
+            if (align == "center") {
+                runX = (textOriginX + ((contentW - approxW) * 0.5))
+            }
+            if (align == "right") {
+                runX = (textOriginX + (contentW - approxW))
+            }
+            def singleRun:boolean ((array_length para.runs) == 1)
+            if para.hasBullet {
+                this.pushTextCmd(dl bulletPrefix runX ty lineSize (EVGColor.rgb(40 40 50)) "Calibri" shape.rotation "left" 0.0 false 0.0)
+                runX = (runX + ((to_double (strlen bulletPrefix)) * lineSize * 0.52))
+                singleRun = false
+            }
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                def fontSize:double (this.ptToPx(run.fontSizePt))
+                def fontFamily:string "Calibri"
+                if ((strlen run.fontFamily) > 0) {
+                    fontFamily = run.fontFamily
+                }
+                def col:EVGColor (EVGColor.rgb(0 0 0))
+                if (run.color.isSet) {
+                    col = (this.colorFrom(run.color))
+                }
+                def weight:string ""
+                if run.bold {
+                    if run.italic {
+                        weight = "bolditalic"
+                    } {
+                        weight = "bold"
+                    }
+                } {
+                    if run.italic {
+                        weight = "italic"
+                    }
+                }
+                if (singleRun && (para.hasBullet == false)) {
+                    def c (new EVGDrawCmd())
+                    c.kind = 3
+                    c.x = (x + padL)
+                    c.y = ty
+                    c.w = contentW
+                    c.h = fontSize
+                    c.text = run.text
+                    c.fontFamily = fontFamily
+                    c.fontSize = fontSize
+                    c.textAlign = align
+                    c.maxWidth = maxW
+                    c.fontWeight = weight
+                    c.r = (col.red())
+                    c.g = (col.green())
+                    c.b = (col.blue())
+                    c.a = (col.alpha())
+                    c.rotate = shape.rotation
+                    push dl.cmds c
+                } {
+                    def c2 (new EVGDrawCmd())
+                    c2.kind = 3
+                    c2.x = runX
+                    c2.y = ty
+                    c2.w = 0.0
+                    c2.h = fontSize
+                    c2.text = run.text
+                    c2.fontFamily = fontFamily
+                    c2.fontSize = fontSize
+                    c2.textAlign = "left"
+                    c2.fontWeight = weight
+                    c2.r = (col.red())
+                    c2.g = (col.green())
+                    c2.b = (col.blue())
+                    c2.a = (col.alpha())
+                    c2.rotate = shape.rotation
+                    push dl.cmds c2
+                    runX = (runX + ((to_double (strlen run.text)) * fontSize * 0.52))
+                }
+                ri = (ri + 1)
+            }
+            def spacing:double (para.lineSpacingPct / 100.0)
+            if (spacing < 0.8) {
+                spacing = 1.0
+            }
+            ty = (ty + (lineSize * 1.2 * spacing))
+            ty = (ty + (this.ptToPx(para.spaceAfterPt)))
+            pi = (pi + 1)
+        }
+    }
+
+    fn pushPathFill:void (dl:EVGDisplayList pts:[double] col:EVGColor) {
+        if ((array_length pts) < 6) {
+            return
+        }
+        def c (new EVGDrawCmd())
+        c.kind = 6
+        c.pts = pts
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushGradRect:void (dl:EVGDisplayList x:double y:double w:double h:double grad:PptxGradient) {
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.hasGrad = true
+        c.gradDir = grad.dir
+        def c1:EVGColor (this.colorFrom(grad.c1))
+        def c2:EVGColor (this.colorFrom(grad.c2))
+        c.r = (c1.red())
+        c.g = (c1.green())
+        c.b = (c1.blue())
+        c.a = (c1.alpha())
+        c.r2 = (c2.red())
+        c.g2 = (c2.green())
+        c.b2 = (c2.blue())
+        c.a2 = (c2.alpha())
+        push dl.cmds c
+    }
+
+    fn applyShadowToCmd:void (c:EVGDrawCmd shape:PptxShape) {
+        if (shape.shadow.isSet == false) {
+            return
+        }
+        c.hasShadow = true
+        c.shadowX = (this.ptToPx(shape.shadow.offsetXPt))
+        c.shadowY = (this.ptToPx(shape.shadow.offsetYPt))
+        c.shadowBlur = (this.ptToPx(shape.shadow.blurPt))
+        def sc:EVGColor (this.colorFrom(shape.shadow.color))
+        c.shadowR = (sc.red())
+        c.shadowG = (sc.green())
+        c.shadowB = (sc.blue())
+        c.shadowA = shape.shadow.alpha
+    }
+
+    fn emitTable:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
+        def rows:int shape.tableRows
+        def cols:int shape.tableCols
+        if (rows < 1) { rows = 1 }
+        if (cols < 1) { cols = 1 }
+        def cellW:double (w / (to_double cols))
+        def cellH:double (h / (to_double rows))
+        def i:int 0
+        while (i < (array_length shape.tableCells)) {
+            def cell:PptxTableCell (itemAt shape.tableCells i)
+            def ri:int (idiv i cols)
+            def ci:int (i - (ri * cols))
+            def cx:double (x + ((to_double ci) * cellW))
+            def cy:double (y + ((to_double ri) * cellH))
+            def fillCol:EVGColor (EVGColor.rgb(255 255 255))
+            if (cell.fill.isSet) {
+                fillCol = (this.colorFrom(cell.fill))
+            } {
+                if ((ri % 2) == 1) {
+                    fillCol = (EVGColor.rgb(245 247 250))
+                }
+            }
+            this.pushRect(dl cx cy cellW cellH fillCol)
+            this.pushBorder(dl cx cy cellW cellH 1.0 (EVGColor.rgb(180 190 200)))
+            if ((strlen cell.text) > 0) {
+                def tc:EVGColor (EVGColor.rgb(30 30 40))
+                def fs:double (this.ptToPx(cell.fontSizePt))
+                def weight:string ""
+                if cell.bold {
+                    weight = "bold"
+                }
+                this.pushTextCmd(dl cell.text (cx + 4.0) (cy + 4.0) fs tc "Calibri" 0.0 (this.alignToken(cell.align)) (cellW - 8.0) cell.bold 0.0)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn emitShape:void (dl:EVGDisplayList shape:PptxShape ox:double oy:double) {
+        def x:double (this.ptToPx((shape.x + ox)))
+        def y:double (this.ptToPx((shape.y + oy)))
+        def w:double (this.ptToPx(shape.width))
+        def h:double (this.ptToPx(shape.height))
+        if (shape.kind == 2) {
+            def i:int 0
+            while (i < (array_length shape.children)) {
+                def child:PptxShape (itemAt shape.children i)
+                def mapped:PptxShape (this.mapGroupChild(shape child))
+                this.emitShape(dl mapped (ox + shape.x) (oy + shape.y))
+                i = (i + 1)
+            }
+            return
+        }
+        if (shape.kind == 1) {
+            if ((strlen shape.imagePart) > 0) {
+                this.pushImage(dl shape.imagePart x y w h)
+            } {
+                this.pushRect(dl x y w h (EVGColor.rgb(200 210 230)))
+            }
+            return
+        }
+        if (shape.kind == 4) {
+            this.emitTable(dl shape x y w h)
+            return
+        }
+        if (shape.kind == 5) {
+            PptxChartVela.emitToDisplayList(dl shape.chart x y w h)
+            return
+        }
+        ; Fill: gradient, path preset, or rect
+        def filled:boolean false
+        if (shape.fillGrad.isSet) {
+            def gc (new EVGDrawCmd())
+            ; use pushGradRect path via temporary
+            this.pushGradRect(dl x y w h shape.fillGrad)
+            def last:EVGDrawCmd (itemAt dl.cmds ((array_length dl.cmds) - 1))
+            this.applyShadowToCmd(last shape)
+            filled = true
+        } {
+            def usePath:boolean shape.hasPath
+            if (usePath == false) {
+                usePath = (PptxGeom.needsPath(shape.preset))
+            }
+            if usePath {
+                def unit:[double] shape.pathUnit
+                if (shape.hasPath == false) {
+                    unit = (PptxGeom.unitPreset(shape.preset))
+                }
+                def pts:[double] (PptxGeom.scaleToBox(unit x y w h))
+                def col:EVGColor (EVGColor.rgb(180 180 190))
+                if (shape.fill.isSet) {
+                    col = (this.colorFrom(shape.fill))
+                }
+                ; shadow as offset dark polygon first
+                if (shape.shadow.isSet) {
+                    def spts:[double] (PptxGeom.scaleToBox(unit (x + (this.ptToPx(shape.shadow.offsetXPt))) (y + (this.ptToPx(shape.shadow.offsetYPt))) w h))
+                    def sc:EVGColor (this.colorFrom(shape.shadow.color))
+                    def sh (new EVGDrawCmd())
+                    sh.kind = 6
+                    sh.pts = spts
+                    sh.r = (sc.red())
+                    sh.g = (sc.green())
+                    sh.b = (sc.blue())
+                    sh.a = shape.shadow.alpha
+                    push dl.cmds sh
+                }
+                this.pushPathFill(dl pts col)
+                filled = true
+            } {
+                if (shape.fill.isSet) {
+                    def rc (new EVGDrawCmd())
+                    rc.kind = 0
+                    rc.x = x
+                    rc.y = y
+                    rc.w = w
+                    rc.h = h
+                    def col2:EVGColor (this.colorFrom(shape.fill))
+                    rc.r = (col2.red())
+                    rc.g = (col2.green())
+                    rc.b = (col2.blue())
+                    rc.a = (col2.alpha())
+                    if (shape.preset == "roundRect") {
+                        rc.radius = 12.0
+                    }
+                    this.applyShadowToCmd(rc shape)
+                    push dl.cmds rc
+                    filled = true
+                } {
+                    if (shape.shadow.isSet) {
+                        def rc2 (new EVGDrawCmd())
+                        rc2.kind = 0
+                        rc2.x = x
+                        rc2.y = y
+                        rc2.w = w
+                        rc2.h = h
+                        rc2.r = 255
+                        rc2.g = 255
+                        rc2.b = 255
+                        rc2.a = 0.0
+                        this.applyShadowToCmd(rc2 shape)
+                        push dl.cmds rc2
+                    }
+                }
+            }
+        }
+        if ((shape.line.isSet) && (shape.lineWidthPt > 0.0)) {
+            this.pushBorder(dl x y w h (this.ptToPx(shape.lineWidthPt)) (this.colorFrom(shape.line)))
+        }
+        if shape.hasText {
+            this.emitTextBody(dl shape x y w h)
+        }
+    }
+
+    fn slideToDisplayList:EVGDisplayList (slide:PptxSlide) {
+        def dl (new EVGDisplayList())
+        def pw:double (this.ptToPx(slide.width))
+        def ph:double (this.ptToPx(slide.height))
+        def bg:EVGColor (EVGColor.parse("#FFFFFF"))
+        if (slide.bg.isSet) {
+            bg = (this.colorFrom(slide.bg))
+        }
+        this.pushRect(dl 0.0 0.0 pw ph bg)
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            this.emitShape(dl (itemAt slide.shapes i) 0.0 0.0)
+            i = (i + 1)
+        }
+        return dl
+    }
+}

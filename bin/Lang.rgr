@@ -5836,7 +5836,32 @@ public static class RgUtf8 {
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")      
-                cpp ( "std::string(1, char(" (e 1) "))") 
+                cpp ( "r_str_from_code(" (e 1) ")"
+(create_polyfill "
+// A code point is not a byte. Truncating one to `char` turns every character
+// past ASCII into a stray control byte, so the point is encoded as UTF-8 —
+// which is what every other target this compiles to already produces.
+std::string r_str_from_code(int cp) {
+    std::string out;
+    if (cp < 0) { return out; }
+    if (cp < 0x80) {
+        out += (char)cp;
+    } else if (cp < 0x800) {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+    return out;
+}
+")) 
                 rust ( (custom _) )
                 python ( "chr(" (e 1) ")" )
                 * ( "String.fromCharCode(" (e 1) ")")
@@ -5855,7 +5880,32 @@ public static class RgUtf8 {
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")        
-                cpp ( "std::string(1, char(" (e 1) "))") 
+                cpp ( "r_str_from_code(" (e 1) ")"
+(create_polyfill "
+// A code point is not a byte. Truncating one to `char` turns every character
+// past ASCII into a stray control byte, so the point is encoded as UTF-8 —
+// which is what every other target this compiles to already produces.
+std::string r_str_from_code(int cp) {
+    std::string out;
+    if (cp < 0) { return out; }
+    if (cp < 0x80) {
+        out += (char)cp;
+    } else if (cp < 0x800) {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+    return out;
+}
+")) 
                 rust ( (custom _) )
                 python ( "chr(" (e 1) ")" )
                 * ( "String.fromCharCode(" (e 1) ")")
@@ -5868,7 +5918,32 @@ public static class RgUtf8 {
             templates {
                 ranger ( "(rawbytechar " (e 1) ")")
                 go ("string([]byte{byte(" (e 1) ")})")
-                cpp ( "std::string(1, char(" (e 1) "))") 
+                cpp ( "r_str_from_code(" (e 1) ")"
+(create_polyfill "
+// A code point is not a byte. Truncating one to `char` turns every character
+// past ASCII into a stray control byte, so the point is encoded as UTF-8 —
+// which is what every other target this compiles to already produces.
+std::string r_str_from_code(int cp) {
+    std::string out;
+    if (cp < 0) { return out; }
+    if (cp < 0x80) {
+        out += (char)cp;
+    } else if (cp < 0x800) {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+    return out;
+}
+")) 
                 rust ( "String::from_utf8_lossy(&[" (e 1) " as u8]).to_string()" )
                 php ( "chr(" (e 1) ")" )
                 python ( "chr(" (e 1) ")" )

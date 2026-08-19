@@ -512,11 +512,37 @@ class VectorRasterizer {
 
     ; Fill everything accumulated so far.
     ;
-    ; Coverage comes from a 4x4 grid of sample points per pixel, each tested by
-    ; casting a ray to the left and inspecting the edges it crosses. Sixteen
+    ; Coverage comes from a 4x4 grid of sample points per pixel. Sixteen
     ; samples give 17 distinct alpha levels, which is enough that edges read as
     ; smooth at text sizes — the standard this inherited from glyph rendering,
     ; and the reason path fills now match glyph fills exactly.
+    ;
+    ; What each sample needs to know is how many edges lie to its left, and
+    ; the obvious way to find out is to ask every edge — which is what this did
+    ; at first, and it is quadratic in disguise: a row of isotype icons is one
+    ; path 1,900 edges long spanning 1,400 pixels, and asking all of them at
+    ; every one of 16 samples per pixel is 1.3 billion tests for a single row.
+    ; A whole chart took ten seconds, on the page's own thread.
+    ;
+    ; The count is a running total, though, not an independent question per
+    ; sample: sample points march left to right, so an edge crossing a scanline
+    ; changes the tally for every sample to its right and no others. Recording
+    ; that change once, at the first sample it reaches, and summing along the
+    ; row gives the same numbers for one pass over the edges instead of one per
+    ; sample.
+    ;
+    ; That still walked every edge on every scanline, which is the same problem
+    ; a size smaller: a scatter plot's symbol layer is one path of a third of a
+    ; million edges, and only a handful of them reach any given row. So the
+    ; edges are bucketed by the row they start in — a counting sort, one pass —
+    ; and a working set is carried down the image, taking in each row's new
+    ; edges and dropping the ones that have ended. A scanline then looks at the
+    ; edges that actually cross it and no others.
+    ;
+    ; Nothing about the coverage or the blending changes — the same pixels get
+    ; the same alpha, which the raster tests check shape by shape — so this is
+    ; the same picture, drawn several thousand times faster on the shapes that
+    ; were slow.
     fn fillAA:void (buf:RasterBuffer r:int g:int b:int a:int rule:int) {
         def numEdges:int (array_length edges)
         if (numEdges == 0) {
@@ -591,40 +617,180 @@ class VectorRasterizer {
         def subOffset:double 0.125
         def samplesPerPixel:double 16.0
 
+        def spanW:int ((endX - startX) + 1)
+        if (spanW < 1) {
+            return
+        }
+        ; Sample columns across the whole row, four to a pixel. Sample `s`
+        ; stands at startX + 0.125 + 0.25s, so the mapping back to a pixel is
+        ; simply s / 4.
+        def sampleCount:int (spanW * 4)
+        def startXd:double (to_double startX)
+
+        ; The tallies, held as differences: what an edge crossing adds at the
+        ; first sample it reaches. Summed left to right they give the winding
+        ; number and the crossing count a sample would have counted for itself.
+        def windDelta:[int]
+        def crossDelta:[int]
+        def s:int 0
+        while (s < sampleCount) {
+            push windDelta 0
+            push crossDelta 0
+            s = (s + 1)
+        }
+        ; Which columns a scanline actually touched, so the next one clears
+        ; only those instead of walking the whole row.
+        def touched:[int]
+
+        ; Coverage for one pixel row, accumulated over its four scanlines.
+        def cover:[int]
+        def px:int 0
+        while (px < spanW) {
+            push cover 0
+            px = (px + 1)
+        }
+
+        ; ---- edges bucketed by the row they start in ------------------------
+        ; A counting sort: how many edges begin in each row, then where each
+        ; row's run starts, then the edge indices themselves in one flat list.
+        ; An edge that begins below the last row drawn is dropped here and is
+        ; never looked at again.
+        def rowCount:int ((endY - startY) + 1)
+        def startYd:double (to_double startY)
+        def rowStart:[int]
+        def rr:int 0
+        while (rr <= rowCount) {
+            push rowStart 0
+            rr = (rr + 1)
+        }
+        i = 0
+        while (i < numEdges) {
+            def eb:VectorEdge (itemAt edges i)
+            def firstRow:int 0
+            if (eb.minY > startYd) {
+                firstRow = ((to_int eb.minY) - startY)
+            }
+            if (firstRow < rowCount) {
+                set_at rowStart (firstRow + 1) ((itemAt rowStart (firstRow + 1)) + 1)
+            }
+            i = i + 1
+        }
+        rr = 1
+        while (rr <= rowCount) {
+            set_at rowStart rr ((itemAt rowStart rr) + (itemAt rowStart (rr - 1)))
+            rr = (rr + 1)
+        }
+        def fill:[int]
+        rr = 0
+        while (rr <= rowCount) {
+            push fill (itemAt rowStart rr)
+            rr = (rr + 1)
+        }
+        def ordered:[int]
+        def placed:int (itemAt rowStart rowCount)
+        i = 0
+        while (i < placed) {
+            push ordered 0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < numEdges) {
+            def eo:VectorEdge (itemAt edges i)
+            def startRow:int 0
+            if (eo.minY > startYd) {
+                startRow = ((to_int eo.minY) - startY)
+            }
+            if (startRow < rowCount) {
+                set_at ordered (itemAt fill startRow) i
+                set_at fill startRow ((itemAt fill startRow) + 1)
+            }
+            i = i + 1
+        }
+
+        ; The working set: the edges that reach the row being drawn. It is
+        ; carried down the image rather than rebuilt, so each edge is taken in
+        ; once and dropped once however tall the shape is.
+        def active:[int]
+        def activeCount:int 0
+
         def scanY:int startY
         while (scanY <= endY) {
-            def scanX:int startX
-            while (scanX <= endX) {
-                def coverage:int 0
+            px = 0
+            while (px < spanW) {
+                set_at cover px 0
+                px = (px + 1)
+            }
 
-                def sy:int 0
-                while (sy < 4) {
-                    ; The half-step offset keeps samples off exact vertex
-                    ; coordinates, where a crossing could otherwise be counted
-                    ; twice or not at all.
-                    def sampleY:double ((to_double scanY) + subOffset + ((to_double sy) * subStep))
+            ; Edges that begin here join the working set …
+            def rowIdx:int (scanY - startY)
+            def q:int (itemAt rowStart rowIdx)
+            def qEnd:int (itemAt rowStart (rowIdx + 1))
+            while (q < qEnd) {
+                if (activeCount < (array_length active)) {
+                    set_at active activeCount (itemAt ordered q)
+                } {
+                    push active (itemAt ordered q)
+                }
+                activeCount = (activeCount + 1)
+                q = (q + 1)
+            }
+            ; … and edges that ended above this row's first sample leave it.
+            def rowTop:double ((to_double scanY) + 0.125)
+            def keep:int 0
+            def scan:int 0
+            while (scan < activeCount) {
+                def ei:int (itemAt active scan)
+                def ea:VectorEdge (itemAt edges ei)
+                if (ea.maxY > rowTop) {
+                    set_at active keep ei
+                    keep = (keep + 1)
+                }
+                scan = (scan + 1)
+            }
+            activeCount = keep
 
+            def sy:int 0
+            while (sy < 4) {
+                ; The half-step offset keeps samples off exact vertex
+                ; coordinates, where a crossing could otherwise be counted
+                ; twice or not at all.
+                def sampleY:double ((to_double scanY) + subOffset + ((to_double sy) * subStep))
+
+                clear touched
+                i = 0
+                while (i < activeCount) {
+                    def e:VectorEdge (itemAt edges (itemAt active i))
+                    ; Half-open in Y so a vertex shared by two edges is
+                    ; counted once.
+                    if ((sampleY >= e.minY) && (sampleY < e.maxY)) {
+                        def edgeX:double (e.getX(sampleY))
+                        ; The first sample column strictly to the right of the
+                        ; crossing. Everything from there on counts it, which
+                        ; is exactly the `edgeX < sampleX` test written once.
+                        def slot:int 0
+                        def rel:double (((edgeX - startXd) - subOffset))
+                        if (rel >= 0.0) {
+                            slot = ((to_int (rel / subStep)) + 1)
+                        }
+                        if (slot < sampleCount) {
+                            set_at windDelta slot ((itemAt windDelta slot) + e.dir)
+                            set_at crossDelta slot ((itemAt crossDelta slot) + 1)
+                            push touched slot
+                        }
+                    }
+                    i = i + 1
+                }
+
+                def winding:int 0
+                def crossings:int 0
+                s = 0
+                px = 0
+                while (px < spanW) {
+                    def cov:int (itemAt cover px)
                     def sx:int 0
                     while (sx < 4) {
-                        def sampleX:double ((to_double scanX) + subOffset + ((to_double sx) * subStep))
-
-                        def winding:int 0
-                        def crossings:int 0
-                        i = 0
-                        while (i < numEdges) {
-                            def e:VectorEdge (itemAt edges i)
-                            ; Half-open in Y so a vertex shared by two edges is
-                            ; counted once.
-                            if ((sampleY >= e.minY) && (sampleY < e.maxY)) {
-                                def edgeX:double (e.getX(sampleY))
-                                if (edgeX < sampleX) {
-                                    winding = winding + e.dir
-                                    crossings = crossings + 1
-                                }
-                            }
-                            i = i + 1
-                        }
-
+                        winding = (winding + (itemAt windDelta s))
+                        crossings = (crossings + (itemAt crossDelta s))
                         def inside:boolean false
                         if (rule == 1) {
                             ; even-odd
@@ -638,19 +804,30 @@ class VectorRasterizer {
                             }
                         }
                         if inside {
-                            coverage = coverage + 1
+                            cov = (cov + 1)
                         }
-                        sx = sx + 1
+                        s = (s + 1)
+                        sx = (sx + 1)
                     }
-                    sy = sy + 1
+                    set_at cover px cov
+                    px = (px + 1)
                 }
 
+                for touched slot:int ti {
+                    set_at windDelta slot 0
+                    set_at crossDelta slot 0
+                }
+                sy = sy + 1
+            }
+
+            px = 0
+            while (px < spanW) {
+                def coverage:int (itemAt cover px)
                 if (coverage > 0) {
                     def coverageAlpha:int (to_int (((to_double coverage) / samplesPerPixel) * (to_double a)))
-                    compositor.blendSourceOver(buf scanX scanY r g b coverageAlpha)
+                    compositor.blendSourceOver(buf (startX + px) scanY r g b coverageAlpha)
                 }
-
-                scanX = scanX + 1
+                px = (px + 1)
             }
             scanY = scanY + 1
         }

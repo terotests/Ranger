@@ -1,0 +1,572 @@
+; ==============================================================================
+; RichDocument - normalized Word-like document model (not OOXML run indices).
+; ==============================================================================
+;
+; Caret / selection (future editor) should use paragraphId + textOffset.
+; Formatting lives in spans that can be re-split independently of Word runs.
+;
+; Flow is a sequence of DocBlock (paragraph | table | pageBreak | sectionBreak).
+; EVG never sees OOXML IDs — only resolved geometry + styles from layout.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+class TextSpan {
+    def start:int 0
+    def end:int 0
+    def bold:boolean false
+    def italic:boolean false
+    def underline:boolean false
+    def fontSizePt:double 11.0
+    def fontFamily:string "Open Sans"
+    def colorHex:string "000000"
+    def hyperlink:string ""
+
+    Constructor () {
+    }
+
+    sfn create:TextSpan (start:int end:int) {
+        def s:TextSpan (new TextSpan)
+        s.start = start
+        s.end = end
+        return s
+    }
+
+    fn copy:TextSpan () {
+        def s:TextSpan (TextSpan.create(start end))
+        s.bold = bold
+        s.italic = italic
+        s.underline = underline
+        s.fontSizePt = fontSizePt
+        s.fontFamily = fontFamily
+        s.colorHex = colorHex
+        s.hyperlink = hyperlink
+        return s
+    }
+
+    fn sameFormat:boolean (other:TextSpan) {
+        if (bold != other.bold) {
+            return false
+        }
+        if (italic != other.italic) {
+            return false
+        }
+        if (underline != other.underline) {
+            return false
+        }
+        if (fontSizePt != other.fontSizePt) {
+            return false
+        }
+        if (fontFamily != other.fontFamily) {
+            return false
+        }
+        if (colorHex != other.colorHex) {
+            return false
+        }
+        if (hyperlink != other.hyperlink) {
+            return false
+        }
+        return true
+    }
+}
+
+class Paragraph {
+    def id:int 0
+    def text:string ""
+    def spans:[TextSpan]
+    def align:int 0
+    def styleId:string "Normal"
+    def listKind:int 0
+    def listLevel:int 0
+    def listNumId:int 0
+    def listFmt:string ""
+    def listText:string ""
+    def spaceBeforePt:double 0.0
+    def spaceAfterPt:double 8.0
+    def lineSpacing:double 1.15
+    def indentLeftPt:double 0.0
+    def indentRightPt:double 0.0
+    def indentFirstLinePt:double 0.0
+    def images:[DocImage]
+    def pageBreakBefore:boolean false
+
+    Constructor () {
+    }
+
+    fn appendText:void (chunk:string span:TextSpan) {
+        def a:int (strlen text)
+        text = (text + chunk)
+        def b:int (strlen text)
+        span.start = a
+        span.end = b
+        if ((array_length spans) > 0) {
+            def prev:TextSpan (itemAt spans ((array_length spans) - 1))
+            if ((prev.end == span.start) && (prev.sameFormat(span))) {
+                prev.end = span.end
+                return
+            }
+        }
+        push spans (span.copy())
+    }
+
+    fn plainText:string () {
+        return text
+    }
+}
+
+; Inline / floating picture from DrawingML (a:blip → media part).
+class DocImage {
+    def relId:string ""
+    def partPath:string ""
+    def widthEmu:int 0
+    def heightEmu:int 0
+    def widthPx:int 0
+    def heightPx:int 0
+    def pixels:ImageBuffer (new ImageBuffer)
+    def ok:boolean false
+    def format:string ""
+
+    Constructor () {
+    }
+
+    sfn emuToPx:int (emu:int) {
+        ; 914400 EMU = 1 inch; 96 CSS px/inch
+        return (to_int (((to_double emu) * 96.0) / 914400.0))
+    }
+
+    fn syncPx:void () {
+        widthPx = (DocImage.emuToPx(widthEmu))
+        heightPx = (DocImage.emuToPx(heightEmu))
+        if (widthPx < 1) {
+            widthPx = 1
+        }
+        if (heightPx < 1) {
+            heightPx = 1
+        }
+    }
+}
+
+class DocSection {
+    def pageWTwips:int 12240
+    def pageHTwips:int 15840
+    def marginTopTwips:int 1440
+    def marginRightTwips:int 1440
+    def marginBottomTwips:int 1440
+    def marginLeftTwips:int 1440
+    def landscape:boolean false
+    def headerRelId:string ""
+    def footerRelId:string ""
+    def headerParas:[Paragraph]
+    def footerParas:[Paragraph]
+
+    Constructor () {
+    }
+
+    fn pageWidthPx:int () {
+        return (to_int (((to_double pageWTwips) * 96.0) / 1440.0))
+    }
+
+    fn pageHeightPx:int () {
+        return (to_int (((to_double pageHTwips) * 96.0) / 1440.0))
+    }
+
+    fn marginLeftPx:int () {
+        return (to_int (((to_double marginLeftTwips) * 96.0) / 1440.0))
+    }
+
+    fn marginRightPx:int () {
+        return (to_int (((to_double marginRightTwips) * 96.0) / 1440.0))
+    }
+
+    fn marginTopPx:int () {
+        return (to_int (((to_double marginTopTwips) * 96.0) / 1440.0))
+    }
+
+    fn marginBottomPx:int () {
+        return (to_int (((to_double marginBottomTwips) * 96.0) / 1440.0))
+    }
+
+    fn contentWidthPx:int () {
+        def w:int (((this.pageWidthPx()) - (this.marginLeftPx())) - (this.marginRightPx()))
+        if (w < 40) {
+            return 40
+        }
+        return w
+    }
+}
+
+; --- Tables -----------------------------------------------------------------
+
+class DocTableBorder {
+    def style:string "single"
+    def sz:int 4
+    def colorHex:string "000000"
+
+    Constructor () {
+    }
+}
+
+class DocTableCell {
+    def gridSpan:int 1
+    def fillHex:string ""
+    def paragraphs:[Paragraph]
+    def vAlign:int 0
+    def borderTop:DocTableBorder (new DocTableBorder)
+    def borderLeft:DocTableBorder (new DocTableBorder)
+    def borderBottom:DocTableBorder (new DocTableBorder)
+    def borderRight:DocTableBorder (new DocTableBorder)
+    def padTopPx:int 4
+    def padRightPx:int 6
+    def padBottomPx:int 4
+    def padLeftPx:int 6
+
+    Constructor () {
+    }
+}
+
+class DocTableRow {
+    def cells:[DocTableCell]
+    def heightTwips:int 0
+
+    Constructor () {
+    }
+}
+
+class DocumentTable {
+    def colWidthsTwips:[int]
+    def rows:[DocTableRow]
+    def borderColor:string "666666"
+    def cellPadPx:int 6
+
+    Constructor () {
+    }
+
+    fn columnCount:int () {
+        return (array_length colWidthsTwips)
+    }
+
+    fn rowCount:int () {
+        return (array_length rows)
+    }
+}
+
+; kind: 0=paragraph 1=table 2=pageBreak 3=sectionBreak
+class DocBlock {
+    def kind:int 0
+    def paragraph:Paragraph (new Paragraph)
+    def table:DocumentTable (new DocumentTable)
+    def sectionIndex:int 0
+
+    Constructor () {
+    }
+
+    sfn para:DocBlock (p:Paragraph) {
+        def b:DocBlock (new DocBlock)
+        b.kind = 0
+        b.paragraph = p
+        return b
+    }
+
+    sfn tbl:DocBlock (t:DocumentTable) {
+        def b:DocBlock (new DocBlock)
+        b.kind = 1
+        b.table = t
+        return b
+    }
+
+    sfn pageBreak:DocBlock () {
+        def b:DocBlock (new DocBlock)
+        b.kind = 2
+        return b
+    }
+
+    sfn sectionBreak:DocBlock (secIdx:int) {
+        def b:DocBlock (new DocBlock)
+        b.kind = 3
+        b.sectionIndex = secIdx
+        return b
+    }
+}
+
+class RichDocument {
+    def title:string ""
+    def blocks:[DocBlock]
+    def paragraphs:[Paragraph]
+    def tables:[DocumentTable]
+    def sections:[DocSection]
+    def section:DocSection (new DocSection)
+    def nextParaId:int 1
+
+    Constructor () {
+        push sections section
+    }
+
+    fn ensureSection:DocSection (idx:int) {
+        while ((array_length sections) <= idx) {
+            push sections (new DocSection)
+        }
+        return (itemAt sections idx)
+    }
+
+    fn addParagraph:Paragraph () {
+        def p:Paragraph (new Paragraph)
+        p.id = nextParaId
+        nextParaId = (nextParaId + 1)
+        push paragraphs p
+        push blocks (DocBlock.para(p))
+        return p
+    }
+
+    fn addParagraphOnly:Paragraph () {
+        ; Paragraph not pushed as a top-level block (e.g. table cell / header).
+        def p:Paragraph (new Paragraph)
+        p.id = nextParaId
+        nextParaId = (nextParaId + 1)
+        push paragraphs p
+        return p
+    }
+
+    fn addTable:DocumentTable () {
+        def t:DocumentTable (new DocumentTable)
+        push tables t
+        push blocks (DocBlock.tbl(t))
+        return t
+    }
+
+    fn addPageBreak:void () {
+        push blocks (DocBlock.pageBreak())
+    }
+
+    fn addSectionBreak:int () {
+        def idx:int (array_length sections)
+        def sec:DocSection (new DocSection)
+        push sections sec
+        push blocks (DocBlock.sectionBreak(idx))
+        section = sec
+        return idx
+    }
+
+    fn paragraphCount:int () {
+        return (array_length paragraphs)
+    }
+
+    fn paragraphAt:Paragraph (i:int) {
+        return (itemAt paragraphs i)
+    }
+
+    fn blockCount:int () {
+        return (array_length blocks)
+    }
+
+    fn blockAt:DocBlock (i:int) {
+        return (itemAt blocks i)
+    }
+
+    fn sectionCount:int () {
+        return (array_length sections)
+    }
+
+    fn sectionAt:DocSection (i:int) {
+        return (itemAt sections i)
+    }
+
+    fn plainText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length blocks)) {
+            def b:DocBlock (itemAt blocks i)
+            if (b.kind == 0) {
+                if ((strlen out) > 0) {
+                    out = (out + "\n")
+                }
+                out = (out + b.paragraph.text)
+            }
+            if (b.kind == 1) {
+                def t:DocumentTable b.table
+                def ri:int 0
+                while (ri < (array_length t.rows)) {
+                    def row:DocTableRow (itemAt t.rows ri)
+                    def ci:int 0
+                    while (ci < (array_length row.cells)) {
+                        def cell:DocTableCell (itemAt row.cells ci)
+                        def pi:int 0
+                        while (pi < (array_length cell.paragraphs)) {
+                            def cp:Paragraph (itemAt cell.paragraphs pi)
+                            if ((strlen out) > 0) {
+                                out = (out + "\n")
+                            }
+                            out = (out + cp.text)
+                            pi = (pi + 1)
+                        }
+                        ci = (ci + 1)
+                    }
+                    ri = (ri + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Compact JSON for semantic oracle (supported subset).
+    fn inspectJson:string () {
+        def out:string "{\"title\":\""
+        out = (out + (this.jsonEsc(title)) + "\",")
+        out = (out + "\"sectionCount\":" + (to_string (array_length sections)) + ",")
+        out = (out + "\"paragraphCount\":" + (to_string (array_length paragraphs)) + ",")
+        out = (out + "\"tableCount\":" + (to_string (array_length tables)) + ",")
+        out = (out + "\"blockCount\":" + (to_string (array_length blocks)) + ",")
+        out = (out + "\"sections\":[")
+        def si:int 0
+        while (si < (array_length sections)) {
+            if (si > 0) {
+                out = (out + ",")
+            }
+            def sec:DocSection (itemAt sections si)
+            out = (out + "{\"w\":" + (to_string sec.pageWTwips))
+            out = (out + ",\"h\":" + (to_string sec.pageHTwips))
+            out = (out + ",\"mt\":" + (to_string sec.marginTopTwips))
+            out = (out + ",\"mr\":" + (to_string sec.marginRightTwips))
+            out = (out + ",\"mb\":" + (to_string sec.marginBottomTwips))
+            out = (out + ",\"ml\":" + (to_string sec.marginLeftTwips))
+            out = (out + ",\"landscape\":" + (this.jsonBool(sec.landscape)))
+            out = (out + ",\"headerParas\":" + (to_string (array_length sec.headerParas)))
+            out = (out + ",\"footerParas\":" + (to_string (array_length sec.footerParas)))
+            out = (out + "}")
+            si = (si + 1)
+        }
+        out = (out + "],\"paragraphs\":[")
+        def pi:int 0
+        while (pi < (array_length paragraphs)) {
+            if (pi > 0) {
+                out = (out + ",")
+            }
+            def p:Paragraph (itemAt paragraphs pi)
+            out = (out + "{\"id\":" + (to_string p.id))
+            out = (out + ",\"text\":\"" + (this.jsonEsc(p.text)) + "\"")
+            out = (out + ",\"style\":\"" + (this.jsonEsc(p.styleId)) + "\"")
+            out = (out + ",\"align\":" + (to_string p.align))
+            out = (out + ",\"bold\":" + (this.jsonBool((this.paraHasBold(p)))))
+            out = (out + ",\"italic\":" + (this.jsonBool((this.paraHasItalic(p)))))
+            out = (out + ",\"underline\":" + (this.jsonBool((this.paraHasUnderline(p)))))
+            out = (out + ",\"listKind\":" + (to_string p.listKind))
+            out = (out + ",\"listLevel\":" + (to_string p.listLevel))
+            out = (out + ",\"listNumId\":" + (to_string p.listNumId))
+            out = (out + ",\"indentLeftPt\":" + (to_string (to_int p.indentLeftPt)))
+            out = (out + ",\"images\":" + (to_string (array_length p.images)))
+            out = (out + "}")
+            pi = (pi + 1)
+        }
+        out = (out + "],\"tables\":[")
+        def ti:int 0
+        while (ti < (array_length tables)) {
+            if (ti > 0) {
+                out = (out + ",")
+            }
+            def t:DocumentTable (itemAt tables ti)
+            out = (out + "{\"cols\":" + (to_string (array_length t.colWidthsTwips)))
+            out = (out + ",\"rows\":" + (to_string (array_length t.rows)))
+            out = (out + ",\"cells\":[")
+            def ri:int 0
+            def firstCell:boolean true
+            while (ri < (array_length t.rows)) {
+                def row:DocTableRow (itemAt t.rows ri)
+                def ci:int 0
+                while (ci < (array_length row.cells)) {
+                    if firstCell {
+                        firstCell = false
+                    } {
+                        out = (out + ",")
+                    }
+                    def cell:DocTableCell (itemAt row.cells ci)
+                    def ctext:string ""
+                    if ((array_length cell.paragraphs) > 0) {
+                        def cp0:Paragraph (itemAt cell.paragraphs 0)
+                        ctext = cp0.text
+                    }
+                    out = (out + "{\"span\":" + (to_string cell.gridSpan))
+                    out = (out + ",\"fill\":\"" + (this.jsonEsc(cell.fillHex)) + "\"")
+                    out = (out + ",\"text\":\"" + (this.jsonEsc(ctext)) + "\"}")
+                    ci = (ci + 1)
+                }
+                ri = (ri + 1)
+            }
+            out = (out + "]}")
+            ti = (ti + 1)
+        }
+        out = (out + "]}")
+        return out
+    }
+
+    fn paraHasBold:boolean (p:Paragraph) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            if ((itemAt p.spans i).bold) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn paraHasItalic:boolean (p:Paragraph) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            if ((itemAt p.spans i).italic) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn paraHasUnderline:boolean (p:Paragraph) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            if ((itemAt p.spans i).underline) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn jsonBool:string (v:boolean) {
+        if v {
+            return "true"
+        }
+        return "false"
+    }
+
+    fn jsonEsc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 92) {
+                out = (out + "\\\\")
+            } {
+                if (ch == 34) {
+                    out = (out + "\\\"")
+                } {
+                    if (ch == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (ch == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (ch == 9) {
+                                out = (out + "\\t")
+                            } {
+                                out = (out + (substring s i (i + 1)))
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

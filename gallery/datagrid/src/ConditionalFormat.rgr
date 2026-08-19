@@ -1,0 +1,210 @@
+; ==============================================================================
+; ConditionalFormat - resolve CF overrides at paint time.
+; ==============================================================================
+;
+; CfRule lives on SpreadsheetModel. Subset: colorScale + cellIs
+; (greaterThan / lessThan / equal / between).
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+
+class ConditionalFormat {
+
+    sfn inRange:boolean (rule:CfRule row:int col:int) {
+        if (row < rule.r0) {
+            return false
+        }
+        if (row > rule.r1) {
+            return false
+        }
+        if (col < rule.c0) {
+            return false
+        }
+        if (col > rule.c1) {
+            return false
+        }
+        return true
+    }
+
+    sfn parseHexByte:int (s:string i:int) {
+        def c:int (charAt s i)
+        if ((c >= 48) && (c <= 57)) {
+            return (c - 48)
+        }
+        if ((c >= 65) && (c <= 70)) {
+            return ((c - 65) + 10)
+        }
+        if ((c >= 97) && (c <= 102)) {
+            return ((c - 97) + 10)
+        }
+        return 0
+    }
+
+    sfn mixChannel:int (a:int b:int t:double) {
+        def v:double (((to_double a) * (1.0 - t)) + ((to_double b) * t))
+        def iv:int (to_int v)
+        if (iv < 0) {
+            return 0
+        }
+        if (iv > 255) {
+            return 255
+        }
+        return iv
+    }
+
+    sfn hex2:string (v:int) {
+        def h:string "0123456789ABCDEF"
+        def hi:int (idiv v 16)
+        def lo:int (v - (hi * 16))
+        return ((substring h hi (hi + 1)) + (substring h lo (lo + 1)))
+    }
+
+    sfn mixRgb:string (c0:string c1:string t:double) {
+        def a:string c0
+        def b:string c1
+        if ((strlen a) == 8) {
+            a = (substring a 2 8)
+        }
+        if ((strlen a) == 9) {
+            if ((charAt a 0) == 35) {
+                a = (substring a 3 9)
+            }
+        }
+        if ((strlen b) == 8) {
+            b = (substring b 2 8)
+        }
+        if ((charAt a 0) == 35) {
+            a = (substring a 1 (strlen a))
+        }
+        if ((charAt b 0) == 35) {
+            b = (substring b 1 (strlen b))
+        }
+        if ((strlen a) < 6) {
+            return "#CCCCCC"
+        }
+        if ((strlen b) < 6) {
+            return "#CCCCCC"
+        }
+        def r0:int (((ConditionalFormat.parseHexByte(a 0)) * 16) + (ConditionalFormat.parseHexByte(a 1)))
+        def g0:int (((ConditionalFormat.parseHexByte(a 2)) * 16) + (ConditionalFormat.parseHexByte(a 3)))
+        def b0:int (((ConditionalFormat.parseHexByte(a 4)) * 16) + (ConditionalFormat.parseHexByte(a 5)))
+        def r1:int (((ConditionalFormat.parseHexByte(b 0)) * 16) + (ConditionalFormat.parseHexByte(b 1)))
+        def g1:int (((ConditionalFormat.parseHexByte(b 2)) * 16) + (ConditionalFormat.parseHexByte(b 3)))
+        def b1:int (((ConditionalFormat.parseHexByte(b 4)) * 16) + (ConditionalFormat.parseHexByte(b 5)))
+        def rr:int (ConditionalFormat.mixChannel(r0 r1 t))
+        def gg:int (ConditionalFormat.mixChannel(g0 g1 t))
+        def bb:int (ConditionalFormat.mixChannel(b0 b1 t))
+        return (("#" + (ConditionalFormat.hex2(rr))) + ((ConditionalFormat.hex2(gg)) + (ConditionalFormat.hex2(bb))))
+    }
+
+    sfn cellNumber:double (model:SpreadsheetModel row:int col:int) {
+        def raw:string (model.getCell(row col))
+        def p@(optional):double (to_double raw)
+        if p {
+            return (unwrap p)
+        }
+        return 0.0
+    }
+
+    sfn rangeMinMax:void (model:SpreadsheetModel rule:CfRule outMin:[double] outMax:[double]) {
+        clear outMin
+        clear outMax
+        def mn:double 0.0
+        def mx:double 0.0
+        def first:boolean true
+        def r:int rule.r0
+        while (r <= rule.r1) {
+            def c:int rule.c0
+            while (c <= rule.c1) {
+                def raw:string (model.getCell(r c))
+                def p@(optional):double (to_double raw)
+                if p {
+                    def v:double (unwrap p)
+                    if first {
+                        mn = v
+                        mx = v
+                        first = false
+                    } {
+                        if (v < mn) {
+                            mn = v
+                        }
+                        if (v > mx) {
+                            mx = v
+                        }
+                    }
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        push outMin mn
+        push outMax mx
+    }
+
+    sfn resolveFill:string (model:SpreadsheetModel row:int col:int) {
+        def n:int (array_length model.cfRules)
+        def i:int 0
+        while (i < n) {
+            def rule:CfRule (itemAt model.cfRules i)
+            def inside:boolean (ConditionalFormat.inRange(rule row col))
+            if inside {
+                if (rule.kind == 1) {
+                    def v:double (ConditionalFormat.cellNumber(model row col))
+                    def hit:boolean false
+                    if (rule.op == "greaterThan") {
+                        if (v > rule.v1) {
+                            hit = true
+                        }
+                    }
+                    if (rule.op == "lessThan") {
+                        if (v < rule.v1) {
+                            hit = true
+                        }
+                    }
+                    if (rule.op == "equal") {
+                        if (v == rule.v1) {
+                            hit = true
+                        }
+                    }
+                    if (rule.op == "between") {
+                        if ((v >= rule.v1) && (v <= rule.v2)) {
+                            hit = true
+                        }
+                    }
+                    if hit {
+                        if ((strlen rule.fillRgb) > 0) {
+                            return rule.fillRgb
+                        }
+                    }
+                }
+                if (rule.kind == 0) {
+                    def mm:[double]
+                    def xx:[double]
+                    ConditionalFormat.rangeMinMax(model rule mm xx)
+                    def mn:double (itemAt mm 0)
+                    def mx:double (itemAt xx 0)
+                    def span:double (mx - mn)
+                    if (span <= 0.0) {
+                        span = 1.0
+                    }
+                    def v2:double (ConditionalFormat.cellNumber(model row col))
+                    def t:double ((v2 - mn) / span)
+                    if (t < 0.0) {
+                        t = 0.0
+                    }
+                    if (t > 1.0) {
+                        t = 1.0
+                    }
+                    if (t <= 0.5) {
+                        def t2:double (t / 0.5)
+                        return (ConditionalFormat.mixRgb(rule.color0 rule.color1 t2))
+                    }
+                    def t3:double ((t - 0.5) / 0.5)
+                    return (ConditionalFormat.mixRgb(rule.color1 rule.color2 t3))
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+}

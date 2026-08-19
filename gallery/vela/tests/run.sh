@@ -34,14 +34,18 @@ say "compile"
 compile $VELA/tests/json_test.rgr json_test.js
 compile $VELA/tests/expr_test.rgr expr_test.js
 compile $VELA/tests/scale_test.rgr scale_test.js
+compile $VELA/tests/flow_test.rgr flow_test.js
+compile $VELA/tests/regex_test.rgr regex_test.js
 compile $VELA/tools/vela_scene.rgr vela_scene.js
 compile $VELA/tools/vela_commands.rgr vela_commands.js
+compile $VELA/tools/vela_compile.rgr vela_compile.js
+compile $VELA/tools/vela_svg.rgr vela_svg.js
 echo "ok"
 
 status=0
 
 say "unit tests"
-for t in json_test expr_test scale_test; do
+for t in json_test expr_test scale_test flow_test regex_test; do
   out=$(node "$BIN/$t.js")
   echo "$out" | tail -1
   if echo "$out" | grep -q "FAIL"; then status=1; fi
@@ -71,7 +75,38 @@ else
   echo "$(ls $VELA/tests/specs/*.vg.json | wc -l | tr -d ' ') specs checked against goldens"
 fi
 
+# The dataflow, against every chart rather than against the one its unit test
+# builds, and down BOTH of its paths: change `width` to the value it already
+# has, which dirties every scale and re-encodes every mark, and then change a
+# signal nothing reads, which dirties nothing and keeps every mark from the last
+# encode. Both have to answer the golden. A recomputation that is not repeatable
+# — anything accumulated and not cleared — shows up in the first; a reused mark
+# that the layout failed to re-place shows up in the second.
+say "the same scene, recomputed incrementally"
+reflowed=0
+for spec in $VELA/tests/specs/*.vg.json; do
+  name=$(basename "$spec" .vg.json)
+  node "$BIN/vela_scene.js" "$spec" --reflow > "$BIN/$name.reflow.json"
+  if diff -q "$VELA/tests/golden/$name.scene.json" "$BIN/$name.reflow.json" > /dev/null; then
+    reflowed=$((reflowed + 1))
+  else
+    echo "  DIFF $name"; diff "$VELA/tests/golden/$name.scene.json" "$BIN/$name.reflow.json" | head -8; status=1
+  fi
+done
+echo "$reflowed specs reflow to the same scene"
+
 say "parity against the reference implementation"
 node $VELA/tools/reference/parity.mjs || status=1
+
+# The scene says `shape: diamond`; it takes a renderer to say what a diamond
+# looks like. This runs both renderers and compares the ink.
+say "the drawing, against the reference renderer"
+node $VELA/tools/reference/render.mjs || status=1
+
+say "the Vega-Lite compiler, drawn against the official one"
+node $VELA/tools/reference/compiler.mjs || status=1
+
+say "a time axis, in eight time zones"
+node $VELA/tools/reference/zones.mjs || status=1
 
 exit $status

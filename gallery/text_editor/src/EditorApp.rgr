@@ -1,0 +1,404 @@
+; ==============================================================================
+; EditorApp - input → buffer/selection/layout → SoftCanvas view.
+; ==============================================================================
+;
+; Mirrors the grassator canvas-text-editor pipeline and the UI layer contract:
+; a platform fills UIInput each frame; this app never touches SDL directly.
+;
+;   UIInput (SDL_TEXTINPUT / mouse / keys)
+;        ↓
+;   EditorApp.update
+;        ↓
+;   EditorBuffer + EditorSelection + EditorLayout
+;        ↓
+;   EditorView.render → SoftCanvas → gfx_present
+; ==============================================================================
+
+Import "EditorBuffer.rgr"
+Import "EditorSelection.rgr"
+Import "EditorStyle.rgr"
+Import "EditorLayout.rgr"
+Import "EditorView.rgr"
+Import "../../game_engine/ui/UIInput.rgr"
+
+class EditorApp {
+    def buf:EditorBuffer (new EditorBuffer)
+    def sel:EditorSelection (new EditorSelection)
+    def layout:EditorLayout (new EditorLayout)
+    def view:EditorView (new EditorView)
+    def W:int 720
+    def H:int 480
+    def statusH:int 22
+    def preferCol:int 0
+
+    Constructor () {
+    }
+
+    fn init:void (fontDir:string) {
+        view.init(W H fontDir)
+        layout.setBounds(0 0 W (H - statusH))
+        layout.syncMetrics(view.ctx.tr)
+    }
+
+    fn setDocument:void (text:string) {
+        buf.setText(text)
+        sel.anchor.line = 0
+        sel.anchor.col = 0
+        sel.caret.line = 0
+        sel.caret.col = 0
+        layout.scrollLine = 0
+        preferCol = 0
+    }
+
+    fn documentText:string () {
+        return (buf.getText())
+    }
+
+    fn resize:void (nw:int nh:int) {
+        W = nw
+        H = nh
+        view.resize(W H)
+        layout.setBounds(0 0 W (H - statusH))
+        layout.syncMetrics(view.ctx.tr)
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    fn moveCaret:void (line:int col:int extend:boolean) {
+        def p:EditorPos (EditorPos.create(line col))
+        buf.clampPos(p)
+        sel.setCaret(p.line p.col)
+        if (extend == false) {
+            sel.collapseToCaret()
+        }
+        preferCol = sel.caret.col
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    ; canvas-editor dblclick → word range
+    fn selectWordAt:void (line:int col:int) {
+        def p:EditorPos (EditorPos.create(line col))
+        buf.clampPos(p)
+        def s:string (buf.lineAt(p.line))
+        def a:int (EditorWord.wordStart(s p.col))
+        def b:int (EditorWord.wordEnd(s p.col))
+        if (a == b) {
+            ; Clicked whitespace — select the single gap char if any.
+            if (p.col < (strlen s)) {
+                b = (p.col + 1)
+                a = p.col
+            }
+        }
+        sel.setAnchor(p.line a)
+        sel.setCaret(p.line b)
+        preferCol = b
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    ; canvas-editor threeClick → whole line
+    fn selectLineAt:void (line:int) {
+        def p:EditorPos (EditorPos.create(line 0))
+        buf.clampPos(p)
+        def len:int (strlen (buf.lineAt(p.line)))
+        sel.setAnchor(p.line 0)
+        sel.setCaret(p.line len)
+        preferCol = len
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    fn setRange:void (aLine:int aCol:int cLine:int cCol:int) {
+        def a:EditorPos (EditorPos.create(aLine aCol))
+        def c:EditorPos (EditorPos.create(cLine cCol))
+        buf.clampPos(a)
+        buf.clampPos(c)
+        sel.setAnchor(a.line a.col)
+        sel.setCaret(c.line c.col)
+        preferCol = c.col
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    fn selectionBounds:void (outA:EditorPos outB:EditorPos) {
+        if (sel.isCollapsed()) {
+            outA.copyFrom(sel.caret)
+            outB.copyFrom(sel.caret)
+            return
+        }
+        sel.normalized(outA outB)
+    }
+
+    fn toggleBold:void () {
+        if (sel.isCollapsed()) {
+            buf.typingBold = (buf.typingBold == false)
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        ; If any selected run is not bold, apply bold (canvas-editor mixed → on).
+        def want:boolean true
+        def allBold:boolean true
+        def line:int a.line
+        while (line <= b.line) {
+            def s:string (buf.lineAt(line))
+            def c0:int 0
+            def c1:int (strlen s)
+            if (line == a.line) {
+                c0 = a.col
+            }
+            if (line == b.line) {
+                c1 = b.col
+            }
+            def col:int c0
+            while (col < c1) {
+                def r:StyleRun ((buf.styleAt(line)).runAt(col))
+                if (r.bold == false) {
+                    allBold = false
+                }
+                def step:int r.len
+                if (step < 1) {
+                    step = 1
+                }
+                col = (col + step)
+            }
+            line = (line + 1)
+        }
+        if allBold {
+            want = false
+        }
+        buf.applyInlineStyle(a.line a.col b.line b.col true want false "")
+        buf.typingBold = want
+    }
+
+    fn setFont:void (font:string) {
+        if ((strlen font) == 0) {
+            return
+        }
+        buf.typingFont = font
+        if (sel.isCollapsed()) {
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        buf.applyInlineStyle(a.line a.col b.line b.col false false true font)
+    }
+
+    fn setAlign:void (align:int) {
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        this.selectionBounds(a b)
+        buf.setBlockAlign(a.line b.line align)
+    }
+
+    fn setList:void (listKind:int) {
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        this.selectionBounds(a b)
+        ; Toggle off when same kind already set on first line.
+        def cur:int (buf.styleAt(a.line)).listKind
+        if (cur == listKind) {
+            buf.setBlockList(a.line b.line 0)
+        } {
+            buf.setBlockList(a.line b.line listKind)
+        }
+    }
+
+    fn deleteSelectionOr:void (forward:boolean) {
+        if (sel.isCollapsed() == false) {
+            def a:EditorPos (new EditorPos)
+            def b:EditorPos (new EditorPos)
+            sel.normalized(a b)
+            def after:EditorPos (buf.deleteRange(a.line a.col b.line b.col))
+            this.moveCaret(after.line after.col false)
+            return
+        }
+        if forward {
+            def end:EditorPos (buf.moveCodepoint(sel.caret.line sel.caret.col 1))
+            if (end.equals(sel.caret)) {
+                return
+            }
+            def after2:EditorPos (buf.deleteRange(sel.caret.line sel.caret.col end.line end.col))
+            this.moveCaret(after2.line after2.col false)
+        } {
+            def start:EditorPos (buf.moveCodepoint(sel.caret.line sel.caret.col -1))
+            if (start.equals(sel.caret)) {
+                return
+            }
+            def after3:EditorPos (buf.deleteRange(start.line start.col sel.caret.line sel.caret.col))
+            this.moveCaret(after3.line after3.col false)
+        }
+    }
+
+    fn insertText:void (text:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        if (sel.isCollapsed() == false) {
+            def a:EditorPos (new EditorPos)
+            def b:EditorPos (new EditorPos)
+            sel.normalized(a b)
+            def after:EditorPos (buf.replaceRange(a.line a.col b.line b.col text true))
+            this.moveCaret(after.line after.col false)
+            return
+        }
+        def after2:EditorPos (buf.insertText(sel.caret.line sel.caret.col text))
+        this.moveCaret(after2.line after2.col false)
+    }
+
+    fn moveVertical:void (dir:int extend:boolean) {
+        def savedCol:int preferCol
+        def line:int (sel.caret.line + dir)
+        if (line < 0) {
+            line = 0
+        }
+        def maxL:int ((buf.lineCount()) - 1)
+        if (line > maxL) {
+            line = maxL
+        }
+        def col:int savedCol
+        def len:int (strlen (buf.lineAt(line)))
+        if (col > len) {
+            col = len
+        }
+        this.moveCaret(line col extend)
+        preferCol = savedCol
+    }
+
+    fn handleKey:void (key:int input:UIInput) {
+        def extend:boolean input.shiftDown
+        if (key == (UIKey.left())) {
+            def p:EditorPos (buf.moveCodepoint(sel.caret.line sel.caret.col -1))
+            this.moveCaret(p.line p.col extend)
+            return
+        }
+        if (key == (UIKey.right())) {
+            def p2:EditorPos (buf.moveCodepoint(sel.caret.line sel.caret.col 1))
+            this.moveCaret(p2.line p2.col extend)
+            return
+        }
+        if (key == (UIKey.up())) {
+            this.moveVertical(-1 extend)
+            return
+        }
+        if (key == (UIKey.down())) {
+            this.moveVertical(1 extend)
+            return
+        }
+        if (key == (UIKey.home())) {
+            this.moveCaret(sel.caret.line 0 extend)
+            return
+        }
+        if (key == (UIKey.end())) {
+            this.moveCaret(sel.caret.line (strlen (buf.lineAt(sel.caret.line))) extend)
+            return
+        }
+        if (key == (UIKey.backspace())) {
+            this.deleteSelectionOr(false)
+            return
+        }
+        if (key == (UIKey.del())) {
+            this.deleteSelectionOr(true)
+            return
+        }
+        if (key == (UIKey.enter())) {
+            this.insertText("\n")
+            return
+        }
+        if (key == (UIKey.escape())) {
+            sel.collapseToCaret()
+            return
+        }
+    }
+
+    fn update:void (input:UIInput) {
+        ; Pointer: click / drag-select
+        if input.pointerPressed {
+            def inside:boolean true
+            if (input.pointerX < layout.x) {
+                inside = false
+            }
+            if (input.pointerY < layout.y) {
+                inside = false
+            }
+            if (input.pointerX >= (layout.x + layout.w)) {
+                inside = false
+            }
+            if (input.pointerY >= (layout.y + layout.h)) {
+                inside = false
+            }
+            if inside {
+                view.focused = true
+                def hit:EditorPos (layout.hitTest(view.ctx.tr buf input.pointerX input.pointerY))
+                this.moveCaret(hit.line hit.col input.shiftDown)
+            }
+        }
+        if input.pointerDown {
+            if view.focused {
+                if (input.pointerPressed == false) {
+                    def hit2:EditorPos (layout.hitTest(view.ctx.tr buf input.pointerX input.pointerY))
+                    this.moveCaret(hit2.line hit2.col true)
+                }
+            }
+        }
+
+        if (input.scrollDelta != 0) {
+            ; positive scrollDelta = wheel up → scroll toward top
+            layout.scrollByLines(buf (0 - input.scrollDelta))
+        }
+
+        ; Ctrl shortcuts
+        if input.ctrlDown {
+            def t:string input.textInput
+            def ti:int 0
+            def tn:int (strlen t)
+            while (ti < tn) {
+                def ch:int (charAt t ti)
+                ; a / A
+                if ((ch == 97) || (ch == 65)) {
+                    sel.selectAll(buf)
+                    layout.ensureCaretVisible(buf sel)
+                }
+                ; b / B bold
+                if ((ch == 98) || (ch == 66)) {
+                    this.toggleBold()
+                }
+                ; z / Z undo
+                if ((ch == 122) || (ch == 90)) {
+                    def u:EditorPos (buf.undo())
+                    this.moveCaret(u.line u.col false)
+                }
+                ; y / Y redo
+                if ((ch == 121) || (ch == 89)) {
+                    def r:EditorPos (buf.redo())
+                    this.moveCaret(r.line r.col false)
+                }
+                ti = (ti + 1)
+            }
+        } {
+            if (input.hasText()) {
+                this.insertText(input.textInput)
+            }
+        }
+
+        def ki:int 0
+        def kn:int (input.keyCount())
+        while (ki < kn) {
+            this.handleKey((input.keyAt(ki)) input)
+            ki = (ki + 1)
+        }
+    }
+
+    fn render:void () {
+        view.status = ("v" + (to_string buf.version))
+        view.render(buf sel layout)
+    }
+
+    fn raw:buffer () {
+        return (view.raw())
+    }
+
+    ; EVG display-list document for the WebGL present path.
+    fn sceneJson:string () {
+        view.status = ("v" + (to_string buf.version))
+        return (view.sceneJson(buf sel layout))
+    }
+}

@@ -1,0 +1,131 @@
+; Regular expression checks. Every expected answer here is what JavaScript's
+; own engine answers for the same pattern and the same subject, which is the
+; engine the reference implementation uses.
+;
+; The last group is the other half of the bargain: a pattern using something
+; this engine does not have has to SAY so rather than quietly answering false,
+; because a chart that dims the wrong marks looks like a chart.
+Import "../src/VlRegex.rgr"
+
+class VlRegexTest {
+    def failures:int 0
+
+    fn check:void (pattern:string flags:string subject:string want:boolean) {
+        def re (new VlRegex())
+        re.compile(pattern flags)
+        def name:string (((("/" + pattern) + "/ against \"") + subject) + "\"")
+        if (! re.ok) {
+            failures = (failures + 1)
+            print ((("FAIL " + name) + ": refused — ") + re.why)
+            return
+        }
+        def got:boolean (re.test(subject))
+        if (got == want) {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ((("FAIL " + name) + ": got ") + (VlRegexTest.yesNo(got)))
+        }
+    }
+
+    ; A pattern that cannot be answered has to be refused by name.
+    fn checkRefused:void (pattern:string) {
+        def re (new VlRegex())
+        re.compile(pattern "")
+        if re.ok {
+            failures = (failures + 1)
+            print (("FAIL /" + pattern) + "/ was accepted, and it should not be")
+        } {
+            print ((("ok   /" + pattern) + "/ refused: ") + re.why)
+        }
+    }
+
+    sfn yesNo:string (v:boolean) {
+        if v {
+            return "true"
+        }
+        return "false"
+    }
+
+    fn run:void () {
+        ; Literals, and the empty pattern that matches anything at all.
+        this.check("" "" "anything" true)
+        this.check("abc" "" "xxabcxx" true)
+        this.check("abc" "" "ab" false)
+        this.check("ABC" "i" "xxabcxx" true)
+        this.check("ABC" "" "xxabcxx" false)
+
+        ; The ends of the subject.
+        this.check("^abc$" "" "abc" true)
+        this.check("^abc$" "" "abcd" false)
+        this.check("^$" "" "" true)
+        this.check("^$" "" "a" false)
+
+        ; Any character, and the sets.
+        this.check("a.c" "" "abc" true)
+        this.check("a.c" "" "ac" false)
+        this.check("[abc]" "" "zzbzz" true)
+        this.check("[^abc]" "" "abc" false)
+        this.check("[^abc]" "" "abd" true)
+        this.check("[a-c]{2}" "" "zab" true)
+        this.check("[a-c]{2}" "" "zaz" false)
+
+        ; The named classes, inside a set and out.
+        this.check("\\d+" "" "x12" true)
+        this.check("\\d+" "" "xyz" false)
+        this.check("\\d+\\.\\d+" "" "pi 3.14" true)
+        this.check("\\d+\\.\\d+" "" "pi three" false)
+        this.check("^\\D+$" "" "abc" true)
+        this.check("^\\D+$" "" "ab1" false)
+        this.check("\\s" "" "a b" true)
+        this.check("\\s" "" "ab" false)
+        this.check("^[\\d.]+$" "" "3.14" true)
+        this.check("^[\\d.]+$" "" "3,14" false)
+        this.check("\\w+" "" "___" true)
+
+        ; Repetition, greedy and lazy — which cannot change the ANSWER to a
+        ; containment test, only how it is reached.
+        this.check("a+b" "" "aaab" true)
+        this.check("a+b" "" "b" false)
+        this.check("colou?r" "" "color" true)
+        this.check("colou?r" "" "colour" true)
+        this.check("a.*z" "" "abcz" true)
+        this.check("a.*?z" "" "abcz" true)
+        this.check("^a{2,3}$" "" "aa" true)
+        this.check("^a{2,3}$" "" "aaaa" false)
+        this.check("^a{2,}$" "" "aaaa" true)
+
+        ; Alternation and grouping.
+        this.check("cat|dog" "" "hotdog" true)
+        this.check("cat|dog" "" "bird" false)
+        this.check("(ab)+c" "" "ababc" true)
+        this.check("a(b|c)d" "" "acd" true)
+        this.check("a(b|c)d" "" "aed" false)
+        this.check("(?:ab)+c" "" "ababc" true)
+
+        ; A pattern that would loop for ever if the engine did not notice that
+        ; its body consumed nothing.
+        this.check("(a*)*b" "" "aaab" true)
+        this.check("(a*)*b" "" "aaa" false)
+
+        ; And what it will not pretend to answer.
+        this.checkRefused("(a)\\1")
+        this.checkRefused("(?=a)")
+        this.checkRefused("(?!a)")
+        this.checkRefused("(?<name>a)")
+        this.checkRefused("a(")
+        this.checkRefused("a)")
+        this.checkRefused("[abc")
+
+        if (failures > 0) {
+            print ("FAILURES: " + (to_string failures))
+        } {
+            print "all regular expression checks pass"
+        }
+    }
+
+    sfn main:void () {
+        def t (new VlRegexTest())
+        t.run()
+    }
+}

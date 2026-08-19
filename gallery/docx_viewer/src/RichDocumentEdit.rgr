@@ -1,0 +1,478 @@
+; ==============================================================================
+; RichDocumentEdit - TextEditingTarget adapter over RichDocument paragraphs.
+; ==============================================================================
+; Mutates Paragraph.text + TextSpan[] only. No OOXML. StyleId preserved.
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "../../text_editor/src/TextEditCore.rgr"
+
+class RichDocumentEdit {
+    def doc:RichDocument (new RichDocument)
+    def lastMergeCaret:DocumentPosition (new DocumentPosition)
+
+    Constructor () {
+    }
+
+    fn bind:void (d:RichDocument) {
+        doc = d
+    }
+
+    fn findParagraph:Paragraph (paragraphId:int) {
+        def i:int 0
+        while (i < (doc.paragraphCount())) {
+            def p:Paragraph (doc.paragraphAt(i))
+            if (p.id == paragraphId) {
+                return p
+            }
+            i = (i + 1)
+        }
+        return (new Paragraph)
+    }
+
+    fn findParagraphIndex:int (paragraphId:int) {
+        def i:int 0
+        while (i < (doc.paragraphCount())) {
+            def p:Paragraph (doc.paragraphAt(i))
+            if (p.id == paragraphId) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn getText:string (paragraphId:int) {
+        def p:Paragraph (this.findParagraph(paragraphId))
+        return p.text
+    }
+
+    fn textLength:int (paragraphId:int) {
+        return (strlen (this.getText(paragraphId)))
+    }
+
+    fn paragraphExists:boolean (paragraphId:int) {
+        return ((this.findParagraphIndex(paragraphId)) >= 0)
+    }
+
+    ; Span covering offset (or last span).
+    fn spanAt:TextSpan (p:Paragraph offset:int) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            if ((offset >= s.start) && (offset < s.end)) {
+                return s
+            }
+            if ((offset == s.end) && (offset == (strlen p.text))) {
+                return s
+            }
+            i = (i + 1)
+        }
+        if ((array_length p.spans) > 0) {
+            return (itemAt p.spans ((array_length p.spans) - 1))
+        }
+        def empty:TextSpan (TextSpan.create(0 0))
+        return empty
+    }
+
+    fn mergeAdjacentSpans:void (p:Paragraph) {
+        if ((array_length p.spans) < 2) {
+            return
+        }
+        def out:[TextSpan]
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan ((itemAt p.spans i).copy())
+            if ((array_length out) > 0) {
+                def prev:TextSpan (itemAt out ((array_length out) - 1))
+                if ((prev.end == s.start) && (prev.sameFormat(s))) {
+                    prev.end = s.end
+                } {
+                    push out s
+                }
+            } {
+                push out s
+            }
+            i = (i + 1)
+        }
+        clear p.spans
+        def j:int 0
+        while (j < (array_length out)) {
+            push p.spans (itemAt out j)
+            j = (j + 1)
+        }
+    }
+
+    ; Rebuild spans after text replacement at [start,end) → text.
+    ; Overlapping spans are split/clipped — never dropped wholesale (that used
+    ; to wipe heading/title run formatting down to default 11pt on Backspace).
+    fn replaceRange:void (paragraphId:int start:int end:int text:string) {
+        def p:Paragraph (this.findParagraph(paragraphId))
+        if (p.id != paragraphId) {
+            return
+        }
+        def len:int (strlen p.text)
+        if (start < 0) {
+            start = 0
+        }
+        if (end < start) {
+            end = start
+        }
+        if (start > len) {
+            start = len
+        }
+        if (end > len) {
+            end = len
+        }
+        def tip:TextSpan (this.spanAt(p start))
+        def insertFmt:TextSpan (tip.copy())
+        ; Align span edges to the edit range before removing the middle.
+        this.splitSpansAt(p start)
+        this.splitSpansAt(p end)
+        def before:string (substring p.text 0 start)
+        def after:string (substring p.text end len)
+        def delta:int ((strlen text) - (end - start))
+        def newSpans:[TextSpan]
+        def si:int 0
+        while (si < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans si)
+            if (s.end <= start) {
+                if (s.end > s.start) {
+                    push newSpans (s.copy())
+                }
+            } {
+                if (s.start >= end) {
+                    def r:TextSpan (s.copy())
+                    r.start = (r.start + delta)
+                    r.end = (r.end + delta)
+                    if (r.end > r.start) {
+                        push newSpans r
+                    }
+                }
+                ; fully inside [start,end) — drop
+            }
+            si = (si + 1)
+        }
+        p.text = (before + text + after)
+        if ((strlen text) > 0) {
+            def mid:TextSpan (insertFmt.copy())
+            mid.start = start
+            mid.end = (start + (strlen text))
+            def placed:boolean false
+            def out2:[TextSpan]
+            def k:int 0
+            while (k < (array_length newSpans)) {
+                def ns:TextSpan (itemAt newSpans k)
+                if ((placed == false) && (ns.start >= mid.end)) {
+                    push out2 mid
+                    placed = true
+                }
+                push out2 ns
+                k = (k + 1)
+            }
+            if (placed == false) {
+                push out2 mid
+            }
+            clear newSpans
+            def k2:int 0
+            while (k2 < (array_length out2)) {
+                push newSpans (itemAt out2 k2)
+                k2 = (k2 + 1)
+            }
+        }
+        clear p.spans
+        def m:int 0
+        while (m < (array_length newSpans)) {
+            push p.spans (itemAt newSpans m)
+            m = (m + 1)
+        }
+        if ((array_length p.spans) == 0) {
+            ; Preserve tip formatting even for empty paragraphs / full deletes.
+            def one:TextSpan (insertFmt.copy())
+            one.start = 0
+            one.end = (strlen p.text)
+            push p.spans one
+        }
+        this.mergeAdjacentSpans(p)
+    }
+
+    fn splitParagraph:int (paragraphId:int offset:int) {
+        def idx:int (this.findParagraphIndex(paragraphId))
+        if (idx < 0) {
+            return paragraphId
+        }
+        def p:Paragraph (doc.paragraphAt(idx))
+        def len:int (strlen p.text)
+        if (offset < 0) {
+            offset = 0
+        }
+        if (offset > len) {
+            offset = len
+        }
+        def left:string (substring p.text 0 offset)
+        def right:string (substring p.text offset len)
+        ; New paragraph after p in blocks + paragraphs list
+        def np:Paragraph (doc.addParagraphOnly())
+        np.styleId = p.styleId
+        np.align = p.align
+        np.spaceBeforePt = p.spaceBeforePt
+        np.spaceAfterPt = p.spaceAfterPt
+        np.lineSpacing = p.lineSpacing
+        np.indentLeftPt = p.indentLeftPt
+        np.indentRightPt = p.indentRightPt
+        np.indentFirstLinePt = p.indentFirstLinePt
+        np.text = right
+        ; Split spans
+        clear np.spans
+        def tip:TextSpan (this.spanAt(p offset))
+        def base:TextSpan (tip.copy())
+        if ((strlen right) > 0) {
+            base.start = 0
+            base.end = (strlen right)
+            push np.spans base
+        } {
+            def empty:TextSpan (tip.copy())
+            empty.start = 0
+            empty.end = 0
+            push np.spans empty
+        }
+        ; Truncate original
+        this.replaceRange(paragraphId offset len "")
+        p.text = left
+        ; Ensure left spans clipped
+        def keep:[TextSpan]
+        def si:int 0
+        while (si < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans si)
+            if (s.start < offset) {
+                def c:TextSpan (s.copy())
+                if (c.end > offset) {
+                    c.end = offset
+                }
+                push keep c
+            }
+            si = (si + 1)
+        }
+        clear p.spans
+        def ki:int 0
+        while (ki < (array_length keep)) {
+            push p.spans (itemAt keep ki)
+            ki = (ki + 1)
+        }
+        if ((array_length p.spans) == 0) {
+            push p.spans (TextSpan.create(0 (strlen p.text)))
+        }
+        ; Insert block after the block that owns p
+        def bi:int 0
+        def found:boolean false
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 0) {
+                if (b.paragraph.id == paragraphId) {
+                    def nb:DocBlock (DocBlock.para(np))
+                    ; insert after bi
+                    def rest:[DocBlock]
+                    def rj:int (bi + 1)
+                    while (rj < (doc.blockCount())) {
+                        push rest (doc.blockAt(rj))
+                        rj = (rj + 1)
+                    }
+                    while ((array_length doc.blocks) > (bi + 1)) {
+                        removeLast doc.blocks
+                    }
+                    push doc.blocks nb
+                    def rk:int 0
+                    while (rk < (array_length rest)) {
+                        push doc.blocks (itemAt rest rk)
+                        rk = (rk + 1)
+                    }
+                    found = true
+                    bi = (doc.blockCount())
+                }
+            }
+            bi = (bi + 1)
+        }
+        if (found == false) {
+            push doc.blocks (DocBlock.para(np))
+        }
+        return np.id
+    }
+
+    ; Merge paragraphId into previous top-level body paragraph.
+    fn mergePrevious:DocumentPosition (paragraphId:int) {
+        def fail:DocumentPosition (DocumentPosition.create(0 0))
+        def idx:int (this.findParagraphIndex(paragraphId))
+        if (idx <= 0) {
+            return fail
+        }
+        ; Find previous paragraph that appears as a body block before this one
+        def prevId:int 0
+        def bi:int 0
+        def saw:boolean false
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 0) {
+                if (b.paragraph.id == paragraphId) {
+                    saw = true
+                    bi = (doc.blockCount())
+                } {
+                    prevId = b.paragraph.id
+                }
+            }
+            bi = (bi + 1)
+        }
+        if (saw == false) {
+            return fail
+        }
+        if (prevId <= 0) {
+            return fail
+        }
+        def prev:Paragraph (this.findParagraph(prevId))
+        def cur:Paragraph (this.findParagraph(paragraphId))
+        def joinAt:int (strlen prev.text)
+        def joined:string (cur.text)
+        ; Append text with formatting from first span of cur
+        def fmt:TextSpan (this.spanAt(cur 0))
+        this.replaceRange(prevId joinAt joinAt joined)
+        if ((strlen joined) > 0) {
+            ; apply cur's first span attrs onto inserted range roughly
+            def a:int joinAt
+            def b:int (joinAt + (strlen joined))
+            this.applyBold(prevId a b fmt.bold)
+        }
+        ; Remove cur from blocks + paragraphs
+        def nb:[DocBlock]
+        def bj:int 0
+        while (bj < (doc.blockCount())) {
+            def bb:DocBlock (doc.blockAt(bj))
+            if (bb.kind == 0) {
+                if (bb.paragraph.id == paragraphId) {
+                    ; skip
+                } {
+                    push nb bb
+                }
+            } {
+                push nb bb
+            }
+            bj = (bj + 1)
+        }
+        clear doc.blocks
+        def bk:int 0
+        while (bk < (array_length nb)) {
+            push doc.blocks (itemAt nb bk)
+            bk = (bk + 1)
+        }
+        def np:[Paragraph]
+        def pi:int 0
+        while (pi < (doc.paragraphCount())) {
+            def pp:Paragraph (doc.paragraphAt(pi))
+            if (pp.id == paragraphId) {
+                ; skip
+            } {
+                push np pp
+            }
+            pi = (pi + 1)
+        }
+        clear doc.paragraphs
+        def pk:int 0
+        while (pk < (array_length np)) {
+            push doc.paragraphs (itemAt np pk)
+            pk = (pk + 1)
+        }
+        lastMergeCaret = (DocumentPosition.create(prevId joinAt))
+        return (lastMergeCaret.copy())
+    }
+
+    fn applyBold:void (paragraphId:int start:int end:int value:boolean) {
+        def p:Paragraph (this.findParagraph(paragraphId))
+        if (p.id != paragraphId) {
+            return
+        }
+        if (start >= end) {
+            return
+        }
+        this.splitSpansAt(p start)
+        this.splitSpansAt(p end)
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            if ((s.start >= start) && (s.end <= end)) {
+                s.bold = value
+            }
+            i = (i + 1)
+        }
+        this.mergeAdjacentSpans(p)
+    }
+
+    ; True when every span covering [start,end) is already bold.
+    fn rangeIsBold:boolean (paragraphId:int start:int end:int) {
+        def p:Paragraph (this.findParagraph(paragraphId))
+        if (p.id != paragraphId) {
+            return false
+        }
+        if (start >= end) {
+            return false
+        }
+        def covered:boolean false
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            def a:int s.start
+            def b:int s.end
+            if (a < start) {
+                a = start
+            }
+            if (b > end) {
+                b = end
+            }
+            if (a < b) {
+                covered = true
+                if (s.bold == false) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return covered
+    }
+
+    fn applyFont:void (paragraphId:int start:int end:int font:string) {
+        def p:Paragraph (this.findParagraph(paragraphId))
+        if (p.id != paragraphId) {
+            return
+        }
+        if (start >= end) {
+            return
+        }
+        this.splitSpansAt(p start)
+        this.splitSpansAt(p end)
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            if ((s.start >= start) && (s.end <= end)) {
+                s.fontFamily = font
+            }
+            i = (i + 1)
+        }
+        this.mergeAdjacentSpans(p)
+    }
+
+    fn splitSpansAt:void (p:Paragraph offset:int) {
+        def len:int (strlen p.text)
+        if ((offset <= 0) || (offset >= len)) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            if ((offset > s.start) && (offset < s.end)) {
+                def right:TextSpan (s.copy())
+                right.start = offset
+                s.end = offset
+                insert p.spans (i + 1) right
+                return
+            }
+            i = (i + 1)
+        }
+    }
+}

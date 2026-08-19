@@ -1,0 +1,374 @@
+; ==============================================================================
+; WordNumbering - numbering.xml → list markers (canvas-editor / Word listId).
+; ==============================================================================
+;
+; Word: paragraph.numPr.numId → w:num → abstractNumId → w:lvl[ilvl]
+; Editor model keeps only (listNumId, level); marker text is resolved here.
+; ==============================================================================
+
+Import "WordXml.rgr"
+Import "RichDocument.rgr"
+Import "../../evg/EVGCodepoint.rgr"
+
+class NumLevel {
+    def ilvl:int 0
+    def start:int 1
+    def numFmt:string "decimal"
+    def lvlText:string "%1."
+    def leftTwips:int 720
+    def hangingTwips:int 360
+
+    Constructor () {
+    }
+}
+
+class AbstractNum {
+    def id:int 0
+    def levels:[NumLevel]
+
+    Constructor () {
+    }
+
+    fn levelAt:NumLevel (ilvl:int) {
+        def i:int 0
+        while (i < (array_length levels)) {
+            def lv:NumLevel (itemAt levels i)
+            if (lv.ilvl == ilvl) {
+                return lv
+            }
+            i = (i + 1)
+        }
+        if ((array_length levels) > 0) {
+            return (itemAt levels 0)
+        }
+        return (new NumLevel)
+    }
+}
+
+class WordNumbering {
+    def abstracts:[int:AbstractNum]
+    def numToAbstract:[int:int]
+
+    Constructor () {
+    }
+
+    fn parse:void (xml:string) {
+        if ((strlen xml) == 0) {
+            return
+        }
+        def i:int 0
+        def n:int (strlen xml)
+        while (i < n) {
+            def a:int (WordXml.findNext(xml "w:abstractNum" i))
+            if (a < 0) {
+                i = n
+            } {
+                def el:string (WordXml.sliceElement(xml "w:abstractNum" a))
+                def ot:string (WordXml.openTag(el))
+                def idStr:string (WordXml.attr(ot "w:abstractNumId"))
+                def id@(optional):int (to_int idStr)
+                if (!null? id) {
+                    def abs:AbstractNum (new AbstractNum)
+                    abs.id = (unwrap id)
+                    def li:int 0
+                    def en:int (strlen el)
+                    while (li < en) {
+                        def ls:int (WordXml.findNext(el "w:lvl" li))
+                        if (ls < 0) {
+                            li = en
+                        } {
+                            def lvlEl:string (WordXml.sliceElement(el "w:lvl" ls))
+                            def lv:NumLevel (this.parseLevel(lvlEl))
+                            push abs.levels lv
+                            def le:int (WordXml.elementEnd(el "w:lvl" ls))
+                            if (le < 0) {
+                                li = en
+                            } {
+                                li = le
+                            }
+                        }
+                    }
+                    set abstracts abs.id abs
+                }
+                def ae:int (WordXml.elementEnd(xml "w:abstractNum" a))
+                if (ae < 0) {
+                    i = n
+                } {
+                    i = ae
+                }
+            }
+        }
+        i = 0
+        while (i < n) {
+            def ns:int (WordXml.findNext(xml "w:num" i))
+            if (ns < 0) {
+                return
+            }
+            def nEl:string (WordXml.sliceElement(xml "w:num" ns))
+            ; Skip w:numFmt / w:numberingPicBullet — require tag boundary (findNext).
+            def not:string (WordXml.openTag(nEl))
+            def numIdStr:string (WordXml.attr(not "w:numId"))
+            def absRef:int (WordXml.findNext(nEl "w:abstractNumId" 0))
+            if ((strlen numIdStr) > 0) {
+                if (absRef >= 0) {
+                    def arEl:string (WordXml.sliceElement(nEl "w:abstractNumId" absRef))
+                    def av:string (WordXml.attr((WordXml.openTag(arEl)) "w:val"))
+                    def ni@(optional):int (to_int numIdStr)
+                    def ai@(optional):int (to_int av)
+                    if ((!null? ni) && (!null? ai)) {
+                        set numToAbstract (unwrap ni) (unwrap ai)
+                    }
+                }
+            }
+            def ne:int (WordXml.elementEnd(xml "w:num" ns))
+            if (ne < 0) {
+                return
+            }
+            i = ne
+        }
+    }
+
+    fn parseLevel:NumLevel (lvlEl:string) {
+        def lv:NumLevel (new NumLevel)
+        def ot:string (WordXml.openTag(lvlEl))
+        def il:string (WordXml.attr(ot "w:ilvl"))
+        def ili@(optional):int (to_int il)
+        if (!null? ili) {
+            lv.ilvl = (unwrap ili)
+        }
+        def st:int (WordXml.findNext(lvlEl "w:start" 0))
+        if (st >= 0) {
+            def stEl:string (WordXml.sliceElement(lvlEl "w:start" st))
+            def sv@(optional):int (to_int (WordXml.attr((WordXml.openTag(stEl)) "w:val")))
+            if (!null? sv) {
+                lv.start = (unwrap sv)
+            }
+        }
+        def nf:int (WordXml.findNext(lvlEl "w:numFmt" 0))
+        if (nf >= 0) {
+            def nfEl:string (WordXml.sliceElement(lvlEl "w:numFmt" nf))
+            lv.numFmt = (WordXml.attr((WordXml.openTag(nfEl)) "w:val"))
+        }
+        def lt:int (WordXml.findNext(lvlEl "w:lvlText" 0))
+        if (lt >= 0) {
+            def ltEl:string (WordXml.sliceElement(lvlEl "w:lvlText" lt))
+            lv.lvlText = (WordXml.attr((WordXml.openTag(ltEl)) "w:val"))
+        }
+        def ind:int (WordXml.findNext(lvlEl "w:ind" 0))
+        if (ind >= 0) {
+            def indEl:string (WordXml.sliceElement(lvlEl "w:ind" ind))
+            def iot:string (WordXml.openTag(indEl))
+            lv.leftTwips = (WordXml.twipsAttr(iot "w:left" lv.leftTwips))
+            lv.hangingTwips = (WordXml.twipsAttr(iot "w:hanging" lv.hangingTwips))
+        }
+        return lv
+    }
+
+    fn abstractForNum:AbstractNum (numId:int) {
+        def absId@(optional):int (get numToAbstract numId)
+        if (null? absId) {
+            return (new AbstractNum)
+        }
+        def abs@(optional):AbstractNum (get abstracts (unwrap absId))
+        if (null? abs) {
+            return (new AbstractNum)
+        }
+        return (unwrap abs)
+    }
+
+    fn levelFor:NumLevel (numId:int ilvl:int) {
+        def abs:AbstractNum (this.abstractForNum(numId))
+        return (abs.levelAt(ilvl))
+    }
+
+    fn applyToParagraph:void (p:Paragraph) {
+        if (p.listNumId <= 0) {
+            return
+        }
+        def lv:NumLevel (this.levelFor(p.listNumId p.listLevel))
+        p.indentLeftPt = ((to_double lv.leftTwips) / 20.0)
+        if (lv.numFmt == "bullet") {
+            p.listKind = 1
+        } {
+            p.listKind = 2
+        }
+        p.listFmt = lv.numFmt
+        p.listText = lv.lvlText
+    }
+
+    sfn formatToken:string (fmt:string n:int) {
+        if (fmt == "bullet") {
+            return "•"
+        }
+        if (fmt == "decimal") {
+            return (to_string n)
+        }
+        if (fmt == "lowerLetter") {
+            return (WordNumbering.letter(n false))
+        }
+        if (fmt == "upperLetter") {
+            return (WordNumbering.letter(n true))
+        }
+        if (fmt == "lowerRoman") {
+            return (WordNumbering.roman(n false))
+        }
+        if (fmt == "upperRoman") {
+            return (WordNumbering.roman(n true))
+        }
+        return (to_string n)
+    }
+
+    sfn letter:string (n:int upper:boolean) {
+        if (n < 1) {
+            n = 1
+        }
+        def base:int 97
+        if upper {
+            base = 65
+        }
+        def rem:int ((n - 1) - ((idiv (n - 1) 26) * 26))
+        return (EVGCodepoint.toStr((base + rem)))
+    }
+
+    sfn roman:string (n:int upper:boolean) {
+        def vals:[int]
+        push vals 1000
+        push vals 900
+        push vals 500
+        push vals 400
+        push vals 100
+        push vals 90
+        push vals 50
+        push vals 40
+        push vals 10
+        push vals 9
+        push vals 5
+        push vals 4
+        push vals 1
+        def syms:[string]
+        if upper {
+            push syms "M"
+            push syms "CM"
+            push syms "D"
+            push syms "CD"
+            push syms "C"
+            push syms "XC"
+            push syms "L"
+            push syms "XL"
+            push syms "X"
+            push syms "IX"
+            push syms "V"
+            push syms "IV"
+            push syms "I"
+        } {
+            push syms "m"
+            push syms "cm"
+            push syms "d"
+            push syms "cd"
+            push syms "c"
+            push syms "xc"
+            push syms "l"
+            push syms "xl"
+            push syms "x"
+            push syms "ix"
+            push syms "v"
+            push syms "iv"
+            push syms "i"
+        }
+        def out:string ""
+        def remain:int n
+        if (remain < 1) {
+            remain = 1
+        }
+        if (remain > 3999) {
+            remain = 3999
+        }
+        def i:int 0
+        while (i < (array_length vals)) {
+            def v:int (itemAt vals i)
+            while (remain >= v) {
+                out = (out + (itemAt syms i))
+                remain = (remain - v)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Expand lvlText like "%1.%2." using per-level counters for this numId.
+    fn formatMarker:string (numId:int ilvl:int counters:[int:int]) {
+        def lv:NumLevel (this.levelFor(numId ilvl))
+        def tpl:string lv.lvlText
+        if ((strlen tpl) == 0) {
+            if (lv.numFmt == "bullet") {
+                return "• "
+            }
+            return ((to_string (this.counterValue(counters numId ilvl lv.start))) + ". ")
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (strlen tpl)
+        while (i < n) {
+            if ((charAt tpl i) == 37) {
+                if ((i + 1) < n) {
+                    def d:int (charAt tpl (i + 1))
+                    if ((d >= 49) && (d <= 57)) {
+                        def level:int (d - 49)
+                        def lv2:NumLevel (this.levelFor(numId level))
+                        def c:int (this.counterValue(counters numId level lv2.start))
+                        out = (out + (WordNumbering.formatToken(lv2.numFmt c)))
+                        i = (i + 2)
+                    } {
+                        out = (out + "%")
+                        i = (i + 1)
+                    }
+                } {
+                    out = (out + "%")
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (substring tpl i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        if ((strlen out) > 0) {
+            def last:int (charAt out ((strlen out) - 1))
+            if (last != 32) {
+                out = (out + " ")
+            }
+        }
+        return out
+    }
+
+    fn counterValue:int (counters:[int:int] numId:int ilvl:int start:int) {
+        def key:int ((numId * 100) + ilvl)
+        def hit@(optional):int (get counters key)
+        if (!null? hit) {
+            def v:int (unwrap hit)
+            if (v > 0) {
+                return v
+            }
+        }
+        return start
+    }
+
+    fn bumpCounter:void (counters:[int:int] numId:int ilvl:int start:int) {
+        def key:int ((numId * 100) + ilvl)
+        def hit@(optional):int (get counters key)
+        def n:int start
+        if (!null? hit) {
+            def cur:int (unwrap hit)
+            if (cur > 0) {
+                n = (cur + 1)
+            }
+        }
+        set counters key n
+        ; Reset deeper levels so the next nested item restarts
+        def d:int (ilvl + 1)
+        while (d < 9) {
+            def dk:int ((numId * 100) + d)
+            set counters dk 0
+            d = (d + 1)
+        }
+    }
+}

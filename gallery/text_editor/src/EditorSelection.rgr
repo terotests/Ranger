@@ -1,0 +1,70 @@
+; ==============================================================================
+; EditorSelection - anchor + caret for the EVG text-editor prototype.
+; ==============================================================================
+
+Import "EditorBuffer.rgr"
+
+class EditorSelection {
+    def anchor:EditorPos (new EditorPos)
+    def caret:EditorPos (new EditorPos)
+
+    Constructor () {
+    }
+
+    fn isCollapsed:boolean () {
+        return (anchor.equals(caret))
+    }
+
+    fn setCaret:void (line:int col:int) {
+        caret.line = line
+        caret.col = col
+    }
+
+    fn setAnchor:void (line:int col:int) {
+        anchor.line = line
+        anchor.col = col
+    }
+
+    fn collapseToCaret:void () {
+        anchor.copyFrom(caret)
+    }
+
+    fn selectAll:void (buf:EditorBuffer) {
+        anchor.line = 0
+        anchor.col = 0
+        def last:int ((buf.lineCount()) - 1)
+        if (last < 0) {
+            last = 0
+        }
+        caret.line = last
+        caret.col = (strlen (buf.lineAt(last)))
+    }
+
+    ; Ordered start/end into outStart / outEnd.
+    fn normalized:void (outStart:EditorPos outEnd:EditorPos) {
+        def c:int (this.cmp(anchor.line anchor.col caret.line caret.col))
+        if (c <= 0) {
+            outStart.copyFrom(anchor)
+            outEnd.copyFrom(caret)
+        } {
+            outStart.copyFrom(caret)
+            outEnd.copyFrom(anchor)
+        }
+    }
+
+    fn cmp:int (aLine:int aCol:int bLine:int bCol:int) {
+        if (aLine < bLine) {
+            return -1
+        }
+        if (aLine > bLine) {
+            return 1
+        }
+        if (aCol < bCol) {
+            return -1
+        }
+        if (aCol > bCol) {
+            return 1
+        }
+        return 0
+    }
+}

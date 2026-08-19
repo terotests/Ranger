@@ -1,0 +1,147 @@
+; ==============================================================================
+; flow_test.rgr — changing one signal recomputes only what reads it.
+; ==============================================================================
+; Two things have to be true of an incremental run, and a test that checks only
+; one of them is worthless.
+;
+;   IT IS RIGHT.   The scene after changing a signal must be the scene a fresh
+;                  run with that signal's value produces — character for
+;                  character, through the same canonical writer the goldens use.
+;                  A graph that recomputes everything passes this trivially.
+;
+;   IT IS SHORTER. The nodes that ran must be the ones that read the signal, and
+;                  not the ones that do not. A graph that prunes nothing draws
+;                  the right chart and has done nothing useful, so what ran is
+;                  asserted by name.
+; ==============================================================================
+
+Import "../src/VlRuntime.rgr"
+
+class VlFlowTest {
+    def failures:int 0
+
+    fn check:void (name:string got:string want:string) {
+        if (got == want) {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ((((("FAIL " + name) + ": got ") + got) + " want ") + want)
+        }
+    }
+
+    fn sceneText:VlSceneMark (rt:VlRuntime) {
+        return (rt.run((VlFlowTest.spec())))
+    }
+
+    ; A chart with two data sets, only one of which reads the signal, so there
+    ; is something for the graph to leave alone. `points` filters on `cutoff`;
+    ; `labels` does not depend on it at all.
+    sfn specText:string () {
+        return "{
+  \"width\": 200, \"height\": 100,
+  \"signals\": [
+    {\"name\": \"cutoff\", \"value\": 40},
+    {\"name\": \"headline\", \"update\": \"'over ' + cutoff\"}
+  ],
+  \"data\": [
+    {\"name\": \"source\", \"values\": [
+      {\"a\": \"A\", \"b\": 28}, {\"a\": \"B\", \"b\": 55}, {\"a\": \"C\", \"b\": 43},
+      {\"a\": \"D\", \"b\": 91}, {\"a\": \"E\", \"b\": 19}, {\"a\": \"F\", \"b\": 62}
+    ]},
+    {\"name\": \"points\", \"source\": \"source\",
+     \"transform\": [{\"type\": \"filter\", \"expr\": \"datum.b > cutoff\"}]},
+    {\"name\": \"labels\", \"source\": \"source\",
+     \"transform\": [{\"type\": \"filter\", \"expr\": \"datum.b > 0\"}]}
+  ],
+  \"scales\": [
+    {\"name\": \"x\", \"type\": \"band\", \"domain\": {\"data\": \"points\", \"field\": \"a\"}, \"range\": \"width\"},
+    {\"name\": \"y\", \"type\": \"linear\", \"domain\": {\"data\": \"points\", \"field\": \"b\"}, \"range\": \"height\", \"nice\": true},
+    {\"name\": \"all\", \"type\": \"band\", \"domain\": {\"data\": \"labels\", \"field\": \"a\"}, \"range\": \"width\"}
+  ],
+  \"marks\": [
+    {\"type\": \"rect\", \"from\": {\"data\": \"points\"}, \"encode\": {\"update\": {
+      \"x\": {\"scale\": \"x\", \"field\": \"a\"}, \"width\": {\"scale\": \"x\", \"band\": 1},
+      \"y\": {\"scale\": \"y\", \"field\": \"b\"}, \"y2\": {\"scale\": \"y\", \"value\": 0}}}},
+    {\"type\": \"symbol\", \"from\": {\"data\": \"labels\"}, \"encode\": {\"update\": {
+      \"x\": {\"scale\": \"all\", \"field\": \"a\"}, \"y\": {\"value\": 10}}}}
+  ]
+}"
+    }
+
+    sfn spec:VlJson () {
+        def parser (new VlJsonParser())
+        return (parser.parse((VlFlowTest.specText())))
+    }
+
+    ; The same specification with the signal's literal value replaced, which is
+    ; what "a fresh run with that value" means.
+    sfn specWith:VlJson (cutoff:double) {
+        def out:VlJson (VlFlowTest.spec())
+        def signals:VlJson (out.get("signals"))
+        def first:VlJson (signals.at(0))
+        first.setMember("value" (VlJson.numberValue(cutoff)))
+        return out
+    }
+
+    fn write:string (scene:VlSceneMark) {
+        def writer (new VlSceneWriter())
+        return (writer.write(scene))
+    }
+
+    fn ranText:string (rt:VlRuntime) {
+        def out:string ""
+        for rt.flowRan key:string ki {
+            if (ki > 0) {
+                out = (out + " ")
+            }
+            out = (out + key)
+        }
+        return out
+    }
+
+    fn run:void () {
+        ; --- the graph is read off the spec ---
+        def rt (new VlRuntime())
+        def first:VlSceneMark (rt.run((VlFlowTest.spec())))
+        this.check("the graph has a node per named thing" (VlJson.intToText((array_length rt.flowNodes))) "10")
+
+        ; --- changing the signal gives the same scene as a fresh run ---
+        def incremental:string (this.write((rt.update("cutoff" (VlJson.numberValue(50.0))))))
+        def fresh (new VlRuntime())
+        def whole:string (this.write((fresh.run((VlFlowTest.specWith(50.0))))))
+        this.check("an incremental scene is the scene" incremental whole)
+
+        ; --- and it recomputed only what reads the signal ---
+        ; `headline` reads cutoff; `points` filters on it; `x` and `y` take
+        ; their domains from `points`. `source` is upstream of everything and
+        ; reads nothing, `labels` filters on a constant, and `all` reads
+        ; `labels` — none of those three may run.
+        ; …and only the MARK that reads them was re-encoded. The second mark
+        ; reads `labels` through the `all` scale, neither of which the change
+        ; reaches, so its items are the items it already had.
+        this.check("only the dependants ran" (this.ranText(rt)) "signal:headline data:points scale:x scale:y mark:0")
+
+        ; --- a second change from the new state is still right ---
+        def again:string (this.write((rt.update("cutoff" (VlJson.numberValue(90.0))))))
+        def fresh2 (new VlRuntime())
+        def whole2:string (this.write((fresh2.run((VlFlowTest.specWith(90.0))))))
+        this.check("and again from the state it left" again whole2)
+
+        ; --- a signal nothing reads costs nothing ---
+        def idle (new VlRuntime())
+        def unused:VlSceneMark (idle.run((VlFlowTest.spec())))
+        def sameScene:string (this.write((idle.update("headline" (VlJson.stringValue("anything"))))))
+        this.check("a signal nothing reads runs nothing" (this.ranText(idle)) "")
+
+        if (failures > 0) {
+            print (("FAILED: " + (VlJson.intToText(failures))) + " check(s)")
+        } {
+            print "all dataflow tests passed"
+        }
+    }
+
+    sfn main:void () {
+        def t (new VlFlowTest())
+        t.run()
+    }
+}

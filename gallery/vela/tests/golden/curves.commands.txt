@@ -1,0 +1,126 @@
+group-begin
+group-begin
+line x=0.5 y=104.5 x2=0.5 y2=109.5 stroke=#888 strokeWidth=1
+line x=27.5 y=104.5 x2=27.5 y2=109.5 stroke=#888 strokeWidth=1
+line x=54.5 y=104.5 x2=54.5 y2=109.5 stroke=#888 strokeWidth=1
+line x=81.5 y=104.5 x2=81.5 y2=109.5 stroke=#888 strokeWidth=1
+line x=109.5 y=104.5 x2=109.5 y2=109.5 stroke=#888 strokeWidth=1
+line x=136.5 y=104.5 x2=136.5 y2=109.5 stroke=#888 strokeWidth=1
+line x=163.5 y=104.5 x2=163.5 y2=109.5 stroke=#888 strokeWidth=1
+line x=190.5 y=104.5 x2=190.5 y2=109.5 stroke=#888 strokeWidth=1
+text x=0.5 y=111.5 size=10 align=center text=0 fill=#000
+text x=27.643 y=111.5 size=10 align=center text=1 fill=#000
+text x=54.786 y=111.5 size=10 align=center text=2 fill=#000
+text x=81.929 y=111.5 size=10 align=center text=3 fill=#000
+text x=109.071 y=111.5 size=10 align=center text=4 fill=#000
+text x=136.214 y=111.5 size=10 align=center text=5 fill=#000
+text x=163.357 y=111.5 size=10 align=center text=6 fill=#000
+text x=190.5 y=111.5 size=10 align=center text=7 fill=#000
+line x=0.5 y=104.5 x2=190.5 y2=104.5 stroke=#888 strokeWidth=1
+group-end
+group-begin
+line x=0.5 y=104.5 x2=190.5 y2=104.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=94.5 x2=190.5 y2=94.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=83.5 x2=190.5 y2=83.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=73.5 x2=190.5 y2=73.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=62.5 x2=190.5 y2=62.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=52.5 x2=190.5 y2=52.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=42.5 x2=190.5 y2=42.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=31.5 x2=190.5 y2=31.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=21.5 x2=190.5 y2=21.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=10.5 x2=190.5 y2=10.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=0.5 x2=190.5 y2=0.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=104.5 x2=-4.5 y2=104.5 stroke=#888 strokeWidth=1
+line x=0.5 y=94.5 x2=-4.5 y2=94.5 stroke=#888 strokeWidth=1
+line x=0.5 y=83.5 x2=-4.5 y2=83.5 stroke=#888 strokeWidth=1
+line x=0.5 y=73.5 x2=-4.5 y2=73.5 stroke=#888 strokeWidth=1
+line x=0.5 y=62.5 x2=-4.5 y2=62.5 stroke=#888 strokeWidth=1
+line x=0.5 y=52.5 x2=-4.5 y2=52.5 stroke=#888 strokeWidth=1
+line x=0.5 y=42.5 x2=-4.5 y2=42.5 stroke=#888 strokeWidth=1
+line x=0.5 y=31.5 x2=-4.5 y2=31.5 stroke=#888 strokeWidth=1
+line x=0.5 y=21.5 x2=-4.5 y2=21.5 stroke=#888 strokeWidth=1
+line x=0.5 y=10.5 x2=-4.5 y2=10.5 stroke=#888 strokeWidth=1
+line x=0.5 y=0.5 x2=-4.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-6.5 y=104.5 size=10 align=right text=0 fill=#000
+text x=-6.5 y=94.1 size=10 align=right text=10 fill=#000
+text x=-6.5 y=83.7 size=10 align=right text=20 fill=#000
+text x=-6.5 y=73.3 size=10 align=right text=30 fill=#000
+text x=-6.5 y=62.9 size=10 align=right text=40 fill=#000
+text x=-6.5 y=52.5 size=10 align=right text=50 fill=#000
+text x=-6.5 y=42.1 size=10 align=right text=60 fill=#000
+text x=-6.5 y=31.7 size=10 align=right text=70 fill=#000
+text x=-6.5 y=21.3 size=10 align=right text=80 fill=#000
+text x=-6.5 y=10.9 size=10 align=right text=90 fill=#000
+text x=-6.5 y=0.5 size=10 align=right text=100 fill=#000
+line x=0.5 y=104.5 x2=0.5 y2=0.5 stroke=#888 strokeWidth=1
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#4c78a8 strokeWidth=1.5
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#f58518 strokeWidth=1.5
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#e45756 strokeWidth=1.5
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#72b7b2 strokeWidth=1.5
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#54a24b strokeWidth=1.5
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#eeca3b strokeWidth=1.5
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#b279a2 strokeWidth=1.5
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#ff9da6 strokeWidth=1.5
+group-end
+group-begin
+polyline points=0,74.88 27.143,46.8 54.286,59.28 81.429,9.36 108.571,19.76 135.714,48.88 162.857,84.24 190,13.52 stroke=#9d755d strokeWidth=1.5
+group-end
+group-begin
+group-begin
+group-begin
+symbol x=217 y=22 size=100 shape=stroke stroke=#4c78a8 strokeWidth=1.5
+text x=227 y=22 size=10 align=left text=linear fill=#000
+group-end
+group-begin
+symbol x=217 y=35 size=100 shape=stroke stroke=#f58518 strokeWidth=1.5
+text x=227 y=35 size=10 align=left text=basis fill=#000
+group-end
+group-begin
+symbol x=217 y=48 size=100 shape=stroke stroke=#e45756 strokeWidth=1.5
+text x=227 y=48 size=10 align=left text=cardinal fill=#000
+group-end
+group-begin
+symbol x=217 y=61 size=100 shape=stroke stroke=#72b7b2 strokeWidth=1.5
+text x=227 y=61 size=10 align=left text=catmull-rom fill=#000
+group-end
+group-begin
+symbol x=217 y=74 size=100 shape=stroke stroke=#54a24b strokeWidth=1.5
+text x=227 y=74 size=10 align=left text=monotone fill=#000
+group-end
+group-begin
+symbol x=217 y=87 size=100 shape=stroke stroke=#eeca3b strokeWidth=1.5
+text x=227 y=87 size=10 align=left text=natural fill=#000
+group-end
+group-begin
+symbol x=217 y=100 size=100 shape=stroke stroke=#b279a2 strokeWidth=1.5
+text x=227 y=100 size=10 align=left text=step fill=#000
+group-end
+group-begin
+symbol x=217 y=113 size=100 shape=stroke stroke=#ff9da6 strokeWidth=1.5
+text x=227 y=113 size=10 align=left text=step-before fill=#000
+group-end
+group-begin
+symbol x=217 y=126 size=100 shape=stroke stroke=#9d755d strokeWidth=1.5
+text x=227 y=126 size=10 align=left text=step-after fill=#000
+group-end
+group-end
+text x=211 y=0 size=11 align=left text=interpolate fill=#000
+group-end
+group-end
+

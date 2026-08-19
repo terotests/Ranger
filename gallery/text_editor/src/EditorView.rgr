@@ -1,0 +1,352 @@
+; ==============================================================================
+; EditorView - editor scene → EVGDisplayList → SoftCanvas and/or WebGL
+; ==============================================================================
+;
+; The editor owns the text model and layout. Painting goes through one seam:
+;
+;   EditorView.buildDisplayList  →  EVGDisplayList (flat draw cmds)
+;        ├─ paintSoftCanvas      →  SoftCanvas (tests / SDL present)
+;        └─ sceneJson            →  gallery/evg/gl/evg-webgl.js (WebGL 2)
+;
+; So the web demo's input layer (UIInput) and render layer (WebGL) are separate
+; the same way SDL_TEXTINPUT and an SDL/GL present path would be.
+; ==============================================================================
+
+Import "EditorBuffer.rgr"
+Import "EditorSelection.rgr"
+Import "EditorStyle.rgr"
+Import "EditorLayout.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class EditorTheme {
+    def bg:EVGColor (EVGColor.rgb(18 20 28))
+    def gutterBg:EVGColor (EVGColor.rgb(14 16 22))
+    def gutterText:EVGColor (EVGColor.rgb(90 100 120))
+    def text:EVGColor (EVGColor.rgb(226 232 245))
+    def caret:EVGColor (EVGColor.rgb(120 200 255))
+    def selection:EVGColor (EVGColor.rgba(60 110 200 0.45))
+    def border:EVGColor (EVGColor.rgb(50 60 85))
+    def statusBg:EVGColor (EVGColor.rgb(12 14 20))
+    def statusText:EVGColor (EVGColor.rgb(150 165 190))
+
+    Constructor () {
+    }
+}
+
+class EditorView {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def theme:EditorTheme (new EditorTheme)
+    def status:string ""
+    def focused:boolean true
+    def frame:int 0
+    def fontFamily:string "Open Sans"
+    def pageW:int 720
+    def pageH:int 480
+    ; SoftCanvas paints selection+caret; WebGL path uses a client overlay so
+    ; Canvas2D metrics match the atlas (Ranger TTF advances differ).
+    def paintInteractive:boolean true
+
+    Constructor () {
+    }
+
+    fn init:void (w:int h:int fontDir:string) {
+        pageW = w
+        pageH = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.addFontDir(fontDir)
+        def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
+        ; Extra faces for rich text (WebGL @font-face + FontManager).
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Cinzel/Cinzel-Regular.ttf")
+        ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        if (ok == false) {
+            status = "bitmap-font fallback"
+        } {
+            status = "ready"
+        }
+    }
+
+    fn resize:void (w:int h:int) {
+        pageW = w
+        pageH = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.clearCache()
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushBorder:void (dl:EVGDisplayList x:double y:double w:double h:double thickness:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 1
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.thickness = thickness
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor) {
+        this.pushTextFont(dl text x y size col fontFamily false)
+    }
+
+    ; WebGL atlas uses CSS family names; bold face is a separate @font-face family.
+    fn cssFontName:string (family:string bold:boolean) {
+        if bold {
+            if (family == "Open Sans") {
+                return "Open Sans Bold"
+            }
+            if (family == "Cinzel") {
+                return "Cinzel Bold"
+            }
+            if (family == "Josefin Sans") {
+                return "Josefin Sans Bold"
+            }
+            return (family + " Bold")
+        }
+        return family
+    }
+
+    fn pushTextFont:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor family:string bold:boolean) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = (ctx.tr.measureWidth(text size))
+        c.h = (ctx.tr.lineHeight(size))
+        c.text = text
+        c.fontFamily = (this.cssFontName(family bold))
+        c.fontSize = size
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushClip:void (dl:EVGDisplayList x:double y:double w:double h:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        push dl.cmds c
+    }
+
+    fn popClip:void (dl:EVGDisplayList) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 5
+        push dl.cmds c
+    }
+
+    ; One traversal: background, gutter, selection, visible text, caret, chrome.
+    fn buildDisplayList:EVGDisplayList (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
+        layout.syncMetrics(ctx.tr)
+        layout.clampScroll(buf)
+
+        def dl:EVGDisplayList (new EVGDisplayList)
+        this.pushRect(dl 0.0 0.0 (to_double pageW) (to_double pageH) theme.bg)
+        this.pushRect(dl (to_double layout.x) (to_double layout.y) (to_double layout.w) (to_double layout.h) theme.bg)
+
+        if layout.showLineNumbers {
+            this.pushRect(dl (to_double layout.x) (to_double layout.y) (to_double layout.gutterW) (to_double layout.h) theme.gutterBg)
+        }
+
+        ; Clip editor body so scrolled text does not paint over the status bar.
+        this.pushClip(dl (to_double layout.x) (to_double layout.y) (to_double layout.w) (to_double layout.h))
+
+        if paintInteractive {
+            if (sel.isCollapsed() == false) {
+                def a:EditorPos (new EditorPos)
+                def b:EditorPos (new EditorPos)
+                sel.normalized(a b)
+                def firstVis:int (layout.firstVisible())
+                def lastVis:int (layout.lastVisible(buf))
+                def line:int a.line
+                while (line <= b.line) {
+                    if ((line >= firstVis) && (line <= lastVis)) {
+                        def s:string (buf.lineAt(line))
+                        def len:int (strlen s)
+                        def c0:int 0
+                        def c1:int len
+                        if (line == a.line) {
+                            c0 = a.col
+                        }
+                        if (line == b.line) {
+                            c1 = b.col
+                        }
+                        if (c0 < 0) {
+                            c0 = 0
+                        }
+                        if (c1 > len) {
+                            c1 = len
+                        }
+                        if (c1 < c0) {
+                            c1 = c0
+                        }
+                        def x0:int (layout.caretPixelX(ctx.tr buf line c0))
+                        def x1:int (layout.caretPixelX(ctx.tr buf line c1))
+                        if (line < b.line) {
+                            def full:int (layout.caretPixelX(ctx.tr buf line len))
+                            if (full > x1) {
+                                x1 = (full + 6)
+                            }
+                        }
+                        def y0:int (layout.caretPixelY(line))
+                        def rw:int (x1 - x0)
+                        if (rw < 2) {
+                            rw = 2
+                        }
+                        this.pushRect(dl (to_double x0) (to_double y0) (to_double rw) (to_double layout.lineHeight) theme.selection)
+                    }
+                    line = (line + 1)
+                }
+            }
+        }
+
+        def first:int (layout.firstVisible())
+        def last:int (layout.lastVisible(buf))
+        def li:int first
+        while (li <= last) {
+            def text:string (buf.lineAt(li))
+            def ty:int (layout.caretPixelY(li))
+            def st:LineStyle (buf.styleAt(li))
+            if layout.showLineNumbers {
+                def num:string (to_string (li + 1))
+                def numSize:double (layout.fontSize * 0.85)
+                def nw:int (to_int (ctx.tr.measureWidth(num numSize)))
+                def nx:int ((layout.x + layout.gutterW) - nw - 6)
+                this.pushText(dl num (to_double nx) (to_double (ty + 2)) numSize theme.gutterText)
+            }
+            ; List marker (ul disc / ol decimal) — canvas-editor listType.
+            if (st.listKind != 0) {
+                def mark:string "•"
+                if (st.listKind == 2) {
+                    mark = ((to_string (buf.listNumber(li))) + ".")
+                }
+                def mx:int (layout.contentX())
+                this.pushText(dl mark (to_double mx) (to_double ty) layout.fontSize theme.text)
+            }
+            def ox:int (layout.lineOriginX(ctx.tr buf li))
+            def pos:int 0
+            def ri:int 0
+            while (ri < (array_length st.runs)) {
+                def run:StyleRun (itemAt st.runs ri)
+                if (run.len > 0) {
+                    def chunk:string (substring text pos (pos + run.len))
+                    def fam:string run.font
+                    if ((strlen fam) == 0) {
+                        fam = fontFamily
+                    }
+                    this.pushTextFont(dl chunk (to_double ox) (to_double ty) layout.fontSize theme.text fam run.bold)
+                    def cw:int (to_int (ctx.tr.measureWidth(chunk layout.fontSize)))
+                    ox = (ox + cw)
+                    pos = (pos + run.len)
+                }
+                ri = (ri + 1)
+            }
+            li = (li + 1)
+        }
+
+        if paintInteractive {
+            if focused {
+                def phase:int (to_int (frame / 30))
+                def on:int (phase - ((to_int (phase / 2)) * 2))
+                if (on == 0) {
+                    def cl:int sel.caret.line
+                    if ((cl >= (layout.firstVisible())) && (cl <= (layout.lastVisible(buf)))) {
+                        def cx:int (layout.caretPixelX(ctx.tr buf cl sel.caret.col))
+                        def cy:int (layout.caretPixelY(cl))
+                        this.pushRect(dl (to_double cx) (to_double cy) 2.0 (to_double layout.lineHeight) theme.caret)
+                    }
+                }
+            }
+        }
+
+        this.popClip(dl)
+        this.pushBorder(dl (to_double layout.x) (to_double layout.y) (to_double layout.w) (to_double layout.h) 1.0 theme.border)
+
+        def sy:int (layout.y + layout.h)
+        if (sy < pageH) {
+            def sh:int (pageH - sy)
+            this.pushRect(dl 0.0 (to_double sy) (to_double pageW) (to_double sh) theme.statusBg)
+            def info:string ("L" + (to_string (sel.caret.line + 1)) + ":" + (to_string (sel.caret.col + 1)) + "  lines=" + (to_string (buf.lineCount())) + "  " + status + "  gl-list")
+            this.pushText(dl info 8.0 (to_double (sy + 4)) 12.0 theme.statusText)
+        }
+
+        return dl
+    }
+
+    ; CPU present path used by tests / SDL hosts — consumes the same list WebGL does.
+    fn paintSoftCanvas:void (dl:EVGDisplayList) {
+        canvas.clear((theme.bg.red()) (theme.bg.green()) (theme.bg.blue()))
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 0) {
+                def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
+            }
+            if (c.kind == 1) {
+                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
+            }
+            if (c.kind == 3) {
+                def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+            }
+            ; PUSH_CLIP / POP_CLIP: SoftCanvas has no scissor stack yet — ignored.
+            i = (i + 1)
+        }
+    }
+
+    fn render:void (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
+        ctx.frame = frame
+        def dl:EVGDisplayList (this.buildDisplayList(buf sel layout))
+        this.paintSoftCanvas(dl)
+        frame = (frame + 1)
+    }
+
+    ; Wire format for gallery/evg/gl/evg-webgl.js — {width,height,list:{cmds:[…]}}.
+    fn sceneJson:string (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
+        ctx.frame = frame
+        def prev:boolean paintInteractive
+        paintInteractive = false
+        def dl:EVGDisplayList (this.buildDisplayList(buf sel layout))
+        paintInteractive = prev
+        frame = (frame + 1)
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num((to_double pageW))) + ",\"height\":" + (EVGDisplayList.num((to_double pageH))) + ",\"list\":" + body + "}")
+    }
+}

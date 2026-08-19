@@ -1,0 +1,198 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "description": "The transforms a specification writes for itself, rather than the ones its encoding implies. A filter that removes rows and a calculate that adds a field were both dropped in silence: the chart drew the untransformed data and looked entirely reasonable.",
+  "background": "white",
+  "padding": 5,
+  "width": 180,
+  "height": 120,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "a": "A",
+          "b": 28,
+          "keep": true
+        },
+        {
+          "a": "B",
+          "b": 55,
+          "keep": false
+        },
+        {
+          "a": "C",
+          "b": 43,
+          "keep": true
+        },
+        {
+          "a": "D",
+          "b": 91,
+          "keep": false
+        },
+        {
+          "a": "E",
+          "b": 81,
+          "keep": true
+        },
+        {
+          "a": "F",
+          "b": 53,
+          "keep": true
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "filter",
+          "expr": "datum.keep"
+        },
+        {
+          "type": "formula",
+          "expr": "datum.b / 2",
+          "as": "half"
+        },
+        {
+          "type": "stack",
+          "groupby": [
+            "a"
+          ],
+          "field": "half",
+          "sort": {
+            "field": [],
+            "order": []
+          },
+          "as": [
+            "half_start",
+            "half_end"
+          ],
+          "offset": "zero"
+        },
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"half\"]) && isFinite(+datum[\"half\"])"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "rect",
+      "style": [
+        "bar"
+      ],
+      "from": {
+        "data": "data_0"
+      },
+      "encode": {
+        "update": {
+          "fill": {
+            "value": "#4c78a8"
+          },
+          "ariaRoleDescription": {
+            "value": "bar"
+          },
+          "description": {
+            "signal": "\"a: \" + (isValid(datum[\"a\"]) ? isArray(datum[\"a\"]) ? join(datum[\"a\"], ' ') : datum[\"a\"] : \"\"+datum[\"a\"]) + \"; half: \" + (format(datum[\"half\"], \"\"))"
+          },
+          "x": {
+            "scale": "x",
+            "field": "a"
+          },
+          "width": {
+            "signal": "max(0.25, bandwidth('x'))"
+          },
+          "y": {
+            "scale": "y",
+            "field": "half_end"
+          },
+          "y2": {
+            "scale": "y",
+            "field": "half_start"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "band",
+      "domain": {
+        "data": "data_0",
+        "field": "a",
+        "sort": true
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ],
+      "paddingInner": 0.1,
+      "paddingOuter": 0.05
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "fields": [
+          "half_start",
+          "half_end"
+        ]
+      },
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ],
+      "nice": true,
+      "zero": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "a",
+      "labelAlign": "right",
+      "labelAngle": 270,
+      "labelBaseline": "middle",
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "half",
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "zindex": 0
+    }
+  ]
+}

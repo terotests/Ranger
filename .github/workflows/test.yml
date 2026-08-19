@@ -17,32 +17,39 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Detect changed paths
-        uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            gallery:
-              - 'gallery/**'
-            non_gallery:
-              - '**'
-              - '!gallery/**'
+          fetch-depth: 0
 
       - name: Set gallery-only flag
         id: gallery_only
         run: |
-          if [ "${{ steps.filter.outputs.gallery }}" = "true" ] && [ "${{ steps.filter.outputs.non_gallery }}" != "true" ]; then
-            echo "result=true" >> "$GITHUB_OUTPUT"
-            echo "Gallery-only change detected — skipping full ES6 matrix"
+          # dorny paths-filter '**' + '!gallery/**' is OR-matched, so '**' makes
+          # non_gallery always true and gallery-only PRs incorrectly run full CI.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}" 2>/dev/null || true
+            files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
           else
+            files=$(git diff --name-only HEAD~1...HEAD 2>/dev/null || true)
+          fi
+          echo "Changed files:"
+          echo "$files"
+          if [ -z "$files" ]; then
+            echo "result=false" >> "$GITHUB_OUTPUT"
+            echo "Empty diff — running full ES6 matrix"
+            exit 0
+          fi
+          if echo "$files" | grep -v '^$' | grep -vq '^gallery/'; then
             echo "result=false" >> "$GITHUB_OUTPUT"
             echo "Non-gallery changes detected — running full ES6 matrix"
+            echo "$files" | grep -v '^$' | grep -v '^gallery/' || true
+          else
+            echo "result=true" >> "$GITHUB_OUTPUT"
+            echo "Gallery-only change detected — skipping full ES6 matrix"
           fi
 
+  # Required matrix checks must report success even for gallery-only PRs.
   test:
     needs: changes
-    if: needs.changes.outputs.gallery_only != 'true'
     runs-on: ubuntu-latest
 
     strategy:
@@ -50,10 +57,16 @@ jobs:
         node-version: [20.x, 22.x, 24.x]
 
     steps:
+      - name: Gallery-only — required check no-op
+        if: needs.changes.outputs.gallery_only == 'true'
+        run: echo "Skipping ES6 matrix for gallery-only PR"
+
       - name: Checkout repository
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js ${{ matrix.node-version }}
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -62,9 +75,11 @@ jobs:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Install dependencies
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm ci
 
       - name: Run ES6 tests
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm run test:es6
 
   gallery-smoke:
@@ -103,10 +118,14 @@ jobs:
         run: |
           if [ "${{ needs.changes.outputs.gallery_only }}" = "true" ]; then
             if [ "${{ needs.gallery-smoke.result }}" != "success" ]; then
-              echo "Gallery smoke test failed or was cancelled"
+              echo "Gallery smoke test failed or were cancelled"
               exit 1
             fi
-            echo "Gallery-only change: smoke test passed (full checks skipped)"
+            if [ "${{ needs.test.result }}" != "success" ]; then
+              echo "ES6 matrix no-op job failed"
+              exit 1
+            fi
+            echo "Gallery-only change: smoke + required no-ops passed"
             exit 0
           fi
 

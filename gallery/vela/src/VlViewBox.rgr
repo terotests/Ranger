@@ -1,0 +1,562 @@
+; ==============================================================================
+; VlViewBox.rgr — how big the picture is.
+; ==============================================================================
+; The page was sized from what the AXES asked for: the plot, plus each axis'
+; extent, plus the padding. That is most of the answer and it is not the
+; answer, because plenty of ink is not an axis extent. A bottom axis' last
+; label sticks out to the RIGHT of the plot, and its extent only ever described
+; how far it reached DOWN. A point drawn at the edge of the scale is a circle
+; whose left half is outside. A legend, a title, a facet's row header.
+;
+; The reference sizes a view from the BOUNDS of everything drawn — union the
+; lot, see how far it escapes the plot on each side, and grow the page by that
+; much:
+;
+;     left  = ceil(-bounds.x1)      right  = ceil(bounds.x2 - plotWidth)
+;     top   = ceil(-bounds.y1)      bottom = ceil(bounds.y2 - plotHeight)
+;
+; each clamped at zero, and the origin is where the plot then sits. Forty-two of
+; the eighty charts in the suite came out a different size than the reference's
+; because this was missing, and one of them by fifteen pixels.
+;
+; The bounds rules below are the reference's own, and two of them are worth
+; stating because neither is obvious:
+;
+;   * a GROUP counts its own box whenever it has a width or a height, painted
+;     or not — an unpainted scope group still reserves the plot it contains
+;   * a stroked PATH is expanded by the miter allowance, four times half the
+;     stroke width, because a generic path may have a spike at a vertex. A
+;     rectangle and a rule are not: they have no spikes, so they expand by half
+;     the stroke and no more.
+; ==============================================================================
+
+Import "VlScene.rgr"
+Import "VlBounds.rgr"
+Import "VlText.rgr"
+Import "VlShape.rgr"
+Import "../../evg/PathBuilder.rgr"
+
+class VlViewBox {
+
+    ; The four numbers a renderer needs, in the order width, height, originX,
+    ; originY. Computed together because each depends on the same bounds, and a
+    ; caller that asked for them separately would walk the scene four times.
+    sfn measure:[double] (rootItem:VlSceneItem plotWidth:double plotHeight:double padding:double) {
+        def bounds (new VlBounds())
+        bounds.set(0.0 0.0 plotWidth plotHeight)
+        for rootItem.marks child:VlSceneMark ci {
+            bounds.union((VlViewBox.cut(child plotWidth plotHeight)))
+        }
+
+        def left:double (VlViewBox.overhang((0.0 - bounds.x1)))
+        def top:double (VlViewBox.overhang((0.0 - bounds.y1)))
+        def right:double (VlViewBox.overhang((bounds.x2 - plotWidth)))
+        def bottom:double (VlViewBox.overhang((bounds.y2 - plotHeight)))
+
+        def out:[double]
+        push out (((plotWidth + left) + right) + (padding * 2.0))
+        push out (((plotHeight + top) + bottom) + (padding * 2.0))
+        push out (left + padding)
+        push out (top + padding)
+        return out
+    }
+
+    ; How far past an edge something reaches, in whole pixels. Never negative:
+    ; a drawing that stops short of the plot does not shrink the page.
+    sfn overhang:double (v:double) {
+        if (v <= 0.0) {
+            return 0.0
+        }
+        return (to_double (ceil v))
+    }
+
+    ; --------------------------------------------------------------- per mark ---
+    ; What a mark covers, cut to the plot it is drawn in when it says it is
+    ; clipped. A horizon chart draws the same series twice, once shifted a band
+    ; down, and means the part that hangs below to be cut off — measured whole
+    ; it made the page half as tall again.
+    sfn cut:VlBounds (mark:VlSceneMark width:double height:double) {
+        def box:VlBounds (VlViewBox.ofMark(mark))
+        if (! mark.clipped) {
+            return box
+        }
+        if (! box.isSet) {
+            return box
+        }
+        def out (new VlBounds())
+        def x1:double box.x1
+        def y1:double box.y1
+        def x2:double box.x2
+        def y2:double box.y2
+        if (x1 < 0.0) { x1 = 0.0 }
+        if (y1 < 0.0) { y1 = 0.0 }
+        if (x2 > width) { x2 = width }
+        if (y2 > height) { y2 = height }
+        if ((x2 < x1) || (y2 < y1)) {
+            return out
+        }
+        out.add(x1 y1)
+        out.add(x2 y2)
+        return out
+    }
+
+
+    sfn ofMark:VlBounds (mark:VlSceneMark) {
+        def out (new VlBounds())
+        ; A line or an area is ONE shape over every item, so its bounds are the
+        ; curve's and not the union of a box per point.
+        if ((mark.markType == "line") || (mark.markType == "area")) {
+            return (VlViewBox.ofCurve(mark))
+        }
+        ; A trail is a ribbon and its items are the MIDDLE of it: half the
+        ; width at each vertex hangs past it on either side. Measured by the
+        ; vertices alone, a key stood two pixels too close to a chart whose
+        ; widest trail reached the right edge.
+        if (mark.markType == "trail") {
+            def ribbon (new VlBounds())
+            for mark.items item:VlSceneItem idx {
+                if (VlViewBox.drawn(item)) {
+                    def half:double 0.5
+                    if (item.has("size")) {
+                        half = ((item.number("size")) / 2.0)
+                    }
+                    def cx:double (item.number("x"))
+                    def cy:double (item.number("y"))
+                    ribbon.add((cx - half) (cy - half))
+                    ribbon.add((cx + half) (cy + half))
+                }
+            }
+            return ribbon
+        }
+        for mark.items item:VlSceneItem idx {
+            if (VlViewBox.drawn(item)) {
+                if (mark.role == "axis") {
+                    out.union((VlViewBox.ofAxis(item)))
+                } {
+                    out.union((VlViewBox.ofItem(mark.markType item)))
+                }
+            }
+        }
+        return out
+    }
+
+    ; An axis does not take the room its parts happen to occupy. The reference
+    ; rebuilds the box from the TICKS and the LABELS only, and then squares it
+    ; off against the scale's range; the grid and the domain line are left out
+    ; on purpose.
+    ;
+    ; Leaving out the domain is the whole of the difference. A bottom axis'
+    ; domain line sits ON the plot's lower edge and is a stroke, so half its
+    ; width hangs below — and a page grown by that half pixel is a page one
+    ; whole pixel taller than the reference's, which is what every chart here
+    ; was. The line is drawn; it just does not get to make the page bigger.
+    sfn ofAxis:VlBounds (item:VlSceneItem) {
+        def box (new VlBounds())
+        for item.marks child:VlSceneMark ci {
+            if ((child.role == "axis-tick") || (child.role == "axis-label")) {
+                box.union((VlViewBox.ofMark(child)))
+            }
+        }
+
+        def orient:string (item.text("orient"))
+        def range:double (item.number("range"))
+        def reach:double 0.0
+        if (orient == "top") { reach = (0.0 - box.y1) }
+        if (orient == "left") { reach = (0.0 - box.x1) }
+        if (orient == "right") { reach = box.x2 }
+        if (orient == "bottom") { reach = box.y2 }
+        if (! box.isSet) {
+            reach = 0.0
+        }
+        def extent:double (VlViewBox.clampExtent(reach item))
+
+        if (orient == "top") {
+            box.add(0.0 (0.0 - extent))
+            box.add(range 0.0)
+        }
+        if (orient == "left") {
+            box.add((0.0 - extent) 0.0)
+            box.add(0.0 range)
+        }
+        if (orient == "right") {
+            box.add(0.0 0.0)
+            box.add(extent range)
+        }
+        if (orient == "bottom") {
+            box.add(0.0 0.0)
+            box.add(range extent)
+        }
+
+        for item.marks child2:VlSceneMark ci2 {
+            if (child2.role == "axis-title") {
+                box.union((VlViewBox.ofAxisTitle(child2 ((orient == "left") || (orient == "right")))))
+            }
+        }
+        VlViewBox.strokeExpand(box item false)
+
+        ; The group's own position carries the half pixel that puts a tick on a
+        ; crisp line; the BOX it contributes does not, so it is taken back here.
+        def delta:double 0.5
+        if (item.has("translate")) {
+            delta = (item.number("translate"))
+        }
+        box.translate(((item.number("x")) - delta) ((item.number("y")) - delta))
+        return box
+    }
+
+    ; An axis title is bounded where it STARTED and then moved, which is not
+    ; the same number as bounding it where it ended up. The reference lays one
+    ; out by measuring the title at the axis' own line — nothing decided yet in
+    ; the cross direction — and then translating the box out to the extent the
+    ; labels asked for. A quarter turn has no exact cosine in binary, so the
+    ; two routes differ by an atom, and the page is sized by the CEILING of
+    ; that: a title 30 pixels wide comes out 30 measured the reference's way
+    ; and 30.000000000000004 measured where it is, which is 31 pixels of page.
+    ;
+    ; Six charts in the gallery were a pixel wide for exactly this reason. It
+    ; is not arithmetic, it is layout order, and this is that order.
+    sfn ofAxisTitle:VlBounds (mark:VlSceneMark vertical:boolean) {
+        def out (new VlBounds())
+        for mark.items t:VlSceneItem ti {
+            if (VlViewBox.drawn(t)) {
+                def tx:double (t.number("x"))
+                def ty:double (t.number("y"))
+                def b (new VlBounds())
+                if vertical {
+                    b = (VlViewBox.ofTextAt(t 0.0 ty))
+                    b.translate(tx 0.0)
+                } {
+                    b = (VlViewBox.ofTextAt(t tx 0.0))
+                    b.translate(0.0 ty)
+                }
+                out.union(b)
+            }
+        }
+        return out
+    }
+
+    sfn clampExtent:double (reach:double item:VlSceneItem) {
+        def out:double reach
+        if (item.has("maxExtent")) {
+            def maxExtent:double (item.number("maxExtent"))
+            if (out > maxExtent) {
+                out = maxExtent
+            }
+        }
+        if (item.has("minExtent")) {
+            def minExtent:double (item.number("minExtent"))
+            if (out < minExtent) {
+                out = minExtent
+            }
+        }
+        return out
+    }
+
+    ; An item the encoder hid takes no room. The reference checks the same
+    ; thing when it strokes, and a hidden axis label that still reserved space
+    ; was one of the differences this found.
+    sfn drawn:boolean (item:VlSceneItem) {
+        if (item.has("opacity")) {
+            if ((item.number("opacity")) <= 0.0) {
+                return false
+            }
+        }
+        return true
+    }
+
+    sfn ofItem:VlBounds (markType:string item:VlSceneItem) {
+        if (markType == "group") {
+            return (VlViewBox.ofGroup(item))
+        }
+        if (markType == "text") {
+            return (VlViewBox.ofText(item))
+        }
+        if ((markType == "rect") || (markType == "image")) {
+            def box (new VlBounds())
+            def x:double (item.number("x"))
+            def y:double (item.number("y"))
+            box.set(x y (x + (item.number("width"))) (y + (item.number("height"))))
+            VlViewBox.strokeExpand(box item false)
+            return box
+        }
+        if (markType == "rule") {
+            def box (new VlBounds())
+            def x:double (item.number("x"))
+            def y:double (item.number("y"))
+            def x2:double x
+            def y2:double y
+            if (item.has("x2")) { x2 = (item.number("x2")) }
+            if (item.has("y2")) { y2 = (item.number("y2")) }
+            box.add(x y)
+            box.add(x2 y2)
+            VlViewBox.strokeExpand(box item false)
+            return box
+        }
+        ; symbol, arc and path are all drawn as an outline about the item's own
+        ; position, so all three are measured from the geometry the renderer
+        ; would produce and then moved there.
+        def builder (new PathBuilder())
+        if (markType == "symbol") {
+            def size:double 64.0
+            if (item.has("size")) { size = (item.number("size")) }
+            def shape:string "circle"
+            if (item.has("shape")) { shape = (item.text("shape")) }
+            VlShape.appendSymbol(builder shape size 0.0 0.0)
+        }
+        if (markType == "arc") {
+            VlShape.appendArc(builder 0.0 0.0 (item.number("startAngle")) (item.number("endAngle")) (item.number("innerRadius")) (item.number("outerRadius")))
+        }
+        if (markType == "path") {
+            builder.addPathData((item.text("path")))
+        }
+        def box:VlBounds (VlViewBox.ofBuilder(builder))
+        VlViewBox.strokeExpand(box item true)
+        box.translate((item.number("x")) (item.number("y")))
+        return box
+    }
+
+    sfn ofCurve:VlBounds (mark:VlSceneMark) {
+        def out (new VlBounds())
+        def count:int (array_length mark.items)
+        if (count == 0) {
+            return out
+        }
+        def first:VlSceneItem (itemAt mark.items 0)
+        def interpolate:string "linear"
+        if (first.has("interpolate")) {
+            interpolate = (first.text("interpolate"))
+        }
+        def tension:double 0.0
+        if (interpolate == "catmull-rom") { tension = 0.5 }
+        if (first.has("tension")) { tension = (first.number("tension")) }
+
+        ; A row the path could not place is not part of the shape, so it is
+        ; not part of the box either.
+        def pts:[double]
+        for mark.items item:VlSceneItem idx {
+            if (item.flag("defined" true)) {
+                push pts (item.number("x"))
+                push pts (item.number("y"))
+            }
+        }
+        def builder (new PathBuilder())
+        VlShape.appendCurve(builder pts interpolate tension false)
+        ; An area also covers the band back to its baseline.
+        if (mark.markType == "area") {
+            def horizontal:boolean (first.has("x2"))
+            def back:[double]
+            def k:int (count - 1)
+            while (k >= 0) {
+                def item:VlSceneItem (itemAt mark.items k)
+                if (item.flag("defined" true)) {
+                    if horizontal {
+                        push back (item.number("x2"))
+                        push back (item.number("y"))
+                    } {
+                        push back (item.number("x"))
+                        push back (item.number("y2"))
+                    }
+                }
+                k = (k - 1)
+            }
+            VlShape.appendCurve(builder back interpolate tension false)
+        }
+        out = (VlViewBox.ofBuilder(builder))
+        VlViewBox.strokeExpand(out first true)
+        return out
+    }
+
+    sfn ofGroup:VlBounds (item:VlSceneItem) {
+        def out (new VlBounds())
+        for item.marks child:VlSceneMark ci {
+            out.union((VlViewBox.cut(child (item.number("width")) (item.number("height")))))
+        }
+        ; A group with a size reserves it whether or not it paints one: an
+        ; unpainted scope group still stands for the plot inside it.
+        def w:double (item.number("width"))
+        def h:double (item.number("height"))
+        if ((w != 0.0) || (h != 0.0)) {
+            out.add(0.0 0.0)
+            out.add(w h)
+        }
+        VlViewBox.strokeExpand(out item false)
+        out.translate((item.number("x")) (item.number("y")))
+        return out
+    }
+
+    ; A label's box, turned about its anchor if the label is turned. The corners
+    ; are rotated rather than the box, because a rotated box's bounds are the
+    ; bounds of its four corners and nothing simpler is correct.
+    sfn ofText:VlBounds (item:VlSceneItem) {
+        ; A label round a pie is placed in POLAR coordinates: x and y are the
+        ; centre of the chart and the label stands `radius` away at `theta`.
+        ; Measured at the centre, the labels round a radial chart took no room
+        ; at all and the page came out the size of the plot.
+        def x:double (item.number("x"))
+        def y:double (item.number("y"))
+        if (item.has("radius")) {
+            def r:double (item.number("radius"))
+            def a:double (item.number("theta"))
+            x = (x + (r * (sin a)))
+            y = (y - (r * (cos a)))
+        }
+        return (VlViewBox.ofTextAt(item x y))
+    }
+
+    ; The same, with the anchor stated rather than read — which is what lets an
+    ; axis title be measured at the position it was laid out from.
+    sfn ofTextAt:VlBounds (item:VlSceneItem x:double y:double) {
+        def fontSize:double 11.0
+        if (item.has("fontSize")) { fontSize = (item.number("fontSize")) }
+        def align:string "left"
+        if (item.has("align")) { align = (item.text("align")) }
+        def baseline:string "alphabetic"
+        if (item.has("baseline")) { baseline = (item.text("baseline")) }
+        ; The reference's own construction, in its own order. The nudge is
+        ; folded into the box; the ROTATION is about the un-nudged anchor,
+        ; which is a difference of a whole label for anything both nudged and
+        ; turned.
+        def h:double fontSize
+        def w:double (VlText.estimateWidth((item.textOf("text")) fontSize))
+        ; A label written on several lines is as wide as its widest line and
+        ; as tall as one line plus a line's step for each one after it. The
+        ; anchor is still measured from the FIRST line, which is why the
+        ; nudge below is left alone.
+        ; …and the value the way the item HOLDS it, which for a label written on
+        ; several lines is a list. Asked for a string a list answers nothing,
+        ; so a two-line label measured as an empty one and reserved no room at
+        ; all — not its depth and not even its width.
+        def lines:[string] (VlText.lines((item.textOf("text"))))
+        if ((array_length lines) > 1) {
+            def step:double (VlText.lineStep(fontSize))
+            if (item.has("lineHeight")) {
+                step = (item.number("lineHeight"))
+            }
+            h = (h + (step * (to_double ((array_length lines) - 1))))
+            w = 0.0
+            for lines one:string oi {
+                def wide:double (VlText.estimateWidth(one fontSize))
+                if (wide > w) {
+                    w = wide
+                }
+            }
+        }
+        def dx:double 0.0
+        if (item.has("dx")) { dx = (item.number("dx")) }
+        def dy:double 0.0
+        if (item.has("dy")) { dy = (item.number("dy")) }
+        ; Where the box STARTS is settled by one line of type — the anchor is
+        ; the first line's, and the lines below it hang from that. Only the
+        ; box's depth knows about them. Measured with the whole block's height,
+        ; a two-line label's box began half a line above where the reference
+        ; puts it and the page came eleven pixels short of the words in it.
+        dy = ((dy + (VlBounds.baselineOffset(baseline fontSize))) - (VlBounds.roundHalfUp((0.8 * fontSize))))
+        if (align == "center") {
+            dx = (dx - (w / 2.0))
+        }
+        if (align == "right") {
+            dx = (dx - w)
+        }
+        dx = (dx + x)
+        dy = (dy + y)
+        def box (new VlBounds())
+        box.set(dx dy (dx + w) (dy + h))
+
+        def angle:double 0.0
+        if (item.has("angle")) { angle = (item.number("angle")) }
+        if (angle == 0.0) {
+            return box
+        }
+        def radians:double ((angle * 3.141592653589793) / 180.0)
+        def cosA:double (cos radians)
+        def sinA:double (sin radians)
+        ; The reference's own expression, term for term. A quarter turn has no
+        ; exact cosine in binary — cos(-pi/2) is 6.1e-17, not 0 — so a rotated
+        ; box lands a few atoms away from where the arithmetic says, and the
+        ; page is sized by the CEILING of that. Writing the same expression a
+        ; different way rounds somewhere else and can cost a whole pixel.
+        ;
+        ; So the expression below is the reference's, written its way rather
+        ; than the algebraically equivalent "offset from the anchor, turned,
+        ; put back". The two agree to within a few atoms and disagree about
+        ; whole pixels: a y axis title 46 pixels wide comes out 46 exactly one
+        ; way and 46.00000000000001 the other, and the page is sized by the
+        ; CEILING of it.
+        def cx:double ((x - (x * cosA)) + (y * sinA))
+        def cy:double ((y - (x * sinA)) - (y * cosA))
+        def out (new VlBounds())
+        VlViewBox.addRotated(out box.x1 box.y1 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x1 box.y2 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x2 box.y1 cx cy cosA sinA)
+        VlViewBox.addRotated(out box.x2 box.y2 cx cy cosA sinA)
+        return out
+    }
+
+    ; One corner of a turned box, in the reference's own terms: the rotation
+    ; and the move back to the anchor are folded into `cx`/`cy` beforehand, so
+    ; a corner costs one multiply-add per axis and rounds where the reference
+    ; rounds.
+    sfn addRotated:void (out:VlBounds px:double py:double cx:double cy:double cosA:double sinA:double) {
+        out.add((((cosA * px) - (sinA * py)) + cx) (((sinA * px) + (cosA * py)) + cy))
+    }
+
+    sfn ofBuilder:VlBounds (builder:PathBuilder) {
+        def out (new VlBounds())
+        def b:PathBounds (builder.bounds())
+        if (builder.isEmpty()) {
+            return out
+        }
+        out.set(b.minX b.minY b.maxX b.maxY)
+        return out
+    }
+
+    ; A stroke is centred on the path, so it reaches half its width to either
+    ; side — except at a corner, where a miter join runs out to the miter limit.
+    ; The reference allows for that on any generic path and not on a rectangle
+    ; or a rule, which have no corner that can spike.
+    sfn strokeExpand:void (box:VlBounds item:VlSceneItem miter:boolean) {
+        if (! (item.has("stroke"))) {
+            return
+        }
+        ; A stroke stated as nothing — `{"value": null}`, which is a mark
+        ; overruling the outline its style would have given it — is not a
+        ; colour, and an outline nobody draws takes up no room.
+        if ((strlen (item.text("stroke"))) == 0) {
+            return
+        }
+        ; …but "transparent" is not nothing: it is an outline painted in
+        ; nothing, which is still stroked and still half a pixel wide. The
+        ; reference reserves the room whether or not the paint shows.
+        if (item.has("opacity")) {
+            if ((item.number("opacity")) == 0.0) {
+                return
+            }
+        }
+        if (item.has("strokeOpacity")) {
+            if ((item.number("strokeOpacity")) == 0.0) {
+                return
+            }
+        }
+        def sw:double 1.0
+        if (item.has("strokeWidth")) {
+            sw = (item.number("strokeWidth"))
+        }
+        def e:double (sw / 2.0)
+        if (item.has("strokeCap")) {
+            if ((item.text("strokeCap")) == "square") {
+                e = (1.4142135623730951 * (sw / 2.0))
+            }
+        }
+        if miter {
+            def limit:double 4.0
+            if (item.has("strokeMiterLimit")) {
+                limit = (item.number("strokeMiterLimit"))
+            }
+            def spike:double (limit * (sw / 2.0))
+            if (spike > e) {
+                e = spike
+            }
+        }
+        box.expand(e)
+    }
+}

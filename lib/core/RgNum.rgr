@@ -1,0 +1,651 @@
+; =============================================================================
+; RgNum — IEEE-754 double primitives, in pure Ranger
+; =============================================================================
+; The bottom of lib/core/. Everything numeric in the core library stands on this
+; file, and it has no imports of its own.
+;
+; It exists because Ranger's operator set is thinner than it looks. `sqrt`,
+; `sin`, `cos`, `tan`, `asin`, `acos`, `atan2` and `fabs` are host operators with
+; per-target templates. There is NO `exp`, NO `log`, NO `pow`, NO `round`, NO
+; `atan` and no double-typed `min`/`max`. And `floor`/`ceil` are declared
+; `_:int (value:double)` — they return an int, which is a different function from
+; the one IEEE arithmetic needs.
+;
+; So `exp`, `log` and `pow` below are not conveniences. Without them the target
+; set has no portable exponential, logarithm or power at all.
+;
+; NAMING. A static method cannot take the name of a global operator: the
+; resolver rewrites `RgNum.floor(x)` into the operator call and then reports
+; "Class RgNum does not have method floor". Nine names are affected — floor,
+; ceil, sqrt, sin, cos, tan, asin, acos, atan2 — and each carries a `D` suffix
+; here, the convention DateTime.rgr already uses for `floorD` / `truncD` /
+; `modD`. The suffix reads as "the double-domain one", which for floor and ceil
+; is a real distinction: the OPERATORS return `int`.
+;
+; Two per-target hazards are handled here rather than left to callers, because
+; both were found the hard way in the JS engine this code is lifted from
+; (gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr):
+;
+;   1. `to_int` rides the target's int width, and Ranger's int is 32 BITS on the
+;      C++ target. `to_double (to_int v)` therefore saturates to INT32_MIN for
+;      any |v| >= 2^31 there. `floorD` below stays in the double domain by adding
+;      and subtracting 2^52, so it is exact across the whole double range.
+;
+;   2. Negative zero has no literal. Writing `0.0 - v` yields +0 for BOTH signs,
+;      which silently collapsed the distinction in five separate places. It has
+;      to be built by MULTIPLYING a double-typed variable by -1: the C++ writer
+;      prints double literals bare, so `0.0 * (0.0 - 1.0)` was constant-folded as
+;      integer 0 * -1 = +0 there. `negZero()` does it through a binding.
+;
+; Every function here is total: NaN and the infinities are values, never errors.
+; =============================================================================
+
+class RgNum {
+
+    ; ---- the three values with no literal form ------------------------------
+
+    static sfn nan:double () {
+        return (0.0 / 0.0)
+    }
+
+    static sfn inf:double () {
+        return (1.0 / 0.0)
+    }
+
+    static sfn negInf:double () {
+        def one:double 1.0
+        return (0.0 - (one / 0.0))
+    }
+
+    ; Negative zero, as -1 divided by infinity.
+    ;
+    ; This is the third attempt and the reason is measured. `0.0 * (0.0 - 1.0)`
+    ; gives +0 on C++, because that writer prints double literals bare and the
+    ; product is constant-folded as integer `0 * -1`. Binding it first —
+    ; `def z:double 0.0` then `z * (0.0 - 1.0)` — fixes C++ but NOT Python: that
+    ; writer emits the binding itself as `z = 0`, an int literal, so the sign is
+    ; gone one line earlier. Verified by tests/core-targets.test.ts, which had
+    ; Python answering `negZero_is_neg=false` while es6, Go and C++ said true.
+    ;
+    ; A DIVISION cannot be folded into an int on any of them: every target routes
+    ; double division through its own helper (Python's raises ZeroDivisionError
+    ; otherwise, so `r_div_f64` is already there), and -1/Inf is -0 in IEEE-754.
+    static sfn negZero:double () {
+        def negOne:double (0.0 - 1.0)
+        return (negOne / (RgNum.inf()))
+    }
+
+    ; ---- predicates --------------------------------------------------------
+
+    static sfn isNaN:boolean (v:double) {
+        return (v != v)
+    }
+
+    static sfn isFinite:boolean (v:double) {
+        if (v != v) {
+            return false
+        }
+        def i:double (RgNum.inf())
+        if (v == i) {
+            return false
+        }
+        if (v == (0.0 - i)) {
+            return false
+        }
+        return true
+    }
+
+    ; The only way to tell -0 from +0 is the sign of its reciprocal.
+    static sfn isNegZero:boolean (v:double) {
+        if (v != 0.0) {
+            return false
+        }
+        return ((1.0 / v) < 0.0)
+    }
+
+    ; True for -0 as well as for anything strictly below zero. This is the
+    ; question every sign-preserving rounding rule actually asks.
+    static sfn isNegative:boolean (v:double) {
+        if (v < 0.0) {
+            return true
+        }
+        return (RgNum.isNegZero(v))
+    }
+
+    static sfn isInteger:boolean (v:double) {
+        if (false == (RgNum.isFinite(v))) {
+            return false
+        }
+        return ((RgNum.trunc(v)) == v)
+    }
+
+    ; ---- magnitude ---------------------------------------------------------
+
+    ; abs(-0) is +0, which `fabs` gives on every target but which is worth
+    ; pinning here so callers do not have to know that.
+    static sfn abs:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (RgNum.isNegZero(v)) {
+            return 0.0
+        }
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    ; ---- rounding, all four in the double domain ---------------------------
+
+    ; 2^52: at or above this magnitude a double is already integral, and below
+    ; it the add/subtract round-trip lands exactly on an integer.
+    static sfn roundingBig:double () {
+        return 4503599627370496.0
+    }
+
+    ; Floor toward NEGATIVE infinity. floor(-0) is -0.
+    static sfn floorD:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (false == (RgNum.isFinite(v))) {
+            return v
+        }
+        ; +0 and -0 both floor to THEMSELVES; the arithmetic below would turn
+        ; -0 into +0, and ceil's sign dance reads floor(-0) back as -0.
+        if (v == 0.0) {
+            return v
+        }
+        def big:double (RgNum.roundingBig())
+        def av:double v
+        if (av < 0.0) {
+            av = (0.0 - av)
+        }
+        if (av >= big) {
+            return v
+        }
+        def t:double 0.0
+        if (v >= 0.0) {
+            t = ((v + big) - big)
+        } {
+            t = ((v - big) + big)
+        }
+        if (t > v) {
+            return (t - 1.0)
+        }
+        return t
+    }
+
+    ; Ceiling toward POSITIVE infinity. Every x in (-1, 0) ceils to NEGATIVE
+    ; zero, and so does -0 itself — that is the whole reason this is not just
+    ; `-floor(-x)`.
+    static sfn ceilD:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (false == (RgNum.isFinite(v))) {
+            return v
+        }
+        def r:double (0.0 - (RgNum.floorD((0.0 - v))))
+        if (r == 0.0) {
+            if (RgNum.isNegative(v)) {
+                return (RgNum.negZero())
+            }
+            return 0.0
+        }
+        return r
+    }
+
+    ; Truncation toward zero. Every x in (-1, 0) truncates to NEGATIVE zero.
+    static sfn trunc:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (false == (RgNum.isFinite(v))) {
+            return v
+        }
+        if (v == 0.0) {
+            return v
+        }
+        if (v < 0.0) {
+            def t:double (0.0 - (RgNum.floorD((0.0 - v))))
+            if (t == 0.0) {
+                return (RgNum.negZero())
+            }
+            return t
+        }
+        return (RgNum.floorD(v))
+    }
+
+    ; Round half UP — toward +Infinity, not away from zero. round(-0.5) is -0
+    ; and round(0.5) is 1, so the two are not mirror images.
+    static sfn round:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (false == (RgNum.isFinite(v))) {
+            return v
+        }
+        if (v == 0.0) {
+            return v
+        }
+        def big:double (RgNum.roundingBig())
+        def av:double (RgNum.abs(v))
+        if (av >= big) {
+            return v
+        }
+        def r:double (RgNum.floorD((v + 0.5)))
+        ; Everything in [-0.5, 0) rounds to negative zero.
+        if (r == 0.0) {
+            if (v < 0.0) {
+                return (RgNum.negZero())
+            }
+            return 0.0
+        }
+        return r
+    }
+
+    ; -0 for -0, +0 for +0, NaN for NaN, and ±1 otherwise.
+    static sfn sign:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (v == 0.0) {
+            return v
+        }
+        if (v < 0.0) {
+            return (0.0 - 1.0)
+        }
+        return 1.0
+    }
+
+    ; ---- ordering ----------------------------------------------------------
+    ; No double-typed `min`/`max` operator exists. NaN poisons both, and the
+    ; signed zeroes are ordered: max(-0, +0) is +0, min(-0, +0) is -0.
+
+    static sfn min2:double (a:double b:double) {
+        if (a != a) {
+            return a
+        }
+        if (b != b) {
+            return b
+        }
+        if (a < b) {
+            return a
+        }
+        if (b < a) {
+            return b
+        }
+        ; Equal, so the only remaining distinction is the sign of a zero.
+        if (RgNum.isNegZero(a)) {
+            return a
+        }
+        if (RgNum.isNegZero(b)) {
+            return b
+        }
+        return a
+    }
+
+    static sfn max2:double (a:double b:double) {
+        if (a != a) {
+            return a
+        }
+        if (b != b) {
+            return b
+        }
+        if (a > b) {
+            return a
+        }
+        if (b > a) {
+            return b
+        }
+        if (RgNum.isNegZero(a)) {
+            return b
+        }
+        return a
+    }
+
+    ; ---- exponential and logarithm -----------------------------------------
+    ; There is no `exp` and no `log` operator on any target, so both are series
+    ; expansions after range reduction. Accurate to the last few bits of a
+    ; double across the usable range, which is what the JS engine's conformance
+    ; suite measures them against.
+
+    static sfn ln2:double () {
+        return 0.6931471805599453
+    }
+
+    static sfn ln10:double () {
+        return 2.302585092994046
+    }
+
+    ; e^x, by writing x as k*ln2 + r with |r| <= ln2/2 and running the Taylor
+    ; series on r, which converges in under 24 terms at that magnitude.
+    static sfn exp:double (x:double) {
+        if (x != x) {
+            return x
+        }
+        def i:double (RgNum.inf())
+        if (x == i) {
+            return i
+        }
+        if (x == (0.0 - i)) {
+            return 0.0
+        }
+        def l2:double (RgNum.ln2())
+        def kD:double (RgNum.floorD(((x / l2) + 0.5)))
+        def r:double (x - (kD * l2))
+        def term:double 1.0
+        def sum:double 1.0
+        def n:int 1
+        while (n < 24) {
+            term = ((term * r) / (to_double n))
+            sum = (sum + term)
+            n = (n + 1)
+        }
+        def k:int (to_int kD)
+        def scale:double 1.0
+        if (k >= 0) {
+            scale = (RgNum.pow2(k))
+        } {
+            def down:double (RgNum.pow2((0 - k)))
+            scale = (1.0 / down)
+        }
+        return (sum * scale)
+    }
+
+    ; Natural logarithm. x = m * 2^k with m in [1, 2), then the atanh series on
+    ; (m-1)/(m+1), which converges far faster near the ends of the range than
+    ; log(1+u) does.
+    static sfn log:double (x:double) {
+        if (x != x) {
+            return x
+        }
+        def i:double (RgNum.inf())
+        if (x < 0.0) {
+            return (RgNum.nan())
+        }
+        if (x == 0.0) {
+            return (0.0 - i)
+        }
+        if (x == i) {
+            return i
+        }
+        def k:int 0
+        def m:double x
+        while (m >= 2.0) {
+            m = (m / 2.0)
+            k = (k + 1)
+        }
+        while (m < 1.0) {
+            m = (m * 2.0)
+            k = (k - 1)
+        }
+        def z:double ((m - 1.0) / (m + 1.0))
+        def z2:double (z * z)
+        def term:double z
+        def sum:double z
+        def n:int 1
+        while (n < 30) {
+            term = (term * z2)
+            sum = (sum + (term / (to_double ((2 * n) + 1))))
+            n = (n + 1)
+        }
+        def l2:double (RgNum.ln2())
+        return ((2.0 * sum) + ((to_double k) * l2))
+    }
+
+    ; ---- powers ------------------------------------------------------------
+
+    ; 2^n for a non-negative int n, by squaring. Used by exp's scaling step, so
+    ; it must not go through the general pow.
+    static sfn pow2:double (n:int) {
+        def acc:double 1.0
+        def base:double 2.0
+        def e:int n
+        if (e < 0) {
+            e = 0
+        }
+        while (e > 0) {
+            if ((bit_and e 1) == 1) {
+                acc = (acc * base)
+            }
+            base = (base * base)
+            e = (bit_shr e 1)
+        }
+        return acc
+    }
+
+    ; An INTEGER power, by squaring. Exact for small exponents, which is what
+    ; the formatting code wants when it scales by a power of ten.
+    static sfn powInt:double (base:double expn:int) {
+        def acc:double 1.0
+        def b:double base
+        def e:int expn
+        def invert:boolean false
+        if (e < 0) {
+            invert = true
+            e = (0 - e)
+        }
+        while (e > 0) {
+            if ((bit_and e 1) == 1) {
+                acc = (acc * b)
+            }
+            b = (b * b)
+            e = (bit_shr e 1)
+        }
+        if invert {
+            if (acc != 0.0) {
+                return (1.0 / acc)
+            }
+            return (RgNum.inf())
+        }
+        return acc
+    }
+
+    ; 10^n, the one power the number formatters ask for by name.
+    static sfn pow10:double (n:int) {
+        return (RgNum.powInt(10.0 n))
+    }
+
+    ; ECMA-262 Number::exponentiate. The exponent is a DOUBLE: coercing it to an
+    ; int first truncates, so pow(4, 0.5) answered 1 instead of 2.
+    ;
+    ; The special cases are not decoration — the spec fixes an answer for each of
+    ; them, and several disagree with what the identity exp(e * log(b)) gives.
+    static sfn pow:double (base:double expo:double) {
+        def i:double (RgNum.inf())
+        ; A NaN exponent poisons the result, but an exponent of ZERO answers 1
+        ; even for a NaN base. Both rules come before any test on the base.
+        if (expo != expo) {
+            return (RgNum.nan())
+        }
+        if (expo == 0.0) {
+            return 1.0
+        }
+        if (base != base) {
+            return (RgNum.nan())
+        }
+        def absBase:double (RgNum.abs(base))
+        def expIsInt:boolean (RgNum.isInteger(expo))
+        def expOdd:boolean false
+        if expIsInt {
+            def half:double (expo / 2.0)
+            expOdd = ((RgNum.trunc(half)) != half)
+        }
+        ; --- an infinite exponent ---
+        if (expo == i) {
+            if (absBase == 1.0) {
+                return (RgNum.nan())
+            }
+            if (absBase > 1.0) {
+                return i
+            }
+            return 0.0
+        }
+        if (expo == (0.0 - i)) {
+            if (absBase == 1.0) {
+                return (RgNum.nan())
+            }
+            if (absBase > 1.0) {
+                return 0.0
+            }
+            return i
+        }
+        ; --- an infinite base ---
+        if (base == i) {
+            if (expo > 0.0) {
+                return i
+            }
+            return 0.0
+        }
+        if (base == (0.0 - i)) {
+            if (expo > 0.0) {
+                if (expIsInt && expOdd) {
+                    return (0.0 - i)
+                }
+                return i
+            }
+            if (expIsInt && expOdd) {
+                return (RgNum.negZero())
+            }
+            return 0.0
+        }
+        ; --- a zero base. The sign of the zero survives an odd integer power.
+        if (base == 0.0) {
+            def negBase:boolean (RgNum.isNegZero(base))
+            if (expo > 0.0) {
+                if (negBase && (expIsInt && expOdd)) {
+                    return (RgNum.negZero())
+                }
+                return 0.0
+            }
+            if (negBase && (expIsInt && expOdd)) {
+                return (0.0 - i)
+            }
+            return i
+        }
+        ; --- a negative base is only defined for an integer exponent ---
+        if (base < 0.0) {
+            if (false == expIsInt) {
+                return (RgNum.nan())
+            }
+        }
+        ; An integer exponent small enough to square out is done exactly, which
+        ; keeps pow(10, 21) and the like off the series path.
+        if expIsInt {
+            def av:double (RgNum.abs(expo))
+            if (av <= 1024.0) {
+                return (RgNum.powInt(base (to_int expo)))
+            }
+        }
+        ; The general case, through the identity. Only reachable with a positive
+        ; base and a fractional or very large exponent.
+        def r:double (RgNum.exp((expo * (RgNum.log(absBase)))))
+        return r
+    }
+
+    static sfn sqrtD:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (v < 0.0) {
+            return (RgNum.nan())
+        }
+        ; ±0 and +Infinity are their own square roots, and the operator agrees;
+        ; the guard is here so -0 keeps its sign on every target.
+        if (v == 0.0) {
+            return v
+        }
+        return (sqrt v)
+    }
+
+    ; ---- 32-bit coercions --------------------------------------------------
+    ; ECMA-262 ToInt32 / ToUint32, in the double domain. These are what the
+    ; bitwise operators are specified over, and RgU32 assumes them.
+
+    static sfn toUint32:double (v:double) {
+        if (v != v) {
+            return 0.0
+        }
+        if (false == (RgNum.isFinite(v))) {
+            return 0.0
+        }
+        def two32:double 4294967296.0
+        def t:double (RgNum.trunc(v))
+        def m:double (t - (two32 * (RgNum.floorD((t / two32)))))
+        if (m < 0.0) {
+            m = (m + two32)
+        }
+        return m
+    }
+
+    static sfn toInt32:double (v:double) {
+        def u:double (RgNum.toUint32(v))
+        def two31:double 2147483648.0
+        if (u >= two31) {
+            return (u - 4294967296.0)
+        }
+        return u
+    }
+
+    ; ---- float32 -----------------------------------------------------------
+    ; The nearest value representable as a float32. Ranger has no float32 type,
+    ; so the round trip is done by hand: normalise the magnitude into [1, 2),
+    ; round the 24-bit mantissa, scale back. A magnitude past the float32 range
+    ; saturates to Infinity.
+    static sfn toFloat32:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (v == 0.0) {
+            return v
+        }
+        ; An infinity must leave before the normalising loops: inf/2 is still
+        ; inf, so `while (m >= 2)` would never terminate.
+        if (false == (RgNum.isFinite(v))) {
+            return v
+        }
+        def neg:boolean (v < 0.0)
+        def m:double v
+        if neg {
+            m = (0.0 - v)
+        }
+        def e:int 0
+        while (m >= 2.0) {
+            m = (m / 2.0)
+            e = (e + 1)
+        }
+        while (m < 1.0) {
+            m = (m * 2.0)
+            e = (e - 1)
+        }
+        ; float32 carries 24 mantissa bits and an exponent in [-126, 127].
+        if (e > 127) {
+            if neg {
+                return (0.0 - (RgNum.inf()))
+            }
+            return (RgNum.inf())
+        }
+        def scaleBits:double 8388608.0
+        def shifted:double (m * scaleBits)
+        def rounded:double (RgNum.round(shifted))
+        if (rounded >= 16777216.0) {
+            rounded = (rounded / 2.0)
+            e = (e + 1)
+            if (e > 127) {
+                if neg {
+                    return (0.0 - (RgNum.inf()))
+                }
+                return (RgNum.inf())
+            }
+        }
+        def mant:double (rounded / scaleBits)
+        def out:double (mant * (RgNum.powInt(2.0 e)))
+        if neg {
+            return (0.0 - out)
+        }
+        return out
+    }
+}

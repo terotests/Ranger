@@ -1,0 +1,1446 @@
+; ==============================================================================
+; FormulaEngine - AST + dependency graph + incremental recalc.
+; ==============================================================================
+;
+; Function implementations live in FormulaFunctions.rgr (unit-testable).
+; This file: parse → deps → topological recalc → FormulaFunctions.invoke.
+;
+; Operators: + - * / ^ &   = <> < > <= >=
+; Refs: A1, $A$1, A$1, $A1, Sheet2!A1, 'My Sheet'!A1, A1:B10
+; Errors: #DIV/0! #VALUE! #REF! #NAME? #CYCLE! #NUM!
+;
+; AST helpers: FormulaParser.translateNode / serializeNode for fill/copy.
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "WorkbookModel.rgr"
+Import "FormulaValue.rgr"
+Import "FormulaFunctions.rgr"
+
+; --- AST nodes (flattened: kind + fields) ------------------------------------
+
+class FormulaNode {
+    ; 0 num 1 str 2 bool 3 cell 4 range 5 unary 6 binary 7 call 8 err
+    def kind:int 0
+    def num:double 0.0
+    def text:string ""
+    def flag:boolean false
+    def sheet:string ""
+    def row:int 0
+    def col:int 0
+    def row2:int 0
+    def col2:int 0
+    def absRow:boolean false
+    def absCol:boolean false
+    def absRow2:boolean false
+    def absCol2:boolean false
+    def op:string ""
+    def fnName:string ""
+    def kids:[FormulaNode]
+
+    Constructor () {
+    }
+}
+
+; --- tokenizer / parser -------------------------------------------------------
+
+class FormulaParser {
+    def src:string ""
+    def pos:int 0
+    def len:int 0
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    fn reset:void (s:string) {
+        src = s
+        pos = 0
+        len = (strlen s)
+        ok = true
+        err = ""
+        if (len > 0) {
+            if ((charAt src 0) == 61) {
+                pos = 1
+            }
+        }
+    }
+
+    fn peek:int () {
+        if (pos >= len) {
+            return -1
+        }
+        return (charAt src pos)
+    }
+
+    fn next:int () {
+        if (pos >= len) {
+            return -1
+        }
+        def ch:int (charAt src pos)
+        pos = (pos + 1)
+        return ch
+    }
+
+    fn skipWs:void () {
+        while (pos < len) {
+            def ch:int (charAt src pos)
+            if ((ch == 32) || (ch == 9) || (ch == 10) || (ch == 13)) {
+                pos = (pos + 1)
+            } {
+                return
+            }
+        }
+    }
+
+    fn parse:FormulaNode (s:string) {
+        this.reset(s)
+        def n:FormulaNode (this.parseExpr())
+        this.skipWs()
+        if (pos < len) {
+            ok = false
+            err = "#VALUE!"
+        }
+        if (ok == false) {
+            def e:FormulaNode (new FormulaNode)
+            e.kind = 8
+            e.text = err
+            if ((strlen e.text) == 0) {
+                e.text = "#VALUE!"
+            }
+            return e
+        }
+        return n
+    }
+
+    fn parseExpr:FormulaNode () {
+        return (this.parseCompare())
+    }
+
+    fn parseCompare:FormulaNode () {
+        def left:FormulaNode (this.parseConcat())
+        this.skipWs()
+        while (pos < len) {
+            def ch:int (this.peek())
+            def op:string ""
+            if (ch == 60) {
+                this.next()
+                if ((this.peek()) == 61) {
+                    this.next()
+                    op = "<="
+                } {
+                    if ((this.peek()) == 62) {
+                        this.next()
+                        op = "<>"
+                    } {
+                        op = "<"
+                    }
+                }
+            } {
+                if (ch == 62) {
+                    this.next()
+                    if ((this.peek()) == 61) {
+                        this.next()
+                        op = ">="
+                    } {
+                        op = ">"
+                    }
+                } {
+                    if (ch == 61) {
+                        this.next()
+                        op = "="
+                    } {
+                        break
+                    }
+                }
+            }
+            def right:FormulaNode (this.parseConcat())
+            def b:FormulaNode (new FormulaNode)
+            b.kind = 6
+            b.op = op
+            push b.kids left
+            push b.kids right
+            left = b
+            this.skipWs()
+        }
+        return left
+    }
+
+    fn parseConcat:FormulaNode () {
+        def left:FormulaNode (this.parseAdd())
+        this.skipWs()
+        while ((this.peek()) == 38) {
+            this.next()
+            def right:FormulaNode (this.parseAdd())
+            def b:FormulaNode (new FormulaNode)
+            b.kind = 6
+            b.op = "&"
+            push b.kids left
+            push b.kids right
+            left = b
+            this.skipWs()
+        }
+        return left
+    }
+
+    fn parseAdd:FormulaNode () {
+        def left:FormulaNode (this.parseMul())
+        this.skipWs()
+        while (true) {
+            def ch:int (this.peek())
+            if ((ch != 43) && (ch != 45)) {
+                break
+            }
+            this.next()
+            def right:FormulaNode (this.parseMul())
+            def b:FormulaNode (new FormulaNode)
+            b.kind = 6
+            if (ch == 43) {
+                b.op = "+"
+            } {
+                b.op = "-"
+            }
+            push b.kids left
+            push b.kids right
+            left = b
+            this.skipWs()
+        }
+        return left
+    }
+
+    fn parseMul:FormulaNode () {
+        def left:FormulaNode (this.parsePow())
+        this.skipWs()
+        while (true) {
+            def ch:int (this.peek())
+            if ((ch != 42) && (ch != 47)) {
+                break
+            }
+            this.next()
+            def right:FormulaNode (this.parsePow())
+            def b:FormulaNode (new FormulaNode)
+            b.kind = 6
+            if (ch == 42) {
+                b.op = "*"
+            } {
+                b.op = "/"
+            }
+            push b.kids left
+            push b.kids right
+            left = b
+            this.skipWs()
+        }
+        return left
+    }
+
+    fn parsePow:FormulaNode () {
+        def left:FormulaNode (this.parseUnary())
+        this.skipWs()
+        if ((this.peek()) == 94) {
+            this.next()
+            def right:FormulaNode (this.parseUnary())
+            def b:FormulaNode (new FormulaNode)
+            b.kind = 6
+            b.op = "^"
+            push b.kids left
+            push b.kids right
+            return b
+        }
+        return left
+    }
+
+    fn parseUnary:FormulaNode () {
+        this.skipWs()
+        def ch:int (this.peek())
+        if ((ch == 43) || (ch == 45)) {
+            this.next()
+            def kid:FormulaNode (this.parseUnary())
+            def u:FormulaNode (new FormulaNode)
+            u.kind = 5
+            if (ch == 45) {
+                u.op = "-"
+            } {
+                u.op = "+"
+            }
+            push u.kids kid
+            return u
+        }
+        return (this.parsePrimary())
+    }
+
+    fn parsePrimary:FormulaNode () {
+        this.skipWs()
+        def ch:int (this.peek())
+        if (ch < 0) {
+            ok = false
+            err = "#VALUE!"
+            def e:FormulaNode (new FormulaNode)
+            e.kind = 8
+            e.text = "#VALUE!"
+            return e
+        }
+        ; number
+        if (((ch >= 48) && (ch <= 57)) || (ch == 46)) {
+            return (this.parseNumber())
+        }
+        ; string
+        if (ch == 34) {
+            return (this.parseString())
+        }
+        ; quoted sheet name: 'My Sheet'!A1
+        if (ch == 39) {
+            return (this.parseQuotedSheetRef())
+        }
+        ; paren
+        if (ch == 40) {
+            this.next()
+            def inner:FormulaNode (this.parseExpr())
+            this.skipWs()
+            if ((this.peek()) == 41) {
+                this.next()
+            } {
+                ok = false
+                err = "#VALUE!"
+            }
+            return inner
+        }
+        ; name / sheet / cell / function
+        if (((ch >= 65) && (ch <= 90)) || ((ch >= 97) && (ch <= 122)) || (ch == 95) || (ch == 36)) {
+            return (this.parseNameOrRef())
+        }
+        ok = false
+        err = "#VALUE!"
+        def e2:FormulaNode (new FormulaNode)
+        e2.kind = 8
+        e2.text = "#VALUE!"
+        return e2
+    }
+
+    fn parseNumber:FormulaNode () {
+        def start:int pos
+        while (pos < len) {
+            def ch:int (charAt src pos)
+            if (((ch >= 48) && (ch <= 57)) || (ch == 46)) {
+                pos = (pos + 1)
+            } {
+                break
+            }
+        }
+        def s:string (substring src start pos)
+        def n:FormulaNode (new FormulaNode)
+        n.kind = 0
+        def p@(optional):double (to_double s)
+        if p {
+            n.num = (unwrap p)
+        } {
+            ok = false
+            err = "#VALUE!"
+            n.kind = 8
+            n.text = "#VALUE!"
+        }
+        return n
+    }
+
+    fn parseString:FormulaNode () {
+        this.next()
+        def out:string ""
+        while (pos < len) {
+            def ch:int (this.next())
+            if (ch == 34) {
+                if ((this.peek()) == 34) {
+                    this.next()
+                    out = (out + "\"")
+                } {
+                    break
+                }
+            } {
+                out = (out + (strfromcode ch))
+            }
+        }
+        def n:FormulaNode (new FormulaNode)
+        n.kind = 1
+        n.text = out
+        return n
+    }
+
+    fn parseNameOrRef:FormulaNode () {
+        ; Optional Sheet! prefix
+        def sheet:string ""
+        def start:int pos
+        ; read identifier or $A$1
+        while (pos < len) {
+            def ch:int (charAt src pos)
+            if (((ch >= 65) && (ch <= 90)) || ((ch >= 97) && (ch <= 122)) || ((ch >= 48) && (ch <= 57)) || (ch == 36) || (ch == 95) || (ch == 46)) {
+                pos = (pos + 1)
+            } {
+                break
+            }
+        }
+        def ident:string (substring src start pos)
+        this.skipWs()
+        if ((this.peek()) == 33) {
+            ; sheet name
+            this.next()
+            sheet = ident
+            start = pos
+            while (pos < len) {
+                def ch2:int (charAt src pos)
+                if (((ch2 >= 65) && (ch2 <= 90)) || ((ch2 >= 97) && (ch2 <= 122)) || ((ch2 >= 48) && (ch2 <= 57)) || (ch2 == 36)) {
+                    pos = (pos + 1)
+                } {
+                    break
+                }
+            }
+            ident = (substring src start pos)
+            this.skipWs()
+        }
+        ; function call?
+        if ((this.peek()) == 40) {
+            this.next()
+            def call:FormulaNode (new FormulaNode)
+            call.kind = 7
+            call.fnName = (FormulaParser.upper(ident))
+            this.skipWs()
+            if ((this.peek()) != 41) {
+                while (true) {
+                    def arg:FormulaNode (this.parseExpr())
+                    push call.kids arg
+                    this.skipWs()
+                    if ((this.peek()) == 44) {
+                        this.next()
+                        this.skipWs()
+                    } {
+                        break
+                    }
+                }
+            }
+            if ((this.peek()) == 41) {
+                this.next()
+            } {
+                ok = false
+                err = "#VALUE!"
+            }
+            return call
+        }
+        ; Boolean literals
+        def upIdent:string (FormulaParser.upper(ident))
+        if (upIdent == "TRUE") {
+            def bt:FormulaNode (new FormulaNode)
+            bt.kind = 2
+            bt.flag = true
+            return bt
+        }
+        if (upIdent == "FALSE") {
+            def bf:FormulaNode (new FormulaNode)
+            bf.kind = 2
+            bf.flag = false
+            return bf
+        }
+        ; cell or range
+        def r1:[int]
+        def c1:[int]
+        def ar1:[boolean]
+        def ac1:[boolean]
+        FormulaParser.parseA1(ident r1 c1 ar1 ac1)
+        def cell:FormulaNode (new FormulaNode)
+        cell.kind = 3
+        cell.sheet = sheet
+        cell.row = (itemAt r1 0)
+        cell.col = (itemAt c1 0)
+        cell.absRow = (itemAt ar1 0)
+        cell.absCol = (itemAt ac1 0)
+        this.skipWs()
+        if ((this.peek()) == 58) {
+            this.next()
+            start = pos
+            while (pos < len) {
+                def ch3:int (charAt src pos)
+                if (((ch3 >= 65) && (ch3 <= 90)) || ((ch3 >= 97) && (ch3 <= 122)) || ((ch3 >= 48) && (ch3 <= 57)) || (ch3 == 36)) {
+                    pos = (pos + 1)
+                } {
+                    break
+                }
+            }
+            def ident2:string (substring src start pos)
+            def r2:[int]
+            def c2:[int]
+            def ar2:[boolean]
+            def ac2:[boolean]
+            FormulaParser.parseA1(ident2 r2 c2 ar2 ac2)
+            cell.kind = 4
+            cell.row2 = (itemAt r2 0)
+            cell.col2 = (itemAt c2 0)
+            cell.absRow2 = (itemAt ar2 0)
+            cell.absCol2 = (itemAt ac2 0)
+        }
+        return cell
+    }
+
+    fn parseQuotedSheetRef:FormulaNode () {
+        ; leading '
+        this.next()
+        def sheet:string ""
+        while (pos < len) {
+            def ch:int (this.next())
+            if (ch == 39) {
+                if ((this.peek()) == 39) {
+                    this.next()
+                    sheet = (sheet + "'")
+                } {
+                    break
+                }
+            } {
+                sheet = (sheet + (strfromcode ch))
+            }
+        }
+        this.skipWs()
+        if ((this.peek()) != 33) {
+            ok = false
+            err = "#REF!"
+            def e:FormulaNode (new FormulaNode)
+            e.kind = 8
+            e.text = "#REF!"
+            return e
+        }
+        this.next()
+        this.skipWs()
+        def start:int pos
+        while (pos < len) {
+            def ch2:int (charAt src pos)
+            if (((ch2 >= 65) && (ch2 <= 90)) || ((ch2 >= 97) && (ch2 <= 122)) || ((ch2 >= 48) && (ch2 <= 57)) || (ch2 == 36)) {
+                pos = (pos + 1)
+            } {
+                break
+            }
+        }
+        def ident:string (substring src start pos)
+        def r1:[int]
+        def c1:[int]
+        def ar1:[boolean]
+        def ac1:[boolean]
+        FormulaParser.parseA1(ident r1 c1 ar1 ac1)
+        def cell:FormulaNode (new FormulaNode)
+        cell.kind = 3
+        cell.sheet = sheet
+        cell.row = (itemAt r1 0)
+        cell.col = (itemAt c1 0)
+        cell.absRow = (itemAt ar1 0)
+        cell.absCol = (itemAt ac1 0)
+        this.skipWs()
+        if ((this.peek()) == 58) {
+            this.next()
+            start = pos
+            while (pos < len) {
+                def ch3:int (charAt src pos)
+                if (((ch3 >= 65) && (ch3 <= 90)) || ((ch3 >= 97) && (ch3 <= 122)) || ((ch3 >= 48) && (ch3 <= 57)) || (ch3 == 36)) {
+                    pos = (pos + 1)
+                } {
+                    break
+                }
+            }
+            def ident2:string (substring src start pos)
+            def r2:[int]
+            def c2:[int]
+            def ar2:[boolean]
+            def ac2:[boolean]
+            FormulaParser.parseA1(ident2 r2 c2 ar2 ac2)
+            cell.kind = 4
+            cell.row2 = (itemAt r2 0)
+            cell.col2 = (itemAt c2 0)
+            cell.absRow2 = (itemAt ar2 0)
+            cell.absCol2 = (itemAt ac2 0)
+        }
+        return cell
+    }
+
+    sfn upper:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch >= 97) && (ch <= 122)) {
+                out = (out + (strfromcode (ch - 32)))
+            } {
+                out = (out + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Parse A1 / $A$1 / A$1 / $A1 into 0-based row/col + absolute flags.
+    sfn parseA1:void (ref:string rowOut:[int] colOut:[int] absRowOut:[boolean] absColOut:[boolean]) {
+        clear rowOut
+        clear colOut
+        clear absRowOut
+        clear absColOut
+        def i:int 0
+        def n:int (strlen ref)
+        def col:int 0
+        def sawCol:boolean false
+        def absCol:boolean false
+        def absRow:boolean false
+        while (i < n) {
+            def ch:int (charAt ref i)
+            if (ch == 36) {
+                def j:int (i + 1)
+                if (j < n) {
+                    def nch:int (charAt ref j)
+                    if (((nch >= 65) && (nch <= 90)) || ((nch >= 97) && (nch <= 122))) {
+                        absCol = true
+                    } {
+                        if ((nch >= 48) && (nch <= 57)) {
+                            absRow = true
+                        }
+                    }
+                }
+                i = (i + 1)
+            } {
+                if ((ch >= 65) && (ch <= 90)) {
+                    col = ((col * 26) + ((ch - 65) + 1))
+                    sawCol = true
+                    i = (i + 1)
+                } {
+                    if ((ch >= 97) && (ch <= 122)) {
+                        col = ((col * 26) + ((ch - 97) + 1))
+                        sawCol = true
+                        i = (i + 1)
+                    } {
+                        break
+                    }
+                }
+            }
+        }
+        if sawCol {
+            col = (col - 1)
+        }
+        def row:int 0
+        def sawRow:boolean false
+        while (i < n) {
+            def ch2:int (charAt ref i)
+            if (ch2 == 36) {
+                absRow = true
+                i = (i + 1)
+            } {
+                if ((ch2 >= 48) && (ch2 <= 57)) {
+                    row = ((row * 10) + (ch2 - 48))
+                    sawRow = true
+                    i = (i + 1)
+                } {
+                    break
+                }
+            }
+        }
+        if sawRow {
+            row = (row - 1)
+        }
+        push rowOut row
+        push colOut col
+        push absRowOut absRow
+        push absColOut absCol
+    }
+
+    sfn colLetters:string (col:int) {
+        def c:int (col + 1)
+        def out:string ""
+        while (c > 0) {
+            def rem:int ((c - 1) - ((idiv (c - 1) 26) * 26))
+            out = ((strfromcode (65 + rem)) + out)
+            c = (idiv (c - 1) 26)
+        }
+        return out
+    }
+
+    sfn formatA1:string (row:int col:int absRow:boolean absCol:boolean) {
+        def s:string ""
+        if absCol {
+            s = (s + "$")
+        }
+        s = (s + (FormulaParser.colLetters(col)))
+        if absRow {
+            s = (s + "$")
+        }
+        s = (s + (to_string (row + 1)))
+        return s
+    }
+
+    sfn needsSheetQuotes:boolean (name:string) {
+        def i:int 0
+        def n:int (strlen name)
+        while (i < n) {
+            def ch:int (charAt name i)
+            if ((ch == 32) || (ch == 39) || (ch == 33)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn formatSheetPrefix:string (sheet:string) {
+        if ((strlen sheet) == 0) {
+            return ""
+        }
+        def q:boolean (FormulaParser.needsSheetQuotes(sheet))
+        if q {
+            def esc:string ""
+            def i:int 0
+            def n:int (strlen sheet)
+            while (i < n) {
+                def ch:int (charAt sheet i)
+                if (ch == 39) {
+                    esc = (esc + "''")
+                } {
+                    esc = (esc + (strfromcode ch))
+                }
+                i = (i + 1)
+            }
+            return (("'" + esc) + "'!")
+        }
+        return (sheet + "!")
+    }
+
+    ; Shift relative refs by (dx, dy). Absolute flags stay fixed.
+    sfn translateNode:void (n:FormulaNode dx:int dy:int) {
+        if ((n.kind == 3) || (n.kind == 4)) {
+            if (n.absRow == false) {
+                n.row = (n.row + dy)
+            }
+            if (n.absCol == false) {
+                n.col = (n.col + dx)
+            }
+            if (n.kind == 4) {
+                if (n.absRow2 == false) {
+                    n.row2 = (n.row2 + dy)
+                }
+                if (n.absCol2 == false) {
+                    n.col2 = (n.col2 + dx)
+                }
+            }
+        }
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            FormulaParser.translateNode((itemAt n.kids i) dx dy)
+            i = (i + 1)
+        }
+    }
+
+    sfn serializeNode:string (n:FormulaNode) {
+        if (n.kind == 8) {
+            return n.text
+        }
+        if (n.kind == 0) {
+            def iv:int (to_int n.num)
+            if ((to_double iv) == n.num) {
+                return (to_string iv)
+            }
+            return (to_string n.num)
+        }
+        if (n.kind == 1) {
+            return (("\"" + n.text) + "\"")
+        }
+        if (n.kind == 2) {
+            def bf:boolean n.flag
+            if bf {
+                return "TRUE"
+            }
+            return "FALSE"
+        }
+        if ((n.kind == 3) || (n.kind == 4)) {
+            def s:string (FormulaParser.formatSheetPrefix(n.sheet))
+            s = (s + (FormulaParser.formatA1(n.row n.col n.absRow n.absCol)))
+            if (n.kind == 4) {
+                s = (s + ":")
+                s = (s + (FormulaParser.formatA1(n.row2 n.col2 n.absRow2 n.absCol2)))
+            }
+            return s
+        }
+        if (n.kind == 5) {
+            return ((n.op + (FormulaParser.serializeNode((itemAt n.kids 0)))))
+        }
+        if (n.kind == 6) {
+            def L:string (FormulaParser.serializeNode((itemAt n.kids 0)))
+            def R:string (FormulaParser.serializeNode((itemAt n.kids 1)))
+            return (((("(" + L) + n.op) + R) + ")")
+        }
+        if (n.kind == 7) {
+            def out:string (n.fnName + "(")
+            def i:int 0
+            def kn:int (array_length n.kids)
+            while (i < kn) {
+                if (i > 0) {
+                    out = (out + ",")
+                }
+                out = (out + (FormulaParser.serializeNode((itemAt n.kids i))))
+                i = (i + 1)
+            }
+            return (out + ")")
+        }
+        return ""
+    }
+
+    ; Translate a formula string by (dx, dy); returns "" on parse failure.
+    sfn translateFormula:string (expr:string dx:int dy:int) {
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(expr))
+        if (p.ok == false) {
+            return ""
+        }
+        FormulaParser.translateNode(ast dx dy)
+        return (FormulaParser.serializeNode(ast))
+    }
+}
+
+; --- dependency graph + evaluator --------------------------------------------
+
+class FormulaEngine {
+    def book:WorkbookModel
+    def parser:FormulaParser (new FormulaParser)
+    ; forward deps: cellKey → "depKey;depKey;..."
+    def depsOf:[string:string]
+    ; reverse: cellKey → dependents joined
+    def usedBy:[string:string]
+    def calcValues:[string:string]
+    def calcStatus:[string:string]
+    def lastError:string ""
+    ; Instrumentation for workbook-scale recalc demos / benches.
+    def dirtyMarked:int 0
+    def recalculated:int 0
+
+    Constructor () {
+    }
+
+    fn resetStats:void () {
+        dirtyMarked = 0
+        recalculated = 0
+    }
+
+    fn attach:void (b:WorkbookModel) {
+        book = b
+        def empty1:[string:string]
+        def empty2:[string:string]
+        def empty3:[string:string]
+        def empty4:[string:string]
+        depsOf = empty1
+        usedBy = empty2
+        calcValues = empty3
+        calcStatus = empty4
+        this.resetStats()
+    }
+
+    fn cellKey:string (sheetIdx:int row:int col:int) {
+        return ((((to_string sheetIdx) + "!") + (to_string row)) + "," + (to_string col))
+    }
+
+    fn sheetByName:int (name:string) {
+        def i:int 0
+        def n:int (book.sheetCount())
+        while (i < n) {
+            def s:SpreadsheetModel (book.sheetAt(i))
+            if (s.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn rebuildAll:void () {
+        def empty1:[string:string]
+        def empty2:[string:string]
+        def empty3:[string:string]
+        def empty4:[string:string]
+        depsOf = empty1
+        usedBy = empty2
+        calcValues = empty3
+        calcStatus = empty4
+        def si:int 0
+        def sn:int (book.sheetCount())
+        while (si < sn) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            def i:int 0
+            def n:int (array_length sheet.formulaKeys)
+            while (i < n) {
+                def k:string (itemAt sheet.formulaKeys i)
+                def parts:[string] (strsplit k ",")
+                if ((array_length parts) >= 2) {
+                    def row:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                    def col:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                    this.registerFormula(si row col (sheet.getFormula(row col)))
+                }
+                i = (i + 1)
+            }
+            si = (si + 1)
+        }
+        this.recalcAll()
+    }
+
+    fn registerFormula:void (sheetIdx:int row:int col:int expr:string) {
+        def key:string (this.cellKey(sheetIdx row col))
+        this.pruneDeps(key)
+        def ast:FormulaNode (parser.parse(expr))
+        def depList:[string]
+        this.collectDeps(ast sheetIdx depList)
+        def joined:string ""
+        def i:int 0
+        def n:int (array_length depList)
+        while (i < n) {
+            if (i > 0) {
+                joined = (joined + ";")
+            }
+            joined = (joined + (itemAt depList i))
+            i = (i + 1)
+        }
+        set depsOf key joined
+        i = 0
+        while (i < n) {
+            def d:string (itemAt depList i)
+            def cur:string ""
+            if (has usedBy d) {
+                cur = (unwrap (get usedBy d))
+            }
+            if ((strlen cur) == 0) {
+                set usedBy d key
+            } {
+                set usedBy d (cur + ";" + key)
+            }
+            i = (i + 1)
+        }
+        if parser.ok {
+            set calcStatus key "pending"
+        } {
+            set calcStatus key "unsupported"
+        }
+    }
+
+    ; Remove key from previous reverse edges before re-registering.
+    fn pruneDeps:void (key:string) {
+        if (has depsOf key) {
+            def old:[string]
+            this.splitKeys((unwrap (get depsOf key)) old)
+            def i:int 0
+            def n:int (array_length old)
+            while (i < n) {
+                def d:string (itemAt old i)
+                if (has usedBy d) {
+                    def kept:[string]
+                    def kids:[string]
+                    this.splitKeys((unwrap (get usedBy d)) kids)
+                    def j:int 0
+                    def kn:int (array_length kids)
+                    while (j < kn) {
+                        def k:string (itemAt kids j)
+                        if (k != key) {
+                            push kept k
+                        }
+                        j = (j + 1)
+                    }
+                    def joined:string ""
+                    j = 0
+                    kn = (array_length kept)
+                    while (j < kn) {
+                        if (j > 0) {
+                            joined = (joined + ";")
+                        }
+                        joined = (joined + (itemAt kept j))
+                        j = (j + 1)
+                    }
+                    set usedBy d joined
+                }
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn clearFormula:void (sheetIdx:int row:int col:int) {
+        def key:string (this.cellKey(sheetIdx row col))
+        this.pruneDeps(key)
+        if (has depsOf key) {
+            set depsOf key ""
+        }
+        set calcStatus key "cached"
+    }
+
+    fn collectDeps:void (n:FormulaNode sheetIdx:int out:[string]) {
+        if (n.kind == 3) {
+            def si:int sheetIdx
+            if ((strlen n.sheet) > 0) {
+                si = (this.sheetByName(n.sheet))
+                if (si < 0) {
+                    return
+                }
+            }
+            push out (this.cellKey(si n.row n.col))
+            return
+        }
+        if (n.kind == 4) {
+            def si2:int sheetIdx
+            if ((strlen n.sheet) > 0) {
+                si2 = (this.sheetByName(n.sheet))
+                if (si2 < 0) {
+                    return
+                }
+            }
+            def r0:int n.row
+            def r1:int n.row2
+            def c0:int n.col
+            def c1:int n.col2
+            if (r0 > r1) {
+                def t:int r0
+                r0 = r1
+                r1 = t
+            }
+            if (c0 > c1) {
+                def t2:int c0
+                c0 = c1
+                c1 = t2
+            }
+            def r:int r0
+            while (r <= r1) {
+                def c:int c0
+                while (c <= c1) {
+                    push out (this.cellKey(si2 r c))
+                    c = (c + 1)
+                }
+                r = (r + 1)
+            }
+            return
+        }
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            this.collectDeps((itemAt n.kids i) sheetIdx out)
+            i = (i + 1)
+        }
+    }
+
+    fn splitKeys:void (joined:string out:[string]) {
+        clear out
+        if ((strlen joined) == 0) {
+            return
+        }
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen joined)
+        while (i < n) {
+            def ch:int (charAt joined i)
+            if (ch == 59) {
+                if ((strlen cur) > 0) {
+                    push out cur
+                }
+                cur = ""
+            } {
+                cur = (cur + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+    }
+
+    fn markDirty:void (key:string visited:[string:boolean]) {
+        if (has visited key) {
+            return
+        }
+        set visited key true
+        set calcStatus key "dirty"
+        dirtyMarked = (dirtyMarked + 1)
+        if (has usedBy key) {
+            def kids:[string]
+            this.splitKeys((unwrap (get usedBy key)) kids)
+            def i:int 0
+            def n:int (array_length kids)
+            while (i < n) {
+                this.markDirty((itemAt kids i) visited)
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn onCellEdited:void (sheetIdx:int row:int col:int) {
+        this.resetStats()
+        def key:string (this.cellKey(sheetIdx row col))
+        def visited:[string:boolean]
+        ; Mark dependents dirty (not the edited value cell itself — it is already current).
+        if (has usedBy key) {
+            def kids:[string]
+            this.splitKeys((unwrap (get usedBy key)) kids)
+            def i:int 0
+            def n:int (array_length kids)
+            while (i < n) {
+                this.markDirty((itemAt kids i) visited)
+                i = (i + 1)
+            }
+        }
+        this.recalcDirty()
+    }
+
+    fn recalcAll:void () {
+        def keys:[string]
+        ; gather all formula keys from depsOf — iterate sheets
+        def si:int 0
+        def sn:int (book.sheetCount())
+        while (si < sn) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            sheet.collectFormulaKeys(si keys)
+            si = (si + 1)
+        }
+        def i:int 0
+        def n:int (array_length keys)
+        while (i < n) {
+            set calcStatus (itemAt keys i) "dirty"
+            i = (i + 1)
+        }
+        this.recalcDirty()
+    }
+
+    fn recalcDirty:void () {
+        ; simple multi-pass: evaluate dirty formulas whose deps are clean; detect cycles
+        def guard:int 0
+        while (guard < 64) {
+            def progressed:boolean false
+            def si:int 0
+            def sn:int (book.sheetCount())
+            while (si < sn) {
+                def sheet:SpreadsheetModel (book.sheetAt(si))
+                def keys:[string]
+                sheet.collectFormulaKeys(si keys)
+                def i:int 0
+                def n:int (array_length keys)
+                while (i < n) {
+                    def key:string (itemAt keys i)
+                    def st:string "cached"
+                    if (has calcStatus key) {
+                        st = (unwrap (get calcStatus key))
+                    }
+                    if ((st == "dirty") || (st == "pending")) {
+                        if (this.depsReady(key)) {
+                            this.evalOne(key)
+                            progressed = true
+                        }
+                    }
+                    i = (i + 1)
+                }
+                si = (si + 1)
+            }
+            if (progressed == false) {
+                break
+            }
+            guard = (guard + 1)
+        }
+        ; remaining dirty → cycle
+        def si2:int 0
+        def sn2:int (book.sheetCount())
+        while (si2 < sn2) {
+            def sheet2:SpreadsheetModel (book.sheetAt(si2))
+            def keys2:[string]
+            sheet2.collectFormulaKeys(si2 keys2)
+            def j:int 0
+            def m:int (array_length keys2)
+            while (j < m) {
+                def k2:string (itemAt keys2 j)
+                if (has calcStatus k2) {
+                    def st2:string (unwrap (get calcStatus k2))
+                    if ((st2 == "dirty") || (st2 == "pending")) {
+                        set calcStatus k2 "error"
+                        set calcValues k2 "#CYCLE!"
+                        this.applyResult(k2 (FormulaValue.fromError("#CYCLE!")))
+                    }
+                }
+                j = (j + 1)
+            }
+            si2 = (si2 + 1)
+        }
+    }
+
+    fn depsReady:boolean (key:string) {
+        if (has depsOf key) {
+            def deps:[string]
+            this.splitKeys((unwrap (get depsOf key)) deps)
+            def i:int 0
+            def n:int (array_length deps)
+            while (i < n) {
+                def d:string (itemAt deps i)
+                if (has calcStatus d) {
+                    def st:string (unwrap (get calcStatus d))
+                    if ((st == "dirty") || (st == "pending")) {
+                        return false
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+        return true
+    }
+
+    fn evalOne:void (key:string) {
+        def parts:[string] (strsplit key "!")
+        if ((array_length parts) < 2) {
+            return
+        }
+        def si:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+        def rc:[string] (strsplit (itemAt parts 1) ",")
+        if ((array_length rc) < 2) {
+            return
+        }
+        def row:int (SpreadsheetModel.parseInt0((itemAt rc 0)))
+        def col:int (SpreadsheetModel.parseInt0((itemAt rc 1)))
+        def sheet:SpreadsheetModel (book.sheetAt(si))
+        def expr:string (sheet.getFormula(row col))
+        if ((strlen expr) == 0) {
+            set calcStatus key "cached"
+            return
+        }
+        def ast:FormulaNode (parser.parse(expr))
+        if (parser.ok == false) {
+            ; keep cached XLSX value
+            set calcStatus key "unsupported"
+            return
+        }
+        def v:FormulaValue (this.evalNode(ast si))
+        recalculated = (recalculated + 1)
+        def _eV:boolean (v.isError())
+        if _eV {
+            set calcStatus key "error"
+            set calcValues key v.err
+            this.applyResult(key v)
+            return
+        }
+        set calcStatus key "calculated"
+        set calcValues key (v.asRaw())
+        this.applyResult(key v)
+    }
+
+    fn applyResult:void (key:string v:FormulaValue) {
+        def parts:[string] (strsplit key "!")
+        def si:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+        def rc:[string] (strsplit (itemAt parts 1) ",")
+        def row:int (SpreadsheetModel.parseInt0((itemAt rc 0)))
+        def col:int (SpreadsheetModel.parseInt0((itemAt rc 1)))
+        def sheet:SpreadsheetModel (book.sheetAt(si))
+        ; Store raw calculated value; XlsxNumberFormat formats on display.
+        sheet.setCellRaw(row col (v.asRaw()))
+    }
+
+    fn evalNode:FormulaValue (n:FormulaNode sheetIdx:int) {
+        if (n.kind == 8) {
+            return (FormulaValue.fromError(n.text))
+        }
+        if (n.kind == 0) {
+            return (FormulaValue.fromNumber(n.num))
+        }
+        if (n.kind == 1) {
+            return (FormulaValue.fromString(n.text))
+        }
+        if (n.kind == 2) {
+            return (FormulaValue.fromBool(n.flag))
+        }
+        if (n.kind == 3) {
+            return (this.readCell(n.sheet sheetIdx n.row n.col))
+        }
+        if (n.kind == 4) {
+            ; range as value only valid inside functions — treat as #VALUE!
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        if (n.kind == 5) {
+            def a:FormulaValue (this.evalNode((itemAt n.kids 0) sheetIdx))
+            def _eA:boolean (a.isError())
+            if _eA {
+                return a
+            }
+            if (n.op == "-") {
+                def ca:FormulaValue (a.coerceNumber())
+                def ce:boolean (ca.isError())
+                if ce {
+                    return ca
+                }
+                return (FormulaValue.fromNumber((0.0 - ca.num)))
+            }
+            return a
+        }
+        if (n.kind == 6) {
+            return (this.evalBinary(n sheetIdx))
+        }
+        if (n.kind == 7) {
+            return (this.evalCall(n sheetIdx))
+        }
+        return (FormulaValue.blank())
+    }
+
+    fn readCell:FormulaValue (sheetName:string sheetIdx:int row:int col:int) {
+        def si:int sheetIdx
+        if ((strlen sheetName) > 0) {
+            si = (this.sheetByName(sheetName))
+            if (si < 0) {
+                return (FormulaValue.fromError("#REF!"))
+            }
+        }
+        if ((si < 0) || (si >= (book.sheetCount()))) {
+            return (FormulaValue.fromError("#REF!"))
+        }
+        def sheet:SpreadsheetModel (book.sheetAt(si))
+        if ((row < 0) || (col < 0) || (row >= sheet.rowCount) || (col >= sheet.colCount)) {
+            return (FormulaValue.fromError("#REF!"))
+        }
+        def raw:string (sheet.getCell(row col))
+        if ((strlen raw) == 0) {
+            return (FormulaValue.blank())
+        }
+        if (raw == "TRUE") {
+            return (FormulaValue.fromBool(true))
+        }
+        if (raw == "FALSE") {
+            return (FormulaValue.fromBool(false))
+        }
+        if ((charAt raw 0) == 35) {
+            return (FormulaValue.fromError(raw))
+        }
+        def p@(optional):double (to_double raw)
+        if p {
+            return (FormulaValue.fromNumber((unwrap p)))
+        }
+        return (FormulaValue.fromString(raw))
+    }
+
+    fn evalBinary:FormulaValue (n:FormulaNode sheetIdx:int) {
+        def L:FormulaValue (this.evalNode((itemAt n.kids 0) sheetIdx))
+        def R:FormulaValue (this.evalNode((itemAt n.kids 1) sheetIdx))
+        def _eL:boolean (L.isError())
+        if _eL {
+            return L
+        }
+        def _eR:boolean (R.isError())
+        if _eR {
+            return R
+        }
+        if (n.op == "&") {
+            def _ls:string (L.toText())
+            def _rs:string (R.toText())
+            return (FormulaValue.fromString((_ls + _rs)))
+        }
+        if (n.op == "=") {
+            return (FormulaValue.fromBool((FormulaValue.valuesEqual(L R))))
+        }
+        if (n.op == "<>") {
+            def eq:boolean (FormulaValue.valuesEqual(L R))
+            if eq {
+                return (FormulaValue.fromBool(false))
+            }
+            return (FormulaValue.fromBool(true))
+        }
+        ; Arithmetic + ordered compare: shared coerceNumber semantics.
+        def aV:FormulaValue (L.coerceNumber())
+        def ae:boolean (aV.isError())
+        if ae {
+            return aV
+        }
+        def bV:FormulaValue (R.coerceNumber())
+        def be:boolean (bV.isError())
+        if be {
+            return bV
+        }
+        def a:double aV.num
+        def b:double bV.num
+        if (n.op == "+") {
+            return (FormulaValue.fromNumber((a + b)))
+        }
+        if (n.op == "-") {
+            return (FormulaValue.fromNumber((a - b)))
+        }
+        if (n.op == "*") {
+            return (FormulaValue.fromNumber((a * b)))
+        }
+        if (n.op == "/") {
+            if (b == 0.0) {
+                return (FormulaValue.fromError("#DIV/0!"))
+            }
+            return (FormulaValue.fromNumber((a / b)))
+        }
+        if (n.op == "^") {
+            def p:int (to_int b)
+            def acc:double 1.0
+            def i:int 0
+            if (p < 0) {
+                return (FormulaValue.fromError("#VALUE!"))
+            }
+            while (i < p) {
+                acc = (acc * a)
+                i = (i + 1)
+            }
+            return (FormulaValue.fromNumber(acc))
+        }
+        if (n.op == "<") {
+            return (FormulaValue.fromBool((a < b)))
+        }
+        if (n.op == ">") {
+            return (FormulaValue.fromBool((a > b)))
+        }
+        if (n.op == "<=") {
+            return (FormulaValue.fromBool((a <= b)))
+        }
+        if (n.op == ">=") {
+            return (FormulaValue.fromBool((a >= b)))
+        }
+        return (FormulaValue.fromError("#VALUE!"))
+    }
+
+    fn evalCall:FormulaValue (n:FormulaNode sheetIdx:int) {
+        def name:string n.fnName
+        def args:[FormulaValue]
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            def arg:FormulaNode (itemAt n.kids i)
+            if (arg.kind == 4) {
+                this.expandRangeArgs(arg sheetIdx args)
+            } {
+                push args (this.evalNode(arg sheetIdx))
+            }
+            i = (i + 1)
+        }
+        ; Unknown names → #NAME? (caller may keep XLSX cached <v>)
+        if (FormulaFunctions.isKnown(name) == false) {
+            return (FormulaValue.fromError("#NAME?"))
+        }
+        return (FormulaFunctions.invoke(name args))
+    }
+
+    ; Expand A1:B2 into individual FormulaValue args for the function library.
+    fn expandRangeArgs:void (n:FormulaNode sheetIdx:int args:[FormulaValue]) {
+        def si:int sheetIdx
+        if ((strlen n.sheet) > 0) {
+            si = (this.sheetByName(n.sheet))
+            if (si < 0) {
+                push args (FormulaValue.fromError("#REF!"))
+                return
+            }
+        }
+        def r0:int n.row
+        def r1:int n.row2
+        def c0:int n.col
+        def c1:int n.col2
+        if (r0 > r1) {
+            def t:int r0
+            r0 = r1
+            r1 = t
+        }
+        if (c0 > c1) {
+            def t2:int c0
+            c0 = c1
+            c1 = t2
+        }
+        def r:int r0
+        while (r <= r1) {
+            def c:int c0
+            while (c <= c1) {
+                push args (this.readCell("" si r c))
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+}

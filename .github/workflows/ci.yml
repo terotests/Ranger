@@ -14,32 +14,40 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Detect changed paths
-        uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            gallery:
-              - 'gallery/**'
-            non_gallery:
-              - '**'
-              - '!gallery/**'
+          fetch-depth: 0
 
       - name: Set gallery-only flag
         id: gallery_only
         run: |
-          if [ "${{ steps.filter.outputs.gallery }}" = "true" ] && [ "${{ steps.filter.outputs.non_gallery }}" != "true" ]; then
-            echo "result=true" >> "$GITHUB_OUTPUT"
-            echo "Gallery-only change detected — skipping full compiler checks"
+          # dorny paths-filter '**' + '!gallery/**' is OR-matched, so '**' makes
+          # non_gallery always true and gallery-only PRs incorrectly run full CI.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}" 2>/dev/null || true
+            files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
           else
+            files=$(git diff --name-only HEAD~1...HEAD 2>/dev/null || true)
+          fi
+          echo "Changed files:"
+          echo "$files"
+          if [ -z "$files" ]; then
+            echo "result=false" >> "$GITHUB_OUTPUT"
+            echo "Empty diff — running full checks"
+            exit 0
+          fi
+          if echo "$files" | grep -v '^$' | grep -vq '^gallery/'; then
             echo "result=false" >> "$GITHUB_OUTPUT"
             echo "Non-gallery changes detected — running full compiler checks"
+            echo "$files" | grep -v '^$' | grep -v '^gallery/' || true
+          else
+            echo "result=true" >> "$GITHUB_OUTPUT"
+            echo "Gallery-only change detected — skipping full compiler checks"
           fi
 
+  # Required checks must report success even for gallery-only PRs. A skipped
+  # job never satisfies branch protection (merge stays BLOCKED).
   test-es6:
     needs: changes
-    if: needs.changes.outputs.gallery_only != 'true'
     runs-on: ubuntu-latest
 
     strategy:
@@ -47,31 +55,44 @@ jobs:
         node-version: [20.x, 22.x]
 
     steps:
+      - name: Gallery-only — required check no-op
+        if: needs.changes.outputs.gallery_only == 'true'
+        run: echo "Skipping ES6 suite for gallery-only PR"
+
       - name: Checkout repository
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js ${{ matrix.node-version }}
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
 
       - name: Install dependencies
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm ci
 
       - name: Run ES6 unit tests
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm run test:es6
 
   test-go:
     needs: changes
-    if: needs.changes.outputs.gallery_only != 'true'
     runs-on: ubuntu-latest
 
     steps:
+      - name: Gallery-only — required check no-op
+        if: needs.changes.outputs.gallery_only == 'true'
+        run: echo "Skipping Go suite for gallery-only PR"
+
       - name: Checkout repository
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22.x"
@@ -80,26 +101,34 @@ jobs:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Setup Go
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: "1.21"
 
       - name: Install dependencies
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm ci
 
       - name: Run Go unit tests
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm run test:go
 
   test-python:
     needs: changes
-    if: needs.changes.outputs.gallery_only != 'true'
     runs-on: ubuntu-latest
 
     steps:
+      - name: Gallery-only — required check no-op
+        if: needs.changes.outputs.gallery_only == 'true'
+        run: echo "Skipping Python suite for gallery-only PR"
+
       - name: Checkout repository
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22.x"
@@ -108,26 +137,34 @@ jobs:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Setup Python
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm ci
 
       - name: Run Python unit tests
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm run test:python
 
   test-dart:
     needs: changes
-    if: needs.changes.outputs.gallery_only != 'true'
     runs-on: ubuntu-latest
 
     steps:
+      - name: Gallery-only — required check no-op
+        if: needs.changes.outputs.gallery_only == 'true'
+        run: echo "Skipping Dart suite for gallery-only PR"
+
       - name: Checkout repository
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22.x"
@@ -136,18 +173,30 @@ jobs:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Setup Dart
+        if: needs.changes.outputs.gallery_only != 'true'
         uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
 
       - name: Install dependencies
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm ci
 
       - name: Run Dart unit tests
+        if: needs.changes.outputs.gallery_only != 'true'
         run: npm run test:dart
 
+      # Split by target so each Vitest invocation stays under birpc's ~60s
+      # RPC timeout (avoids false `Timeout calling "onTaskUpdate"` failures).
       - name: Run Dart conformance
-        run: npx vitest run --config tests/vitest.config.ts compiler-conformance.test.ts
+        if: needs.changes.outputs.gallery_only != 'true'
+        run: |
+          cfg=tests/vitest.dartconformance.config.ts
+          npx vitest run --config "$cfg" -t "should have at least one conformance fixture"
+          npx vitest run --config "$cfg" -t "ES6 reference target"
+          npx vitest run --config "$cfg" -t "Go target"
+          npx vitest run --config "$cfg" -t "Kotlin target"
+          npx vitest run --config "$cfg" -t "Dart target"
 
   gallery-smoke:
     name: gallery-smoke
@@ -248,7 +297,7 @@ jobs:
           # engine-contract is temporarily disabled (if: false → skipped).
           # When re-enabling, require success again:
           # if [ "${{ needs.engine-contract.result }}" != "success" ]; then
-          #   echo "Engine contract suite failed or was cancelled"
+          #   echo "Engine contract suite failed or were cancelled"
           #   exit 1
           # fi
 
@@ -257,7 +306,23 @@ jobs:
               echo "Gallery smoke test failed or was cancelled"
               exit 1
             fi
-            echo "Gallery-only change: smoke and runtime conformance passed (full checks skipped; engine-contract temporarily disabled)"
+            if [ "${{ needs.test-es6.result }}" != "success" ]; then
+              echo "ES6 no-op job failed"
+              exit 1
+            fi
+            if [ "${{ needs.test-go.result }}" != "success" ]; then
+              echo "Go no-op job failed"
+              exit 1
+            fi
+            if [ "${{ needs.test-python.result }}" != "success" ]; then
+              echo "Python no-op job failed"
+              exit 1
+            fi
+            if [ "${{ needs.test-dart.result }}" != "success" ]; then
+              echo "Dart no-op job failed"
+              exit 1
+            fi
+            echo "Gallery-only change: smoke + required no-ops + runtime conformance passed"
             exit 0
           fi
 

@@ -1,0 +1,47 @@
+; ==============================================================================
+; formula_oracle_dump - emit Ranger calculated cells for LO formula oracle.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "xlsx/XlsxLoader.rgr"
+
+class FormulaOracleDump {
+    sfn main:void () {
+        def path:string "gallery/datagrid/fixtures/formulas.xlsx"
+        def book:WorkbookModel (new WorkbookModel)
+        def loader:XlsxLoader (new XlsxLoader)
+        def ok:boolean (loader.loadPath(path book))
+        if (ok == false) {
+            print ("FAIL " + loader.lastError)
+            return
+        }
+        print "---FORMULA_VALUES---"
+        print ("{\"active\":\"" + (book.activeName()) + "\",\"cells\":[")
+        def first:boolean true
+        def si:int 0
+        while (si < (book.sheetCount())) {
+            def s:SpreadsheetModel (book.sheetAt(si))
+            def r:int 0
+            while (r < s.rowCount) {
+                def c:int 0
+                while (c < s.colCount) {
+                    def f:string (s.getFormula(r c))
+                    if ((strlen f) > 0) {
+                        if (first == false) {
+                            print ","
+                        }
+                        first = false
+                        def addr:string (SpreadsheetModel.cellLabel(r c))
+                        def line:string ("{\"sheet\":\"" + s.name + "\",\"sheetIndex\":" + (to_string si) + ",\"row\":" + (to_string r) + ",\"col\":" + (to_string c) + ",\"addr\":\"" + addr + "\",\"formula\":\"" + f + "\",\"value\":\"" + (s.getCell(r c)) + "\"}")
+                        print line
+                    }
+                    c = (c + 1)
+                }
+                r = (r + 1)
+            }
+            si = (si + 1)
+        }
+        print "]}"
+        print "---END---"
+    }
+}

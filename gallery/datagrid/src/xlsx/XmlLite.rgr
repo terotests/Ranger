@@ -1,0 +1,340 @@
+; ==============================================================================
+; XmlLite - tiny OpenXML-oriented XML scanner (not a full DOM).
+; ==============================================================================
+;
+; Enough to walk SpreadsheetML parts: tag names, attributes (incl. r:id), and
+; element text. Modeled after gallery/evg/SvgParser's SvgTag/SvgAttr scan, but
+; kept independent so DataGrid does not import the SVG IR stack.
+; ==============================================================================
+
+class XmlAttr {
+    def name:string ""
+    def value:string ""
+
+    Constructor () {
+    }
+}
+
+class XmlTag {
+    def name:string ""
+    def isEnd:boolean false
+    def selfClose:boolean false
+    def attrs:[XmlAttr]
+    def valid:boolean false
+    def startPos:int 0
+    def endPos:int 0
+
+    Constructor () {
+        def a:[XmlAttr]
+        attrs = a
+    }
+
+    fn has:boolean (n:string) {
+        def k:int 0
+        while (k < (array_length attrs)) {
+            def a:XmlAttr (itemAt attrs k)
+            if (a.name == n) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    fn attr:string (n:string) {
+        def k:int 0
+        while (k < (array_length attrs)) {
+            def a:XmlAttr (itemAt attrs k)
+            if (a.name == n) {
+                return a.value
+            }
+            k = (k + 1)
+        }
+        return ""
+    }
+
+    ; Prefer local name when prefixed attrs differ (r:id vs id).
+    fn attrAny:string (a:string b:string) {
+        if (this.has(a)) {
+            return (this.attr(a))
+        }
+        return (this.attr(b))
+    }
+}
+
+class XmlLite {
+    def src:string ""
+    def pos:int 0
+    def len:int 0
+
+    Constructor () {
+    }
+
+    fn reset:void (s:string) {
+        src = s
+        pos = 0
+        len = (strlen s)
+    }
+
+    sfn decodeEntities:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 38) {
+                ; &
+                def j:int (i + 1)
+                while ((j < n) && ((charAt s j) != 59)) {
+                    j = (j + 1)
+                }
+                if (j < n) {
+                    def ent:string (substring s (i + 1) j)
+                    if (ent == "lt") {
+                        out = (out + "<")
+                    } {
+                        if (ent == "gt") {
+                            out = (out + ">")
+                        } {
+                            if (ent == "amp") {
+                                out = (out + "&")
+                            } {
+                                if (ent == "quot") {
+                                    out = (out + "\"")
+                                } {
+                                    if (ent == "apos") {
+                                        out = (out + "'")
+                                    } {
+                                        out = (out + (substring s i (j + 1)))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    i = (j + 1)
+                } {
+                    out = (out + (strfromcode ch))
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (strfromcode ch))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    fn skipWs:void () {
+        while (pos < len) {
+            def ch:int (charAt src pos)
+            if ((ch == 32) || (ch == 9) || (ch == 10) || (ch == 13)) {
+                pos = (pos + 1)
+            } {
+                return
+            }
+        }
+    }
+
+    fn skipUntil:boolean (c:int) {
+        while (pos < len) {
+            if ((charAt src pos) == c) {
+                return true
+            }
+            pos = (pos + 1)
+        }
+        return false
+    }
+
+    fn readName:string () {
+        def start:int pos
+        while (pos < len) {
+            def ch:int (charAt src pos)
+            ; letter digit _ : - .
+            if (((ch >= 65) && (ch <= 90)) || ((ch >= 97) && (ch <= 122)) || ((ch >= 48) && (ch <= 57)) || (ch == 95) || (ch == 58) || (ch == 45) || (ch == 46)) {
+                pos = (pos + 1)
+            } {
+                break
+            }
+        }
+        return (substring src start pos)
+    }
+
+    fn localName:string (raw:string) {
+        def i:int 0
+        def n:int (strlen raw)
+        def colon:int -1
+        while (i < n) {
+            if ((charAt raw i) == 58) {
+                colon = i
+            }
+            i = (i + 1)
+        }
+        if (colon >= 0) {
+            return (substring raw (colon + 1) n)
+        }
+        return raw
+    }
+
+    fn readTag:XmlTag () {
+        def tag:XmlTag (new XmlTag)
+        this.skipWs()
+        if (pos >= len) {
+            return tag
+        }
+        if ((charAt src pos) != 60) {
+            return tag
+        }
+        tag.startPos = pos
+        pos = (pos + 1)
+        if (pos >= len) {
+            return tag
+        }
+        ; comment / PI / doctype — skip
+        def peek:int (charAt src pos)
+        if ((peek == 33) || (peek == 63)) {
+            this.skipUntil(62)
+            if (pos < len) {
+                pos = (pos + 1)
+            }
+            return (this.readTag())
+        }
+        if (peek == 47) {
+            tag.isEnd = true
+            pos = (pos + 1)
+        }
+        tag.name = (this.localName((this.readName())))
+        this.skipWs()
+        while (pos < len) {
+            def ch:int (charAt src pos)
+            if (ch == 62) {
+                pos = (pos + 1)
+                tag.endPos = pos
+                tag.valid = true
+                return tag
+            }
+            if (ch == 47) {
+                pos = (pos + 1)
+                this.skipWs()
+                if ((pos < len) && ((charAt src pos) == 62)) {
+                    pos = (pos + 1)
+                    tag.selfClose = true
+                    tag.endPos = pos
+                    tag.valid = true
+                    return tag
+                }
+            }
+            def an:string (this.readName())
+            if ((strlen an) == 0) {
+                pos = (pos + 1)
+            } {
+                this.skipWs()
+                def av:string ""
+                if ((pos < len) && ((charAt src pos) == 61)) {
+                    pos = (pos + 1)
+                    this.skipWs()
+                    if (pos < len) {
+                        def q:int (charAt src pos)
+                        if ((q == 34) || (q == 39)) {
+                            pos = (pos + 1)
+                            def vs:int pos
+                            while ((pos < len) && ((charAt src pos) != q)) {
+                                pos = (pos + 1)
+                            }
+                            av = (XmlLite.decodeEntities((substring src vs pos)))
+                            if (pos < len) {
+                                pos = (pos + 1)
+                            }
+                        }
+                    }
+                }
+                def a:XmlAttr (new XmlAttr)
+                a.name = (this.localName(an))
+                ; also keep prefixed form for r:id lookups via attrAny
+                if (an != a.name) {
+                    def a2:XmlAttr (new XmlAttr)
+                    a2.name = an
+                    a2.value = av
+                    push tag.attrs a2
+                }
+                a.value = av
+                push tag.attrs a
+                this.skipWs()
+            }
+        }
+        return tag
+    }
+
+    ; Advance to next start/end tag; returns invalid at EOF.
+    fn nextTag:XmlTag () {
+        while (pos < len) {
+            if ((charAt src pos) == 60) {
+                return (this.readTag())
+            }
+            pos = (pos + 1)
+        }
+        return (new XmlTag)
+    }
+
+    ; Text content from current pos until the matching end tag of `name`.
+    ; Assumes caller is just after the open tag. Handles simple nesting depth.
+    fn readTextUntilEnd:string (name:string) {
+        def start:int pos
+        def depth:int 1
+        while ((pos < len) && (depth > 0)) {
+            if ((charAt src pos) != 60) {
+                pos = (pos + 1)
+            } {
+                def save:int pos
+                def t:XmlTag (this.readTag())
+                if t.valid {
+                    if (t.name == name) {
+                        if t.isEnd {
+                            depth = (depth - 1)
+                            if (depth == 0) {
+                                def raw:string (substring src start save)
+                                return (XmlLite.decodeEntities(raw))
+                            }
+                        } {
+                            if (t.selfClose == false) {
+                                depth = (depth + 1)
+                            }
+                        }
+                    }
+                } {
+                    pos = (save + 1)
+                }
+            }
+        }
+        return (XmlLite.decodeEntities((substring src start pos)))
+    }
+
+    ; Collect concatenated <t>…</t> text under the current element until endName.
+    fn collectTTextUntil:string (endName:string) {
+        def out:string ""
+        def depth:int 1
+        while ((pos < len) && (depth > 0)) {
+            def t:XmlTag (this.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            if (t.name == endName) {
+                if t.isEnd {
+                    depth = (depth - 1)
+                } {
+                    if (t.selfClose == false) {
+                        depth = (depth + 1)
+                    }
+                }
+            } {
+                if ((t.name == "t") && (t.isEnd == false)) {
+                    if t.selfClose {
+                        ; empty
+                    } {
+                        out = (out + (this.readTextUntilEnd("t")))
+                    }
+                }
+            }
+        }
+        return out
+    }
+}

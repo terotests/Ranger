@@ -714,7 +714,25 @@ class RangerLispParser {
     def had_lf:boolean false
     def disable_ops_set disable_ops
 
+    ; ISSUES.md #70. Every one of the three recursion sites below pushes a node
+    ; onto `parents` and then calls parseBuf. This records how deep `parents` was
+    ; when THIS frame started, so the loop can tell when the node this frame is
+    ; parsing has been closed.
+    def entry_depth:int (array_length parents)
+
     while (i < len) {
+
+      ; The node this frame opened is gone, so this frame is done. Without this
+      ; the frame kept looping and parsed the REST of the file, one dead frame
+      ; per statement: `end_expression` pops an implicit statement node without
+      ; breaking out, and only a literal `)` or `}` ever ended a frame. Measured
+      ; on EvHandle.rgr before the fix: call depth 245 with just 12 nodes
+      ; actually open, and 2117 on ComponentEngine.rgr, which put the engine at
+      ; the edge of V8's default stack and made its compilation fail about two
+      ; runs in five.
+      if (((array_length parents)) < entry_depth) {
+        return
+      }
 
       if(!null? curr_node) {
         ; called from the XML parser...

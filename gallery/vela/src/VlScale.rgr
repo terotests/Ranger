@@ -11,14 +11,17 @@
 ; data in Vega (it is a JSON object with a `type` field), the set is closed, and
 ; a single class keeps the cross-target output free of dispatch differences.
 ;
-; Numbers only: no time scale yet (it needs the date/time layer), and no power
-; scale. `log` is here — it maps, nices and ticks like d3's, and its labels
-; follow the same rule the reference applies, which is that a log axis prints
-; only the ticks near the front of each decade and leaves the rest blank.
+; The awkward ones are here too. `log` maps, nices and ticks like d3's, and its
+; labels follow the reference's rule that a log axis prints only the ticks near
+; the front of each decade. `pow` raises the magnitude and keeps the sign.
+; `time` maps like a linear scale — an instant is a number — and hands its ticks
+; to the calendar in VlTime, because months are not all the same length.
 ; ==============================================================================
 
 Import "VlJson.rgr"
 Import "VlMath.rgr"
+Import "VlTime.rgr"
+Import "VlFormat.rgr"
 
 class VlScaleTick {
     def value:double 0.0
@@ -26,13 +29,20 @@ class VlScaleTick {
 }
 
 class VlScale {
-    ; "band" | "point" | "linear" | "log" | "ordinal"
+    ; "band" | "point" | "linear" | "log" | "pow" | "sqrt" | "time" | "ordinal"
     def scaleType:string "linear"
     def name:string ""
     ; A log scale's base. Ten unless the spec says otherwise; the tick algorithm
     ; below treats a whole-number base differently from a fractional one, which
     ; is d3's own distinction and not a shortcut.
     def logBase:double 10.0
+    ; A power scale's exponent. `sqrt` is the same scale with the exponent a
+    ; half, which is what a bubble's radius or a radial chart's is written as.
+    def powExponent:double 1.0
+    ; Which wall clock a `time` scale reads. UTC unless the runtime was given a
+    ; zone; a `utc` scale keeps this one whatever the runtime was told, because
+    ; that is what asking for a `utc` scale means.
+    def zone:VlTimeZone (new VlTimeZone())
 
     ; Quantitative domain / range.
     def domainMin:double 0.0
@@ -47,6 +57,12 @@ class VlScale {
 
     ; Ordinal output values.
     def rangeValues:[string]
+    ; Whether those values are a RAMP rather than a list: a continuous scheme
+    ; handed to an ordinal scale is sampled along, not taken in turn.
+    def rampRange:boolean false
+    ; Where the middle of the range sits in the domain, when the chart said.
+    def domainMid:double 0.0
+    def hasDomainMid:boolean false
 
     ; Bin boundaries, when the scale was built for binned data. An axis over a
     ; binned scale labels the bins, not an arbitrary tick count.
@@ -77,6 +93,66 @@ class VlScale {
     fn setNumericRange:void (lo:double hi:double) {
         rangeMin = lo
         rangeMax = hi
+    }
+
+    ; A CONTINUOUS scale's `padding` is not a share of a band: it is pixels of
+    ; room at each end, which is how a bar chart with negative values keeps its
+    ; longest bar off the frame. The reference leaves the RANGE alone and
+    ; widens the domain instead — by however much data those pixels would have
+    ; held — so that the plot is still the plot and the axis still runs from
+    ; edge to edge. Read as a band's padding it reached nothing at all.
+    fn padDomain:void (by:double) {
+        if (by <= 0.0) {
+            return
+        }
+        def span:double (rangeMax - rangeMin)
+        if (span < 0.0) {
+            span = (0.0 - span)
+        }
+        if (span <= (2.0 * by)) {
+            return
+        }
+        ; Room at the ends is room ON THE PAGE, so how much of the domain it
+        ; is worth depends on how the domain reaches the page. A log scale
+        ; spaces its values by their logarithms, so five pixels at each end of
+        ; one is five pixels' worth of LOGARITHM — padded as if the spacing
+        ; were even, an axis of four decades grew to eight.
+        if (scaleType == "log") {
+            if ((domainMin > 0.0) && (domainMax > 0.0)) {
+                def lo:double (VlMath.ln(domainMin))
+                def hi:double (VlMath.ln(domainMax))
+                def spread:double (hi - lo)
+                def step:double ((spread * by) / (span - (2.0 * by)))
+                domainMin = (VlMath.exp((lo - step)))
+                domainMax = (VlMath.exp((hi + step)))
+                return
+            }
+        }
+        def reach:double (domainMax - domainMin)
+        def grow:double ((reach * by) / (span - (2.0 * by)))
+        domainMin = (domainMin - grow)
+        domainMax = (domainMax + grow)
+        ; A time scale's domain is a pair of INSTANTS, and an instant is a
+        ; whole number of milliseconds: the reference hands the widened ends
+        ; back as dates, which drops the fraction. Kept, the fraction is worth
+        ; a ten-thousandth of a pixel — and a ten-thousandth of a pixel either
+        ; side of a half is the difference between a gridline drawn here and
+        ; one drawn a pixel over.
+        if ((scaleType == "time") || (scaleType == "utc")) {
+            domainMin = (VlScale.wholeMillis(domainMin))
+            domainMax = (VlScale.wholeMillis(domainMax))
+        }
+    }
+
+    sfn wholeMillis:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - (to_double (floor (0.0 - v))))
+        }
+        return (to_double (floor v))
+    }
+
+    fn isDiscrete:boolean () {
+        return (((scaleType == "band") || (scaleType == "point")) || (scaleType == "ordinal"))
     }
 
     fn addDomainValue:void (value:string) {
@@ -122,6 +198,15 @@ class VlScale {
         if stepSet {
             step = stepValue
             stop = (start + (step * slots))
+            ; A step does not stay a step. The reference sizes the PLOT from
+            ; the step — `bandspace(...) * step` — and then lays the scale out
+            ; inside the plot it got, dividing that width back by the same
+            ; number of slots. The division does not always give the step back:
+            ; twenty over four fifths is fifty exactly, and six hundred and
+            ; sixty over thirteen point two is a hair under it. Keeping the
+            ; step as stated put every band a hair too far right, and a tick
+            ; that should have rounded down rounded up.
+            step = ((stop - start) / slots)
         } {
             step = ((stop - start) / slots)
         }
@@ -186,10 +271,70 @@ class VlScale {
         return (scaleType == "log")
     }
 
+    fn isPow:boolean () {
+        return ((scaleType == "pow") || (scaleType == "sqrt"))
+    }
+
+    ; A time scale maps like a linear one — an instant is a number of
+    ; milliseconds — and differs only in where its ticks fall and what they are
+    ; called, because months and years are not a fixed number of milliseconds.
+    fn isTime:boolean () {
+        return ((scaleType == "time") || (scaleType == "utc"))
+    }
+
+    ; A power scale's own exponent: `sqrt` names one rather than stating it.
+    fn exponent:double () {
+        if (scaleType == "sqrt") {
+            return 0.5
+        }
+        return powExponent
+    }
+
+    ; The transform a power scale interpolates in. Negative values keep their
+    ; sign — d3 raises the magnitude and puts the sign back, so a domain that
+    ; crosses zero still runs the right way.
+    fn powTransform:double (value:double) {
+        def k:double (this.exponent())
+        if (value < 0.0) {
+            return (0.0 - (VlMath.pow((0.0 - value) k)))
+        }
+        return (VlMath.pow(value k))
+    }
+
     ; Where a value sits between the domain's ends, from 0 to 1. A log scale
     ; interpolates the LOGARITHMS, which is the whole of what makes it one; the
     ; base cancels in the ratio, so a natural log serves every base.
+    ; A domain with no width at all is not an error and not zero: every value in
+    ; it is at the MIDDLE of the range, which is d3's rule and the only one that
+    ; reads. A heat map of a count where every cell counts one is exactly this —
+    ; mapping it to zero paints the whole table the palest colour the scheme has
+    ; and says "all lowest" about numbers that are all the same.
+    ; Where a value sits between the domain's ENDS, taking no notice of any
+    ; point named in the middle. That is how the reference places a colour
+    ; ramp's labels: it builds a fresh scale from the two ends alone, so the
+    ; labels are spread evenly along the bar even where the colours are not.
+    fn endFraction:double (value:double) {
+        def saved:boolean hasDomainMid
+        hasDomainMid = false
+        def out:double (this.fraction(value))
+        hasDomainMid = saved
+        return out
+    }
+
     fn fraction:double (value:double) {
+        ; A scale may name a value that has to land in the MIDDLE of its range
+        ; however far from the middle of its domain it is. That is what a
+        ; diverging colour ramp is for — nothing above zero should be drawn in
+        ; the colour that means nothing at all — and it makes the mapping two
+        ; straight lines rather than one.
+        if hasDomainMid {
+            if ((value <= domainMid) && (domainMid > domainMin)) {
+                return (0.5 * ((value - domainMin) / (domainMid - domainMin)))
+            }
+            if ((value >= domainMid) && (domainMax > domainMid)) {
+                return (0.5 + (0.5 * ((value - domainMid) / (domainMax - domainMid))))
+            }
+        }
         if (this.isLog()) {
             if (value <= 0.0) {
                 return 0.0
@@ -197,13 +342,21 @@ class VlScale {
             def lo:double (VlMath.ln(domainMin))
             def hi:double (VlMath.ln(domainMax))
             if (hi == lo) {
-                return 0.0
+                return 0.5
             }
             return (((VlMath.ln(value)) - lo) / (hi - lo))
         }
+        if (this.isPow()) {
+            def lo:double (this.powTransform(domainMin))
+            def hi:double (this.powTransform(domainMax))
+            if (hi == lo) {
+                return 0.5
+            }
+            return (((this.powTransform(value)) - lo) / (hi - lo))
+        }
         def span:double (domainMax - domainMin)
         if (span == 0.0) {
-            return 0.0
+            return 0.5
         }
         return ((value - domainMin) / span)
     }
@@ -225,9 +378,87 @@ class VlScale {
     ; holds and answers a number.
     fn mapValue:double (v:VlJson) {
         if ((scaleType == "band") || (scaleType == "point")) {
-            return (this.mapDiscrete((v.asString())))
+            return (this.mapDiscrete((VlJson.domainKey(v))))
         }
         return (this.mapNumber((v.asDouble())))
+    }
+
+    ; A CONTINUOUS scale whose range is a colour ramp: the value's position in
+    ; the domain picks a place along the ramp, and the two colours it falls
+    ; between are mixed in proportion. The reference interpolates the same way —
+    ; piecewise and in plain RGB, one segment per pair of adjacent colours —
+    ; and rounds each channel, so `rgb(94, 192, 191)` is arrived at rather than
+    ; approached.
+    fn mapRamp:string (value:double) {
+        def n:int (array_length rangeValues)
+        if (n == 0) {
+            return ""
+        }
+        if (n == 1) {
+            return (itemAt rangeValues 0)
+        }
+        return (this.colourAt((this.fraction(value))))
+    }
+
+    ; The colour a fraction of the way along the ramp, mixed in plain RGB one
+    ; segment per pair of adjacent stops — which is how the reference does it,
+    ; rounding each channel so that `rgb(94, 192, 191)` is arrived at rather
+    ; than approached.
+    fn colourAt:string (at:double) {
+        def n:int (array_length rangeValues)
+        if (n == 0) {
+            return ""
+        }
+        if (n == 1) {
+            return (itemAt rangeValues 0)
+        }
+        def t:double at
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        def scaled:double (t * (to_double (n - 1)))
+        def i:int (floor scaled)
+        if (i > (n - 2)) {
+            i = (n - 2)
+        }
+        def local:double (scaled - (to_double i))
+        def a:string (itemAt rangeValues i)
+        def b:string (itemAt rangeValues (i + 1))
+        def r:int (VlScale.mixChannel((VlScale.hexChannel(a 0)) (VlScale.hexChannel(b 0)) local))
+        def g:int (VlScale.mixChannel((VlScale.hexChannel(a 1)) (VlScale.hexChannel(b 1)) local))
+        def bl:int (VlScale.mixChannel((VlScale.hexChannel(a 2)) (VlScale.hexChannel(b 2)) local))
+        return ((((((("rgb(" + (VlJson.intToText(r))) + ", ") + (VlJson.intToText(g))) + ", ") + (VlJson.intToText(bl))) + ")"))
+    }
+
+    sfn mixChannel:int (from:int to:int t:double) {
+        def v:double ((to_double from) + (((to_double to) - (to_double from)) * t))
+        return (floor (v + 0.5))
+    }
+
+    ; One channel of a "#rrggbb" colour, as a number. Anything else answers
+    ; zero: a ramp is written by this project, not by a document.
+    sfn hexChannel:int (colour:string index:int) {
+        def start:int (1 + (index * 2))
+        if ((strlen colour) < (start + 2)) {
+            return 0
+        }
+        return (((VlScale.hexDigit((charAt colour start))) * 16) + (VlScale.hexDigit((charAt colour (start + 1)))))
+    }
+
+    sfn hexDigit:int (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return (c - 48)
+        }
+        if ((c >= 97) && (c <= 102)) {
+            return ((c - 97) + 10)
+        }
+        if ((c >= 65) && (c <= 70)) {
+            return ((c - 65) + 10)
+        }
+        return 0
     }
 
     fn mapOrdinal:string (v:VlJson) {
@@ -235,9 +466,21 @@ class VlScale {
         if (total == 0) {
             return ""
         }
-        def idx:int (this.indexOfValue((v.asString())))
+        def idx:int (this.indexOfValue((VlJson.domainKey(v))))
         if (idx < 0) {
             idx = 0
+        }
+        ; A CONTINUOUS scheme handed to an ordinal scale is not a list of
+        ; colours to take in turn: it is a ramp, and the categories are spread
+        ; ALONG it — the reference samples it at (i+1)/(n+1), which keeps both
+        ; ends of the ramp out of the picture where they are nearly black and
+        ; nearly white. Taken in turn instead, eight decades of carbon dioxide
+        ; came out in eight shades of the same near-black.
+        if rampRange {
+            def n:int (array_length domainValues)
+            if (n > 0) {
+                return (this.colourAt(((to_double (idx + 1)) / (to_double (n + 1)))))
+            }
         }
         return (itemAt rangeValues (idx % total))
     }
@@ -255,6 +498,19 @@ class VlScale {
         ; A log domain is extended to whole powers of the base — [19, 91]
         ; becomes [10, 100] — rather than to a tick step, because its ticks are
         ; not evenly spaced and there is no step to round to.
+        ; A time domain nices to the boundary of whatever unit its ticks step
+        ; by: a monthly axis starts on the first of a month, not on whatever
+        ; day the data happened to begin.
+        if (this.isTime()) {
+            def unit:string (VlTime.unitOfTicks((this.timeTicks(count))))
+            domainMin = (VlTime.floorTo(start unit zone))
+            def end:double (VlTime.floorTo(stop unit zone))
+            if (end < stop) {
+                end = (VlTime.addUnit(end unit zone))
+            }
+            domainMax = end
+            return
+        }
         if (this.isLog()) {
             if (start > 0.0) {
                 domainMin = (VlMath.pow(logBase (to_double (floor (this.logOf(start))))))
@@ -298,10 +554,37 @@ class VlScale {
 
     ; ----------------------------------------------------------------- ticks --
     fn ticks:[double] (count:int) {
+        return (this.ticksAbove(count 0.0))
+    }
+
+    ; The same, with a floor under the step. Only a time scale has anything to
+    ; do with it: `tickMinStep` says a month is the finest thing worth ticking.
+    fn ticksAbove:[double] (count:int minStep:double) {
         if (this.isLog()) {
             return (this.logTicks(count))
         }
+        if (this.isTime()) {
+            return (this.timeTicksAbove(count minStep))
+        }
         return (VlScale.linearTicks(domainMin domainMax count))
+    }
+
+    ; The calendar decides these, not arithmetic. The two ends of its interval
+    ; table — finer than a second, longer than a year — fall back on the linear
+    ; tick algorithm, which is computed here and handed over so that the date
+    ; layer knows about the calendar and nothing else.
+    fn timeTicks:[double] (count:int) {
+        return (this.timeTicksAbove(count 0.0))
+    }
+
+    fn timeTicksAbove:[double] (count:int minStep:double) {
+        def n:int count
+        if (n < 1) {
+            n = 1
+        }
+        def msStep:double (VlScale.tickIncrement(domainMin domainMax n))
+        def yearStep:double (VlScale.tickIncrement((domainMin / (VlTime.msPerYear())) (domainMax / (VlTime.msPerYear())) n))
+        return (VlTime.ticks(domainMin domainMax n msStep yearStep zone minStep))
     }
 
     ; The ticks a LOG scale asks for, which are not evenly spaced: every whole
@@ -498,7 +781,7 @@ class VlScale {
     ; The label Vega prints for a tick with no explicit format: the shortest
     ; decimal that still names the value.
     sfn tickLabel:string (value:double) {
-        return (VlJson.formatNumber(value 6))
+        return (VlJson.withMinusSign((VlJson.formatNumber(value 6))))
     }
 
     ; A log axis does not label every tick it draws. With ten ticks to a decade
@@ -550,7 +833,7 @@ class VlScale {
     ; A number with its integer digits grouped in threes, which is what the
     ; reference prints on a log axis.
     sfn groupedLabel:string (value:double) {
-        def text:string (VlJson.formatNumber(value 12))
+        def text:string (VlJson.formatSignificant(value 12))
         def sign:string ""
         def body:string text
         if ((strlen text) > 0) {
@@ -587,7 +870,8 @@ class VlScale {
             grouped = (grouped + (substring whole i (i + 1)))
             i = (i + 1)
         }
-        return ((sign + grouped) + rest)
+        def out:string ((sign + grouped) + rest)
+        return (VlJson.withMinusSign(out))
     }
 
     ; A tick SET is formatted to one shared precision, chosen from the step —
@@ -603,12 +887,19 @@ class VlScale {
         return out
     }
 
+    ; A tick's text when the specification named no format. The reference's own
+    ; default is `,` — thousands are grouped — and it applies to every guide it
+    ; draws. Nothing in the curated suite has an axis that reaches a thousand,
+    ; so this was missing for as long as there was nothing to notice it: a
+    ; count axis read 15000 where the reference reads 15,000, and the label is
+    ; then a different WIDTH, which moves the axis, which moves the plot, which
+    ; changes the size of the page.
     sfn appendLabel:[string] (out:[string] value:double decimals:int) {
         def text:string (VlJson.formatNumber(value decimals))
         if (decimals > 0) {
             text = (VlScale.padDecimals(text decimals))
         }
-        push out text
+        push out (VlJson.withMinusSign((VlFormat.group(text))))
         return out
     }
 
@@ -633,6 +924,28 @@ class VlScale {
             }
             k = (k + 1)
         }
+        return (VlScale.decimalsForStep((VlScale.cleanStep(step))))
+    }
+
+    ; The gap between two ticks, as the tick algorithm meant it rather than as
+    ; the arithmetic left it. Ticks are whole multiples of a step, so a gap is
+    ; that step — but 0.7 minus 0.6000000000000001 is 0.09999999999999987, and
+    ; asked how many decimals THAT needs the answer is two. The reference never
+    ; subtracts: it takes the step straight from the tick algorithm and prints
+    ; a tenth as one decimal. Rounding the gap to six significant figures says
+    ; the same thing without changing how ticks are found.
+    sfn cleanStep:double (step:double) {
+        if (step <= 0.0) {
+            return step
+        }
+        def power:int (VlScale.floorLog10(step))
+        def scaled:double (step / (VlScale.pow10(power)))
+        scaled = ((to_double (floor ((scaled * 100000.0) + 0.5))) / 100000.0)
+        return (scaled * (VlScale.pow10(power)))
+    }
+
+    ; How many decimals a step needs: half needs one, ten needs none.
+    sfn decimalsForStep:int (step:double) {
         if (step == 0.0) {
             return 0
         }
@@ -643,6 +956,31 @@ class VlScale {
             decimals = (decimals + 1)
         }
         return decimals
+    }
+
+    ; A BINNED axis draws its ticks on the bin edges and formats them to the
+    ; precision the requested tick COUNT would have needed. Those are different
+    ; numbers and the reference uses the second: ten bins an integer apart are
+    ; labelled "1.0", "2.0" because a chart two hundred pixels wide asks for a
+    ; tick every ten, and twenty ticks over that domain is a step of a half.
+    sfn binLabels:[string] (values:[double] lo:double hi:double count:int) {
+        ; `tickIncrement` answers d3's own encoding: a positive number is the
+        ; step, and a NEGATIVE one means the step is its reciprocal — that is
+        ; how a step of a half comes back as -2 without ever being written as
+        ; a fraction. Reading the sign off and taking the magnitude would say
+        ; two where the answer is a half, and the precision would come out
+        ; zero where it should be one.
+        def increment:double (VlScale.tickIncrement(lo hi count))
+        def step:double increment
+        if (increment < 0.0) {
+            step = (1.0 / (0.0 - increment))
+        }
+        def decimals:int (VlScale.decimalsForStep(step))
+        def out:[string]
+        for values v:double idx {
+            out = (VlScale.appendLabel(out v decimals))
+        }
+        return out
     }
 
     ; Zero-fills so every label in the set shows the same number of decimals.

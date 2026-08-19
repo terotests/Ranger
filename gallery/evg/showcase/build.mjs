@@ -63,6 +63,13 @@ const PAGES = [
     shows: ["viewBox scaling", "fill-rule holes", "cubic + quadratic", "smooth S/T", "elliptical arcs"],
   },
   {
+    id: "svg",
+    title: "Imported SVG",
+    blurb:
+      "Two SVG files read into the same vector layer the rest of the gallery draws with: groups resolved, transforms baked into the geometry, <use> expanded where it is referenced. The browser is handed the resolved shapes rather than the original markup, so the preview cannot draw anything the printer will not.",
+    shows: ["<use> and <defs>", "baked transforms", "inherited paint", "themed from CSS"],
+  },
+  {
     id: "charts",
     title: "Charts",
     blurb:
@@ -76,6 +83,46 @@ const PAGES = [
     blurb:
       "The rest of the runtime's chart types, and the features only some charts have: a size legend whose rows are all different heights, a stroke legend, a log axis that labels only some of the ticks it draws, two marks sharing one plot, and text as a mark. Generated from the same specifications the parity harness compares against official Vega.",
     shows: ["size and colour legends", "log scale", "layered marks", "text marks", "grouped bands"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "more",
+    title: "More chart types",
+    blurb:
+      "The chart types the runtime learned most recently, which are also the ones that exercise the most of it: a continuous colour ramp with the gradient key it earns, a series that is a faceted group of its own, a stack centred on a common line, a calendar on an axis, and a box plot whose quartiles are computed rather than approximated.",
+    shows: ["colour ramps", "gradient legends", "faceted series", "time scales", "computed quartiles"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "variants",
+    title: "Variants",
+    blurb:
+      "The same marks a chart already on this showcase uses, drawn a different way — bars that go down as well as up, bars that lie on their side, a bar between two values rather than from a baseline, a line that steps instead of sloping, a line that shows its own vertices, a single row of ticks, a shape legend, a mean drawn across the plot, and a pie whose wedges differ in length as well as angle. It is the variants that break a runtime rather than the types.",
+    shows: ["negative bars", "horizontal bars", "step interpolation", "shape scales", "rules across a plot", "radial scales"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "tables",
+    title: "Tables",
+    blurb:
+      "The plots where the cell is the datum: both axes are categories, or both are bins, and the value is carried by the cell's colour, its area, or the number printed in it. The two-dimensional histogram is the one that exercises the most — it bins on both axes, counts what lands in each cell, and ticks its axes on the bin edges rather than wherever a tick algorithm would have put them.",
+    shows: ["binning on both axes", "counts as colour", "point scales", "layered labels"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "drawing",
+    title: "What a renderer has to get right",
+    blurb:
+      "Four specifications that exist to be drawn rather than to say anything: every symbol shape the grammar offers, every interpolation that joins a line's points, the paint channels that change the ink without moving it — a dash pattern, a rounded corner, a square cap, a fill more translucent than its own outline — and a label against each alignment, baseline, nudge and angle. A scenegraph says \"diamond\" and stops; these are the specs that make a renderer say what a diamond looks like, and each of them is compared against the picture official Vega's own renderer produces.",
+    shows: ["twelve symbol shapes", "nine interpolations", "dashes and corner radii", "separate fill and stroke opacity", "text anchoring"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
+    id: "views",
+    title: "More than one chart",
+    blurb:
+      "The four ways a chart can be more than one chart, all of them laid out by their own bounds rather than by a size anyone declared: a trellis by column, by row, and wrapped onto a grid whose shape is computed from the data, plus two plots concatenated with only the dimension across the join in common. The grid axes stay inside each panel; the labelled axes are drawn once, in the footer and the row header.",
+    shows: ["column and row facets", "wrapped grids", "concatenation", "bounds-based layout", "shared axes"],
     themes: ["editorial", "studio", "autumn"],
   },
   {
@@ -125,6 +172,11 @@ const PAGE_CSS = {
   // draws the chart the spec described.
   charts: [path.join(HERE, "themes/charts-default.css")],
   plots: [path.join(HERE, "themes/plots-default.css")],
+  more: [path.join(HERE, "themes/more-default.css")],
+  views: [path.join(HERE, "themes/views-default.css")],
+  variants: [path.join(HERE, "themes/variants-default.css")],
+  tables: [path.join(HERE, "themes/tables-default.css")],
+  drawing: [path.join(HERE, "themes/drawing-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {
@@ -256,16 +308,26 @@ function indexHtml(entries, warnings) {
           </figcaption>
         </figure>`;
     }).join("");
+    // The first theme's rendered page, which is what "open this page" means.
+    const lead = entries.find((x) => x.page === p.id && x.theme === themesFor(p)[0].id);
     return `
       <section class="page" id="${p.id}">
         <header>
-          <h2>${esc(p.title)}</h2>
+          <h2><a href="${lead.html}">${esc(p.title)}</a> <a class="open" href="${lead.html}">open the page &rsaquo;</a></h2>
           <p>${esc(p.blurb)}</p>
           <ul class="tags">${p.shows.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
           <p class="src"><a href="pages/${p.id}.tsx.txt">${p.id}.tsx</a> — no visual attributes; every rule is in <a href="showcase.css.txt">showcase.css</a></p>
         </header>
         <div class="shots">${shots}</div>
       </section>`;
+  }).join("");
+
+  // A gallery of eleven pages needs a way in that is not scrolling. Each entry
+  // opens the page itself; the small link beside it jumps to that page's
+  // section, where its other themes and targets are.
+  const contents = PAGES.map((p) => {
+    const lead = entries.find((x) => x.page === p.id && x.theme === themesFor(p)[0].id);
+    return `<li><a class="go" href="${lead.html}">${esc(p.title)}</a> <a class="jump" href="#${p.id}" title="details, themes and targets">details</a></li>`;
   }).join("");
 
   const warnBlock = warnings.length
@@ -311,6 +373,21 @@ function indexHtml(entries, warnings) {
   .dl { margin-left: auto; font-size: .78rem; border: 1px solid var(--line);
         border-radius: 6px; padding: 2px 8px; text-decoration: none; }
   .dl + .dl { margin-left: 0; }
+  .toc { border-top: 1px solid var(--line); margin-top: 32px; padding-top: 24px; }
+  .toc h2 { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase;
+            color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  .toc ul { list-style: none; padding: 0; margin: 0;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 20px; }
+  .toc li { display: flex; align-items: baseline; gap: 8px; }
+  .toc .go { font-weight: 600; text-decoration: none; }
+  .toc .go:hover { text-decoration: underline; }
+  .toc .jump { font-size: .72rem; color: var(--muted); text-decoration: none;
+               border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+  .page h2 a { color: inherit; text-decoration: none; }
+  .page h2 a:hover { text-decoration: underline; }
+  .open { font-size: .72rem; font-weight: 400; letter-spacing: .02em; color: var(--accent);
+          border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px;
+          vertical-align: middle; margin-left: 6px; }
   .warnings { border-top: 1px solid var(--line); padding-top: 32px; margin-top: 48px; }
   .warnings pre { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
                   padding: 12px; overflow-x: auto; font-size: .8rem; }
@@ -332,6 +409,11 @@ function indexHtml(entries, warnings) {
     they say what is on the page, and one stylesheet says how it looks.
   </p>
   <p class="meta">Built from <code>gallery/evg/showcase</code>. PDF is the print target; PNG is the raster preview; HTML is the debug view.</p>
+
+  <nav class="toc" aria-label="Pages">
+    <h2>Pages</h2>
+    <ul>${contents}</ul>
+  </nav>
 
   ${cards}
 

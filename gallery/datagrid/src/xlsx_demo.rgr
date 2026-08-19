@@ -1,0 +1,62 @@
+; ==============================================================================
+; xlsx_demo - load fixture .xlsx files and write PNG snapshots.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class XlsxDemo {
+    sfn snapshot:void (app:GridApp dir:string file:string) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+    }
+
+    sfn main:void () {
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+
+        def ok:boolean (app.loadXlsx("gallery/datagrid/fixtures/sales.xlsx"))
+        if (ok == false) {
+            print ("FAIL load: " + app.loadError)
+            return
+        }
+        app.render()
+        XlsxDemo.snapshot(app "gallery/datagrid" "xlsx_sales_sheet1.png")
+        print ("Sales A1=" + (app.model.getCell(0 0)) + " D6=" + (app.model.getCell(5 3)))
+
+        app.setActiveSheet(1)
+        app.render()
+        XlsxDemo.snapshot(app "gallery/datagrid" "xlsx_sales_sheet2.png")
+        print ("Summary A1=" + (app.model.getCell(0 0)))
+
+        def okB:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if okB {
+            def si:int 0
+            while (si < (app.book.sheetCount())) {
+                def sh:SpreadsheetModel (app.book.sheetAt(si))
+                if (sh.name == "Summary") {
+                    app.setActiveSheet(si)
+                }
+                si = (si + 1)
+            }
+            app.render()
+            XlsxDemo.snapshot(app "gallery/datagrid" "xlsx_business_summary.png")
+            print ("business Summary active=" + (app.book.activeName()))
+        }
+
+        def ok2:boolean (app.loadXlsx("gallery/datagrid/fixtures/sparse500.xlsx"))
+        if ok2 {
+            app.grid.scrollByRows(app.model 200)
+            app.render()
+            XlsxDemo.snapshot(app "gallery/datagrid" "xlsx_sparse_scroll.png")
+            print ("sparse visible " + (to_string app.grid.firstVisibleRow) + ".." + (to_string app.grid.lastVisibleRow))
+        }
+
+        print "wrote xlsx_sales_sheet1.png xlsx_sales_sheet2.png xlsx_sparse_scroll.png"
+    }
+}

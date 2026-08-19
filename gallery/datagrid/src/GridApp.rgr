@@ -1,0 +1,745 @@
+; ==============================================================================
+; GridApp - UIInput → WorkbookModel / DataGrid / selection / single EditView
+; ==============================================================================
+;
+; Same contract as the text editor: platform fills UIInput; app never touches
+; SDL/DOM. Loads .xlsx via XlsxLoader into WorkbookModel; DataGrid stays format-
+; agnostic.
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "WorkbookModel.rgr"
+Import "GridSelection.rgr"
+Import "DataGrid.rgr"
+Import "GridView.rgr"
+Import "SheetView.rgr"
+Import "FormulaEngine.rgr"
+Import "xlsx/XlsxLoader.rgr"
+Import "../../game_engine/ui/UIInput.rgr"
+
+class GridApp {
+    def book:WorkbookModel (new WorkbookModel)
+    def model:SpreadsheetModel (new SpreadsheetModel)
+    def sheetView:SheetView (new SheetView)
+    def engine:FormulaEngine (new FormulaEngine)
+    def sel:GridSelection (new GridSelection)
+    def grid:DataGrid (new DataGrid)
+    def view:GridView (new GridView)
+    def W:int 900
+    def H:int 560
+    def statusH:int 22
+    def editing:boolean false
+    def editBuf:string ""
+    def dragging:boolean false
+    def resizing:boolean false
+    def filling:boolean false
+    def fillR0:int 0
+    def fillC0:int 0
+    def fillR1:int 0
+    def fillC1:int 0
+    def clipboardTsv:string ""
+    def loadError:string ""
+
+    Constructor () {
+    }
+
+    fn syncActiveModel:void () {
+        ; persist scroll on previous sheet
+        if ((book.sheetCount()) > 0) {
+            ; model may already point at previous
+        }
+        model = (book.activeSheet())
+        sheetView.attach(model)
+        grid.bindView(sheetView)
+        grid.scrollX = model.scrollXSaved
+        grid.scrollY = model.scrollYSaved
+        sel.anchor.row = 0
+        sel.anchor.col = 0
+        sel.active.row = 0
+        sel.active.col = 0
+        grid.updateVisible(model)
+    }
+
+    fn init:void (fontDir:string) {
+        view.init(W H fontDir)
+        grid.setBounds(0 0 W (H - statusH))
+        this.loadDemo()
+    }
+
+    fn loadDemo:void () {
+        book.clear()
+        def sheet:SpreadsheetModel (new SpreadsheetModel)
+        sheet.seedDemo()
+        book.addSheet(sheet)
+        book.sourcePath = ""
+        book.setActive(0)
+        engine.attach(book)
+        this.syncActiveModel()
+        loadError = ""
+    }
+
+    fn loadXlsx:boolean (fullPath:string) {
+        def loader:XlsxLoader (new XlsxLoader)
+        def ok:boolean (loader.loadPath(fullPath book))
+        if ok {
+            book.sourcePath = fullPath
+            engine = loader.engine
+            this.syncActiveModel()
+            loadError = ""
+            view.status = ("loaded " + fullPath)
+            return true
+        }
+        loadError = loader.lastError
+        view.status = loadError
+        return false
+    }
+
+    fn setActiveSheet:void (i:int) {
+        if editing {
+            this.commitEdit()
+        }
+        ; save scroll for current sheet
+        model.scrollXSaved = grid.scrollX
+        model.scrollYSaved = grid.scrollY
+        ; skip hidden sheets
+        def n:int (book.sheetCount())
+        if (i < 0) {
+            i = 0
+        }
+        if (i >= n) {
+            i = (n - 1)
+        }
+        def guard:int 0
+        while (guard < n) {
+            def cand:SpreadsheetModel (book.sheetAt(i))
+            if (cand.sheetHidden == false) {
+                break
+            }
+            i = (i + 1)
+            if (i >= n) {
+                i = 0
+            }
+            guard = (guard + 1)
+        }
+        book.setActive(i)
+        this.syncActiveModel()
+    }
+
+    fn applySort:void (col:int ascending:boolean) {
+        model.setSort(col ascending)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    fn applyFilter:void (col:int values:[string]) {
+        model.setFilter(col true values)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    fn clearFilter:void () {
+        def empty:[string]
+        model.setFilter(-1 false empty)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    fn collectUnique:void (col:int out:[string]) {
+        clear out
+        def r:int model.freezeRows
+        while (r < model.rowCount) {
+            def v:string (model.getCell(r col))
+            def found:boolean false
+            def i:int 0
+            def n:int (array_length out)
+            while (i < n) {
+                if ((itemAt out i) == v) {
+                    found = true
+                }
+                i = (i + 1)
+            }
+            if (found == false) {
+                push out v
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn openHeaderMenu:void (col:int px:int py:int) {
+        view.menuOpen = true
+        view.menuCol = col
+        view.menuX = px
+        view.menuY = py
+    }
+
+    fn closeHeaderMenu:void () {
+        view.menuOpen = false
+        view.menuCol = -1
+    }
+
+    fn hitHeaderMenu:int (px:int py:int) {
+        if (view.menuOpen == false) {
+            return -1
+        }
+        if (px < view.menuX) {
+            return -1
+        }
+        if (py < view.menuY) {
+            return -1
+        }
+        if (px >= (view.menuX + 168)) {
+            return -1
+        }
+        if (py >= (view.menuY + 118)) {
+            return -1
+        }
+        def ly:int (py - view.menuY)
+        if ((ly >= 26) && (ly < 46)) {
+            return 1
+        }
+        if ((ly >= 46) && (ly < 66)) {
+            return 2
+        }
+        if ((ly >= 66) && (ly < 86)) {
+            return 3
+        }
+        if ((ly >= 86) && (ly < 110)) {
+            return 4
+        }
+        return 0
+    }
+
+    fn runHeaderMenu:void (action:int) {
+        def col:int view.menuCol
+        if (action == 1) {
+            this.applySort(col true)
+        }
+        if (action == 2) {
+            this.applySort(col false)
+        }
+        if (action == 3) {
+            def vals:[string]
+            this.collectUnique(col vals)
+            ; keep at most first value for a visible demo filter when many uniques
+            if ((array_length vals) > 1) {
+                def keep:[string]
+                push keep (itemAt vals 0)
+                this.applyFilter(col keep)
+            } {
+                this.applyFilter(col vals)
+            }
+        }
+        if (action == 4) {
+            this.clearFilter()
+        }
+        this.closeHeaderMenu()
+    }
+
+    fn resize:void (nw:int nh:int) {
+        W = nw
+        H = nh
+        view.resize(W H)
+        grid.setBounds(0 0 W (H - statusH))
+        grid.updateVisible(model)
+    }
+
+    fn commitEdit:void () {
+        if (editing == false) {
+            return
+        }
+        engine.attach(book)
+        if ((strlen editBuf) > 0) {
+            if ((charAt editBuf 0) == 61) {
+                def expr:string (substring editBuf 1 (strlen editBuf))
+                model.setFormula(sel.active.row sel.active.col expr)
+                model.setCell(sel.active.row sel.active.col "")
+                engine.registerFormula(book.activeIndex sel.active.row sel.active.col expr)
+                engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+            } {
+                ; Plain value overwrites any prior formula.
+                def had:boolean (model.hasFormula(sel.active.row sel.active.col))
+                if had {
+                    model.clearFormula(sel.active.row sel.active.col)
+                    engine.clearFormula(book.activeIndex sel.active.row sel.active.col)
+                }
+                model.setCell(sel.active.row sel.active.col editBuf)
+                engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+            }
+        } {
+            def had2:boolean (model.hasFormula(sel.active.row sel.active.col))
+            if had2 {
+                model.clearFormula(sel.active.row sel.active.col)
+                engine.clearFormula(book.activeIndex sel.active.row sel.active.col)
+            }
+            model.setCell(sel.active.row sel.active.col "")
+            engine.onCellEdited(book.activeIndex sel.active.row sel.active.col)
+        }
+        editing = false
+        editBuf = ""
+    }
+
+    fn cancelEdit:void () {
+        editing = false
+        editBuf = ""
+    }
+
+    fn beginEdit:void (seed:string clearFirst:boolean) {
+        if clearFirst {
+            editBuf = seed
+        } {
+            if (editing == false) {
+                editBuf = (model.formulaBarText(sel.active.row sel.active.col))
+            }
+            if ((strlen seed) > 0) {
+                editBuf = (editBuf + seed)
+            }
+        }
+        editing = true
+    }
+
+    fn moveActive:void (row:int col:int extend:boolean) {
+        if editing {
+            this.commitEdit()
+        }
+        def p:CellPos (CellPos.create(row col))
+        model.clampPos(p)
+        sel.setActive(p.row p.col)
+        if (extend == false) {
+            sel.collapseToActive()
+        }
+        grid.ensureCellVisible(model p.row p.col)
+    }
+
+    fn handleKey:void (key:int input:UIInput) {
+        def extend:boolean input.shiftDown
+        if editing {
+            if (key == (UIKey.enter())) {
+                this.commitEdit()
+                this.moveActive((sel.active.row + 1) sel.active.col false)
+                return
+            }
+            if (key == (UIKey.tab())) {
+                this.commitEdit()
+                this.moveActive(sel.active.row (sel.active.col + 1) false)
+                return
+            }
+            if (key == (UIKey.escape())) {
+                this.cancelEdit()
+                return
+            }
+            if (key == (UIKey.backspace())) {
+                def n:int (strlen editBuf)
+                if (n > 0) {
+                    editBuf = (substring editBuf 0 (n - 1))
+                }
+                return
+            }
+            return
+        }
+        if (key == (UIKey.left())) {
+            this.moveActive(sel.active.row (sel.active.col - 1) extend)
+            return
+        }
+        if (key == (UIKey.right())) {
+            this.moveActive(sel.active.row (sel.active.col + 1) extend)
+            return
+        }
+        if (key == (UIKey.up())) {
+            this.moveActive((sel.active.row - 1) sel.active.col extend)
+            return
+        }
+        if (key == (UIKey.down())) {
+            this.moveActive((sel.active.row + 1) sel.active.col extend)
+            return
+        }
+        if (key == (UIKey.enter())) {
+            this.beginEdit("" false)
+            return
+        }
+        if (key == (UIKey.tab())) {
+            this.moveActive(sel.active.row (sel.active.col + 1) false)
+            return
+        }
+        if (key == (UIKey.del())) {
+            this.clearSelection()
+            return
+        }
+        if (key == (UIKey.backspace())) {
+            this.beginEdit("" true)
+            return
+        }
+        if (key == (UIKey.home())) {
+            this.moveActive(sel.active.row 0 extend)
+            return
+        }
+        if (key == (UIKey.end())) {
+            this.moveActive(sel.active.row (model.colCount - 1) extend)
+            return
+        }
+        if (key == (UIKey.escape())) {
+            sel.collapseToActive()
+            return
+        }
+    }
+
+    ; FortuneSheet clipboard: TSV of cell edit values over the selection.
+    fn copySelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def out:string ""
+        def r:int a.row
+        while (r <= b.row) {
+            if (r > a.row) {
+                out = (out + "\n")
+            }
+            def c:int a.col
+            while (c <= b.col) {
+                if (c > a.col) {
+                    out = (out + "\t")
+                }
+                out = (out + (model.getCell(r c)))
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        clipboardTsv = out
+    }
+
+    fn pasteClipboard:void () {
+        if ((strlen clipboardTsv) == 0) {
+            return
+        }
+        if editing {
+            this.commitEdit()
+        }
+        def lines:[string] (strsplit clipboardTsv "\n")
+        def startR:int sel.active.row
+        def startC:int sel.active.col
+        def maxR:int startR
+        def maxC:int startC
+        def ri:int 0
+        def nLines:int (array_length lines)
+        while (ri < nLines) {
+            def rowText:string (itemAt lines ri)
+            def cols:[string] (strsplit rowText "\t")
+            def ci:int 0
+            def nCols:int (array_length cols)
+            while (ci < nCols) {
+                def tr:int (startR + ri)
+                def tc:int (startC + ci)
+                if ((tr < model.rowCount) && (tc < model.colCount)) {
+                    model.setCell(tr tc (itemAt cols ci))
+                    if (tr > maxR) {
+                        maxR = tr
+                    }
+                    if (tc > maxC) {
+                        maxC = tc
+                    }
+                }
+                ci = (ci + 1)
+            }
+            ri = (ri + 1)
+        }
+        sel.anchor.row = startR
+        sel.anchor.col = startC
+        sel.active.row = maxR
+        sel.active.col = maxC
+        grid.ensureCellVisible(model sel.active.row sel.active.col)
+    }
+
+    fn clearSelection:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def r:int a.row
+        while (r <= b.row) {
+            def c:int a.col
+            while (c <= b.col) {
+                model.setCell(r c "")
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; FortuneSheet fill handle: tile source rect; translate relative formula refs.
+    fn fillFromSource:void () {
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def srcH:int ((fillR1 - fillR0) + 1)
+        def srcW:int ((fillC1 - fillC0) + 1)
+        if (srcH < 1) {
+            return
+        }
+        if (srcW < 1) {
+            return
+        }
+        engine.attach(book)
+        def r:int a.row
+        while (r <= b.row) {
+            def c:int a.col
+            while (c <= b.col) {
+                def inSrc:boolean false
+                if ((r >= fillR0) && (r <= fillR1) && (c >= fillC0) && (c <= fillC1)) {
+                    inSrc = true
+                }
+                if (inSrc == false) {
+                    def dr:int (r - fillR0)
+                    def dc:int (c - fillC0)
+                    def sr:int (fillR0 + (dr - ((to_int (dr / srcH)) * srcH)))
+                    def sc:int (fillC0 + (dc - ((to_int (dc / srcW)) * srcW)))
+                    def srcF:string (model.getFormula(sr sc))
+                    if ((strlen srcF) > 0) {
+                        def dx:int (c - sc)
+                        def dy:int (r - sr)
+                        def translated:string (FormulaParser.translateFormula(srcF dx dy))
+                        if ((strlen translated) > 0) {
+                            model.setFormula(r c translated)
+                            model.setCellRaw(r c "")
+                            engine.registerFormula(book.activeIndex r c translated)
+                        } {
+                            model.setCell(r c (model.getCell(sr sc)))
+                        }
+                    } {
+                        def had:boolean (model.hasFormula(r c))
+                        if had {
+                            model.clearFormula(r c)
+                            engine.clearFormula(book.activeIndex r c)
+                        }
+                        model.setCell(r c (model.getCell(sr sc)))
+                    }
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        ; Recalc newly registered / dependent formulas once.
+        engine.resetStats()
+        engine.recalcDirty()
+    }
+
+    fn update:void (input:UIInput) {
+        if input.pointerPressed {
+            def tab:int (grid.hitSheetTab((book.sheetCount()) input.pointerX input.pointerY))
+            if (tab >= 0) {
+                this.setActiveSheet(tab)
+                view.focused = true
+            } {
+                def resizeCol:int (grid.hitColResize(model input.pointerX input.pointerY))
+                if (resizeCol >= 0) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    resizing = true
+                    grid.resizingCol = resizeCol
+                    grid.resizeStartX = input.pointerX
+                    grid.resizeStartW = (model.colWidth(resizeCol))
+                    view.focused = true
+                } {
+                    def onFill:boolean false
+                    if (editing == false) {
+                        onFill = (grid.hitFillHandle(model sel input.pointerX input.pointerY))
+                    }
+                    if onFill {
+                        ; FortuneSheet fill-handle drag starts from current selection
+                        view.focused = true
+                        def a0:CellPos (new CellPos)
+                        def b0:CellPos (new CellPos)
+                        sel.normalized(a0 b0)
+                        fillR0 = a0.row
+                        fillC0 = a0.col
+                        fillR1 = b0.row
+                        fillC1 = b0.col
+                        filling = true
+                        dragging = false
+                    } {
+                        def hit:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                        def menuHit:int (this.hitHeaderMenu(input.pointerX input.pointerY))
+                        if (menuHit >= 0) {
+                            view.focused = true
+                            if (menuHit >= 1) {
+                                this.runHeaderMenu(menuHit)
+                            }
+                        } {
+                            if ((hit.row == -2) && (hit.col >= 0)) {
+                                ; Column header → sort/filter popup
+                                view.focused = true
+                                if editing {
+                                    this.commitEdit()
+                                }
+                                this.openHeaderMenu(hit.col input.pointerX (grid.y + grid.formulaBarH + grid.colHeaderH))
+                            } {
+                                if view.menuOpen {
+                                    this.closeHeaderMenu()
+                                }
+                                if ((hit.row == -3) && (hit.col == -3)) {
+                                    view.focused = true
+                                    this.beginEdit("" false)
+                                } {
+                                    if ((hit.row >= 0) && (hit.col >= 0)) {
+                                        view.focused = true
+                                        if editing {
+                                            if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
+                                                this.commitEdit()
+                                            }
+                                        }
+                                        this.moveActive(hit.row hit.col input.shiftDown)
+                                        dragging = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if input.pointerDown {
+            if resizing {
+                def dx:int (input.pointerX - grid.resizeStartX)
+                model.setColWidth(grid.resizingCol (grid.resizeStartW + dx))
+                grid.updateVisible(model)
+            } {
+                if filling {
+                    if (input.pointerPressed == false) {
+                        def hitF:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                        if ((hitF.row >= 0) && (hitF.col >= 0)) {
+                            sel.anchor.row = fillR0
+                            sel.anchor.col = fillC0
+                            sel.active.row = hitF.row
+                            sel.active.col = hitF.col
+                            ; keep source corner as the other end of the range
+                            def a1:CellPos (new CellPos)
+                            def b1:CellPos (new CellPos)
+                            sel.normalized(a1 b1)
+                            if (a1.row > fillR0) {
+                                a1.row = fillR0
+                            }
+                            if (a1.col > fillC0) {
+                                a1.col = fillC0
+                            }
+                            if (b1.row < fillR1) {
+                                b1.row = fillR1
+                            }
+                            if (b1.col < fillC1) {
+                                b1.col = fillC1
+                            }
+                            sel.anchor.row = a1.row
+                            sel.anchor.col = a1.col
+                            sel.active.row = b1.row
+                            sel.active.col = b1.col
+                        }
+                    }
+                } {
+                    if dragging {
+                        if (input.pointerPressed == false) {
+                            def hit2:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                            if ((hit2.row >= 0) && (hit2.col >= 0)) {
+                                this.moveActive(hit2.row hit2.col true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if input.pointerReleased {
+            if filling {
+                this.fillFromSource()
+            }
+            filling = false
+            dragging = false
+            resizing = false
+            grid.resizingCol = -1
+        }
+
+        if (input.scrollDelta != 0) {
+            grid.scrollByRows(model (0 - input.scrollDelta))
+        }
+
+        if input.ctrlDown {
+            def t:string input.textInput
+            def ti:int 0
+            def tn:int (strlen t)
+            while (ti < tn) {
+                def ch:int (charAt t ti)
+                if ((ch == 97) || (ch == 65)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    sel.selectAll(model)
+                    grid.ensureCellVisible(model sel.active.row sel.active.col)
+                }
+                if ((ch == 99) || (ch == 67)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.copySelection()
+                }
+                if ((ch == 118) || (ch == 86)) {
+                    this.pasteClipboard()
+                }
+                if ((ch == 122) || (ch == 90)) {
+                    if editing {
+                        this.cancelEdit()
+                    }
+                    def u:CellPos (model.undo())
+                    this.moveActive(u.row u.col false)
+                }
+                if ((ch == 121) || (ch == 89)) {
+                    if editing {
+                        this.cancelEdit()
+                    }
+                    def r:CellPos (model.redo())
+                    this.moveActive(r.row r.col false)
+                }
+                ti = (ti + 1)
+            }
+        } {
+            if (input.hasText()) {
+                if editing {
+                    editBuf = (editBuf + input.textInput)
+                } {
+                    this.beginEdit(input.textInput true)
+                }
+            }
+        }
+
+        def ki:int 0
+        def kn:int (input.keyCount())
+        while (ki < kn) {
+            this.handleKey((input.keyAt(ki)) input)
+            ki = (ki + 1)
+        }
+    }
+
+    fn render:void () {
+        view.status = ("v" + (to_string model.version))
+        view.render(model sel grid editing editBuf book)
+    }
+
+    fn raw:buffer () {
+        return (view.raw())
+    }
+
+    fn sceneJson:string () {
+        view.status = ("v" + (to_string model.version))
+        return (view.sceneJson(model sel grid editing editBuf book))
+    }
+
+    fn activeLabel:string () {
+        return (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
+    }
+
+    fn activeValue:string () {
+        if editing {
+            return editBuf
+        }
+        return (model.getCell(sel.active.row sel.active.col))
+    }
+}

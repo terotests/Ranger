@@ -1,0 +1,63 @@
+; ==============================================================================
+; WorkbookModel - multi-sheet container around SpreadsheetModel.
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+
+class WorkbookModel {
+    def sheets:[SpreadsheetModel]
+    def activeIndex:int 0
+    def sourcePath:string ""
+
+    Constructor () {
+    }
+
+    fn clear:void () {
+        clear sheets
+        activeIndex = 0
+        sourcePath = ""
+    }
+
+    fn addSheet:void (sheet:SpreadsheetModel) {
+        push sheets sheet
+    }
+
+    fn sheetCount:int () {
+        return (array_length sheets)
+    }
+
+    fn sheetAt:SpreadsheetModel (i:int) {
+        return (itemAt sheets i)
+    }
+
+    fn setActive:void (i:int) {
+        if (i < 0) {
+            i = 0
+        }
+        def n:int (array_length sheets)
+        if (n == 0) {
+            activeIndex = 0
+            return
+        }
+        if (i >= n) {
+            i = (n - 1)
+        }
+        activeIndex = i
+    }
+
+    fn activeSheet:SpreadsheetModel () {
+        if ((array_length sheets) == 0) {
+            def empty:SpreadsheetModel (new SpreadsheetModel)
+            return empty
+        }
+        return (itemAt sheets activeIndex)
+    }
+
+    fn activeName:string () {
+        if ((array_length sheets) == 0) {
+            return ""
+        }
+        def s:SpreadsheetModel (itemAt sheets activeIndex)
+        return s.name
+    }
+}

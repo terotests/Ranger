@@ -1,0 +1,231 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "background": "white",
+  "padding": 5,
+  "width": 300,
+  "height": 300,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "t": "2024-03-30T00:00:00.000Z",
+          "b": 20
+        },
+        {
+          "t": "2024-03-30T06:00:00.000Z",
+          "b": 29
+        },
+        {
+          "t": "2024-03-30T12:00:00.000Z",
+          "b": 38
+        },
+        {
+          "t": "2024-03-30T18:00:00.000Z",
+          "b": 47
+        },
+        {
+          "t": "2024-03-31T00:00:00.000Z",
+          "b": 56
+        },
+        {
+          "t": "2024-03-31T06:00:00.000Z",
+          "b": 65
+        },
+        {
+          "t": "2024-03-31T12:00:00.000Z",
+          "b": 74
+        },
+        {
+          "t": "2024-03-31T18:00:00.000Z",
+          "b": 20
+        },
+        {
+          "t": "2024-04-01T00:00:00.000Z",
+          "b": 29
+        },
+        {
+          "t": "2024-04-01T06:00:00.000Z",
+          "b": 38
+        },
+        {
+          "t": "2024-04-01T12:00:00.000Z",
+          "b": 47
+        },
+        {
+          "t": "2024-04-01T18:00:00.000Z",
+          "b": 56
+        },
+        {
+          "t": "2024-04-02T00:00:00.000Z",
+          "b": 65
+        },
+        {
+          "t": "2024-04-02T06:00:00.000Z",
+          "b": 74
+        },
+        {
+          "t": "2024-04-02T12:00:00.000Z",
+          "b": 20
+        },
+        {
+          "t": "2024-04-02T18:00:00.000Z",
+          "b": 29
+        },
+        {
+          "t": "2024-04-03T00:00:00.000Z",
+          "b": 38
+        },
+        {
+          "t": "2024-04-03T06:00:00.000Z",
+          "b": 47
+        },
+        {
+          "t": "2024-04-03T12:00:00.000Z",
+          "b": 56
+        },
+        {
+          "t": "2024-04-03T18:00:00.000Z",
+          "b": 65
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "formula",
+          "expr": "toDate(datum[\"t\"])",
+          "as": "t"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "line",
+      "style": [
+        "line"
+      ],
+      "sort": {
+        "field": "x"
+      },
+      "from": {
+        "data": "data_0"
+      },
+      "encode": {
+        "update": {
+          "stroke": {
+            "value": "#4c78a8"
+          },
+          "description": {
+            "signal": "\"t: \" + (timeFormat(datum[\"t\"], \"%b %d, %Y\")) + \"; b: \" + (format(datum[\"b\"], \"\"))"
+          },
+          "x": {
+            "scale": "x",
+            "field": "t"
+          },
+          "y": {
+            "scale": "y",
+            "field": "b"
+          },
+          "defined": {
+            "signal": "isValid(datum[\"t\"]) && isFinite(+datum[\"t\"]) && isValid(datum[\"b\"]) && isFinite(+datum[\"b\"])"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "time",
+      "domain": {
+        "data": "data_0",
+        "field": "t"
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ]
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "field": "b"
+      },
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ],
+      "nice": true,
+      "zero": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "gridScale": "y",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(width/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "t",
+      "labelFlush": true,
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(width/40)"
+      },
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "b",
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "zindex": 0
+    }
+  ]
+}

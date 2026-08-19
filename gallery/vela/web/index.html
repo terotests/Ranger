@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vela — paste a Vega specification</title>
+<style>
+  /* Light is the base; the dark values only redefine the tokens. */
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --panel: #f6f7f9;
+    --ink: #1a1d21;
+    --muted: #5d6570;
+    --line: #d9dde3;
+    --accent: #2b6cb0;
+    --bad-bg: #fdf0ee;
+    --bad-line: #e5b4ab;
+    --bad-ink: #8a2c18;
+    --warn-bg: #fdf8e8;
+    --warn-line: #e3d29a;
+    --warn-ink: #6b551a;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --panel: #1c2024;
+      --ink: #e6e9ed;
+      --muted: #97a1ad;
+      --line: #2f353c;
+      --accent: #7aa9dd;
+      --bad-bg: #2c1a17;
+      --bad-line: #6b3529;
+      --bad-ink: #f0a892;
+      --warn-bg: #2a2517;
+      --warn-line: #5f5327;
+      --warn-ink: #e2cd8a;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0 0 4px; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13.5px; max-width: 78ch; }
+  header code { font-family: var(--mono); font-size: 12.5px; }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1px;
+    background: var(--line);
+    min-height: calc(100vh - 92px);
+  }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+
+  section { background: var(--bg); display: flex; flex-direction: column; min-width: 0; }
+  .bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .bar strong { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+  .grow { flex: 1; }
+
+  button, select {
+    font: inherit; font-size: 13px;
+    padding: 4px 10px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 550; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  textarea {
+    flex: 1; min-height: 340px; resize: none;
+    border: 0; outline: 0; padding: 12px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+    background: var(--bg); color: var(--ink);
+    tab-size: 2;
+  }
+
+  .out { flex: 1; overflow: auto; padding: 16px; }
+  .out svg { max-width: 100%; height: auto; }
+  .stage {
+    display: inline-block;
+    background: #fff;              /* a chart with no background of its own */
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+
+  /* The faces the EVG layout resolved to, so the GPU viewer draws the text
+     with the same metrics the layout measured. */
+  /* The family names are the ones the display list carries, which are the
+     names the layout registered — "Noto Sans-Bold" is a family here, not a
+     weight, because that is how the canvas atlas asks for it. */
+  @font-face { font-family: "Noto Sans"; src: url("gl/fonts/NotoSans-Regular.ttf") format("truetype"); }
+  @font-face { font-family: "Noto Sans-Bold"; src: url("gl/fonts/NotoSans-Bold.ttf") format("truetype"); }
+
+  #glWrap canvas, #pngWrap img {
+    border: 1px solid var(--line); border-radius: 4px; background: #fff; max-width: 100%;
+  }
+  #pngWrap img[src=""] { display: none; }
+  #pdfWrap iframe {
+    width: 100%; height: 70vh; min-height: 320px;
+    border: 1px solid var(--line); border-radius: 4px; background: #fff;
+  }
+
+  pre.vega {
+    margin: 0; padding: 12px; overflow: auto;
+    font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    color: var(--ink);
+  }
+
+  .note {
+    margin: 0 0 12px; padding: 10px 12px;
+    border: 1px solid; border-radius: 6px;
+    font-size: 13px;
+  }
+  .note ul { margin: 6px 0 0; padding-left: 20px; }
+  .note li { font-family: var(--mono); font-size: 12px; }
+  .note.bad  { background: var(--bad-bg);  border-color: var(--bad-line);  color: var(--bad-ink); }
+  .note.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+  .status { color: var(--muted); font-size: 12.5px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Vela — paste a Vega specification</h1>
+  <p>
+    This runs <strong>Ranger</strong>, not Vega. The runtime, the Vega-Lite compiler and the SVG
+    renderer below are all compiled from <code>gallery/vela/src/*.rgr</code> — the same sources that
+    compile to C++ — so what you see is what this repository draws. Paste Vega or Vega-Lite;
+    a <code>data.url</code> is fetched by the page and handed to the runtime as values, because the
+    runtime has no loader of its own. What it cannot draw, it says so rather than drawing something else.
+    The same chart is offered three ways: <strong>Chart</strong> is Vela's own SVG,
+    <strong>WebGL</strong> takes it through the EVG layout engine to a display list drawn on the GPU,
+    and <strong>PNG</strong> and <strong>PDF</strong> are finished bytes — an image from this
+    repository's own rasteriser and encoder, and a print file from its own PDF writer, faces
+    embedded. Four backends sharing one scene: if they agree, the geometry is the chart's.
+  </p>
+</header>
+
+<main>
+  <section>
+    <div class="bar">
+      <strong>Specification</strong>
+      <select id="examples" aria-label="Examples">
+        <option value="">Examples…</option>
+      </select>
+      <select id="zone" aria-label="Time zone">
+        <option value="">UTC</option>
+        <option>Europe/Helsinki</option>
+        <option>Europe/London</option>
+        <option>America/New_York</option>
+        <option>Australia/Sydney</option>
+      </select>
+      <span class="grow"></span>
+      <button class="primary" id="run">Render</button>
+    </div>
+    <textarea id="spec" spellcheck="false" placeholder="Paste a Vega or Vega-Lite specification here."></textarea>
+  </section>
+
+  <section>
+    <div class="bar">
+      <strong>Result</strong>
+      <span class="grow"></span>
+      <span class="status" id="status"></span>
+      <button id="tab-svg" class="primary">Chart</button>
+      <button id="tab-gl">WebGL</button>
+      <button id="tab-png">PNG</button>
+      <button id="tab-pdf">PDF</button>
+      <button id="tab-vega">Compiled Vega</button>
+      <button id="download">Download SVG</button>
+    </div>
+    <div class="out" id="out">
+      <div id="messages"></div>
+      <div id="chart"></div>
+      <div id="glWrap" class="hidden">
+        <p class="status" id="glNote">…</p>
+        <canvas id="gl"></canvas>
+      </div>
+      <div id="pngWrap" class="hidden">
+        <p class="status" id="pngNote">…</p>
+        <img id="pngImg" alt="">
+      </div>
+      <div id="pdfWrap" class="hidden">
+        <p class="status" id="pdfNote">…</p>
+        <iframe id="pdfFrame" title="the chart as a PDF"></iframe>
+        <p class="status">
+          The preview is your browser's own PDF viewer. Some browsers — and every headless
+          one — will not display a PDF in a frame; the file itself is fine, and
+          <strong>Download PDF</strong> gets it.
+        </p>
+      </div>
+      <pre class="vega hidden" id="vega"></pre>
+    </div>
+  </section>
+</main>
+
+<script src="vela_web.js"></script>
+<script type="module">
+  // The GPU viewer is a module; the page's own script is not, so it is handed
+  // over on the window rather than imported twice.
+  import { renderDisplayList } from "./gl/evg-webgl.js";
+  window.__evgRender = renderDisplayList;
+</script>
+<script>
+(function () {
+  "use strict";
+
+  // A relative `data.url` in a Vega-Lite example means the Vega editor's own
+  // data directory. Same base, so the examples from the Vega site work as
+  // pasted. Overridable so the page can be tested against a local server
+  // rather than against the internet.
+  var DATA_BASE = window.__VELA_DATA_BASE || "https://vega.github.io/editor/";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var specBox = $("spec"), out = $("out"), chart = $("chart"), vegaPane = $("vega");
+  var messages = $("messages"), status = $("status");
+  var lastSvg = "";
+  // The specification as the runtime saw it — data already inlined by the
+  // page. The other backends have to be given this and not what is in the
+  // box, or they would draw a different chart from the same paste.
+  var lastSpec = "";
+
+  var EXAMPLES = {
+    "Bar chart (Vega-Lite)": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "values": [
+        { "a": "A", "b": 28 }, { "a": "B", "b": 55 }, { "a": "C", "b": 43 },
+        { "a": "D", "b": 91 }, { "a": "E", "b": 81 }, { "a": "F", "b": 53 }
+      ] },
+      "mark": "bar",
+      "encoding": {
+        "x": { "field": "a", "type": "nominal" },
+        "y": { "field": "b", "type": "quantitative" }
+      }
+    },
+    "Scatter from a URL, coloured": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "url": "data/cars.json" },
+      "mark": "point",
+      "encoding": {
+        "x": { "field": "Horsepower", "type": "quantitative" },
+        "y": { "field": "Miles_per_Gallon", "type": "quantitative" },
+        "color": { "field": "Origin", "type": "nominal" }
+      }
+    },
+    "Faceted by column": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": { "url": "data/cars.json" },
+      "mark": "bar",
+      "encoding": {
+        "x": { "field": "Cylinders", "type": "ordinal" },
+        "y": { "aggregate": "mean", "field": "Horsepower", "type": "quantitative" },
+        "column": { "field": "Origin", "type": "nominal" }
+      }
+    },
+    "Every symbol shape (Vega)": {
+      "$schema": "https://vega.github.io/schema/vega/v5.json",
+      "background": "white",
+      "width": 300, "height": 54, "padding": 5,
+      "data": [ { "name": "shapes", "values": [
+        { "s": "circle" }, { "s": "square" }, { "s": "cross" }, { "s": "diamond" },
+        { "s": "triangle-up" }, { "s": "triangle-down" }, { "s": "triangle-right" },
+        { "s": "triangle-left" }, { "s": "triangle" }, { "s": "wedge" },
+        { "s": "arrow" }, { "s": "stroke" }
+      ] } ],
+      "scales": [ { "name": "x", "type": "point", "domain": { "data": "shapes", "field": "s" },
+        "range": [0, { "signal": "width" }], "padding": 0.5 } ],
+      "axes": [ { "scale": "x", "orient": "bottom", "labelAngle": -40, "labelAlign": "right", "labelBaseline": "middle" } ],
+      "marks": [ { "type": "symbol", "from": { "data": "shapes" }, "encode": { "update": {
+        "x": { "scale": "x", "field": "s" }, "y": { "signal": "height / 2" },
+        "size": { "value": 260 }, "shape": { "field": "s" },
+        "fill": { "value": "#4c78a8" }, "fillOpacity": { "value": 0.55 },
+        "stroke": { "value": "#1c3f5e" }, "strokeWidth": { "value": 1.5 }
+      } } } ]
+    },
+    "A line the runtime refuses": {
+      "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+      "data": { "url": "data/movies.json" },
+      "layer": [
+        { "mark": { "type": "point", "filled": true },
+          "encoding": {
+            "x": { "field": "Rotten Tomatoes Rating", "type": "quantitative" },
+            "y": { "field": "IMDB Rating", "type": "quantitative" }
+          } },
+        { "mark": { "type": "line", "color": "firebrick" },
+          "transform": [ { "loess": "IMDB Rating", "on": "Rotten Tomatoes Rating" } ],
+          "encoding": {
+            "x": { "field": "Rotten Tomatoes Rating", "type": "quantitative" },
+            "y": { "field": "IMDB Rating", "type": "quantitative" }
+          } }
+      ]
+    }
+  };
+
+  // ---- data loading -------------------------------------------------------
+  // The runtime takes values, not URLs. Everything about fetching, parsing and
+  // guessing what a CSV column meant belongs out here, in the host.
+
+  function urlsIn(spec) {
+    var found = [];
+    (function walk(node) {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      if (typeof node.url === "string" && !("values" in node)) found.push(node);
+      Object.keys(node).forEach(function (k) { walk(node[k]); });
+    })(spec);
+    return found;
+  }
+
+  function parseData(text, url, format) {
+    var type = (format && format.type) || guessType(url);
+    if (type === "json") {
+      var parsed = JSON.parse(text);
+      if (format && format.property) parsed = parsed[format.property];
+      return parsed;
+    }
+    return parseDelimited(text, type === "tsv" ? "\t" : ((format && format.delimiter) || ","));
+  }
+
+  function guessType(url) {
+    var clean = String(url).split("?")[0].toLowerCase();
+    if (clean.endsWith(".tsv")) return "tsv";
+    if (clean.endsWith(".csv")) return "csv";
+    return "json";
+  }
+
+  // Enough of a delimited-text reader for the example data sets: quoted
+  // fields, doubled quotes inside them, and CRLF.
+  function parseDelimited(text, delim) {
+    var rows = [], row = [], field = "", quoted = false, i = 0;
+    while (i < text.length) {
+      var c = text[i];
+      if (quoted) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+          quoted = false; i++; continue;
+        }
+        field += c; i++; continue;
+      }
+      if (c === '"') { quoted = true; i++; continue; }
+      if (c === delim) { row.push(field); field = ""; i++; continue; }
+      if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(field); rows.push(row); row = []; field = ""; i++; continue;
+      }
+      field += c; i++;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    if (!rows.length) return [];
+
+    var header = rows.shift();
+    return rows.filter(function (r) { return r.length > 1 || r[0] !== ""; })
+      .map(function (r) {
+        var o = {};
+        header.forEach(function (name, k) { o[name] = coerce(r[k]); });
+        return o;
+      });
+  }
+
+  // A delimited file has no types. A column that reads as a number is one —
+  // the same guess every loader makes, and the reason an axis comes out
+  // ordinal when one row holds a stray dash.
+  function coerce(v) {
+    if (v === undefined || v === "") return null;
+    var n = Number(v);
+    return (v.trim() !== "" && !Number.isNaN(n)) ? n : v;
+  }
+
+  // A relative url is looked for HERE first. The files beside this page carry
+  // the names the published examples ask for — data/cars.json,
+  // data/seattle-weather.csv — with the same columns and entirely invented
+  // numbers, so an example pasted from the Vega site draws without a network
+  // and without this repository depending on someone else's server.
+  //
+  // Which one was used is reported on every chart, because a plausible chart
+  // of Seattle weather that is not Seattle's weather is a worse outcome than
+  // no chart at all.
+  async function inlineData(spec) {
+    var pending = urlsIn(spec);
+    if (!pending.length) return [];
+    var notes = [];
+    for (var i = 0; i < pending.length; i++) {
+      var node = pending[i];
+      var absolute = /^[a-z]+:\/\//i.test(node.url);
+      status.textContent = "loading " + node.url + "…";
+
+      var text = null, ours = false;
+      if (!absolute) {
+        var local = await fetch(node.url).catch(function () { return null; });
+        if (local && local.ok) { text = await local.text(); ours = true; }
+      }
+      if (text === null) {
+        var url = absolute ? node.url : DATA_BASE + node.url;
+        var response = await fetch(url).catch(function () { return null; });
+        if (!response || !response.ok) {
+          throw new Error("could not load " + node.url
+            + (response ? " (" + response.status + ")" : " — no copy here, and the network did not answer"));
+        }
+        text = await response.text();
+      }
+
+      var values = parseData(text, node.url, node.format);
+      notes.push(node.url + " — " + values.length + " rows, "
+        + (ours ? "from this page's own stand-in data (invented numbers, real column names)"
+                : "fetched from " + DATA_BASE));
+      node.values = values;
+      delete node.url;
+      delete node.format;
+    }
+    return notes;
+  }
+
+  // ---- rendering ----------------------------------------------------------
+
+  function note(kind, title, lines) {
+    var el = document.createElement("div");
+    el.className = "note " + kind;
+    el.appendChild(Object.assign(document.createElement("div"), { textContent: title }));
+    if (lines && lines.length) {
+      var ul = document.createElement("ul");
+      lines.forEach(function (line) {
+        ul.appendChild(Object.assign(document.createElement("li"), { textContent: line }));
+      });
+      el.appendChild(ul);
+    }
+    messages.appendChild(el);
+  }
+
+  // Counted so that a test can tell "the render I asked for has finished" from
+  // "the previous render's output is still on screen". Waiting for the status
+  // line to change cannot: the new render may not have started yet.
+  window.__velaRenders = 0;
+
+  async function render() {
+    try {
+      await draw();
+      // The other backends are only rebuilt when one of them is the tab being
+      // looked at — laying a chart out again for a pane nobody has opened is
+      // waste, and the rasteriser is not cheap.
+      if (glTab.active) await drawGl();
+      if (pngTab.active) await drawPng();
+      if (pdfTab.active) await drawPdf();
+    } finally {
+      window.__velaRenders++;
+    }
+  }
+
+  async function draw() {
+    messages.textContent = "";
+    chart.textContent = "";
+    vegaPane.textContent = "";
+    lastSvg = "";
+    lastSpec = "";
+    status.textContent = "…";
+
+    var text = specBox.value.trim();
+    if (!text) { status.textContent = ""; return; }
+
+    var spec;
+    try {
+      spec = JSON.parse(text);
+    } catch (err) {
+      // Not JSON yet — let the runtime say so, since its message names the
+      // place. But a trailing comma is worth naming here.
+      spec = null;
+    }
+
+    var loaded = [];
+    if (spec) {
+      try {
+        loaded = await inlineData(spec);
+      } catch (err) {
+        status.textContent = "";
+        note("bad", String(err.message || err));
+        return;
+      }
+      text = JSON.stringify(spec);
+    }
+
+    var answer;
+    try {
+      answer = JSON.parse(VelaWeb.render(text, $("zone").value));
+    } catch (err) {
+      status.textContent = "";
+      note("bad", "the runtime threw: " + (err && err.message ? err.message : String(err)));
+      return;
+    }
+
+    if (loaded.length) note("warn", "Fetched by the page, not by the runtime:", loaded);
+
+    if (!answer.ok) {
+      status.textContent = "did not draw";
+      note("bad", "Vela will not draw this:", answer.errors || []);
+      return;
+    }
+    if (answer.warnings && answer.warnings.length) {
+      note("warn", "Drawn, with reservations:", answer.warnings);
+    }
+
+    lastSvg = answer.svg;
+    lastSpec = text;
+    var stage = document.createElement("div");
+    stage.className = "stage";
+    stage.innerHTML = answer.svg;
+    chart.appendChild(stage);
+    vegaPane.textContent = answer.vega || "(this was already Vega — nothing to compile)";
+    status.textContent = answer.commands + " draw commands";
+  }
+
+  // ---- the GPU target -----------------------------------------------------
+  // The same chart, taken the other way round the repository: the
+  // specification becomes EVG page source, that source is parsed, styled and
+  // laid out with real TrueType metrics, and the flat display list which falls
+  // out of the layout is handed to the WebGL viewer. Everything up to the
+  // viewer is Ranger — the runtime, the EVG writer, the JSX parser, the layout
+  // engine — and the viewer is the same one the EVG showcase uses.
+  //
+  // So the two tabs are not two drawings of one picture. They are two
+  // backends, sharing only the scene: if they agree, the geometry is the
+  // scene's and not the renderer's.
+  //
+  // Fonts are the one thing the browser has to hand over. The layout measures
+  // with the actual faces, and the loader that would read them off disk has no
+  // disk here, so the page fetches the TTFs and passes the bytes in.
+
+  var FACES = [
+    ["Noto Sans", "gl/fonts/NotoSans-Regular.ttf"],
+    ["Noto Sans-Bold", "gl/fonts/NotoSans-Bold.ttf"]
+  ];
+
+  var glWrap = $("glWrap"), glNote = $("glNote"), glCanvas = $("gl");
+  var pngWrap = $("pngWrap"), pngNote = $("pngNote"), pngImg = $("pngImg");
+  var pdfWrap = $("pdfWrap"), pdfNote = $("pdfNote"), pdfFrame = $("pdfFrame");
+  var glTab = { active: false, drawn: null, loading: null, targets: null };
+  var pngTab = { active: false, drawn: null, url: "", bytes: 0 };
+  var pdfTab = { active: false, drawn: null, url: "", bytes: 0 };
+
+  // The EVG bundle is a second copy of the whole engine and is about a
+  // megabyte, so it is fetched when the tab is first opened rather than on
+  // load. Nobody pays for a target they never look at.
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error(src + " did not load")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function glTargets() {
+    if (glTab.loading) return glTab.loading;
+    glTab.loading = (async function () {
+      if (typeof window.VelaTargets !== "function") await loadScript("vela_targets.js");
+      if (typeof window.VelaTargets !== "function") {
+        throw new Error("vela_targets.js loaded but defines no VelaTargets");
+      }
+      var t = new window.VelaTargets();
+      for (var i = 0; i < FACES.length; i++) {
+        var res = await fetch(FACES[i][1]);
+        if (!res.ok) throw new Error(FACES[i][1] + " — HTTP " + res.status);
+        var bytes = await res.arrayBuffer();
+        // A Ranger `buffer` is an ArrayBuffer with a DataView hung off it —
+        // that is what its own loader attaches, so handing bytes in from
+        // outside means doing the same.
+        bytes._view = new DataView(bytes);
+        if (!t.addFont(FACES[i][0], bytes)) {
+          throw new Error(FACES[i][1] + " is not a TrueType font");
+        }
+      }
+      glTab.targets = t;
+      return t;
+    })();
+    return glTab.loading;
+  }
+
+  // A fresh canvas per drawing. A WebGL context lives as long as the element
+  // it came from, and the viewer builds its programs and atlas on every call,
+  // so reusing one canvas would pile up a context's worth of state per render.
+  function freshCanvas(width, height, dpr) {
+    var c = document.createElement("canvas");
+    c.id = "gl";
+    c.style.width = width + "px";
+    c.style.height = height + "px";
+    c.width = Math.round(width * dpr);
+    c.height = Math.round(height * dpr);
+    glCanvas.replaceWith(c);
+    glCanvas = c;
+    return c;
+  }
+
+  async function drawGl() {
+    var key = lastSpec + "\u0000" + $("zone").value;
+    if (!lastSpec) {
+      glNote.textContent = "Nothing has been drawn yet.";
+      glTab.drawn = null;
+      return;
+    }
+    if (glTab.drawn === key) return;      // already on screen
+    glTab.drawn = null;
+
+    glNote.textContent = "reading the faces…";
+    var targets;
+    try {
+      targets = await glTargets();
+    } catch (err) {
+      glNote.textContent = "the fonts the layout measures with could not be read: "
+        + (err && err.message ? err.message : String(err));
+      return;
+    }
+
+    glNote.textContent = "laying the chart out with TrueType metrics…";
+    var tsx = targets.evgSource(lastSpec, $("zone").value);
+    if (!tsx) {
+      glNote.textContent = "the EVG backend would not draw this: " + targets.errors.join(" · ");
+      return;
+    }
+    var json = targets.displayList(tsx, "", "", targets.pageWidth, targets.pageHeight);
+    if (!json) {
+      glNote.textContent = "the layout produced nothing: " + targets.errors.join(" · ");
+      return;
+    }
+    var doc = JSON.parse(json);
+
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var canvas = freshCanvas(doc.width, doc.height, dpr);
+    var gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+    if (!gl) {
+      glNote.textContent = "this browser has no WebGL 2, so there is nothing to draw the display list with";
+      return;
+    }
+
+    // A face nothing has used yet is not fetched until something asks for it
+    // at a size, and the atlas is drawn on a canvas — which would silently
+    // fall back to a default face if the real one had not arrived.
+    await document.fonts.ready;
+    await Promise.all(doc.list.cmds.filter(function (c) { return c.text; })
+      .map(function (c) {
+        return document.fonts.load(c.size + 'px "' + c.font + '"').catch(function () {});
+      }));
+
+    if (typeof window.__evgRender !== "function") {
+      glNote.textContent = "the WebGL viewer module did not load (gl/evg-webgl.js)";
+      return;
+    }
+    var stats;
+    try {
+      stats = window.__evgRender(gl, doc, { dpr });
+    } catch (err) {
+      window.__evgStats = { error: String(err) };
+      glNote.textContent = "the viewer threw: " + (err && err.message ? err.message : String(err));
+      return;
+    }
+    window.__evgStats = stats;
+    glTab.drawn = key;
+    glNote.textContent = doc.width + "×" + doc.height + " · " + stats.drawn + " quads · "
+      + (stats.paths || 0) + " paths · " + stats.textRuns + " text runs"
+      + (stats.skippedFills ? " · " + stats.skippedFills + " fills need a stencil buffer" : "")
+      + (targets.errors.length ? " · " + targets.errors.join(" · ") : "");
+  }
+
+  // ---- the raster target --------------------------------------------------
+  // The third way out of the same layout: this repository's own scan-line
+  // rasteriser fills the paths and paints the glyph outlines, and its own
+  // encoder deflates the result into a PNG. The browser is handed finished
+  // bytes — no canvas, no GPU — so what is on screen here was computed by
+  // Ranger down to the last row of the image.
+
+  async function drawPng() {
+    var key = lastSpec + "\u0000" + $("zone").value;
+    if (!lastSpec) {
+      pngNote.textContent = "Nothing has been drawn yet.";
+      pngTab.drawn = null;
+      return;
+    }
+    if (pngTab.drawn === key) return;
+    pngTab.drawn = null;
+
+    var targets;
+    try {
+      targets = await glTargets();
+    } catch (err) {
+      pngNote.textContent = "the fonts the rasteriser paints with could not be read: "
+        + (err && err.message ? err.message : String(err));
+      return;
+    }
+
+    var tsx = targets.evgSource(lastSpec, $("zone").value);
+    if (!tsx) {
+      pngNote.textContent = "the EVG backend would not draw this: " + targets.errors.join(" · ");
+      return;
+    }
+    var scale = Math.min(2, window.devicePixelRatio || 1);
+    var wide = Math.round(targets.pageWidth), tall = Math.round(targets.pageHeight);
+    pngNote.textContent = "rasterising " + Math.round(wide * scale) + "×" + Math.round(tall * scale)
+      + " pixels in Ranger…";
+    // The rasteriser runs on this thread, so the line above has to be given a
+    // frame to appear in before the page stops answering.
+    await new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
+
+    var started = performance.now();
+    var bytes;
+    try {
+      bytes = targets.png(tsx, "", "", targets.pageWidth, targets.pageHeight, scale);
+    } catch (err) {
+      pngNote.textContent = "the rasteriser threw: " + (err && err.message ? err.message : String(err));
+      return;
+    }
+    if (!bytes || !bytes.byteLength) {
+      pngNote.textContent = "the rasteriser produced no image: " + targets.errors.join(" · ");
+      return;
+    }
+    var took = Math.round(performance.now() - started);
+
+    if (pngTab.url) URL.revokeObjectURL(pngTab.url);
+    pngTab.url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    pngTab.bytes = bytes.byteLength;
+    pngImg.src = pngTab.url;
+    pngImg.style.width = wide + "px";
+    pngImg.style.height = tall + "px";
+    pngTab.drawn = key;
+    pngNote.textContent = Math.round(wide * scale) + "×" + Math.round(tall * scale) + " pixels · "
+      + Math.round(bytes.byteLength / 1024) + " kB · encoded in " + took + " ms by Ranger's own"
+      + " rasteriser and PNG writer";
+    window.__velaPng = { bytes: bytes.byteLength, width: Math.round(wide * scale), ms: took };
+  }
+
+  // ---- the print target ---------------------------------------------------
+  // Where the EVG layer started: a real PDF, with the faces embedded, written
+  // by this repository's own PDF writer. The browser is only asked to display
+  // it — which it does with its own viewer, from a blob — so nothing about
+  // the file is the page's doing.
+
+  async function drawPdf() {
+    var key = lastSpec + "\u0000" + $("zone").value;
+    if (!lastSpec) {
+      pdfNote.textContent = "Nothing has been drawn yet.";
+      pdfTab.drawn = null;
+      return;
+    }
+    if (pdfTab.drawn === key) return;
+    pdfTab.drawn = null;
+
+    var targets;
+    try {
+      targets = await glTargets();
+    } catch (err) {
+      pdfNote.textContent = "the fonts the PDF embeds could not be read: "
+        + (err && err.message ? err.message : String(err));
+      return;
+    }
+
+    var tsx = targets.evgSource(lastSpec, $("zone").value);
+    if (!tsx) {
+      pdfNote.textContent = "the EVG backend would not draw this: " + targets.errors.join(" \u00b7 ");
+      return;
+    }
+    pdfNote.textContent = "writing a PDF, with the faces embedded\u2026";
+    await new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
+
+    var started = performance.now();
+    var bytes;
+    try {
+      bytes = targets.pdf(tsx, "", "", targets.pageWidth, targets.pageHeight);
+    } catch (err) {
+      pdfNote.textContent = "the PDF writer threw: " + (err && err.message ? err.message : String(err));
+      return;
+    }
+    if (!bytes || !bytes.byteLength) {
+      pdfNote.textContent = "no PDF was produced: " + targets.errors.join(" \u00b7 ");
+      return;
+    }
+    var took = Math.round(performance.now() - started);
+
+    if (pdfTab.url) URL.revokeObjectURL(pdfTab.url);
+    pdfTab.url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    pdfTab.bytes = bytes.byteLength;
+    pdfFrame.src = pdfTab.url;
+    pdfTab.drawn = key;
+    // Most of the size is the embedded face, which is worth saying — a 240 kB
+    // PDF of a bar chart looks alarming until you know what is in it.
+    pdfNote.textContent = Math.round(targets.pageWidth) + "\u00d7" + Math.round(targets.pageHeight)
+      + " pt \u00b7 " + Math.round(bytes.byteLength / 1024) + " kB, mostly the embedded faces \u00b7 written in "
+      + took + " ms by this repository's own PDF writer"
+      + (targets.errors.length ? " \u00b7 " + targets.errors.join(" \u00b7 ") : "");
+    window.__velaPdf = { bytes: bytes.byteLength, ms: took };
+  }
+
+  // ---- wiring -------------------------------------------------------------
+
+  function showTab(which) {
+    chart.classList.toggle("hidden", which !== "svg");
+    vegaPane.classList.toggle("hidden", which !== "vega");
+    glWrap.classList.toggle("hidden", which !== "gl");
+    pngWrap.classList.toggle("hidden", which !== "png");
+    pdfWrap.classList.toggle("hidden", which !== "pdf");
+    ["svg", "gl", "png", "pdf", "vega"].forEach(function (id) {
+      $("tab-" + id).className = which === id ? "primary" : "";
+    });
+    glTab.active = which === "gl";
+    pngTab.active = which === "png";
+    pdfTab.active = which === "pdf";
+    // What the download button hands over follows the tab, since the three
+    // panes are three different files and only one of them is on screen.
+    $("download").textContent = which === "png" ? "Download PNG"
+      : which === "pdf" ? "Download PDF" : "Download SVG";
+    if (glTab.active) drawGl();
+    if (pngTab.active) drawPng();
+    if (pdfTab.active) drawPdf();
+  }
+
+  $("run").addEventListener("click", render);
+  ["svg", "gl", "png", "pdf", "vega"].forEach(function (id) {
+    $("tab-" + id).addEventListener("click", function () { showTab(id); });
+  });
+  $("zone").addEventListener("change", render);
+
+  $("download").addEventListener("click", function () {
+    var a = document.createElement("a");
+    if (pngTab.active || pdfTab.active) {
+      var tab = pngTab.active ? pngTab : pdfTab;
+      if (!tab.url) return;
+      a.href = tab.url;                    // already an object URL; not revoked
+      a.download = pngTab.active ? "vela.png" : "vela.pdf";
+      a.click();
+      return;
+    }
+    if (!lastSvg) return;
+    a.href = URL.createObjectURL(new Blob([lastSvg], { type: "image/svg+xml" }));
+    a.download = "vela.svg";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  // Ctrl/Cmd+Enter renders, which is what anyone who has used an editor
+  // expects; typing does not, because fetching on every keystroke is rude to
+  // whoever is hosting the data.
+  specBox.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); render(); }
+  });
+
+  var picker = $("examples");
+  Object.keys(EXAMPLES).forEach(function (name) {
+    if (!EXAMPLES[name]) return;
+    picker.appendChild(Object.assign(document.createElement("option"), { value: name, textContent: name }));
+  });
+  picker.addEventListener("change", function () {
+    var chosen = EXAMPLES[picker.value];
+    if (!chosen) return;
+    specBox.value = JSON.stringify(chosen, null, 2);
+    picker.value = "";
+    render();
+  });
+
+  specBox.value = JSON.stringify(EXAMPLES["Bar chart (Vega-Lite)"], null, 2);
+  render();
+})();
+</script>
+</body>
+</html>

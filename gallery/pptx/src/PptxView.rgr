@@ -1,0 +1,286 @@
+; ==============================================================================
+; PptxView - SoftCanvas / WebGL present for a resolved slide
+; ==============================================================================
+
+Import "PptxModel.rgr"
+Import "PptxToEvg.rgr"
+Import "PptxImageDecode.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class PptxView {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def converter:PptxToEvg (new PptxToEvg())
+    def pageW:int 960
+    def pageH:int 720
+    def chromeH:int 28
+    def fontFamily:string "Open Sans"
+    def status:string ""
+    def deckName:string ""
+    def slideIndex:int 0
+    def slideCount:int 0
+    ; imagePart → decoded RGBA (filled by PptxApp after load)
+    def imageCache:[string:ImageBuffer]
+
+    Constructor () {
+    }
+
+    fn init:void (w:int h:int fontDir:string) {
+        pageW = w
+        pageH = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.addFontDir(fontDir)
+        def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
+        if (ok == false) {
+            status = "bitmap-font fallback"
+        } {
+            status = "ready"
+        }
+        ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Italic.ttf")
+        ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-BoldItalic.ttf")
+        ctx.tr.fontFamily = fontFamily
+        ctx.tr.applyFace()
+    }
+
+    fn clearImages:void () {
+        def empty:[string:ImageBuffer]
+        imageCache = empty
+    }
+
+    fn cacheImage:void (part:string bytes:buffer) {
+        if ((strlen part) == 0) {
+            return
+        }
+        def existing@(optional):ImageBuffer (get imageCache part)
+        if (!null? existing) {
+            return
+        }
+        def decoded@(optional):ImageBuffer (PptxImageDecode.decode(bytes))
+        if (!null? decoded) {
+            set imageCache part (unwrap decoded)
+        }
+    }
+
+    fn cacheShapeImages:void (shape:PptxShape) {
+        if (shape.kind == 1) {
+            if ((buffer_length shape.imageBytes) > 0) {
+                this.cacheImage(shape.imagePart shape.imageBytes)
+                def hit@(optional):ImageBuffer (get imageCache shape.imagePart)
+                if (!null? hit) {
+                    shape.imageOk = true
+                }
+            }
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            this.cacheShapeImages((itemAt shape.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn cachePresentationImages:void (pres:PptxPresentation) {
+        this.clearImages()
+        def si:int 0
+        while (si < (array_length pres.slides)) {
+            def slide:PptxSlide (itemAt pres.slides si)
+            def j:int 0
+            while (j < (array_length slide.shapes)) {
+                this.cacheShapeImages((itemAt slide.shapes j))
+                j = (j + 1)
+            }
+            si = (si + 1)
+        }
+    }
+
+    fn resize:void (w:int h:int) {
+        pageW = w
+        pageH = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.clearCache()
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn fitScale:double (slide:PptxSlide) {
+        def availW:double (to_double pageW)
+        def availH:double (to_double (pageH - chromeH))
+        def slideWpx:double (slide.width * (96.0 / 72.0))
+        def slideHpx:double (slide.height * (96.0 / 72.0))
+        if (slideWpx <= 0.0) {
+            return 1.0
+        }
+        if (slideHpx <= 0.0) {
+            return 1.0
+        }
+        def sx:double (availW / slideWpx)
+        def sy:double (availH / slideHpx)
+        if (sx < sy) {
+            return sx
+        }
+        return sy
+    }
+
+    fn paintChrome:void (dl:EVGDisplayList) {
+        def y:double (to_double (pageH - chromeH))
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = 0.0
+        c.y = y
+        c.w = (to_double pageW)
+        c.h = (to_double chromeH)
+        c.r = 30
+        c.g = 34
+        c.b = 48
+        c.a = 1.0
+        push dl.cmds c
+        def label:string (("  " + deckName + "  ·  ") + (to_string (slideIndex + 1)) + (" / " + (to_string slideCount)) + "   ← →   " + status)
+        def t (new EVGDrawCmd())
+        t.kind = 3
+        t.x = 8.0
+        t.y = (y + 6.0)
+        t.text = label
+        t.fontFamily = fontFamily
+        t.fontSize = 13.0
+        t.r = 180
+        t.g = 190
+        t.b = 210
+        t.a = 1.0
+        push dl.cmds t
+    }
+
+    fn buildDisplayList:EVGDisplayList (slide:PptxSlide) {
+        converter.setScale((this.fitScale(slide)))
+        def dl:EVGDisplayList (converter.slideToDisplayList(slide))
+        this.paintChrome(dl)
+        return dl
+    }
+
+    fn paintTextCmd:void (c:EVGDrawCmd) {
+        def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+        def prevFamily:string ctx.tr.fontFamily
+        ctx.tr.fontFamily = fontFamily
+        if (c.fontWeight == "bold") {
+            ctx.tr.fontFamily = "Open Sans-Bold"
+        }
+        if (c.fontWeight == "italic") {
+            ctx.tr.fontFamily = "Open Sans-Italic"
+        }
+        if (c.fontWeight == "bolditalic") {
+            ; FontManager style string is "Bold Italic" (space), not "BoldItalic"
+            ctx.tr.fontFamily = "Open Sans-Bold Italic"
+        }
+        def x:double c.x
+        def y:double c.y
+        def size:double c.fontSize
+        if ((strlen c.textAlign) > 0) {
+            if (c.w > 0.0) {
+                def mw:double (ctx.measureWidth(c.text size))
+                if (c.textAlign == "center") {
+                    x = (c.x + ((c.w - mw) * 0.5))
+                }
+                if (c.textAlign == "right") {
+                    x = (c.x + (c.w - mw))
+                }
+            }
+        }
+        if (c.maxWidth > 8.0) {
+            ctx.textWrapped(c.text (to_int x) (to_int y) size c.maxWidth col)
+        } {
+            ctx.text(c.text (to_int x) (to_int y) size col)
+        }
+        ctx.tr.fontFamily = prevFamily
+    }
+
+    fn paintSoftCanvas:void (dl:EVGDisplayList) {
+        canvas.clear(40 44 58)
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 0) {
+                if c.hasShadow {
+                    ctx.shadowRoundRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) (to_int c.shadowX) (to_int c.shadowY) (to_int c.shadowBlur) c.shadowR c.shadowG c.shadowB (to_int (c.shadowA * 255.0)))
+                }
+                if c.hasGrad {
+                    ctx.fillRoundRectGrad((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) c.gradDir c.r c.g c.b (to_int (c.a * 255.0)) c.r2 c.g2 c.b2 (to_int (c.a2 * 255.0)))
+                } {
+                    if (c.a > 0.001) {
+                        def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                        if (c.radius > 0.5) {
+                            ctx.fillRoundRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) col)
+                        } {
+                            ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
+                        }
+                    }
+                }
+            }
+            if (c.kind == 1) {
+                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
+            }
+            if (c.kind == 3) {
+                this.paintTextCmd(c)
+            }
+            if (c.kind == 2) {
+                def img@(optional):ImageBuffer (get imageCache c.src)
+                if (!null? img) {
+                    def pixels:ImageBuffer (unwrap img)
+                    if ((pixels.width > 0) && (pixels.height > 0)) {
+                        canvas.blitImageRectScaled(pixels 0 0 pixels.width pixels.height (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h))
+                    } {
+                        ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (EVGColor.rgb(180 198 230)))
+                    }
+                } {
+                    ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (EVGColor.rgb(180 198 230)))
+                    ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 2 (EVGColor.rgb(68 114 196)))
+                    ctx.text("[image]" (to_int (c.x + 8.0)) (to_int (c.y + 8.0)) 14.0 (EVGColor.rgb(30 50 90)))
+                }
+            }
+            if (c.kind == 6) {
+                ctx.fillPolygon(c.pts c.r c.g c.b (to_int (c.a * 255.0)))
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn render:void (slide:PptxSlide index:int count:int) {
+        slideIndex = index
+        slideCount = count
+        def dl:EVGDisplayList (this.buildDisplayList(slide))
+        this.paintSoftCanvas(dl)
+    }
+
+    ; Oracle / visual-diff path: paint the slide alone at 96dpi (1pt = 96/72 px),
+    ; no chrome, no fit-to-window scale.
+    fn renderOracleSlide:void (slide:PptxSlide dpiScale:double) {
+        converter.setScale(dpiScale)
+        def pw:int (to_int ((slide.width * (96.0 / 72.0) * dpiScale) + 0.5))
+        def ph:int (to_int ((slide.height * (96.0 / 72.0) * dpiScale) + 0.5))
+        if (pw < 1) {
+            pw = 1
+        }
+        if (ph < 1) {
+            ph = 1
+        }
+        this.resize(pw ph)
+        def dl:EVGDisplayList (converter.slideToDisplayList(slide))
+        this.paintSoftCanvas(dl)
+    }
+
+    fn sceneJson:string (slide:PptxSlide index:int count:int) {
+        slideIndex = index
+        slideCount = count
+        def dl:EVGDisplayList (this.buildDisplayList(slide))
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num((to_double pageW))) + ",\"height\":" + (EVGDisplayList.num((to_double pageH))) + ",\"list\":" + body + "}")
+    }
+}

@@ -1,0 +1,209 @@
+; ==============================================================================
+; WorkbookTest - number formats, formulas, sort/filter, hidden, multi-sheet.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+Import "../src/XlsxNumberFormat.rgr"
+Import "../src/FormulaEngine.rgr"
+Import "../src/SheetView.rgr"
+Import "../src/ConditionalFormat.rgr"
+Import "../src/xlsx/XlsxLoader.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class WorkbookTest {
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== number format engine =="
+        c.eqStr("int" (XlsxNumberFormat.format("42" "0")) "42")
+        c.eqStr("dec" (XlsxNumberFormat.format("4.5" "0.00")) "4.50")
+        c.eqStr("pct" (XlsxNumberFormat.format("0.25" "0%")) "25%")
+        c.eqStr("pct2" (XlsxNumberFormat.format("0.256" "0.00%")) "25.60%")
+        c.eqStr("usd" (XlsxNumberFormat.format("1999.5" "$#,##0.00")) "$1,999.50")
+        c.eqStr("sci" (XlsxNumberFormat.format("12345" "0.00E+00")) "1.23E+04")
+        c.eqStr("neg sec" (XlsxNumberFormat.format("-3" "#,##0.00;-#,##0.00;-")) "-3.00")
+        c.eqStr("zero sec" (XlsxNumberFormat.format("0" "#,##0.00;-#,##0.00;-")) "-")
+        c.eqStr("text" (XlsxNumberFormat.format("hi" "@")) "hi")
+
+        print "== formula engine =="
+        def book:WorkbookModel (new WorkbookModel)
+        def s:SpreadsheetModel (new SpreadsheetModel)
+        s.name = "Calc"
+        s.resize(20 10)
+        s.setCellRaw(0 0 "10")
+        s.setCellRaw(1 0 "20")
+        s.setFormula(0 1 "A1+A2")
+        s.setFormula(0 2 "B1*2")
+        s.setFormula(0 3 "SUM(A1:A2)")
+        s.setFormula(0 4 "IF(A1>5,1,0)")
+        book.addSheet(s)
+        def eng:FormulaEngine (new FormulaEngine)
+        eng.attach(book)
+        eng.rebuildAll()
+        c.eqStr("B1" (s.getCell(0 1)) "30")
+        c.eqStr("C1" (s.getCell(0 2)) "60")
+        c.eqStr("D1 SUM" (s.getCell(0 3)) "30")
+        c.eqStr("E1 IF" (s.getCell(0 4)) "1")
+        s.setCellRaw(0 0 "11")
+        eng.onCellEdited(0 0 0)
+        c.eqStr("recalc B1" (s.getCell(0 1)) "31")
+        c.eqStr("recalc C1" (s.getCell(0 2)) "62")
+
+        print "== cycle detection =="
+        def s2:SpreadsheetModel (new SpreadsheetModel)
+        s2.name = "Cyc"
+        s2.resize(5 5)
+        s2.setFormula(0 0 "B1")
+        s2.setFormula(0 1 "A1")
+        def book2:WorkbookModel (new WorkbookModel)
+        book2.addSheet(s2)
+        def eng2:FormulaEngine (new FormulaEngine)
+        eng2.attach(book2)
+        eng2.rebuildAll()
+        c.ok("cycle error" (((s2.getCell(0 0)) == "#CYCLE!") || ((s2.getCell(0 1)) == "#CYCLE!")))
+
+        print "== hidden rows/cols =="
+        def m:SpreadsheetModel (new SpreadsheetModel)
+        m.resize(10 5)
+        def h0:int (m.totalHeight())
+        m.setRowHidden(3 true)
+        m.ensureGeometry()
+        c.ok("hidden shrinks height" ((m.totalHeight()) < h0))
+        def w0:int (m.totalWidth())
+        m.setColHidden(2 true)
+        m.ensureGeometry()
+        c.ok("hidden shrinks width" ((m.totalWidth()) < w0))
+
+        print "== filter =="
+        m.setCellRaw(0 0 "H")
+        m.setCellRaw(1 0 "A")
+        m.setCellRaw(2 0 "B")
+        m.setCellRaw(3 0 "A")
+        m.setFreeze(1 0)
+        def vals:[string]
+        push vals "A"
+        m.setFilter(0 true vals)
+        m.ensureGeometry()
+        def y2:int (m.rowToY(2))
+        def y3:int (m.rowToY(3))
+        c.ok("filter suppressed B row height" ((y3 - y2) == 0))
+
+        print "== sheet view sort =="
+        def sv:SheetView (new SheetView)
+        def ms:SpreadsheetModel (new SpreadsheetModel)
+        ms.resize(4 2)
+        ms.setCellRaw(0 0 "h")
+        ms.setCellRaw(1 0 "3")
+        ms.setCellRaw(2 0 "1")
+        ms.setCellRaw(3 0 "2")
+        ms.setFreeze(1 0)
+        ms.setSort(0 true)
+        sv.attach(ms)
+        c.eqInt("sorted first body" (sv.modelRow(1)) 2)
+        c.eqInt("header stays" (sv.modelRow(0)) 0)
+
+        print "== formats.xlsx =="
+        def loader:XlsxLoader (new XlsxLoader)
+        def bookF:WorkbookModel (new WorkbookModel)
+        def okF:boolean (loader.loadPath("gallery/datagrid/fixtures/formats.xlsx" bookF))
+        c.ok("formats load" okF)
+
+        print "== formulas.xlsx =="
+        def bookFm:WorkbookModel (new WorkbookModel)
+        def okFm:boolean (loader.loadPath("gallery/datagrid/fixtures/formulas.xlsx" bookFm))
+        c.ok("formulas load" okFm)
+        if okFm {
+            def calc:SpreadsheetModel (bookFm.sheetAt(0))
+            c.eqStr("xlsx B1" (calc.getCell(0 1)) "30")
+            c.eqStr("xlsx C1" (calc.getCell(0 2)) "60")
+            c.eqStr("xlsx cross" (calc.getCell(0 7)) "21")
+        }
+
+        print "== business-workbook.xlsx =="
+        def bookB:WorkbookModel (new WorkbookModel)
+        def okB:boolean (loader.loadPath("gallery/datagrid/fixtures/business-workbook.xlsx" bookB))
+        c.ok("business load" okB)
+        if okB {
+            c.ok("sheets >= 4" ((bookB.sheetCount()) >= 4))
+            def sales:SpreadsheetModel (bookB.sheetAt(0))
+            c.eqStr("Sales name" sales.name "Sales")
+            c.eqInt("freeze" sales.freezeRows 1)
+            c.ok("many rows" (sales.rowCount >= 200))
+            def costs:SpreadsheetModel (bookB.sheetAt(1))
+            c.ok("helper col hidden" (costs.isColHidden(4)))
+        }
+
+        print "== merged.xlsx =="
+        def bookM:WorkbookModel (new WorkbookModel)
+        def okM:boolean (loader.loadPath("gallery/datagrid/fixtures/merged.xlsx" bookM))
+        c.ok("merged load" okM)
+        if okM {
+            def mg:SpreadsheetModel (bookM.activeSheet())
+            c.ok("has merges" ((array_length mg.merges) >= 3))
+            c.ok("A1 origin" (mg.isMergeOrigin(0 0)))
+            c.ok("B1 not origin" (mg.isMergeOrigin(0 1) == false))
+        }
+
+        print "== GridApp business render =="
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def loaded:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        c.ok("app business" loaded)
+        app.render()
+        c.ok("framebuffer" ((buffer_length (app.raw())) > 1000))
+        app.applySort(1 true)
+        c.ok("sort applied" (app.model.sortCol == 1))
+        def fvals:[string]
+        push fvals "North"
+        app.applyFilter(1 fvals)
+        c.ok("filter on" app.model.filterEnabled)
+        c.ok("sheetview bound" app.grid.hasView)
+        def vr0:int (app.sheetView.modelRow(1))
+        c.ok("view row mapped" (vr0 >= 0))
+        app.openHeaderMenu(1 100 50)
+        c.ok("menu open" app.view.menuOpen)
+        app.closeHeaderMenu()
+
+        ; Summary CF color scale
+        def si:int 0
+        while (si < (app.book.sheetCount())) {
+            def sh:SpreadsheetModel (app.book.sheetAt(si))
+            if (sh.name == "Summary") {
+                app.setActiveSheet(si)
+            }
+            si = (si + 1)
+        }
+        c.ok("cf rules present" ((array_length app.model.cfRules) >= 1))
+        def fill:string (ConditionalFormat.resolveFill(app.model 2 2))
+        c.ok("cf fill non-empty" ((strlen fill) > 0))
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

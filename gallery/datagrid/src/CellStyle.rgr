@@ -1,0 +1,35 @@
+; ==============================================================================
+; CellStyle - resolved cell appearance (FortuneSheet "Formatting" subset).
+; ==============================================================================
+;
+; XLSX style index → this struct → EVG fill/text. Number format is applied when
+; producing the display string via XlsxNumberFormat.
+; ==============================================================================
+
+Import "XlsxNumberFormat.rgr"
+
+class CellStyle {
+    def fillRgb:string ""
+    def textRgb:string ""
+    def bold:boolean false
+    def align:string "left"
+    def numFmt:string "General"
+    def hasFill:boolean false
+
+    Constructor () {
+    }
+
+    sfn createDefault:CellStyle () {
+        return (new CellStyle)
+    }
+}
+
+; Tiny number formatter kept as alias for older call sites.
+class XlsxFormatter {
+    Constructor () {
+    }
+
+    sfn format:string (raw:string numFmt:string) {
+        return (XlsxNumberFormat.format(raw numFmt))
+    }
+}

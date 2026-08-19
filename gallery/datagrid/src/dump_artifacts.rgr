@@ -1,0 +1,71 @@
+; ==============================================================================
+; dump_artifacts - write clear PNG screenshots for walkthrough / PR review.
+; ==============================================================================
+;
+; Outputs under gallery/datagrid/artifacts/ (tracked) so images show as images.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DumpArtifacts {
+
+    sfn writePng:void (app:GridApp dir:string file:string) {
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+        print ("wrote " + dir + "/" + file)
+    }
+
+    sfn main:void () {
+        def dir:string "gallery/datagrid/artifacts"
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+
+        print "== 01 business Summary (CF color scale) =="
+        def ok:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if (ok == false) {
+            print ("FAIL " + app.loadError)
+            return
+        }
+        def si:int 0
+        while (si < (app.book.sheetCount())) {
+            def sh:SpreadsheetModel (app.book.sheetAt(si))
+            if (sh.name == "Summary") {
+                app.setActiveSheet(si)
+            }
+            si = (si + 1)
+        }
+        DumpArtifacts.writePng(app dir "01_business_summary_cf.png")
+
+        print "== 02 Sales + filter/sort header menu =="
+        si = 0
+        while (si < (app.book.sheetCount())) {
+            def sh2:SpreadsheetModel (app.book.sheetAt(si))
+            if (sh2.name == "Sales") {
+                app.setActiveSheet(si)
+            }
+            si = (si + 1)
+        }
+        def vals:[string]
+        push vals "North"
+        app.applyFilter(1 vals)
+        app.applySort(3 false)
+        app.openHeaderMenu(3 220 60)
+        DumpArtifacts.writePng(app dir "02_sales_filter_sort_menu.png")
+        app.closeHeaderMenu()
+
+        print "== 03 formulas Calc sheet =="
+        def ok2:boolean (app.loadXlsx("gallery/datagrid/fixtures/formulas.xlsx"))
+        if ok2 {
+            DumpArtifacts.writePng(app dir "03_formulas_calc.png")
+        }
+
+        print "DumpArtifacts DONE"
+    }
+}

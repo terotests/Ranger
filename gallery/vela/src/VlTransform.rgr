@@ -26,6 +26,31 @@ class VlDataSet {
     }
 }
 
+; A list of numbers a group contributed to one aggregate op. It is a class
+; rather than a bare array because the collection is a map of them, and a map
+; of arrays is not a type this language spells.
+class VlNumberList {
+    def values:[double]
+    ; The same list with the rows that had no number left out. A density
+    ; estimate is summed over every row and spread over every row, but the
+    ; range it is drawn across is the range of the readings that exist.
+    def numbers:[double]
+}
+
+class VlAggregateGroup {
+    def key:string ""
+    def keyRow:VlJson (new VlJson)
+    def count:double 0.0
+    def slots:[VlNumberList]
+    ; `argmax` does not answer a number: it answers the whole ROW that held the
+    ; largest value, so that a chart can ask what else was true of it — the
+    ; budget of the highest-grossing film in each genre. One winner per slot,
+    ; kept as it goes past.
+    def winners:[VlJson]
+    def winning:[double]
+    def hasWinner:[boolean]
+}
+
 class VlTransform {
 
     ; A shallow copy: the members are shared, the object is not, which is all a
@@ -36,6 +61,34 @@ class VlTransform {
             out.setMember(key (row.get(key)))
         }
         return out
+    }
+
+    ; A field name that reaches THROUGH a value: `argmax_US Gross["Production
+    ; Budget"]` names a column whose contents is a whole row, and then a column
+    ; of that. The reference writes accessors this way and reads them the same
+    ; way, so a name with brackets in it is a path rather than a column called
+    ; something odd.
+    sfn memberOf:VlJson (row:VlJson path:string) {
+        def open:int (indexOf path "[\"")
+        if (open < 0) {
+            return (row.get(path))
+        }
+        def head:string (substring path 0 open)
+        def rest:string (substring path (open + 2) (strlen path))
+        def close:int (indexOf rest "\"]")
+        if (close < 0) {
+            return (row.get(path))
+        }
+        def inner:VlJson (row.get(head))
+        if (! (inner.isObject())) {
+            return (VlJson.nullValue())
+        }
+        def tail:string (substring rest (close + 2) (strlen rest))
+        def name:string (substring rest 0 close)
+        if ((strlen tail) == 0) {
+            return (inner.get(name))
+        }
+        return (VlTransform.memberOf(inner (name + tail)))
     }
 
     ; --- filter ---------------------------------------------------------------
@@ -96,9 +149,13 @@ class VlTransform {
         def hi:double 0.0
         def seen:boolean false
         for rows row:VlJson idx {
-            def v:VlJson (row.get(field))
-            if (v.isNumber()) {
-                def d:double v.num
+            ; Through a path as well as a column: a scale whose domain is
+            ; `argmax_US Gross["Production Budget"]` reads the row an arg-op
+            ; picked, and read as a plain column name it found nothing and the
+            ; axis ran from zero to zero.
+            def v:VlJson (VlTransform.memberOf(row field))
+            if (v.looksNumeric()) {
+                def d:double (v.asDouble())
                 if (VlExprEval.isFiniteNumber(d)) {
                     if (! seen) {
                         lo = d
@@ -125,10 +182,74 @@ class VlTransform {
         def out:[string]
         def seen:[string:int]
         for rows row:VlJson idx {
-            def key:string (row.get(field).asString())
+            ; A row that does not HAVE the column is not a value of it. A row
+            ; that has it and says nothing is: a film with no genre is a
+            ; category of its own on the axis, and the reference draws a band
+            ; for it. The two look alike once the value is read — both answer
+            ; null — so the question is asked of the row instead.
+            ; …and a row that does not have it is still a row. The reference
+            ; reads the column off every row it has and keeps what it finds,
+            ; which for a row without the column is nothing at all — a value
+            ; of its own, sorted after all the named ones. Dropped instead, a
+            ; chart of monarchs had one category where it wanted two and
+            ; painted every reign the colour of the one that is not a reign.
+            def key:string "null"
+            if (row.has(field)) {
+                key = (VlJson.domainKey((VlTransform.memberOf(row field))))
+            }
             if (! (has seen key)) {
                 set seen key 1
                 push out key
+            }
+        }
+        return out
+    }
+
+    ; --- flatten --------------------------------------------------------------
+    ; A column holding a LIST becomes one row per element, the rest of the row
+    ; repeated beside each. Several columns flatten together, element by
+    ; element, and a row whose lists are different lengths is padded with
+    ; nothing rather than truncated — which is the reference's rule and the
+    ; only one that does not silently drop data.
+    sfn flatten:[VlJson] (rows:[VlJson] fields:[string] asNames:[string]) {
+        def out:[VlJson]
+        if ((array_length fields) == 0) {
+            return rows
+        }
+        for rows row:VlJson ri {
+            def longest:int 0
+            for fields field:string fi {
+                def cell:VlJson (row.get(field))
+                if (cell.isArray()) {
+                    if ((cell.count()) > longest) {
+                        longest = (cell.count())
+                    }
+                }
+            }
+            if (longest == 0) {
+                ; Nothing to flatten in this row: the reference drops it.
+            } {
+                def k:int 0
+                while (k < longest) {
+                    def made:VlJson (VlTransform.copyRow(row))
+                    def fi2:int 0
+                    while (fi2 < (array_length fields)) {
+                        def name:string (itemAt fields fi2)
+                        def target:string name
+                        if (fi2 < (array_length asNames)) {
+                            target = (itemAt asNames fi2)
+                        }
+                        def cell2:VlJson (row.get(name))
+                        if (cell2.isArray()) {
+                            made.setMember(target (cell2.at(k)))
+                        } {
+                            made.setMember(target (VlJson.nullValue()))
+                        }
+                        fi2 = (fi2 + 1)
+                    }
+                    push out made
+                    k = (k + 1)
+                }
             }
         }
         return out
@@ -153,18 +274,40 @@ class VlTransform {
         }
 
         ; Group totals first: normalize and center both need the sum before any
-        ; row can be given its place.
+        ; row can be given its place, and center needs the LARGEST of them —
+        ; every group is centred on the same line, which is what turns a stack
+        ; into a stream.
+        ;
+        ; Those two totals are of the MAGNITUDES: a negative value adds to the
+        ; height of a normalized or centred stack rather than cancelling out.
+        ; Only the plain zero offset keeps the sign, and it runs positives up
+        ; from the baseline and negatives down.
         def groupSum:[string:double]
         def groupRun:[string:double]
+        ; A plain stack runs positives UP from the baseline and negatives DOWN,
+        ; and the two runs are kept apart. Accumulated together they cancel: a
+        ; population pyramid whose women are written as negatives came out as
+        ; the difference between the sexes rather than as both of them, and its
+        ; axis ran from minus twelve million to one.
+        def groupNeg:[string:double]
+        def widest:double 0.0
         for rows row:VlJson idx {
             def key:string (VlTransform.groupKey(row groupby))
             def v:double (VlTransform.stackValue(row field))
+            if (v < 0.0) {
+                v = (0.0 - v)
+            }
             def sum:double 0.0
             if (has groupSum key) {
                 sum = (unwrap (get groupSum key))
             }
-            set groupSum key (sum + v)
+            def grown:double (sum + v)
+            set groupSum key grown
             set groupRun key 0.0
+            set groupNeg key 0.0
+            if (grown > widest) {
+                widest = grown
+            }
         }
 
         ; The accumulation order is the SORT order, but the rows come out in the
@@ -190,20 +333,42 @@ class VlTransform {
             if (has groupSum key) {
                 total = (unwrap (get groupSum key))
             }
+            def magnitude:double v
+            if (magnitude < 0.0) {
+                magnitude = (0.0 - magnitude)
+            }
             def lo:double run
             def hi:double (run + v)
-            set groupRun key hi
 
             if (offset == "normalize") {
+                lo = run
+                hi = (run + magnitude)
+                set groupRun key hi
                 if (total != 0.0) {
                     lo = (lo / total)
                     hi = (hi / total)
                 }
-            }
-            if (offset == "center") {
-                def shift:double (total / 2.0)
-                lo = (lo - shift)
-                hi = (hi - shift)
+            } {
+                if (offset == "center") {
+                    ; Each group starts half its own shortfall below the widest
+                    ; one, so all of them share a centre line.
+                    def start:double ((widest - total) / 2.0)
+                    lo = (start + run)
+                    hi = (lo + magnitude)
+                    set groupRun key (run + magnitude)
+                } {
+                    if (v < 0.0) {
+                        def down:double 0.0
+                        if (has groupNeg key) {
+                            down = (unwrap (get groupNeg key))
+                        }
+                        lo = down
+                        hi = (down + v)
+                        set groupNeg key hi
+                    } {
+                        set groupRun key hi
+                    }
+                }
             }
             set_at starts rowIndex lo
             set_at ends rowIndex hi
@@ -347,6 +512,14 @@ class VlTransform {
         if (stop == start) {
             stop = (start + step)
         }
+        ; The far end again, counted in WHOLE STEPS from the near one. The two
+        ; ways of arriving at it disagree by a crumb — a hundred and eighty
+        ; nine thousandths of nothing — and a crumb over a whole step is a
+        ; whole extra bin. A binned heat map of two thousand films came out
+        ; thirty-eight columns wide where the reference draws thirty-nine, and
+        ; every cell in it was a fifth of a pixel too wide.
+        def spanned:double ((stop - start) / step)
+        stop = (start + ((to_double (ceil spanned)) * step))
         def out:[double]
         push out start
         push out stop
@@ -397,6 +570,12 @@ class VlTransform {
         def v:VlJson (row.get(field))
         if (v.isNumber()) {
             return v.num
+        }
+        ; A number written as a STRING is still a number: the reference coerces
+        ; what it stacks, and a grid of bars whose percentages were quoted in
+        ; the data stacked nothing at all and drew nine bars of no width.
+        if (v.isString()) {
+            return (v.asDouble())
         }
         return 0.0
     }
@@ -485,117 +664,1691 @@ class VlTransform {
     ; One row per group, carrying the group fields plus one column per measure.
     ; `ops` and `fields` are parallel; `asNames` may be shorter, in which case
     ; the reference implementation's default name (`op_field`) is used.
+    ; Every value a group contributed to one op, kept rather than folded away.
+    ; A sum can be accumulated as it goes; a median cannot — it needs the whole
+    ; set — and the sets a chart aggregates are small enough that keeping them
+    ; costs nothing and makes every op available on the same footing.
     sfn aggregate:[VlJson] (rows:[VlJson] groupby:[string] ops:[string] fields:[string] asNames:[string]) {
-        def keys:[string]
-        def keyRows:[string:VlJson]
-        def counts:[string:double]
-        def sums:[string:double]
-        def mins:[string:double]
-        def maxs:[string:double]
-        def seenValue:[string:int]
-
-        def opCount:int (array_length ops)
-        for rows row:VlJson idx {
-            def key:string (VlTransform.groupKey(row groupby))
-            if (! (has keyRows key)) {
-                push keys key
-                def base:VlJson (VlJson.objectValue())
-                for groupby field:string gi {
-                    base.setMember(field (row.get(field)))
-                }
-                set keyRows key base
-                set counts key 0.0
-            }
-            def c:double (unwrap (get counts key))
-            set counts key (c + 1.0)
-
-            def k:int 0
-            while (k < opCount) {
-                def field:string ""
-                if (k < (array_length fields)) {
-                    field = (itemAt fields k)
-                }
-                def slot:string ((key + (strfromcode 30)) + (VlJson.intToText(k)))
-                def v:VlJson (row.get(field))
-                if (v.isNumber()) {
-                    def d:double v.num
-                    def prev:double 0.0
-                    if (has sums slot) {
-                        prev = (unwrap (get sums slot))
-                    }
-                    set sums slot (prev + d)
-                    if (! (has seenValue slot)) {
-                        set seenValue slot 1
-                        set mins slot d
-                        set maxs slot d
-                    } {
-                        def lo:double (unwrap (get mins slot))
-                        def hi:double (unwrap (get maxs slot))
-                        if (d < lo) {
-                            set mins slot d
-                        }
-                        if (d > hi) {
-                            set maxs slot d
-                        }
-                    }
-                }
-                k = (k + 1)
-            }
-        }
-
+        def groups:[VlAggregateGroup] (VlTransform.collectGroups(rows groupby ops fields))
         def out:[VlJson]
-        for keys key:string ki {
-            def base:VlJson (unwrap (get keyRows key))
-            def n:double (unwrap (get counts key))
+        for groups group:VlAggregateGroup gi {
+            def base:VlJson group.keyRow
+            def opCount:int (array_length ops)
             def k:int 0
             while (k < opCount) {
-                def op:string (itemAt ops k)
-                def field:string ""
-                if (k < (array_length fields)) {
-                    field = (itemAt fields k)
-                }
-                def name:string ((op + "_") + field)
-                if (k < (array_length asNames)) {
-                    name = (itemAt asNames k)
-                }
-                def slot:string ((key + (strfromcode 30)) + (VlJson.intToText(k)))
-                def value:double 0.0
-                if (op == "count") {
-                    value = n
-                } {
-                    def sum:double 0.0
-                    if (has sums slot) {
-                        sum = (unwrap (get sums slot))
-                    }
-                    if (op == "sum") {
-                        value = sum
-                    }
-                    if (op == "mean") {
-                        if (n != 0.0) {
-                            value = (sum / n)
-                        }
-                    }
-                    if (op == "average") {
-                        if (n != 0.0) {
-                            value = (sum / n)
-                        }
-                    }
-                    if (op == "min") {
-                        if (has mins slot) {
-                            value = (unwrap (get mins slot))
-                        }
-                    }
-                    if (op == "max") {
-                        if (has maxs slot) {
-                            value = (unwrap (get maxs slot))
-                        }
-                    }
-                }
-                base.setMember(name (VlJson.numberValue(value)))
+                base.setMember((VlTransform.aggregateName(ops fields asNames k)) (VlTransform.aggregateValue(group k (itemAt ops k))))
                 k = (k + 1)
             }
             push out base
         }
         return out
+    }
+
+    ; The same aggregation joined BACK onto every row it came from, which is how
+    ; a chart compares a value with its own group: a box plot needs each point
+    ; to know its group's quartiles before it can decide whether it is an
+    ; outlier.
+    sfn joinaggregate:[VlJson] (rows:[VlJson] groupby:[string] ops:[string] fields:[string] asNames:[string]) {
+        def groups:[VlAggregateGroup] (VlTransform.collectGroups(rows groupby ops fields))
+        def byKey:[string:VlAggregateGroup]
+        for groups group:VlAggregateGroup gi {
+            set byKey group.key group
+        }
+        def opCount:int (array_length ops)
+        def out:[VlJson]
+        for rows row:VlJson idx {
+            def key:string (VlTransform.groupKey(row groupby))
+            def joined:VlJson (VlTransform.copyRow(row))
+            if (has byKey key) {
+                def group:VlAggregateGroup (unwrap (get byKey key))
+                def k:int 0
+                while (k < opCount) {
+                    joined.setMember((VlTransform.aggregateName(ops fields asNames k)) (VlTransform.aggregateValue(group k (itemAt ops k))))
+                    k = (k + 1)
+                }
+            }
+            push out joined
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------- lookup ---
+    ; Rows joined to rows of ANOTHER data set by a key: a table of people and a
+    ; table of groups, drawn as one. The table is indexed by its key first —
+    ; the reference assumes the key is unique and lets a later row replace an
+    ; earlier one — and every row is then extended with what its key found.
+    ;
+    ; Two shapes come out of it. Named `values`, the matched row's columns are
+    ; copied across one by one under `as`; without them the whole matched row
+    ; is stored under one name, which is what lets a chart read it as an
+    ; object. A key that finds nothing gets the default, whatever it is.
+    sfn lookup:[VlJson] (rows:[VlJson] table:[VlJson] key:string fields:[string] values:[string] asNames:[string] fallback:VlJson) {
+        def index:[string:VlJson]
+        for table entry:VlJson ei {
+            set index ((VlTransform.memberOf(entry key)).asString()) entry
+        }
+        def fieldCount:int (array_length fields)
+        def valueCount:int (array_length values)
+        def out:[VlJson]
+        for rows row:VlJson ri {
+            def joined:VlJson (VlTransform.copyRow(row))
+            def slot:int 0
+            def fi:int 0
+            while (fi < fieldCount) {
+                def wanted:string ((VlTransform.memberOf(row (itemAt fields fi))).asString())
+                def found:boolean (has index wanted)
+                def matched:VlJson (VlJson.nullValue())
+                if found {
+                    matched = (unwrap (get index wanted))
+                }
+                if (valueCount > 0) {
+                    def vi:int 0
+                    while (vi < valueCount) {
+                        def name:string (itemAt values vi)
+                        if (slot < (array_length asNames)) {
+                            name = (itemAt asNames slot)
+                        }
+                        if found {
+                            joined.setMember(name (VlTransform.memberOf(matched (itemAt values vi))))
+                        } {
+                            joined.setMember(name fallback)
+                        }
+                        slot = (slot + 1)
+                        vi = (vi + 1)
+                    }
+                } {
+                    def whole:string (itemAt fields fi)
+                    if (fi < (array_length asNames)) {
+                        whole = (itemAt asNames fi)
+                    }
+                    if found {
+                        joined.setMember(whole matched)
+                    } {
+                        joined.setMember(whole fallback)
+                    }
+                }
+                fi = (fi + 1)
+            }
+            push out joined
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------ kde ---
+    ; A kernel density estimate: a smooth curve standing in for a histogram,
+    ; which is what a chart draws when it wants the SHAPE of a distribution
+    ; rather than its buckets. Every observation contributes a small gaussian
+    ; bump of width `bandwidth`, and the curve is their sum.
+    ;
+    ; The interesting part is not the estimate — that is a sum over the data at
+    ; each sample point — but WHERE it is sampled. The reference samples
+    ; adaptively: it starts on a coarse uniform grid and subdivides wherever
+    ; three consecutive points turn by more than half a degree, so a flat tail
+    ; costs nothing and a sharp peak is resolved. Sampling it any other way
+    ; produces a curve that is right and does not match, which for a harness
+    ; that compares drawings is the same as wrong.
+    sfn kde:[VlJson] (rows:[VlJson] field:string groupby:[string] bandwidth:double extentLo:double extentHi:double hasExtent:boolean shared:boolean counts:boolean steps:int minsteps:int maxsteps:int asNames:[string]) {
+        def valueName:string "value"
+        def densityName:string "density"
+        if ((array_length asNames) > 0) { valueName = (itemAt asNames 0) }
+        if ((array_length asNames) > 1) { densityName = (itemAt asNames 1) }
+
+        ; Partitions, in first-seen order, each holding the numbers it saw.
+        def order:[string]
+        def keyRows:[string:VlJson]
+        def buckets:[string:VlNumberList]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has buckets key)) {
+                def fresh (new VlNumberList())
+                set buckets key fresh
+                def named:VlJson (VlJson.objectValue())
+                for groupby g:string gi {
+                    named.setMember(g (row.get(g)))
+                }
+                set keyRows key named
+                push order key
+            }
+            ; EVERY row is part of the estimate, not only the rows that hold
+            ; a number: the reference maps the column over the whole partition
+            ; and divides the sum by how many rows there were. A column with
+            ; two hundred blanks in it therefore describes a slightly flatter
+            ; distribution, because the blanks are still observations of
+            ; something — and reading only the numbers made every density in
+            ; the movie ratings seven per cent too tall.
+            def cell:VlJson (row.get(field))
+            def sofar:VlNumberList (unwrap (get buckets key))
+            if (cell.isNumber()) {
+                push sofar.values cell.num
+                push sofar.numbers cell.num
+            } {
+                push sofar.values 0.0
+            }
+            set buckets key sofar
+        }
+
+        def lowSteps:int minsteps
+        def highSteps:int maxsteps
+        if (steps > 0) {
+            lowSteps = steps
+            highSteps = steps
+        }
+        def sharedLo:double extentLo
+        def sharedHi:double extentHi
+        def sharedSet:boolean hasExtent
+        if shared {
+            if (! sharedSet) {
+                ; One domain for every group, so that stacked densities line up.
+                def seen:boolean false
+                for rows row2:VlJson ri2 {
+                    def cell2:VlJson (row2.get(field))
+                    if (cell2.isNumber()) {
+                        if (! seen) {
+                            sharedLo = cell2.num
+                            sharedHi = cell2.num
+                            seen = true
+                        } {
+                            if (cell2.num < sharedLo) { sharedLo = cell2.num }
+                            if (cell2.num > sharedHi) { sharedHi = cell2.num }
+                        }
+                    }
+                }
+                sharedSet = seen
+            }
+            if (steps > 0) { lowSteps = steps } { lowSteps = maxsteps }
+            highSteps = lowSteps
+        }
+
+        def out:[VlJson]
+        for order key:string ki {
+            def group:VlNumberList (unwrap (get buckets key))
+            def support:[double] group.values
+            def readings:[double] group.numbers
+            if ((array_length readings) > 0) {
+                def h:double bandwidth
+                if (h <= 0.0) {
+                    h = (VlTransform.estimateBandwidth(readings (array_length support)))
+                }
+                def lo:double 0.0
+                def hi:double 0.0
+                if sharedSet {
+                    lo = sharedLo
+                    hi = sharedHi
+                } {
+                    lo = (itemAt readings 0)
+                    hi = (itemAt readings 0)
+                    for readings v:double vi {
+                        if (v < lo) { lo = v }
+                        if (v > hi) { hi = v }
+                    }
+                }
+                def scale:double 1.0
+                if counts { scale = (to_double (array_length support)) }
+                def sampled:[double] (VlTransform.sampleCurve(support h lo hi lowSteps highSteps))
+                def total:int (to_int ((to_double (array_length sampled)) / 2.0))
+                def k:int 0
+                while (k < total) {
+                    def made:VlJson (VlTransform.copyRow((unwrap (get keyRows key))))
+                    made.setMember(valueName (VlJson.numberValue((itemAt sampled (k * 2)))))
+                    made.setMember(densityName (VlJson.numberValue(((itemAt sampled ((k * 2) + 1)) * scale))))
+                    push out made
+                    k = (k + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    ; Scott's rule, as the reference states it: 1.06 × the smaller of the
+    ; standard deviation and the inter-quartile range over 1.34, times n^-0.2.
+    ;
+    ; `rows` is how many observations there were and `values` is the ones that
+    ; held a number — which are not the same count when the column has blanks
+    ; in it, and the reference does not treat them as if they were: the spread
+    ; is measured over the readings, and the n that damps it is the whole
+    ; partition.
+    sfn estimateBandwidth:double (values:[double] rows:int) {
+        def n:int (array_length values)
+        if (n == 0) {
+            return 1.0
+        }
+        def sum:double 0.0
+        for values v:double vi { sum = (sum + v) }
+        def mean:double (sum / (to_double n))
+        def ss:double 0.0
+        for values v2:double vi2 {
+            def d:double (v2 - mean)
+            ss = (ss + (d * d))
+        }
+        def deviation:double 0.0
+        if (n > 1) {
+            deviation = (sqrt (ss / (to_double (n - 1))))
+        }
+        def sorted:[double] (VlTransform.sortedNumbers(values))
+        def q1:double (VlTransform.quantile(sorted 0.25))
+        def q3:double (VlTransform.quantile(sorted 0.75))
+        def h:double ((q3 - q1) / 1.34)
+        def chosen:double deviation
+        if (h < chosen) { chosen = h }
+        if (chosen <= 0.0) { chosen = deviation }
+        if (chosen <= 0.0) {
+            chosen = q1
+            if (chosen < 0.0) { chosen = (0.0 - chosen) }
+        }
+        if (chosen <= 0.0) { chosen = 1.0 }
+        return ((1.06 * chosen) * (VlMath.pow((to_double rows) -0.2)))
+    }
+
+    ; The estimate at one point: every observation's gaussian bump, summed.
+    sfn kdePdf:double (support:[double] bandwidth:double x:double) {
+        def n:int (array_length support)
+        if ((n == 0) || (bandwidth <= 0.0)) {
+            return 0.0
+        }
+        def y:double 0.0
+        for support s:double si {
+            def z:double ((x - s) / bandwidth)
+            y = (y + (0.3989422804014327 * (VlMath.exp(((0.0 - (z * z)) / 2.0)))))
+        }
+        return ((y / bandwidth) / (to_double n))
+    }
+
+    ; The reference's adaptive sampler, as a flat [x, y, x, y, …] list. It
+    ; walks a coarse grid and subdivides wherever the curve turns by more than
+    ; half a degree, measured in the SCALED space the chart will draw it in —
+    ; which is why the vertical scale is computed from the coarse pass first.
+    sfn sampleCurve:[double] (support:[double] bandwidth:double minX:double maxX:double minSteps:int maxSteps:int) {
+        def lowN:int minSteps
+        if (lowN < 1) { lowN = 25 }
+        def highN:int maxSteps
+        if (highN < lowN) { highN = lowN }
+
+        def span:double (maxX - minX)
+        def out:[double]
+        if (lowN == highN) {
+            ; No adaptation: a uniform grid, sampled straight out.
+            push out minX
+            push out (VlTransform.kdePdf(support bandwidth minX))
+            def i:int 1
+            while (i < highN) {
+                def x:double (minX + (((to_double i) / (to_double lowN)) * span))
+                push out x
+                push out (VlTransform.kdePdf(support bandwidth x))
+                i = (i + 1)
+            }
+            push out maxX
+            push out (VlTransform.kdePdf(support bandwidth maxX))
+            return out
+        }
+
+        def stop:double (span / (to_double highN))
+        ; The stack of points still to visit, highest x first.
+        def nextX:[double]
+        def nextY:[double]
+        push nextX maxX
+        push nextY (VlTransform.kdePdf(support bandwidth maxX))
+        def i2:int (lowN - 1)
+        while (i2 > 0) {
+            def x2:double (minX + (((to_double i2) / (to_double lowN)) * span))
+            push nextX x2
+            push nextY (VlTransform.kdePdf(support bandwidth x2))
+            i2 = (i2 - 1)
+        }
+
+        def p0x:double minX
+        def p0y:double (VlTransform.kdePdf(support bandwidth minX))
+        push out p0x
+        push out p0y
+
+        ; The vertical scale the turn is measured in: the coarse pass's own
+        ; range, so an angle means the same thing on any curve.
+        def ymin:double p0y
+        def ymax:double p0y
+        for nextY y:double yi {
+            if (y < ymin) { ymin = y }
+            if (y > ymax) { ymax = y }
+        }
+        def sy:double 1.0
+        if ((ymax - ymin) != 0.0) { sy = (1.0 / (ymax - ymin)) }
+        def sx:double 1.0
+        if (span != 0.0) { sx = (1.0 / span) }
+        def minRadians:double 0.008726646259971648
+
+        def guard:int 0
+        while (((array_length nextX) > 0) && (guard < 100000)) {
+            guard = (guard + 1)
+            def last:int ((array_length nextX) - 1)
+            def p1x:double (itemAt nextX last)
+            def p1y:double (itemAt nextY last)
+            def pmx:double ((p0x + p1x) / 2.0)
+            def pmy:double (VlTransform.kdePdf(support bandwidth pmx))
+            def wide:boolean ((pmx - p0x) >= stop)
+            def turn:double (VlTransform.angleDelta(p0x p0y pmx pmy p1x p1y sx sy))
+            if (wide && (turn > minRadians)) {
+                push nextX pmx
+                push nextY pmy
+            } {
+                p0x = p1x
+                p0y = p1y
+                push out p1x
+                push out p1y
+                nextX = (VlTransform.dropLast(nextX))
+                nextY = (VlTransform.dropLast(nextY))
+            }
+        }
+        return out
+    }
+
+    sfn dropLast:[double] (list:[double]) {
+        def out:[double]
+        def n:int ((array_length list) - 1)
+        def k:int 0
+        while (k < n) {
+            push out (itemAt list k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn angleDelta:double (px:double py:double qx:double qy:double rx:double ry:double sx:double sy:double) {
+        def a0:double (atan2 (sy * (ry - py)) (sx * (rx - px)))
+        def a1:double (atan2 (sy * (qy - py)) (sx * (qx - px)))
+        def d:double (a0 - a1)
+        if (d < 0.0) { d = (0.0 - d) }
+        return d
+    }
+
+    ; --------------------------------------------------------------- window ---
+    ; A calculation a row makes about its NEIGHBOURS: its rank among them, a
+    ; running total of everything before it, the value one row back. It is how
+    ; a cumulative chart, a top-N chart and a difference-from-previous chart are
+    ; all written, and none of them can be expressed as an aggregate — an
+    ; aggregate replaces its rows, and a window keeps every one of them.
+    ;
+    ; Three things decide what a row sees: the PARTITION it belongs to
+    ; (`groupby`), the ORDER within it (`sort`), and the FRAME — how far back
+    ; and forward from itself the row is allowed to look. An unbounded end is
+    ; written as a very large number here, because Ranger has no null integer;
+    ; the compiler translates Vega's `null` into it.
+    sfn window:[VlJson] (rows:[VlJson] ops:[string] fields:[string] asNames:[string] params:[double] sortFields:[string] sortOrders:[string] groupby:[string] frameStart:int frameEnd:int) {
+        ; Partitions, in the order the data first mentions them.
+        def order:[string]
+        def buckets:[string:[VlJson]]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has buckets key)) {
+                def fresh:[VlJson]
+                set buckets key fresh
+                push order key
+            }
+            def sofar:[VlJson] (unwrap (get buckets key))
+            push sofar row
+            set buckets key sofar
+        }
+
+        def out:[VlJson]
+        for order key:string ki {
+            def part:[VlJson] (unwrap (get buckets key))
+            def sorted:[VlJson] (VlTransform.sortRows(part sortFields sortOrders))
+            def n:int (array_length sorted)
+
+            ; Where each row's run of EQUAL sort keys starts and ends, which is
+            ; what separates `rank` from `row_number`: tied rows share a rank.
+            def peerFirst:[int]
+            def peerLast:[int]
+            def i:int 0
+            while (i < n) {
+                push peerFirst i
+                push peerLast i
+                i = (i + 1)
+            }
+            i = 1
+            while (i < n) {
+                if (VlTransform.sameKey((itemAt sorted i) (itemAt sorted (i - 1)) sortFields)) {
+                    set peerFirst i (itemAt peerFirst (i - 1))
+                }
+                i = (i + 1)
+            }
+            i = (n - 2)
+            while (i >= 0) {
+                if (VlTransform.sameKey((itemAt sorted (i + 1)) (itemAt sorted i) sortFields)) {
+                    set peerLast i (itemAt peerLast (i + 1))
+                }
+                i = (i - 1)
+            }
+            ; How many distinct sort keys have been seen by each row, for
+            ; `dense_rank`.
+            def dense:[int]
+            def seen:int 0
+            i = 0
+            while (i < n) {
+                if (i == 0) {
+                    seen = 1
+                } {
+                    if (! (VlTransform.sameKey((itemAt sorted i) (itemAt sorted (i - 1)) sortFields))) {
+                        seen = (seen + 1)
+                    }
+                }
+                push dense seen
+                i = (i + 1)
+            }
+
+            def opCount:int (array_length ops)
+            i = 0
+            while (i < n) {
+                def made:VlJson (VlTransform.copyRow((itemAt sorted i)))
+                def from:int (VlTransform.frameEdge(frameStart i 0 n))
+                def to:int (VlTransform.frameEdge(frameEnd i (n - 1) n))
+                def k:int 0
+                while (k < opCount) {
+                    def op:string (itemAt ops k)
+                    def field:string ""
+                    if (k < (array_length fields)) { field = (itemAt fields k) }
+                    def param:double 1.0
+                    if (k < (array_length params)) { param = (itemAt params k) }
+                    def name:string ((op + "_") + field)
+                    if (k < (array_length asNames)) { name = (itemAt asNames k) }
+                    made.setMember(name (VlTransform.windowValue(op sorted i from to n field param (itemAt peerFirst i) (itemAt peerLast i) (itemAt dense i))))
+                    k = (k + 1)
+                }
+                push out made
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; One end of a row's frame, clamped to the partition. `frameStart` and
+    ; `frameEnd` are offsets from the row; the unbounded value is a number no
+    ; real offset reaches.
+    sfn frameEdge:int (offset:int at:int unbounded:int n:int) {
+        if ((offset <= -1000000000) || (offset >= 1000000000)) {
+            return unbounded
+        }
+        def edge:int (at + offset)
+        if (edge < 0) { edge = 0 }
+        if (edge > (n - 1)) { edge = (n - 1) }
+        return edge
+    }
+
+    sfn windowValue:VlJson (op:string sorted:[VlJson] at:int from:int to:int n:int field:string param:double peerFirst:int peerLast:int dense:int) {
+        ; --- the positional ops, which read the row's place and not its frame ---
+        if (op == "row_number") { return (VlJson.numberValue((to_double (at + 1)))) }
+        if (op == "rank") { return (VlJson.numberValue((to_double (peerFirst + 1)))) }
+        if (op == "dense_rank") { return (VlJson.numberValue((to_double dense))) }
+        if (op == "percent_rank") {
+            if (n < 2) { return (VlJson.numberValue(0.0)) }
+            return (VlJson.numberValue(((to_double peerFirst) / (to_double (n - 1)))))
+        }
+        if (op == "cume_dist") {
+            if (n < 1) { return (VlJson.numberValue(0.0)) }
+            return (VlJson.numberValue(((to_double (peerLast + 1)) / (to_double n))))
+        }
+        if (op == "ntile") {
+            def tiles:double param
+            if (tiles < 1.0) { tiles = 1.0 }
+            if (n < 1) { return (VlJson.numberValue(1.0)) }
+            def which:int (to_int (((to_double at) * tiles) / (to_double n)))
+            return (VlJson.numberValue((to_double (which + 1))))
+        }
+        if (op == "lag") { return (VlTransform.cellAt(sorted (at - (to_int param)) field)) }
+        if (op == "lead") { return (VlTransform.cellAt(sorted (at + (to_int param)) field)) }
+        if (op == "first_value") { return (VlTransform.cellAt(sorted from field)) }
+        if (op == "last_value") { return (VlTransform.cellAt(sorted to field)) }
+        if (op == "nth_value") { return (VlTransform.cellAt(sorted (from + ((to_int param) - 1)) field)) }
+        if (op == "prev_value") { return (VlTransform.cellAt(sorted (at - 1) field)) }
+        if (op == "next_value") { return (VlTransform.cellAt(sorted (at + 1) field)) }
+
+        ; --- and the aggregates, over the frame ---
+        def values:[double]
+        def rowsInFrame:int 0
+        def k:int from
+        while (k <= to) {
+            if ((k >= 0) && (k < n)) {
+                rowsInFrame = (rowsInFrame + 1)
+                def row:VlJson (itemAt sorted k)
+                if (row.has(field)) {
+                    def cell:VlJson (row.get(field))
+                    if (cell.isNumber()) { push values cell.num }
+                }
+            }
+            k = (k + 1)
+        }
+        return (VlJson.numberValue((VlTransform.pivotOp(op values rowsInFrame))))
+    }
+
+    sfn cellAt:VlJson (sorted:[VlJson] at:int field:string) {
+        if ((at < 0) || (at >= (array_length sorted))) {
+            return (new VlJson)
+        }
+        def row:VlJson (itemAt sorted at)
+        if (! (row.has(field))) {
+            return (new VlJson)
+        }
+        return (row.get(field))
+    }
+
+    ; Do two rows agree on every field the window sorted by? Rows that do are
+    ; peers, and peers share a rank.
+    sfn sameKey:boolean (a:VlJson b:VlJson fields:[string]) {
+        ; With NOTHING to sort by, no two rows are tied: a window that names no
+        ; order has nothing to call them equal ON, and the reference ranks them
+        ; one, two, three. Called peers instead, every row of every group came
+        ; out ranked first — and a dot plot stacked its whole column on one
+        ; dot.
+        if ((array_length fields) == 0) {
+            return false
+        }
+        for fields field:string fi {
+            if (((a.get(field)).asString()) != ((b.get(field)).asString())) {
+                return false
+            }
+        }
+        return true
+    }
+
+    ; A stable sort by several fields at once — insertion order is kept for
+    ; rows a comparison cannot separate, which is what makes a window's output
+    ; reproducible.
+    sfn sortRows:[VlJson] (rows:[VlJson] fields:[string] orders:[string]) {
+        def out:[VlJson]
+        for rows row:VlJson ri {
+            def at:int (array_length out)
+            def scanning:boolean true
+            while (scanning && (at > 0)) {
+                if (VlTransform.rowBefore(row (itemAt out (at - 1)) fields orders)) {
+                    at = (at - 1)
+                } {
+                    scanning = false
+                }
+            }
+            ; Ranger has no list insert, so the list is rebuilt around it.
+            def rebuilt:[VlJson]
+            def k:int 0
+            def n:int (array_length out)
+            while (k < n) {
+                if (k == at) { push rebuilt row }
+                push rebuilt (itemAt out k)
+                k = (k + 1)
+            }
+            if (at >= n) { push rebuilt row }
+            out = rebuilt
+        }
+        return out
+    }
+
+    ; Lexicographic order, by code point. Ranger compares strings for equality
+    ; and not for order, so a sort over a column of names has to spell it out.
+    sfn textBefore:boolean (a:string b:string) {
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def n:int na
+        if (nb < n) { n = nb }
+        def k:int 0
+        while (k < n) {
+            def ca:int (charAt a k)
+            def cb:int (charAt b k)
+            if (ca < cb) { return true }
+            if (ca > cb) { return false }
+            k = (k + 1)
+        }
+        return (na < nb)
+    }
+
+    sfn rowBefore:boolean (a:VlJson b:VlJson fields:[string] orders:[string]) {
+        def total:int (array_length fields)
+        def k:int 0
+        while (k < total) {
+            def field:string (itemAt fields k)
+            def descending:boolean false
+            if (k < (array_length orders)) {
+                descending = ((itemAt orders k) == "descending")
+            }
+            def av:VlJson (a.get(field))
+            def bv:VlJson (b.get(field))
+            def less:boolean false
+            def more:boolean false
+            def bothNumbers:boolean ((av.isNumber()) && (bv.isNumber()))
+            if bothNumbers {
+                less = (av.num < bv.num)
+                more = (av.num > bv.num)
+            } {
+                def at:string (av.asString())
+                def bt:string (bv.asString())
+                less = (VlTransform.textBefore(at bt))
+                more = (VlTransform.textBefore(bt at))
+            }
+            if descending {
+                if more { return true }
+                if less { return false }
+            } {
+                if less { return true }
+                if more { return false }
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    ; ----------------------------------------------------------------- fold ---
+    ; Columns into rows. One row with a column per year becomes one row per
+    ; year, carrying the year's NAME in one new field and its value in another;
+    ; everything else on the row is copied onto each of them.
+    ;
+    ; This is how a wide table is made long enough to draw: a chart reads one
+    ; column at a time, so a series per column has to become a column of series
+    ; names first.
+    sfn fold:[VlJson] (rows:[VlJson] fields:[string] asNames:[string]) {
+        def keyName:string "key"
+        def valueName:string "value"
+        if ((array_length asNames) > 0) { keyName = (itemAt asNames 0) }
+        if ((array_length asNames) > 1) { valueName = (itemAt asNames 1) }
+        def out:[VlJson]
+        for rows row:VlJson ri {
+            for fields field:string fi {
+                def made:VlJson (VlTransform.copyRow(row))
+                made.setMember(keyName (VlJson.stringValue(field)))
+                ; A row that never had the column folds to a missing value
+                ; rather than to a zero, which would be a number nobody
+                ; measured.
+                if (row.has(field)) {
+                    made.setMember(valueName (row.get(field)))
+                } {
+                    made.setMember(valueName (new VlJson))
+                }
+                push out made
+            }
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------- pivot ---
+    ; Rows into columns, which is fold read backwards. Rows are grouped, and
+    ; within each group every distinct value of `field` becomes a column of its
+    ; own holding the aggregate of `value` — so a table with a `year` column
+    ; becomes a table with a `1931` column and a `1932` column, and the two can
+    ; be subtracted.
+    ;
+    ; The columns come out in FIRST-SEEN order, and every group carries every
+    ; column, because a table with ragged rows is not a table.
+    sfn pivot:[VlJson] (rows:[VlJson] field:string value:string groupby:[string] op:string limit:int) {
+        ; The column names, in the order the data first mentions them.
+        def names:[string]
+        def known:[string:boolean]
+        for rows row:VlJson ri {
+            def name:string ((row.get(field)).asString())
+            if (! (has known name)) {
+                set known name true
+                if ((limit <= 0) || ((array_length names) < limit)) {
+                    push names name
+                }
+            }
+        }
+
+        ; One aggregate per (group, column). The group's own key row carries
+        ; the groupby fields, which is what the pivoted row is built on.
+        def groups:[VlJson]
+        def rowByKey:[string:VlJson]
+        def valuesByKey:[string:[double]]
+        def countByKey:[string:int]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has rowByKey key)) {
+                def fresh:VlJson (VlJson.objectValue())
+                for groupby g:string gi {
+                    fresh.setMember(g (row.get(g)))
+                }
+                set rowByKey key fresh
+                push groups fresh
+            }
+            def name:string ((row.get(field)).asString())
+            def cell:string ((key + (strfromcode 31)) + name)
+            if (! (has valuesByKey cell)) {
+                def empty:[double]
+                set valuesByKey cell empty
+                set countByKey cell 0
+            }
+            def sofar:[double] (unwrap (get valuesByKey cell))
+            if (row.has(value)) {
+                def cellValue:VlJson (row.get(value))
+                if (cellValue.isNumber()) {
+                    push sofar cellValue.num
+                }
+            }
+            set valuesByKey cell sofar
+            set countByKey cell ((unwrap (get countByKey cell)) + 1)
+        }
+
+        def out:[VlJson]
+        for groups made:VlJson gi {
+            def key:string (VlTransform.groupKey(made groupby))
+            for names name:string ni {
+                def cell:string ((key + (strfromcode 31)) + name)
+                if (has valuesByKey cell) {
+                    def gathered:[double] (unwrap (get valuesByKey cell))
+                    def seen:int (unwrap (get countByKey cell))
+                    made.setMember(name (VlJson.numberValue((VlTransform.pivotOp(op gathered seen)))))
+                } {
+                    made.setMember(name (new VlJson))
+                }
+            }
+            push out made
+        }
+        return out
+    }
+
+    ; What a pivoted cell holds when the group has more than one row in that
+    ; column. Vega's default is a sum, which is also the only answer that is
+    ; right when there is exactly one row — the ordinary case.
+    sfn pivotOp:double (op:string values:[double] seen:int) {
+        def total:double 0.0
+        for values v:double vi {
+            total = (total + v)
+        }
+        def n:int (array_length values)
+        if (op == "count") {
+            return (to_double seen)
+        }
+        if (op == "valid") {
+            return (to_double n)
+        }
+        if (n == 0) {
+            return 0.0
+        }
+        if ((op == "mean") || (op == "average")) {
+            return (total / (to_double n))
+        }
+        if (op == "min") {
+            def lowest:double (itemAt values 0)
+            for values v2:double vi2 {
+                if (v2 < lowest) { lowest = v2 }
+            }
+            return lowest
+        }
+        if (op == "max") {
+            def highest:double (itemAt values 0)
+            for values v3:double vi3 {
+                if (v3 > highest) { highest = v3 }
+            }
+            return highest
+        }
+        ; The ops that need the whole set in order. Left out, they all came
+        ; back as the SUM — so a bar chart told to rank its categories by the
+        ; median of a column ranked them by the total of it instead, which is
+        ; the same answer only when every category has the same number of rows
+        ; and not always then.
+        if (((op == "median") || (op == "q1")) || (op == "q3")) {
+            def sorted:[double] (VlTransform.sortedNumbers(values))
+            if (op == "q1") {
+                return (VlTransform.quantile(sorted 0.25))
+            }
+            if (op == "q3") {
+                return (VlTransform.quantile(sorted 0.75))
+            }
+            return (VlTransform.quantile(sorted 0.5))
+        }
+        if (op == "distinct") {
+            return (to_double (VlTransform.distinctCount(values)))
+        }
+        if (op == "missing") {
+            return ((to_double seen) - (to_double n))
+        }
+        ; The ends of a bootstrapped confidence interval for the MEAN: a
+        ; thousand samples of the same size drawn from the values with
+        ; replacement, their means sorted, and the interval read off at the
+        ; two-and-a-half and ninety-seven-and-a-half percentiles. That is what
+        ; `"extent": "ci"` on an error bar asks for.
+        if ((op == "ci0") || (op == "ci1")) {
+            def where:double 0.025
+            if (op == "ci1") {
+                where = 0.975
+            }
+            return (VlTransform.bootstrapCI(values where))
+        }
+        def mean:double (total / (to_double n))
+        if (((op == "variance") || (op == "variancep")) || (((op == "stdev") || (op == "stdevp")) || (op == "stderr"))) {
+            def squares:double 0.0
+            for values vs:double vsi {
+                def d:double (vs - mean)
+                squares = (squares + (d * d))
+            }
+            def denom:double ((to_double n) - 1.0)
+            if ((op == "variancep") || (op == "stdevp")) {
+                denom = (to_double n)
+            }
+            if (denom <= 0.0) {
+                return 0.0
+            }
+            def variance:double (squares / denom)
+            if (op == "variance") { return variance }
+            if (op == "variancep") { return variance }
+            if (op == "stderr") {
+                return ((sqrt variance) / (sqrt (to_double n)))
+            }
+            return (sqrt variance)
+        }
+        return total
+    }
+
+    ; A bootstrap is a random procedure, and a chart that drew a different
+    ; interval every time it was opened would not be a chart. The draw here is
+    ; a plain linear congruential generator started from a fixed seed, so the
+    ; same values always give the same interval — the reference seeds itself
+    ; from the clock and its answer moves by a fraction of a pixel between
+    ; runs, which is the one thing this cannot copy.
+    sfn bootstrapCI:double (values:[double] where:double) {
+        def n:int (array_length values)
+        if (n < 1) {
+            return 0.0
+        }
+        def samples:int 1000
+        def means:[double]
+        def state:double 1.0
+        def k:int 0
+        while (k < samples) {
+            def sum:double 0.0
+            def j:int 0
+            while (j < n) {
+                state = (VlTransform.nextRandom(state))
+                def pick:int (to_int ((state / 2147483647.0) * (to_double n)))
+                if (pick >= n) {
+                    pick = (n - 1)
+                }
+                sum = (sum + (itemAt values pick))
+                j = (j + 1)
+            }
+            push means (sum / (to_double n))
+            k = (k + 1)
+        }
+        return (VlTransform.quantile((VlTransform.sortedNumbers(means)) where))
+    }
+
+    ; MINSTD: state <- 16807 * state mod (2^31 - 1), which stays exact in a
+    ; double because the product never reaches 2^53.
+    sfn nextRandom:double (state:double) {
+        def next:double (state * 16807.0)
+        def whole:double (to_double (to_int (next / 2147483647.0)))
+        next = (next - (whole * 2147483647.0))
+        if (next < 1.0) {
+            next = 1.0
+        }
+        return next
+    }
+
+    sfn aggregateName:string (ops:[string] fields:[string] asNames:[string] k:int) {
+        if (k < (array_length asNames)) {
+            return (itemAt asNames k)
+        }
+        def field:string ""
+        if (k < (array_length fields)) {
+            field = (itemAt fields k)
+        }
+        return (((itemAt ops k) + "_") + field)
+    }
+
+    sfn collectGroups:[VlAggregateGroup] (rows:[VlJson] groupby:[string] ops:[string] fields:[string]) {
+        def out:[VlAggregateGroup]
+        def byKey:[string:VlAggregateGroup]
+        def opCount:int (array_length ops)
+        for rows row:VlJson idx {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has byKey key)) {
+                def fresh:VlAggregateGroup (new VlAggregateGroup())
+                fresh.key = key
+                fresh.keyRow = (VlJson.objectValue())
+                for groupby field:string gi {
+                    fresh.keyRow.setMember(field (row.get(field)))
+                }
+                def slot:int 0
+                while (slot < opCount) {
+                    def emptyList:VlNumberList (new VlNumberList())
+                    push fresh.slots emptyList
+                    push fresh.winners (VlJson.objectValue())
+                    push fresh.winning 0.0
+                    push fresh.hasWinner false
+                    slot = (slot + 1)
+                }
+                set byKey key fresh
+                push out fresh
+            }
+            def group:VlAggregateGroup (unwrap (get byKey key))
+            group.count = (group.count + 1.0)
+            def k:int 0
+            while (k < opCount) {
+                def field:string ""
+                if (k < (array_length fields)) {
+                    field = (itemAt fields k)
+                }
+                def v:VlJson (row.get(field))
+                if (v.isNumber()) {
+                    def list:VlNumberList (itemAt group.slots k)
+                    push list.values v.num
+                    def op:string ""
+                    if (k < (array_length ops)) {
+                        op = (itemAt ops k)
+                    }
+                    if ((op == "argmax") || (op == "argmin")) {
+                        def better:boolean (! (itemAt group.hasWinner k))
+                        if (! better) {
+                            if (op == "argmax") {
+                                better = (v.num > (itemAt group.winning k))
+                            } {
+                                better = (v.num < (itemAt group.winning k))
+                            }
+                        }
+                        if better {
+                            set_at group.hasWinner k true
+                            set_at group.winning k v.num
+                            set_at group.winners k row
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        return out
+    }
+
+    ; What an operation answers: a number for all of them but the two that
+    ; answer a row.
+    sfn aggregateValue:VlJson (group:VlAggregateGroup k:int op:string) {
+        if ((op == "argmax") || (op == "argmin")) {
+            if (itemAt group.hasWinner k) {
+                return (itemAt group.winners k)
+            }
+            return (VlJson.nullValue())
+        }
+        return (VlJson.numberValue((VlTransform.applyOp(group k op))))
+    }
+
+    sfn applyOp:double (group:VlAggregateGroup k:int op:string) {
+        if (op == "count") {
+            return group.count
+        }
+        def list:VlNumberList (itemAt group.slots k)
+        def n:int (array_length list.values)
+        if (op == "valid") {
+            return (to_double n)
+        }
+        if (op == "missing") {
+            return (group.count - (to_double n))
+        }
+        if (op == "distinct") {
+            return (to_double (VlTransform.distinctCount(list.values)))
+        }
+        if (n == 0) {
+            return 0.0
+        }
+        def sum:double 0.0
+        def lo:double (itemAt list.values 0)
+        def hi:double lo
+        for list.values v:double vi {
+            sum = (sum + v)
+            if (v < lo) {
+                lo = v
+            }
+            if (v > hi) {
+                hi = v
+            }
+        }
+        if (op == "sum") {
+            return sum
+        }
+        if (op == "min") {
+            return lo
+        }
+        if (op == "max") {
+            return hi
+        }
+        def mean:double (sum / (to_double n))
+        if ((op == "mean") || (op == "average")) {
+            return mean
+        }
+        ; The standard ERROR is the standard deviation over the square root of
+        ; the count, and it is what an error bar's whiskers are by default.
+        if (op == "stderr") {
+            def squaresE:double 0.0
+            for list.values ve:double vei {
+                def de:double (ve - mean)
+                squaresE = (squaresE + (de * de))
+            }
+            def denomE:double ((to_double n) - 1.0)
+            if (denomE <= 0.0) {
+                return 0.0
+            }
+            return ((sqrt (squaresE / denomE)) / (sqrt (to_double n)))
+        }
+        if (((op == "variance") || (op == "variancep")) || ((op == "stdev") || (op == "stdevp"))) {
+            def squares:double 0.0
+            for list.values v2:double v2i {
+                def d:double (v2 - mean)
+                squares = (squares + (d * d))
+            }
+            def denom:double ((to_double n) - 1.0)
+            if ((op == "variancep") || (op == "stdevp")) {
+                denom = (to_double n)
+            }
+            if (denom <= 0.0) {
+                return 0.0
+            }
+            def variance:double (squares / denom)
+            if ((op == "stdev") || (op == "stdevp")) {
+                return (sqrt variance)
+            }
+            return variance
+        }
+        if ((op == "ci0") || (op == "ci1")) {
+            def edge:double 0.025
+            if (op == "ci1") {
+                edge = 0.975
+            }
+            return (VlTransform.bootstrapCI(list.values edge))
+        }
+        def sorted:[double] (VlTransform.sortedNumbers(list.values))
+        if (op == "median") {
+            return (VlTransform.quantile(sorted 0.5))
+        }
+        if (op == "q1") {
+            return (VlTransform.quantile(sorted 0.25))
+        }
+        if (op == "q3") {
+            return (VlTransform.quantile(sorted 0.75))
+        }
+        return 0.0
+    }
+
+    ; d3's quantile, which interpolates between the two values the position
+    ; falls between rather than picking a neighbour. A box plot's hinges are
+    ; drawn at exactly this number, so an off-by-one method is visible.
+    sfn quantile:double (sorted:[double] p:double) {
+        def n:int (array_length sorted)
+        if (n == 0) {
+            return 0.0
+        }
+        if (n == 1) {
+            return (itemAt sorted 0)
+        }
+        def h:double (((to_double n) - 1.0) * p)
+        def lo:int (floor h)
+        def value:double (itemAt sorted lo)
+        def e:double (h - (to_double lo))
+        if (e == 0.0) {
+            return value
+        }
+        if ((lo + 1) >= n) {
+            return value
+        }
+        def upper:double (itemAt sorted (lo + 1))
+        def gap:double (upper - value)
+        return (value + (gap * e))
+    }
+
+    sfn sortedNumbers:[double] (values:[double]) {
+        def out:[double]
+        for values v:double vi {
+            def pos:int (array_length out)
+            def scan:int 0
+            def placed:boolean false
+            while ((scan < (array_length out)) && (! placed)) {
+                if (v < (itemAt out scan)) {
+                    pos = scan
+                    placed = true
+                }
+                scan = (scan + 1)
+            }
+            push out v
+            def move:int ((array_length out) - 1)
+            while (move > pos) {
+                set_at out move (itemAt out (move - 1))
+                move = (move - 1)
+            }
+            set_at out pos v
+        }
+        return out
+    }
+
+    sfn distinctCount:int (values:[double]) {
+        def seen:[string:int]
+        def total:int 0
+        for values v:double vi {
+            def key:string (VlJson.formatNumber(v 12))
+            if (! (has seen key)) {
+                set seen key 1
+                total = (total + 1)
+            }
+        }
+        return total
+    }
+
+    ; ------------------------------------------------------------------ loess ---
+    ; A locally-weighted regression: at every x, fit a straight line through
+    ; the nearest `bandwidth * n` points, weighted by how near they are, and
+    ; keep the value that line takes at x. The result is a curve that follows
+    ; the data without ever being told what shape to be.
+    ;
+    ; This is the reference's own implementation, step for step, because the
+    ; answer is a claim ABOUT the data: a smoother that is merely plausible
+    ; draws a line through a scatter plot that nobody can check. Three parts of
+    ; it are worth naming, since none is obvious and all three change the
+    ; numbers:
+    ;
+    ;   * the points are MEAN-CENTRED first and the means added back at the
+    ;     end, which is what keeps the fit stable when x is a millisecond count
+    ;   * the neighbour window SLIDES rather than being recomputed — it steps
+    ;     right only while the new right edge is no further away than the old
+    ;     left one, which is what makes duplicate x values behave
+    ;   * two robustness passes follow the first fit, each one re-weighting by
+    ;     how far a point fell from the last curve, so a single outlier does
+    ;     not drag the line to itself
+    ;
+    ; It GENERATES rows: the answer is one point per distinct x, not a column
+    ; added to what came in.
+    ; The QUANTILE transform: a column reduced to the values that stand at
+    ; evenly spaced probabilities through it. It is what a Q-Q plot is drawn
+    ; from — a hundred points, one every hundredth of the way up the sorted
+    ; column — and like the smoother it GENERATES its rows rather than
+    ; annotating them.
+    ; A straight line fitted through two columns by least squares. Like the
+    ; smoother it GENERATES its rows — the answer is the line, sampled along
+    ; the range of x — unless the chart asked for the PARAMETERS instead, and
+    ; then the answer is one row per group holding the two coefficients and how
+    ; much of the variation the line accounts for.
+    ;
+    ; The means are accumulated the way the reference accumulates them, one
+    ; row at a time, because a running mean and a sum divided at the end are
+    ; not the same number in floating point and an R² printed to two places
+    ; can land either side of a rounding.
+    sfn regression:[VlJson] (rows:[VlJson] xField:string yField:string groupby:[string] params:boolean asNames:[string]) {
+        def xName:string xField
+        def yName:string yField
+        if ((array_length asNames) > 0) {
+            xName = (itemAt asNames 0)
+        }
+        if ((array_length asNames) > 1) {
+            yName = (itemAt asNames 1)
+        }
+        def out:[VlJson]
+        def keys:[string]
+        def seen:[string:int]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has seen key)) {
+                set seen key 1
+                push keys key
+            }
+        }
+        for keys key:string ki {
+            def xs:[double]
+            def ys:[double]
+            def sample:VlJson (VlJson.objectValue())
+            def haveSample:boolean false
+            for rows row2:VlJson r2 {
+                if ((VlTransform.groupKey(row2 groupby)) == key) {
+                    def xv:VlJson (row2.get(xField))
+                    def yv:VlJson (row2.get(yField))
+                    if ((xv.isNumber()) && (yv.isNumber())) {
+                        push xs xv.num
+                        push ys yv.num
+                        if (! haveSample) {
+                            sample = row2
+                            haveSample = true
+                        }
+                    }
+                }
+            }
+            def n:int (array_length xs)
+            if (n > 1) {
+                def mx:double 0.0
+                def my:double 0.0
+                def mxy:double 0.0
+                def mxx:double 0.0
+                def k:int 0
+                while (k < n) {
+                    def dx:double (itemAt xs k)
+                    def dy:double (itemAt ys k)
+                    def count:double (to_double (k + 1))
+                    mx = (mx + ((dx - mx) / count))
+                    my = (my + ((dy - my) / count))
+                    mxy = (mxy + (((dx * dy) - mxy) / count))
+                    mxx = (mxx + (((dx * dx) - mxx) / count))
+                    k = (k + 1)
+                }
+                def delta:double (mxx - (mx * mx))
+                def spread:double delta
+                if (spread < 0.0) {
+                    spread = (0.0 - spread)
+                }
+                def slope:double 0.0
+                if (spread > 0.000000000000000000000001) {
+                    slope = ((mxy - (mx * my)) / delta)
+                }
+                def intercept:double (my - (slope * mx))
+                if params {
+                    def sse:double 0.0
+                    def sst:double 0.0
+                    def j:int 0
+                    while (j < n) {
+                        def ex:double ((itemAt ys j) - (intercept + (slope * (itemAt xs j))))
+                        def et:double ((itemAt ys j) - my)
+                        sse = (sse + (ex * ex))
+                        sst = (sst + (et * et))
+                        j = (j + 1)
+                    }
+                    def made (VlJson.objectValue())
+                    for groupby g:string gi {
+                        made.setMember(g (sample.get(g)))
+                    }
+                    def coef (VlJson.arrayValue())
+                    push coef.arr (VlJson.numberValue(intercept))
+                    push coef.arr (VlJson.numberValue(slope))
+                    made.setMember("coef" coef)
+                    def fit:double 0.0
+                    if (sst > 0.0) {
+                        fit = (1.0 - (sse / sst))
+                    }
+                    made.setMember("rSquared" (VlJson.numberValue(fit)))
+                    push out made
+                } {
+                    ; The line, sampled the way the reference samples a curve:
+                    ; twenty-five even steps across the range of x, refined no
+                    ; further because a straight line has nothing to refine.
+                    def lo:double (itemAt xs 0)
+                    def hi:double lo
+                    def m:int 0
+                    while (m < n) {
+                        def at:double (itemAt xs m)
+                        if (at < lo) { lo = at }
+                        if (at > hi) { hi = at }
+                        m = (m + 1)
+                    }
+                    def steps:int 25
+                    def span:double (hi - lo)
+                    def step:int 0
+                    while (step <= steps) {
+                        def px:double (lo + ((span * (to_double step)) / (to_double steps)))
+                        def made2 (VlJson.objectValue())
+                        for groupby g2:string g2i {
+                            made2.setMember(g2 (sample.get(g2)))
+                        }
+                        made2.setMember(xName (VlJson.numberValue(px)))
+                        made2.setMember(yName (VlJson.numberValue((intercept + (slope * px)))))
+                        push out made2
+                        step = (step + 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn quantiles:[VlJson] (rows:[VlJson] field:string step:double probs:[double] groupby:[string] asNames:[string]) {
+        def pName:string "prob"
+        def vName:string "value"
+        if ((array_length asNames) > 0) {
+            pName = (itemAt asNames 0)
+        }
+        if ((array_length asNames) > 1) {
+            vName = (itemAt asNames 1)
+        }
+        ; With nothing said, the probabilities start HALF a step in and walk
+        ; up by a step: a hundredth step gives 0.005, 0.015, … 0.995, which is
+        ; a hundred points and not a hundred and one.
+        def wanted:[double] probs
+        if ((array_length wanted) == 0) {
+            def at:double (step / 2.0)
+            while (at < 1.0) {
+                push wanted at
+                at = (at + step)
+            }
+        }
+        def out:[VlJson]
+        def keys:[string]
+        def seen:[string:int]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has seen key)) {
+                set seen key 1
+                push keys key
+            }
+        }
+        for keys key:string ki {
+            def values:[double]
+            def sample:VlJson (VlJson.objectValue())
+            def haveSample:boolean false
+            for rows row2:VlJson r2 {
+                if ((VlTransform.groupKey(row2 groupby)) == key) {
+                    def v:VlJson (row2.get(field))
+                    if (v.isNumber()) {
+                        push values v.num
+                        if (! haveSample) {
+                            sample = row2
+                            haveSample = true
+                        }
+                    }
+                }
+            }
+            if ((array_length values) > 0) {
+                def sorted:[double] (VlTransform.sortedNumbers(values))
+                for wanted p:double pi {
+                    def made (VlJson.objectValue())
+                    for groupby g:string gi {
+                        made.setMember(g (sample.get(g)))
+                    }
+                    made.setMember(pName (VlJson.numberValue(p)))
+                    made.setMember(vName (VlJson.numberValue((VlTransform.quantile(sorted p)))))
+                    push out made
+                }
+            }
+        }
+        return out
+    }
+
+    sfn loess:[VlJson] (rows:[VlJson] xField:string yField:string groupby:[string] bandwidth:double asNames:[string]) {
+        def xName:string xField
+        def yName:string yField
+        if ((array_length asNames) > 0) {
+            xName = (itemAt asNames 0)
+        }
+        if ((array_length asNames) > 1) {
+            yName = (itemAt asNames 1)
+        }
+
+        def out:[VlJson]
+        def keys:[string]
+        def seen:[string:int]
+        for rows row:VlJson ri {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has seen key)) {
+                set seen key 1
+                push keys key
+            }
+        }
+        for keys key:string ki {
+            def group:[VlJson]
+            for rows row2:VlJson r2 {
+                if ((VlTransform.groupKey(row2 groupby)) == key) {
+                    push group row2
+                }
+            }
+            VlTransform.loessGroup(out group xField yField groupby bandwidth xName yName)
+        }
+        return out
+    }
+
+    sfn loessGroup:void (out:[VlJson] rows:[VlJson] xField:string yField:string groupby:[string] bandwidth:double xName:string yName:string) {
+        ; Only the rows where BOTH values are real numbers take part; the rest
+        ; are not zeros, they are absent.
+        def xs:[double]
+        def ys:[double]
+        def sample:VlJson (VlJson.objectValue())
+        def haveSample:boolean false
+        for rows row:VlJson ri {
+            def xv:VlJson (row.get(xField))
+            def yv:VlJson (row.get(yField))
+            if ((xv.isNumber()) && (yv.isNumber())) {
+                push xs xv.num
+                push ys yv.num
+                if (! haveSample) {
+                    sample = row
+                    haveSample = true
+                }
+            }
+        }
+        def n:int (array_length xs)
+        if (n == 0) {
+            return
+        }
+
+        ; Sorted by x, because every step below reads its neighbours in order.
+        def order:[int] (VlTransform.orderByValue(xs))
+        def sx:[double]
+        def sy:[double]
+        def oi:int 0
+        while (oi < n) {
+            push sx (itemAt xs (itemAt order oi))
+            push sy (itemAt ys (itemAt order oi))
+            oi = (oi + 1)
+        }
+
+        ; Mean-centred, by the running mean the reference uses rather than by a
+        ; sum divided at the end — the two differ in the last bits, and the
+        ; last bits are what a comparison sees.
+        def ux:double 0.0
+        def uy:double 0.0
+        def mi:int 0
+        while (mi < n) {
+            def step:double (to_double (mi + 1))
+            ux = (ux + (((itemAt sx mi) - ux) / step))
+            uy = (uy + (((itemAt sy mi) - uy) / step))
+            mi = (mi + 1)
+        }
+        def ci:int 0
+        while (ci < n) {
+            set sx ci ((itemAt sx ci) - ux)
+            set sy ci ((itemAt sy ci) - uy)
+            ci = (ci + 1)
+        }
+
+        def bw:int (to_int (bandwidth * (to_double n)))
+        if (bw < 2) {
+            bw = 2
+        }
+        if (bw > n) {
+            bw = n
+        }
+
+        def yhat:[double]
+        def residuals:[double]
+        def robust:[double]
+        def zi:int 0
+        while (zi < n) {
+            push yhat 0.0
+            push residuals 0.0
+            push robust 1.0
+            zi = (zi + 1)
+        }
+
+        def epsilon:double 0.000000000001
+        def iter:int 0
+        def stop:boolean false
+        while ((iter <= 2) && (! stop)) {
+            def lo:int 0
+            def hi:int (bw - 1)
+            def i:int 0
+            while (i < n) {
+                def dx:double (itemAt sx i)
+                ; The far edge of the window, which sets the distance scale:
+                ; whichever end is further from the point being fitted.
+                def edge:int hi
+                if (((dx - (itemAt sx lo)) > ((itemAt sx hi) - dx))) {
+                    edge = lo
+                }
+                def spread:double ((itemAt sx edge) - dx)
+                if (spread < 0.0) {
+                    spread = (0.0 - spread)
+                }
+                if (spread == 0.0) {
+                    spread = 1.0
+                }
+                def denom:double (1.0 / spread)
+
+                def sumW:double 0.0
+                def sumX:double 0.0
+                def sumY:double 0.0
+                def sumXY:double 0.0
+                def sumX2:double 0.0
+                def k:int lo
+                while (k <= hi) {
+                    def xk:double (itemAt sx k)
+                    def yk:double (itemAt sy k)
+                    def d:double (dx - xk)
+                    if (d < 0.0) {
+                        d = (0.0 - d)
+                    }
+                    def w:double ((VlTransform.tricube((d * denom))) * (itemAt robust k))
+                    def xkw:double (xk * w)
+                    sumW = (sumW + w)
+                    sumX = (sumX + xkw)
+                    sumY = (sumY + (yk * w))
+                    sumXY = (sumXY + (yk * xkw))
+                    sumX2 = (sumX2 + (xk * xkw))
+                    k = (k + 1)
+                }
+
+                ; Ordinary least squares on the weighted means.
+                def mX:double (sumX / sumW)
+                def mY:double (sumY / sumW)
+                def mXY:double (sumXY / sumW)
+                def mX2:double (sumX2 / sumW)
+                def delta:double (mX2 - (mX * mX))
+                def slope:double 0.0
+                def absDelta:double delta
+                if (absDelta < 0.0) {
+                    absDelta = (0.0 - absDelta)
+                }
+                if (absDelta >= 0.000000000000000000000001) {
+                    slope = ((mXY - (mX * mY)) / delta)
+                }
+                def intercept:double (mY - (slope * mX))
+                set yhat i (intercept + (slope * dx))
+                def resid:double ((itemAt sy i) - (itemAt yhat i))
+                if (resid < 0.0) {
+                    resid = (0.0 - resid)
+                }
+                set residuals i resid
+
+                ; Slide the window one point along.
+                def at:int (i + 1)
+                if (at < n) {
+                    def value:double (itemAt sx at)
+                    def right:int (hi + 1)
+                    def sliding:boolean true
+                    while (sliding) {
+                        sliding = false
+                        if (((at > lo) && (right < n))) {
+                            if ((((itemAt sx right) - value) <= (value - (itemAt sx lo)))) {
+                                lo = (lo + 1)
+                                hi = right
+                                right = (right + 1)
+                                sliding = true
+                            }
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+
+            if (iter == 2) {
+                stop = true
+            } {
+                def mid:double (VlTransform.medianOf(residuals))
+                def absMid:double mid
+                if (absMid < 0.0) {
+                    absMid = (0.0 - absMid)
+                }
+                if (absMid < epsilon) {
+                    stop = true
+                } {
+                    def ri2:int 0
+                    while (ri2 < n) {
+                        def arg:double ((itemAt residuals ri2) / (6.0 * mid))
+                        if (arg >= 1.0) {
+                            set robust ri2 epsilon
+                        } {
+                            def w2:double (1.0 - (arg * arg))
+                            set robust ri2 (w2 * w2)
+                        }
+                        ri2 = (ri2 + 1)
+                    }
+                }
+            }
+            iter = (iter + 1)
+        }
+
+        ; One point per distinct x, repeats averaged, and the means put back.
+        def outX:[double]
+        def outY:[double]
+        def count:int 0
+        def have:boolean false
+        def pi:int 0
+        while (pi < n) {
+            def v:double ((itemAt sx pi) + ux)
+            if (have && ((itemAt outX ((array_length outX) - 1)) == v)) {
+                count = (count + 1)
+                def last:int ((array_length outY) - 1)
+                set outY last ((itemAt outY last) + (((itemAt yhat pi) - (itemAt outY last)) / (to_double count)))
+            } {
+                count = 0
+                push outX v
+                push outY (itemAt yhat pi)
+                have = true
+            }
+            pi = (pi + 1)
+        }
+        def wi:int 0
+        while (wi < (array_length outX)) {
+            def row3:VlJson (VlJson.objectValue())
+            for groupby field:string gi {
+                if (haveSample) {
+                    row3.setMember(field (sample.get(field)))
+                }
+            }
+            row3.setMember(xName (VlJson.numberValue((itemAt outX wi))))
+            row3.setMember(yName (VlJson.numberValue(((itemAt outY wi) + uy))))
+            push out row3
+            wi = (wi + 1)
+        }
+    }
+
+    ; (1 - x^3)^3, the weighting kernel a local regression uses: one at the
+    ; point being fitted, nothing at the edge of the window, and smooth at both.
+    sfn tricube:double (x:double) {
+        def t:double (1.0 - ((x * x) * x))
+        return ((t * t) * t)
+    }
+
+    ; The indices of a list of numbers in ascending order of their values.
+    sfn orderByValue:[int] (values:[double]) {
+        def out:[int]
+        def n:int (array_length values)
+        def i:int 0
+        while (i < n) {
+            def v:double (itemAt values i)
+            def pos:int (array_length out)
+            def scan:int 0
+            def placed:boolean false
+            while ((scan < (array_length out)) && (! placed)) {
+                if (v < (itemAt values (itemAt out scan))) {
+                    pos = scan
+                    placed = true
+                }
+                scan = (scan + 1)
+            }
+            push out i
+            def move:int ((array_length out) - 1)
+            while (move > pos) {
+                set out move (itemAt out (move - 1))
+                move = (move - 1)
+            }
+            set out pos i
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The middle value, or the mean of the two middle ones. The robustness
+    ; pass divides by this, so an even count that took the lower of the two
+    ; would re-weight every point slightly wrong.
+    sfn medianOf:double (values:[double]) {
+        def sorted:[double] (VlTransform.sortedNumbers(values))
+        def n:int (array_length sorted)
+        if (n == 0) {
+            return 0.0
+        }
+        def half:int (idiv n 2)
+        if ((n % 2) == 1) {
+            return (itemAt sorted half)
+        }
+        return (((itemAt sorted (half - 1)) + (itemAt sorted half)) / 2.0)
     }
 }

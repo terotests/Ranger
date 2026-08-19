@@ -1,0 +1,128 @@
+; ==============================================================================
+; XlsxTest - validation for .xlsx → SpreadsheetModel / DataGrid viewer.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+Import "../src/xlsx/XlsxLoader.rgr"
+Import "../src/xlsx/XlsxWorksheet.rgr"
+Import "../src/CellStyle.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class XlsxTest {
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== cell ref parse =="
+        def r:[int]
+        def col:[int]
+        XlsxWorksheet.parseCellRef("A1" r col)
+        c.eqInt("A1 row" (itemAt r 0) 0)
+        c.eqInt("A1 col" (itemAt col 0) 0)
+        XlsxWorksheet.parseCellRef("D6" r col)
+        c.eqInt("D6 row" (itemAt r 0) 5)
+        c.eqInt("D6 col" (itemAt col 0) 3)
+        XlsxWorksheet.parseCellRef("AA17" r col)
+        c.eqInt("AA17 row" (itemAt r 0) 16)
+        c.eqInt("AA17 col" (itemAt col 0) 26)
+
+        print "== load sales.xlsx =="
+        def book:WorkbookModel (new WorkbookModel)
+        def loader:XlsxLoader (new XlsxLoader)
+        def ok:boolean (loader.loadPath("gallery/datagrid/fixtures/sales.xlsx" book))
+        c.ok("load ok" ok)
+        c.eqInt("sheet count" (book.sheetCount()) 2)
+        def s0:SpreadsheetModel (book.sheetAt(0))
+        def s1:SpreadsheetModel (book.sheetAt(1))
+        c.eqStr("sheet0 name" s0.name "Sales")
+        c.eqStr("sheet1 name" s1.name "Summary")
+
+        def sales:SpreadsheetModel s0
+        c.eqStr("A1 merge title" (sales.getCell(0 0)) "Quarterly Sales")
+        c.eqStr("A2 Product" (sales.getCell(1 0)) "Product")
+        c.eqStr("A3 Widget" (sales.getCell(2 0)) "Widget")
+        c.eqStr("B3 qty" (sales.getCell(2 1)) "12")
+        c.eqStr("D3 cached" (sales.getCell(2 3)) "54")
+        c.eqStr("D3 formula" (sales.getFormula(2 3)) "B3*C3")
+        c.eqStr("formula bar D3" (sales.formulaBarText(2 3)) "=B3*C3")
+        c.eqStr("D6 sum" (sales.getCell(5 3)) "138.7")
+        c.eqStr("A6 inline" (sales.getCell(5 0)) "Grand total")
+        c.ok("has merge" ((array_length sales.merges) >= 1))
+        c.ok("A1 is merge origin" (sales.isMergeOrigin(0 0)))
+        c.ok("B1 not origin" (sales.isMergeOrigin(0 1) == false))
+        def cw0:int (sales.colWidth(0))
+        def rh0:int (sales.rowHeight(0))
+        c.ok("col A wider" (cw0 > sales.defaultColW))
+        c.ok("row1 taller" (rh0 > sales.defaultRowH))
+
+        print "== styles + freeze (FortuneSheet M3) =="
+        c.eqInt("freeze rows" sales.freezeRows 2)
+        c.eqInt("freeze cols" sales.freezeCols 1)
+        c.ok("styles table" ((array_length sales.styles) >= 4))
+        def stA1:CellStyle (sales.getCellStyle(0 0))
+        c.ok("A1 has fill" stA1.hasFill)
+        c.eqStr("A1 align" stA1.align "center")
+        c.ok("A1 bold" stA1.bold)
+        c.eqStr("C3 display 0.00" (sales.getDisplay(2 2)) "4.50")
+        c.eqStr("C5 display %" (sales.getDisplay(4 2)) "25%")
+        c.eqStr("C3 raw" (sales.getCell(2 2)) "4.5")
+
+        def summary:SpreadsheetModel s1
+        c.eqStr("Summary A1" (summary.getCell(0 0)) "Lines")
+        c.eqStr("Summary B1" (summary.getCell(0 1)) "3")
+        c.eqStr("bool TRUE" (summary.getCell(2 0)) "TRUE")
+
+        print "== sparse500.xlsx =="
+        def book2:WorkbookModel (new WorkbookModel)
+        def ok2:boolean (loader.loadPath("gallery/datagrid/fixtures/sparse500.xlsx" book2))
+        c.ok("sparse load" ok2)
+        def sp:SpreadsheetModel (book2.activeSheet())
+        c.ok("sparse rows >= 500" (sp.rowCount >= 500))
+        c.eqStr("marker 25" (sp.getCell(24 1)) "marker-25")
+        c.eqStr("marker 500" (sp.getCell(499 1)) "marker-500")
+
+        print "== GridApp load + render =="
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def loaded:boolean (app.loadXlsx("gallery/datagrid/fixtures/sales.xlsx"))
+        c.ok("app loadXlsx" loaded)
+        c.eqStr("active sheet" (app.book.activeName()) "Sales")
+        c.eqStr("app A1" (app.model.getCell(0 0)) "Quarterly Sales")
+        app.setActiveSheet(1)
+        c.eqStr("switched" (app.book.activeName()) "Summary")
+        app.setActiveSheet(0)
+        app.render()
+        def raw:buffer (app.raw())
+        c.ok("framebuffer" ((buffer_length raw) > 1000))
+        def scene:string (app.sceneJson())
+        c.ok("sceneJson" ((strlen scene) > 50))
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

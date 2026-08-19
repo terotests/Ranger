@@ -1,0 +1,150 @@
+; ==============================================================================
+; DocxPackage - OPC package reader over gallery/zip ZipReader.
+; ==============================================================================
+
+Import "../../zip/ZipReader.rgr"
+Import "../../pdf_writer/src/core/Utf8.rgr"
+
+class DocxPackage {
+    def zip:ZipReader (new ZipReader)
+    def openOk:boolean false
+    def pathDir:string ""
+    def pathFile:string ""
+    def relTargets:[string:string]
+    def relTypes:[string:string]
+
+    Constructor () {
+    }
+
+    fn open:boolean (dir:string file:string) {
+        pathDir = dir
+        pathFile = file
+        openOk = (zip.open(dir file))
+        if openOk {
+            this.parseRels()
+        }
+        return openOk
+    }
+
+    fn close:void () {
+        zip.close()
+        openOk = false
+    }
+
+    fn hasPart:boolean (name:string) {
+        def e@(optional):ZipEntry (zip.getEntry(name))
+        return (!null? e)
+    }
+
+    fn readPartBytes:buffer (name:string) {
+        def e@(optional):ZipEntry (zip.getEntry(name))
+        if (null? e) {
+            return (buffer_alloc 0)
+        }
+        def entry:ZipEntry (unwrap e)
+        return (zip.extract(entry))
+    }
+
+    fn readPart:string (name:string) {
+        def data:buffer (this.readPartBytes(name))
+        if ((buffer_length data) == 0) {
+            return ""
+        }
+        return (Utf8.decode((buffer_to_string data)))
+    }
+
+    fn documentXml:string () {
+        return (this.readPart("word/document.xml"))
+    }
+
+    fn stylesXml:string () {
+        return (this.readPart("word/styles.xml"))
+    }
+
+    fn numberingXml:string () {
+        return (this.readPart("word/numbering.xml"))
+    }
+
+    fn documentRelsXml:string () {
+        return (this.readPart("word/_rels/document.xml.rels"))
+    }
+
+    fn parseRels:void () {
+        def xml:string (this.documentRelsXml())
+        if ((strlen xml) == 0) {
+            return
+        }
+        def i:int 0
+        def n:int (strlen xml)
+        while (i < n) {
+            def rs:int (indexOf (substring xml i n) "<Relationship")
+            if (rs < 0) {
+                return
+            }
+            rs = (i + rs)
+            def gt:int rs
+            while (gt < n) {
+                if ((charAt xml gt) == 62) {
+                    def tag:string (substring xml rs (gt + 1))
+                    def id:string (this.quotedAttr(tag "Id"))
+                    def target:string (this.quotedAttr(tag "Target"))
+                    def typ:string (this.quotedAttr(tag "Type"))
+                    if ((strlen id) > 0) {
+                        if ((strlen target) > 0) {
+                            def part:string target
+                            if ((indexOf target "word/") == 0) {
+                                part = target
+                            } {
+                                if ((indexOf target "/") == 0) {
+                                    part = (substring target 1 (strlen target))
+                                } {
+                                    part = ("word/" + target)
+                                }
+                            }
+                            set relTargets id part
+                            set relTypes id typ
+                        }
+                    }
+                    i = (gt + 1)
+                    gt = n
+                } {
+                    gt = (gt + 1)
+                }
+            }
+        }
+    }
+
+    fn quotedAttr:string (tag:string name:string) {
+        def key:string (name + "=\"")
+        def at:int (indexOf tag key)
+        if (at < 0) {
+            return ""
+        }
+        def a:int (at + (strlen key))
+        def b:int a
+        def tn:int (strlen tag)
+        while (b < tn) {
+            if ((charAt tag b) == 34) {
+                return (substring tag a b)
+            }
+            b = (b + 1)
+        }
+        return ""
+    }
+
+    fn resolveRel:string (relId:string) {
+        def hit@(optional):string (get relTargets relId)
+        if (null? hit) {
+            return ""
+        }
+        return (unwrap hit)
+    }
+
+    fn relType:string (relId:string) {
+        def hit@(optional):string (get relTypes relId)
+        if (null? hit) {
+            return ""
+        }
+        return (unwrap hit)
+    }
+}

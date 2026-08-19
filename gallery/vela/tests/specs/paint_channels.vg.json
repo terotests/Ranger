@@ -1,0 +1,166 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "The channels that change what is on the page without changing where it is: a dash pattern, a rounded corner, a stroke cap, and a fill whose opacity is not the stroke's. Every one of them reaches the command layer; a backend that reads only `opacity` draws a translucent bar solid and a dashed rule whole.",
+  "background": "white",
+  "padding": 5,
+  "width": 190,
+  "height": 104,
+  "data": [
+    {
+      "name": "bars",
+      "values": [
+        {
+          "k": "A",
+          "v": 62,
+          "r": 0
+        },
+        {
+          "k": "B",
+          "v": 88,
+          "r": 4
+        },
+        {
+          "k": "C",
+          "v": 41,
+          "r": 8
+        },
+        {
+          "k": "D",
+          "v": 74,
+          "r": 12
+        }
+      ]
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "band",
+      "domain": {
+        "data": "bars",
+        "field": "k"
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ],
+      "padding": 0.2
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": [
+        0,
+        100
+      ],
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ]
+    }
+  ],
+  "axes": [
+    {
+      "scale": "x",
+      "orient": "bottom"
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": true,
+      "gridDash": [
+        4,
+        3
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "type": "rect",
+      "from": {
+        "data": "bars"
+      },
+      "encode": {
+        "update": {
+          "x": {
+            "scale": "x",
+            "field": "k"
+          },
+          "width": {
+            "scale": "x",
+            "band": 1
+          },
+          "y": {
+            "scale": "y",
+            "field": "v"
+          },
+          "y2": {
+            "scale": "y",
+            "value": 0
+          },
+          "cornerRadius": {
+            "field": "r"
+          },
+          "fill": {
+            "value": "#54a24b"
+          },
+          "fillOpacity": {
+            "value": 0.45
+          },
+          "stroke": {
+            "value": "#1e5b18"
+          },
+          "strokeWidth": {
+            "value": 2
+          },
+          "strokeOpacity": {
+            "value": 0.9
+          }
+        }
+      }
+    },
+    {
+      "type": "rule",
+      "from": {
+        "data": "bars"
+      },
+      "encode": {
+        "update": {
+          "x": {
+            "scale": "x",
+            "field": "k",
+            "band": 0.15
+          },
+          "x2": {
+            "scale": "x",
+            "field": "k",
+            "band": 0.85
+          },
+          "y": {
+            "scale": "y",
+            "field": "v"
+          },
+          "stroke": {
+            "value": "#b03a2e"
+          },
+          "strokeWidth": {
+            "value": 3
+          },
+          "strokeDash": {
+            "value": [
+              6,
+              4
+            ]
+          },
+          "strokeCap": {
+            "value": "square"
+          }
+        }
+      }
+    }
+  ]
+}

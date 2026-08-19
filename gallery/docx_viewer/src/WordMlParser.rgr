@@ -1,0 +1,597 @@
+; ==============================================================================
+; WordMlParser - WordprocessingML document.xml → RichDocument
+; ==============================================================================
+; Walks body children: w:p / w:tbl / w:sectPr. Tables, page breaks, sections,
+; headers/footers, DrawingML images (JPEG+PNG).
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "DocxPackage.rgr"
+Import "WordXml.rgr"
+Import "WordStyleResolver.rgr"
+Import "WordNumbering.rgr"
+Import "DocxPng.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+
+class WordMlParser {
+    def resolver:WordStyleResolver (new WordStyleResolver)
+    def numbering:WordNumbering (new WordNumbering)
+    def pkg:DocxPackage (new DocxPackage)
+    def currentSection:int 0
+
+    Constructor () {
+    }
+
+    fn parsePackage:RichDocument (docxPkg:DocxPackage) {
+        pkg = docxPkg
+        def styles:string (pkg.stylesXml())
+        if ((strlen styles) > 0) {
+            resolver.parseStylesXml(styles)
+        }
+        numbering = (new WordNumbering)
+        def numXml:string (pkg.numberingXml())
+        if ((strlen numXml) > 0) {
+            numbering.parse(numXml)
+        }
+        def doc:RichDocument (this.parseDocumentXml((pkg.documentXml())))
+        def i:int 0
+        while (i < (doc.paragraphCount())) {
+            def p:Paragraph (doc.paragraphAt(i))
+            if (p.listNumId > 0) {
+                numbering.applyToParagraph(p)
+            }
+            i = (i + 1)
+        }
+        ; Load header/footer parts for each section
+        def si:int 0
+        while (si < (doc.sectionCount())) {
+            def sec:DocSection (doc.sectionAt(si))
+            if ((strlen sec.headerRelId) > 0) {
+                this.loadHeaderFooter(doc sec sec.headerRelId true)
+            }
+            if ((strlen sec.footerRelId) > 0) {
+                this.loadHeaderFooter(doc sec sec.footerRelId false)
+            }
+            si = (si + 1)
+        }
+        return doc
+    }
+
+    fn loadHeaderFooter:void (doc:RichDocument sec:DocSection relId:string isHeader:boolean) {
+        def part:string (pkg.resolveRel(relId))
+        if ((strlen part) == 0) {
+            return
+        }
+        def xml:string (pkg.readPart(part))
+        if ((strlen xml) == 0) {
+            return
+        }
+        def i:int 0
+        def n:int (strlen xml)
+        while (i < n) {
+            def pStart:int (WordXml.findNext(xml "w:p" i))
+            if (pStart < 0) {
+                return
+            }
+            def pEl:string (WordXml.sliceElement(xml "w:p" pStart))
+            def p:Paragraph (doc.addParagraphOnly())
+            this.fillParagraph(p pEl)
+            if isHeader {
+                push sec.headerParas p
+            } {
+                push sec.footerParas p
+            }
+            def pEnd:int (WordXml.elementEnd(xml "w:p" pStart))
+            if (pEnd < 0) {
+                return
+            }
+            i = pEnd
+        }
+    }
+
+    fn parseDocumentXml:RichDocument (xml:string) {
+        def doc:RichDocument (new RichDocument)
+        currentSection = 0
+        def bodyAt:int (WordXml.findNext(xml "w:body" 0))
+        def body:string xml
+        if (bodyAt >= 0) {
+            body = (WordXml.innerOf((WordXml.sliceElement(xml "w:body" bodyAt)) "w:body"))
+        }
+        def i:int 0
+        def n:int (strlen body)
+        while (i < n) {
+            ; Find next top-level child: p, tbl, or sectPr
+            def pAt:int (WordXml.findNext(body "w:p" i))
+            def tAt:int (WordXml.findNext(body "w:tbl" i))
+            def sAt:int (WordXml.findNext(body "w:sectPr" i))
+            def next:int -1
+            def kind:int -1
+            if (pAt >= 0) {
+                next = pAt
+                kind = 0
+            }
+            if ((tAt >= 0) && ((next < 0) || (tAt < next))) {
+                next = tAt
+                kind = 1
+            }
+            if ((sAt >= 0) && ((next < 0) || (sAt < next))) {
+                next = sAt
+                kind = 2
+            }
+            if (next < 0) {
+                return doc
+            }
+            if (kind == 0) {
+                ; Ensure this w:p is not nested inside a table we already passed —
+                ; body walk uses findNext from i; after tables i advances past tbl.
+                def pEl:string (WordXml.sliceElement(body "w:p" next))
+                ; Detect page break in runs before creating paragraph block
+                def brAt:int (WordXml.findNext(pEl "w:br" 0))
+                def isPageBr:boolean false
+                if (brAt >= 0) {
+                    def brEl:string (WordXml.sliceElement(pEl "w:br" brAt))
+                    def bt:string (WordXml.attr((WordXml.openTag(brEl)) "w:type"))
+                    if (bt == "page") {
+                        isPageBr = true
+                    }
+                }
+                if isPageBr {
+                    doc.addPageBreak()
+                    ; Still parse text on the break paragraph if any
+                    def p:Paragraph (doc.addParagraph())
+                    this.fillParagraph(p pEl)
+                    this.maybeSectionFromPara(doc pEl)
+                } {
+                    def p2:Paragraph (doc.addParagraph())
+                    this.fillParagraph(p2 pEl)
+                    if p2.pageBreakBefore {
+                        ; Insert page break before this paragraph's block.
+                        def bc:int (array_length doc.blocks)
+                        if (bc >= 1) {
+                            def last:DocBlock (itemAt doc.blocks (bc - 1))
+                            removeLast doc.blocks
+                            push doc.blocks (DocBlock.pageBreak())
+                            push doc.blocks last
+                        }
+                    }
+                    this.maybeSectionFromPara(doc pEl)
+                }
+                def pEnd:int (WordXml.elementEnd(body "w:p" next))
+                if (pEnd < 0) {
+                    return doc
+                }
+                i = pEnd
+            }
+            if (kind == 1) {
+                def tEl:string (WordXml.sliceElement(body "w:tbl" next))
+                this.parseTable(doc tEl)
+                def tEnd:int (WordXml.elementEnd(body "w:tbl" next))
+                if (tEnd < 0) {
+                    return doc
+                }
+                i = tEnd
+            }
+            if (kind == 2) {
+                def sEl:string (WordXml.sliceElement(body "w:sectPr" next))
+                ; Final sectPr applies to current section; mid-body sectPr is
+                ; typically inside the last paragraph of a section — but some
+                ; docs place sectPr as body child between content.
+                ; If we already have content in current section and this isn't
+                ; the last element, treat as section break.
+                def sEnd:int (WordXml.elementEnd(body "w:sectPr" next))
+                def remaining:boolean false
+                if (sEnd >= 0) {
+                    def j:int sEnd
+                    while (j < n) {
+                        def ch:int (charAt body j)
+                        if ((ch != 32) && (ch != 9) && (ch != 10) && (ch != 13)) {
+                            remaining = true
+                            j = n
+                        } {
+                            j = (j + 1)
+                        }
+                    }
+                }
+                if remaining {
+                    def newIdx:int (doc.addSectionBreak())
+                    currentSection = newIdx
+                    this.applySectPr((doc.sectionAt(newIdx)) sEl)
+                } {
+                    this.applySectPr((doc.sectionAt(currentSection)) sEl)
+                    doc.section = (doc.sectionAt(currentSection))
+                }
+                if (sEnd < 0) {
+                    return doc
+                }
+                i = sEnd
+            }
+        }
+        return doc
+    }
+
+    fn maybeSectionFromPara:void (doc:RichDocument pEl:string) {
+        def pPr:int (WordXml.findNext(pEl "w:pPr" 0))
+        if (pPr < 0) {
+            return
+        }
+        def pPrEl:string (WordXml.sliceElement(pEl "w:pPr" pPr))
+        def sAt:int (WordXml.findNext(pPrEl "w:sectPr" 0))
+        if (sAt < 0) {
+            return
+        }
+        def sEl:string (WordXml.sliceElement(pPrEl "w:sectPr" sAt))
+        ; Mid-document section properties: finalize current section, open next.
+        this.applySectPr((doc.sectionAt(currentSection)) sEl)
+        def newIdx:int (doc.addSectionBreak())
+        currentSection = newIdx
+        doc.section = (doc.sectionAt(newIdx))
+    }
+
+    fn applySectPr:void (sec:DocSection sEl:string) {
+        def psz:int (WordXml.findNext(sEl "w:pgSz" 0))
+        if (psz >= 0) {
+            def pszEl:string (WordXml.sliceElement(sEl "w:pgSz" psz))
+            def ot:string (WordXml.openTag(pszEl))
+            sec.pageWTwips = (WordXml.twipsAttr(ot "w:w" sec.pageWTwips))
+            sec.pageHTwips = (WordXml.twipsAttr(ot "w:h" sec.pageHTwips))
+            def orient:string (WordXml.attr(ot "w:orient"))
+            if (orient == "landscape") {
+                sec.landscape = true
+            }
+            if (sec.pageWTwips > sec.pageHTwips) {
+                sec.landscape = true
+            }
+        }
+        def pm:int (WordXml.findNext(sEl "w:pgMar" 0))
+        if (pm >= 0) {
+            def pmEl:string (WordXml.sliceElement(sEl "w:pgMar" pm))
+            def ot2:string (WordXml.openTag(pmEl))
+            sec.marginTopTwips = (WordXml.twipsAttr(ot2 "w:top" sec.marginTopTwips))
+            sec.marginRightTwips = (WordXml.twipsAttr(ot2 "w:right" sec.marginRightTwips))
+            sec.marginBottomTwips = (WordXml.twipsAttr(ot2 "w:bottom" sec.marginBottomTwips))
+            sec.marginLeftTwips = (WordXml.twipsAttr(ot2 "w:left" sec.marginLeftTwips))
+        }
+        def hr:int (WordXml.findNext(sEl "w:headerReference" 0))
+        if (hr >= 0) {
+            def hrEl:string (WordXml.sliceElement(sEl "w:headerReference" hr))
+            sec.headerRelId = (WordXml.attr((WordXml.openTag(hrEl)) "r:id"))
+        }
+        def fr:int (WordXml.findNext(sEl "w:footerReference" 0))
+        if (fr >= 0) {
+            def frEl:string (WordXml.sliceElement(sEl "w:footerReference" fr))
+            sec.footerRelId = (WordXml.attr((WordXml.openTag(frEl)) "r:id"))
+        }
+    }
+
+    fn parseTable:void (doc:RichDocument tEl:string) {
+        def t:DocumentTable (doc.addTable())
+        def grid:int (WordXml.findNext(tEl "w:tblGrid" 0))
+        if (grid >= 0) {
+            def gEl:string (WordXml.sliceElement(tEl "w:tblGrid" grid))
+            def gi:int 0
+            def gn:int (strlen gEl)
+            while (gi < gn) {
+                def gc:int (WordXml.findNext(gEl "w:gridCol" gi))
+                if (gc < 0) {
+                    gi = gn
+                } {
+                    def gcEl:string (WordXml.sliceElement(gEl "w:gridCol" gc))
+                    def w:int (WordXml.twipsAttr((WordXml.openTag(gcEl)) "w:w" 1440))
+                    push t.colWidthsTwips w
+                    def ge:int (WordXml.elementEnd(gEl "w:gridCol" gc))
+                    if (ge < 0) {
+                        gi = gn
+                    } {
+                        gi = ge
+                    }
+                }
+            }
+        }
+        def ri:int 0
+        def tn:int (strlen tEl)
+        while (ri < tn) {
+            def tr:int (WordXml.findNext(tEl "w:tr" ri))
+            if (tr < 0) {
+                return
+            }
+            def trEl:string (WordXml.sliceElement(tEl "w:tr" tr))
+            def row:DocTableRow (new DocTableRow)
+            def ci:int 0
+            def trn:int (strlen trEl)
+            while (ci < trn) {
+                def tc:int (WordXml.findNext(trEl "w:tc" ci))
+                if (tc < 0) {
+                    ci = trn
+                } {
+                    def tcEl:string (WordXml.sliceElement(trEl "w:tc" tc))
+                    def cell:DocTableCell (this.parseCell(doc tcEl))
+                    push row.cells cell
+                    def te:int (WordXml.elementEnd(trEl "w:tc" tc))
+                    if (te < 0) {
+                        ci = trn
+                    } {
+                        ci = te
+                    }
+                }
+            }
+            push t.rows row
+            def tre:int (WordXml.elementEnd(tEl "w:tr" tr))
+            if (tre < 0) {
+                return
+            }
+            ri = tre
+        }
+        if ((array_length t.colWidthsTwips) == 0) {
+            ; Infer columns from first row grid spans
+            if ((array_length t.rows) > 0) {
+                def r0:DocTableRow (itemAt t.rows 0)
+                def c:int 0
+                while (c < (array_length r0.cells)) {
+                    def cell0:DocTableCell (itemAt r0.cells c)
+                    def span:int cell0.gridSpan
+                    if (span < 1) {
+                        span = 1
+                    }
+                    def s:int 0
+                    while (s < span) {
+                        push t.colWidthsTwips 1440
+                        s = (s + 1)
+                    }
+                    c = (c + 1)
+                }
+            }
+        }
+    }
+
+    fn parseCell:DocTableCell (doc:RichDocument tcEl:string) {
+        def cell:DocTableCell (new DocTableCell)
+        def tcPr:int (WordXml.findNext(tcEl "w:tcPr" 0))
+        if (tcPr >= 0) {
+            def pr:string (WordXml.sliceElement(tcEl "w:tcPr" tcPr))
+            def gs:int (WordXml.findNext(pr "w:gridSpan" 0))
+            if (gs >= 0) {
+                def gsEl:string (WordXml.sliceElement(pr "w:gridSpan" gs))
+                def gv@(optional):int (to_int (WordXml.attr((WordXml.openTag(gsEl)) "w:val")))
+                if (!null? gv) {
+                    cell.gridSpan = (unwrap gv)
+                }
+            }
+            def shd:int (WordXml.findNext(pr "w:shd" 0))
+            if (shd >= 0) {
+                def shdEl:string (WordXml.sliceElement(pr "w:shd" shd))
+                def fill:string (WordXml.attr((WordXml.openTag(shdEl)) "w:fill"))
+                if ((strlen fill) == 6) {
+                    cell.fillHex = fill
+                }
+            }
+            this.parseBorders(pr cell)
+        }
+        def pi:int 0
+        def n:int (strlen tcEl)
+        while (pi < n) {
+            def pStart:int (WordXml.findNext(tcEl "w:p" pi))
+            if (pStart < 0) {
+                return cell
+            }
+            ; Skip paragraphs inside nested tables (viewer: flat cells only)
+            def pEl:string (WordXml.sliceElement(tcEl "w:p" pStart))
+            def p:Paragraph (doc.addParagraphOnly())
+            this.fillParagraph(p pEl)
+            push cell.paragraphs p
+            def pEnd:int (WordXml.elementEnd(tcEl "w:p" pStart))
+            if (pEnd < 0) {
+                return cell
+            }
+            pi = pEnd
+        }
+        return cell
+    }
+
+    fn parseBorders:void (tcPr:string cell:DocTableCell) {
+        def tb:int (WordXml.findNext(tcPr "w:tcBorders" 0))
+        if (tb < 0) {
+            return
+        }
+        def el:string (WordXml.sliceElement(tcPr "w:tcBorders" tb))
+        this.readBorder(el "w:top" cell.borderTop)
+        this.readBorder(el "w:left" cell.borderLeft)
+        this.readBorder(el "w:bottom" cell.borderBottom)
+        this.readBorder(el "w:right" cell.borderRight)
+    }
+
+    fn readBorder:void (xml:string tag:string into:DocTableBorder) {
+        def at:int (WordXml.findNext(xml tag 0))
+        if (at < 0) {
+            return
+        }
+        def el:string (WordXml.sliceElement(xml tag at))
+        def ot:string (WordXml.openTag(el))
+        into.style = (WordXml.attr(ot "w:val"))
+        def sz:string (WordXml.attr(ot "w:sz"))
+        if ((strlen sz) > 0) {
+            def zi@(optional):int (to_int sz)
+            if (!null? zi) {
+                into.sz = (unwrap zi)
+            }
+        }
+        def col:string (WordXml.attr(ot "w:color"))
+        if ((strlen col) == 6) {
+            into.colorHex = col
+        }
+    }
+
+    fn fillParagraph:void (p:Paragraph pEl:string) {
+        def pPrXml:string ""
+        def pPr:int (WordXml.findNext(pEl "w:pPr" 0))
+        if (pPr >= 0) {
+            pPrXml = (WordXml.sliceElement(pEl "w:pPr" pPr))
+            def ps:int (WordXml.findNext(pPrXml "w:pStyle" 0))
+            if (ps >= 0) {
+                def psEl:string (WordXml.sliceElement(pPrXml "w:pStyle" ps))
+                p.styleId = (WordXml.attr((WordXml.openTag(psEl)) "w:val"))
+            }
+        }
+        resolver.resolveParagraph(p pPrXml)
+        def base:ResolvedRunStyle (resolver.baseRunFromParagraph(p))
+        clear p.spans
+        p.text = ""
+
+        def ri:int 0
+        def pn:int (strlen pEl)
+        while (ri < pn) {
+            def rStart:int (WordXml.findNext(pEl "w:r" ri))
+            if (rStart < 0) {
+                return
+            }
+            def rEl:string (WordXml.sliceElement(pEl "w:r" rStart))
+            if ((strlen rEl) == 0) {
+                return
+            }
+            def dr:int (WordXml.findNext(rEl "w:drawing" 0))
+            if (dr < 0) {
+                dr = (WordXml.findNext(rEl "w:pict" 0))
+            }
+            if (dr >= 0) {
+                def img:DocImage (this.parseDrawing(rEl))
+                if ((strlen img.relId) > 0) {
+                    push p.images img
+                }
+            }
+            def runStyle:ResolvedRunStyle (base.copy())
+            def rPr:int (WordXml.findNext(rEl "w:rPr" 0))
+            if (rPr >= 0) {
+                def rPrEl:string (WordXml.sliceElement(rEl "w:rPr" rPr))
+                resolver.applyRPr(rPrEl runStyle)
+            }
+            def chunk:string ""
+            def ti:int 0
+            def rn:int (strlen rEl)
+            while (ti < rn) {
+                def tStart:int (WordXml.findNext(rEl "w:t" ti))
+                if (tStart < 0) {
+                    ti = rn
+                } {
+                    def tEl:string (WordXml.sliceElement(rEl "w:t" tStart))
+                    def inner:string (WordXml.innerOf(tEl "w:t"))
+                    chunk = (chunk + (WordXml.decodeEntities(inner)))
+                    def tEnd:int (WordXml.elementEnd(rEl "w:t" tStart))
+                    if (tEnd < 0) {
+                        ti = rn
+                    } {
+                        ti = tEnd
+                    }
+                }
+            }
+            if ((strlen chunk) > 0) {
+                def span:TextSpan (TextSpan.create(0 0))
+                runStyle.applyToSpan(span)
+                p.appendText(chunk span)
+            }
+            def rEnd:int (WordXml.elementEnd(pEl "w:r" rStart))
+            if (rEnd < 0) {
+                return
+            }
+            ri = rEnd
+        }
+    }
+
+    fn parseParagraph:void (doc:RichDocument pEl:string) {
+        def p:Paragraph (doc.addParagraph())
+        this.fillParagraph(p pEl)
+    }
+
+    fn parseDrawing:DocImage (rEl:string) {
+        def empty:DocImage (new DocImage)
+        def blipAt:int (indexOf rEl "<a:blip")
+        if (blipAt < 0) {
+            blipAt = (indexOf rEl "<v:imagedata")
+        }
+        if (blipAt < 0) {
+            return empty
+        }
+        def n:int (strlen rEl)
+        def gt:int blipAt
+        while (gt < n) {
+            if ((charAt rEl gt) == 62) {
+                def tag:string (substring rEl blipAt (gt + 1))
+                def rid:string (WordXml.attr(tag "r:embed"))
+                if ((strlen rid) == 0) {
+                    rid = (WordXml.attr(tag "r:id"))
+                }
+                if ((strlen rid) == 0) {
+                    return empty
+                }
+                def img:DocImage (new DocImage)
+                img.relId = rid
+                img.partPath = (pkg.resolveRel(rid))
+                def extAt:int (indexOf rEl "<wp:extent")
+                if (extAt < 0) {
+                    extAt = (indexOf rEl "<a:ext")
+                }
+                if (extAt >= 0) {
+                    def eg:int extAt
+                    while (eg < n) {
+                        if ((charAt rEl eg) == 62) {
+                            def eTag:string (substring rEl extAt (eg + 1))
+                            def cx:string (WordXml.attr(eTag "cx"))
+                            def cy:string (WordXml.attr(eTag "cy"))
+                            def cxi@(optional):int (to_int cx)
+                            def cyi@(optional):int (to_int cy)
+                            if (!null? cxi) {
+                                img.widthEmu = (unwrap cxi)
+                            }
+                            if (!null? cyi) {
+                                img.heightEmu = (unwrap cyi)
+                            }
+                            eg = n
+                        } {
+                            eg = (eg + 1)
+                        }
+                    }
+                }
+                img.syncPx()
+                this.decodeImage(img)
+                return img
+            }
+            gt = (gt + 1)
+        }
+        return empty
+    }
+
+    fn decodeImage:void (img:DocImage) {
+        if ((strlen img.partPath) == 0) {
+            return
+        }
+        def bytes:buffer (pkg.readPartBytes(img.partPath))
+        if ((buffer_length bytes) < 8) {
+            return
+        }
+        def b0:int (buffer_get bytes 0)
+        def b1:int (buffer_get bytes 1)
+        if ((b0 == 255) && (b1 == 216)) {
+            img.format = "jpeg"
+            def jdec:JPEGDecoder (new JPEGDecoder)
+            img.pixels = (jdec.decodeBytes(bytes))
+            if ((img.pixels.width > 0) && (img.pixels.height > 0)) {
+                img.ok = true
+                if (img.widthEmu == 0) {
+                    img.widthPx = img.pixels.width
+                    img.heightPx = img.pixels.height
+                }
+            }
+            return
+        }
+        if ((b0 == 137) && (b1 == 80)) {
+            img.format = "png"
+            img.pixels = (DocxPng.decode(bytes))
+            if ((img.pixels.width > 0) && (img.pixels.height > 0)) {
+                img.ok = true
+                if (img.widthEmu == 0) {
+                    img.widthPx = img.pixels.width
+                    img.heightPx = img.pixels.height
+                }
+            }
+            return
+        }
+    }
+}

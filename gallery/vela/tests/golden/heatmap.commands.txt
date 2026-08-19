@@ -1,0 +1,90 @@
+rect x=0.5 y=0.5 w=180 h=40 stroke=#ddd strokeWidth=1
+group-begin
+group-begin
+line x=10.5 y=40.5 x2=10.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=30.5 y=40.5 x2=30.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=50.5 y=40.5 x2=50.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=70.5 y=40.5 x2=70.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=90.5 y=40.5 x2=90.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=110.5 y=40.5 x2=110.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=130.5 y=40.5 x2=130.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=150.5 y=40.5 x2=150.5 y2=45.5 stroke=#888 strokeWidth=1
+line x=170.5 y=40.5 x2=170.5 y2=45.5 stroke=#888 strokeWidth=1
+text x=10 y=47.5 size=10 align=right text=A fill=#000
+text x=30 y=47.5 size=10 align=right text=B fill=#000
+text x=50 y=47.5 size=10 align=right text=C fill=#000
+text x=70 y=47.5 size=10 align=right text=D fill=#000
+text x=90 y=47.5 size=10 align=right text=E fill=#000
+text x=110 y=47.5 size=10 align=right text=F fill=#000
+text x=130 y=47.5 size=10 align=right text=G fill=#000
+text x=150 y=47.5 size=10 align=right text=H fill=#000
+text x=170 y=47.5 size=10 align=right text=I fill=#000
+line x=0.5 y=40.5 x2=180.5 y2=40.5 stroke=#888 strokeWidth=1
+text x=90.5 y=59.5 size=11 align=center text=a fill=#000
+group-end
+group-begin
+line x=0.5 y=10.5 x2=-4.5 y2=10.5 stroke=#888 strokeWidth=1
+line x=0.5 y=30.5 x2=-4.5 y2=30.5 stroke=#888 strokeWidth=1
+text x=-6.5 y=10 size=10 align=right text=x fill=#000
+text x=-6.5 y=30 size=10 align=right text=y fill=#000
+line x=0.5 y=0.5 x2=0.5 y2=40.5 stroke=#888 strokeWidth=1
+text x=-18.5 y=20.5 size=11 align=center text=g fill=#000
+group-end
+rect x=0 y=0 w=20 h=20 fill=rgb(212, 238, 180)
+rect x=20 y=20 w=20 h=20 fill=rgb(69, 180, 194)
+rect x=40 y=0 w=20 h=20 fill=rgb(134, 208, 187)
+rect x=60 y=20 w=20 h=20 fill=rgb(28, 49, 133)
+rect x=80 y=0 w=20 h=20 fill=rgb(34, 82, 161)
+rect x=100 y=20 w=20 h=20 fill=rgb(79, 185, 193)
+rect x=120 y=0 w=20 h=20 fill=rgb(239, 249, 189)
+rect x=140 y=20 w=20 h=20 fill=rgb(32, 61, 146)
+rect x=160 y=0 w=20 h=20 fill=rgb(84, 187, 192)
+group-begin
+group-begin
+rect x=198 y=78.4 w=16 h=1.6 fill=rgb(239, 249, 189)
+rect x=198 y=76.8 w=16 h=1.6 fill=rgb(234, 247, 187)
+rect x=198 y=75.2 w=16 h=1.6 fill=rgb(229, 245, 185)
+rect x=198 y=73.6 w=16 h=1.6 fill=rgb(224, 243, 182)
+rect x=198 y=72 w=16 h=1.6 fill=rgb(219, 241, 180)
+rect x=198 y=70.4 w=16 h=1.6 fill=rgb(212, 238, 180)
+rect x=198 y=68.8 w=16 h=1.6 fill=rgb(204, 235, 181)
+rect x=198 y=67.2 w=16 h=1.6 fill=rgb(197, 232, 181)
+rect x=198 y=65.6 w=16 h=1.6 fill=rgb(189, 229, 181)
+rect x=198 y=64 w=16 h=1.6 fill=rgb(179, 225, 182)
+rect x=198 y=62.4 w=16 h=1.6 fill=rgb(169, 221, 183)
+rect x=198 y=60.8 w=16 h=1.6 fill=rgb(158, 217, 184)
+rect x=198 y=59.2 w=16 h=1.6 fill=rgb(148, 213, 185)
+rect x=198 y=57.6 w=16 h=1.6 fill=rgb(137, 209, 186)
+rect x=198 y=56 w=16 h=1.6 fill=rgb(126, 205, 188)
+rect x=198 y=54.4 w=16 h=1.6 fill=rgb(116, 201, 189)
+rect x=198 y=52.8 w=16 h=1.6 fill=rgb(105, 197, 190)
+rect x=198 y=51.2 w=16 h=1.6 fill=rgb(96, 193, 191)
+rect x=198 y=49.6 w=16 h=1.6 fill=rgb(87, 189, 192)
+rect x=198 y=48 w=16 h=1.6 fill=rgb(78, 184, 193)
+rect x=198 y=46.4 w=16 h=1.6 fill=rgb(69, 180, 194)
+rect x=198 y=44.8 w=16 h=1.6 fill=rgb(63, 175, 194)
+rect x=198 y=43.2 w=16 h=1.6 fill=rgb(57, 169, 193)
+rect x=198 y=41.6 w=16 h=1.6 fill=rgb(50, 164, 193)
+rect x=198 y=40 w=16 h=1.6 fill=rgb(44, 158, 192)
+rect x=198 y=38.4 w=16 h=1.6 fill=rgb(41, 151, 190)
+rect x=198 y=36.8 w=16 h=1.6 fill=rgb(38, 144, 188)
+rect x=198 y=35.2 w=16 h=1.6 fill=rgb(36, 137, 186)
+rect x=198 y=33.6 w=16 h=1.6 fill=rgb(33, 130, 184)
+rect x=198 y=32 w=16 h=1.6 fill=rgb(33, 122, 181)
+rect x=198 y=30.4 w=16 h=1.6 fill=rgb(33, 115, 177)
+rect x=198 y=28.8 w=16 h=1.6 fill=rgb(33, 107, 173)
+rect x=198 y=27.2 w=16 h=1.6 fill=rgb(33, 99, 170)
+rect x=198 y=25.6 w=16 h=1.6 fill=rgb(34, 92, 167)
+rect x=198 y=24 w=16 h=1.6 fill=rgb(34, 85, 163)
+rect x=198 y=22.4 w=16 h=1.6 fill=rgb(35, 78, 160)
+rect x=198 y=20.8 w=16 h=1.6 fill=rgb(35, 71, 156)
+rect x=198 y=19.2 w=16 h=1.6 fill=rgb(33, 65, 150)
+rect x=198 y=17.6 w=16 h=1.6 fill=rgb(32, 60, 145)
+rect x=198 y=16 w=16 h=1.6 fill=rgb(30, 55, 139)
+text x=216 y=80 size=10 align=left text=19 fill=#000
+text x=216 y=16 size=10 align=left text=91 fill=#000
+group-end
+text x=198 y=0 size=11 align=left text=b fill=#000
+group-end
+group-end
+

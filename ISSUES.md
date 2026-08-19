@@ -2508,3 +2508,222 @@ Open. `if!` is used in only two places in the repository
 `ng_LiveCompiler.rgr`), both with blocks small enough to survive the re-parse,
 which is why it has not surfaced before. Found while writing `gallery/vela`,
 which uses the workaround throughout.
+
+## Issue #70: The S-expression parser recurses per group and never unwinds, so a large file exhausts the stack
+
+`RangerLispParser.parseBuf` calls itself whenever it opens a node — `(`, `{`, or
+the start of an expression — and when that node CLOSES it pops `this.parents`
+and rebinds `this.curr_node` **without returning**. The frame stays live and its
+`while` loop keeps parsing the rest of the buffer. Only two node kinds
+(`value_type` 22 and 24) take the early `return` at the top of the loop.
+
+So parse depth is not the source's nesting depth. It accumulates across the
+file, and a big enough file runs V8 out of stack:
+
+```
+RangeError: Maximum call stack size exceeded
+    at RangerLispParser.parseBuf (bin/output.js:6482)
+    at RangerLispParser.parseBuf (bin/output.js:6577)
+    at RangerLispParser.parseBuf (bin/output.js:6787)
+    ... 2000+ frames
+```
+
+### Measured depth
+
+Instrumenting `parseBuf` with a depth counter, compiling to es6:
+
+| Source | Lines | Max parse depth |
+| --- | --- | --- |
+| anything small (baseline: Lang.rgr + stdops.rgr) | — | 70 |
+| 3000 sequential `(t + 1)` groups | 3000 | 70 |
+| 40 levels of literal nesting | 1 | 70 |
+| a 2000-element `([] _:int ( … ))` literal | 1 | 70 |
+| `BigIntNum.rgr` / `DateTime.rgr` | 805 / 604 | 70 |
+| `Regex.rgr` | 2,260 | 173 |
+| `EvHandle.rgr` | 2,985 | 245 |
+| **`ComponentEngine.rgr`** | **45,221** | **2,117** |
+
+Note what does NOT drive it: statement count, literal nesting, array literals
+and file size on their own all stay at the 70 baseline. The depth appears where
+groups nest inside function bodies, and it is roughly proportional to how much
+of that a file contains.
+
+### Consequence: compiling the JS engine is FLAKY today
+
+At depth 2,117 `ComponentEngine.rgr` sits right at the edge of V8's default
+stack. Compiling `bench_main.rgr` (engine only, no test corpus) five times in a
+row on the same machine:
+
+```
+FAIL OK OK FAIL OK        →  2 failures in 5
+```
+
+The failure surfaces as `[FAIL] Unexpected compiler error / RangeError: Maximum
+call stack size exceeded`, which reads like a compiler bug in the program being
+compiled and is not obviously a stack issue. Any target, any run. That makes
+`npm run test:tsengine` and every `selfhost:*` script intermittently red for a
+reason that has nothing to do with the code being compiled.
+
+### Workaround
+
+Pass a bigger stack to node:
+
+```bash
+node --stack-size=60000 bin/output.js …
+```
+
+`tests/es-conformance-targets.test.ts` does this. The `selfhost:*` and
+`test:tsengine` paths do not yet.
+
+### Cause
+
+Not the recursion itself — the frames not being released. Dumping `this.parents`
+at maximum depth on `EvHandle.rgr`: **call depth 245 with 12 nodes actually
+open**. So 233 frames were live for nodes that had already closed.
+
+Three sites recurse, each pushing a node onto `parents` first. A literal `)` or
+`}` ends its frame with `break`, but the third site — an implicit statement
+expression inside a block, `ng_parser_v2.rgr:1054` — is closed by
+`end_expression`, which pops `parents` and **does not break**. That frame then
+parses the rest of the enclosing block, and the next statement recurses again on
+top of it.
+
+### Fix
+
+`parseBuf` records `array_length parents` on entry and returns as soon as the
+list is shorter than that — the node this frame was parsing is gone, so the
+frame is done. Four lines in `compiler/ng_parser_v2.rgr`.
+
+Depth after the fix:
+
+| Source | Before | After |
+| --- | --- | --- |
+| `EvHandle.rgr` | 245 | **36** |
+| `ComponentEngine.rgr` | 2,117 | **36** |
+| `ComponentEngine.rgr` + the 2,138-probe corpus | 2,117 | **36** |
+
+Depth is now bounded by real nesting and no longer grows with the file.
+
+### Verification
+
+- **Self-host fixpoint**: the rebuilt compiler compiles itself, and the second
+  generation is byte-identical to the first.
+- **Codegen unchanged**: the 2.1 MB of JavaScript the compiler emits for
+  `bench_main.rgr` (the whole JS engine) is byte-identical before and after.
+- **Semantics unchanged**: the 2,138-probe ES conformance corpus gives the same
+  answers — 2,136 agreeing with Node, the same 2 known gaps.
+- **The flake is gone**: `bench_main.rgr` compiled 8 times in a row at the
+  DEFAULT stack, 8 successes (was 3 of 5).
+- `tests/native/core_vectors.rgr` still byte-identical on es6, python, go, cpp
+  and rust.
+
+### Status
+
+Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
+misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
+70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #71: `tryDesugarNewMethodChain` exists only as hand-written JavaScript, so every self-hosted compiler is missing it
+
+`npm run compile` does not finish at the compiler. It ends with
+
+```
+node bin/output.js … -o=output.js && npm run compile:fixcrlf
+  && node scripts/patch-chain-desugar.js && npm run compile:copylibs
+```
+
+and that patch step **replaces a method body in the freshly built compiler** with
+about 45 lines of hand-written JavaScript kept in `scripts/patch-chain-desugar.js`.
+
+The script's header says the bootstrap compiler "cannot emit
+tryDesugarNewMethodChain from .rgr yet". That is not what is happening. The
+Ranger source, `compiler/ng_CodeNodeCompilerExtensions.rgr:402`, is:
+
+```ranger
+  fn tryDesugarNewMethodChain:boolean () {
+    return false
+  }
+```
+
+There is nothing to emit. **The only implementation of the feature is the
+JavaScript in the patch script.** The `.rgr` is a permanent stub that compiles
+to exactly the `return false` the patcher then looks for and overwrites.
+
+### What this costs
+
+The patch is applied in exactly two places in `package.json`:
+
+- `compile` → `bin/output.js`
+- `build:dist:module` → `dist/api.js`
+
+Every other build gets the stub. In particular **none of the `selfhost:*`
+scripts patch anything**, so the C++, Dart, Python, C#, Go and Kotlin
+self-hosted compilers all have `tryDesugarNewMethodChain` returning `false`.
+
+It is not a silent degradation — it is a **hard compile error**. Building an
+unpatched compiler (exactly what `selfhost:*` produces) and giving it the
+repository's own chaining fixture:
+
+```
+$ node tmp/unpatched.js -es6 tests/fixtures/chain_new_method.rgr
+  [FAIL] WriteVREF -> Undefined variable .hello in class ChainNewMethod
+    13 │         new Greeter().hello().world()
+```
+
+The patched compiler compiles the same file and prints `hello` / `world`.
+
+Five of the six chaining fixtures fail on an unpatched compiler:
+
+| Fixture | Unpatched |
+| --- | --- |
+| `chain_new_method` | FAILS |
+| `chain_fluent_builder` | FAILS |
+| `chain_local_var` | FAILS |
+| `chain_polymorphic_add` | FAILS |
+| `chain_return_int` | FAILS |
+| `chain_operator_substring` | compiles (operator chaining is a different path) |
+
+So **a self-hosted Ranger compiler cannot compile a Ranger program that uses
+method chaining at all**. The self-hosting claim in `TARGET_NOTES.md` holds for
+the compiler reproducing its own output byte for byte; it does not hold for the
+language the resulting compiler accepts.
+
+The feature is not dead code either — `PLAN_METHOD_CHAINING.md` records phase 1
+(codegen) as delivered, and `tests/compiler-chain.test.ts` plus
+`tests/compiler-chain-kotlin-swift.test.ts` gate it with ten fixtures.
+
+It is also a trap for anyone rebuilding the compiler. Compiling
+`ng_Compiler.rgr` and copying the result over `bin/output.js` — the obvious
+thing to do — removes a language feature, and the resulting compiler then
+rejects code the previous one accepted.
+
+### Fix
+
+Written in Ranger, in the stub's place. It is ordinary `CodeNode` manipulation —
+`copy`, `children`, `add`, `newVRefNode`, `getChildrenFrom` — and needed no
+construct the language lacks; the "cannot emit it yet" note was never the
+reason. `scripts/patch-chain-desugar.js` is deleted and the patch step is gone
+from `compile` and `build:dist:module`.
+
+### Verification
+
+- The Ranger version produces **byte-identical generated code** to the
+  JavaScript patch on all six `chain_*.rgr` fixtures, and identical program
+  output (`hello`/`world`, `6`, `30`, `3`/`Hello`, `6`, `ello`).
+- All six fixtures compile on a compiler built with **no patch step at all**.
+  Five of them could not be compiled before.
+- Chaining now works on every target, not just es6: `chain_new_method` compiles
+  for go, cpp, rust, python, kotlin, csharp, dart and swift6, and prints
+  `hello world` on go, cpp and python.
+- Self-host fixpoint over **three** generations with no patch anywhere:
+  gen2 == gen1 and gen3 == gen2, byte for byte.
+- Unchanged elsewhere: the engine's seven benchmark answers on es6 and on Go,
+  the 2138-probe ES conformance corpus (2136 agreeing with Node, same 2 known
+  gaps), `core_vectors` byte-identical on five targets, and the engine still
+  writes for go/kotlin/csharp/dart/swift6/python.
+
+### Status
+
+Fixed. Surfaced while rebuilding the compiler for Issue #70: the rebuild had to
+re-apply the patch by hand to avoid regressing, which is what drew attention to
+what the patch actually contained.

@@ -1,0 +1,251 @@
+; ==============================================================================
+; FormulaValue - typed spreadsheet values + Excel-ish coercion.
+; ==============================================================================
+;
+; Shared by FormulaFunctions (pure library) and FormulaEngine (workbook eval).
+; kind: 0 blank | 1 number | 2 string | 3 bool | 4 error
+;
+; Arithmetic uses coerceNumber() → blank/"" /bool → 0/1, non-numeric → #VALUE!.
+; Equality prefers numeric compare when both sides coerce; else toText().
+; ==============================================================================
+
+class FormulaValue {
+    def kind:int 0
+    def num:double 0.0
+    def text:string ""
+    def flag:boolean false
+    def err:string ""
+
+    Constructor () {
+    }
+
+    sfn blank:FormulaValue () {
+        return (new FormulaValue)
+    }
+
+    sfn fromNumber:FormulaValue (v:double) {
+        def o:FormulaValue (new FormulaValue)
+        o.kind = 1
+        o.num = v
+        return o
+    }
+
+    sfn fromString:FormulaValue (s:string) {
+        def o:FormulaValue (new FormulaValue)
+        o.kind = 2
+        o.text = s
+        return o
+    }
+
+    sfn fromBool:FormulaValue (b:boolean) {
+        def o:FormulaValue (new FormulaValue)
+        o.kind = 3
+        o.flag = b
+        if b {
+            o.num = 1.0
+            o.text = "TRUE"
+        } {
+            o.num = 0.0
+            o.text = "FALSE"
+        }
+        return o
+    }
+
+    sfn fromError:FormulaValue (e:string) {
+        def o:FormulaValue (new FormulaValue)
+        o.kind = 4
+        o.err = e
+        o.text = e
+        return o
+    }
+
+    fn isError:boolean () {
+        return (kind == 4)
+    }
+
+    fn isBlank:boolean () {
+        return (kind == 0)
+    }
+
+    fn isTrue:boolean () {
+        if (kind == 3) {
+            return flag
+        }
+        if (kind == 1) {
+            return (num != 0.0)
+        }
+        if (kind == 2) {
+            if ((strlen text) == 0) {
+                return false
+            }
+            return true
+        }
+        return false
+    }
+
+    ; Soft convert used by aggregates (COUNT etc.): numbers + numeric text only.
+    ; Blank / "" / bool are NOT numbers for COUNT (Excel-ish).
+    fn asNumber:double () {
+        def out:[double]
+        def ok:boolean (this.tryNumber(out))
+        if ok {
+            return (itemAt out 0)
+        }
+        if (kind == 3) {
+            if flag {
+                return 1.0
+            }
+            return 0.0
+        }
+        return 0.0
+    }
+
+    fn tryNumber:boolean (out:[double]) {
+        clear out
+        if (kind == 1) {
+            push out num
+            return true
+        }
+        if (kind == 2) {
+            if ((strlen text) == 0) {
+                return false
+            }
+            def p@(optional):double (to_double text)
+            if p {
+                push out (unwrap p)
+                return true
+            }
+        }
+        return false
+    }
+
+    ; Arithmetic coerce: blank / "" / bool → 0/1; non-numeric string → #VALUE!.
+    fn tryCoerceNumber:boolean (out:[double]) {
+        clear out
+        def ee:boolean (this.isError())
+        if ee {
+            return false
+        }
+        if (kind == 0) {
+            push out 0.0
+            return true
+        }
+        if (kind == 1) {
+            push out num
+            return true
+        }
+        if (kind == 3) {
+            if flag {
+                push out 1.0
+            } {
+                push out 0.0
+            }
+            return true
+        }
+        if (kind == 2) {
+            if ((strlen text) == 0) {
+                push out 0.0
+                return true
+            }
+            def p@(optional):double (to_double text)
+            if p {
+                push out (unwrap p)
+                return true
+            }
+        }
+        return false
+    }
+
+    fn coerceNumber:FormulaValue () {
+        def ee:boolean (this.isError())
+        if ee {
+            return this
+        }
+        def out:[double]
+        def ok:boolean (this.tryCoerceNumber(out))
+        if ok {
+            return (FormulaValue.fromNumber((itemAt out 0)))
+        }
+        return (FormulaValue.fromError("#VALUE!"))
+    }
+
+    fn toText:string () {
+        if (kind == 0) {
+            return ""
+        }
+        if (kind == 4) {
+            return err
+        }
+        if (kind == 3) {
+            return text
+        }
+        if (kind == 2) {
+            return text
+        }
+        return (this.asRaw())
+    }
+
+    fn toBoolean:boolean () {
+        def t:boolean (this.isTrue())
+        return t
+    }
+
+    fn compare:int (other:FormulaValue) {
+        def a:FormulaValue (this.coerceNumber())
+        def b:FormulaValue (other.coerceNumber())
+        def ae:boolean (a.isError())
+        if ae {
+            return 0
+        }
+        def be:boolean (b.isError())
+        if be {
+            return 0
+        }
+        if (a.num < b.num) {
+            return -1
+        }
+        if (a.num > b.num) {
+            return 1
+        }
+        return 0
+    }
+
+    ; Excel-ish equality: numeric when both coerce; else text.
+    sfn valuesEqual:boolean (L:FormulaValue R:FormulaValue) {
+        def ln:[double]
+        def rn:[double]
+        def lok:boolean (L.tryCoerceNumber(ln))
+        def rok:boolean (R.tryCoerceNumber(rn))
+        if (lok && rok) {
+            return ((itemAt ln 0) == (itemAt rn 0))
+        }
+        def ls:string (L.toText())
+        def rs:string (R.toText())
+        return (ls == rs)
+    }
+
+    ; Raw string for sheet storage (formatter applies numFmt on display).
+    fn asRaw:string () {
+        if (kind == 0) {
+            return ""
+        }
+        if (kind == 4) {
+            return err
+        }
+        if (kind == 3) {
+            return text
+        }
+        if (kind == 2) {
+            return text
+        }
+        def iv:int (to_int num)
+        if ((to_double iv) == num) {
+            return (to_string iv)
+        }
+        return (to_string num)
+    }
+
+    fn asDisplay:string () {
+        return (this.asRaw())
+    }
+}

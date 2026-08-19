@@ -1,0 +1,116 @@
+; ==============================================================================
+; formula_bench - FormulaEngine recalc workloads.
+; ==============================================================================
+;
+; Usage: npm run datagrid:formula:bench
+;        npm run datagrid:formula:bench -- 5000
+; ==============================================================================
+
+Import "../src/WorkbookModel.rgr"
+Import "../src/SpreadsheetModel.rgr"
+Import "../src/FormulaEngine.rgr"
+
+class FormulaBench {
+    sfn report:void (name:string ms:double) {
+        def whole:int (to_int ms)
+        def frac:int (to_int ((ms - (to_double whole)) * 10.0))
+        if (frac < 0) {
+            frac = 0 - frac
+        }
+        print ("  " + name + ": " + (to_string whole) + "." + (to_string frac) + " ms")
+    }
+
+    sfn main:void () {
+        def n:int 2000
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if parsed {
+                n = (unwrap parsed)
+            }
+        }
+        print ("== formula_bench n=" + (to_string n) + " ==")
+
+        ; --- chain A1=1, A2=A1+1, ... ---
+        def book:WorkbookModel (new WorkbookModel)
+        def s:SpreadsheetModel (new SpreadsheetModel)
+        s.name = "Chain"
+        s.resize((n + 2) 4)
+        s.setCellRaw(0 0 "1")
+        def i:int 1
+        while (i <= n) {
+            def prev:string (("A" + (to_string i)))
+            s.setFormula(i 0 (prev + "+1"))
+            i = (i + 1)
+        }
+        book.addSheet(s)
+        def eng:FormulaEngine (new FormulaEngine)
+        eng.attach(book)
+        def t0:double (wall_clock_ms)
+        eng.rebuildAll()
+        def t1:double (wall_clock_ms)
+        FormulaBench.report("chain rebuildAll" (t1 - t0))
+        print ("  last=" + (s.getCell(n 0)) + " recalculated=" + (to_string eng.recalculated))
+
+        eng.resetStats()
+        def t2:double (wall_clock_ms)
+        s.setCellRaw(0 0 "2")
+        eng.onCellEdited(0 0 0)
+        def t3:double (wall_clock_ms)
+        FormulaBench.report("chain incremental edit A1" (t3 - t2))
+        print ("  dirtyMarked=" + (to_string eng.dirtyMarked) + " recalculated=" + (to_string eng.recalculated) + " last=" + (s.getCell(n 0)))
+
+        ; --- fan-out B_i = A1 * i ---
+        def book2:WorkbookModel (new WorkbookModel)
+        def s2:SpreadsheetModel (new SpreadsheetModel)
+        s2.name = "Fan"
+        s2.resize((n + 2) 4)
+        s2.setCellRaw(0 0 "10")
+        i = 0
+        while (i < n) {
+            s2.setFormula(i 1 ("A1*" + (to_string (i + 1))))
+            i = (i + 1)
+        }
+        book2.addSheet(s2)
+        def eng2:FormulaEngine (new FormulaEngine)
+        eng2.attach(book2)
+        def t4:double (wall_clock_ms)
+        eng2.rebuildAll()
+        def t5:double (wall_clock_ms)
+        FormulaBench.report("fan-out rebuildAll" (t5 - t4))
+        eng2.resetStats()
+        def t6:double (wall_clock_ms)
+        s2.setCellRaw(0 0 "11")
+        eng2.onCellEdited(0 0 0)
+        def t7:double (wall_clock_ms)
+        FormulaBench.report("fan-out incremental" (t7 - t6))
+        print ("  dirtyMarked=" + (to_string eng2.dirtyMarked) + " recalculated=" + (to_string eng2.recalculated))
+
+        ; --- cross-sheet ---
+        def book3:WorkbookModel (new WorkbookModel)
+        def sales:SpreadsheetModel (new SpreadsheetModel)
+        sales.name = "Sales"
+        sales.resize(20 5)
+        sales.setCellRaw(1 1 "100")
+        sales.setCellRaw(2 1 "200")
+        def summary:SpreadsheetModel (new SpreadsheetModel)
+        summary.name = "Summary"
+        summary.resize(20 5)
+        summary.setFormula(1 1 "SUM(Sales!B2:B3)")
+        summary.setFormula(2 1 "B2*1.24")
+        book3.addSheet(sales)
+        book3.addSheet(summary)
+        def eng3:FormulaEngine (new FormulaEngine)
+        eng3.attach(book3)
+        eng3.rebuildAll()
+        eng3.resetStats()
+        def t8:double (wall_clock_ms)
+        sales.setCellRaw(1 1 "150")
+        eng3.onCellEdited(0 1 1)
+        def t9:double (wall_clock_ms)
+        FormulaBench.report("cross-sheet incremental" (t9 - t8))
+        print ("  Summary!B2=" + (summary.getCell(1 1)) + " B3=" + (summary.getCell(2 1)) + " recalculated=" + (to_string eng3.recalculated))
+
+        print "FormulaBench DONE"
+    }
+}

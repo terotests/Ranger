@@ -1,0 +1,678 @@
+; =============================================================================
+; RgText — one string model, whichever one the target actually has
+; =============================================================================
+; A Ranger `string` is not one thing. Measured, by compiling the same source:
+;
+;   strlen        es6   python   go    rust   cpp
+;   "é"           1     1        1     1      2
+;   "😀"          2     1        1     1      4
+;
+; es6 counts UTF-16 CODE UNITS, python/go/rust count CODE POINTS, and C++ counts
+; UTF-8 BYTES. `charAt` follows suit: on "é" it answers 233 on the first four and
+; 195 (0xC3, the leading UTF-8 byte) on C++.
+;
+; So any function that indexes a string is three functions. Every higher layer —
+; Intl, base64, digests, JSON quoting, URI escaping, regex — indexes strings, and
+; each one would otherwise carry its own version of this. It is written once here.
+;
+; The addressing this file exposes is UTF-16 CODE UNITS, because that is what
+; JavaScript's String is defined over and therefore what the engine's semantics
+; are specified against. `RgText.len("😀")` is 2 on every target, including the
+; ones whose own strlen says 1 or 4. A slice that cuts a surrogate pair yields
+; the lone surrogate on a unit-model target and drops the half on a point-model
+; one, where half a character has no representation — that difference is
+; documented at `substr` rather than papered over.
+;
+; Lifted from ComponentEngine.rgr:39365-39744, which is where these algorithms
+; were proven; see PLAN_JS_STDLIB_TEXT.md §2.
+;
+; TWO TARGET CONSTRAINTS THIS FILE WORKS AROUND
+;
+;   1. `strfromcode` used directly as an ARGUMENT does not compile on Rust: the
+;      writer emits `char::from_u32(n)`, a `char`, and then calls a String method
+;      on it (`no method named 'chars' found for type 'char'`). Concatenation
+;      coerces fine. Every `strfromcode` here is therefore BOUND to a `string`
+;      before it is passed anywhere.
+;
+;   2. On es6, `strfromcode` is `String.fromCharCode`, which truncates to 16
+;      bits — `strfromcode 128512` gives one BMP character, not an emoji. So
+;      `fromCodePoint` builds a surrogate PAIR there rather than trusting it.
+;
+; NAMING: `kind`, `len`, `substr` and the rest avoid the global operator namespace,
+; which a static method may not enter — see lib/core/README.md.
+; =============================================================================
+
+class RgText {
+
+    ; ---- which model is this ------------------------------------------------
+
+    ; 0 = UTF-16 code units, 1 = UTF-8 bytes, 2 = code points.
+    ;
+    ; Recomputed rather than cached: the core-layer rules forbid mutable
+    ; file-level state, and this is two strlen calls on one-character literals.
+    ; If a profile ever says it matters, the fix is a value threaded by the
+    ; caller, not a static field.
+    static sfn kind:int () {
+        if ((strlen "é") > 1) {
+            return 1
+        }
+        if ((strlen "😀") == 1) {
+            return 2
+        }
+        return 0
+    }
+
+    static sfn unitsAreBytes:boolean () {
+        return ((RgText.kind()) == 1)
+    }
+
+    ; True where strlen/charAt/substring index whole CHARACTERS, so the only gap
+    ; to UTF-16 is that a supplementary character is one unit here and two there.
+    static sfn unitsArePoints:boolean () {
+        return ((RgText.kind()) == 2)
+    }
+
+    ; ---- UTF-8 geometry ----------------------------------------------------
+
+    static sfn utf8WidthOf:int (cp:int) {
+        if (cp < 128) {
+            return 1
+        }
+        if (cp < 2048) {
+            return 2
+        }
+        if (cp < 65536) {
+            return 3
+        }
+        return 4
+    }
+
+    ; Bytes [i, j) of a string on a byte-model target.
+    ;
+    ; `substring` IS the byte slice there — on a byte-model target strlen,
+    ; charAt and substring all index bytes. The obvious alternative, rebuilding
+    ; the run byte by byte through `strfromcode`, is WRONG: on C++
+    ; `strfromcode 195` answers the two-byte UTF-8 encoding of U+00C3, not the
+    ; single byte 0xC3, so slicing "héllo" that way double-encoded it to "Ã©l".
+    ; Measured; the cross-target suite caught it.
+    static sfn byteSlice:string (s:string i:int j:int) {
+        def n:int (strlen s)
+        def a:int i
+        def b:int j
+        if (a < 0) {
+            a = 0
+        }
+        if (b > n) {
+            b = n
+        }
+        if (b <= a) {
+            return ""
+        }
+        return (substring s a b)
+    }
+
+    ; The code POINT whose encoding starts at byte `i`, and its width in bytes,
+    ; as a two-element list. Byte-model targets only; [-1, 0] past the end.
+    static sfn decodeAt:[int] (s:string i:int) {
+        def out:[int]
+        def n:int (strlen s)
+        if (i >= n) {
+            push out (0 - 1)
+            push out 0
+            return out
+        }
+        def b0:int (bit_and (charAt s i) 255)
+        if (b0 < 128) {
+            push out b0
+            push out 1
+            return out
+        }
+        if (b0 < 224) {
+            def c1:int 0
+            if ((i + 1) < n) {
+                c1 = (bit_and (charAt s (i + 1)) 63)
+            }
+            push out (((bit_and b0 31) * 64) + c1)
+            push out 2
+            return out
+        }
+        if (b0 < 240) {
+            def d1:int 0
+            def d2:int 0
+            if ((i + 1) < n) {
+                d1 = (bit_and (charAt s (i + 1)) 63)
+            }
+            if ((i + 2) < n) {
+                d2 = (bit_and (charAt s (i + 2)) 63)
+            }
+            push out ((((bit_and b0 15) * 4096) + (d1 * 64)) + d2)
+            push out 3
+            return out
+        }
+        def e1:int 0
+        def e2:int 0
+        def e3:int 0
+        if ((i + 1) < n) {
+            e1 = (bit_and (charAt s (i + 1)) 63)
+        }
+        if ((i + 2) < n) {
+            e2 = (bit_and (charAt s (i + 2)) 63)
+        }
+        if ((i + 3) < n) {
+            e3 = (bit_and (charAt s (i + 3)) 63)
+        }
+        push out (((((bit_and b0 7) * 262144) + (e1 * 4096)) + (e2 * 64)) + e3)
+        push out 4
+        return out
+    }
+
+    ; ---- construction ------------------------------------------------------
+
+    ; One code point as a string. On a byte target that is its UTF-8 encoding;
+    ; on a unit target an astral point becomes a SURROGATE PAIR, because
+    ; `strfromcode` there is String.fromCharCode and truncates to 16 bits.
+    static sfn fromCodePoint:string (cp:int) {
+        if (RgText.unitsAreBytes()) {
+            return (RgText.encodeUtf8(cp))
+        }
+        if (RgText.unitsArePoints()) {
+            def p:string (strfromcode cp)
+            return p
+        }
+        if (cp < 65536) {
+            def q:string (strfromcode cp)
+            return q
+        }
+        def adj:int (cp - 65536)
+        def hi:string (strfromcode (55296 + (bit_shr adj 10)))
+        def lo:string (strfromcode (56320 + (bit_and adj 1023)))
+        return (hi + lo)
+    }
+
+    ; One code point as a string on a byte-model target — that is, as its UTF-8
+    ; encoding, since the string IS bytes there.
+    ;
+    ; `strfromcode` already does exactly this: on C++ it answers the two-byte
+    ; encoding of U+00C3 for 195, not the raw byte. So the encoding must NOT be
+    ; assembled by hand out of per-byte `strfromcode` calls — that produced
+    ; double-encoded UTF-8 ("Ã©" for "é"). Handing the whole code point over is
+    ; both correct and shorter.
+    ;
+    ; A lone surrogate arrives here from `substr` when a cut splits a pair. The
+    ; result is CESU-8, which is the only way a byte string can carry half a
+    ; character; that is documented at `substr`.
+    static sfn encodeUtf8:string (cp:int) {
+        def p:string (strfromcode cp)
+        return p
+    }
+
+    ; ---- code-unit addressing ----------------------------------------------
+
+    ; Code units in `s`. This is JavaScript's `.length`.
+    static sfn len:int (s:string) {
+        def n:int (strlen s)
+        if (RgText.unitsArePoints()) {
+            def p:int 0
+            def cnt:int 0
+            while (p < n) {
+                if ((charAt s p) > 65535) {
+                    cnt = (cnt + 2)
+                } {
+                    cnt = (cnt + 1)
+                }
+                p = (p + 1)
+            }
+            return cnt
+        }
+        if (false == (RgText.unitsAreBytes())) {
+            return n
+        }
+        def i:int 0
+        def units:int 0
+        while (i < n) {
+            def b:int (bit_and (charAt s i) 255)
+            if (b < 128) {
+                units = (units + 1)
+                i = (i + 1)
+            } {
+                ; Anything past U+FFFF needs TWO code units: JavaScript spells
+                ; it as a surrogate pair.
+                if (b < 224) {
+                    units = (units + 1)
+                    i = (i + 2)
+                } {
+                    if (b < 240) {
+                        units = (units + 1)
+                        i = (i + 3)
+                    } {
+                        units = (units + 2)
+                        i = (i + 4)
+                    }
+                }
+            }
+        }
+        return units
+    }
+
+    ; The code UNIT at index `u`: the character itself inside the BMP, and the
+    ; high or low surrogate for an astral one. -1 past the end.
+    static sfn unitAt:int (s:string u:int) {
+        def n:int (strlen s)
+        if (u < 0) {
+            return (0 - 1)
+        }
+        if (RgText.unitsArePoints()) {
+            def p:int 0
+            def units:int 0
+            while (p < n) {
+                def cp:int (charAt s p)
+                if (cp < 65536) {
+                    if (units == u) {
+                        return cp
+                    }
+                    units = (units + 1)
+                } {
+                    def adj:int (cp - 65536)
+                    if (units == u) {
+                        return (55296 + (bit_shr adj 10))
+                    }
+                    if ((units + 1) == u) {
+                        return (56320 + (bit_and adj 1023))
+                    }
+                    units = (units + 2)
+                }
+                p = (p + 1)
+            }
+            return (0 - 1)
+        }
+        if (false == (RgText.unitsAreBytes())) {
+            if (u >= n) {
+                return (0 - 1)
+            }
+            return (bit_and (charAt s u) 65535)
+        }
+        def i:int 0
+        def units:int 0
+        while (i < n) {
+            def dec:[int] (RgText.decodeAt(s i))
+            def cp:int (itemAt dec 0)
+            def w:int (itemAt dec 1)
+            if (w == 0) {
+                return (0 - 1)
+            }
+            if (cp < 65536) {
+                if (units == u) {
+                    return cp
+                }
+                units = (units + 1)
+            } {
+                def adj:int (cp - 65536)
+                if (units == u) {
+                    return (55296 + (bit_shr adj 10))
+                }
+                if ((units + 1) == u) {
+                    return (56320 + (bit_and adj 1023))
+                }
+                units = (units + 2)
+            }
+            i = (i + w)
+        }
+        return (0 - 1)
+    }
+
+    ; The substring between two code-unit indexes.
+    ;
+    ; A cut that lands INSIDE a surrogate pair yields the corresponding lone
+    ; surrogate on a unit-model target, which is what keeps `s.slice(0, 1)` on an
+    ; astral character one unit long instead of silently the whole character. On a
+    ; POINT-model target half a pair has no representation — that string type
+    ; holds characters — so the half is dropped rather than faked, which keeps the
+    ; result well-formed. Slicing that does not split a pair, which is everything
+    ; a program normally does, is exact on every target.
+    static sfn substr:string (s:string a:int b:int) {
+        def lo:int a
+        def hi:int b
+        if (lo < 0) {
+            lo = 0
+        }
+        if (hi < lo) {
+            hi = lo
+        }
+        def n:int (strlen s)
+        if (RgText.unitsArePoints()) {
+            def out:string ""
+            def p:int 0
+            def units:int 0
+            while (p < n) {
+                def cp:int (charAt s p)
+                def w:int 1
+                if (cp > 65535) {
+                    w = 2
+                }
+                if ((units >= lo) && ((units + w) <= hi)) {
+                    out = (out + (at s p))
+                }
+                units = (units + w)
+                p = (p + 1)
+            }
+            return out
+        }
+        if (false == (RgText.unitsAreBytes())) {
+            if (lo >= n) {
+                return ""
+            }
+            def hi2:int hi
+            if (hi2 > n) {
+                hi2 = n
+            }
+            return (substring s lo hi2)
+        }
+        def out2:string ""
+        def i:int 0
+        def units2:int 0
+        while (i < n) {
+            def dec:[int] (RgText.decodeAt(s i))
+            def cp:int (itemAt dec 0)
+            def w:int (itemAt dec 1)
+            if (w == 0) {
+                i = n
+            } {
+                if (cp < 65536) {
+                    if ((units2 >= lo) && (units2 < hi)) {
+                        out2 = (out2 + (RgText.byteSlice(s i (i + w))))
+                    }
+                    units2 = (units2 + 1)
+                } {
+                    def adj:int (cp - 65536)
+                    def takeHi:boolean ((units2 >= lo) && (units2 < hi))
+                    def takeLo:boolean (((units2 + 1) >= lo) && ((units2 + 1) < hi))
+                    if (takeHi && takeLo) {
+                        out2 = (out2 + (RgText.byteSlice(s i (i + w))))
+                    } {
+                        ; One half of a pair, encoded as the surrogate it is.
+                        ; CESU-8 rather than UTF-8, which is the only way a byte
+                        ; string can carry half a character at all.
+                        if takeHi {
+                            out2 = (out2 + (RgText.encodeUtf8((55296 + (bit_shr adj 10)))))
+                        }
+                        if takeLo {
+                            out2 = (out2 + (RgText.encodeUtf8((56320 + (bit_and adj 1023)))))
+                        }
+                    }
+                    units2 = (units2 + 2)
+                }
+                i = (i + w)
+            }
+        }
+        return out2
+    }
+
+    ; ---- UTF-8 offsets -----------------------------------------------------
+    ;
+    ; These convert between a UTF-16 code-unit index and a UTF-8 BYTE offset.
+    ; Both meanings are target-independent: the answer for "a😀b" is the same
+    ; number on es6 as on C++, even though the two disagree about what their own
+    ; strlen counts.
+    ;
+    ; The engine's `cuByteOf` that these grew out of meant something subtly
+    ; different — "the offset the TARGET'S OWN string search reports" — which is
+    ; code units on es6 and bytes elsewhere. That contract is target-relative by
+    ; construction, and it is why the first version of this file answered 3 on
+    ; es6 and 5 everywhere else for the same call. A bridge to native search
+    ; offsets is a real need, but it belongs to whoever is calling the native
+    ; search, not to a portable library.
+
+    ; The UTF-8 byte offset at which code unit `u` begins; the encoded length
+    ; when `u` is at or past the end. A `u` that lands inside a surrogate pair
+    ; reports the offset just past that pair — half a character has no offset.
+    static sfn utf8ByteOfUnit:int (s:string u:int) {
+        if (u <= 0) {
+            return 0
+        }
+        def n:int (RgText.len(s))
+        def bytes:int 0
+        def i:int 0
+        while (i < n) {
+            if (i >= u) {
+                return bytes
+            }
+            def cp:int (RgText.codePointAt(s i))
+            if (cp < 0) {
+                return bytes
+            }
+            def w:int 1
+            if (cp > 65535) {
+                w = 2
+            }
+            bytes = (bytes + (RgText.utf8WidthOf(cp)))
+            i = (i + w)
+        }
+        return bytes
+    }
+
+    ; The inverse: the code-unit index that a UTF-8 byte offset corresponds to.
+    ; What a search that ran over the encoded bytes has to report back.
+    static sfn unitOfUtf8Byte:int (s:string byteIdx:int) {
+        if (byteIdx <= 0) {
+            return 0
+        }
+        def n:int (RgText.len(s))
+        def bytes:int 0
+        def units:int 0
+        def i:int 0
+        while (i < n) {
+            if (bytes >= byteIdx) {
+                return units
+            }
+            def cp:int (RgText.codePointAt(s i))
+            if (cp < 0) {
+                return units
+            }
+            def w:int 1
+            if (cp > 65535) {
+                w = 2
+            }
+            bytes = (bytes + (RgText.utf8WidthOf(cp)))
+            units = (units + w)
+            i = (i + w)
+        }
+        return units
+    }
+
+    ; ---- code points -------------------------------------------------------
+
+    ; The full code point beginning at code-unit index `u`, combining a surrogate
+    ; pair when one starts there. This is JavaScript's codePointAt.
+    static sfn codePointAt:int (s:string u:int) {
+        def first:int (RgText.unitAt(s u))
+        if (first < 0) {
+            return (0 - 1)
+        }
+        if (first < 55296) {
+            return first
+        }
+        if (first > 56319) {
+            return first
+        }
+        def second:int (RgText.unitAt(s (u + 1)))
+        if (second < 56320) {
+            return first
+        }
+        if (second > 57343) {
+            return first
+        }
+        return ((((first - 55296) * 1024) + (second - 56320)) + 65536)
+    }
+
+    static sfn toCodePoints:[int] (s:string) {
+        def out:[int]
+        def n:int (RgText.len(s))
+        def u:int 0
+        while (u < n) {
+            def cp:int (RgText.codePointAt(s u))
+            if (cp < 0) {
+                u = n
+            } {
+                push out cp
+                if (cp > 65535) {
+                    u = (u + 2)
+                } {
+                    u = (u + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    static sfn codePointCount:int (s:string) {
+        def cps:[int] (RgText.toCodePoints(s))
+        return (array_length cps)
+    }
+
+    static sfn fromCodePoints:string (cps:[int]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length cps)) {
+            out = (out + (RgText.fromCodePoint((itemAt cps i))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ---- code units as data ------------------------------------------------
+
+    static sfn toCodeUnits:[int] (s:string) {
+        def out:[int]
+        def n:int (RgText.len(s))
+        def u:int 0
+        while (u < n) {
+            push out (RgText.unitAt(s u))
+            u = (u + 1)
+        }
+        return out
+    }
+
+    static sfn fromCodeUnits:string (units:[int]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length units)
+        while (i < n) {
+            def hi:int (itemAt units i)
+            ; Recombine a well-formed pair so a byte-model target writes UTF-8
+            ; rather than CESU-8 for the astral characters.
+            def paired:boolean false
+            if ((hi >= 55296) && (hi <= 56319)) {
+                if ((i + 1) < n) {
+                    def lo:int (itemAt units (i + 1))
+                    if ((lo >= 56320) && (lo <= 57343)) {
+                        def cp:int ((((hi - 55296) * 1024) + (lo - 56320)) + 65536)
+                        out = (out + (RgText.fromCodePoint(cp)))
+                        i = (i + 2)
+                        paired = true
+                    }
+                }
+            }
+            if (false == paired) {
+                out = (out + (RgText.fromCodePoint(hi)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; ---- UTF-8 bytes -------------------------------------------------------
+    ; The one bridge between text and bytes in lib/core. RgBase and RgCrypto go
+    ; through this and nothing else, so the string model is dealt with in exactly
+    ; one place rather than once per digest and once per encoder.
+
+    static sfn toUtf8Bytes:[int] (s:string) {
+        def out:[int]
+        ; A byte-model string already IS the encoding.
+        if (RgText.unitsAreBytes()) {
+            def n:int (strlen s)
+            def i:int 0
+            while (i < n) {
+                push out (bit_and (charAt s i) 255)
+                i = (i + 1)
+            }
+            return out
+        }
+        def cps:[int] (RgText.toCodePoints(s))
+        def k:int 0
+        while (k < (array_length cps)) {
+            def cp:int (itemAt cps k)
+            if (cp < 128) {
+                push out cp
+            } {
+                if (cp < 2048) {
+                    push out (bit_or 192 (bit_shr cp 6))
+                    push out (bit_or 128 (bit_and cp 63))
+                } {
+                    if (cp < 65536) {
+                        push out (bit_or 224 (bit_shr cp 12))
+                        push out (bit_or 128 (bit_and (bit_shr cp 6) 63))
+                        push out (bit_or 128 (bit_and cp 63))
+                    } {
+                        push out (bit_or 240 (bit_shr cp 18))
+                        push out (bit_or 128 (bit_and (bit_shr cp 12) 63))
+                        push out (bit_or 128 (bit_and (bit_shr cp 6) 63))
+                        push out (bit_or 128 (bit_and cp 63))
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    static sfn fromUtf8Bytes:string (bytes:[int]) {
+        def cps:[int]
+        def n:int (array_length bytes)
+        def i:int 0
+        while (i < n) {
+            def b0:int (bit_and (itemAt bytes i) 255)
+            if (b0 < 128) {
+                push cps b0
+                i = (i + 1)
+            } {
+                if (b0 < 224) {
+                    def c1:int 0
+                    if ((i + 1) < n) {
+                        c1 = (bit_and (itemAt bytes (i + 1)) 63)
+                    }
+                    push cps (((bit_and b0 31) * 64) + c1)
+                    i = (i + 2)
+                } {
+                    if (b0 < 240) {
+                        def d1:int 0
+                        def d2:int 0
+                        if ((i + 1) < n) {
+                            d1 = (bit_and (itemAt bytes (i + 1)) 63)
+                        }
+                        if ((i + 2) < n) {
+                            d2 = (bit_and (itemAt bytes (i + 2)) 63)
+                        }
+                        push cps ((((bit_and b0 15) * 4096) + (d1 * 64)) + d2)
+                        i = (i + 3)
+                    } {
+                        def e1:int 0
+                        def e2:int 0
+                        def e3:int 0
+                        if ((i + 1) < n) {
+                            e1 = (bit_and (itemAt bytes (i + 1)) 63)
+                        }
+                        if ((i + 2) < n) {
+                            e2 = (bit_and (itemAt bytes (i + 2)) 63)
+                        }
+                        if ((i + 3) < n) {
+                            e3 = (bit_and (itemAt bytes (i + 3)) 63)
+                        }
+                        push cps (((((bit_and b0 7) * 262144) + (e1 * 4096)) + (e2 * 64)) + e3)
+                        i = (i + 4)
+                    }
+                }
+            }
+        }
+        return (RgText.fromCodePoints(cps))
+    }
+}

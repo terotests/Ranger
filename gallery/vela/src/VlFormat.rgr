@@ -1,0 +1,527 @@
+; ==============================================================================
+; VlFormat.rgr — a number as a specifier asks for it.
+; ==============================================================================
+; Vega formats numbers with d3-format, and a specification names the format as
+; a string: `".0%"` on a normalized bar chart's axis, `",.2f"` in a tooltip,
+; `"d"` on a count. The string is a grammar, not a keyword:
+;
+;   [[fill]align][sign][symbol][0][width][,][.precision][~][type]
+;
+; Only the parts a chart actually uses are implemented, and the rest is parsed
+; and ignored rather than misread — an alignment or a fill character changes
+; padding, which nothing here lays out.
+;
+; The types that matter:
+;
+;   (none)  twelve significant digits with the trailing zeroes trimmed, which
+;           is what the reference's own default formatter does
+;   f       fixed decimals
+;   %       multiplied by a hundred, fixed decimals, with a per-cent sign
+;   d       rounded to a whole number
+;   s       an SI prefix — 1500 becomes "1.5k"
+;   e       an exponent
+;
+; `,` groups the integer digits in threes. The minus sign is the typographic
+; one, because that is what a person reads and what the reference prints.
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+class VlFormatSpec {
+    def comma:boolean false
+    def precision:int -1
+    def type:string ""
+    def trim:boolean false
+}
+
+class VlFormat {
+    ; Read from the END, which is where the parts that change the number live
+    ; and which is unambiguous: the type is the last character, the precision is
+    ; what follows the last dot, and a comma sits immediately before it. What
+    ; comes before that — fill, alignment, sign, symbol, width — only pads, and
+    ; nothing here pads, so it is left alone rather than half-honoured.
+    sfn parse:VlFormatSpec (spec:string) {
+        def out (new VlFormatSpec())
+        def rest:string spec
+        def m:int (strlen rest)
+        if (m == 0) {
+            return out
+        }
+        def last:string (substring rest (m - 1) m)
+        if (VlFormat.isType(last)) {
+            out.type = last
+            rest = (substring rest 0 (m - 1))
+            m = (m - 1)
+        }
+        if (m > 0) {
+            if ((substring rest (m - 1) m) == "~") {
+                out.trim = true
+                rest = (substring rest 0 (m - 1))
+                m = (m - 1)
+            }
+        }
+        def dot:int (lastIndexOf rest ".")
+        if (dot >= 0) {
+            def digits:string (substring rest (dot + 1) m)
+            def p@(optional):int (str2int digits)
+            if p {
+                out.precision = (unwrap p)
+            }
+            rest = (substring rest 0 dot)
+            m = dot
+        }
+        if (m > 0) {
+            if ((substring rest (m - 1) m) == ",") {
+                out.comma = true
+            }
+        }
+        return out
+    }
+
+    sfn isType:boolean (c:string) {
+        if (((c == "f") || (c == "%")) || ((c == "d") || (c == "s"))) {
+            return true
+        }
+        if (((c == "e") || (c == "g")) || ((c == "r") || (c == "p"))) {
+            return true
+        }
+        return ((c == "b") || (c == "o"))
+    }
+
+    ; The whole job: a value and a specifier string in, the string a person
+    ; reads out.
+    ; A number that has been through a string and back. A band scale keeps its
+    ; domain as names, and a time unit's domain is a set of instants — so the
+    ; only way to format one as a date is to read the number back out of its
+    ; own name. Anything unparseable answers zero, which formats as the epoch
+    ; and is visibly wrong rather than quietly wrong.
+    sfn toNumber:double (text:string) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return 0.0
+        }
+        def i:int 0
+        def sign:double 1.0
+        if ((substring text 0 1) == "-") {
+            sign = (0.0 - 1.0)
+            i = 1
+        }
+        def whole:double 0.0
+        while (i < n) {
+            def c:int (charAt text i)
+            if ((c >= 48) && (c <= 57)) {
+                whole = ((whole * 10.0) + (to_double (c - 48)))
+                i = (i + 1)
+            } {
+                i = n
+            }
+        }
+        ; Re-scan for the fraction and the exponent, which a chart's instants do
+        ; not have but a formatted value might.
+        def rest:int 0
+        def k:int 0
+        if (sign < 0.0) {
+            k = 1
+        }
+        while (k < n) {
+            def c2:int (charAt text k)
+            if ((c2 >= 48) && (c2 <= 57)) {
+                k = (k + 1)
+            } {
+                rest = k
+                k = n
+            }
+        }
+        if (rest > 0) {
+            def tail:string (substring text rest (strlen text))
+            if ((substring tail 0 1) == ".") {
+                def place:double 0.1
+                def j:int 1
+                while (j < (strlen tail)) {
+                    def c3:int (charAt tail j)
+                    if ((c3 >= 48) && (c3 <= 57)) {
+                        whole = (whole + ((to_double (c3 - 48)) * place))
+                        place = (place / 10.0)
+                        j = (j + 1)
+                    } {
+                        j = (strlen tail)
+                    }
+                }
+            }
+        }
+        return (sign * whole)
+    }
+
+    sfn apply:string (value:double spec:string) {
+        ; An infinity is written as the SIGN, which is what d3 writes and what
+        ; a chart of frame times shows at the end of an axis where the interval
+        ; is zero. Written as the word, an axis of rates read "Infinity".
+        if (value != value) {
+            return "NaN"
+        }
+        if (value != 0.0) {
+            if ((value * 0.5) == value) {
+                if (value > 0.0) {
+                    return (strfromcode 8734)
+                }
+                return ((VlJson.withMinusSign("-")) + (strfromcode 8734))
+            }
+        }
+        if ((strlen spec) == 0) {
+            return (VlJson.withMinusSign((VlJson.formatSignificant(value 12))))
+        }
+        return (VlFormat.applySpec(value (VlFormat.parse(spec))))
+    }
+
+    ; The zeroes at the end of a fraction, and the point they hang off if they
+    ; were all of it. Only after the decimal point: 100 keeps its zeroes.
+    sfn trimZeroes:string (text:string) {
+        def dot:int (lastIndexOf text ".")
+        if (dot < 0) {
+            return text
+        }
+        def end:int (strlen text)
+        while (end > (dot + 1)) {
+            if ((substring text (end - 1) end) == "0") {
+                end = (end - 1)
+            } {
+                return (substring text 0 end)
+            }
+        }
+        return (substring text 0 dot)
+    }
+
+    sfn applySpec:string (value:double s:VlFormatSpec) {
+        def v:double value
+        def suffix:string ""
+        def digits:int s.precision
+
+        if (s.type == "%") {
+            v = (v * 100.0)
+            suffix = "%"
+            if (digits < 0) {
+                digits = 6
+            }
+        }
+        if (s.type == "p") {
+            v = (v * 100.0)
+            suffix = "%"
+            if (digits < 0) {
+                digits = 6
+            }
+        }
+        if (s.type == "d") {
+            digits = 0
+        }
+        if (s.type == "s") {
+            return (VlFormat.siPrefix(v s))
+        }
+        if (s.type == "e") {
+            return (VlFormat.exponential(v digits))
+        }
+
+        def text:string ""
+        if (s.type == "f") {
+            if (digits < 0) {
+                digits = 6
+            }
+        }
+        if (digits < 0) {
+            ; No type and no precision: the reference's default formatter, which
+            ; is twelve significant digits with the trailing zeroes gone.
+            text = (VlJson.formatSignificant(v 12))
+        } {
+            text = (VlFormat.fixed(v digits))
+        }
+        ; `~` asks for the trailing zeroes to go — `.1~%` prints 5% where `.1%`
+        ; prints 5.0% — and the flag was read and then never acted on, so every
+        ; label carried a decimal the specification had asked it to drop.
+        if s.trim {
+            text = (VlFormat.trimZeroes(text))
+        }
+        if s.comma {
+            text = (VlFormat.group(text))
+        }
+        return (VlJson.withMinusSign((text + suffix)))
+    }
+
+    ; A fixed number of decimals, zero-filled — `.2f` of 1 is "1.00", not "1".
+    sfn fixed:string (value:double digits:int) {
+        def text:string (VlJson.formatNumber(value digits))
+        if (digits <= 0) {
+            return text
+        }
+        def dot:int (lastIndexOf text ".")
+        def have:int 0
+        def out:string text
+        if (dot < 0) {
+            out = (out + ".")
+        } {
+            have = (((strlen text) - dot) - 1)
+        }
+        def pad:int have
+        while (pad < digits) {
+            out = (out + "0")
+            pad = (pad + 1)
+        }
+        return out
+    }
+
+    ; Integer digits in threes: 1234567.5 becomes 1,234,567.5.
+    sfn group:string (text:string) {
+        def sign:string ""
+        def body:string text
+        if ((strlen body) > 0) {
+            if ((substring body 0 1) == "-") {
+                sign = "-"
+                body = (substring body 1 (strlen body))
+            }
+        }
+        def dot:int (lastIndexOf body ".")
+        def whole:string body
+        def rest:string ""
+        if (dot >= 0) {
+            whole = (substring body 0 dot)
+            rest = (substring body dot (strlen body))
+        }
+        def grouped:string ""
+        def n:int (strlen whole)
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                if (((n - i) % 3) == 0) {
+                    grouped = (grouped + ",")
+                }
+            }
+            grouped = (grouped + (substring whole i (i + 1)))
+            i = (i + 1)
+        }
+        return ((sign + grouped) + rest)
+    }
+
+    ; The power of ten of a number's leading digit — d3 reads it off the
+    ; printed form, and this computes it, which agrees for everything an axis
+    ; puts through it. Nothing at all has no exponent and answers zero.
+    sfn exponentOf:int (value:double) {
+        def v:double value
+        if (v < 0.0) {
+            v = (0.0 - v)
+        }
+        if (v == 0.0) {
+            return 0
+        }
+        def e:int 0
+        while (v >= 10.0) {
+            v = (v / 10.0)
+            e = (e + 1)
+        }
+        while (v < 1.0) {
+            v = (v * 10.0)
+            e = (e - 1)
+        }
+        return e
+    }
+
+    ; Divided by three, rounding DOWN — which for a negative exponent is not
+    ; the same as dividing and truncating.
+    sfn floorDiv3:int (e:int) {
+        def group:int 0
+        def left:int e
+        while (left >= 3) {
+            group = (group + 1)
+            left = (left - 3)
+        }
+        while (left < 0) {
+            group = (group - 1)
+            left = (left + 3)
+        }
+        return group
+    }
+
+    sfn prefixNamed:string (group:int) {
+        if (group == 2) {
+            return "M"
+        }
+        if (group == 1) {
+            return "k"
+        }
+        if (group == 0) {
+            return ""
+        }
+        if (group == (0 - 1)) {
+            return "m"
+        }
+        return "µ"
+    }
+
+    ; A whole set of labels in ONE SI prefix, the way `scale.tickFormat` writes
+    ; them. The reference fixes the prefix from the far end of the scale and
+    ; then writes every tick as a plain number in it, so the labels share a
+    ; unit and can be read against each other: twelve million and nothing come
+    ; out "12M" and "0M", where a prefix chosen per label would write the
+    ; second as "0" and the reader would have to guess.
+    ;
+    ; The precision is DECIMALS once the prefix has been divided out, not
+    ; significant digits — that is the other half of the difference — and it
+    ; comes from the step between ticks when the specifier did not say.
+    sfn siOver:[string] (values:[double] s:VlFormatSpec) {
+        def out:[string]
+        def total:int (array_length values)
+        if (total == 0) {
+            return out
+        }
+        def far:double 0.0
+        for values v:double vi {
+            def size:double v
+            if (size < 0.0) {
+                size = (0.0 - size)
+            }
+            if (size > far) {
+                far = size
+            }
+        }
+        def step:double 0.0
+        if (total > 1) {
+            step = ((itemAt values 1) - (itemAt values 0))
+            if (step < 0.0) {
+                step = (0.0 - step)
+            }
+        }
+        ; The prefix steps in thousands, and the exponent it is chosen by is
+        ; clamped to the ones that have a name.
+        def three:int (VlFormat.exponentOf(far))
+        def group:int (VlFormat.floorDiv3(three))
+        if (group > 2) {
+            group = 2
+        }
+        if (group < (0 - 2)) {
+            group = (0 - 2)
+        }
+        def e:int (group * 3)
+        def digits:int s.precision
+        if (digits < 0) {
+            digits = (e - (VlFormat.exponentOf(step)))
+            if (digits < 0) {
+                digits = 0
+            }
+        }
+        def factor:double (VlMath.powInt(10.0 (0 - e)))
+        def prefix:string (VlFormat.prefixNamed(group))
+        for values v2:double vi2 {
+            def scaled:double (v2 * factor)
+            push out (VlJson.withMinusSign(((VlFormat.fixed(scaled digits)) + prefix)))
+        }
+        return out
+    }
+
+    ; d3's SI prefixes, which step in thousands. A precision is significant
+    ; digits here rather than decimals, which is what makes 1500 read "1.5k"
+    ; under `.2s` and "2k" under `.1s`.
+    sfn siPrefix:string (value:double s:VlFormatSpec) {
+        def v:double value
+        def negative:boolean (v < 0.0)
+        if negative {
+            v = (0.0 - v)
+        }
+        def prefixes:[string]
+        push prefixes "y"
+        push prefixes "z"
+        push prefixes "a"
+        push prefixes "f"
+        push prefixes "p"
+        push prefixes "n"
+        push prefixes "µ"
+        push prefixes "m"
+        push prefixes ""
+        push prefixes "k"
+        push prefixes "M"
+        push prefixes "G"
+        push prefixes "T"
+        push prefixes "P"
+        push prefixes "E"
+        push prefixes "Z"
+        push prefixes "Y"
+        def index:int 8
+        if (v > 0.0) {
+            while ((v >= 1000.0) && (index < 16)) {
+                v = (v / 1000.0)
+                index = (index + 1)
+            }
+            while ((v < 1.0) && (index > 0)) {
+                v = (v * 1000.0)
+                index = (index - 1)
+            }
+        }
+        def digits:int s.precision
+        def text:string ""
+        if (digits < 0) {
+            text = (VlJson.formatSignificant(v 6))
+        } {
+            if (digits < 1) {
+                digits = 1
+            }
+            text = (VlFormat.significantFixed(v digits))
+        }
+        if negative {
+            text = ("-" + text)
+        }
+        return (VlJson.withMinusSign((text + (itemAt prefixes index))))
+    }
+
+    ; A count of significant digits, kept even when they are zeroes: `.3s` of
+    ; 1500 is "1.50k".
+    sfn significantFixed:string (value:double digits:int) {
+        def m:double value
+        if (m < 0.0) {
+            m = (0.0 - m)
+        }
+        def whole:int 1
+        while (m >= 10.0) {
+            m = (m / 10.0)
+            whole = (whole + 1)
+        }
+        def decimals:int (digits - whole)
+        if (decimals < 0) {
+            decimals = 0
+        }
+        return (VlFormat.fixed(value decimals))
+    }
+
+    sfn exponential:string (value:double digits:int) {
+        def d:int digits
+        if (d < 0) {
+            d = 6
+        }
+        def v:double value
+        def negative:boolean (v < 0.0)
+        if negative {
+            v = (0.0 - v)
+        }
+        def exponent:int 0
+        if (v > 0.0) {
+            while (v >= 10.0) {
+                v = (v / 10.0)
+                exponent = (exponent + 1)
+            }
+            while (v < 1.0) {
+                v = (v * 10.0)
+                exponent = (exponent - 1)
+            }
+        }
+        def text:string (VlFormat.fixed(v d))
+        if negative {
+            text = ("-" + text)
+        }
+        def sign:string "+"
+        def e:int exponent
+        if (e < 0) {
+            sign = "-"
+            e = (0 - e)
+        }
+        def digitsText:string (VlJson.intToText(e))
+        if (e < 10) {
+            digitsText = ("0" + digitsText)
+        }
+        return (VlJson.withMinusSign((((text + "e") + sign) + digitsText)))
+    }
+}

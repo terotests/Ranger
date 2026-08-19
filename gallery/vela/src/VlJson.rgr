@@ -47,6 +47,27 @@ class VlJson {
         return (kind != 0)
     }
 
+    ; Whether this holds a NUMBER, counting one written as text. The reference
+    ; coerces what it measures, so a column of years quoted in the data is a
+    ; column of years — but "north" is not a number however hard it is asked,
+    ; and answering zero for it would put zero in the domain.
+    fn looksNumeric:boolean () {
+        if (kind == 2) {
+            return true
+        }
+        if (kind != 3) {
+            return false
+        }
+        if ((strlen str) == 0) {
+            return false
+        }
+        def d@(optional):double (str2double str)
+        if d {
+            return true
+        }
+        return false
+    }
+
     ; --- scalar access --------------------------------------------------------
     fn asInt:int () {
         return (to_int num)
@@ -72,6 +93,22 @@ class VlJson {
     fn asString:string () {
         if (kind == 3) {
             return str
+        }
+        ; A LIST of strings is one label written on several lines — a heading
+        ; given as `["Weekly Weather", "Observations and Predictions"]`. The
+        ; renderers split it again on the line break; read as no string at all,
+        ; the heading was simply missing.
+        if (kind == 4) {
+            def joined:string ""
+            def k:int 0
+            while (k < (array_length arr)) {
+                if (k > 0) {
+                    joined = (joined + "\n")
+                }
+                joined = (joined + ((itemAt arr k).asString()))
+                k = (k + 1)
+            }
+            return joined
         }
         if (kind == 2) {
             return (VlJson.numberToText(num isInt))
@@ -164,6 +201,25 @@ class VlJson {
         set members key value
     }
 
+    ; Take a key back out. The order of what remains is kept, because the
+    ; order the keys were written in is the order they are written back out
+    ; and a diff against the reference reads them one for one.
+    fn removeMember:void (key:string) {
+        if (! (has members key)) {
+            return
+        }
+        def kept:[string]
+        def fresh:[string:VlJson]
+        for keys k:string ki {
+            if (k != key) {
+                push kept k
+                set fresh k (unwrap (get members k))
+            }
+        }
+        keys = kept
+        members = fresh
+    }
+
     ; --- construction ---------------------------------------------------------
     sfn nullValue:VlJson () {
         def v:VlJson (new VlJson)
@@ -215,65 +271,208 @@ class VlJson {
         return (VlJson.formatNumber(value 6))
     }
 
+    ; The same number to a count of SIGNIFICANT digits rather than decimals,
+    ; which is what a formatter with no specifier does: the reference prints a
+    ; mean of 56.5555555555556 as "56.5555555556" — twelve digits in all, not
+    ; twelve after the point.
+    sfn formatSignificant:string (value:double digits:int) {
+        def m:double value
+        if (m < 0.0) {
+            m = (0.0 - m)
+        }
+        def whole:int 1
+        while (m >= 10.0) {
+            m = (m / 10.0)
+            whole = (whole + 1)
+        }
+        def decimals:int (digits - whole)
+        if (decimals < 0) {
+            decimals = 0
+        }
+        return (VlJson.formatNumber(value decimals))
+    }
+
+    ; A number a PERSON reads is written with the typographic minus sign
+    ; (U+2212), not the hyphen: that is what d3's number formatting emits and
+    ; what the reference's axis labels carry. A number a MACHINE reads — JSON,
+    ; path data, a stylesheet — must keep the hyphen, so this is applied at the
+    ; label boundary and nowhere else.
+    sfn withMinusSign:string (text:string) {
+        if ((strlen text) == 0) {
+            return text
+        }
+        if ((substring text 0 1) == "-") {
+            return ((strfromcode 8722) + (substring text 1 (strlen text)))
+        }
+        return text
+    }
+
     ; The whole part goes through `floor`, which every target narrows to its own
     ; int, so a magnitude past what an int holds everywhere falls back to the
     ; target's own formatting rather than printing a wrapped number. Chart
     ; geometry never reaches it; a data value could, and a visibly
     ; target-specific string is better than a silently wrong one.
+    ; What a discrete domain calls a cell. A MISSING value is a category like
+    ; any other and the reference names it "null" — an axis with a blank label
+    ; where the reference writes one is an axis that reserved the wrong width.
+    ; An empty string stays empty, which is a different thing entirely.
+    sfn domainKey:string (cell:VlJson) {
+        if (cell.isNull()) {
+            return "null"
+        }
+        return (cell.asString())
+    }
+
     sfn formatNumber:string (value:double maxDecimals:int) {
         def v:double value
+        ; A number that is not one. Nothing here can print an infinity — the
+        ; big-number path looks for the highest power of ten in it and never
+        ; finds one — so the loop ran until the process ran out of memory. An
+        ; expression that divides by a category name is all it takes.
+        if (! (value == value)) {
+            return "NaN"
+        }
+        ; An infinity is the only non-zero number that is unchanged by halving,
+        ; which is an exact test and not a threshold — a chart of large numbers
+        ; is not an infinity and must not be printed as one.
         if (v == 0.0) {
             return "0"
+        }
+        if ((value * 0.5) == value) {
+            if (value > 0.0) {
+                return "Infinity"
+            }
+            return "-Infinity"
         }
         def neg:boolean false
         if (v < 0.0) {
             neg = true
             v = (0.0 - v)
         }
+        ; Past a thousand million the whole part no longer fits an int, and the
+        ; old answer here was `to_string`, which is the one thing this file
+        ; exists to avoid: JavaScript writes 1327017600000 and C++ writes
+        ; 1.3270176e+12 for the same double. Any ordinal domain built from
+        ; large numbers was therefore labelled differently on the two targets —
+        ; a chart whose categories are INSTANTS is the ordinary way to hit it,
+        ; and every one of its labels came out as the epoch in C++ because
+        ; nothing could read the number back.
         if (v >= 1000000000.0) {
-            return (to_string value)
+            ; `floor` answers an INT, which is exactly the type this value does
+            ; not fit, so the digits come out of the double itself: the highest
+            ; power of ten first, subtracting as it goes. What is left when the
+            ; ones place has been taken is the fraction.
+            def place:double 1.0
+            while ((v / place) >= 10.0) {
+                place = (place * 10.0)
+            }
+            def big:string ""
+            def rest:double v
+            while (place >= 1.0) {
+                big = (big + (VlJson.digitChar((VlJson.digitAt(rest place)))))
+                rest = (rest - ((to_double (VlJson.digitAt(rest place))) * place))
+                place = (place / 10.0)
+            }
+            def tail:string (VlJson.fractionDigits(rest maxDecimals))
+            if ((strlen tail) > 0) {
+                big = ((big + ".") + tail)
+            }
+            if neg {
+                return ("-" + big)
+            }
+            return big
         }
-        def scale:int 1
+        ; The scale is a DOUBLE, and nothing here is ever allowed to become an
+        ; int larger than a digit. Twelve significant digits of a two-digit
+        ; number is ten decimals, so the scale is 10^10 — which a 32-bit int
+        ; does not hold. JavaScript has no such int and got the right answer;
+        ; C++ wrapped 10^10 to 1410065408 and printed 54.5 as "54.0705032704".
+        ; A double carries every power of ten this can reach exactly, and
+        ; integer arithmetic below 2^53 is exact in one, so the digits are
+        ; taken from the top a place at a time and each `floor` sees a value
+        ; below ten.
+        def scale:double 1.0
         def k:int 0
         while (k < maxDecimals) {
-            scale = (scale * 10)
+            scale = (scale * 10.0)
             k = (k + 1)
         }
         def whole:int (floor v)
         def frac:double (v - (to_double whole))
-        def fracUnits:int (floor ((frac * (to_double scale)) + 0.5))
-        if (fracUnits >= scale) {
+        ; Half up, then truncated place by place — which is the same number as
+        ; flooring the scaled fraction, without ever forming it as an integer.
+        def units:double ((frac * scale) + 0.5)
+        if (! (units < scale)) {
             whole = (whole + 1)
-            fracUnits = 0
+            units = 0.0
         }
         def out:string (VlJson.intToText(whole))
-        if (fracUnits > 0) {
-            def digits:string (VlJson.intToText(fracUnits))
-            def need:int (maxDecimals - (strlen digits))
-            def pad:string ""
-            def p:int 0
-            while (p < need) {
-                pad = (pad + "0")
-                p = (p + 1)
+        def fracText:string ""
+        def place:double scale
+        def rest:double units
+        def i:int 0
+        while (i < maxDecimals) {
+            place = (place / 10.0)
+            def digit:int (floor (rest / place))
+            rest = (rest - ((to_double digit) * place))
+            fracText = (fracText + (VlJson.digitChar(digit)))
+            i = (i + 1)
+        }
+        def end:int (strlen fracText)
+        def stop:boolean false
+        while ((end > 0) && (! stop)) {
+            if ((substring fracText (end - 1) end) == "0") {
+                end = (end - 1)
+            } {
+                stop = true
             }
-            def fracText:string (pad + digits)
-            def end:int (strlen fracText)
-            def stop:boolean false
-            while ((end > 0) && (! stop)) {
-                if ((substring fracText (end - 1) end) == "0") {
-                    end = (end - 1)
-                } {
-                    stop = true
-                }
-            }
-            if (end > 0) {
-                out = ((out + ".") + (substring fracText 0 end))
-            }
+        }
+        if (end > 0) {
+            out = ((out + ".") + (substring fracText 0 end))
         }
         if neg {
             return ("-" + out)
         }
         return out
+    }
+
+    ; One digit of a double at a given place, clamped so that a value a hair
+    ; over its own place cannot ask for a tenth digit.
+    sfn digitAt:int (rest:double place:double) {
+        def digit:int (floor (rest / place))
+        if (digit > 9) {
+            return 9
+        }
+        if (digit < 0) {
+            return 0
+        }
+        return digit
+    }
+
+    ; The digits after the point, trailing zeros dropped. Empty for a whole
+    ; number, which is what leaves 1327017600000 without a ".0" after it.
+    sfn fractionDigits:string (frac:double maxDecimals:int) {
+        def out:string ""
+        def rest:double frac
+        def place:double 0.1
+        def i:int 0
+        while (i < maxDecimals) {
+            def digit:int (VlJson.digitAt(rest place))
+            out = (out + (VlJson.digitChar(digit)))
+            rest = (rest - ((to_double digit) * place))
+            place = (place / 10.0)
+            i = (i + 1)
+        }
+        def end:int (strlen out)
+        def stop:boolean false
+        while ((end > 0) && (! stop)) {
+            if ((substring out (end - 1) end) == "0") {
+                end = (end - 1)
+            } {
+                stop = true
+            }
+        }
+        return (substring out 0 end)
     }
 
     ; Non-negative int to text without the target's own number formatting,
@@ -714,6 +913,13 @@ class VlJsonParser {
 ; read or set in, so a spec that goes in and comes out again is comparable as
 ; text, and the scene dump the parity harness reads is stable.
 class VlJsonWriter {
+    ; How many decimals a number is written with. Six everywhere a chart is
+    ; written — a scene is measured in pixels and six decimals is far past what
+    ; any of them mean — but a SPECIFICATION may carry a constant that has to
+    ; survive intact, such as a full turn in radians, so the writer that emits
+    ; one asks for more.
+    def decimals:int 6
+
     fn write:string (v:VlJson) {
         return (this.writeValue(v 0 false))
     }
@@ -742,7 +948,7 @@ class VlJsonWriter {
             return "false"
         }
         if (v.kind == 2) {
-            return (VlJson.numberToText(v.num v.isInt))
+            return (VlJson.formatNumber(v.num decimals))
         }
         if (v.kind == 3) {
             return (this.quote(v.str))

@@ -8,26 +8,51 @@ npm run showcase          # -> gallery/evg/showcase/dist/index.html
 npm run showcase:gl       # check the WebGL viewer actually drew the pages
 ```
 
+The index opens with a list of every page, because fourteen sections is more
+than a reader should have to scroll past to find one. Each entry opens the rendered
+page itself; the *details* link beside it jumps to that page's section, where
+its other themes and its PDF, PNG and WebGL versions are.
+
 Each page is rendered under **two themes** — the generated chart pages under
 **three**, adding `autumn` — and to **three targets** — PDF (the
 print target), PNG (the raster preview) and HTML (the debug view) — from one
 source tree and one stylesheet.
 
-### Two pages are generated
+### Six pages are generated
 
-`pages/charts.tsx` and `pages/plots.tsx` are written by a tool, not by hand:
-`npm run vela:showcase` runs a set of Vega specifications through the
-[Vela](../../vela/README.md) runtime and emits the paths and labels they
-produce, together with `themes/charts-default.css` and
-`themes/plots-default.css`.
+`pages/charts.tsx`, `plots.tsx`, `more.tsx`, `views.tsx`, `variants.tsx` and
+`tables.tsx` are written by a tool, not by hand: `npm run vela:showcase` runs a set of Vega specifications
+through the [Vela](../../vela/README.md) runtime and emits the paths and labels
+they produce, together with a stylesheet each.
 
 **Charts** is the six chart types most people mean by the word. **Chart types**
 is the rest, and the features only some charts have — a size legend whose rows
 are all different heights, a stroke legend, a log axis that labels only some of
-the ticks it draws, two marks sharing one plot, and text as a mark. It exists to
-be varied rather than pretty, and it earned its keep: four defects in the
-runtime were sitting in charts that differ from the tested ones only by being
-smaller.
+the ticks it draws, two marks sharing one plot, and text as a mark. **More chart
+types** is what the runtime learned most recently, and exercises the most of it:
+a continuous colour ramp with a gradient key, a series that is a faceted group,
+a stack centred on a common line, a calendar on an axis, and a box plot whose
+quartiles are computed. **More than one chart** is the multi-view grammar: a
+trellis by column, by row, and wrapped onto a grid whose shape is computed from
+the data, plus two plots concatenated.
+
+**Variants** is the same marks drawn a different way — bars that go down as well
+as up, bars on their side, a bar between two values rather than from a baseline,
+a line that steps instead of sloping, a line showing its own vertices, a single
+row of ticks, a shape legend, and a mean drawn across the plot. It is the
+variants that break a runtime rather than the types. **Tables** is the plots
+where the cell is the datum: both axes categories, or both bins, and the value
+carried by the cell's colour, its area, or the number printed in it.
+
+*More than one chart* is the page whose size is not a size anyone declared. A trellis is
+as wide as its panels and the furniture between them, so it is *shaped* to fit a
+printed column rather than sized to fit one — nine panels three across is three
+rows and fits; two across is five rows and does not. A concatenation has no
+width of its own to hand down either, so each pane says how big it is.
+
+They exist to be varied rather than pretty, and they earn their keep: four
+defects in the runtime were sitting in charts that differ from the tested ones
+only by being smaller.
 
 It follows the same rule as the hand-written pages. A chart's series are
 numbered in the order it draws them — `chartFill0`, `chartStroke0` — and the

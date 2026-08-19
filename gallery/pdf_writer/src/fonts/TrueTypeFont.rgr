@@ -139,6 +139,35 @@ class TrueTypeFont {
         ligatureSubtables = ls
     }
     
+    ; The same font, handed in as bytes rather than found on disk. A browser
+    ; has no file system and every face it draws with arrived over the network,
+    ; so the only thing the loader can be given there is the bytes themselves.
+    ; Everything below the read is shared, which is the point: a font parsed
+    ; this way is the same font, not a second implementation of one.
+    fn loadFromBuffer:boolean (name:string data:buffer) {
+        fontPath = name
+        fontData = data
+        if ((buffer_length fontData) == 0) {
+            return false
+        }
+        if ((this.parseOffsetTable()) == false) {
+            return false
+        }
+        if ((this.parseTableDirectory()) == false) {
+            return false
+        }
+        this.parseHeadTable()
+        this.parseHheaTable()
+        this.parseMaxpTable()
+        this.parseCmapTable()
+        this.parseHmtxTable()
+        this.parseNameTable()
+        this.parseKerning()
+        this.parseGsubLigatures()
+        this.buildCharWidthCache()
+        return true
+    }
+
     fn loadFromFile:boolean (path:string) {
         fontPath = path
         ; Split path into directory and filename for buffer_read_file

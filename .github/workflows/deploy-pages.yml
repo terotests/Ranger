@@ -8,6 +8,10 @@
 #   /evg/     -> the EVG showcase: the layout engine's own example pages, each
 #                rendered under two themes and to PDF, PNG and HTML from one
 #                source tree and one stylesheet.
+#   /vela/    -> paste a Vega or Vega-Lite specification and see what the
+#                Ranger runtime draws. The compiler and the SVG renderer it
+#                loads are built from gallery/vela/src, so the page shows this
+#                commit's own output rather than a recorded one.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -44,6 +48,7 @@ on:
       - "lib/**"
       - "docs/**"
       - "gallery/evg/**"
+      - "gallery/vela/**"
       - "gallery/pdf_writer/src/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
@@ -142,6 +147,13 @@ jobs:
       # this commit actually does.
       - name: Build the EVG showcase
         run: node gallery/evg/showcase/build.mjs --out "$GITHUB_WORKSPACE/_site/evg"
+
+      # ---- Vela playground at /vela/ --------------------------------------
+      # Paste a Vega or Vega-Lite specification and see what the Ranger
+      # runtime draws. The script it loads is compiled from the same sources
+      # the C++ build uses, so the page shows this commit's own renderer.
+      - name: Build the Vela page
+        run: bash gallery/vela/web/build.sh --out "$GITHUB_WORKSPACE/_site/vela"
 
       # ---- Playground at the site root -----------------------------------
       - name: Install playground dependencies

@@ -48,8 +48,19 @@ class VlLegendEntry {
 class VlLegend {
     ; --- the reference's `config.legend`, overridable per legend --------------
     def orient:string "right"
+    ; A legend above or below the plot lays its entries out in a ROW rather
+    ; than a column, which is a different grid with the same rule: each entry
+    ; starts a padding past the outer edge of the one before it.
+    def direction:string "vertical"
     def padding:double 0.0
     def rowPadding:double 2.0
+    ; How tall a row of a symbol key is ALLOWED to be. A key of circle areas
+    ; running to five thousand square pixels has a symbol seventy pixels
+    ; across, and a key seventy pixels a row is taller than the chart beside
+    ; it. `"legend": {"clipHeight": 30}` says to hold the rows to thirty and
+    ; let the big symbols overlap their neighbours, which is what the
+    ; reference draws.
+    def clipHeight:double 0.0
     def columnPadding:double 10.0
     def titlePadding:double 5.0
     def labelAlign:string "left"
@@ -73,6 +84,14 @@ class VlLegend {
     def titleOrient:string "top"
     ; How many entries a symbol legend draws before it gives up and says so.
     def symbolLimit:int 30
+    ; A gradient legend's bar: how long, how thick, and how far its labels sit
+    ; from it. The length is normally a signal a specification computed from the
+    ; chart's own height, so the runtime resolves it before this reads it.
+    def gradientLength:double 200.0
+    def gradientThickness:double 16.0
+    def gradientStrokeColor:string "#ddd"
+    def gradientStrokeWidth:double 0.0
+    def gradientLabelOffset:double 2.0
 
     ; --- what the spec asked for ---------------------------------------------
     ; channel -> scale, for the channels this legend encodes. The channel that
@@ -81,6 +100,10 @@ class VlLegend {
     def scales:[string:VlScale]
     def channelOrder:[string]
     def title:string ""
+    ; The entries the specification asked for by name, if it asked. A legend
+    ; over a continuous scale otherwise lists the ticks the scale suggests,
+    ; and a chart that wants two of them — say 20 and 60 bushels — gets seven.
+    def statedValues:VlJson (new VlJson)
 
     ; --- filled in by build(), read by the layout step -------------------------
     def width:double 0.0
@@ -121,6 +144,7 @@ class VlLegend {
 
     fn readConfig:void (ldef:VlJson) {
         orient = (ldef.stringOr("orient" orient))
+        direction = (ldef.stringOr("direction" direction))
         padding = (ldef.doubleOr("padding" padding))
         rowPadding = (ldef.doubleOr("rowPadding" rowPadding))
         columnPadding = (ldef.doubleOr("columnPadding" columnPadding))
@@ -129,6 +153,7 @@ class VlLegend {
         labelBaseline = (ldef.stringOr("labelBaseline" labelBaseline))
         labelLimit = (ldef.doubleOr("labelLimit" labelLimit))
         labelOffset = (ldef.doubleOr("labelOffset" labelOffset))
+        clipHeight = (ldef.doubleOr("clipHeight" clipHeight))
         labelFont = (ldef.stringOr("labelFont" labelFont))
         labelFontSize = (ldef.doubleOr("labelFontSize" labelFontSize))
         labelColor = (ldef.stringOr("labelColor" labelColor))
@@ -143,7 +168,13 @@ class VlLegend {
         titleLimit = (ldef.doubleOr("titleLimit" titleLimit))
         titleOrient = (ldef.stringOr("titleOrient" titleOrient))
         symbolLimit = (ldef.intOr("symbolLimit" symbolLimit))
+        gradientLength = (ldef.doubleOr("gradientLength" gradientLength))
+        gradientThickness = (ldef.doubleOr("gradientThickness" gradientThickness))
+        gradientStrokeColor = (ldef.stringOr("gradientStrokeColor" gradientStrokeColor))
+        gradientStrokeWidth = (ldef.doubleOr("gradientStrokeWidth" gradientStrokeWidth))
+        gradientLabelOffset = (ldef.doubleOr("gradientLabelOffset" gradientLabelOffset))
         title = (ldef.stringOr("title" title))
+        statedValues = (ldef.get("values"))
     }
 
     ; ------------------------------------------------------------- entries ----
@@ -152,12 +183,35 @@ class VlLegend {
     ; maps it to nothing — a zero-area symbol is not a legend entry.
     fn entriesFor:[VlLegendEntry] (sc:VlScale) {
         def out:[VlLegendEntry]
+        ; A stated list is the whole answer: it is neither a domain nor a set
+        ; of ticks, and nothing else gets a say.
+        if (statedValues.isArray()) {
+            def stated:int (statedValues.count())
+            def si:int 0
+            while (si < stated) {
+                def cell:VlJson (statedValues.at(si))
+                si = (si + 1)
+                def e (new VlLegendEntry())
+                e.value = cell
+                if (cell.isNumber()) {
+                    e.label = (VlScale.tickLabel(cell.num))
+                } {
+                    e.label = (VlText.truncate((cell.asString()) labelFontSize labelLimit))
+                }
+                push out e
+            }
+            return out
+        }
         def discrete:boolean ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal")))
         if discrete {
             for sc.domainValues name:string idx {
                 def e (new VlLegendEntry())
                 e.value = (VlJson.stringValue(name))
-                e.label = name
+                ; Cut to fit HERE rather than at drawing time, because the
+                ; legend's width is measured from these and a label that is
+                ; cut when it is drawn but not when it is measured leaves a
+                ; legend with a column of empty space in it.
+                e.label = (VlText.truncate(name labelFontSize labelLimit))
                 push out e
             }
             return out
@@ -190,7 +244,7 @@ class VlLegend {
     ; literal values by the runtime. They are applied to the symbol and label
     ; items BEFORE anything is measured, because they can change what there is
     ; to measure: a legend that strokes its symbols makes every row taller.
-    fn build:VlSceneMark (ldef:VlJson symbolsEncode:VlJson labelsEncode:VlJson titleEncode:VlJson) {
+    fn build:VlSceneMark (ldef:VlJson symbolsEncode:VlJson labelsEncode:VlJson titleEncode:VlJson gradientEncode:VlJson) {
         this.readConfig(ldef)
 
         def mark (new VlSceneMark())
@@ -207,6 +261,15 @@ class VlLegend {
             return mark
         }
         def sc:VlScale (this.scaleFor(primary))
+
+        ; A legend over a CONTINUOUS colour scale is a bar, not a column of
+        ; symbols: there is no set of values to list, only a ramp with its ends
+        ; labelled. The reference decides between the two the same way — one
+        ; scale, on fill or stroke, and continuous.
+        if (this.wantsGradient(primary sc)) {
+            return (this.buildGradient(mark group sc labelsEncode titleEncode gradientEncode))
+        }
+
         def entries:[VlLegendEntry] (this.entriesFor(sc))
         ; A size scale's first tick is usually its domain minimum, and a symbol
         ; of no area is not an entry — the reference drops it.
@@ -254,13 +317,26 @@ class VlLegend {
             row.setValue("noBound" (VlJson.boolValue(true)))
             row.setNumber("opacity" 1.0)
             row.setNumber("row" (to_double idx))
-            row.setNumber("column" 0.0)
+            def column:double 0.0
+            if (this.isHorizontal()) {
+                column = (to_double idx)
+            }
+            row.setNumber("column" column)
 
-            def sx:double ((offset * 0.5) + symbolOffset)
+            ; Down a column the labels line up, so every row is given the
+            ; widest symbol's cell. Across a row they do not: each entry is
+            ; its own little block, and the reference sizes it from its OWN
+            ; symbol — which is why a key of two trail widths puts its "20"
+            ; eighteen pixels in and its "60" twenty-five.
+            def cell:double offset
+            if (this.isHorizontal()) {
+                cell = e.cell
+            }
+            def sx:double ((cell * 0.5) + symbolOffset)
             def sy:double (e.cell * 0.5)
             e.item.setNumber("x" sx)
             e.item.setNumber("y" sy)
-            e.labelItem.setNumber("x" ((offset + symbolOffset) + labelOffset))
+            e.labelItem.setNumber("x" ((cell + symbolOffset) + labelOffset))
             e.labelItem.setNumber("y" sy)
 
             def symbolMark (new VlSceneMark())
@@ -274,12 +350,16 @@ class VlLegend {
             push row.marks symbolMark
             push row.marks labelMark
 
-            def box:VlBounds (VlBounds.ofSymbol(sx sy (e.item.number("size")) (e.item.number("strokeWidth")) (e.item.has("stroke"))))
+            def box:VlBounds (VlBounds.ofSymbol(sx sy (e.item.number("size")) (e.item.number("strokeWidth")) (e.item.has("stroke")) (e.item.text("shape"))))
             box.union((VlBounds.ofText((e.labelItem.text("text")) (e.labelItem.number("fontSize")) (e.labelItem.text("align")) (e.labelItem.text("baseline")) (e.labelItem.number("x")) sy)))
             push boxes box
         }
 
-        this.layoutRows(scopeMark boxes)
+        if (this.isHorizontal()) {
+            this.layoutColumns(scopeMark boxes)
+        } {
+            this.layoutRows(scopeMark boxes)
+        }
         push entryItem.marks scopeMark
 
         ; The entry block, and then the title above it.
@@ -291,8 +371,21 @@ class VlLegend {
         def entryY:double padding
         def titleBox (new VlBounds())
         if ((strlen title) > 0) {
-            titleBox = (VlBounds.ofText(title titleFontSize "left" "top" padding padding))
-            entryY = (entryY + ((titleBox.height()) + titlePadding))
+            ; Measured from the title as it is DRAWN, which is cut to the
+            ; title limit. Measured from the whole of it, a key headed "Barley
+            ; Yield (bushels/acre)" claimed the width of a string it shows
+            ; twenty characters of, and the page grew by the difference.
+            titleBox = (VlBounds.ofText((VlText.truncate(title titleFontSize titleLimit)) titleFontSize "left" "top" padding padding))
+            ; `titleOrient: "left"` puts the name BESIDE the key rather than
+            ; over it, which is how a key under a chart is kept one line deep.
+            ; Read as the default, a grid of bars was sixteen pixels taller
+            ; than the reference draws it and its key started under its own
+            ; heading.
+            if (titleOrient == "left") {
+                entryX = (entryX + ((titleBox.width()) + titlePadding))
+            } {
+                entryY = (entryY + ((titleBox.height()) + titlePadding))
+            }
         }
         entryItem.setNumber("x" entryX)
         entryItem.setNumber("y" entryY)
@@ -318,6 +411,198 @@ class VlLegend {
         group.setNumber("width" width)
         group.setNumber("height" height)
         return mark
+    }
+
+    fn wantsGradient:boolean (primary:string sc:VlScale) {
+        if ((primary == "fill") == false) {
+            if ((primary == "stroke") == false) {
+                return false
+            }
+        }
+        if ((this.channelCount()) > 1) {
+            return false
+        }
+        if ((array_length sc.rangeValues) == 0) {
+            return false
+        }
+        return (((sc.scaleType == "linear") || (sc.scaleType == "log")) || (this.isPowScale(sc)))
+    }
+
+    fn channelCount:int () {
+        def total:int 0
+        for channelOrder name:string idx {
+            if (has scales name) {
+                total = (total + 1)
+            }
+        }
+        return total
+    }
+
+    fn isPowScale:boolean (sc:VlScale) {
+        return ((sc.scaleType == "pow") || (sc.scaleType == "sqrt"))
+    }
+
+    ; The bar, and the two ends of the scale beside it. The bar's fill is a
+    ; gradient, which the scene carries as its stops — a renderer with no
+    ; gradient of its own draws them as slices, and one with gradients uses
+    ; them directly.
+    fn buildGradient:VlSceneMark (mark:VlSceneMark group:VlSceneItem sc:VlScale labelsEncode:VlJson titleEncode:VlJson gradientEncode:VlJson) {
+        def entryMark (new VlSceneMark())
+        entryMark.markType = "group"
+        entryMark.role = "legend-entry"
+        def entryItem:VlSceneItem (entryMark.addItem())
+
+        def barMark (new VlSceneMark())
+        barMark.markType = "rect"
+        barMark.role = "legend-gradient"
+        def bar:VlSceneItem (barMark.addItem())
+        bar.setNumber("opacity" 1.0)
+        bar.setNumber("x" 0.0)
+        bar.setNumber("y" 0.0)
+        def across:double gradientThickness
+        def along:double gradientLength
+        if (this.isHorizontal()) {
+            bar.setNumber("width" along)
+            bar.setNumber("height" across)
+        } {
+            bar.setNumber("width" across)
+            bar.setNumber("height" along)
+        }
+        bar.setString("stroke" gradientStrokeColor)
+        bar.setNumber("strokeWidth" gradientStrokeWidth)
+        bar.setValue("gradientStops" (this.gradientStops(sc)))
+        VlLegend.applyEncode(bar gradientEncode)
+
+        ; The values the ends are labelled with. The reference asks for as many
+        ; ticks as the bar is long — two per hundred pixels — and falls back to
+        ; the domain's own ends when that produces too few to read as a scale.
+        def count:int (floor (gradientLength / 100.0))
+        count = (count * 2)
+        if (count < 2) {
+            count = 2
+        }
+        def values:[double] (sc.ticks(count))
+        if ((array_length values) < 3) {
+            clear values
+            push values sc.domainMin
+            ; A domain with no width has ONE end, not two: a heat map of a count
+            ; where every cell counts the same has a single number to label, and
+            ; labelling it twice prints it on top of itself.
+            if (sc.domainMax != sc.domainMin) {
+                push values sc.domainMax
+            }
+        }
+        def labels:[string] (VlScale.tickLabels(values))
+        ; A shared precision is read off the STEP between the labels, and a
+        ; single label has no step. The reference's formatter then falls back on
+        ; its own default — six decimals, which is what `f` means when nothing
+        ; says otherwise — so the one number on a flat ramp reads "1.000000".
+        if (sc.domainMax == sc.domainMin) {
+            clear labels
+            for values only:double oi {
+                push labels (VlScale.padDecimals((VlJson.formatNumber(only 6)) 6))
+            }
+        }
+
+        def labelMark (new VlSceneMark())
+        labelMark.markType = "text"
+        labelMark.role = "legend-label"
+        def boxes (new VlBounds())
+        boxes.set(0.0 0.0 (bar.number("width")) (bar.number("height")))
+        for values v:double idx {
+            def item:VlSceneItem (labelMark.addItem())
+            item.setString("fill" labelColor)
+            item.setString("font" labelFont)
+            item.setNumber("fontSize" labelFontSize)
+            item.setNumber("opacity" 1.0)
+            def perc:double (sc.endFraction(v))
+            ; The label at an END of the scale is pulled inside the bar rather
+            ; than centred on it, so the scale reads to its own extremes and
+            ; nothing hangs off the drawing. Which property does the pulling
+            ; depends on which way the bar runs: down the side it is the
+            ; baseline, along the foot it is the alignment.
+            if (this.isHorizontal()) {
+                def align:string "center"
+                if (perc <= 0.0) {
+                    align = "left"
+                }
+                if (perc >= 1.0) {
+                    align = "right"
+                }
+                item.setString("align" align)
+                item.setString("baseline" "top")
+                item.setNumber("x" (perc * along))
+                item.setNumber("y" (across + gradientLabelOffset))
+            } {
+                def baseline:string "middle"
+                if (perc <= 0.0) {
+                    baseline = "bottom"
+                }
+                if (perc >= 1.0) {
+                    baseline = "top"
+                }
+                item.setString("align" "left")
+                item.setString("baseline" baseline)
+                item.setNumber("y" ((1.0 - perc) * along))
+                item.setNumber("x" (across + gradientLabelOffset))
+            }
+            item.setString("text" (itemAt labels idx))
+            VlLegend.applyEncode(item labelsEncode)
+            boxes.union((VlBounds.ofText((item.text("text")) (item.number("fontSize")) (item.text("align")) (item.text("baseline")) (item.number("x")) (item.number("y")))))
+        }
+
+        push entryItem.marks barMark
+        push entryItem.marks labelMark
+
+        def entryX:double padding
+        def entryY:double padding
+        def titleBox (new VlBounds())
+        if ((strlen title) > 0) {
+            ; Measured from the title as it is DRAWN, which is cut to the
+            ; title limit. Measured from the whole of it, a key headed "Barley
+            ; Yield (bushels/acre)" claimed the width of a string it shows
+            ; twenty characters of, and the page grew by the difference.
+            titleBox = (VlBounds.ofText((VlText.truncate(title titleFontSize titleLimit)) titleFontSize "left" "top" padding padding))
+            entryY = (entryY + ((titleBox.height()) + titlePadding))
+        }
+        entryItem.setNumber("x" entryX)
+        entryItem.setNumber("y" entryY)
+        boxes.translate(entryX entryY)
+        push group.marks entryMark
+        if ((strlen title) > 0) {
+            push group.marks (this.buildTitle(titleEncode))
+            boxes.union(titleBox)
+        }
+
+        width = (VlBounds.ceilTo(((boxes.x2 - padding) + (padding * 2.0))))
+        height = (VlBounds.ceilTo(((boxes.y2 - padding) + (padding * 2.0))))
+        group.setNumber("x" 0.0)
+        group.setNumber("y" 0.0)
+        group.setNumber("width" width)
+        group.setNumber("height" height)
+        return mark
+    }
+
+    ; The ramp as offsets and colours, sampled where the scale's own colours
+    ; change so that a renderer drawing them as slices lands on the same bands
+    ; the reference's gradient does.
+    fn gradientStops:VlJson (sc:VlScale) {
+        def out:VlJson (VlJson.arrayValue())
+        def n:int (array_length sc.rangeValues)
+        if (n < 2) {
+            return out
+        }
+        def steps:int ((n - 1) * 4)
+        def k:int 0
+        while (k <= steps) {
+            def t:double ((to_double k) / (to_double steps))
+            def stop:VlJson (VlJson.objectValue())
+            stop.setMember("offset" (VlJson.numberValue(t)))
+            stop.setMember("color" (VlJson.stringValue((sc.mapRamp((sc.domainMin + (t * (sc.domainMax - sc.domainMin)))))))) 
+            push out.arr stop
+            k = (k + 1)
+        }
+        return out
     }
 
     ; The channels each row's symbol and label carry, in the reference's order:
@@ -377,8 +662,14 @@ class VlLegend {
             def step:double 0.0
             if (idx > 0) {
                 step = rowPadding
-                if (box.y1 < 0.0) {
-                    step = (step + (VlBounds.ceilTo((0.0 - box.y1))))
+                ; A symbol that reaches above its own origin pushes the row
+                ; under it down — unless the rows are CLIPPED, which is the
+                ; whole point of clipping them: the big symbols are allowed to
+                ; overlap rather than to space the key out.
+                if (clipHeight <= 0.0) {
+                    if (box.y1 < 0.0) {
+                        step = (step + (VlBounds.ceilTo((0.0 - box.y1))))
+                    }
                 }
                 step = (step + previousExtent)
             }
@@ -386,8 +677,32 @@ class VlLegend {
             row.setNumber("x" 0.0)
             row.setNumber("y" y)
             box.translate(0.0 y)
-            previousExtent = (VlBounds.ceilTo((box.y2 - y)))
-            row.setNumber("height" (box.y2 - y))
+            def extent:double (box.y2 - y)
+            if (clipHeight > 0.0) {
+                ; Clipping fixes the row height rather than capping it: every
+                ; row of the key is that tall, the small symbols centred in
+                ; their share and the big ones spilling over it. Treated as a
+                ; maximum, the rows nearest the top were as short as their own
+                ; symbols and the whole key rode up.
+                ; Centred on the SYMBOL, not on the block the symbol and its
+                ; label together happen to fill: the label is one line of text
+                ; whatever the symbol is, and averaging the two put the big
+                ; dots half a pixel out of their rows.
+                def middle:double (extent / 2.0)
+                for row.marks part:VlSceneMark pi {
+                    if (part.role == "legend-symbol") {
+                        for part.items dot:VlSceneItem di {
+                            middle = (dot.number("y"))
+                        }
+                    }
+                }
+                def shift:double ((clipHeight / 2.0) - middle)
+                row.setNumber("y" (y + shift))
+                box.translate(0.0 shift)
+                extent = clipHeight
+            }
+            previousExtent = (VlBounds.ceilTo(extent))
+            row.setNumber("height" extent)
         }
         ; Every row in a column is as wide as the WIDEST row in it, so a short
         ; label does not make its row narrower than the one below and a renderer
@@ -401,6 +716,62 @@ class VlLegend {
         }
         for scopeMark.items row:VlSceneItem idx {
             row.setNumber("width" widest)
+        }
+    }
+
+    fn isHorizontal:boolean () {
+        return (direction == "horizontal")
+    }
+
+    ; The same layout turned ninety degrees: each entry starts a column padding
+    ; past the outer edge of the one before, allowing for a symbol that spills
+    ; left of its own origin, and every entry keeps its OWN width — a wide
+    ; label makes its column wide and its neighbours stay narrow. The shared
+    ; number in a row is the height, the way the shared number in a column is
+    ; the width.
+    fn layoutColumns:void (scopeMark:VlSceneMark boxes:[VlBounds]) {
+        def x:double 0.0
+        def previousExtent:double 0.0
+        for scopeMark.items col:VlSceneItem idx {
+            def box:VlBounds (itemAt boxes idx)
+            def step:double 0.0
+            if (idx > 0) {
+                step = columnPadding
+                if (box.x1 < 0.0) {
+                    step = (step + (VlBounds.ceilTo((0.0 - box.x1))))
+                }
+                step = (step + previousExtent)
+            }
+            x = (x + step)
+            col.setNumber("x" x)
+            col.setNumber("y" 0.0)
+            box.translate(x 0.0)
+            previousExtent = (VlBounds.ceilTo((box.x2 - x)))
+            col.setNumber("width" (box.x2 - x))
+        }
+        def tallest:double 0.0
+        for scopeMark.items col:VlSceneItem idx {
+            def edge:double (((itemAt boxes idx).y2) - (col.number("y")))
+            if (edge > tallest) {
+                tallest = edge
+            }
+        }
+        ; Entries in a row sit on a common middle rather than a common top: a
+        ; key of two trail widths is read as two dashes at the same height,
+        ; not as two dashes hanging from a ceiling. The row is as tall as its
+        ; tallest entry rounded up to a whole pixel, and each entry drops by
+        ; half of what it is short by — which is the reference's own
+        ; arithmetic down to the last decimal.
+        def rowHeight:double (VlBounds.ceilTo(tallest))
+        for scopeMark.items col:VlSceneItem idx {
+            def box:VlBounds (itemAt boxes idx)
+            def down:double ((rowHeight - (box.y2 - (col.number("y")))) / 2.0)
+            col.setNumber("y" ((col.number("y")) + down))
+            box.translate(0.0 down)
+            ; …and each entry is still only as tall as itself. Given the whole
+            ; row's height it would reach that far BELOW where it now starts,
+            ; and the drawing grew by what the shortest entry was shifted.
+            col.setNumber("height" (box.y2 - (col.number("y"))))
         }
     }
 
@@ -425,7 +796,11 @@ class VlLegend {
         item.setString("fontWeight" titleFontWeight)
         item.setNumber("opacity" 1.0)
         item.setString("orient" titleOrient)
-        item.setString("text" title)
+        ; Cut to fit HERE, like every other guide label, because the legend's
+        ; width is measured from what it holds: a title that overhangs its
+        ; limit when it is drawn but not when it is measured makes the legend
+        ; wider than the reference's and takes the difference out of the page.
+        item.setString("text" (VlText.truncate(title titleFontSize titleLimit)))
         item.setNumber("limit" titleLimit)
         item.setNumber("x" padding)
         item.setNumber("y" padding)

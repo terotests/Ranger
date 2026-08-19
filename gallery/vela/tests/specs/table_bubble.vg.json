@@ -1,0 +1,224 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "background": "white",
+  "padding": 5,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "a": "A",
+          "b": 28,
+          "c": 5,
+          "g": "x"
+        },
+        {
+          "a": "B",
+          "b": 55,
+          "c": 9,
+          "g": "y"
+        },
+        {
+          "a": "C",
+          "b": 43,
+          "c": 2,
+          "g": "x"
+        },
+        {
+          "a": "D",
+          "b": 91,
+          "c": 7,
+          "g": "y"
+        },
+        {
+          "a": "E",
+          "b": 81,
+          "c": 4,
+          "g": "x"
+        },
+        {
+          "a": "F",
+          "b": 53,
+          "c": 6,
+          "g": "y"
+        },
+        {
+          "a": "G",
+          "b": 19,
+          "c": 8,
+          "g": "x"
+        },
+        {
+          "a": "H",
+          "b": 87,
+          "c": 1,
+          "g": "y"
+        },
+        {
+          "a": "I",
+          "b": 52,
+          "c": 3,
+          "g": "x"
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"b\"]) && isFinite(+datum[\"b\"])"
+        }
+      ]
+    }
+  ],
+  "signals": [
+    {
+      "name": "x_step",
+      "value": 20
+    },
+    {
+      "name": "width",
+      "update": "bandspace(domain('x').length, 1, 0.5) * x_step"
+    },
+    {
+      "name": "y_step",
+      "value": 20
+    },
+    {
+      "name": "height",
+      "update": "bandspace(domain('y').length, 1, 0.5) * y_step"
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "symbol",
+      "style": [
+        "circle"
+      ],
+      "from": {
+        "data": "data_0"
+      },
+      "encode": {
+        "update": {
+          "opacity": {
+            "value": 0.7
+          },
+          "fill": {
+            "value": "#4c78a8"
+          },
+          "ariaRoleDescription": {
+            "value": "circle"
+          },
+          "description": {
+            "signal": "\"a: \" + (isValid(datum[\"a\"]) ? isArray(datum[\"a\"]) ? join(datum[\"a\"], ' ') : datum[\"a\"] : \"\"+datum[\"a\"]) + \"; g: \" + (isValid(datum[\"g\"]) ? isArray(datum[\"g\"]) ? join(datum[\"g\"], ' ') : datum[\"g\"] : \"\"+datum[\"g\"]) + \"; b: \" + (format(datum[\"b\"], \"\"))"
+          },
+          "x": {
+            "scale": "x",
+            "field": "a"
+          },
+          "y": {
+            "scale": "y",
+            "field": "g"
+          },
+          "size": {
+            "scale": "size",
+            "field": "b"
+          },
+          "shape": {
+            "value": "circle"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "point",
+      "domain": {
+        "data": "data_0",
+        "field": "a",
+        "sort": true
+      },
+      "range": {
+        "step": {
+          "signal": "x_step"
+        }
+      },
+      "padding": 0.5
+    },
+    {
+      "name": "y",
+      "type": "point",
+      "domain": {
+        "data": "data_0",
+        "field": "g",
+        "sort": true
+      },
+      "range": {
+        "step": {
+          "signal": "y_step"
+        }
+      },
+      "padding": 0.5
+    },
+    {
+      "name": "size",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "field": "b"
+      },
+      "range": [
+        4,
+        361
+      ],
+      "zero": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "a",
+      "labelAlign": "right",
+      "labelAngle": 270,
+      "labelBaseline": "middle",
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "g",
+      "zindex": 0
+    }
+  ],
+  "legends": [
+    {
+      "size": "size",
+      "symbolType": "circle",
+      "title": "b",
+      "encode": {
+        "symbols": {
+          "update": {
+            "fill": {
+              "value": "#4c78a8"
+            },
+            "opacity": {
+              "value": 0.7
+            },
+            "stroke": {
+              "value": "transparent"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

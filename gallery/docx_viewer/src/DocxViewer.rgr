@@ -1,0 +1,193 @@
+; ==============================================================================
+; DocxViewer - load .docx → RichDocument → SoftCanvas pages (+ optional edit).
+; ==============================================================================
+
+Import "DocxPackage.rgr"
+Import "WordMlParser.rgr"
+Import "WordNumbering.rgr"
+Import "RichDocument.rgr"
+Import "DocxView.rgr"
+Import "DocxEditController.rgr"
+Import "../../text_editor/src/TextEditCore.rgr"
+
+class DocxViewer {
+    def parser:WordMlParser (new WordMlParser)
+    def view:DocxView (new DocxView)
+    def doc:RichDocument (new RichDocument)
+    def numbering:WordNumbering (new WordNumbering)
+    def edit:DocxEditController (new DocxEditController)
+    def lastError:string ""
+    def currentPage:int 0
+
+    Constructor () {
+    }
+
+    fn init:void (fontDir:string) {
+        view.init(fontDir)
+    }
+
+    fn openFile:boolean (dir:string file:string) {
+        lastError = ""
+        def pkg:DocxPackage (new DocxPackage)
+        if ((pkg.open(dir file)) == false) {
+            lastError = ("failed to open " + file)
+            return false
+        }
+        if ((pkg.hasPart("word/document.xml")) == false) {
+            lastError = "missing word/document.xml"
+            pkg.close()
+            return false
+        }
+        doc = (parser.parsePackage(pkg))
+        numbering = parser.numbering
+        pkg.close()
+        if ((strlen doc.title) == 0) {
+            doc.title = file
+        }
+        edit.bindDocument(doc)
+        currentPage = 0
+        return true
+    }
+
+    fn document:RichDocument () {
+        return doc
+    }
+
+    fn editor:DocxEditController () {
+        return edit
+    }
+
+    fn setEditMode:void (on:boolean) {
+        edit.setEnabled(on)
+    }
+
+    fn editMode:boolean () {
+        return (edit.isEnabled())
+    }
+
+    fn renderPage:void (page:int) {
+        currentPage = page
+        if (edit.isEnabled()) {
+            view.presentWithEdit(doc page numbering edit)
+        } {
+            view.present(doc page numbering)
+        }
+    }
+
+    fn renderAll:void (maxPages:int) {
+        view.presentAll(doc numbering maxPages)
+    }
+
+    fn pageCount:int () {
+        return (view.layout.pageCount())
+    }
+
+    fn pageWidth:int () {
+        return (view.width())
+    }
+
+    fn pageHeight:int () {
+        return (view.height())
+    }
+
+    fn writePng:void (dir:string file:string) {
+        view.writePng(dir file)
+    }
+
+    fn pngBytes:buffer () {
+        return (view.pngBytes())
+    }
+
+    fn plainText:string () {
+        return (doc.plainText())
+    }
+
+    fn inspectJson:string () {
+        return (doc.inspectJson())
+    }
+
+    ; --- editing surface for window host ---
+
+    fn clickAt:void (x:int y:int extendSelection:boolean) {
+        if ((edit.isEnabled()) == false) {
+            return
+        }
+        this.renderPage(currentPage)
+        def pos:DocumentPosition (edit.hitTest(view.layout currentPage x y))
+        if (pos.paragraphId <= 0) {
+            return
+        }
+        if extendSelection {
+            if (edit.isActive()) {
+                if (edit.sel.anchor.paragraphId == pos.paragraphId) {
+                    edit.sel.focus = (pos.copy())
+                } {
+                    edit.setCaret(pos.paragraphId pos.textOffset)
+                }
+            } {
+                edit.setCaret(pos.paragraphId pos.textOffset)
+            }
+        } {
+            edit.setCaret(pos.paragraphId pos.textOffset)
+        }
+        this.renderPage(currentPage)
+    }
+
+    fn typeText:void (text:string) {
+        if ((edit.isEnabled()) == false) {
+            return
+        }
+        edit.insertText(text)
+        this.renderPage(currentPage)
+    }
+
+    fn keyBackspace:void () {
+        edit.backspace()
+        this.renderPage(currentPage)
+    }
+
+    fn keyDelete:void () {
+        edit.deleteForward()
+        this.renderPage(currentPage)
+    }
+
+    fn keyEnter:void () {
+        edit.splitAtCaret()
+        this.renderPage(currentPage)
+    }
+
+    fn keyUndo:void () {
+        edit.undo()
+        this.renderPage(currentPage)
+    }
+
+    fn keyRedo:void () {
+        edit.redo()
+        this.renderPage(currentPage)
+    }
+
+    fn toggleBold:void () {
+        edit.toggleBold()
+        this.renderPage(currentPage)
+    }
+
+    fn setFont:void (font:string) {
+        edit.setFont(font)
+        this.renderPage(currentPage)
+    }
+
+    fn caretInfoJson:string () {
+        if ((edit.isActive()) == false) {
+            return "{\"active\":false}"
+        }
+        def c:DocumentPosition (edit.caret())
+        def sel:DocumentRange (edit.selection())
+        def a:int (sel.startOffset())
+        def b:int (sel.endOffset())
+        def boldFlag:string "false"
+        if (edit.typingBold) {
+            boldFlag = "true"
+        }
+        return ("{\"active\":true,\"paragraphId\":" + (to_string c.paragraphId) + ",\"offset\":" + (to_string c.textOffset) + ",\"selStart\":" + (to_string a) + ",\"selEnd\":" + (to_string b) + ",\"boldTyping\":" + boldFlag + "}")
+    }
+}

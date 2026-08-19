@@ -1,0 +1,59 @@
+{
+  "description": "The transforms a specification writes for itself, rather than the ones its encoding implies. A filter that removes rows and a calculate that adds a field were both dropped in silence: the chart drew the untransformed data and looked entirely reasonable.",
+  "width": 180,
+  "height": 120,
+  "data": {
+    "values": [
+      {
+        "a": "A",
+        "b": 28,
+        "keep": true
+      },
+      {
+        "a": "B",
+        "b": 55,
+        "keep": false
+      },
+      {
+        "a": "C",
+        "b": 43,
+        "keep": true
+      },
+      {
+        "a": "D",
+        "b": 91,
+        "keep": false
+      },
+      {
+        "a": "E",
+        "b": 81,
+        "keep": true
+      },
+      {
+        "a": "F",
+        "b": 53,
+        "keep": true
+      }
+    ]
+  },
+  "transform": [
+    {
+      "filter": "datum.keep"
+    },
+    {
+      "calculate": "datum.b / 2",
+      "as": "half"
+    }
+  ],
+  "mark": "bar",
+  "encoding": {
+    "x": {
+      "field": "a",
+      "type": "nominal"
+    },
+    "y": {
+      "field": "half",
+      "type": "quantitative"
+    }
+  }
+}

@@ -1,0 +1,102 @@
+; ==============================================================================
+; editor_demo - headless scripted session for the EVG text-editor prototype.
+; ==============================================================================
+;
+; Builds a notepad-style multiline editor, feeds a UIInput stream (click, type,
+; select, scroll), and writes PNG snapshots. A real SDL2 host would fill UIInput
+; from SDL_TEXTINPUT / mouse and blit app.raw() each frame — the app code does
+; not change.
+; ==============================================================================
+
+Import "EditorApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class EditorDemo {
+    sfn click:void (app:EditorApp input:UIInput px:int py:int) {
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(false)
+        app.update(input)
+    }
+
+    sfn typeText:void (app:EditorApp input:UIInput s:string) {
+        input.newFrame()
+        input.pushText(s)
+        app.update(input)
+    }
+
+    sfn key:void (app:EditorApp input:UIInput k:int) {
+        input.newFrame()
+        input.pushKey(k)
+        app.update(input)
+    }
+
+    sfn snapshot:void (app:EditorApp dir:string file:string) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+    }
+
+    sfn main:void () {
+        def app:EditorApp (new EditorApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.setDocument("Ranger EVG Text Editor\n\nClick to place the caret.\nType, select, scroll.\n")
+        def input:UIInput (new UIInput)
+
+        app.render()
+        EditorDemo.snapshot(app "gallery/text_editor" "editor_1_start.png")
+
+        ; Click into the document body and type.
+        EditorDemo.click(app input 120 80)
+        EditorDemo.typeText(app input "Hello from Ranger.")
+        EditorDemo.key(app input (UIKey.enter()))
+        EditorDemo.typeText(app input "Second line with selection demo.")
+
+        ; Select a word with shift+left
+        def i:int 0
+        while (i < 4) {
+            input.newFrame()
+            input.setModifiers(true false)
+            input.pushKey((UIKey.left()))
+            app.update(input)
+            i = (i + 1)
+        }
+        input.newFrame()
+        input.setModifiers(false false)
+        app.update(input)
+
+        app.render()
+        EditorDemo.snapshot(app "gallery/text_editor" "editor_2_edit.png")
+
+        ; Ctrl+A then replace
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText("a")
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+        input.pushText("Replaced whole document.\nLine two.\nLine three.\n")
+        app.update(input)
+
+        ; Scroll down a bit
+        input.newFrame()
+        input.addScroll(-3)
+        app.update(input)
+
+        app.render()
+        EditorDemo.snapshot(app "gallery/text_editor" "editor_3_select.png")
+
+        print ("lines = " + (to_string (app.buf.lineCount())))
+        print ("caret = " + (to_string (app.sel.caret.line)) + ":" + (to_string app.sel.caret.col))
+        print ("text =\n" + (app.documentText()))
+        print "wrote editor_1_start.png editor_2_edit.png editor_3_select.png"
+    }
+}

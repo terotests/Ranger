@@ -81,6 +81,7 @@ class UITextRenderer {
 
     ; --- measurement & wrapping ----------------------------------------------
     fn measureWidth:double (text:string size:double) {
+        this.applyFace()
         if hasFont {
             return (measurer.measureTextWidth(text fontFamily size))
         }
@@ -89,6 +90,7 @@ class UITextRenderer {
     }
 
     fn lineHeight:double (size:double) {
+        this.applyFace()
         if hasFont {
             return (measurer.getLineHeight(fontFamily size))
         }
@@ -98,6 +100,7 @@ class UITextRenderer {
     ; Greedy word-wrap into lines that fit maxWidth. Uses real TTF metrics when
     ; a font is loaded, otherwise the bitmap step width.
     fn wrap:[string] (text:string size:double maxWidth:double) {
+        this.applyFace()
         if hasFont {
             return (measurer.wrapText(text fontFamily size maxWidth))
         }
@@ -148,7 +151,7 @@ class UITextRenderer {
 
     ; --- glyph/line cache -----------------------------------------------------
     fn cacheKey:string (text:string size:double r:int g:int b:int a:int) {
-        return (text + "|" + (to_string (to_int size)) + "|" + (to_string r) + "," + (to_string g) + "," + (to_string b) + "," + (to_string a))
+        return (fontFamily + "|" + text + "|" + (to_string (to_int size)) + "|" + (to_string r) + "," + (to_string g) + "," + (to_string b) + "," + (to_string a))
     }
 
     fn findCached:UICachedLine (key:string) {
@@ -165,7 +168,18 @@ class UITextRenderer {
         return miss
     }
 
+    ; Switch the active TrueType face to match `fontFamily` (supports
+    ; FontManager style forms like "Open Sans-Bold" / "Open Sans-Italic").
+    fn applyFace:void () {
+        if (hasFont == false) {
+            return
+        }
+        def ttf:TrueTypeFont (fm.getFont(fontFamily))
+        rt.setFont(ttf)
+    }
+
     fn getCachedLine:UICachedLine (text:string size:double r:int g:int b:int a:int) {
+        this.applyFace()
         def key:string (this.cacheKey(text size r g b a))
         def hit:UICachedLine (this.findCached(key))
         if ((strlen hit.key) > 0) {

@@ -1,0 +1,495 @@
+; ==============================================================================
+; PptxResolver - theme / layout / master → resolved slide scene
+; ==============================================================================
+;
+; Pipeline:
+;   theme → slide master → slide layout → slide → ResolvedSlide → EVG
+;
+; EVG never sees relationships, placeholders, or schemeClr — only concrete
+; geometry, sRGB colors, fonts, and image part paths after this pass.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+
+class PptxResolver {
+    Constructor () {
+    }
+
+    ; Map placeholder / mapped scheme names used on slides (bg1, tx1, …) onto
+    ; the theme's clrScheme keys. Masters can remap these; MVP uses defaults.
+    fn mapSchemeName:string (name:string) {
+        if (name == "bg1") { return "lt1" }
+        if (name == "tx1") { return "dk1" }
+        if (name == "bg2") { return "lt2" }
+        if (name == "tx2") { return "dk2" }
+        if (name == "phClr") { return "accent1" }
+        return name
+    }
+
+    fn resolveColor:PptxColor (c:PptxColor theme:PptxTheme) {
+        if (c.isSet == false) {
+            return c
+        }
+        if (c.isScheme == false) {
+            return c
+        }
+        def key:string (this.mapSchemeName(c.scheme))
+        def hex:string (theme.colorOf(key))
+        def out:PptxColor (PptxColor.srgbOf(hex))
+        out.alpha = c.alpha
+        return out
+    }
+
+    fn resolveFont:string (face:string theme:PptxTheme) {
+        if ((strlen face) == 0) {
+            return theme.minorFont
+        }
+        if (face == "+mj-lt") {
+            return theme.majorFont
+        }
+        if (face == "+mn-lt") {
+            return theme.minorFont
+        }
+        if (face == "+mj-ea") {
+            return theme.majorFont
+        }
+        if (face == "+mn-ea") {
+            return theme.minorFont
+        }
+        return face
+    }
+
+    fn cloneColor:PptxColor (c:PptxColor) {
+        def out (new PptxColor())
+        out.isSet = c.isSet
+        out.isScheme = c.isScheme
+        out.scheme = c.scheme
+        out.srgb = c.srgb
+        out.alpha = c.alpha
+        return out
+    }
+
+    fn cloneRun:PptxTextRun (run:PptxTextRun) {
+        def out (new PptxTextRun())
+        out.text = run.text
+        out.fontFamily = run.fontFamily
+        out.fontSizePt = run.fontSizePt
+        out.sizeSet = run.sizeSet
+        out.bold = run.bold
+        out.italic = run.italic
+        out.color = (this.cloneColor(run.color))
+        return out
+    }
+
+    fn cloneTextBody:PptxTextBody (body:PptxTextBody) {
+        def out (new PptxTextBody())
+        out.insetL = body.insetL
+        out.insetT = body.insetT
+        out.insetR = body.insetR
+        out.insetB = body.insetB
+        out.insetsSet = body.insetsSet
+        out.anchor = body.anchor
+        out.anchorSet = body.anchorSet
+        out.wrap = body.wrap
+        out.hasDefRPr = body.hasDefRPr
+        out.defFontSizePt = body.defFontSizePt
+        out.defBold = body.defBold
+        out.defItalic = body.defItalic
+        out.defFontFamily = body.defFontFamily
+        out.defColor = (this.cloneColor(body.defColor))
+        out.defAlign = body.defAlign
+        def i:int 0
+        while (i < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs i)
+            def op (new PptxParagraph())
+            op.align = para.align
+            op.alignSet = para.alignSet
+            op.spaceBeforePt = para.spaceBeforePt
+            op.spaceAfterPt = para.spaceAfterPt
+            op.lineSpacingPct = para.lineSpacingPct
+            def j:int 0
+            while (j < (array_length para.runs)) {
+                push op.runs (this.cloneRun((itemAt para.runs j)))
+                j = (j + 1)
+            }
+            push out.paragraphs op
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn cloneShape:PptxShape (shape:PptxShape) {
+        def out (new PptxShape())
+        out.kind = shape.kind
+        out.name = shape.name
+        out.x = shape.x
+        out.y = shape.y
+        out.width = shape.width
+        out.height = shape.height
+        out.hasXfrm = shape.hasXfrm
+        out.rotation = shape.rotation
+        out.preset = shape.preset
+        out.fill = (this.cloneColor(shape.fill))
+        out.line = (this.cloneColor(shape.line))
+        out.lineWidthPt = shape.lineWidthPt
+        out.hasText = shape.hasText
+        out.text = (this.cloneTextBody(shape.text))
+        out.imageRid = shape.imageRid
+        out.imagePart = shape.imagePart
+        out.imageBytes = shape.imageBytes
+        out.imageOk = shape.imageOk
+        out.isPlaceholder = shape.isPlaceholder
+        out.phType = shape.phType
+        out.phIdx = shape.phIdx
+        out.inherited = shape.inherited
+        out.chX = shape.chX
+        out.chY = shape.chY
+        out.chW = shape.chW
+        out.chH = shape.chH
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            push out.children (this.cloneShape((itemAt shape.children i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn phTypeCompatible:boolean (a:string b:string) {
+        if (a == b) {
+            return true
+        }
+        ; Title family
+        if (((a == "title") || (a == "ctrTitle")) && ((b == "title") || (b == "ctrTitle"))) {
+            return true
+        }
+        if (((a == "body") || (a == "obj") || (a == "subTitle")) && ((b == "body") || (b == "obj") || (b == "subTitle"))) {
+            return true
+        }
+        return false
+    }
+
+    fn findPlaceholder@(optional):PptxShape (shapes:[PptxShape] phType:string phIdx:int) {
+        ; 1) exact type + idx
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def s:PptxShape (itemAt shapes i)
+            if s.isPlaceholder {
+                if ((this.phTypeCompatible(s.phType phType)) && (s.phIdx == phIdx) && (phIdx >= 0)) {
+                    def hit@(optional):PptxShape s
+                    return hit
+                }
+            }
+            i = (i + 1)
+        }
+        ; 2) type match (ignore idx)
+        def j:int 0
+        while (j < (array_length shapes)) {
+            def s2:PptxShape (itemAt shapes j)
+            if s2.isPlaceholder {
+                if (this.phTypeCompatible(s2.phType phType)) {
+                    def hit2@(optional):PptxShape s2
+                    return hit2
+                }
+            }
+            j = (j + 1)
+        }
+        ; 3) idx-only match
+        if (phIdx >= 0) {
+            def k:int 0
+            while (k < (array_length shapes)) {
+                def s3:PptxShape (itemAt shapes k)
+                if s3.isPlaceholder {
+                    if (s3.phIdx == phIdx) {
+                        def hit3@(optional):PptxShape s3
+                        return hit3
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        def __missing@(optional):PptxShape
+        return __missing
+    }
+
+    fn applyDefRPrToRun:void (run:PptxTextRun body:PptxTextBody) {
+        if (body.hasDefRPr == false) {
+            return
+        }
+        if (run.sizeSet == false) {
+            run.fontSizePt = body.defFontSizePt
+            run.sizeSet = true
+        }
+        if ((strlen run.fontFamily) == 0) {
+            if ((strlen body.defFontFamily) > 0) {
+                run.fontFamily = body.defFontFamily
+            }
+        }
+        if (run.color.isSet == false) {
+            if (body.defColor.isSet) {
+                run.color = (this.cloneColor(body.defColor))
+            }
+        }
+        if (run.bold == false) {
+            if body.defBold {
+                run.bold = true
+            }
+        }
+        if (run.italic == false) {
+            if body.defItalic {
+                run.italic = true
+            }
+        }
+    }
+
+    fn mergePlaceholderFrom:void (dst:PptxShape src:PptxShape) {
+        ; Geometry: slide wins when it supplied an xfrm with positive size
+        if ((dst.hasXfrm == false) || ((dst.width <= 0.0) && (dst.height <= 0.0))) {
+            dst.x = src.x
+            dst.y = src.y
+            dst.width = src.width
+            dst.height = src.height
+            dst.rotation = src.rotation
+            dst.hasXfrm = true
+        }
+        if ((strlen dst.preset) == 0) {
+            dst.preset = src.preset
+        }
+        if ((dst.preset == "rect") && (src.preset != "rect")) {
+            if (dst.hasXfrm == false) {
+                dst.preset = src.preset
+            }
+        }
+        if (dst.fill.isSet == false) {
+            if (src.fill.isSet) {
+                dst.fill = (this.cloneColor(src.fill))
+            }
+        }
+        if (dst.line.isSet == false) {
+            if (src.line.isSet) {
+                dst.line = (this.cloneColor(src.line))
+                dst.lineWidthPt = src.lineWidthPt
+            }
+        }
+        ; Text style / body props from placeholder definition
+        if src.hasText {
+            def srcBody:PptxTextBody src.text
+            if (dst.hasText == false) {
+                dst.hasText = true
+                dst.text = (this.cloneTextBody(srcBody))
+            } {
+                def dstBody:PptxTextBody dst.text
+                if (dstBody.insetsSet == false) {
+                    if srcBody.insetsSet {
+                        dstBody.insetL = srcBody.insetL
+                        dstBody.insetT = srcBody.insetT
+                        dstBody.insetR = srcBody.insetR
+                        dstBody.insetB = srcBody.insetB
+                        dstBody.insetsSet = true
+                    }
+                }
+                if (dstBody.anchorSet == false) {
+                    if srcBody.anchorSet {
+                        dstBody.anchor = srcBody.anchor
+                        dstBody.anchorSet = true
+                    }
+                }
+                if (dstBody.hasDefRPr == false) {
+                    if srcBody.hasDefRPr {
+                        dstBody.hasDefRPr = true
+                        dstBody.defFontSizePt = srcBody.defFontSizePt
+                        dstBody.defBold = srcBody.defBold
+                        dstBody.defItalic = srcBody.defItalic
+                        dstBody.defFontFamily = srcBody.defFontFamily
+                        dstBody.defColor = (this.cloneColor(srcBody.defColor))
+                        dstBody.defAlign = srcBody.defAlign
+                    }
+                }
+                def pi:int 0
+                while (pi < (array_length dstBody.paragraphs)) {
+                    def para:PptxParagraph (itemAt dstBody.paragraphs pi)
+                    if (para.alignSet == false) {
+                        if ((strlen dstBody.defAlign) > 0) {
+                            para.align = dstBody.defAlign
+                        } {
+                            if ((array_length srcBody.paragraphs) > 0) {
+                                def sp:PptxParagraph (itemAt srcBody.paragraphs 0)
+                                if sp.alignSet {
+                                    para.align = sp.align
+                                }
+                            }
+                        }
+                    }
+                    def ri:int 0
+                    while (ri < (array_length para.runs)) {
+                        this.applyDefRPrToRun((itemAt para.runs ri) dstBody)
+                        ri = (ri + 1)
+                    }
+                    pi = (pi + 1)
+                }
+            }
+        }
+    }
+
+    fn resolveTextBody:void (body:PptxTextBody theme:PptxTheme) {
+        def i:int 0
+        while (i < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs i)
+            def j:int 0
+            while (j < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs j)
+                this.applyDefRPrToRun(run body)
+                run.fontFamily = (this.resolveFont(run.fontFamily theme))
+                if (run.color.isSet) {
+                    run.color = (this.resolveColor(run.color theme))
+                } {
+                    if (body.defColor.isSet) {
+                        run.color = (this.resolveColor(body.defColor theme))
+                    } {
+                        run.color = (this.resolveColor((PptxColor.schemeOf("dk1")) theme))
+                    }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn resolveShape:void (shape:PptxShape theme:PptxTheme) {
+        if (shape.fill.isSet) {
+            shape.fill = (this.resolveColor(shape.fill theme))
+        }
+        if (shape.fillGrad.isSet) {
+            shape.fillGrad.c1 = (this.resolveColor(shape.fillGrad.c1 theme))
+            shape.fillGrad.c2 = (this.resolveColor(shape.fillGrad.c2 theme))
+        }
+        if (shape.line.isSet) {
+            shape.line = (this.resolveColor(shape.line theme))
+        }
+        if (shape.shadow.isSet) {
+            shape.shadow.color = (this.resolveColor(shape.shadow.color theme))
+        }
+        if shape.hasText {
+            this.resolveTextBody(shape.text theme)
+        }
+        if (shape.kind == 4) {
+            def ti:int 0
+            while (ti < (array_length shape.tableCells)) {
+                def cell:PptxTableCell (itemAt shape.tableCells ti)
+                if (cell.fill.isSet) {
+                    cell.fill = (this.resolveColor(cell.fill theme))
+                }
+                ti = (ti + 1)
+            }
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            this.resolveShape((itemAt shape.children i) theme)
+            i = (i + 1)
+        }
+    }
+
+    fn sheetOf@(optional):PptxSheet (cache:[string:PptxSheet] part:string) {
+        if ((strlen part) == 0) {
+            def __missing@(optional):PptxSheet
+            return __missing
+        }
+        def hit@(optional):PptxSheet (get cache part)
+        return hit
+    }
+
+    fn resolveSlide:PptxSlide (slide:PptxSlide theme:PptxTheme layouts:[string:PptxSheet] masters:[string:PptxSheet]) {
+        def layout@(optional):PptxSheet (this.sheetOf(layouts slide.layoutPart))
+        def master@(optional):PptxSheet (this.sheetOf(masters slide.masterPart))
+
+        ; Background: slide → layout → master → lt1
+        if (slide.bg.isSet == false) {
+            if (!null? layout) {
+                def lay:PptxSheet (unwrap layout)
+                if (lay.bg.isSet) {
+                    slide.bg = (this.cloneColor(lay.bg))
+                }
+            }
+        }
+        if (slide.bg.isSet == false) {
+            if (!null? master) {
+                def mas:PptxSheet (unwrap master)
+                if (mas.bg.isSet) {
+                    slide.bg = (this.cloneColor(mas.bg))
+                }
+            }
+        }
+        if (slide.bg.isSet) {
+            slide.bg = (this.resolveColor(slide.bg theme))
+        } {
+            slide.bg = (this.resolveColor((PptxColor.schemeOf("lt1")) theme))
+        }
+
+        def resolved:[PptxShape]
+
+        ; Master chrome (non-placeholders), then layout chrome
+        if (!null? master) {
+            def ms:PptxSheet (unwrap master)
+            def mi:int 0
+            while (mi < (array_length ms.shapes)) {
+                def mshape:PptxShape (itemAt ms.shapes mi)
+                if (mshape.isPlaceholder == false) {
+                    def mc:PptxShape (this.cloneShape(mshape))
+                    mc.inherited = true
+                    this.resolveShape(mc theme)
+                    push resolved mc
+                }
+                mi = (mi + 1)
+            }
+        }
+        if (!null? layout) {
+            def ls:PptxSheet (unwrap layout)
+            def li:int 0
+            while (li < (array_length ls.shapes)) {
+                def lshape:PptxShape (itemAt ls.shapes li)
+                if (lshape.isPlaceholder == false) {
+                    def lc:PptxShape (this.cloneShape(lshape))
+                    lc.inherited = true
+                    this.resolveShape(lc theme)
+                    push resolved lc
+                }
+                li = (li + 1)
+            }
+        }
+
+        ; Slide shapes with placeholder inheritance
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def shape:PptxShape (itemAt slide.shapes i)
+            if shape.isPlaceholder {
+                def matched@(optional):PptxShape
+                if (!null? layout) {
+                    def lay2:PptxSheet (unwrap layout)
+                    matched = (this.findPlaceholder(lay2.shapes shape.phType shape.phIdx))
+                }
+                if (null? matched) {
+                    if (!null? master) {
+                        def mas2:PptxSheet (unwrap master)
+                        matched = (this.findPlaceholder(mas2.shapes shape.phType shape.phIdx))
+                    }
+                }
+                if (!null? matched) {
+                    this.mergePlaceholderFrom(shape (unwrap matched))
+                }
+            }
+            this.resolveShape(shape theme)
+            push resolved shape
+            i = (i + 1)
+        }
+        slide.shapes = resolved
+        return slide
+    }
+
+    fn resolvePresentation:PptxPresentation (pres:PptxPresentation) {
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            this.resolveSlide((itemAt pres.slides i) pres.theme pres.layouts pres.masters)
+            i = (i + 1)
+        }
+        return pres
+    }
+}

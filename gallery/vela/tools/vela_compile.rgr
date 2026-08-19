@@ -1,0 +1,79 @@
+; ==============================================================================
+; vela_compile.rgr — a Vega-Lite specification in, a Vega one out.
+; ==============================================================================
+;   vela_compile <spec.vl.json> [out.vg.json]
+;
+; The step that was still the official JavaScript's. With this, a native binary
+; built from these sources can be handed the shorthand nearly everyone writes
+; rather than only the full grammar it expands to.
+;
+; It refuses rather than guesses: a specification this compiler does not cover
+; says so on stdout and writes nothing, which is what the harness reads.
+; ==============================================================================
+
+Import "../src/VlCompile.rgr"
+
+class VelaCompileTool {
+
+    sfn dirOf:string (path:string) {
+        def lastSep:int (lastIndexOf path "/")
+        if (lastSep >= 0) {
+            return (substring path 0 (lastSep + 1))
+        }
+        return "./"
+    }
+
+    sfn nameOf:string (path:string) {
+        def lastSep:int (lastIndexOf path "/")
+        if (lastSep >= 0) {
+            return (substring path (lastSep + 1) (strlen path))
+        }
+        return path
+    }
+
+    sfn main:void () {
+        def argCount:int (shell_arg_cnt)
+        if (argCount < 1) {
+            print "usage: vela_compile <spec.vl.json> [out.vg.json]"
+            return
+        }
+        def inputPath:string (shell_arg 0)
+        def outputPath:string ""
+        if (argCount > 1) {
+            outputPath = (shell_arg 1)
+        }
+
+        def text@(optional):string (read_file (VelaCompileTool.dirOf(inputPath)) (VelaCompileTool.nameOf(inputPath)))
+        if (null? text) {
+            print ("could not read " + inputPath)
+            return
+        }
+        def parser (new VlJsonParser())
+        def src:VlJson (parser.parse((unwrap text)))
+        if (! parser.ok) {
+            print ("source is not valid JSON: " + parser.err)
+            return
+        }
+
+        def compiler (new VlCompile())
+        def out:VlJson (compiler.compileSpec(src))
+        for compiler.errors e:string ei {
+            print ("error: " + e)
+        }
+        if ((array_length compiler.errors) > 0) {
+            return
+        }
+        def writer (new VlJsonWriter())
+        ; A specification carries constants rather than measurements — a full
+        ; turn is 6.283185307179586 and rounding it would rotate the last wedge
+        ; of a pie by a visible fraction of a pixel.
+        writer.decimals = 15
+        def json:string (writer.write(out))
+        if ((strlen outputPath) > 0) {
+            write_file (VelaCompileTool.dirOf(outputPath)) (VelaCompileTool.nameOf(outputPath)) json
+            print (("wrote " + outputPath) + " ")
+        } {
+            print json
+        }
+    }
+}

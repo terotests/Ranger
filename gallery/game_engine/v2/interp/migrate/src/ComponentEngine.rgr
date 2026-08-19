@@ -21,6 +21,8 @@ Import "UnicodeTailor.rgr"
 Import "LocaleData.rgr"
 Import "LocalePlural.rgr"
 Import "DateTime.rgr"
+Import "../../../../../../lib/core/RgNum.rgr"
+Import "../../../../../../lib/core/RgText.rgr"
 
 ; =============================================================================
 ; ImportedSymbol - Represents an imported component or function
@@ -7733,63 +7735,16 @@ class ComponentEngine {
     ; converges fast; accuracy is around 1e-15 relative, which is close to but
     ; not identical with the host's, so a test comparing an exact bit pattern
     ; would still see a difference.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn expNum:double (x:double) {
-        if (x != x) { return x }
-        def inf:double (1.0 / 0.0)
-        if (x == inf) { return inf }
-        if (x == (0.0 - inf)) { return 0.0 }
-        ; e^x = 2^k * e^r, with r small. k = round(x / ln2).
-        def ln2:double 0.6931471805599453
-        def kD:double (this.floorNum(((x / ln2) + 0.5)))
-        def r:double (x - (kD * ln2))
-        def term:double 1.0
-        def sum:double 1.0
-        def n:int 1
-        while (n < 24) {
-            term = ((term * r) / (to_double n))
-            sum = (sum + term)
-            n = (n + 1)
-        }
-        def k:int (to_int kD)
-        def scale:double 1.0
-        if (k >= 0) {
-            scale = (this.powNum(2.0 k))
-        } {
-            scale = (1.0 / (this.powNum(2.0 (0 - k))))
-        }
-        return (sum * scale)
+        return (RgNum.exp(x))
     }
 
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn logNum:double (x:double) {
-        if (x != x) { return x }
-        def inf:double (1.0 / 0.0)
-        if (x < 0.0) { return (0.0 / 0.0) }
-        if (x == 0.0) { return (0.0 - inf) }
-        if (x == inf) { return inf }
-        ; Reduce to m in [1, 2) with x = m * 2^k, then use the atanh series,
-        ; which converges much faster than log(1+u) near the ends of the range.
-        def k:int 0
-        def m:double x
-        while (m >= 2.0) {
-            m = (m / 2.0)
-            k = (k + 1)
-        }
-        while (m < 1.0) {
-            m = (m * 2.0)
-            k = (k - 1)
-        }
-        def z:double ((m - 1.0) / (m + 1.0))
-        def z2:double (z * z)
-        def termL:double z
-        def sumL:double z
-        def n:int 1
-        while (n < 30) {
-            termL = (termL * z2)
-            sumL = (sumL + (termL / (to_double ((2 * n) + 1))))
-            n = (n + 1)
-        }
-        def ln2:double 0.6931471805599453
-        return ((2.0 * sumL) + ((to_double k) * ln2))
+        return (RgNum.log(x))
     }
 
     ; Floor toward NEGATIVE infinity. `to_int` truncates toward zero, so it gets
@@ -7798,13 +7753,18 @@ class ComponentEngine {
     ; D-IEEE: -0 is a distinct value and the only way to tell it from +0 is the
     ; sign of 1/x. Ranger has no negative-zero literal, so it is built by
     ; MULTIPLYING zero by -1 -- subtracting from zero gives +0.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn isNegZero:boolean (v:double) {
-        if (v != 0.0) {
-            return false
-        }
-        return ((1.0 / v) < 0.0)
+        return (RgNum.isNegZero(v))
     }
 
+    ; NOT delegated to RgNum.negZero, and this one is BROKEN ON PYTHON: the
+    ; Python writer emits `def z:double 0.0` as `z = 0`, an int literal, so the
+    ; product is integer 0 * -1 = +0 and the sign is gone. RgNum.negZero is
+    ; -1/Infinity, which no writer can fold into an int. Delegating fixes it,
+    ; and that is a behaviour change on a gated target — it wants its own commit
+    ; with the engine conformance suite watched, not a ride along a rename.
     fn negativeZero:double () {
         ; through a VARIABLE, not literals: the C++ writer prints double
         ; literals bare, so `0.0 * (0.0 - 1.0)` became integer 0 * -1 = +0
@@ -7820,39 +7780,18 @@ class ComponentEngine {
     ; built on this floor. Adding and subtracting 2^52 rounds to an integer
     ; in the double domain itself; one compare corrects round-up to floor.
     ; A magnitude at or above 2^52 is already integral.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn floorNum:double (v:double) {
-        if (v != v) {
-            return v
-        }
-        if (false == (this.isFiniteNum(v))) {
-            return v
-        }
-        ; ±0 floors to ITSELF -- the add/subtract below would turn -0 into
-        ; +0, and Math.ceil's sign dance reads floor(-0) as -0.
-        if (v == 0.0) {
-            return v
-        }
-        def big:double 4503599627370496.0
-        def av:double v
-        if (av < 0.0) {
-            av = (0.0 - av)
-        }
-        if (av >= big) {
-            return v
-        }
-        def t:double 0.0
-        if (v >= 0.0) {
-            t = ((v + big) - big)
-        } {
-            t = ((v - big) + big)
-        }
-        if (t > v) {
-            return (t - 1.0)
-        }
-        return t
+        return (RgNum.floorD(v))
     }
 
     ; Truncation toward zero, same double-domain discipline as floorNum.
+    ; NOT delegated to RgNum.trunc. This one does not handle negative zero:
+    ; truncNum(-0.5) is `0.0 - (floorNum 0.5)`, which is +0, where RgNum.trunc
+    ; answers -0 as the spec requires. Math.trunc does not come through here
+    ; (it has its own -0 branch), so switching would change the 19 INTERNAL
+    ; callers, each of which needs checking first. Tracked, not forgotten.
     fn truncNum:double (v:double) {
         if (v < 0.0) {
             return (0.0 - (this.floorNum((0.0 - v))))
@@ -7860,18 +7799,10 @@ class ComponentEngine {
         return (this.floorNum(v))
     }
 
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn isFiniteNum:boolean (v:double) {
-        if (v != v) {
-            return false
-        }
-        def inf:double (1.0 / 0.0)
-        if (v == inf) {
-            return false
-        }
-        if (v == (0.0 - inf)) {
-            return false
-        }
-        return true
+        return (RgNum.isFinite(v))
     }
 
     ; Round a double to the nearest value representable as a float32, which is
@@ -7879,6 +7810,9 @@ class ComponentEngine {
     ; by hand: normalise the magnitude into [1,2), round the 24-bit mantissa,
     ; then scale back. Infinities, zeroes and NaN pass through untouched, and a
     ; magnitude past the float32 range saturates to Infinity as the spec says.
+    ; NOT delegated to RgNum.toFloat32. The two are the same algorithm, but
+    ; this one calls the local powNum for its scaling step and RgNum's calls
+    ; powInt — see powNum above. Delegating both together or neither.
     fn toFloat32:double (v:double) {
         if (v != v) { return v }
         if (v == 0.0) { return v }
@@ -7950,6 +7884,11 @@ class ComponentEngine {
         return outv
     }
 
+    ; NOT delegated to RgNum.powInt. Same answer, different arithmetic: this
+    ; multiplies `expn` times in a row, RgNum.powInt squares. Both are exact for
+    ; a power of two, and they can differ in the last bit for anything else, so
+    ; the swap needs the engine conformance suite run against it rather than an
+    ; argument that they ought to agree.
     fn powNum:double (base:double expn:int) {
         def acc:double 1.0
         if (expn >= 0) {
@@ -37461,18 +37400,10 @@ class ComponentEngine {
         return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
     }
 
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn cuFromCodePoint:string (cp:int) {
-        if (this.unitsAreBytes()) {
-            return (this.encodeCodePointUtf8(cp))
-        }
-        if (this.unitsArePoints()) {
-            return (strfromcode cp)
-        }
-        if (cp < 65536) {
-            return (strfromcode cp)
-        }
-        def adj:int (cp - 65536)
-        return ((strfromcode (55296 + (bit_shr adj 10))) + (strfromcode (56320 + (bit_and adj 1023))))
+        return (RgText.fromCodePoint(cp))
     }
 
     ; The Final_Sigma condition of SpecialCasing: a Greek capital sigma
@@ -38655,10 +38586,10 @@ class ComponentEngine {
         }
         def aff:[string] (this.intlAffix(loc style neg currency))
         def sym:string (this.intlCurrencySymbol(loc currency))
-        this.intlPushAffix(out (itemAt aff 0) minus sym style pct)
+        out = (this.intlPushAffix(out (itemAt aff 0) minus sym style pct))
         if (false == (this.isFiniteNum(v))) {
             push out (this.intlPart("infinity" "∞"))
-            this.intlPushAffix(out (itemAt aff 1) minus sym style pct)
+            out = (this.intlPushAffix(out (itemAt aff 1) minus sym style pct))
             return out
         }
         def body:string (this.toFixedString(v maxFrac))
@@ -38711,7 +38642,7 @@ class ComponentEngine {
             push out (this.intlPart("decimal" dec))
             push out (this.intlPart("fraction" fracPart))
         }
-        this.intlPushAffix(out (itemAt aff 1) minus sym style pct)
+        out = (this.intlPushAffix(out (itemAt aff 1) minus sym style pct))
         return out
     }
 
@@ -38789,8 +38720,18 @@ class ComponentEngine {
     ; An affix is a run of literal text that may contain the minus sign, the
     ; percent sign or the currency symbol. Split it into those pieces so each
     ; is reported under its own type rather than lumped into one literal.
-    fn intlPushAffix:void (out:[EvHandle] affix:string minus:string sym:string style:string pct:string) {
-        if ((this.cuLen(affix)) == 0) { return }
+    ; Returns the LIST rather than pushing into the parameter.
+    ;
+    ; `push out x` on a parameter does not reach the caller on the Go target: a
+    ; slice is passed by value and the append rebinds the local. As a `:void`
+    ; that mutated `out`, every affix — minusSign, currency, percentSign and the
+    ; literal between them — was silently dropped on Go, so
+    ; `new Intl.NumberFormat("de-DE", {style:"currency", currency:"EUR"})`
+    ; formatted 1234.5 as "1.234,50" there and "1.234,50 EUR" everywhere else.
+    ; Eight Intl probes; found by tests/native/es_conformance_main.rgr, which is
+    ; the first thing to run the conformance corpus on a compiled target.
+    fn intlPushAffix:[EvHandle] (out:[EvHandle] affix:string minus:string sym:string style:string pct:string) {
+        if ((this.cuLen(affix)) == 0) { return out }
         def marks:[string]
         def types:[string]
         push marks minus
@@ -38846,6 +38787,7 @@ class ComponentEngine {
         if ((this.cuLen(rest)) > 0) {
             push out (this.intlPart("literal" rest))
         }
+        return out
     }
 
 
@@ -39362,42 +39304,34 @@ class ComponentEngine {
     ;
     ; Two probes separate them: a two-byte character tells bytes from the rest,
     ; and a supplementary one tells code points from units.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn strModelKind:int () {
-        if (utf8ModelKnown == false) {
-            if ((strlen "é") > 1) {
-                utf8ModelKind = 1
-            } {
-                if ((strlen "😀") == 1) {
-                    utf8ModelKind = 2
-                } {
-                    utf8ModelKind = 0
-                }
-            }
-            utf8ModelBytes = (utf8ModelKind == 1)
-            utf8ModelKnown = true
-        }
-        return utf8ModelKind
+        return (RgText.kind())
     }
 
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn unitsAreBytes:boolean () {
-        return ((this.strModelKind()) == 1)
+        return (RgText.unitsAreBytes())
     }
 
     ; True where `strlen`/`charAt`/`substring` index whole characters, so the
     ; only thing standing between the target and UTF-16 is that a
     ; supplementary character has to be spelled as two units.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn unitsArePoints:boolean () {
-        return ((this.strModelKind()) == 2)
+        return (RgText.unitsArePoints())
     }
 
     ; The UTF-8 width of a code point, which is how a code-point-model target
     ; converts its own indexes into the BYTE offsets a native string search
     ; reports back.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn utf8WidthOf:int (cp:int) {
-        if (cp < 128) { return 1 }
-        if (cp < 2048) { return 2 }
-        if (cp < 65536) { return 3 }
-        return 4
+        return (RgText.utf8WidthOf(cp))
     }
 
     ; Bytes [i, j) of a string, on a byte-model target. `substring` cannot do
@@ -39411,255 +39345,62 @@ class ComponentEngine {
         return (substring s i (i + w))
     }
 
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn byteSlice:string (s:string i:int j:int) {
-        def out:string ""
-        def k:int i
-        def n:int (strlen s)
-        while ((k < j) && (k < n)) {
-            out = (out + (strfromcode (bit_and (charAt s k) 255)))
-            k = (k + 1)
-        }
-        return out
+        return (RgText.byteSlice(s i j))
     }
 
     ; The code POINT whose encoding starts at byte `i`, and its width in bytes.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn cuDecodeAt:[int] (s:string i:int) {
-        def out:[int]
-        def n:int (strlen s)
-        if (i >= n) {
-            push out (0 - 1)
-            push out 0
-            return out
-        }
-        def b0:int (bit_and (charAt s i) 255)
-        if (b0 < 128) {
-            push out b0
-            push out 1
-            return out
-        }
-        if (b0 < 224) {
-            def c1:int 0
-            if ((i + 1) < n) { c1 = (bit_and (charAt s (i + 1)) 63) }
-            push out (((bit_and b0 31) * 64) + c1)
-            push out 2
-            return out
-        }
-        if (b0 < 240) {
-            def d1:int 0
-            def d2:int 0
-            if ((i + 1) < n) { d1 = (bit_and (charAt s (i + 1)) 63) }
-            if ((i + 2) < n) { d2 = (bit_and (charAt s (i + 2)) 63) }
-            push out ((((bit_and b0 15) * 4096) + (d1 * 64)) + d2)
-            push out 3
-            return out
-        }
-        def e1:int 0
-        def e2:int 0
-        def e3:int 0
-        if ((i + 1) < n) { e1 = (bit_and (charAt s (i + 1)) 63) }
-        if ((i + 2) < n) { e2 = (bit_and (charAt s (i + 2)) 63) }
-        if ((i + 3) < n) { e3 = (bit_and (charAt s (i + 3)) 63) }
-        push out (((((bit_and b0 7) * 262144) + (e1 * 4096)) + (e2 * 64)) + e3)
-        push out 4
-        return out
+        return (RgText.decodeAt(s i))
     }
 
     ; Code units in `s`.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn cuLen:int (s:string) {
-        def n:int (strlen s)
-        if (this.unitsArePoints()) {
-            def p:int 0
-            def cnt:int 0
-            while (p < n) {
-                if ((charAt s p) > 65535) { cnt = (cnt + 2) } { cnt = (cnt + 1) }
-                p = (p + 1)
-            }
-            return cnt
-        }
-        if (false == (this.unitsAreBytes())) {
-            return n
-        }
-        def i:int 0
-        def units:int 0
-        while (i < n) {
-            def b:int (bit_and (charAt s i) 255)
-            if (b < 128) {
-                units = (units + 1)
-                i = (i + 1)
-            } {
-                ; One past U+FFFF needs TWO code units: JS spells it as a
-                ; surrogate pair.
-                if (b < 224) {
-                    units = (units + 1)
-                    i = (i + 2)
-                } {
-                    if (b < 240) {
-                        units = (units + 1)
-                        i = (i + 3)
-                    } {
-                        units = (units + 2)
-                        i = (i + 4)
-                    }
-                }
-            }
-        }
-        return units
+        return (RgText.len(s))
     }
 
     ; The code UNIT at index `u`: the character for anything in the BMP, and
     ; the high or low surrogate for an astral one. -1 past the end.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn cuUnitAt:int (s:string u:int) {
-        def n:int (strlen s)
-        if (u < 0) { return (0 - 1) }
-        if (this.unitsArePoints()) {
-            def p:int 0
-            def units:int 0
-            while (p < n) {
-                def cp:int (charAt s p)
-                if (cp < 65536) {
-                    if (units == u) { return cp }
-                    units = (units + 1)
-                } {
-                    def adj:int (cp - 65536)
-                    if (units == u) { return (55296 + (bit_shr adj 10)) }
-                    if ((units + 1) == u) { return (56320 + (bit_and adj 1023)) }
-                    units = (units + 2)
-                }
-                p = (p + 1)
-            }
-            return (0 - 1)
-        }
-        if (false == (this.unitsAreBytes())) {
-            if (u >= n) { return (0 - 1) }
-            return (bit_and (charAt s u) 65535)
-        }
-        def i:int 0
-        def units:int 0
-        while (i < n) {
-            def dec:[int] (this.cuDecodeAt(s i))
-            def cp:int (itemAt dec 0)
-            def w:int (itemAt dec 1)
-            if (cp < 65536) {
-                if (units == u) {
-                    return cp
-                }
-                units = (units + 1)
-            } {
-                def adj:int (cp - 65536)
-                if (units == u) {
-                    return (55296 + (bit_shr adj 10))
-                }
-                if ((units + 1) == u) {
-                    return (56320 + (bit_and adj 1023))
-                }
-                units = (units + 2)
-            }
-            i = (i + w)
-        }
-        return (0 - 1)
+        return (RgText.unitAt(s u))
     }
 
     ; The substring between two code-unit indexes. A cut that lands INSIDE a
     ; surrogate pair yields the corresponding lone surrogate, which is what
     ; keeps `s.slice(0, 1)` on an astral character one unit long rather than
     ; silently the whole character.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn cuSlice:string (s:string a:int b:int) {
-        def lo:int a
-        def hi:int b
-        if (lo < 0) { lo = 0 }
-        if (hi < lo) { hi = lo }
-        def n:int (strlen s)
-        if (this.unitsArePoints()) {
-            ; A cut that lands inside a surrogate pair has no representation
-            ; here: this target's string type holds CHARACTERS, and half a
-            ; pair is not one. The half is dropped rather than faked, which
-            ; keeps the string well-formed; slicing that does not split a pair
-            ; -- everything a program normally does -- is exact.
-            def out:string ""
-            def p:int 0
-            def units:int 0
-            while (p < n) {
-                def cp:int (charAt s p)
-                def w:int 1
-                if (cp > 65535) { w = 2 }
-                if ((units >= lo) && ((units + w) <= hi)) {
-                    out = (out + (at s p))
-                }
-                units = (units + w)
-                p = (p + 1)
-            }
-            return out
-        }
-        if (false == (this.unitsAreBytes())) {
-            if (lo >= n) { return "" }
-            def hi2:int hi
-            if (hi2 > n) { hi2 = n }
-            return (substring s lo hi2)
-        }
-        def out:string ""
-        def i:int 0
-        def units:int 0
-        while (i < n) {
-            def dec:[int] (this.cuDecodeAt(s i))
-            def cp:int (itemAt dec 0)
-            def w:int (itemAt dec 1)
-            if (cp < 65536) {
-                if ((units >= lo) && (units < hi)) {
-                    out = (out + (this.byteSlice(s i (i + w))))
-                }
-                units = (units + 1)
-            } {
-                def adj:int (cp - 65536)
-                def takeHi:boolean ((units >= lo) && (units < hi))
-                def takeLo:boolean (((units + 1) >= lo) && ((units + 1) < hi))
-                if (takeHi && takeLo) {
-                    out = (out + (this.byteSlice(s i (i + w))))
-                } {
-                    if takeHi {
-                        out = (out + (this.encodeCodePointUtf8((55296 + (bit_shr adj 10)))))
-                    }
-                    if takeLo {
-                        out = (out + (this.encodeCodePointUtf8((56320 + (bit_and adj 1023)))))
-                    }
-                }
-                units = (units + 2)
-            }
-            i = (i + w)
-        }
-        return out
+        return (RgText.substr(s a b))
     }
 
     ; A code point as its UTF-8 bytes, on a byte-model target; as itself on a
     ; char-model one. Lone surrogates encode too -- they are not characters,
     ; but they are code units a JS string may hold.
+    ; Delegates to lib/core. The body moved there verbatim; this stays so the
+    ; call sites can migrate separately (PLAN_JS_STDLIB_TEXT.md §3).
     fn encodeCodePointUtf8:string (cp:int) {
-        if (false == (this.unitsAreBytes())) {
-            return (strfromcode cp)
-        }
-        if (cp < 128) {
-            return (strfromcode cp)
-        }
-        if (cp < 2048) {
-            def b1:int (bit_or 192 (bit_shr cp 6))
-            def b2:int (bit_or 128 (bit_and cp 63))
-            return ((strfromcode b1) + (strfromcode b2))
-        }
-        if (cp < 65536) {
-            def c1:int (bit_or 224 (bit_shr cp 12))
-            def c2:int (bit_or 128 (bit_and (bit_shr cp 6) 63))
-            def c3:int (bit_or 128 (bit_and cp 63))
-            return (((strfromcode c1) + (strfromcode c2)) + (strfromcode c3))
-        }
-        def d1:int (bit_or 240 (bit_shr cp 18))
-        def d2:int (bit_or 128 (bit_and (bit_shr cp 12) 63))
-        def d3:int (bit_or 128 (bit_and (bit_shr cp 6) 63))
-        def d4:int (bit_or 128 (bit_and cp 63))
-        return ((((strfromcode d1) + (strfromcode d2)) + (strfromcode d3)) + (strfromcode d4))
+        return (RgText.encodeUtf8(cp))
     }
 
     ; Byte offset of code UNIT `u` (the byte length when u is past the end).
     ; The low half of a surrogate pair maps to the same offset as the high one,
     ; which only matters to cuSlice -- it is the one that splits pairs.
+    ; NOT delegated. RgText.utf8ByteOfUnit is a DIFFERENT function despite the
+    ; resemblance: it answers a UTF-8 byte offset on every target, while this
+    ; answers "the offset this target's own string search reports", which is
+    ; code units on es6 and bytes elsewhere. The engine wants the target-relative
+    ; one, because it hands the result to native indexOf. Both are correct; only
+    ; one belongs in a portable library. See lib/core/README.md.
     fn cuByteOf:int (s:string u:int) {
         def n:int (strlen s)
         if (u <= 0) { return 0 }
@@ -39706,6 +39447,8 @@ class ComponentEngine {
 
     ; The code-unit index that corresponds to a BYTE index -- what a search
     ; that ran over the raw bytes has to report back.
+    ; NOT delegated, for the same reason as cuByteOf above: the engine needs the
+    ; target-relative inverse, RgText.unitOfUtf8Byte is the UTF-8 one.
     fn cuIndexOfByte:int (s:string byteIdx:int) {
         if (this.unitsArePoints()) {
             if (byteIdx <= 0) { return byteIdx }

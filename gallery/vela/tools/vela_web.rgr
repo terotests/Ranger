@@ -1,0 +1,120 @@
+; ==============================================================================
+; vela_web.rgr — the runtime, with no file system and no command line.
+; ==============================================================================
+; Every other tool here is a CLI: it reads a path, writes a path, and reaches
+; for `read_file` to do it. Those calls compile to `require("fs")`, which is
+; the one thing a browser cannot have. So this entry point takes the
+; specification as a STRING and answers with one, and the page around it does
+; the loading.
+;
+; It answers JSON rather than SVG, because "it did not draw" is an answer too:
+;
+;   {"ok": true,  "svg": "<svg …>", "vega": "…", "warnings": []}
+;   {"ok": false, "errors": ["transform 'loess' is not implemented (data '…')"]}
+;
+; A runtime that refuses out loud is only useful if the refusal reaches the
+; person who pasted the specification, and a blank rectangle does not.
+; ==============================================================================
+
+Import "../src/VlRuntime.rgr"
+Import "../src/VlCommand.rgr"
+Import "../src/VlSvg.rgr"
+Import "../src/VlCompile.rgr"
+
+class VelaWeb {
+
+    ; A Vega-Lite specification is compiled first; a Vega one is run as it
+    ; stands. The schema is what says which, and a spec with no schema is
+    ; guessed from its shape — Vega-Lite has `mark` or `layer` or one of the
+    ; composition operators at the top, and Vega never does.
+    sfn looksLikeVegaLite:boolean (spec:VlJson) {
+        def schema:string (spec.stringOr("$schema" ""))
+        if ((indexOf schema "vega-lite") >= 0) {
+            return true
+        }
+        if ((indexOf schema "/vega/") >= 0) {
+            return false
+        }
+        if (spec.has("mark")) { return true }
+        if (spec.has("encoding")) { return true }
+        if (spec.has("layer")) { return true }
+        if (spec.has("facet")) { return true }
+        if (spec.has("hconcat")) { return true }
+        if (spec.has("vconcat")) { return true }
+        if (spec.has("concat")) { return true }
+        if (spec.has("repeat")) { return true }
+        return false
+    }
+
+    sfn render:string (specText:string zoneName:string) {
+        def out:VlJson (VlJson.objectValue())
+        def errors:VlJson (VlJson.arrayValue())
+        def warnings:VlJson (VlJson.arrayValue())
+
+        def parser (new VlJsonParser())
+        def source:VlJson (parser.parse(specText))
+        if (! parser.ok) {
+            push errors.arr (VlJson.stringValue(("that is not valid JSON: " + parser.err)))
+            return (VelaWeb.failure(out errors))
+        }
+
+        ; Vega-Lite in: compile it, and hand the Vega back too, because seeing
+        ; what a specification became is most of what a playground is for.
+        def spec:VlJson source
+        def vegaText:string ""
+        if (VelaWeb.looksLikeVegaLite(source)) {
+            def compiler (new VlCompile())
+            def compiled:VlJson (compiler.compileSpec(source))
+            for compiler.errors ce:string cei {
+                push errors.arr (VlJson.stringValue(ce))
+            }
+            if ((array_length compiler.errors) > 0) {
+                return (VelaWeb.failure(out errors))
+            }
+            spec = compiled
+            def vw (new VlJsonWriter())
+            vegaText = (vw.writePretty(compiled))
+        }
+
+        def rt (new VlRuntime())
+        rt.timeZoneName = zoneName
+        def scene:VlSceneMark (rt.run(spec))
+        for rt.errors re:string rei {
+            push errors.arr (VlJson.stringValue(re))
+        }
+        if ((array_length rt.errors) > 0) {
+            return (VelaWeb.failure(out errors))
+        }
+        for rt.warnings rw:string rwi {
+            push warnings.arr (VlJson.stringValue(rw))
+        }
+
+        def list:VlCommandList (VlSceneCommands.build(scene))
+        def root:VlSceneItem (itemAt scene.items 0)
+        def writer (new VlSvgWriter())
+        def doc:string (writer.writeDocument(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY")) rt.background))
+        for writer.unsupported un:string uni {
+            push warnings.arr (VlJson.stringValue(("not drawn as asked: " + un)))
+        }
+
+        out.setMember("ok" (VlJson.boolValue(true)))
+        out.setMember("svg" (VlJson.stringValue(doc)))
+        out.setMember("vega" (VlJson.stringValue(vegaText)))
+        out.setMember("commands" (VlJson.numberValue((to_double (list.count())))))
+        out.setMember("warnings" warnings)
+        def w (new VlJsonWriter())
+        return (w.write(out))
+    }
+
+    sfn failure:string (out:VlJson errors:VlJson) {
+        out.setMember("ok" (VlJson.boolValue(false)))
+        out.setMember("errors" errors)
+        def w (new VlJsonWriter())
+        return (w.write(out))
+    }
+
+    ; The page calls the class directly; there is nothing for an entry point to
+    ; do, and a `main` that ran something would run it on every page load.
+    sfn main:void () {
+    }
+}

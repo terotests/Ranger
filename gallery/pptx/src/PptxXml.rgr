@@ -1,0 +1,534 @@
+; ==============================================================================
+; PptxXml - minimal XML DOM for PresentationML / DrawingML parts
+; ==============================================================================
+;
+; Deliberately tiny: element nodes, attributes, text children. Namespace
+; prefixes are stripped from element local names (`p:sp` → `sp`) but kept on
+; attributes that need them (`r:embed`). Same XXE-safe entity policy as
+; SvgParser — only the five predefined XML entities are expanded.
+; ==============================================================================
+
+class PptxXmlAttr {
+    def name:string ""
+    def value:string ""
+}
+
+class PptxXmlNode {
+    def name:string ""
+    def attrs:[PptxXmlAttr]
+    def children:[PptxXmlNode]
+    def text:string ""
+    def isText:boolean false
+
+    Constructor () {
+        def a:[PptxXmlAttr]
+        attrs = a
+        def c:[PptxXmlNode]
+        children = c
+    }
+
+    fn hasAttr:boolean (n:string) {
+        def i:int 0
+        while (i < (array_length attrs)) {
+            def a:PptxXmlAttr (itemAt attrs i)
+            if (a.name == n) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn attr:string (n:string) {
+        def i:int 0
+        while (i < (array_length attrs)) {
+            def a:PptxXmlAttr (itemAt attrs i)
+            if (a.name == n) {
+                return a.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn attrOr:string (n:string fallback:string) {
+        if (this.hasAttr(n)) {
+            return (this.attr(n))
+        }
+        return fallback
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+
+    fn childAt:PptxXmlNode (i:int) {
+        return (itemAt children i)
+    }
+
+    fn firstChild@(optional):PptxXmlNode (localName:string) {
+        def i:int 0
+        while (i < (array_length children)) {
+            def c:PptxXmlNode (itemAt children i)
+            if ((c.isText == false) && (c.name == localName)) {
+                def hit@(optional):PptxXmlNode c
+                return hit
+            }
+            i = (i + 1)
+        }
+        def __missing@(optional):PptxXmlNode
+        return __missing
+    }
+
+    fn childrenNamed:[PptxXmlNode] (localName:string) {
+        def out:[PptxXmlNode]
+        def i:int 0
+        while (i < (array_length children)) {
+            def c:PptxXmlNode (itemAt children i)
+            if ((c.isText == false) && (c.name == localName)) {
+                push out c
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Depth-first first match by local name.
+    fn find@(optional):PptxXmlNode (localName:string) {
+        if (name == localName) {
+            def selfHit@(optional):PptxXmlNode this
+            return selfHit
+        }
+        def i:int 0
+        while (i < (array_length children)) {
+            def c:PptxXmlNode (itemAt children i)
+            if (c.isText == false) {
+                def hit@(optional):PptxXmlNode (c.find(localName))
+                if (!null? hit) {
+                    return hit
+                }
+            }
+            i = (i + 1)
+        }
+        def __missing@(optional):PptxXmlNode
+        return __missing
+    }
+
+    fn textContent:string () {
+        if isText {
+            return text
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (array_length children)) {
+            def c:PptxXmlNode (itemAt children i)
+            out = (out + (c.textContent()))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class PptxXmlTag {
+    def name:string ""
+    def isEnd:boolean false
+    def selfClose:boolean false
+    def attrs:[PptxXmlAttr]
+    def valid:boolean false
+
+    Constructor () {
+        def a:[PptxXmlAttr]
+        attrs = a
+    }
+}
+
+class PptxXmlParser {
+    def src:string ""
+    def pos:int 0
+    def len:int 0
+    def maxNodes:int 100000
+    def maxDepth:int 64
+    def nodeCount:int 0
+    def aborted:boolean false
+
+    Constructor () {
+    }
+
+    fn parse@(optional):PptxXmlNode (source:string) {
+        src = source
+        pos = 0
+        len = (strlen source)
+        nodeCount = 0
+        aborted = false
+        this.skipProlog()
+        def root@(optional):PptxXmlNode (this.readElement(0))
+        return root
+    }
+
+    fn isSpace:boolean (c:int) {
+        if (c == 32) {
+            return true
+        }
+        if (c == 9) {
+            return true
+        }
+        if (c == 10) {
+            return true
+        }
+        if (c == 13) {
+            return true
+        }
+        return false
+    }
+
+    fn skipSpace:void () {
+        while (pos < len) {
+            if (this.isSpace((charAt src pos)) == false) {
+                return
+            }
+            pos = (pos + 1)
+        }
+    }
+
+    fn skipProlog:void () {
+        this.skipSpace()
+        while (pos < len) {
+            if ((charAt src pos) != 60) {
+                return
+            }
+            ; <?xml ...?> or <!DOCTYPE ...> or <!-- -->
+            if ((pos + 1) < len) {
+                def n:int (charAt src (pos + 1))
+                if (n == 63) {
+                    ; PI
+                    def end:int (indexOfFrom src "?>" pos)
+                    if (end < 0) {
+                        pos = len
+                        return
+                    }
+                    pos = (end + 2)
+                    this.skipSpace()
+                    continue
+                }
+                if (n == 33) {
+                    if (((pos + 3) < len) && ((charAt src (pos + 2)) == 45) && ((charAt src (pos + 3)) == 45)) {
+                        def cend:int (indexOfFrom src "-->" pos)
+                        if (cend < 0) {
+                            pos = len
+                            return
+                        }
+                        pos = (cend + 3)
+                        this.skipSpace()
+                        continue
+                    }
+                    ; DOCTYPE / other declaration — skip to '>'
+                    def dend:int (indexOfFrom src ">" pos)
+                    if (dend < 0) {
+                        pos = len
+                        return
+                    }
+                    pos = (dend + 1)
+                    this.skipSpace()
+                    continue
+                }
+            }
+            return
+        }
+    }
+
+    sfn localName:string (qname:string) {
+        def colon:int (indexOf qname ":")
+        if (colon < 0) {
+            return qname
+        }
+        return (substring qname (colon + 1) (strlen qname))
+    }
+
+    ; Keep r:embed / xmlns:… style names; strip nothing for attrs that have
+    ; a prefix other than xmlns (DrawingML relationships need r:embed).
+    sfn attrName:string (qname:string) {
+        return qname
+    }
+
+    fn decodeEntities:string (s:string) {
+        if ((indexOf s "&") < 0) {
+            return s
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c != 38) {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            } {
+                def semi:int (indexOfFrom s ";" i)
+                def handled:boolean false
+                if (semi > i) {
+                    def ent:string (substring s i (semi + 1))
+                    if (ent == "&amp;") {
+                        out = (out + "&")
+                        handled = true
+                    }
+                    if (ent == "&lt;") {
+                        out = (out + "<")
+                        handled = true
+                    }
+                    if (ent == "&gt;") {
+                        out = (out + ">")
+                        handled = true
+                    }
+                    if (ent == "&quot;") {
+                        out = (out + "\"")
+                        handled = true
+                    }
+                    if (ent == "&apos;") {
+                        out = (out + "'")
+                        handled = true
+                    }
+                    if handled {
+                        i = (semi + 1)
+                    } {
+                        out = (out + (strfromcode c))
+                        i = (i + 1)
+                    }
+                } {
+                    out = (out + (strfromcode c))
+                    i = (i + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    fn readTag:PptxXmlTag () {
+        def tag (new PptxXmlTag())
+        if (pos >= len) {
+            return tag
+        }
+        if ((charAt src pos) != 60) {
+            return tag
+        }
+        pos = (pos + 1)
+        if (pos >= len) {
+            return tag
+        }
+        ; End tag
+        if ((charAt src pos) == 47) {
+            tag.isEnd = true
+            pos = (pos + 1)
+            this.skipSpace()
+            def ns:int pos
+            while (pos < len) {
+                def c:int (charAt src pos)
+                if ((this.isSpace(c)) || (c == 62)) {
+                    break
+                }
+                pos = (pos + 1)
+            }
+            tag.name = (PptxXmlParser.localName((substring src ns pos)))
+            this.skipSpace()
+            if ((pos < len) && ((charAt src pos) == 62)) {
+                pos = (pos + 1)
+                tag.valid = true
+            }
+            return tag
+        }
+        ; Comment / CDATA — treat as invalid and skip
+        if ((charAt src pos) == 33) {
+            if (((pos + 2) < len) && ((charAt src (pos + 1)) == 45) && ((charAt src (pos + 2)) == 45)) {
+                def cend:int (indexOfFrom src "-->" pos)
+                if (cend < 0) {
+                    pos = len
+                } {
+                    pos = (cend + 3)
+                }
+                return tag
+            }
+            def dend:int (indexOfFrom src ">" pos)
+            if (dend < 0) {
+                pos = len
+            } {
+                pos = (dend + 1)
+            }
+            return tag
+        }
+        if ((charAt src pos) == 63) {
+            def pend:int (indexOfFrom src "?>" pos)
+            if (pend < 0) {
+                pos = len
+            } {
+                pos = (pend + 2)
+            }
+            return tag
+        }
+        def nameStart:int pos
+        while (pos < len) {
+            def c2:int (charAt src pos)
+            if ((this.isSpace(c2)) || (c2 == 62) || (c2 == 47)) {
+                break
+            }
+            pos = (pos + 1)
+        }
+        tag.name = (PptxXmlParser.localName((substring src nameStart pos)))
+        ; Attributes
+        while (pos < len) {
+            this.skipSpace()
+            if (pos >= len) {
+                break
+            }
+            def ch:int (charAt src pos)
+            if (ch == 47) {
+                tag.selfClose = true
+                pos = (pos + 1)
+                this.skipSpace()
+                if ((pos < len) && ((charAt src pos) == 62)) {
+                    pos = (pos + 1)
+                    tag.valid = true
+                }
+                return tag
+            }
+            if (ch == 62) {
+                pos = (pos + 1)
+                tag.valid = true
+                return tag
+            }
+            ; attr name
+            def an:int pos
+            while (pos < len) {
+                def c3:int (charAt src pos)
+                if ((this.isSpace(c3)) || (c3 == 61) || (c3 == 62) || (c3 == 47)) {
+                    break
+                }
+                pos = (pos + 1)
+            }
+            def attrName:string (PptxXmlParser.attrName((substring src an pos)))
+            this.skipSpace()
+            def value:string ""
+            if ((pos < len) && ((charAt src pos) == 61)) {
+                pos = (pos + 1)
+                this.skipSpace()
+                if (pos < len) {
+                    def q:int (charAt src pos)
+                    if ((q == 34) || (q == 39)) {
+                        def vs:int (pos + 1)
+                        def ve:int (indexOfFrom src (strfromcode q) vs)
+                        if (ve < 0) {
+                            pos = len
+                            return tag
+                        }
+                        value = (this.decodeEntities((substring src vs ve)))
+                        pos = (ve + 1)
+                    }
+                }
+            }
+            def a (new PptxXmlAttr())
+            a.name = attrName
+            a.value = value
+            push tag.attrs a
+        }
+        return tag
+    }
+
+    fn readElement@(optional):PptxXmlNode (depth:int) {
+        if aborted {
+            def __missing@(optional):PptxXmlNode
+            return __missing
+        }
+        if (depth > maxDepth) {
+            aborted = true
+            def __missing@(optional):PptxXmlNode
+            return __missing
+        }
+        if (nodeCount >= maxNodes) {
+            aborted = true
+            def __missing@(optional):PptxXmlNode
+            return __missing
+        }
+        this.skipSpace()
+        if (pos >= len) {
+            def __missing@(optional):PptxXmlNode
+            return __missing
+        }
+        if ((charAt src pos) != 60) {
+            def __missing@(optional):PptxXmlNode
+            return __missing
+        }
+        def tag:PptxXmlTag (this.readTag())
+        if (tag.valid == false) {
+            def __missing@(optional):PptxXmlNode
+            return __missing
+        }
+        if tag.isEnd {
+            def __missing@(optional):PptxXmlNode
+            return __missing
+        }
+        nodeCount = (nodeCount + 1)
+        def node (new PptxXmlNode())
+        node.name = tag.name
+        node.attrs = tag.attrs
+        if tag.selfClose {
+            def selfCloseHit@(optional):PptxXmlNode node
+            return selfCloseHit
+        }
+        ; Children / text until matching end tag.
+        ; Do NOT skipSpace() here — leading spaces inside <a:t> are significant
+        ; in DrawingML runs (e.g. " and "). Inter-element whitespace becomes a
+        ; text node that we drop when it is onlySpace below.
+        while ((pos < len) && (aborted == false)) {
+            if (pos >= len) {
+                break
+            }
+            if ((charAt src pos) == 60) {
+                ; Peek end tag
+                if (((pos + 1) < len) && ((charAt src (pos + 1)) == 47)) {
+                    def endTag:PptxXmlTag (this.readTag())
+                    ; End of this element
+                    def endHit@(optional):PptxXmlNode node
+                    return endHit
+                }
+                ; Nested comment etc. may leave invalid tag — skip
+                def save:int pos
+                def child@(optional):PptxXmlNode (this.readElement((depth + 1)))
+                if (!null? child) {
+                    push node.children (unwrap child)
+                } {
+                    if (pos == save) {
+                        ; Avoid infinite loop
+                        pos = (pos + 1)
+                    }
+                }
+            } {
+                ; Text node
+                def ts:int pos
+                while (pos < len) {
+                    if ((charAt src pos) == 60) {
+                        break
+                    }
+                    pos = (pos + 1)
+                }
+                def raw:string (substring src ts pos)
+                def decoded:string (this.decodeEntities(raw))
+                ; Keep non-whitespace text
+                def onlySpace:boolean true
+                def ti:int 0
+                while (ti < (strlen decoded)) {
+                    if (this.isSpace((charAt decoded ti)) == false) {
+                        onlySpace = false
+                        break
+                    }
+                    ti = (ti + 1)
+                }
+                if (onlySpace == false) {
+                    def tnode (new PptxXmlNode())
+                    tnode.isText = true
+                    tnode.text = decoded
+                    push node.children tnode
+                }
+            }
+        }
+        def fallthrough@(optional):PptxXmlNode node
+        return fallthrough
+    }
+}

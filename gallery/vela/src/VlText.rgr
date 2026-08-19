@@ -20,10 +20,58 @@
 class VlText {
     ; The reference's canvas-free estimate, truncated toward zero exactly as its
     ; `~~` does.
+    ; A label written on several lines. The reference keeps them as a list;
+    ; the value model joins them with a line break, and this takes them apart
+    ; again wherever a renderer or a measurement needs them one at a time.
+    sfn lines:[string] (text:string) {
+        def out:[string]
+        def rest:string text
+        def at:int (indexOf rest "\n")
+        while (at >= 0) {
+            push out (substring rest 0 at)
+            rest = (substring rest (at + 1) (strlen rest))
+            at = (indexOf rest "\n")
+        }
+        push out rest
+        return out
+    }
+
+    ; How far apart the reference sets two lines of one label: two pixels more
+    ; than the type is tall, unless the item says otherwise.
+    sfn lineStep:double (fontSize:double) {
+        return (fontSize + 2.0)
+    }
+
     sfn estimateWidth:double (text:string fontSize:double) {
-        def chars:int (strlen text)
+        def chars:int (VlText.characterCount(text))
         def w:double ((0.8 * (to_double chars)) * fontSize)
         return (to_double (floor w))
+    }
+
+    ; How many CHARACTERS a string has, which is not how many bytes it has and
+    ; not what `strlen` answers on every target. A JavaScript string counts
+    ; code units, a C++ one counts bytes, and an axis label of negative numbers
+    ; is written with the typographic minus (U+2212) — three bytes and one
+    ; character. Measured in bytes, "−20" is five characters wide, every axis
+    ; with a negative value on it reserves too much room, and the chart is
+    ; sixteen pixels wider in C++ than in JavaScript.
+    ;
+    ; UTF-8 marks its continuation bytes 10xxxxxx and nothing else does, so the
+    ; characters are the bytes that are not continuations. A target whose
+    ; strings are not bytes has no continuation bytes to find and counts them
+    ; all, which is the same answer.
+    sfn characterCount:int (text:string) {
+        def n:int (strlen text)
+        def count:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            if ((c < 128) || (c > 191)) {
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        return count
     }
 
     ; How wide the string will actually be DRAWN, which is a different question
@@ -81,6 +129,37 @@ class VlText {
     }
 
     ; The widest of a list of labels, which is the number an axis extent needs.
+    ; A label cut to fit, with an ellipsis where the rest was. The reference
+    ; does this to every guide label — a legend's limit is 160 pixels — and a
+    ; label that is not cut makes the legend wider, which makes the plot
+    ; narrower, which moves everything in it. "Leisure and hospitality" is
+    ; drawn as "Leisure and hospit…" and the chart is 72 pixels narrower for it.
+    sfn truncate:string (text:string fontSize:double limit:double) {
+        if (limit <= 0.0) {
+            return text
+        }
+        ; STRICTLY under, and measured the way the layout measures — the
+        ; reference keeps a label only while it is narrower than the limit, so
+        ; one that lands exactly on it is cut.
+        if ((VlText.estimateWidth(text fontSize)) < limit) {
+            return text
+        }
+        def ellipsis:string (strfromcode 8230)
+        def room:double (limit - (VlText.estimateWidth(ellipsis fontSize)))
+        def n:int (strlen text)
+        def kept:int 0
+        def at:int 1
+        while (at <= n) {
+            if ((VlText.estimateWidth((substring text 0 at) fontSize)) < room) {
+                kept = at
+                at = (at + 1)
+            } {
+                at = (n + 1)
+            }
+        }
+        return ((substring text 0 kept) + ellipsis)
+    }
+
     sfn widestLabel:double (labels:[string] fontSize:double) {
         def widest:double 0.0
         for labels label:string idx {

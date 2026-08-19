@@ -1,0 +1,145 @@
+{
+  "description": "The transforms a specification writes for itself when they are bin, aggregate and joinaggregate — all three already in the runtime, none of them reachable from a Vega-Lite source before.",
+  "width": 180,
+  "height": 120,
+  "data": {
+    "values": [
+      {
+        "age": 0,
+        "sex": 1,
+        "people": 5025
+      },
+      {
+        "age": 0,
+        "sex": 2,
+        "people": 2482
+      },
+      {
+        "age": 10,
+        "sex": 1,
+        "people": 4284
+      },
+      {
+        "age": 10,
+        "sex": 2,
+        "people": 7803
+      },
+      {
+        "age": 20,
+        "sex": 1,
+        "people": 3778
+      },
+      {
+        "age": 20,
+        "sex": 2,
+        "people": 4814
+      },
+      {
+        "age": 30,
+        "sex": 1,
+        "people": 5392
+      },
+      {
+        "age": 30,
+        "sex": 2,
+        "people": 5038
+      },
+      {
+        "age": 40,
+        "sex": 1,
+        "people": 8309
+      },
+      {
+        "age": 40,
+        "sex": 2,
+        "people": 9300
+      },
+      {
+        "age": 50,
+        "sex": 1,
+        "people": 7043
+      },
+      {
+        "age": 50,
+        "sex": 2,
+        "people": 5815
+      },
+      {
+        "age": 60,
+        "sex": 1,
+        "people": 6560
+      },
+      {
+        "age": 60,
+        "sex": 2,
+        "people": 6988
+      },
+      {
+        "age": 70,
+        "sex": 1,
+        "people": 7991
+      },
+      {
+        "age": 70,
+        "sex": 2,
+        "people": 9213
+      },
+      {
+        "age": 80,
+        "sex": 1,
+        "people": 5233
+      },
+      {
+        "age": 80,
+        "sex": 2,
+        "people": 4810
+      }
+    ]
+  },
+  "transform": [
+    {
+      "bin": true,
+      "field": "people",
+      "as": [
+        "lo",
+        "hi"
+      ]
+    },
+    {
+      "aggregate": [
+        {
+          "op": "count",
+          "as": "n"
+        }
+      ],
+      "groupby": [
+        "lo",
+        "hi"
+      ]
+    },
+    {
+      "joinaggregate": [
+        {
+          "field": "n",
+          "op": "max",
+          "as": "most"
+        }
+      ]
+    },
+    {
+      "calculate": "datum.n / datum.most",
+      "as": "share"
+    }
+  ],
+  "mark": "line",
+  "encoding": {
+    "x": {
+      "field": "n",
+      "type": "quantitative"
+    },
+    "y": {
+      "field": "share",
+      "type": "quantitative"
+    }
+  }
+}

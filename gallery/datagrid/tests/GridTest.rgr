@@ -1,0 +1,222 @@
+; ==============================================================================
+; GridTest - validation suite for the EVG DataGrid / spreadsheet prototype.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class GridTest {
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== col labels =="
+        c.eqStr("A" (SpreadsheetModel.colLabel(0)) "A")
+        c.eqStr("Z" (SpreadsheetModel.colLabel(25)) "Z")
+        c.eqStr("AA" (SpreadsheetModel.colLabel(26)) "AA")
+        c.eqStr("B2" (SpreadsheetModel.cellLabel(1 1)) "B2")
+
+        print "== sparse model + geometry =="
+        def model:SpreadsheetModel (new SpreadsheetModel)
+        model.resize(100 10)
+        c.eqInt("rows" model.rowCount 100)
+        c.eqStr("empty cell" (model.getCell(5 3)) "")
+        model.setCell(5 3 "hello")
+        c.eqStr("set cell" (model.getCell(5 3)) "hello")
+        model.setRowHeight(10 50)
+        model.setColWidth(2 180)
+        c.eqInt("rowH" (model.rowHeight(10)) 50)
+        c.eqInt("colW" (model.colWidth(2)) 180)
+        c.eqInt("rowToY 0" (model.rowToY(0)) 0)
+        c.eqInt("rowToY 1" (model.rowToY(1)) model.defaultRowH)
+        def y10:int (model.rowToY(10))
+        def y11:int (model.rowToY(11))
+        c.eqInt("custom row span" (y11 - y10) 50)
+        c.eqInt("yToRow mid custom" (model.yToRow((y10 + 10))) 10)
+
+        print "== undo / redo =="
+        model.setCell(0 0 "A")
+        model.setCell(0 0 "B")
+        def u:CellPos (model.undo())
+        c.eqStr("undo" (model.getCell(0 0)) "A")
+        c.eqInt("undo row" u.row 0)
+        def r:CellPos (model.redo())
+        c.eqStr("redo" (model.getCell(0 0)) "B")
+        c.eqInt("redo col" r.col 0)
+
+        print "== DataGrid virtualization =="
+        def grid:DataGrid (new DataGrid)
+        grid.setBounds(0 0 640 400)
+        model.resize(5000 26)
+        grid.scrollY = 15240
+        grid.scrollX = 820
+        grid.updateVisible(model)
+        c.ok("firstVisibleRow > 0" (grid.firstVisibleRow > 0))
+        c.ok("last >= first" (grid.lastVisibleRow >= grid.firstVisibleRow))
+        c.ok("visible row span modest" (((grid.lastVisibleRow - grid.firstVisibleRow) + 1) < 80))
+        c.ok("firstVisibleCol > 0" (grid.firstVisibleCol > 0))
+        c.ok("visible col span modest" (((grid.lastVisibleCol - grid.firstVisibleCol) + 1) < 40))
+
+        print "== hitTest =="
+        model.seedDemo()
+        grid.setBounds(0 0 900 538)
+        grid.scrollX = 0
+        grid.scrollY = 0
+        grid.updateVisible(model)
+        def bodyX:int (grid.gridOriginX())
+        def bodyY:int (grid.gridOriginY())
+        def hit:CellPos (grid.hitTest(model (bodyX + 10) (bodyY + 5)))
+        c.eqInt("hit A1 row" hit.row 0)
+        c.eqInt("hit A1 col" hit.col 0)
+        def hitBColW:int (model.colWidth(0))
+        def hitB:CellPos (grid.hitTest(model (bodyX + hitBColW + 10) (bodyY + 5)))
+        c.eqInt("hit B1 col" hitB.col 1)
+
+        print "== app typing via UIInput =="
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def input:UIInput (new UIInput)
+        ; click A1 area
+        def ox:int (app.grid.gridOriginX())
+        def oy:int (app.grid.gridOriginY())
+        input.newFrame()
+        input.setPointerPos((ox + 8) (oy + 8))
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos((ox + 8) (oy + 8))
+        input.setPointerDown(false)
+        app.update(input)
+        ; replace cell by typing
+        input.newFrame()
+        input.pushText("Hi")
+        app.update(input)
+        c.ok("editing after type" app.editing)
+        c.eqStr("editBuf" app.editBuf "Hi")
+        input.newFrame()
+        input.pushKey((UIKey.enter()))
+        app.update(input)
+        c.ok("committed" (app.editing == false))
+        c.eqStr("cell A1" (app.model.getCell(0 0)) "Hi")
+        c.eqInt("moved to A2" app.sel.active.row 1)
+
+        print "== keyboard navigation + selection =="
+        input.newFrame()
+        input.pushKey((UIKey.right()))
+        app.update(input)
+        c.eqInt("B2 col" app.sel.active.col 1)
+        input.newFrame()
+        input.setModifiers(true false)
+        input.pushKey((UIKey.down()))
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+        app.update(input)
+        c.ok("range selection" (app.sel.isSingle() == false))
+
+        print "== column resize =="
+        def beforeW:int (app.model.colWidth(0))
+        def originX:int (app.grid.gridOriginX())
+        def col0x:int (app.model.colToX(0))
+        def edgeX:int (((originX + col0x + beforeW) - 1))
+        def headerY:int (app.grid.y + app.grid.formulaBarH + 8)
+        input.newFrame()
+        input.setPointerPos(edgeX headerY)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos((edgeX + 40) headerY)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos((edgeX + 40) headerY)
+        input.setPointerDown(false)
+        app.update(input)
+        c.ok("col widened" ((app.model.colWidth(0)) > beforeW))
+
+        print "== copy / paste (FortuneSheet clipboard) =="
+        app.sel.anchor.row = 1
+        app.sel.anchor.col = 0
+        app.sel.active.row = 1
+        app.sel.active.col = 1
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText("c")
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+        app.update(input)
+        c.ok("clipboard non-empty" ((strlen app.clipboardTsv) > 0))
+        app.sel.anchor.row = 8
+        app.sel.anchor.col = 0
+        app.sel.active.row = 8
+        app.sel.active.col = 0
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText("v")
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+        app.update(input)
+        c.eqStr("pasted A9" (app.model.getCell(8 0)) (app.model.getCell(1 0)))
+        c.eqStr("pasted B9" (app.model.getCell(8 1)) (app.model.getCell(1 1)))
+
+        print "== fill handle (FortuneSheet fill) =="
+        app.model.setCell(10 0 "X")
+        app.sel.anchor.row = 10
+        app.sel.anchor.col = 0
+        app.sel.active.row = 10
+        app.sel.active.col = 0
+        app.fillR0 = 10
+        app.fillC0 = 0
+        app.fillR1 = 10
+        app.fillC1 = 0
+        app.sel.active.row = 12
+        app.sel.anchor.row = 10
+        app.fillFromSource()
+        c.eqStr("fill A12" (app.model.getCell(12 0)) "X")
+        c.eqStr("fill A11" (app.model.getCell(11 0)) "X")
+
+        print "== freeze geometry =="
+        app.model.setFreeze(1 1)
+        app.grid.updateVisible(app.model)
+        c.eqInt("frozen H" (app.model.frozenHeight()) (app.model.rowHeight(0)))
+        c.eqInt("firstScrollRow" app.grid.firstScrollRow 1)
+        c.eqInt("firstScrollCol" app.grid.firstScrollCol 1)
+
+        print "== render paints pixels =="
+        app.render()
+        def raw:buffer (app.raw())
+        c.ok("framebuffer non-empty" ((buffer_length raw) > 1000))
+        def scene:string (app.sceneJson())
+        c.ok("sceneJson has cmds" ((strlen scene) > 50))
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

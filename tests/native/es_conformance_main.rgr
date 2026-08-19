@@ -1,0 +1,209 @@
+; =============================================================================
+; es_conformance_main — the ES probe corpus, run by a COMPILED engine
+; =============================================================================
+; tests/runtime-conformance.test.ts runs 2138 probes against the engine as a
+; Node module and compares every answer against Node's own. That proves the
+; SEMANTICS. It says nothing about whether those semantics survive compilation
+; to Go, C++, Rust or Python — the only cross-target gate the engine has today
+; is bench_main's seven benchmark answers.
+;
+; This is the same corpus, driven from a native entry point:
+;
+;   es_conformance <chunk|all>
+;
+; It prints one `probe-name=tag:payload` line per probe. The harness
+; (tests/es-conformance-targets.test.ts) runs it on every target and compares
+; the output BYTE FOR BYTE against the es6 run, and against the values Node
+; produces for the same probe bodies.
+;
+; A disagreement between two targets here is a real conformance difference in
+; the compiled engine, which is exactly the class of bug nothing currently
+; looks for.
+;
+; PAYLOADS ARE TARGET-INDEPENDENT ON PURPOSE
+;
+;   num:   a double, decomposed the way tests/native/core_vectors.rgr does it —
+;          each target's own number formatter disagrees about trailing ".0",
+;          exponent spelling and digit count, so nothing is printed with
+;          to_string that a comparison depends on.
+;   str:   printable ASCII verbatim; anything else as `strhex:<utf8 hex>`, since
+;          a raw non-ASCII string would go out through the target's stdout
+;          encoding and those differ.
+;
+; Chunked because loading 2138 functions into one engine takes memory: `all`
+; does the lot, a chunk index does 200 at a time, and the harness compares
+; chunk by chunk so a failure names a range instead of the whole run.
+; =============================================================================
+
+Import "../../gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr"
+Import "es_probes.rgr"
+Import "../../lib/core/RgNum.rgr"
+Import "../../lib/core/RgText.rgr"
+Import "../../lib/core/RgBase.rgr"
+
+class EsConformance {
+
+    ; A probe's name is its function name with the dashes turned into
+    ; underscores — the same rule runtime-conformance.test.ts uses, so the two
+    ; harnesses load identical source.
+    sfn fnNameOf:string (probeName:string) {
+        def out:string ""
+        def n:int (RgText.len(probeName))
+        def i:int 0
+        while (i < n) {
+            def u:int (RgText.unitAt(probeName i))
+            if (u == 45) {
+                out = (out + "_")
+            } {
+                out = (out + (RgText.substr(probeName i (i + 1))))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A double, in the decomposition core_vectors uses. See the header.
+    sfn showNum:string (v:double) {
+        if (v != v) {
+            return "NaN"
+        }
+        def inf:double (RgNum.inf())
+        if (v == inf) {
+            return "+Inf"
+        }
+        if (v == (0.0 - inf)) {
+            return "-Inf"
+        }
+        if (v == 0.0) {
+            if (RgNum.isNegZero(v)) {
+                return "-0"
+            }
+            return "+0"
+        }
+        def neg:boolean (v < 0.0)
+        def m:double (RgNum.abs(v))
+        def e:int 0
+        while (m >= 2.0) {
+            m = (m / 2.0)
+            e = (e + 1)
+        }
+        while (m < 1.0) {
+            m = (m * 2.0)
+            e = (e - 1)
+        }
+        def scaled:double ((m - 1.0) * 67108864.0)
+        def hiD:double (RgNum.floorD(scaled))
+        def loD:double (RgNum.floorD(((scaled - hiD) * 67108864.0)))
+        def sign:string "+"
+        if neg {
+            sign = "-"
+        }
+        return ((((((sign + "1.") + (to_string (to_int hiD))) + ":") + (to_string (to_int loD))) + "p") + (to_string e))
+    }
+
+    ; Printable ASCII survives any target's stdout; anything else goes out as
+    ; the hex of its UTF-8, so the comparison cannot turn into an encoding test.
+    sfn showStr:string (s:string) {
+        def n:int (RgText.len(s))
+        def plain:boolean true
+        def i:int 0
+        while (i < n) {
+            def u:int (RgText.unitAt(s i))
+            if ((u < 32) || (u > 126)) {
+                plain = false
+            }
+            i = (i + 1)
+        }
+        if plain {
+            return ("str:" + s)
+        }
+        return ("strhex:" + (RgBase.hexEncode((RgText.toUtf8Bytes(s)))))
+    }
+
+    ; The same classification runtime-conformance.test.ts applies to an engine
+    ; result, so the two harnesses can be compared line for line.
+    sfn classify:string (r:EvHandle) {
+        if (r.isNumber()) {
+            return ("num:" + (EsConformance.showNum((r.numberOf()))))
+        }
+        if (r.isString()) {
+            return (EsConformance.showStr((r.stringOf())))
+        }
+        if (r.isBoolean()) {
+            if (r.boolOf()) {
+                return "bool:true"
+            }
+            return "bool:false"
+        }
+        if (r.isUndefined()) {
+            return "undef"
+        }
+        if (r.isNull()) {
+            return "null"
+        }
+        return ("kind:" + (r.kindName()))
+    }
+
+    ; Load one chunk into a fresh engine and answer a line per probe.
+    sfn runChunk:[string] (chunk:int) {
+        def out:[string]
+        def names:[string] (EsProbes.namesOf(chunk))
+        def bodies:[string] (EsProbes.bodiesOf(chunk))
+        def n:int (array_length names)
+        if (n == 0) {
+            return out
+        }
+        ; One script with every probe as a function, exactly as the Node suite
+        ; builds it — a probe that fails to PARSE then takes down only its own
+        ; call, not the chunk.
+        def src:string ""
+        def i:int 0
+        while (i < n) {
+            ; The body arrives as the hex of its UTF-8 — see es_probes.rgr for
+            ; why it cannot be a string literal. Decoding it here is also the
+            ; first real use of lib/core inside a test harness.
+            def dec:RgBytesResult (RgBase.hexDecode((itemAt bodies i)))
+            def body:string (RgText.fromUtf8Bytes(dec.value))
+            def fname:string (EsConformance.fnNameOf((itemAt names i)))
+            src = (src + (((("function " + fname) + "() { ") + body) + " }\n"))
+            i = (i + 1)
+        }
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        engine.loadScript(src)
+        def j:int 0
+        while (j < n) {
+            def probeName:string (itemAt names j)
+            def fname2:string (EsConformance.fnNameOf(probeName))
+            def r:EvHandle (engine.callFunction(fname2 (EvHandle.null())))
+            def line:string ((probeName + "=") + (EsConformance.classify(r)))
+            push out line
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn main@(main):void () {
+        def which:string "all"
+        if ((shell_arg_cnt) > 0) {
+            which = (shell_arg 0)
+        }
+        def total:int (EsProbes.chunkCount())
+        def c:int 0
+        while (c < total) {
+            def wanted:boolean (which == "all")
+            if (which == (to_string c)) {
+                wanted = true
+            }
+            if wanted {
+                def lines:[string] (EsConformance.runChunk(c))
+                def k:int 0
+                while (k < (array_length lines)) {
+                    print (itemAt lines k)
+                    k = (k + 1)
+                }
+            }
+            c = (c + 1)
+        }
+    }
+}
