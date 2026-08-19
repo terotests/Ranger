@@ -94,7 +94,9 @@ class DataGridSdl {
 
     fn draw:void () {
         app.render()
-        dgfx_present (app.raw()) pw ph
+        if hasWindow {
+            dgfx_present (app.raw()) pw ph
+        }
     }
 
     fn run:void (maxFrames:int) {

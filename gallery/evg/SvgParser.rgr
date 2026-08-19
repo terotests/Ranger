@@ -411,8 +411,8 @@ class SvgParser {
     fn warn:void (key:string msg:string) {
         def seen@(optional):boolean (get warnedKeys key)
         ; Optional booleans are plain `bool` on C++; a bare `if seen` becomes
-        ; `seen != NULL` and warns. Treat true as already-warned.
-        if (seen == true) {
+        ; `seen != NULL` and warns. `!null?` emits the bool itself.
+        if (!null? seen) {
             return
         }
         set warnedKeys key true
