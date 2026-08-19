@@ -157,6 +157,110 @@ class DocxViewer {
         this.renderPage(currentPage)
     }
 
+    ; --- caret movement -------------------------------------------------------
+    ; Layout lives in the view, so every movement re-lays out first (cheap:
+    ; renderPage already does it) and then follows the caret onto its page, so
+    ; Up / Down / PageUp / PageDown walk across page boundaries.
+    fn pageOfCaret:int () {
+        def cur:[int]
+        edit.caretLine(view.layout cur)
+        def cp:int (itemAt cur 0)
+        if (cp < 0) {
+            return currentPage
+        }
+        return cp
+    }
+
+    fn followCaret:void () {
+        def target:int (this.pageOfCaret())
+        if (target != currentPage) {
+            currentPage = target
+        }
+        this.renderPage(currentPage)
+    }
+
+    fn keyLeft:void (extend:boolean) {
+        edit.moveLeft(extend)
+        this.followCaret()
+    }
+
+    fn keyRight:void (extend:boolean) {
+        edit.moveRight(extend)
+        this.followCaret()
+    }
+
+    fn keyUp:void (extend:boolean) {
+        edit.moveUp(view.layout extend)
+        this.followCaret()
+    }
+
+    fn keyDown:void (extend:boolean) {
+        edit.moveDown(view.layout extend)
+        this.followCaret()
+    }
+
+    fn keyPageUp:void (extend:boolean) {
+        edit.pageUp(view.layout extend)
+        this.followCaret()
+    }
+
+    fn keyPageDown:void (extend:boolean) {
+        edit.pageDown(view.layout extend)
+        this.followCaret()
+    }
+
+    fn keyHome:void (extend:boolean ctrl:boolean) {
+        if ctrl {
+            edit.moveDocEdge(false extend)
+        } {
+            edit.moveLineEdge(view.layout false extend)
+        }
+        this.followCaret()
+    }
+
+    fn keyEnd:void (extend:boolean ctrl:boolean) {
+        if ctrl {
+            edit.moveDocEdge(true extend)
+        } {
+            edit.moveLineEdge(view.layout true extend)
+        }
+        this.followCaret()
+    }
+
+    fn keySelectAll:void () {
+        edit.selectAll()
+        this.renderPage(currentPage)
+    }
+
+    ; --- clipboard out --------------------------------------------------------
+    fn copySelection:string () {
+        return (edit.selectedText())
+    }
+
+    fn cutSelection:string () {
+        def text:string (edit.selectedText())
+        if ((strlen text) > 0) {
+            edit.deleteSelection()
+            this.followCaret()
+        }
+        return text
+    }
+
+    fn setPage:int (page:int) {
+        def n:int (view.layout.pageCount())
+        if (page < 0) {
+            page = 0
+        }
+        if (n > 0) {
+            if (page >= n) {
+                page = (n - 1)
+            }
+        }
+        currentPage = page
+        this.renderPage(currentPage)
+        return currentPage
+    }
+
     fn keyUndo:void () {
         edit.undo()
         this.renderPage(currentPage)

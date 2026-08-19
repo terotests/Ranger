@@ -298,6 +298,55 @@ class RichDocumentEdit {
         return np.id
     }
 
+    ; --- body order -----------------------------------------------------------
+    ; Selection spanning paragraphs needs to know which one comes first. Only
+    ; top-level paragraph blocks count: table cells and headers are not part of
+    ; the linear caret flow.
+    fn bodyOrderOf:int (paragraphId:int) {
+        def order:int 0
+        def bi:int 0
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 0) {
+                if (b.paragraph.id == paragraphId) {
+                    return order
+                }
+                order = (order + 1)
+            }
+            bi = (bi + 1)
+        }
+        return -1
+    }
+
+    fn bodyParagraphCount:int () {
+        def count:int 0
+        def bi:int 0
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 0) {
+                count = (count + 1)
+            }
+            bi = (bi + 1)
+        }
+        return count
+    }
+
+    fn bodyParagraphIdAt:int (order:int) {
+        def seen:int 0
+        def bi:int 0
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == 0) {
+                if (seen == order) {
+                    return b.paragraph.id
+                }
+                seen = (seen + 1)
+            }
+            bi = (bi + 1)
+        }
+        return 0
+    }
+
     ; Block index of the top-level block holding this paragraph, or -1.
     fn blockIndexOfParagraph:int (paragraphId:int) {
         def bi:int 0

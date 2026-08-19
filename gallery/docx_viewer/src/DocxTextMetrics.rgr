@@ -1,0 +1,176 @@
+; ==============================================================================
+; DocxTextMetrics - ONE measurement authority for paragraph text.
+; ==============================================================================
+;
+; The painter draws a visual line run by run, switching the font face per
+; TextSpan (regular vs bold). Anything that asks "how far along the line is
+; offset N?" — caret X, click hit-test, selection rectangles — has to measure
+; the SAME way, or a click inside a bold run lands on the wrong character and
+; the selection box stops short of the glyphs it is meant to cover.
+;
+; Every one of those callers goes through here, so paint and measure cannot
+; drift apart. Face selection mirrors DocxView.setPaintFace exactly.
+;
+; Note: like the painter, a run is measured at the visual line's size. Per-span
+; font SIZE is not honoured yet — layout wraps the paragraph at one size, so
+; measuring at another would put the caret outside the painted text.
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+class DocxTextMetrics {
+    ; Select the face for the next draw or measure.
+    ;
+    ; It must go through `fontFamily`, NOT tr.rt.setFont: UITextRenderer calls
+    ; applyFace() at the top of measureWidth / wrap / getCachedLine, which resets
+    ; the rasterizer from `fontFamily`. Poking rt directly is undone by the very
+    ; next call — which is why bold runs used to be measured, and drawn, in the
+    ; regular face. The raster cache key already includes fontFamily, so no cache
+    ; flush is needed here.
+    sfn applyFace:void (tr:UITextRenderer bold:boolean) {
+        def want:string "Open Sans"
+        if bold {
+            want = "Open Sans-Bold"
+        }
+        if (tr.fontFamily == want) {
+            return
+        }
+        def face:TrueTypeFont (tr.fm.getFont(want))
+        if (face.unitsPerEm > 0) {
+            tr.fontFamily = want
+            tr.applyFace()
+        }
+    }
+
+    sfn safeSize:double (px:double) {
+        if (px < 8.0) {
+            return 8.0
+        }
+        return px
+    }
+
+    ; Is the character at `off` painted bold? Spans are half-open [start,end).
+    sfn boldAt:boolean (p:Paragraph off:int) {
+        def i:int 0
+        def n:int (array_length p.spans)
+        while (i < n) {
+            def sp:TextSpan (itemAt p.spans i)
+            if ((off >= sp.start) && (off < sp.end)) {
+                return sp.bold
+            }
+            i = (i + 1)
+        }
+        if (n > 0) {
+            def last:TextSpan (itemAt p.spans (n - 1))
+            if (off >= last.end) {
+                return last.bold
+            }
+            def first:TextSpan (itemAt p.spans 0)
+            return first.bold
+        }
+        return false
+    }
+
+    ; Width of p.text[from,to) as painted: contiguous same-face runs, each
+    ; measured with that face active.
+    sfn measureRange:int (tr:UITextRenderer p:Paragraph linePx:double from:int to:int) {
+        def size:double (DocxTextMetrics.safeSize(linePx))
+        def len:int (strlen p.text)
+        def a:int from
+        def b:int to
+        if (a < 0) {
+            a = 0
+        }
+        if (b > len) {
+            b = len
+        }
+        if (a >= b) {
+            return 0
+        }
+        def total:int 0
+        def runStart:int a
+        def runBold:boolean (DocxTextMetrics.boldAt(p a))
+        def i:int (a + 1)
+        while (i <= b) {
+            def atEnd:boolean (i == b)
+            def bold:boolean runBold
+            if (atEnd == false) {
+                bold = (DocxTextMetrics.boldAt(p i))
+            }
+            if (atEnd || (bold != runBold)) {
+                DocxTextMetrics.applyFace(tr runBold)
+                total = (total + (to_int (tr.measureWidth((substring p.text runStart i) size))))
+                runStart = i
+                runBold = bold
+            }
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; Inverse of measureRange: the offset in [from,to] whose painted position is
+    ; nearest targetX (measured from the start of `from`). Splits on glyph
+    ; midpoints so a click lands on the closer side of a character.
+    sfn offsetAtX:int (tr:UITextRenderer p:Paragraph linePx:double from:int to:int targetX:int) {
+        def len:int (strlen p.text)
+        def a:int from
+        def b:int to
+        if (a < 0) {
+            a = 0
+        }
+        if (b > len) {
+            b = len
+        }
+        if (a >= b) {
+            return a
+        }
+        if (targetX <= 0) {
+            return a
+        }
+        def size:double (DocxTextMetrics.safeSize(linePx))
+        def acc:int 0
+        def runStart:int a
+        def runBold:boolean (DocxTextMetrics.boldAt(p a))
+        def i:int (a + 1)
+        while (i <= b) {
+            def atEnd:boolean (i == b)
+            def bold:boolean runBold
+            if (atEnd == false) {
+                bold = (DocxTextMetrics.boldAt(p i))
+            }
+            if (atEnd || (bold != runBold)) {
+                DocxTextMetrics.applyFace(tr runBold)
+                def runW:int (to_int (tr.measureWidth((substring p.text runStart i) size)))
+                if (targetX < (acc + runW)) {
+                    ; Inside this run — walk it with the run's own face.
+                    def k:int runStart
+                    while (k < i) {
+                        def w0:int (to_int (tr.measureWidth((substring p.text runStart k) size)))
+                        def w1:int (to_int (tr.measureWidth((substring p.text runStart (k + 1)) size)))
+                        def mid:int (idiv ((acc + w0) + (acc + w1)) 2)
+                        if (targetX < mid) {
+                            return k
+                        }
+                        k = (k + 1)
+                    }
+                    return i
+                }
+                acc = (acc + runW)
+                runStart = i
+                runBold = bold
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+
+    ; List markers / chrome are painted with the line's own face, not a span.
+    sfn measurePlain:int (tr:UITextRenderer text:string linePx:double bold:boolean) {
+        if ((strlen text) == 0) {
+            return 0
+        }
+        DocxTextMetrics.applyFace(tr bold)
+        return (to_int (tr.measureWidth(text (DocxTextMetrics.safeSize(linePx)))))
+    }
+}

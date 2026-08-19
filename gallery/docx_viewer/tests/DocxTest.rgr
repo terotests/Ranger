@@ -10,6 +10,7 @@ Import "../src/WordStyleResolver.rgr"
 Import "../src/RichDocument.rgr"
 Import "../src/DocxLayout.rgr"
 Import "../src/ClipboardTable.rgr"
+Import "../src/DocxTextMetrics.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 
 class Checker {
@@ -36,6 +37,25 @@ class Checker {
 }
 
 class DocxTest {
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen hay)
+        def m:int (strlen needle)
+        if (m == 0) {
+            return true
+        }
+        if (m > n) {
+            return false
+        }
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring hay i (i + m)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn main:void () {
         def c:Checker (new Checker)
         def fix:string "gallery/docx_viewer/fixtures"
@@ -391,6 +411,216 @@ class DocxTest {
         c.ok("range is bold" (viewer.edit.adapter.rangeIsBold(hp2.id 0 5)))
         viewer.renderPage(0)
         c.ok("bold render" ((buffer_length (viewer.view.raw())) > 1000))
+        viewer.setEditMode(false)
+
+        print "== measurement follows the painted face (mixed runs) =="
+        c.ok("open styles for metrics" (viewer.openFile(fix "styles_demo.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def mdoc:RichDocument (viewer.document())
+        ; Build a paragraph whose second half is bold: measuring it in one face
+        ; is wrong, which is what used to misplace the caret in bold runs.
+        def mp:Paragraph (mdoc.paragraphAt(1))
+        mp.text = "regularBOLDTEXT"
+        clear mp.spans
+        def spA:TextSpan (TextSpan.create(0 7))
+        spA.bold = false
+        push mp.spans spA
+        def spB:TextSpan (TextSpan.create(7 15))
+        spB.bold = true
+        push mp.spans spB
+        viewer.renderPage(0)
+        def mtr:UITextRenderer viewer.view.ctx.tr
+        def sizePx:double 16.0
+        def wholeSpanAware:int (DocxTextMetrics.measureRange(mtr mp sizePx 0 15))
+        def headW:int (DocxTextMetrics.measureRange(mtr mp sizePx 0 7))
+        def tailW:int (DocxTextMetrics.measureRange(mtr mp sizePx 7 15))
+        c.ok("range splits at the run boundary" (wholeSpanAware == (headW + tailW)))
+        ; Same characters measured entirely in the regular face: the bold tail
+        ; is wider, so a single-face measure under-reports the line.
+        DocxTextMetrics.applyFace(mtr false)
+        def wholeOneFace:int (to_int (mtr.measureWidth("regularBOLDTEXT" sizePx)))
+        c.ok("bold run is wider than one-face measure" (wholeSpanAware > wholeOneFace))
+        ; offsetAtX must invert measureRange exactly, on both sides of the run
+        ; boundary — this is what makes a click land on the right character.
+        def probe:int 0
+        def inverseOk:boolean true
+        while (probe <= 15) {
+            def px:int (DocxTextMetrics.measureRange(mtr mp sizePx 0 probe))
+            def back:int (DocxTextMetrics.offsetAtX(mtr mp sizePx 0 15 px))
+            if (back != probe) {
+                inverseOk = false
+            }
+            probe = (probe + 1)
+        }
+        c.ok("offsetAtX inverts measureRange at every offset" inverseOk)
+        def midBold:int (DocxTextMetrics.measureRange(mtr mp sizePx 0 11))
+        c.eqInt("click inside the bold run" (DocxTextMetrics.offsetAtX(mtr mp sizePx 0 15 midBold)) 11)
+        c.eqInt("click before the text" (DocxTextMetrics.offsetAtX(mtr mp sizePx 0 15 -20)) 0)
+        c.eqInt("click past the end" (DocxTextMetrics.offsetAtX(mtr mp sizePx 0 15 100000)) 15)
+        viewer.setEditMode(false)
+
+        print "== arrow keys move and extend =="
+        c.ok("open pages for arrows" (viewer.openFile(fix "08-pages.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def adoc:RichDocument (viewer.document())
+        def ap0:Paragraph (adoc.paragraphAt(0))
+        viewer.edit.setCaret(ap0.id 0)
+        viewer.keyRight(false)
+        def c1:DocumentPosition (viewer.edit.caret())
+        c.eqInt("right moves one char" c1.textOffset 1)
+        viewer.keyLeft(false)
+        c.eqInt("left moves back" ((viewer.edit.caret()).textOffset) 0)
+        ; Left at offset 0 of the first paragraph has nowhere to go.
+        viewer.keyLeft(false)
+        c.eqInt("left at doc start holds" ((viewer.edit.caret()).textOffset) 0)
+        ; Right at the end of a paragraph steps into the next one.
+        def ap0len:int (strlen ap0.text)
+        viewer.edit.setCaret(ap0.id ap0len)
+        viewer.keyRight(false)
+        def c2:DocumentPosition (viewer.edit.caret())
+        c.ok("right crosses into next paragraph" (c2.paragraphId != ap0.id))
+        c.eqInt("lands at its start" c2.textOffset 0)
+        viewer.keyLeft(false)
+        def c3:DocumentPosition (viewer.edit.caret())
+        c.eqInt("left crosses back" c3.paragraphId ap0.id)
+        c.eqInt("to the paragraph end" c3.textOffset ap0len)
+        ; Shift+Right extends instead of moving.
+        viewer.edit.setCaret(ap0.id 0)
+        viewer.keyRight(true)
+        viewer.keyRight(true)
+        def asel:DocumentRange (viewer.edit.selection())
+        c.ok("shift right extends" ((asel.isCollapsed()) == false))
+        c.eqInt("anchor stays" asel.anchor.textOffset 0)
+        c.eqInt("focus moved" asel.focus.textOffset 2)
+        ; A bare arrow collapses the selection to its edge.
+        viewer.keyLeft(false)
+        c.ok("bare arrow collapses" ((viewer.edit.selection()).isCollapsed()))
+        c.eqInt("collapses to start" ((viewer.edit.caret()).textOffset) 0)
+
+        print "== up / down keep the column and cross pages =="
+        viewer.edit.setCaret(ap0.id 0)
+        viewer.keyDown(false)
+        def d1:DocumentPosition (viewer.edit.caret())
+        c.ok("down moved somewhere" ((d1.paragraphId != ap0.id) || (d1.textOffset != 0)))
+        viewer.keyUp(false)
+        def u1:DocumentPosition (viewer.edit.caret())
+        c.eqInt("up returns to the first paragraph" u1.paragraphId ap0.id)
+        ; Walk down far enough to leave page 0 on a multi-page fixture.
+        c.ok("fixture is multipage" ((viewer.pageCount()) > 1))
+        def steps:int 0
+        while (steps < 400) {
+            viewer.keyDown(false)
+            steps = (steps + 1)
+        }
+        c.ok("down reached a later page" ((viewer.pageOfCaret()) > 0))
+        def lastPara:DocumentPosition (viewer.edit.caret())
+        c.ok("caret still valid" (lastPara.paragraphId > 0))
+
+        print "== Home / End / Ctrl+Home / Ctrl+End =="
+        viewer.setPage(0)
+        def hdoc2:RichDocument (viewer.document())
+        def hpara:Paragraph (hdoc2.paragraphAt(1))
+        viewer.edit.setCaret(hpara.id 3)
+        viewer.keyEnd(false false)
+        def he:DocumentPosition (viewer.edit.caret())
+        c.ok("end is at or past the caret" (he.textOffset >= 3))
+        viewer.keyHome(false false)
+        def hh:DocumentPosition (viewer.edit.caret())
+        c.ok("home is at or before the caret" (hh.textOffset <= 3))
+        viewer.keyEnd(false true)
+        def ce:DocumentPosition (viewer.edit.caret())
+        def lastOrder:int ((viewer.edit.adapter.bodyParagraphCount()) - 1)
+        c.eqInt("ctrl end is the last paragraph" ce.paragraphId (viewer.edit.adapter.bodyParagraphIdAt(lastOrder)))
+        ; Ctrl+End must also bring the VIEW to the caret's page. Wrapping can
+        ; drop trailing characters, leaving the caret past the last laid line —
+        ; that used to resolve to "no line" and the view stayed put.
+        def endPage:int (viewer.pageOfCaret())
+        c.ok("ctrl end followed onto a later page" (endPage > 0))
+        c.ok("caret geometry resolves there" ((viewer.edit.caretPixelX(viewer.view.layout endPage)) >= 0))
+        c.ok("caret height resolves there" ((viewer.edit.caretHeight(viewer.view.layout endPage)) > 0))
+        def endPara:Paragraph (viewer.edit.adapter.findParagraph(ce.paragraphId))
+        def probeAt:[int]
+        viewer.edit.findLineFor(viewer.view.layout ce.paragraphId (strlen endPara.text) probeAt)
+        c.ok("offset past the last laid line still finds one" ((itemAt probeAt 0) >= 0))
+        viewer.keyHome(false true)
+        def ch2:DocumentPosition (viewer.edit.caret())
+        c.eqInt("ctrl home is the first paragraph" ch2.paragraphId (viewer.edit.adapter.bodyParagraphIdAt(0)))
+        c.eqInt("at offset 0" ch2.textOffset 0)
+        c.eqInt("ctrl home followed back to page 0" (viewer.pageOfCaret()) 0)
+
+        print "== PageDown / PageUp step by a page of lines =="
+        viewer.setPage(0)
+        viewer.edit.setCaret((viewer.edit.adapter.bodyParagraphIdAt(0)) 0)
+        def beforePage:int (viewer.pageOfCaret())
+        viewer.keyPageDown(false)
+        def afterDown:DocumentPosition (viewer.edit.caret())
+        c.ok("page down moved the caret" (afterDown.paragraphId > 0))
+        def downOrder:int (viewer.edit.adapter.bodyOrderOf(afterDown.paragraphId))
+        c.ok("page down advanced" (downOrder > 0))
+        viewer.keyPageUp(false)
+        def afterUp:DocumentPosition (viewer.edit.caret())
+        def upOrder:int (viewer.edit.adapter.bodyOrderOf(afterUp.paragraphId))
+        c.ok("page up came back" (upOrder < downOrder))
+
+        print "== multi-paragraph selection =="
+        c.ok("reopen hello for multisel" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def sdoc:RichDocument (viewer.document())
+        def sp0:Paragraph (sdoc.paragraphAt(0))
+        def sp1:Paragraph (sdoc.paragraphAt(1))
+        viewer.edit.setCaret(sp0.id 2)
+        viewer.edit.sel.focus = (DocumentPosition.create(sp1.id 4))
+        c.ok("selection spans paragraphs" (viewer.edit.spansParagraphs()))
+        def multiText:string (viewer.edit.selectedText())
+        c.ok("selected text has a newline" (DocxTest.hasSub(multiText "\n")))
+        c.ok("starts inside the first paragraph" (DocxTest.hasSub(multiText (substring sp0.text 2 (strlen sp0.text)))))
+        c.ok("ends inside the second" (DocxTest.hasSub(multiText (substring sp1.text 0 4))))
+        ; Backwards drag must give the same text.
+        viewer.edit.sel.anchor = (DocumentPosition.create(sp1.id 4))
+        viewer.edit.sel.focus = (DocumentPosition.create(sp0.id 2))
+        c.eqStr("backwards drag reads the same" (viewer.edit.selectedText()) multiText)
+        viewer.renderPage(0)
+        c.ok("multi selection paints" ((buffer_length (viewer.view.raw())) > 1000))
+
+        print "== delete across paragraphs joins them =="
+        def p0Before:string sp0.text
+        def p1Before:string sp1.text
+        def blocksBeforeDel:int (sdoc.blockCount())
+        viewer.edit.sel.anchor = (DocumentPosition.create(sp0.id 2))
+        viewer.edit.sel.focus = (DocumentPosition.create(sp1.id 4))
+        viewer.edit.deleteSelection()
+        def joined:Paragraph (viewer.edit.adapter.findParagraph(sp0.id))
+        c.eqStr("joined text" joined.text ((substring p0Before 0 2) + (substring p1Before 4 (strlen p1Before))))
+        c.eqInt("one block fewer" (sdoc.blockCount()) (blocksBeforeDel - 1))
+        c.eqInt("caret at the join" ((viewer.edit.caret()).textOffset) 2)
+        viewer.keyUndo()
+        def restored0:Paragraph (viewer.edit.adapter.findParagraph(sp0.id))
+        c.eqStr("undo restores the first paragraph" restored0.text p0Before)
+        c.eqInt("undo restores the block" (sdoc.blockCount()) blocksBeforeDel)
+
+        print "== select all + copy / cut =="
+        c.ok("reopen hello for copy" (viewer.openFile(fix "hello.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def cdoc:RichDocument (viewer.document())
+        def cp0:Paragraph (cdoc.paragraphAt(0))
+        viewer.edit.setCaret(cp0.id 0)
+        viewer.keySelectAll()
+        def allText:string (viewer.copySelection())
+        c.ok("select all copied something" ((strlen allText) > 10))
+        c.ok("copy spans paragraphs" (DocxTest.hasSub(allText "\n")))
+        c.ok("copy does not change the document" ((strlen cp0.text) > 0))
+        ; Cut hands back the same text and empties the document body.
+        viewer.keySelectAll()
+        def cutText:string (viewer.cutSelection())
+        c.eqStr("cut returns the selection" cutText allText)
+        def afterCut:Paragraph (viewer.edit.adapter.findParagraph(cp0.id))
+        c.eqInt("cut emptied the text" (strlen afterCut.text) 0)
+        viewer.keyUndo()
+        c.ok("undo restores after cut" ((strlen ((viewer.edit.adapter.findParagraph(cp0.id)).text)) > 0))
         viewer.setEditMode(false)
 
         print "== clipboard HTML → ClipboardTable =="

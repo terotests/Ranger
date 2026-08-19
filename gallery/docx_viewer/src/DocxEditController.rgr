@@ -10,6 +10,7 @@
 Import "RichDocument.rgr"
 Import "RichDocumentEdit.rgr"
 Import "ClipboardTable.rgr"
+Import "DocxTextMetrics.rgr"
 Import "DocxLayout.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
@@ -25,6 +26,7 @@ class DocxEditController {
     def typingBold:boolean false
     def typingFont:string "Open Sans"
     def caretBlink:boolean true
+    def suppressUndo:boolean false
 
     Constructor () {
     }
@@ -93,6 +95,11 @@ class DocxEditController {
     }
 
     fn pushUndo:void (op:DocEditOp) {
+        ; Undo/redo replay through the same edit primitives; their ops must not
+        ; land back on the stack.
+        if suppressUndo {
+            return
+        }
         push undoStack op
         while ((array_length undoStack) > maxUndo) {
             remove_index undoStack 0
@@ -100,11 +107,181 @@ class DocxEditController {
         clear redoStack
     }
 
-    fn deleteSelection:void () {
-        if ((sel.sameParagraph()) == false) {
-            return
+    ; --- multi-paragraph selection -------------------------------------------
+    ; DocumentRange is anchor→focus in the order the user dragged. These give it
+    ; in document order, so a backwards or multi-paragraph selection behaves the
+    ; same as a forward one. Results land in the out arrays as
+    ; [paragraphId, offset].
+    fn orderedEnds:void (startOut:[int] endOut:[int]) {
+        clear startOut
+        clear endOut
+        def aPid:int sel.anchor.paragraphId
+        def bPid:int sel.focus.paragraphId
+        def aOff:int sel.anchor.textOffset
+        def bOff:int sel.focus.textOffset
+        def swap:boolean false
+        if (aPid == bPid) {
+            if (aOff > bOff) {
+                swap = true
+            }
+        } {
+            def ao:int (adapter.bodyOrderOf(aPid))
+            def bo:int (adapter.bodyOrderOf(bPid))
+            if (ao > bo) {
+                swap = true
+            }
+        }
+        if swap {
+            push startOut bPid
+            push startOut bOff
+            push endOut aPid
+            push endOut aOff
+        } {
+            push startOut aPid
+            push startOut aOff
+            push endOut bPid
+            push endOut bOff
+        }
+    }
+
+    fn spansParagraphs:boolean () {
+        if (sel.isCollapsed()) {
+            return false
+        }
+        return ((sel.sameParagraph()) == false)
+    }
+
+    ; Selected text, "\n" between paragraphs — what Ctrl+C puts on the clipboard.
+    fn selectedText:string () {
+        if ((this.isActive()) == false) {
+            return ""
         }
         if (sel.isCollapsed()) {
+            return ""
+        }
+        def a:[int]
+        def b:[int]
+        this.orderedEnds(a b)
+        def sPid:int (itemAt a 0)
+        def sOff:int (itemAt a 1)
+        def ePid:int (itemAt b 0)
+        def eOff:int (itemAt b 1)
+        if (sPid == ePid) {
+            def t:string (adapter.getText(sPid))
+            def x0:int sOff
+            def x1:int eOff
+            if (x1 > (strlen t)) {
+                x1 = (strlen t)
+            }
+            if (x0 < 0) {
+                x0 = 0
+            }
+            if (x0 >= x1) {
+                return ""
+            }
+            return (substring t x0 x1)
+        }
+        def sOrder:int (adapter.bodyOrderOf(sPid))
+        def eOrder:int (adapter.bodyOrderOf(ePid))
+        if ((sOrder < 0) || (eOrder < 0)) {
+            return ""
+        }
+        def out:string ""
+        def o:int sOrder
+        while (o <= eOrder) {
+            def pid:int (adapter.bodyParagraphIdAt(o))
+            def txt:string (adapter.getText(pid))
+            def piece:string txt
+            if (o == sOrder) {
+                def s0:int sOff
+                if (s0 > (strlen txt)) {
+                    s0 = (strlen txt)
+                }
+                piece = (substring txt s0 (strlen txt))
+            }
+            if (o == eOrder) {
+                def base:string piece
+                def e0:int eOff
+                if (o == sOrder) {
+                    e0 = (eOff - sOff)
+                }
+                if (e0 < 0) {
+                    e0 = 0
+                }
+                if (e0 > (strlen base)) {
+                    e0 = (strlen base)
+                }
+                piece = (substring base 0 e0)
+            }
+            if (o > sOrder) {
+                out = (out + "\n")
+            }
+            out = (out + piece)
+            o = (o + 1)
+        }
+        return out
+    }
+
+    ; Delete across paragraphs: trim the first, empty the ones between, trim the
+    ; last, then merge them all back into the first.
+    fn deleteSelectionMulti:void () {
+        def a:[int]
+        def b:[int]
+        this.orderedEnds(a b)
+        def sPid:int (itemAt a 0)
+        def sOff:int (itemAt a 1)
+        def ePid:int (itemAt b 0)
+        def eOff:int (itemAt b 1)
+        def sOrder:int (adapter.bodyOrderOf(sPid))
+        def eOrder:int (adapter.bodyOrderOf(ePid))
+        if ((sOrder < 0) || (eOrder < 0)) {
+            return
+        }
+        if (eOrder <= sOrder) {
+            return
+        }
+        def op:DocEditOp (new DocEditOp)
+        op.kind = 5
+        op.paragraphId = sPid
+        op.start = sOff
+        op.oldText = (this.selectedText())
+        ; tail of the first paragraph
+        adapter.replaceRange(sPid sOff (adapter.textLength(sPid)) "")
+        ; whole paragraphs in between
+        def o:int (sOrder + 1)
+        while (o < eOrder) {
+            def midPid:int (adapter.bodyParagraphIdAt(o))
+            adapter.replaceRange(midPid 0 (adapter.textLength(midPid)) "")
+            o = (o + 1)
+        }
+        ; head of the last paragraph
+        def eTail:int eOff
+        if (eTail > (adapter.textLength(ePid))) {
+            eTail = (adapter.textLength(ePid))
+        }
+        adapter.replaceRange(ePid 0 eTail "")
+        ; collapse the now-empty run back into the first paragraph
+        def merges:int (eOrder - sOrder)
+        def m:int 0
+        while (m < merges) {
+            def nextPid:int (adapter.bodyParagraphIdAt(sOrder + 1))
+            if (nextPid <= 0) {
+                m = merges
+            } {
+                adapter.mergePrevious(nextPid)
+                m = (m + 1)
+            }
+        }
+        this.pushUndo(op)
+        this.setCaret(sPid sOff)
+    }
+
+    fn deleteSelection:void () {
+        if (sel.isCollapsed()) {
+            return
+        }
+        if ((sel.sameParagraph()) == false) {
+            this.deleteSelectionMulti()
             return
         }
         def pid:int sel.anchor.paragraphId
@@ -354,6 +531,7 @@ class DocxEditController {
             return
         }
         if ((sel.sameParagraph()) == false) {
+            this.toggleBoldMulti()
             return
         }
         def pid:int sel.anchor.paragraphId
@@ -375,6 +553,72 @@ class DocxEditController {
         this.pushUndo(op)
     }
 
+    ; Bold over a selection that crosses paragraphs: one pass to decide the new
+    ; value (Word turns bold ON unless the whole selection is already bold),
+    ; then apply it to each paragraph's slice.
+    fn toggleBoldMulti:void () {
+        def a:[int]
+        def b:[int]
+        this.orderedEnds(a b)
+        def sPid:int (itemAt a 0)
+        def sOff:int (itemAt a 1)
+        def ePid:int (itemAt b 0)
+        def eOff:int (itemAt b 1)
+        def sOrder:int (adapter.bodyOrderOf(sPid))
+        def eOrder:int (adapter.bodyOrderOf(ePid))
+        if ((sOrder < 0) || (eOrder < 0)) {
+            return
+        }
+        def allBold:boolean true
+        def o:int sOrder
+        while (o <= eOrder) {
+            def pid:int (adapter.bodyParagraphIdAt(o))
+            def len:int (adapter.textLength(pid))
+            def x0:int 0
+            def x1:int len
+            if (o == sOrder) {
+                x0 = sOff
+            }
+            if (o == eOrder) {
+                x1 = eOff
+            }
+            if (x1 > len) {
+                x1 = len
+            }
+            if (x0 < x1) {
+                if ((adapter.rangeIsBold(pid x0 x1)) == false) {
+                    allBold = false
+                }
+            }
+            o = (o + 1)
+        }
+        def turnOn:boolean true
+        if allBold {
+            turnOn = false
+        }
+        def o2:int sOrder
+        while (o2 <= eOrder) {
+            def pid2:int (adapter.bodyParagraphIdAt(o2))
+            def len2:int (adapter.textLength(pid2))
+            def y0:int 0
+            def y1:int len2
+            if (o2 == sOrder) {
+                y0 = sOff
+            }
+            if (o2 == eOrder) {
+                y1 = eOff
+            }
+            if (y1 > len2) {
+                y1 = len2
+            }
+            if (y0 < y1) {
+                adapter.applyBold(pid2 y0 y1 turnOn)
+            }
+            o2 = (o2 + 1)
+        }
+        typingBold = turnOn
+    }
+
     fn setFont:void (font:string) {
         typingFont = font
         if ((this.isActive()) == false) {
@@ -389,6 +633,371 @@ class DocxEditController {
         adapter.applyFont(sel.anchor.paragraphId (sel.startOffset()) (sel.endOffset()) font)
     }
 
+    ; --- caret movement -------------------------------------------------------
+    ; `extend` grows the selection from the anchor (Shift+key); otherwise the
+    ; selection collapses to the new caret.
+    fn placeCaret:void (pid:int off:int extend:boolean) {
+        if (pid <= 0) {
+            return
+        }
+        def len:int (adapter.textLength(pid))
+        if (off < 0) {
+            off = 0
+        }
+        if (off > len) {
+            off = len
+        }
+        if extend {
+            sel.focus = (DocumentPosition.create(pid off))
+            active = true
+        } {
+            this.setCaret(pid off)
+        }
+    }
+
+    fn moveLeft:void (extend:boolean) {
+        if ((this.isActive()) == false) {
+            return
+        }
+        ; Collapsing a selection with a bare Left goes to its start, like Word.
+        if ((extend == false) && ((sel.isCollapsed()) == false)) {
+            def a:[int]
+            def b:[int]
+            this.orderedEnds(a b)
+            this.setCaret((itemAt a 0) (itemAt a 1))
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        if (off > 0) {
+            this.placeCaret(pid (off - 1) extend)
+            return
+        }
+        def order:int (adapter.bodyOrderOf(pid))
+        if (order <= 0) {
+            return
+        }
+        def prev:int (adapter.bodyParagraphIdAt(order - 1))
+        this.placeCaret(prev (adapter.textLength(prev)) extend)
+    }
+
+    fn moveRight:void (extend:boolean) {
+        if ((this.isActive()) == false) {
+            return
+        }
+        if ((extend == false) && ((sel.isCollapsed()) == false)) {
+            def a:[int]
+            def b:[int]
+            this.orderedEnds(a b)
+            this.setCaret((itemAt b 0) (itemAt b 1))
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        if (off < (adapter.textLength(pid))) {
+            this.placeCaret(pid (off + 1) extend)
+            return
+        }
+        def order:int (adapter.bodyOrderOf(pid))
+        def count:int (adapter.bodyParagraphCount())
+        if (order < 0) {
+            return
+        }
+        if ((order + 1) >= count) {
+            return
+        }
+        def next:int (adapter.bodyParagraphIdAt(order + 1))
+        this.placeCaret(next 0 extend)
+    }
+
+    ; The visual line holding (paragraphId, offset), searched across every page
+    ; so Up/Down and PageUp/PageDown can cross page boundaries. Fills
+    ; [pageIndex, lineIndex]; page -1 when the paragraph is not laid out.
+    ;
+    ; Wrapping can drop trailing characters, so a caret at the very end of a
+    ; paragraph may sit past the last laid line. Falling back to that
+    ; paragraph's first / last line keeps the caret findable — without it,
+    ; Ctrl+End reported "no line" and the view stayed on the wrong page.
+    fn findLineFor:void (layout:DocxLayout pid:int off:int out:[int]) {
+        clear out
+        push out -1
+        push out -1
+        def firstPage:int -1
+        def firstLine:int -1
+        def firstStart:int 0
+        def lastPage:int -1
+        def lastLine:int -1
+        def lastEnd:int 0
+        def pi:int 0
+        while (pi < (layout.pageCount())) {
+            def page:LaidPage (layout.pageAt(pi))
+            def li:int 0
+            while (li < (array_length page.lines)) {
+                def line:LaidLine (itemAt page.lines li)
+                if (line.kind == 0) {
+                    if (line.paraIndex == pid) {
+                        if ((off >= line.docStart) && (off <= line.docEnd)) {
+                            clear out
+                            push out pi
+                            push out li
+                            return
+                        }
+                        if (firstPage < 0) {
+                            firstPage = pi
+                            firstLine = li
+                            firstStart = line.docStart
+                        }
+                        lastPage = pi
+                        lastLine = li
+                        lastEnd = line.docEnd
+                    }
+                }
+                li = (li + 1)
+            }
+            pi = (pi + 1)
+        }
+        if (lastPage < 0) {
+            return
+        }
+        clear out
+        if (off < firstStart) {
+            push out firstPage
+            push out firstLine
+            return
+        }
+        push out lastPage
+        push out lastLine
+    }
+
+    fn caretLine:void (layout:DocxLayout out:[int]) {
+        clear out
+        push out -1
+        push out -1
+        if ((this.isActive()) == false) {
+            return
+        }
+        this.findLineFor(layout sel.focus.paragraphId sel.focus.textOffset out)
+    }
+
+    ; Body lines in document order, flattened across pages. Returns the flat
+    ; index of the caret's line, or -1.
+    fn flatBodyLines:void (layout:DocxLayout outPage:[int] outLine:[int]) {
+        clear outPage
+        clear outLine
+        def pi:int 0
+        while (pi < (layout.pageCount())) {
+            def page:LaidPage (layout.pageAt(pi))
+            def li:int 0
+            while (li < (array_length page.lines)) {
+                def line:LaidLine (itemAt page.lines li)
+                if (line.kind == 0) {
+                    if (line.paraIndex > 0) {
+                        push outPage pi
+                        push outLine li
+                    }
+                }
+                li = (li + 1)
+            }
+            pi = (pi + 1)
+        }
+    }
+
+    fn flatIndexOfCaret:int (layout:DocxLayout pages:[int] lines:[int]) {
+        def cur:[int]
+        this.caretLine(layout cur)
+        def cp:int (itemAt cur 0)
+        def cl:int (itemAt cur 1)
+        if (cp < 0) {
+            return -1
+        }
+        def i:int 0
+        while (i < (array_length pages)) {
+            if (((itemAt pages i) == cp) && ((itemAt lines i) == cl)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Put the caret on `line` at the horizontal position `wantX` (screen px).
+    fn caretToLineAtX:void (layout:DocxLayout line:LaidLine wantX:int extend:boolean) {
+        def p:Paragraph (unwrap line.paragraphRef)
+        if (p.id <= 0) {
+            return
+        }
+        def tr:UITextRenderer (unwrap layout.tr)
+        def fontPx:double line.fontSizePx
+        def localX:int (wantX - line.x)
+        if (localX < 0) {
+            localX = 0
+        }
+        def display:string line.text
+        if ((strlen line.listPrefix) > 0) {
+            if ((indexOf display line.listPrefix) == 0) {
+                localX = (localX - (DocxTextMetrics.measurePlain(tr line.listPrefix fontPx line.bold)))
+                if (localX < 0) {
+                    localX = 0
+                }
+            }
+        }
+        def off:int (DocxTextMetrics.offsetAtX(tr p fontPx line.docStart line.docEnd localX))
+        this.placeCaret(p.id off extend)
+    }
+
+    ; Vertical movement by `delta` visual lines, keeping the caret's X. Crossing
+    ; a page boundary is just another step in the flattened line list.
+    fn moveVertical:void (layout:DocxLayout delta:int extend:boolean) {
+        if ((this.isActive()) == false) {
+            return
+        }
+        def pages:[int]
+        def lines:[int]
+        this.flatBodyLines(layout pages lines)
+        def total:int (array_length pages)
+        if (total == 0) {
+            return
+        }
+        def at:int (this.flatIndexOfCaret(layout pages lines))
+        if (at < 0) {
+            return
+        }
+        def wantX:int (this.caretPixelX(layout (itemAt pages at)))
+        if (wantX < 0) {
+            def curPage:LaidPage (layout.pageAt((itemAt pages at)))
+            def curLine:LaidLine (itemAt curPage.lines (itemAt lines at))
+            wantX = curLine.x
+        }
+        def target:int (at + delta)
+        if (target < 0) {
+            target = 0
+        }
+        if (target >= total) {
+            target = (total - 1)
+        }
+        if (target == at) {
+            ; Already at the edge: snap to the start / end of the document.
+            def edgePage:LaidPage (layout.pageAt((itemAt pages at)))
+            def edgeLine:LaidLine (itemAt edgePage.lines (itemAt lines at))
+            def p0:Paragraph (unwrap edgeLine.paragraphRef)
+            if (delta < 0) {
+                this.placeCaret(p0.id edgeLine.docStart extend)
+            } {
+                this.placeCaret(p0.id edgeLine.docEnd extend)
+            }
+            return
+        }
+        def tPage:LaidPage (layout.pageAt((itemAt pages target)))
+        def tLine:LaidLine (itemAt tPage.lines (itemAt lines target))
+        this.caretToLineAtX(layout tLine wantX extend)
+    }
+
+    fn moveUp:void (layout:DocxLayout extend:boolean) {
+        this.moveVertical(layout -1 extend)
+    }
+
+    fn moveDown:void (layout:DocxLayout extend:boolean) {
+        this.moveVertical(layout 1 extend)
+    }
+
+    ; Lines a PageUp / PageDown step covers: the caret's page, minus one line of
+    ; overlap so the line you were reading stays visible.
+    fn linesPerPage:int (layout:DocxLayout) {
+        def cur:[int]
+        this.caretLine(layout cur)
+        def cp:int (itemAt cur 0)
+        if (cp < 0) {
+            cp = 0
+        }
+        if (cp >= (layout.pageCount())) {
+            return 1
+        }
+        def page:LaidPage (layout.pageAt(cp))
+        def count:int 0
+        def li:int 0
+        while (li < (array_length page.lines)) {
+            def line:LaidLine (itemAt page.lines li)
+            if (line.kind == 0) {
+                if (line.paraIndex > 0) {
+                    count = (count + 1)
+                }
+            }
+            li = (li + 1)
+        }
+        if (count > 1) {
+            count = (count - 1)
+        }
+        if (count < 1) {
+            count = 1
+        }
+        return count
+    }
+
+    fn pageUp:void (layout:DocxLayout extend:boolean) {
+        this.moveVertical(layout (0 - (this.linesPerPage(layout))) extend)
+    }
+
+    fn pageDown:void (layout:DocxLayout extend:boolean) {
+        this.moveVertical(layout (this.linesPerPage(layout)) extend)
+    }
+
+    ; Home / End work on the VISUAL line, so a wrapped paragraph behaves the way
+    ; it looks rather than jumping to the paragraph ends.
+    fn moveLineEdge:void (layout:DocxLayout toEnd:boolean extend:boolean) {
+        if ((this.isActive()) == false) {
+            return
+        }
+        def cur:[int]
+        this.caretLine(layout cur)
+        def cp:int (itemAt cur 0)
+        def cl:int (itemAt cur 1)
+        if (cp < 0) {
+            def pid:int sel.focus.paragraphId
+            if toEnd {
+                this.placeCaret(pid (adapter.textLength(pid)) extend)
+            } {
+                this.placeCaret(pid 0 extend)
+            }
+            return
+        }
+        def page:LaidPage (layout.pageAt(cp))
+        def line:LaidLine (itemAt page.lines cl)
+        def p:Paragraph (unwrap line.paragraphRef)
+        if toEnd {
+            this.placeCaret(p.id line.docEnd extend)
+        } {
+            this.placeCaret(p.id line.docStart extend)
+        }
+    }
+
+    fn moveDocEdge:void (toEnd:boolean extend:boolean) {
+        if ((this.isActive()) == false) {
+            return
+        }
+        def count:int (adapter.bodyParagraphCount())
+        if (count == 0) {
+            return
+        }
+        if toEnd {
+            def lastId:int (adapter.bodyParagraphIdAt(count - 1))
+            this.placeCaret(lastId (adapter.textLength(lastId)) extend)
+        } {
+            this.placeCaret((adapter.bodyParagraphIdAt(0)) 0 extend)
+        }
+    }
+
+    fn selectAll:void () {
+        def count:int (adapter.bodyParagraphCount())
+        if (count == 0) {
+            return
+        }
+        def firstId:int (adapter.bodyParagraphIdAt(0))
+        def lastId:int (adapter.bodyParagraphIdAt(count - 1))
+        sel.anchor = (DocumentPosition.create(firstId 0))
+        sel.focus = (DocumentPosition.create(lastId (adapter.textLength(lastId))))
+        active = true
+    }
+
     fn undo:void () {
         if ((array_length undoStack) == 0) {
             return
@@ -398,6 +1007,14 @@ class DocxEditController {
         if (op.kind == 0) {
             adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
             this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
+        }
+        if (op.kind == 5) {
+            ; Multi-paragraph delete: put the text back, newlines re-splitting.
+            suppressUndo = true
+            this.setCaret(op.paragraphId op.start)
+            this.pasteText(op.oldText)
+            this.setCaret(op.paragraphId op.start)
+            suppressUndo = false
         }
         if (op.kind == 4) {
             ; Drop the pasted table, then rejoin the paragraph it was split from.
@@ -508,11 +1125,11 @@ class DocxEditController {
         if (found == false) {
             return miss
         }
-        def p:Paragraph best.paragraphRef
+        def p:Paragraph (unwrap best.paragraphRef)
         if (p.id <= 0) {
             return miss
         }
-        def tr:UITextRenderer layout.tr
+        def tr:UITextRenderer (unwrap layout.tr)
         def fontPx:double best.fontSizePx
         if (fontPx < 8.0) {
             fontPx = 8.0
@@ -529,27 +1146,15 @@ class DocxEditController {
                 prefixLen = (strlen best.listPrefix)
             }
         }
-        def content:string display
         if (prefixLen > 0) {
-            content = (substring display prefixLen (strlen display))
-            localX = (localX - (to_int (tr.measureWidth((substring display 0 prefixLen) fontPx))))
+            localX = (localX - (DocxTextMetrics.measurePlain(tr (substring display 0 prefixLen) fontPx best.bold)))
             if (localX < 0) {
                 localX = 0
             }
         }
-        def offInLine:int 0
-        def n:int (strlen content)
-        while (offInLine < n) {
-            def prevW:int (to_int (tr.measureWidth((substring content 0 offInLine) fontPx)))
-            def nextW:int (to_int (tr.measureWidth((substring content 0 (offInLine + 1)) fontPx)))
-            def mid2:int (idiv (prevW + nextW) 2)
-            if (localX < mid2) {
-                n = offInLine
-            } {
-                offInLine = (offInLine + 1)
-            }
-        }
-        def docOff:int (best.docStart + offInLine)
+        ; Measure through the same per-span faces the painter used, so a click
+        ; inside a bold run lands on the character under the pointer.
+        def docOff:int (DocxTextMetrics.offsetAtX(tr p fontPx best.docStart best.docEnd localX))
         def plen:int (strlen p.text)
         if (docOff > plen) {
             docOff = plen
@@ -560,95 +1165,68 @@ class DocxEditController {
         return (DocumentPosition.create(p.id docOff))
     }
 
+    ; --- caret geometry -------------------------------------------------------
+    ; All three share findLineFor, so the caret, its height and the selection
+    ; agree about which line the caret is on — including a caret past the last
+    ; laid character of a paragraph.
     fn caretPixelX:int (layout:DocxLayout pageIndex:int) {
         if ((this.isActive()) == false) {
             return -1
         }
-        def c:DocumentPosition (this.caret())
-        if ((pageIndex < 0) || (pageIndex >= (layout.pageCount()))) {
+        def at:[int]
+        this.caretLine(layout at)
+        if ((itemAt at 0) != pageIndex) {
             return -1
         }
         def page:LaidPage (layout.pageAt(pageIndex))
-        def i:int 0
-        while (i < (array_length page.lines)) {
-            def line:LaidLine (itemAt page.lines i)
-            if (line.kind == 0) {
-                if (line.paraIndex == c.paragraphId) {
-                    if ((c.textOffset >= line.docStart) && (c.textOffset <= line.docEnd)) {
-                        def tr:UITextRenderer layout.tr
-                        def fontPx:double line.fontSizePx
-                        def into:int (c.textOffset - line.docStart)
-                        def prefixLen:int 0
-                        def display:string line.text
-                        if ((strlen line.listPrefix) > 0) {
-                            if ((indexOf display line.listPrefix) == 0) {
-                                prefixLen = (strlen line.listPrefix)
-                            }
-                        }
-                        def content:string display
-                        def x:int line.x
-                        if (prefixLen > 0) {
-                            content = (substring display prefixLen (strlen display))
-                            x = (x + (to_int (tr.measureWidth((substring display 0 prefixLen) fontPx))))
-                        }
-                        if (into > (strlen content)) {
-                            into = (strlen content)
-                        }
-                        if (into < 0) {
-                            into = 0
-                        }
-                        x = (x + (to_int (tr.measureWidth((substring content 0 into) fontPx))))
-                        return x
-                    }
-                }
+        def line:LaidLine (itemAt page.lines (itemAt at 1))
+        def c:DocumentPosition (this.caret())
+        def tr:UITextRenderer (unwrap layout.tr)
+        def fontPx:double line.fontSizePx
+        def display:string line.text
+        def x:int line.x
+        if ((strlen line.listPrefix) > 0) {
+            if ((indexOf display line.listPrefix) == 0) {
+                x = (x + (DocxTextMetrics.measurePlain(tr line.listPrefix fontPx line.bold)))
             }
-            i = (i + 1)
         }
-        return -1
+        def upTo:int c.textOffset
+        if (upTo > line.docEnd) {
+            upTo = line.docEnd
+        }
+        if (upTo < line.docStart) {
+            upTo = line.docStart
+        }
+        def para:Paragraph (unwrap line.paragraphRef)
+        x = (x + (DocxTextMetrics.measureRange(tr para fontPx line.docStart upTo)))
+        return x
     }
 
     fn caretPixelY:int (layout:DocxLayout pageIndex:int) {
         if ((this.isActive()) == false) {
             return -1
         }
-        def c:DocumentPosition (this.caret())
-        if ((pageIndex < 0) || (pageIndex >= (layout.pageCount()))) {
+        def at:[int]
+        this.caretLine(layout at)
+        if ((itemAt at 0) != pageIndex) {
             return -1
         }
         def page:LaidPage (layout.pageAt(pageIndex))
-        def i:int 0
-        while (i < (array_length page.lines)) {
-            def line:LaidLine (itemAt page.lines i)
-            if (line.kind == 0) {
-                if (line.paraIndex == c.paragraphId) {
-                    if ((c.textOffset >= line.docStart) && (c.textOffset <= line.docEnd)) {
-                        return line.y
-                    }
-                }
-            }
-            i = (i + 1)
-        }
-        return -1
+        def line:LaidLine (itemAt page.lines (itemAt at 1))
+        return line.y
     }
 
     fn caretHeight:int (layout:DocxLayout pageIndex:int) {
         if ((this.isActive()) == false) {
             return 14
         }
-        def c:DocumentPosition (this.caret())
-        def page:LaidPage (layout.pageAt(pageIndex))
-        def i:int 0
-        while (i < (array_length page.lines)) {
-            def line:LaidLine (itemAt page.lines i)
-            if (line.kind == 0) {
-                if (line.paraIndex == c.paragraphId) {
-                    if ((c.textOffset >= line.docStart) && (c.textOffset <= line.docEnd)) {
-                        return line.height
-                    }
-                }
-            }
-            i = (i + 1)
+        def at:[int]
+        this.caretLine(layout at)
+        if ((itemAt at 0) != pageIndex) {
+            return 14
         }
-        return 14
+        def page:LaidPage (layout.pageAt(pageIndex))
+        def line:LaidLine (itemAt page.lines (itemAt at 1))
+        return line.height
     }
 }

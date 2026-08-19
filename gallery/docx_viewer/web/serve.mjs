@@ -194,6 +194,9 @@ async function handleRequest(req, res) {
     for await (const chunk of req) body += chunk;
     const ev = JSON.parse(body || "{}");
     const type = ev.type || "";
+    // Filled by copy / cut so the browser can put it on the OS clipboard
+    // (a Node process cannot reach it directly).
+    let clipboardOut = "";
     if (type === "click") {
       viewer.clickAt(ev.x | 0, ev.y | 0, !!ev.shift);
     } else if (type === "text") {
@@ -215,8 +218,29 @@ async function handleRequest(req, res) {
     } else if (type === "paste") {
       // text/html from a spreadsheet copy becomes a table; otherwise plain text.
       viewer.pasteClipboard(String(ev.html || ""), String(ev.text || ""));
+    } else if (type === "move") {
+      // Caret navigation. `shift` extends the selection, `ctrl` widens the step.
+      const shift = !!ev.shift;
+      const ctrl = !!ev.ctrl;
+      const dir = String(ev.dir || "");
+      if (dir === "left") viewer.keyLeft(shift);
+      else if (dir === "right") viewer.keyRight(shift);
+      else if (dir === "up") viewer.keyUp(shift);
+      else if (dir === "down") viewer.keyDown(shift);
+      else if (dir === "pageUp") viewer.keyPageUp(shift);
+      else if (dir === "pageDown") viewer.keyPageDown(shift);
+      else if (dir === "home") viewer.keyHome(shift, ctrl);
+      else if (dir === "end") viewer.keyEnd(shift, ctrl);
+    } else if (type === "selectAll") {
+      viewer.keySelectAll();
+    } else if (type === "copy") {
+      clipboardOut = viewer.copySelection();
+    } else if (type === "cut") {
+      clipboardOut = viewer.cutSelection();
     }
-    currentPage = viewer.currentPage | currentPage;
+    // Follow the caret: `| currentPage` OR-ed the old page in, so moving back
+    // to an earlier page (page 0 especially) never took effect.
+    currentPage = viewer.currentPage | 0;
     let caret = { active: false };
     try {
       caret = JSON.parse(viewer.caretInfoJson());
@@ -229,6 +253,7 @@ async function handleRequest(req, res) {
         page: currentPage,
         caret,
         editMode: !!viewer.editMode(),
+        clipboard: clipboardOut,
       })
     );
     return;

@@ -79,6 +79,7 @@ async function sendInput(payload) {
   });
   const data = await res.json();
   if (data.pageCount) pageCount = Math.max(1, data.pageCount | 1);
+  if (typeof data.page === "number") page = data.page;
   if (data.caret && caretEl) {
     caretEl.textContent = data.caret.active
       ? `p${data.caret.paragraphId}@${data.caret.offset}${data.caret.selEnd != null && data.caret.selEnd !== data.caret.offset ? "…" + data.caret.selEnd : ""}`
@@ -204,10 +205,81 @@ pageImg.addEventListener("mousemove", (ev) => {
   scheduleDragFlush();
 });
 
+// Caret navigation keys → one "move" event each. Shift extends the selection,
+// Ctrl turns Home/End into document start/end.
+const MOVE_KEYS = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  PageUp: "pageUp",
+  PageDown: "pageDown",
+  Home: "home",
+  End: "end",
+};
+
+/** Put text on the OS clipboard, falling back to execCommand when the async
+ *  Clipboard API is unavailable or denied (e.g. a non-secure origin). */
+async function writeClipboard(text) {
+  if (!text) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    pageImg.focus?.();
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
 window.addEventListener("keydown", async (ev) => {
   if (!editMode) return;
   const tag = (ev.target && ev.target.tagName) || "";
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+
+  const move = MOVE_KEYS[ev.key];
+  if (move) {
+    ev.preventDefault();
+    const data = await sendInput({
+      type: "move",
+      dir: move,
+      shift: ev.shiftKey,
+      ctrl: ev.ctrlKey || ev.metaKey,
+    });
+    // The caret may have walked onto another page; follow it.
+    if (data && typeof data.page === "number" && data.page !== page) {
+      page = data.page;
+      await refreshPage();
+    }
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a") {
+    ev.preventDefault();
+    await sendInput({ type: "selectAll" });
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key.toLowerCase() === "c" || ev.key.toLowerCase() === "x")) {
+    ev.preventDefault();
+    const data = await sendInput({ type: ev.key.toLowerCase() === "c" ? "copy" : "cut" });
+    if (data && data.clipboard) await writeClipboard(data.clipboard);
+    return;
+  }
+  // Ctrl+V is served by the native "paste" event below.
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "v") return;
 
   if (ev.key === "Backspace") {
     ev.preventDefault();
