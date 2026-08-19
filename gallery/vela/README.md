@@ -300,12 +300,12 @@ Where it stands, and it is worth stating plainly rather than rounding up:
 
 | | first run | now |
 | --- | --- | --- |
-| drawn exactly as the reference draws them | 11 | **167** |
-| drawn, but not the same picture | 106 | 7 |
-| refused, with a reason | 58 | 1 |
+| drawn exactly as the reference draws them | 11 | **172** |
+| drawn, but not the same picture | 106 | 3 |
+| refused, with a reason | 58 | 0 |
 | crashed | 0 | 0 |
 | skipped (no data, or the reference refused it too) | 13 | 13 |
-| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **95.4% exact, 99.4% drawn** |
+| **of what it was asked to draw** | 6.3% exact, 66.9% drawn | **98.3% exact, 100% drawn** |
 
 Every one of those hundred came from the report rather than from a guess,
 and several were things the curated suite could not have found: no axis in it
@@ -327,20 +327,32 @@ invisible. And `"point": {"filled": false}` was read as a boolean, which an
 object is not, so a line asked for dots came out bare. None of the four said
 anything; they each just drew the wrong picture.
 
-The remaining eight are no longer a long tail: they are four subsystems and
-two coin tosses. Two want a map projection, one wants a scale that cuts a
-number into bands, one wants a trellis whose panels each measure against
-their own axis, and one jitters its dots with a random number nobody can
-reproduce. The last two draw a bootstrapped confidence interval, which is
-random by construction — they land within a few pixels and will never land
-exactly. That list is short enough to name, which is the point of counting.
+Nothing is refused any more, and the remaining three are coin tosses. Each is
+random by construction — one jitters its dots with a random number and two draw
+a bootstrapped confidence interval — so they land within a few pixels and will
+never land exactly.
+
+Two of them are worth naming precisely, because "it is random" is the kind of
+excuse that hides a bug behind a true statement. `point_offset_random` was on
+this list for a year and did not belong there: given a constant in place of its
+random draw it matched **none** of its four hundred and forty-nine primitives
+and came out ten pixels short, because a position scale carrying an offset
+sub-scale is a band and we made it a point. Given the same constant now it
+matches all four hundred and forty-nine. The randomness was never the problem;
+it was the cover.
+
+The two confidence intervals are the real thing. They could be made exact —
+vega's randomness is swappable for a seeded generator it ships for exactly this
+purpose, and a bootstrap fed the same stream gives the same interval — but that
+would test that this implementation reproduces vega's generator and the order
+its aggregates consume it in, which is not what any of this is for.
 
 ### The tail is not uniform, so the difficult ones are marked
 
 Most of what the report converts, it converts in a handful of lines. Some
 charts are not like that: they hold out until something the reference does has
 to be reproduced exactly, and several of them moved only after a wrong
-hypothesis had been measured and reverted first. Eighteen of them are recorded in
+hypothesis had been measured and reverted first. Twenty-three of them are recorded in
 [`tools/reference/difficult.mjs`](tools/reference/difficult.mjs), with a note
 against each saying what it actually took:
 
@@ -364,6 +376,11 @@ against each saying what it actually took:
 | `interactive_splom` | a brush that each **pane** answers for is drawn whether anything is in it or not, and on a pane it brushes in one direction only the other direction is the whole pane — three rectangles three hundred pixels tall and none wide, down the diagonal, where a variable is plotted against itself and is therefore brushed once and not twice |
 | `rect_mosaic_labelled_with_offset` | four things at once, none of them about mosaics: an opacity read from a column, a **position** scale shared across a concatenation because the chart said so, a pane gap stated once in the configuration, and an axis title merge that compared a channel name against a scale name — the same string in a plain chart and not in a pane |
 | `layer_point_line_regression` | a fitted line is a running mean accumulated one row at a time, not a sum divided at the end: the two are different numbers in floating point and an R² printed to two places lands either side of a rounding. The line itself is sampled at twenty-five even steps across the range of x, which is where the reference stops refining a curve that is straight |
+| `geo_circle` | a projection is a page of constants and a convention about the order the rotation, the centring and the scaling are applied in — and `albersUsa` is not one projection but **three**, each with a rectangle, so that Alaska and Hawaii sit in the corner of a map of the mainland. Only the constants can be read off a formula; the convention had to be measured against d3 point by point, which is what [`tools/reference/geo.mjs`](tools/reference/geo.mjs) does |
+| `point_angle_windvector` | four thousand eight hundred wedges on an equal-area projection, each turned by the wind it stands for. Three separate things had to be true at once: a turned symbol is **measured** turned, or the page reserves the wrong room round it; a key is spaced by the ink of the shape it draws and not by a circle of the same area, because a wedge points; and a sequential colour scale multiplies by one over the span where a position scale divides by it — one bit apart, and thirteen of three hundred and sixty-one wind directions round the other way |
+| `concat_bar_scales_discretize` | three scales that answer in **bands** rather than continuously, and every number about them read off vega rather than guessed at: how many bands a scheme means when nothing says (five, except four for a size), where a quantile cuts, and that a key for a banded scale is one row per band labelled by the cuts. Two channels reading one column are also one key and not two — folded by **title** they stayed apart, because a chart that titles its colours and leaves its sizes to the column name does not call them the same thing |
+| `facet_bullet` | a trellis may resolve a scale **independently**, and then the scale is not the only thing that moves into the panel: the rows it measures go with it — re-derived from that panel's partition — and so does the axis that labels it, so there is no strip of axes under the trellis at all. A bar with nothing on the other axis is the other half: it has no band to sit in, so it crosses the whole panel, centred, as thick as the panel unless the mark says otherwise
+| `interactive_index_chart` | a selection nobody can touch still **has** a state — the one its initial value put it in — and that is the frame the reference draws too. A point selection names its fields by channel where the parameter said which channels it selects on, so `{"x": …}` is the column the x axis reads and not a column called `x`; a date written as its parts is the instant those parts name, read in the chart's own time zone; and a lookup against the selection is a lookup against the chart's own rows cut down to it, writing what it found under the selection's name — unnamed, the chart found its baseline row and could not say so, and every line came out flat along nought per cent |
 
 Marking them buys two things. A chart that took a rounding order to get right
 can be made wrong again by one line somewhere else, and it would come back as a

@@ -27,6 +27,7 @@ Import "VlConfig.rgr"
 Import "VlAxis.rgr"
 Import "VlLegend.rgr"
 Import "VlViewBox.rgr"
+Import "VlGeo.rgr"
 
 ; A group that is a plot in its own right: its own size, and the room its own
 ; axes take outside it. A concatenated or faceted view is a row of these.
@@ -88,6 +89,13 @@ class VlRuntime {
     ; thinks the zone is" is not an input. Empty means UTC, which is what a
     ; `utc` scale gets whatever this says.
     def timeZoneName:string ""
+    ; The map projections the specification declared, by name, and the points
+    ; each `geojson` transform gathered for one to be fitted to. A projection
+    ; is fitted the first time something asks it to place a point, because
+    ; that is the first moment the points it must cover are all known.
+    def projections:[string:VlGeo]
+    def projectionFitted:[string:int]
+    def geoShapes:[string:VlJson]
     ; The dependency graph, and what the last `update` actually recomputed.
     def flowNodes:[VlFlowNode]
     def flowRan:[string]
@@ -139,6 +147,7 @@ class VlRuntime {
         config.mergeSpecConfig((spec.get("config")))
         this.readSize()
         this.seedSignals()
+        this.buildProjections()
         this.runData()
         this.reportMissingFunctions()
         this.buildScales()
@@ -920,6 +929,69 @@ class VlRuntime {
         ; A smoother: the curve a scatter plot implies, fitted locally. It
         ; GENERATES its rows — the answer is one point per distinct x — so the
         ; data set it produces replaces the one it read.
+        ; The points a projection has to cover, gathered so it can be fitted to
+        ; them. The rows pass through untouched: this transform is a
+        ; measurement, not a change.
+        if (ttype == "geojson") {
+            def fields:[string] (VlRuntime.stringList((tdef.get("fields"))))
+            def key:string (tdef.stringOr("signal" ""))
+            if ((array_length fields) > 1) {
+                if ((strlen key) > 0) {
+                    def gathered (VlJson.arrayValue())
+                    def lonName:string (itemAt fields 0)
+                    def latName:string (itemAt fields 1)
+                    for rows row:VlJson ri {
+                        def lon:VlJson (row.get(lonName))
+                        def lat:VlJson (row.get(latName))
+                        if ((lon.isNumber()) && (lat.isNumber())) {
+                            def pair (VlJson.arrayValue())
+                            push pair.arr lon
+                            push pair.arr lat
+                            push gathered.arr pair
+                        }
+                    }
+                    set geoShapes key gathered
+                }
+            }
+            return rows
+        }
+        ; A longitude and a latitude, turned into a place on the page.
+        if (ttype == "geopoint") {
+            def fields2:[string] (VlRuntime.stringList((tdef.get("fields"))))
+            def names:[string] (VlRuntime.stringList((tdef.get("as"))))
+            def xName:string "x"
+            def yName:string "y"
+            if ((array_length names) > 0) {
+                xName = (itemAt names 0)
+            }
+            if ((array_length names) > 1) {
+                yName = (itemAt names 1)
+            }
+            if ((array_length fields2) < 2) {
+                return rows
+            }
+            def made:VlGeo (this.projectionFor((tdef.stringOr("projection" ""))))
+            if ((strlen made.kind) == 0) {
+                return rows
+            }
+            def out:[VlJson]
+            def lonName2:string (itemAt fields2 0)
+            def latName2:string (itemAt fields2 1)
+            for rows row2:VlJson r2 {
+                def copy:VlJson (VlTransform.copyRow(row2))
+                def lon2:VlJson (row2.get(lonName2))
+                def lat2:VlJson (row2.get(latName2))
+                if ((lon2.isNumber()) && (lat2.isNumber())) {
+                    def at:VlGeoXY (made.projectPoint(lon2.num lat2.num))
+                    if at.ok {
+                        copy.setMember(xName (VlJson.numberValue(at.x)))
+                        copy.setMember(yName (VlJson.numberValue(at.y)))
+                    }
+                }
+                push out copy
+            }
+            return out
+        }
         ; A straight line through two columns, or the numbers that describe it.
         if (ttype == "regression") {
             def rx:string (tdef.stringOr("x" ""))
@@ -1302,6 +1374,150 @@ class VlRuntime {
     }
 
     ; ---------------------------------------------------------------- scales ---
+    ; The projections, as the specification declared them and before anything
+    ; has been fitted. A projection carries the constants its NAME stands for —
+    ; `albersUsa` is three conics and a pair of rectangles — and then whatever
+    ; the specification said over the top of them.
+    fn buildProjections:void () {
+        def declared:VlJson (spec.get("projections"))
+        if (! (declared.isArray())) {
+            return
+        }
+        def total:int (declared.count())
+        def k:int 0
+        while (k < total) {
+            def pdef:VlJson (declared.at(k))
+            k = (k + 1)
+            def name:string (pdef.stringOr("name" ""))
+            if ((strlen name) == 0) {
+                ; a projection nothing can name is a projection nothing uses
+            } {
+                def type:string (pdef.stringOr("type" "mercator"))
+                def made:VlGeo (VlGeo.named(type))
+                if ((strlen made.kind) == 0) {
+                    this.fail(("the projection '" + type) + "' is not implemented")
+                } {
+                    def rotate:VlJson (pdef.get("rotate"))
+                    if (rotate.isArray()) {
+                        made.rotateLambda = ((rotate.at(0)).asDouble())
+                        if ((rotate.count()) > 1) {
+                            made.rotatePhi = ((rotate.at(1)).asDouble())
+                        }
+                        if ((rotate.count()) > 2) {
+                            made.rotateGamma = ((rotate.at(2)).asDouble())
+                        }
+                    }
+                    def centre:VlJson (pdef.get("center"))
+                    if (centre.isArray()) {
+                        made.centreLambda = ((centre.at(0)).asDouble())
+                        if ((centre.count()) > 1) {
+                            made.centrePhi = ((centre.at(1)).asDouble())
+                        }
+                    }
+                    def bands:VlJson (pdef.get("parallels"))
+                    if (bands.isArray()) {
+                        made.parallel0 = ((bands.at(0)).asDouble())
+                        if ((bands.count()) > 1) {
+                            made.parallel1 = ((bands.at(1)).asDouble())
+                        }
+                    }
+                    set projections name made
+                    ; A projection told its own scale and place is not fitted
+                    ; to anything: the specification has already said where the
+                    ; map goes.
+                    def stated:boolean false
+                    set projectionFitted name 0
+                    if (pdef.has("scale")) {
+                        made.setScale((this.rangeNumber((pdef.get("scale")))))
+                        stated = true
+                    }
+                    def place:VlJson (pdef.get("translate"))
+                    if (place.isArray()) {
+                        made.setTranslate((this.rangeNumber((place.at(0)))) (this.rangeNumber((place.at(1)))))
+                        stated = true
+                    }
+                    if stated {
+                        set projectionFitted name 1
+                    }
+                }
+            }
+        }
+    }
+
+    ; The projection a mark is about to place a point through, fitted if it
+    ; has not been already. Fitting reads the points a `geojson` transform
+    ; gathered and the size the projection was given, which is why it cannot
+    ; happen when the projection is declared.
+    fn projectionFor:VlGeo (name:string) {
+        if (! (has projections name)) {
+            return (VlGeo.named(""))
+        }
+        def made:VlGeo (unwrap (get projections name))
+        if (has projectionFitted name) {
+            if ((unwrap (get projectionFitted name)) == 1) {
+                return made
+            }
+        }
+        set projectionFitted name 1
+        def declared:VlJson (spec.get("projections"))
+        if (! (declared.isArray())) {
+            return made
+        }
+        def total:int (declared.count())
+        def k:int 0
+        while (k < total) {
+            def pdef:VlJson (declared.at(k))
+            k = (k + 1)
+            if ((pdef.stringOr("name" "")) != name) {
+                ; another projection
+            } {
+                def fit:VlJson (pdef.get("fit"))
+                def key:string ""
+                if (fit.isObject()) {
+                    key = (fit.stringOr("signal" ""))
+                }
+                if (fit.isString()) {
+                    key = fit.str
+                }
+                if ((strlen key) == 0) {
+                    return made
+                }
+                if (! (has geoShapes key)) {
+                    return made
+                }
+                def across:double 0.0
+                def down:double 0.0
+                def size:VlJson (pdef.get("size"))
+                if (size.isObject()) {
+                    size = (this.evalExpr((size.stringOr("signal" ""))))
+                }
+                if (size.isArray()) {
+                    across = ((size.at(0)).asDouble())
+                    if ((size.count()) > 1) {
+                        down = ((size.at(1)).asDouble())
+                    }
+                }
+                if ((across <= 0.0) || (down <= 0.0)) {
+                    return made
+                }
+                def gathered:VlJson (unwrap (get geoShapes key))
+                def lons:[double]
+                def lats:[double]
+                def n:int (gathered.count())
+                def j:int 0
+                while (j < n) {
+                    def pair:VlJson (gathered.at(j))
+                    push lons ((pair.at(0)).asDouble())
+                    push lats ((pair.at(1)).asDouble())
+                    j = (j + 1)
+                }
+                made.fitPoints(lons lats across down)
+                return made
+            }
+        }
+        return made
+    }
+
     fn buildScales:void () {
         def scales:VlJson (spec.get("scales"))
         if (! (scales.isArray())) {
@@ -1312,6 +1528,59 @@ class VlRuntime {
         while (k < total) {
             this.buildScale((scales.at(k)))
             k = (k + 1)
+        }
+    }
+
+    ; Where a discretizing scale cuts. `quantize` cuts the DOMAIN into equal
+    ; pieces, `quantile` cuts the DATA so that each piece holds the same number
+    ; of readings, and `threshold` was told the cuts and needs nothing done.
+    ;
+    ; How many pieces is how many outputs there are: a stated range says so by
+    ; its length, and a scheme says so by its `count` or, saying nothing, by
+    ; the reference's own default of five.
+    fn cutBands:void (sc:VlScale sdef:VlJson) {
+        if (! (sc.isDiscretizing())) {
+            return
+        }
+        if (sc.scaleType == "threshold") {
+            return
+        }
+        def bands:int (array_length sc.rangeNumbers)
+        if (bands == 0) {
+            bands = (array_length sc.rangeValues)
+            if sc.rampRange {
+                bands = 0
+            }
+        }
+        if (bands == 0) {
+            def r:VlJson (sdef.get("range"))
+            if (r.isObject()) {
+                bands = (to_int (r.doubleOr("count" 0.0)))
+            }
+        }
+        if (bands == 0) {
+            bands = 5
+        }
+        if (bands < 2) {
+            return
+        }
+        if (sc.scaleType == "quantize") {
+            def span:double (sc.domainMax - sc.domainMin)
+            def k:int 1
+            while (k < bands) {
+                push sc.thresholds (sc.domainMin + ((span * (to_double k)) / (to_double bands)))
+                k = (k + 1)
+            }
+            return
+        }
+        def sorted:[double] (VlTransform.sortedNumbers(sc.sampleValues))
+        if ((array_length sorted) == 0) {
+            return
+        }
+        def j:int 1
+        while (j < bands) {
+            push sc.thresholds (VlTransform.quantile(sorted ((to_double j) / (to_double bands))))
+            j = (j + 1)
         }
     }
 
@@ -1379,6 +1648,7 @@ class VlRuntime {
                 sc.domainMid = (sdef.doubleOr("domainMid" 0.0))
                 sc.hasDomainMid = true
             }
+            this.cutBands(sc sdef)
         }
 
         if (! (has scope.scales name)) {
@@ -1446,6 +1716,20 @@ class VlRuntime {
             ; scale had no categories at all — so the key was drawn with its
             ; title and nothing under it.
             def discrete:boolean ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal")))
+            ; A `threshold` scale is TOLD where to cut: its domain is the list
+            ; of cuts, not a pair of ends, and one more output than there are
+            ; cuts follows from it.
+            if (allNumbers && (sc.scaleType == "threshold")) {
+                def ti:int 0
+                while (ti < total) {
+                    push sc.thresholds ((d.at(ti)).asDouble())
+                    ti = (ti + 1)
+                }
+                if (total > 0) {
+                    sc.setNumericDomain(((d.at(0)).asDouble()) ((d.at((total - 1))).asDouble()))
+                }
+                return
+            }
             if (((allNumbers && (total == 2)) && (! discrete))) {
                 sc.setNumericDomain((d.at(0).asDouble()) (d.at(1).asDouble()))
                 return
@@ -1495,6 +1779,14 @@ class VlRuntime {
             }
             def ext:[double] (VlTransform.extent(rows field))
             sc.setNumericDomain((itemAt ext 0) (itemAt ext 1))
+            if (sc.scaleType == "quantile") {
+                for rows row:VlJson ri {
+                    def raw:VlJson (VlTransform.memberOf(row field))
+                    if (raw.isNumber()) {
+                        push sc.sampleValues raw.num
+                    }
+                }
+            }
             return
         }
         def fieldList:VlJson (d.get("fields"))
@@ -1652,6 +1944,35 @@ class VlRuntime {
                     }
                 }
                 n = (n + 1)
+            }
+            ; A DISCRETIZING scale's range is a list of outputs, one per band,
+            ; however many there are: `[80, 200, 320]` is three sizes and not
+            ; an interval from eighty to three hundred and twenty. Two entries
+            ; is what makes an interval for every OTHER scale, and a scale that
+            ; answers in bands is the exception.
+            if (sc.isDiscretizing()) {
+                def allNumbers:boolean true
+                def m:int 0
+                while (m < total) {
+                    def one:VlJson (r.at(m))
+                    if (! (one.isNumber())) {
+                        if (! (one.isObject())) {
+                            allNumbers = false
+                        }
+                    }
+                    m = (m + 1)
+                }
+                if allNumbers {
+                    def n2:int 0
+                    while (n2 < total) {
+                        push sc.rangeNumbers (this.rangeNumber((r.at(n2))))
+                        n2 = (n2 + 1)
+                    }
+                    if (total > 0) {
+                        sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at((total - 1))))))
+                    }
+                    return
+                }
             }
             if numeric {
                 sc.setNumericRange((this.rangeNumber((r.at(0)))) (this.rangeNumber((r.at(1)))))
@@ -2603,6 +2924,31 @@ class VlRuntime {
         return (this.sortedByComparator(rows sortDef))
     }
 
+    ; A panel may hold data sets and scales of its own: that is what
+    ; "independent" resolution compiles to — every panel measures against its
+    ; own axis, over rows derived from its own partition. They are rebuilt
+    ; once per panel, before anything inside it is encoded, so the scale a
+    ; mark reads and the axis that labels it both belong to the panel they are
+    ; drawn in rather than to the one before.
+    fn runGroupScope:void (mdef:VlJson) {
+        def own:VlJson (mdef.get("data"))
+        if (own.isArray()) {
+            def k:int 0
+            while (k < (own.count())) {
+                this.runDataSet((own.at(k)))
+                k = (k + 1)
+            }
+        }
+        def ownScales:VlJson (mdef.get("scales"))
+        if (ownScales.isArray()) {
+            def si:int 0
+            while (si < (ownScales.count())) {
+                this.buildScale((ownScales.at(si)))
+                si = (si + 1)
+            }
+        }
+    }
+
     fn encodeGroupMark:void (mark:VlSceneMark mdef:VlJson) {
         def markRole:string mark.role
         def from:VlJson (mdef.get("from"))
@@ -2679,6 +3025,7 @@ class VlRuntime {
             ; The facet's rows are published under its own name for the duration
             ; of this group, which is how the marks inside it find their data.
             set dataSets facetName part
+            this.runGroupScope(mdef)
             def item:VlSceneItem (mark.addItem())
             def datum:VlJson (VlJson.objectValue())
             if ((array_length part.rows) > 0) {

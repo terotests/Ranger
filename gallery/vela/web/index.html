@@ -321,14 +321,46 @@
     return found;
   }
 
-  function parseData(text, url, format) {
+  function parseData(text, url, format, dates) {
     var type = (format && format.type) || guessType(url);
     if (type === "json") {
       var parsed = JSON.parse(text);
       if (format && format.property) parsed = parsed[format.property];
       return parsed;
     }
-    return parseDelimited(text, type === "tsv" ? "\t" : ((format && format.delimiter) || ","));
+    return parseDelimited(text, type === "tsv" ? "\t" : ((format && format.delimiter) || ","), dates);
+  }
+
+  // Which columns of a delimited file are DATES rather than numbers.
+  //
+  // A delimited file has no types, so the loader guesses, and "1900" reads as
+  // the number 1900 — which `toDate` then takes for milliseconds since the
+  // epoch. A chart of the twentieth century came out as the two seconds after
+  // the first of January 1970, with an axis labelled ".200" and ":02".
+  //
+  // Vega-Lite answers this with a `parse` directive on the data node, derived
+  // from the encodings: a field any channel reads as temporal, or puts a time
+  // unit on, is parsed as a date and never numbered. The same derivation is
+  // the honest thing to do here, because this page is the loader.
+  function dateColumns(spec, format) {
+    var found = Object.create(null);
+    (function walk(node) {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      if (typeof node.field === "string") {
+        if (node.type === "temporal" || typeof node.timeUnit === "string") found[node.field] = true;
+      }
+      Object.keys(node).forEach(function (k) { walk(node[k]); });
+    })(spec);
+    // …and what the data node itself said wins over what the encodings imply,
+    // which is how a chart says "no, that column really is a number".
+    var stated = format && format.parse;
+    if (stated && typeof stated === "object") {
+      Object.keys(stated).forEach(function (name) {
+        if (stated[name] === "date") found[name] = true; else delete found[name];
+      });
+    }
+    return found;
   }
 
   function guessType(url) {
@@ -340,7 +372,7 @@
 
   // Enough of a delimited-text reader for the example data sets: quoted
   // fields, doubled quotes inside them, and CRLF.
-  function parseDelimited(text, delim) {
+  function parseDelimited(text, delim, dates) {
     var rows = [], row = [], field = "", quoted = false, i = 0;
     while (i < text.length) {
       var c = text[i];
@@ -366,7 +398,9 @@
     return rows.filter(function (r) { return r.length > 1 || r[0] !== ""; })
       .map(function (r) {
         var o = {};
-        header.forEach(function (name, k) { o[name] = coerce(r[k]); });
+        header.forEach(function (name, k) {
+          o[name] = coerce(r[k], dates && dates[name]);
+        });
         return o;
       });
   }
@@ -374,8 +408,12 @@
   // A delimited file has no types. A column that reads as a number is one —
   // the same guess every loader makes, and the reason an axis comes out
   // ordinal when one row holds a stray dash.
-  function coerce(v) {
+  function coerce(v, isDate) {
     if (v === undefined || v === "") return null;
+    // A date is left as the text it arrived as. Every date this runtime reads
+    // is parsed from text, and a year turned into a number first is a year
+    // lost: 1900 is a perfectly good count of milliseconds.
+    if (isDate) return v;
     var n = Number(v);
     return (v.trim() !== "" && !Number.isNaN(n)) ? n : v;
   }
@@ -413,7 +451,7 @@
         text = await response.text();
       }
 
-      var values = parseData(text, node.url, node.format);
+      var values = parseData(text, node.url, node.format, dateColumns(spec, node.format));
       notes.push(node.url + " — " + values.length + " rows, "
         + (ours ? "from this page's own stand-in data (invented numbers, real column names)"
                 : "fetched from " + DATA_BASE));

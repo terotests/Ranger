@@ -60,6 +60,18 @@ class VlScale {
     ; Whether those values are a RAMP rather than a list: a continuous scheme
     ; handed to an ordinal scale is sampled along, not taken in turn.
     def rampRange:boolean false
+    ; A DISCRETIZING scale cuts a number into bands and answers one output per
+    ; band: `quantize` cuts the domain into equal pieces, `quantile` cuts the
+    ; DATA into pieces with the same number of readings in each, and
+    ; `threshold` is told where to cut. All three are the same lookup once the
+    ; cuts are known, so only the cutting differs.
+    def thresholds:[double]
+    ; The outputs of a discretizing scale when they are numbers rather than
+    ; colours — the sizes a bubble takes, one per band.
+    def rangeNumbers:[double]
+    ; Every reading, for a `quantile` scale: it cuts the DATA rather than the
+    ; domain, so it needs the readings themselves and not their extent.
+    def sampleValues:[double]
     ; Where the middle of the range sits in the domain, when the chart said.
     def domainMid:double 0.0
     def hasDomainMid:boolean false
@@ -361,7 +373,51 @@ class VlScale {
         return ((value - domainMin) / span)
     }
 
+    ; What one BAND answers. Where the outputs came from a scheme it is the
+    ; scheme sampled once per band; where they were listed it is the entry that
+    ; band names.
+    fn bandColourAt:string (band:int) {
+        def bands:int (this.bandCount())
+        if rampRange {
+            return (this.colourAt(((to_double (band + 1)) / (to_double (bands + 1)))))
+        }
+        def n:int (array_length rangeValues)
+        if (n == 0) {
+            return ""
+        }
+        def at:int band
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            at = 0
+        }
+        return (itemAt rangeValues at)
+    }
+
+    fn bandNumberAt:double (band:int) {
+        def n:int (array_length rangeNumbers)
+        if (n == 0) {
+            return 0.0
+        }
+        def at:int band
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            at = 0
+        }
+        return (itemAt rangeNumbers at)
+    }
+
     fn mapNumber:double (value:double) {
+        ; A discretizing scale whose outputs are numbers answers the one its
+        ; band names, not a point on a line.
+        if (this.isDiscretizing()) {
+            if ((array_length rangeNumbers) > 0) {
+                return (this.bandNumberAt((to_int (this.bandOf(value)))))
+            }
+        }
         def t:double (this.fraction(value))
         if clamp {
             if (t < 0.0) {
@@ -389,6 +445,65 @@ class VlScale {
     ; piecewise and in plain RGB, one segment per pair of adjacent colours —
     ; and rounds each channel, so `rgb(94, 192, 191)` is arrived at rather than
     ; approached.
+    ; How far along the ramp a value is. This is NOT `fraction`, and the
+    ; difference is one bit: a POSITION scale divides by the span, and a
+    ; sequential COLOUR scale multiplies by one over it. The two disagree in
+    ; the last place, and a channel that lands on a half then rounds the other
+    ; way — thirteen of three hundred and sixty-one wind directions came out a
+    ; count off in one channel, which is invisible and wrong.
+    fn rampFraction:double (value:double) {
+        if hasDomainMid {
+            return (this.fraction(value))
+        }
+        def lo:double domainMin
+        def hi:double domainMax
+        def at:double value
+        if (this.isLog()) {
+            if (value <= 0.0) {
+                return 0.0
+            }
+            lo = (VlMath.ln(domainMin))
+            hi = (VlMath.ln(domainMax))
+            at = (VlMath.ln(value))
+        } {
+            if (this.isPow()) {
+                lo = (this.powTransform(domainMin))
+                hi = (this.powTransform(domainMax))
+                at = (this.powTransform(value))
+            }
+        }
+        if (hi == lo) {
+            return 0.5
+        }
+        def reciprocal:double (1.0 / (hi - lo))
+        return ((at - lo) * reciprocal)
+    }
+
+    ; Whether this scale answers in BANDS rather than continuously.
+    fn isDiscretizing:boolean () {
+        return (((scaleType == "quantize") || (scaleType == "quantile")) || (scaleType == "threshold"))
+    }
+
+    ; Which band a number falls in: the count of cuts at or below it, which is
+    ; what makes the first band everything under the first cut and the last
+    ; everything from the last cut up.
+    fn bandOf:double (value:double) {
+        def n:int (array_length thresholds)
+        def k:int 0
+        while (k < n) {
+            if (value < (itemAt thresholds k)) {
+                return (to_double k)
+            }
+            k = (k + 1)
+        }
+        return (to_double n)
+    }
+
+    ; How many bands there are, which is one more than the number of cuts.
+    fn bandCount:int () {
+        return ((array_length thresholds) + 1)
+    }
+
     fn mapRamp:string (value:double) {
         def n:int (array_length rangeValues)
         if (n == 0) {
@@ -397,7 +512,14 @@ class VlScale {
         if (n == 1) {
             return (itemAt rangeValues 0)
         }
-        return (this.colourAt((this.fraction(value))))
+        ; A band answers ONE colour, and where the outputs came from a scheme
+        ; it is the scheme sampled once per band — the same (i+1)/(n+1) an
+        ; ordinal scale samples by, which keeps both ends of a ramp out of the
+        ; picture where they are nearly black and nearly white.
+        if (this.isDiscretizing()) {
+            return (this.bandColourAt((to_int (this.bandOf(value)))))
+        }
+        return (this.colourAt((this.rampFraction(value))))
     }
 
     ; The colour a fraction of the way along the ramp, mixed in plain RGB one

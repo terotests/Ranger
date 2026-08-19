@@ -156,6 +156,44 @@ class PathBuilder {
     ; is filled and stroked once. That is the difference between a chart with
     ; forty gridlines as forty elements and one with a single gridline path.
 
+    ; Turn everything built so far about a point. A symbol that carries an
+    ; angle — a wind vector, an arrow along a route — is the same shape drawn
+    ; the same way and then rotated, and doing it to the GEOMETRY rather than
+    ; in a renderer's transform means every target draws it turned: SVG, PDF,
+    ; the raster and the GPU all read the commands and none of them read a
+    ; transform attribute.
+    fn rotateAbout:void (cx:double cy:double degrees:double) {
+        if (degrees == 0.0) {
+            return
+        }
+        def rad:double (degrees * 0.017453292519943295)
+        def c:double (cos rad)
+        def s:double (sin rad)
+        def n:int (array_length commands)
+        def k:int 0
+        while (k < n) {
+            def one:PathCommand (itemAt commands k)
+            k = (k + 1)
+            def px:double (one.x - cx)
+            def py:double (one.y - cy)
+            one.x = (cx + ((px * c) - (py * s)))
+            one.y = (cy + ((px * s) + (py * c)))
+            def p1x:double (one.x1 - cx)
+            def p1y:double (one.y1 - cy)
+            one.x1 = (cx + ((p1x * c) - (p1y * s)))
+            one.y1 = (cy + ((p1x * s) + (p1y * c)))
+            def p2x:double (one.x2 - cx)
+            def p2y:double (one.y2 - cy)
+            one.x2 = (cx + ((p2x * c) - (p2y * s)))
+            one.y2 = (cy + ((p2x * s) + (p2y * c)))
+            ; An elliptical arc keeps its radii and turns its own axis with
+            ; the rest of the shape.
+            if (one.type == "A") {
+                one.rotation = (one.rotation + degrees)
+            }
+        }
+    }
+
     fn addCommands:void (cmds:[PathCommand]) {
         def n:int (array_length cmds)
         def k:int 0

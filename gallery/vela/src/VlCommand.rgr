@@ -647,6 +647,12 @@ class VlSceneCommands {
             if (item.has("shape")) {
                 cmd.shape = (item.text("shape"))
             }
+            ; A symbol may be TURNED — a wind vector points where the wind
+            ; goes — and the angle belongs to the shape rather than to the
+            ; text it shares the property name with.
+            if (item.has("angle")) {
+                cmd.angle = (item.number("angle"))
+            }
         }
         if (mark.markType == "path") {
             cmd.op = "path"

@@ -501,7 +501,7 @@ class VlEvgWriter {
             return
         }
         if (cmd.op == "symbol") {
-            VlShape.appendSymbol(builder cmd.shape cmd.size (cmd.x + ox) (cmd.y + oy))
+            VlShape.appendSymbolTurned(builder cmd.shape cmd.size (cmd.x + ox) (cmd.y + oy) cmd.angle)
             return
         }
         if ((cmd.op == "polyline") || (cmd.op == "polygon")) {

@@ -127,7 +127,57 @@ export const DIFFICULT = {
     + 'divided at the end: the two are different numbers in floating point and '
     + 'an R-squared printed to two places lands either side of a rounding. The '
     + 'line itself is sampled at twenty-five even steps across the range of x, '
-    + 'which is where the reference stops refining a curve that is straight'
+    + 'which is where the reference stops refining a curve that is straight',
+
+  geo_circle:
+    'a projection is a page of constants and a convention about the order the '
+    + 'rotation, the centring and the scaling are applied in — and albersUsa '
+    + 'is not one projection but three, each with a rectangle, so that Alaska '
+    + 'and Hawaii sit in the corner of a map of the mainland. Only the '
+    + 'constants can be read off a formula; the convention had to be measured '
+    + 'against d3 point by point, which is what tools/reference/geo.mjs does',
+
+  point_angle_windvector:
+    'four thousand eight hundred wedges on an equal-area projection, each '
+    + 'turned by the wind it stands for. Three separate things had to be true '
+    + 'at once: a turned symbol is MEASURED turned, or the page reserves the '
+    + 'wrong room round it; a key is spaced by the ink of the shape it draws '
+    + 'and not by a circle of the same area, because a wedge points; and a '
+    + 'sequential colour scale multiplies by one over the span where a '
+    + 'position scale divides by it — one bit apart, and thirteen of three '
+    + 'hundred and sixty-one wind directions round the other way',
+
+  concat_bar_scales_discretize:
+    'three scales that answer in BANDS rather than continuously, and every '
+    + 'number about them read off vega rather than guessed at: how many bands '
+    + 'a scheme means when nothing says (five, except four for a size), where '
+    + 'a quantile cuts, and that a key for a banded scale is one row per band '
+    + 'labelled by the cuts. Two channels reading one column are also one key '
+    + 'and not two — folded by TITLE they stayed apart, because a chart that '
+    + 'titles its colours and leaves its sizes to the column name does not '
+    + 'call them the same thing',
+
+  facet_bullet:
+    'a trellis may resolve a scale INDEPENDENTLY, and then the scale is not '
+    + 'the only thing that moves into the panel: the rows it measures go with '
+    + 'it — re-derived from that panel\'s partition — and so does the axis '
+    + 'that labels it, so there is no strip of axes under the trellis at all. '
+    + 'A bar with nothing on the other axis is the other half: it has no band '
+    + 'to sit in, so it crosses the whole panel, centred, as thick as the '
+    + 'panel unless the mark says otherwise',
+
+  interactive_index_chart:
+    'a selection that nobody can touch still HAS a state — the one its '
+    + 'initial value put it in — and that is the frame the reference draws '
+    + 'too. Three things follow: a point selection names its fields by '
+    + 'CHANNEL where the parameter said which channels it selects on, so '
+    + '{"x": …} is the column the x axis reads and not a column called "x"; a '
+    + 'date written as its parts is the instant those parts name, read in the '
+    + 'chart\'s own time zone; and a lookup against the selection is a lookup '
+    + 'against the chart\'s own rows cut down to it, writing what it found '
+    + 'under the selection\'s name — unnamed, the chart found its baseline '
+    + 'row and could not say so, and every line came out flat along nought '
+    + 'per cent'
 };
 
 /** The names, in the order they were won. */

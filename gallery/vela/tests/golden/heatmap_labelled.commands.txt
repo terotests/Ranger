@@ -87,7 +87,7 @@ rect x=198 y=25.6 w=16 h=1.6 fill=rgb(34, 92, 167)
 rect x=198 y=24 w=16 h=1.6 fill=rgb(34, 85, 163)
 rect x=198 y=22.4 w=16 h=1.6 fill=rgb(35, 78, 160)
 rect x=198 y=20.8 w=16 h=1.6 fill=rgb(35, 71, 156)
-rect x=198 y=19.2 w=16 h=1.6 fill=rgb(33, 65, 150)
+rect x=198 y=19.2 w=16 h=1.6 fill=rgb(33, 66, 150)
 rect x=198 y=17.6 w=16 h=1.6 fill=rgb(32, 60, 145)
 rect x=198 y=16 w=16 h=1.6 fill=rgb(30, 55, 139)
 text x=216 y=80 size=10 align=left text=19 fill=#000

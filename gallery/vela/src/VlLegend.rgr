@@ -29,11 +29,18 @@ Import "VlJson.rgr"
 Import "VlScale.rgr"
 Import "VlScene.rgr"
 Import "VlText.rgr"
+Import "VlFormat.rgr"
 Import "VlBounds.rgr"
+Import "VlViewBox.rgr"
 
 ; One row of the legend: the value it stands for, the text beside it, and the
 ; channels the scales mapped for it.
 class VlLegendEntry {
+    ; A BANDED scale's first entry stands for everything under the first cut,
+    ; and it has no value of its own: the reference writes null there. Every
+    ; channel of that row is the scale's answer for its first band, whatever
+    ; each scale's own cuts happen to be.
+    def below:boolean false
     def value:VlJson (new VlJson)
     def label:string ""
     ; The symbol's area, from the size scale when there is one.
@@ -92,6 +99,8 @@ class VlLegend {
     def gradientStrokeColor:string "#ddd"
     def gradientStrokeWidth:double 0.0
     def gradientLabelOffset:double 2.0
+    ; How a legend's numbers are written, where the chart said.
+    def labelFormat:string ""
 
     ; --- what the spec asked for ---------------------------------------------
     ; channel -> scale, for the channels this legend encodes. The channel that
@@ -168,6 +177,7 @@ class VlLegend {
         titleLimit = (ldef.doubleOr("titleLimit" titleLimit))
         titleOrient = (ldef.stringOr("titleOrient" titleOrient))
         symbolLimit = (ldef.intOr("symbolLimit" symbolLimit))
+        labelFormat = (ldef.stringOr("format" labelFormat))
         gradientLength = (ldef.doubleOr("gradientLength" gradientLength))
         gradientThickness = (ldef.doubleOr("gradientThickness" gradientThickness))
         gradientStrokeColor = (ldef.stringOr("gradientStrokeColor" gradientStrokeColor))
@@ -216,6 +226,35 @@ class VlLegend {
             }
             return out
         }
+        ; A scale that answers in BANDS has one entry per band, and the entries
+        ; are named by the cuts rather than by the values: everything under the
+        ; first cut, then each stretch between two, then everything from the
+        ; last cut up.
+        if (sc.isDiscretizing()) {
+            def cuts:int (array_length sc.thresholds)
+            def bi:int 0
+            while (bi <= cuts) {
+                def be (new VlLegendEntry())
+                if (bi == 0) {
+                    be.below = true
+                    be.value = (VlJson.nullValue())
+                    if (cuts > 0) {
+                        be.label = ("< " + (this.numberLabel((itemAt sc.thresholds 0))))
+                    }
+                } {
+                    be.value = (VlJson.numberValue((itemAt sc.thresholds (bi - 1))))
+                    def from:string (this.numberLabel((itemAt sc.thresholds (bi - 1))))
+                    if (bi == cuts) {
+                        be.label = ("≥ " + from)
+                    } {
+                        be.label = ((from + " – ") + (this.numberLabel((itemAt sc.thresholds bi))))
+                    }
+                }
+                push out be
+                bi = (bi + 1)
+            }
+            return out
+        }
         def values:[double] (sc.ticks(5))
         def labels:[string] (VlScale.tickLabels(values))
         for values v:double idx {
@@ -227,9 +266,33 @@ class VlLegend {
         return out
     }
 
+    ; One number as a legend writes it: the way the chart asked, or the way a
+    ; tick is written when it did not.
+    fn numberLabel:string (v:double) {
+        if ((strlen labelFormat) > 0) {
+            return (VlFormat.apply(v labelFormat))
+        }
+        return (VlScale.tickLabel(v))
+    }
+
     ; What a scale answers for one entry, as the channel wants it: a colour or a
     ; shape name from an ordinal range, a number from a continuous one.
-    fn channelValue:VlJson (channel:string sc:VlScale value:VlJson) {
+    fn channelValue:VlJson (channel:string sc:VlScale value:VlJson below:boolean) {
+        ; A BANDED scale answers by band, and whether that answer is a number
+        ; or a colour is decided by what its outputs are rather than by its
+        ; type. Read as a number, a quantize scale's fill came out as a
+        ; quantity nothing can paint with and every symbol of the key was
+        ; drawn with no colour at all — which is to say not drawn.
+        if (sc.isDiscretizing()) {
+            def band:int 0
+            if (! below) {
+                band = (to_int (sc.bandOf((value.asDouble()))))
+            }
+            if ((array_length sc.rangeNumbers) > 0) {
+                return (VlJson.numberValue((sc.bandNumberAt(band))))
+            }
+            return (VlJson.stringValue((sc.bandColourAt(band))))
+        }
         if (sc.scaleType == "ordinal") {
             return (VlJson.stringValue((sc.mapOrdinal(value))))
         }
@@ -350,7 +413,11 @@ class VlLegend {
             push row.marks symbolMark
             push row.marks labelMark
 
-            def box:VlBounds (VlBounds.ofSymbol(sx sy (e.item.number("size")) (e.item.number("strokeWidth")) (e.item.has("stroke")) (e.item.text("shape"))))
+            ; Measured from the SHAPE, not from a circle of the same area. A
+            ; wedge points: two thirds of it stands above its own origin and a
+            ; third below, so a key of wedges spaced as if they were dots came
+            ; out ten pixels long by its last row.
+            def box:VlBounds (VlViewBox.ofItem("symbol" e.item))
             box.union((VlBounds.ofText((e.labelItem.text("text")) (e.labelItem.number("fontSize")) (e.labelItem.text("align")) (e.labelItem.text("baseline")) (e.labelItem.number("x")) sy)))
             push boxes box
         }
@@ -622,7 +689,7 @@ class VlLegend {
             for channelOrder channel:string ci {
                 if (has scales channel) {
                     def sc:VlScale (this.scaleFor(channel))
-                    item.setValue(channel (this.channelValue(channel sc e.value)))
+                    item.setValue(channel (this.channelValue(channel sc e.value e.below)))
                 }
             }
             VlLegend.applyEncode(item symbolsEncode)
