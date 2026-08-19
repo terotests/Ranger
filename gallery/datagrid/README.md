@@ -46,6 +46,21 @@ npm run datagrid:window
 `datagrid:window` rebuilds the module and opens the WebGL host. **Default workbook is
 `business-workbook.xlsx`** (not the old `sales.xlsx`).
 
+### The render seam, and why the browser asks so often
+
+The host holds the document; the browser is a renderer. Every frame it asks
+`GET /scene.json` for the app's **EVG display list** and draws it with WebGL —
+that is the whole render path, and it is why the network panel shows a request
+per animation frame.
+
+It asks that often because it cannot know when the app changed: nothing pushes.
+So the client sends the number of the scene it already holds
+(`/scene.json?seen=N`) and a scene that has not changed answers **204** instead
+of the list. The scene is still built on every poll — that is what makes the
+caret blink and a drag follow the pointer — but an idle page now transfers
+nothing and redraws nothing, instead of pulling tens of kilobytes sixty times a
+second and re-uploading a picture it had already drawn.
+
 - Multi-sheet workbook + tabs (hidden sheet metadata)
 - styles.xml → fill / font / align / **XlsxNumberFormat** engine
 - **Cell borders**: all OOXML line styles per edge (solid, dashed, dotted,

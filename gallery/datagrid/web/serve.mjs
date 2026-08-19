@@ -95,6 +95,10 @@ const KEY = {
 // (which translates relative refs) is still the right one to run.
 let lastExportedTsv = "";
 let lastClipboardSeq = 0;
+// The last scene handed out, and a number for it. Unchanged scenes are not
+// sent again — see the /scene.json route.
+let lastSceneBody = "";
+let sceneSeq = 0;
 
 let lastX = 80;
 let lastY = 80;
@@ -237,11 +241,29 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // The render seam: the app's display list, as JSON, for the browser to draw
+  // with WebGL. The client asks once per animation frame — it has no way to
+  // know the app changed — so most of those frames are the same scene as the
+  // last one. `?seen=<n>` says which one the client already has, and an
+  // unchanged scene answers 204 instead of resending 50 KB sixty times a
+  // second. The scene is still BUILT every time: that is what makes the caret
+  // blink and a drag follow the pointer.
   if (url.pathname === "/scene.json") {
     const body = sceneBody();
+    if (body !== lastSceneBody) {
+      lastSceneBody = body;
+      sceneSeq += 1;
+    }
+    const seen = parseInt(url.searchParams.get("seen") || "-1", 10);
+    if (seen === sceneSeq) {
+      res.writeHead(204, { "x-scene-seq": String(sceneSeq), "cache-control": "no-store" });
+      res.end();
+      return;
+    }
     res.writeHead(200, {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
+      "x-scene-seq": String(sceneSeq),
     });
     res.end(body);
     return;
