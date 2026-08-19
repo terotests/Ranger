@@ -35,6 +35,15 @@ class GridApp {
     def view:GridView (new GridView)
     def W:int 900
     def H:int 560
+    ; What the app would like its HOST to do about a file, and nothing more.
+    ; Opening a picker is the one thing this class cannot do for itself: it
+    ; does not know whether it is in a browser, a window, or on the end of a
+    ; socket, and each of those answers differently. So `file.open` and
+    ; `file.saveAs` only say what is wanted — "open" or "saveAs" — and whoever
+    ; is hosting reads it, does the platform's part, and clears it.
+    ; A host that ignores it loses nothing: Ctrl+S still writes beside the
+    ; source file, as it always did.
+    def fileRequest:string ""
     def statusH:int 22
     def editing:boolean false
     def editBuf:string ""
@@ -278,7 +287,9 @@ class GridApp {
             return
         }
         commandsReady = true
+        commands.add("file.open" "Open a workbook…" "File" "Ctrl+O")
         commands.add("file.save" "Save as .xlsx" "File" "Ctrl+S")
+        commands.add("file.saveAs" "Save a copy as…" "File" "Ctrl+Shift+S")
         commands.add("edit.undo" "Undo" "Edit" "Ctrl+Z")
         commands.add("edit.redo" "Redo" "Edit" "Ctrl+Y")
         commands.add("edit.copy" "Copy" "Edit" "Ctrl+C")
@@ -399,6 +410,16 @@ class GridApp {
         }
         if editing {
             this.commitEdit()
+        }
+        if (id == "file.open") {
+            fileRequest = "open"
+            view.status = "open a workbook…"
+            return true
+        }
+        if (id == "file.saveAs") {
+            fileRequest = "saveAs"
+            view.status = "save a copy as…"
+            return true
         }
         if (id == "file.save") {
             return (this.saveXlsxDefault())
@@ -616,6 +637,29 @@ class GridApp {
             return "."
         }
         return (substring source 0 cut)
+    }
+
+    ; The file part of a path, as written. `exportName` below is a different
+    ; question — what to call a copy — and answering both with one function is
+    ; how a "save as" ends up writing `sheet-export.xlsx` when the person
+    ; typed `sheet.xlsx`.
+    sfn baseName:string (source:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen source)) {
+            if ((charAt source i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        def file:string source
+        if (cut >= 0) {
+            file = (substring source (cut + 1) (strlen source))
+        }
+        if ((strlen file) == 0) {
+            return "workbook.xlsx"
+        }
+        return file
     }
 
     sfn exportName:string (source:string) {
@@ -4166,7 +4210,19 @@ class GridApp {
                     this.openValidationDialog()
                 }
                 if ((ch == 115) || (ch == 83)) {
-                    this.saveXlsxDefault()
+                    ; Ctrl+S writes beside the file it came from; add Shift and
+                    ; the host is asked where to put it instead.
+                    if input.shiftDown {
+                        this.runCommand("file.saveAs" "")
+                    } {
+                        this.saveXlsxDefault()
+                    }
+                }
+                if ((ch == 111) || (ch == 79)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.runCommand("file.open" "")
                 }
                 ; Ctrl+M makes a chart of the selection. Excel's own chart
                 ; keys (F11, Alt+F1) are not keys this input layer carries, and

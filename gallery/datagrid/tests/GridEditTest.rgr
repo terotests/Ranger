@@ -1645,6 +1645,54 @@ class GridEditTest {
         def clearSt:CellStyle (tb.model.getCellStyle(4 1))
         c.ok("everything is plain again" ((clearSt.hasFill == false) && (clearSt.align == "left")))
 
+        print "== opening and saving: what the app asks its host for =="
+        ; The app cannot open a file picker — it does not know whether it is in
+        ; a browser, a window, or on the end of a socket. So it says what it
+        ; wants and the host answers. Everything below the picker is the same
+        ; code either way, which is why it can be checked here.
+        c.eqStr("nothing is wanted to begin with" tb.fileRequest ""
+        )
+        c.ok("Open asks" (tb.runCommand("file.open" "")))
+        c.eqStr("and says what for" tb.fileRequest "open"
+        )
+        tb.fileRequest = ""
+        c.ok("Save a copy asks too" (tb.runCommand("file.saveAs" "")))
+        c.eqStr("with its own answer" tb.fileRequest "saveAs"
+        )
+        tb.fileRequest = ""
+        ; Ctrl+O, through the keyboard rather than the button.
+        def ok (new UIInput)
+        ok.newFrame()
+        ok.setModifiers(false true)
+        ok.pushText("o")
+        tb.update(ok)
+        c.eqStr("Ctrl+O asks to open" tb.fileRequest "open"
+        )
+        tb.fileRequest = ""
+        ; Ctrl+S still writes beside the source; Ctrl+Shift+S asks instead.
+        def sh (new UIInput)
+        sh.newFrame()
+        sh.setModifiers(true true)
+        sh.pushText("s")
+        tb.update(sh)
+        c.eqStr("Ctrl+Shift+S asks where to put a copy" tb.fileRequest "saveAs"
+        )
+        tb.fileRequest = ""
+
+        print "-- and the path a chosen target splits into --"
+        ; A "save as" writes what the person typed, not a name with `-export`
+        ; bolted on — that is a different question with a different answer.
+        c.eqStr("the folder" (GridApp.exportDir("/Users/tero/Docs/Kassa 2011.xlsx")) "/Users/tero/Docs"
+        )
+        c.eqStr("the file, as written" (GridApp.baseName("/Users/tero/Docs/Kassa 2011.xlsx")) "Kassa 2011.xlsx"
+        )
+        c.eqStr("a bare name is its own file" (GridApp.baseName("book.xlsx")) "book.xlsx"
+        )
+        c.eqStr("and a folder is still where it goes" (GridApp.exportDir("book.xlsx")) "."
+        )
+        c.eqStr("a copy is named apart from its source" (GridApp.exportName("/tmp/Kassa.xlsx")) "Kassa-export.xlsx"
+        )
+
         print "== merge and freeze from the toolbar =="
         GridEditTest.selectRange(tb 8 0 8 2)
         c.ok("merge" (tb.runCommand("format.merge" "")))

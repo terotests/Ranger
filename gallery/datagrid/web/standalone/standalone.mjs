@@ -182,7 +182,25 @@ async function draw() {
   redraws += 1;
 }
 
+/** The app asks the HOST to open a picker — it does not know it is in a tab.
+ *  In a window that is a system dialog; here it is the file input already on
+ *  the page, and for "save as" the browser's own download. Same button, same
+ *  command, whichever it is running in. */
+function serveFileRequest() {
+  const want = web.takeFileRequest();
+  if (!want) return;
+  if (want === "open") {
+    fileEl?.click();
+    return;
+  }
+  if (want === "saveAs") {
+    // A page cannot choose where a file goes; it can only hand one over.
+    statusEl.textContent = "use the browser's download for a copy";
+  }
+}
+
 async function afterInput() {
+  serveFileRequest();
   await draw();
   await maybeCopy();
 }

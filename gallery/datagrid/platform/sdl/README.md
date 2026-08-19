@@ -20,6 +20,40 @@ SoftCanvas is used only to rasterize **text runs into an atlas** (the WebGL host
 uses Canvas2D for that). The page itself is not blitted as a bitmap — that was
 what distorted on Retina.
 
+## Window points, everywhere but the viewport
+
+There are two coordinate spaces on a Retina screen and only one of them belongs
+in the app. The page is laid out, hit-tested and projected in **window points**;
+the **drawable** is twice that on a Retina display and is used for exactly two
+things — the GL viewport, and the scale the text atlas is rasterized at.
+
+SDL reports the pointer in window points, so there is nothing to convert. There
+used to be a conversion anyway, dividing the pointer by the drawable ratio; on a
+Retina screen that put every click half way towards the top-left corner of the
+window — a couple of hundred pixels out by the middle of a spreadsheet, and
+worse the further from the origin you clicked.
+
+The window size is also asked for every frame rather than remembered from
+`dgfx_open`: the size a window is created with is a request, and the corner can
+be dragged afterwards. `dgfx_window_width` / `_height` call `SDL_GetWindowSize`;
+`dgfx_drawable_width` / `_height` call `SDL_GL_GetDrawableSize`. They are
+different numbers and mixing them is this whole class of bug.
+
+## Opening and saving
+
+`Ctrl+O` and the folder button open a workbook; `Ctrl+S` writes beside the file
+it came from, and `Ctrl+Shift+S` asks where a copy should go.
+
+`GridApp` cannot open a picker — it does not know whether it is in a browser, a
+window, or on the end of a socket, and each of those answers differently. So it
+only says what it wants: `app.fileRequest` becomes `"open"` or `"saveAs"` and
+the host reads it, does the platform's part, and clears it. Here that is a real
+system dialog, asked for the way a shell script would ask — `osascript` on
+macOS, `zenity` or `kdialog` on Linux — so nothing extra is linked or installed
+for it. Where none of them answer, the picker returns nothing and the workbook
+already open is untouched. The browser page serves the same request with the
+file input it already had, so the button means the same thing in both.
+
 ## The one thing the two backends do not share
 
 The browser builds its text atlas with Canvas2D, where `clearRect` leaves the

@@ -291,8 +291,123 @@ static int dgfx_drawable_height() {
     SDL_GL_GetDrawableSize(g_dgfx_win, &w, &h);
     return h;
 }
-static int dgfx_window_width() { return g_dgfx_fb_w; }
-static int dgfx_window_height() { return g_dgfx_fb_h; }
+// --- native file dialogs -----------------------------------------------------
+//
+// A file picker is the one thing a portable app cannot draw for itself: the
+// list of places a person keeps their documents belongs to the system, and so
+// do the permissions to read them. Rather than link a toolkit for one dialog,
+// this asks the system the way a shell script would — `osascript` on macOS,
+// `zenity` or `kdialog` on Linux — and reads back a path. Nothing extra is
+// installed for it; if none of them answer, the picker returns nothing and the
+// app carries on with the workbook it already has.
+//
+// No backslash escapes anywhere below: this whole block lives inside a Ranger
+// string, so a character that needs escaping is written as its code instead.
+static std::string dgfx_run_capture(const std::string& cmd) {
+    FILE* pipe = popen(cmd.c_str(), \"r\");
+    if (pipe == nullptr) { return std::string(); }
+    std::string out;
+    char buf[512];
+    while (fgets(buf, (int)sizeof(buf), pipe) != nullptr) { out += buf; }
+    int rc = pclose(pipe);
+    if (rc != 0) { return std::string(); }
+    while (!out.empty() && (out.back() == 10 || out.back() == 13)) { out.pop_back(); }
+    return out;
+}
+
+static bool dgfx_have(const char* tool) {
+    std::string probe = std::string(\"command -v \") + tool + \" >/dev/null 2>&1\";
+    return system(probe.c_str()) == 0;
+}
+
+// Wrap in single quotes so the shell reads the text as one word. A quote of
+// its own is dropped rather than escaped — a file name containing one is not
+// worth a second quoting scheme, and dropping it can only fail to find a file,
+// never run something else.
+static std::string dgfx_shell_quote(const std::string& in) {
+    std::string out;
+    out += (char)39;
+    for (size_t i = 0; i < in.size(); i++) {
+        if (in[i] == (char)39) { continue; }
+        out += in[i];
+    }
+    out += (char)39;
+    return out;
+}
+
+// The same idea one level in: a literal inside the AppleScript that the shell
+// quoting above then wraps. A quote or a backslash in the text is dropped.
+static std::string dgfx_as_string(const std::string& in) {
+    std::string out;
+    out += (char)34;
+    for (size_t i = 0; i < in.size(); i++) {
+        if (in[i] == (char)34) { continue; }
+        if (in[i] == (char)92) { continue; }
+        out += in[i];
+    }
+    out += (char)34;
+    return out;
+}
+
+static std::string dgfx_pick_open_file(const std::string& title) {
+#if defined(__APPLE__)
+    std::string script = std::string(\"POSIX path of (choose file with prompt \")
+        + dgfx_as_string(title) + \" of type {\" + dgfx_as_string(\"xlsx\") + \"})\";
+    return dgfx_run_capture(\"osascript -e \" + dgfx_shell_quote(script) + \" 2>/dev/null\");
+#else
+    if (dgfx_have(\"zenity\")) {
+        return dgfx_run_capture(std::string(\"zenity --file-selection --title=\")
+            + dgfx_shell_quote(title)
+            + \" --file-filter=\" + dgfx_shell_quote(\"Workbooks | *.xlsx\")
+            + \" 2>/dev/null\");
+    }
+    if (dgfx_have(\"kdialog\")) {
+        return dgfx_run_capture(std::string(\"kdialog --getopenfilename . \")
+            + dgfx_shell_quote(\"*.xlsx|Workbooks\")
+            + \" --title \" + dgfx_shell_quote(title) + \" 2>/dev/null\");
+    }
+    return std::string();
+#endif
+}
+
+static std::string dgfx_pick_save_file(const std::string& title, const std::string& suggested) {
+#if defined(__APPLE__)
+    std::string script = std::string(\"POSIX path of (choose file name with prompt \")
+        + dgfx_as_string(title)
+        + \" default name \" + dgfx_as_string(suggested) + \")\";
+    return dgfx_run_capture(\"osascript -e \" + dgfx_shell_quote(script) + \" 2>/dev/null\");
+#else
+    if (dgfx_have(\"zenity\")) {
+        return dgfx_run_capture(std::string(\"zenity --file-selection --save --confirm-overwrite --title=\")
+            + dgfx_shell_quote(title)
+            + \" --filename=\" + dgfx_shell_quote(suggested) + \" 2>/dev/null\");
+    }
+    if (dgfx_have(\"kdialog\")) {
+        return dgfx_run_capture(std::string(\"kdialog --getsavefilename \")
+            + dgfx_shell_quote(suggested) + \" \" + dgfx_shell_quote(\"*.xlsx|Workbooks\")
+            + \" --title \" + dgfx_shell_quote(title) + \" 2>/dev/null\");
+    }
+    return std::string();
+#endif
+}
+
+// The window's size in POINTS — the space SDL reports the pointer in, and the
+// space the page is laid out in. It has to be ASKED for, every time: the size
+// the window was created with is only a request, and the user can drag the
+// corner afterwards. (g_dgfx_fb_* is not it — the old blit path overwrites
+// those with the DRAWABLE size, which on a Retina screen is twice as large.)
+static int dgfx_window_width() {
+    if (g_dgfx_win == nullptr) { return g_dgfx_fb_w; }
+    int w = 0, h = 0;
+    SDL_GetWindowSize(g_dgfx_win, &w, &h);
+    return w;
+}
+static int dgfx_window_height() {
+    if (g_dgfx_win == nullptr) { return g_dgfx_fb_h; }
+    int w = 0, h = 0;
+    SDL_GetWindowSize(g_dgfx_win, &w, &h);
+    return h;
+}
 
 static void dgfx_present(const uint8_t* pixels, int w, int h) {
     if (g_dgfx_win == nullptr || g_dgfx_glctx == nullptr || pixels == nullptr) { return; }
@@ -481,6 +596,23 @@ static void dgfx_close() {
         templates {
             cpp ( "SDL_Delay((Uint32)(" (e 1) "))" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
+        }
+    }
+
+    ; --- native file dialogs ---------------------------------------------------
+    ; Each returns the chosen path, or "" if the person cancelled or the system
+    ; has no picker to offer.
+    dgfx_pick_open_file _:string (title:string) {
+        templates {
+            cpp ( "dgfx_pick_open_file(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") )
+            es6 ( "\"\"" )
+        }
+    }
+
+    dgfx_pick_save_file _:string (title:string suggested:string) {
+        templates {
+            cpp ( "dgfx_pick_save_file(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") )
+            es6 ( "\"\"" )
         }
     }
 
