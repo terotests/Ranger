@@ -935,16 +935,33 @@ sfn stringIsBytes:boolean () {
 }
 ```
 
+The same split runs one level down, in what counts as *one character*.
+`EVGCodepoint` is where every measurement, wrap, kerning pass and rasterization
+asks where one character ends and the next begins, and it knew only the UTF-16
+answer: pair a surrogate, otherwise one unit is one character. Under the C++
+model that made "ä" two characters, so a workbook that had been loaded
+perfectly still **drew** as "HÃ¤meenlinna". It walks UTF-8 as well now, chosen
+by the same question, so the layer above it sees real characters on both.
+
 ```bash
-npm run datagrid:text:test
+npm run datagrid:text:test        # one test, compiled to JS and to C++
+npm run datagrid:render:parity    # one spreadsheet, drawn by both, compared
 ```
 
-That compiles one test **twice**, to JavaScript and to C++, and runs both: no
-amount of testing in one target can see a bug of this kind. It checks the entity
-decoder, UPPER / LOWER, a number format's literal text, and a whole workbook
-written out and read back, and it asserts the trap itself — that rebuilding a
-letter from `charAt` changes it where a string is bytes. The C++ half needs only
-a C++17 compiler and says so out loud when there is none.
+The first compiles one test **twice** and runs both: no amount of testing in one
+target can see a bug of this kind. It checks the entity
+decoder, UPPER / LOWER, a number format's literal text, character counting, and
+a whole workbook written out and read back, and it asserts the trap itself —
+that rebuilding a letter from `charAt` changes it where a string is bytes.
+
+The second draws `fixtures/accented-text.xlsx` — deliberately not ASCII: one-,
+two-, three- and four-byte characters, so every branch of a UTF-8 walk is
+exercised by simply drawing it — with **both** builds and requires the two PNGs
+to be identical byte for byte. That is the only check that would have caught the
+rendering half, because the text was already correct in memory by then.
+
+Both C++ halves need only a C++17 compiler and say so out loud when there is
+none.
 
 ## Recalculation: dependencies first, not sweeps
 
