@@ -124,7 +124,7 @@ npm run datagrid:sdl:smoke
 | --- | --- |
 | `path.xlsx` | Open workbook from disk (default: business-workbook fixture) |
 | `N` (integer) | Render N frames then exit (CI / smoke) |
-| `--save` | On exit, write beside the source via `saveXlsxDefault` |
+| `--save` | On exit, overwrite the open file via `saveXlsxDefaultSilent` |
 | `--demo` | Skip the default fixture and use the built-in demo sheet |
 
 Ctrl+S inside the window also saves (same as the WebGL host).
