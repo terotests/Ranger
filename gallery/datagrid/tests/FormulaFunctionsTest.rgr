@@ -116,9 +116,13 @@ class FormulaFunctionsTest {
         c.ok("catalog lists IFS" ((indexOf cat "IFS") >= 0))
         c.ok("catalog lists SUMIFS" ((indexOf cat "SUMIFS") >= 0))
         c.ok("catalog lists CHOOSE" ((indexOf cat "CHOOSE") >= 0))
+        c.ok("catalog lists XLOOKUP" ((indexOf cat "XLOOKUP") >= 0))
+        c.ok("catalog lists TEXTJOIN" ((indexOf cat "TEXTJOIN") >= 0))
         c.ok("SUMIFS known" (FormulaFunctions.isKnown("SUMIFS")))
         c.ok("COUNTIFS known" (FormulaFunctions.isKnown("COUNTIFS")))
         c.ok("CHOOSE known" (FormulaFunctions.isKnown("CHOOSE")))
+        c.ok("SWITCH known" (FormulaFunctions.isKnown("SWITCH")))
+        c.ok("FILTER known" (FormulaFunctions.isKnown("FILTER")))
 
         clear args
         push args (FormulaValue.fromNumber(2.0))
@@ -127,6 +131,36 @@ class FormulaFunctionsTest {
         push args (FormulaValue.fromString("c"))
         r = (FormulaFunctionsTest.invokeN("CHOOSE" args))
         c.eqStr("CHOOSE 2" r.text "b")
+
+        clear args
+        push args (FormulaValue.fromString("b"))
+        push args (FormulaValue.fromString("a"))
+        push args (FormulaValue.fromNumber(1.0))
+        push args (FormulaValue.fromString("b"))
+        push args (FormulaValue.fromNumber(2.0))
+        push args (FormulaValue.fromNumber(0.0))
+        r = (FormulaFunctionsTest.invokeN("SWITCH" args))
+        c.eqNum("SWITCH hit" r.num 2.0)
+
+        clear args
+        push args (FormulaValue.fromString(","))
+        push args (FormulaValue.fromBool(true))
+        push args (FormulaValue.fromString("a"))
+        push args (FormulaValue.fromString(""))
+        push args (FormulaValue.fromString("b"))
+        r = (FormulaFunctionsTest.invokeN("TEXTJOIN" args))
+        c.eqStr("TEXTJOIN skip empty" r.text "a,b")
+
+        clear args
+        push args (FormulaValue.fromString("abcdef"))
+        push args (FormulaValue.fromNumber(3.0))
+        push args (FormulaValue.fromNumber(2.0))
+        push args (FormulaValue.fromString("XY"))
+        r = (FormulaFunctionsTest.invokeN("REPLACE" args))
+        c.eqStr("REPLACE" r.text "abXYef")
+
+        r = (FormulaFunctionsTest.invokeN("NA" args))
+        c.eqStr("NA" r.err "#N/A")
 
         FormulaFunctionsTest.args2((FormulaValue.fromBool(true)) (FormulaValue.fromBool(true)) args)
         r = (FormulaFunctionsTest.invokeN("AND" args))

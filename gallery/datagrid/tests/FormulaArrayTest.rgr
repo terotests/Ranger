@@ -107,6 +107,41 @@ class FormulaArrayTest {
         c.eqStr("AVERAGEIFS" (FormulaArrayTest.cell(app 10 2)) "25")
         c.eqStr("CHOOSE picks the second" (FormulaArrayTest.cell(app 10 3)) "10")
 
+        print "== newer lookups and spills =="
+        FormulaArrayTest.formula(app 12 0 "XLOOKUP(\"south\",A1:A3,B1:B3)")
+        FormulaArrayTest.formula(app 12 1 "XLOOKUP(\"west\",A1:A3,B1:B3,\"missing\")")
+        FormulaArrayTest.formula(app 12 2 "TEXTJOIN(\"-\",TRUE,A1:A3)")
+        FormulaArrayTest.formula(app 12 3 "SWITCH(A1,\"north\",1,\"south\",2,0)")
+        app.engine.rebuildAll()
+        c.eqStr("XLOOKUP hit" (FormulaArrayTest.cell(app 12 0)) "20")
+        c.eqStr("XLOOKUP fallback" (FormulaArrayTest.cell(app 12 1)) "missing")
+        c.eqStr("TEXTJOIN range" (FormulaArrayTest.cell(app 12 2)) "north-south-east")
+        c.eqStr("SWITCH on a cell" (FormulaArrayTest.cell(app 12 3)) "1")
+
+        FormulaArrayTest.put(app 3 0 "north")
+        FormulaArrayTest.formula(app 28 0 "UNIQUE(A1:A4)")
+        app.engine.rebuildAll()
+        c.eqStr("UNIQUE first" (FormulaArrayTest.cell(app 28 0)) "north")
+        c.eqStr("UNIQUE second" (FormulaArrayTest.cell(app 29 0)) "south")
+        c.eqStr("UNIQUE third" (FormulaArrayTest.cell(app 30 0)) "east")
+        c.eqStr("UNIQUE no fourth duplicate" (FormulaArrayTest.cell(app 31 0)) "")
+
+        FormulaArrayTest.formula(app 33 0 "SORT(B1:B3)")
+        app.engine.rebuildAll()
+        c.eqStr("SORT ascending 1" (FormulaArrayTest.cell(app 33 0)) "10")
+        c.eqStr("SORT ascending 2" (FormulaArrayTest.cell(app 34 0)) "20")
+        c.eqStr("SORT ascending 3" (FormulaArrayTest.cell(app 35 0)) "30")
+
+        FormulaArrayTest.formula(app 0 3 "C1>=4")
+        FormulaArrayTest.formula(app 1 3 "C2>=4")
+        FormulaArrayTest.formula(app 2 3 "C3>=4")
+        FormulaArrayTest.formula(app 37 0 "FILTER(A1:B3,D1:D3)")
+        app.engine.rebuildAll()
+        c.eqStr("FILTER row1 name" (FormulaArrayTest.cell(app 37 0)) "south")
+        c.eqStr("FILTER row1 value" (FormulaArrayTest.cell(app 37 1)) "20")
+        c.eqStr("FILTER row2 name" (FormulaArrayTest.cell(app 38 0)) "east")
+        c.eqStr("FILTER row2 value" (FormulaArrayTest.cell(app 38 1)) "30")
+
         print "== arithmetic over a rectangle =="
         ; One cell asking for a rectangle keeps the top-left, as a spreadsheet
         ; does when a formula is not laid out.

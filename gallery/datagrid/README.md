@@ -465,11 +465,13 @@ Beyond the arithmetic, string and logic families, the notable ones are:
 
 | Family | Functions |
 | --- | --- |
-| Lookup | `VLOOKUP` `HLOOKUP` `INDEX` `MATCH` `CHOOSE` `TRANSPOSE` `SUMPRODUCT` |
+| Lookup | `VLOOKUP` `HLOOKUP` `XLOOKUP` `LOOKUP` `INDEX` `MATCH` `CHOOSE` `TRANSPOSE` `SUMPRODUCT` |
 | Conditional | `COUNTIF` `SUMIF` `AVERAGEIF` `COUNTIFS` `SUMIFS` `AVERAGEIFS` `COUNTBLANK` |
+| Dynamic arrays | `FILTER` `UNIQUE` `SORT` |
 | Dates | `DATE` `YEAR` `MONTH` `DAY` `WEEKDAY` `EDATE` `EOMONTH` `DAYS` `DATEVALUE` `TODAY` `NOW` |
 | Statistics | `MEDIAN` `LARGE` `SMALL` `ROUNDUP` `ROUNDDOWN` `TRUNC` |
-| Text | `SUBSTITUTE` `FIND` `SEARCH` `REPT` `PROPER` `EXACT` `CHAR` `CODE` `TEXT` |
+| Text | `SUBSTITUTE` `FIND` `SEARCH` `REPT` `PROPER` `EXACT` `CHAR` `CODE` `TEXT` `TEXTJOIN` `REPLACE` |
+| Logic | `IF` `IFS` `SWITCH` `AND` `OR` `XOR` `NOT` `IFERROR` `IFNA` `NA` |
 
 ### A range keeps its shape
 
