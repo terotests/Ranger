@@ -718,6 +718,36 @@ class GridView {
         }
     }
 
+    ; Column letter band. Painted once before the body and again after, so any
+    ; cell / row-number ink that ignored clip cannot sit on top of the letters.
+    fn paintColHeaders:void (dl:EVGDisplayList model:SpreadsheetModel grid:DataGrid bodyLeft:int headerTop:int vw:int) {
+        this.pushRect(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH) theme.headerBg)
+        this.pushClip(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH))
+        def hc:int grid.firstVisibleCol
+        while (hc <= grid.lastVisibleCol) {
+            def mc:int (grid.mapCol(hc))
+            def hx:int (grid.viewColScreenX(model hc))
+            def label:string (SpreadsheetModel.colLabel(mc))
+            if (model.sortCol == mc) {
+                if model.sortAsc {
+                    label = (label + " ^")
+                } {
+                    label = (label + " v")
+                }
+            }
+            if ((model.filterEnabled) && (model.filterCol == mc)) {
+                label = (label + " [#]")
+            }
+            def cw:int (model.colWidth(mc))
+            def lw:int (to_int (ctx.tr.measureWidth(label (fontSize * 0.9))))
+            def lx:int (hx + (to_int ((to_double (cw - lw)) / 2.0)))
+            this.pushText(dl label (to_double lx) (to_double (headerTop + 4)) (fontSize * 0.9) theme.headerText)
+            this.pushRect(dl (to_double (hx + cw - 1)) (to_double headerTop) 1.0 (to_double grid.colHeaderH) theme.gridLine)
+            hc = (hc + 1)
+        }
+        this.popClip(dl)
+    }
+
     ; The status bar's chart button. Static so the hit test and the paint read
     ; the same rectangle rather than two copies of it.
     sfn chartButtonW:int () {
@@ -781,33 +811,7 @@ class GridView {
         this.pushRect(dl (to_double grid.x) (to_double headerTop) (to_double grid.rowHeaderW) (to_double grid.colHeaderH) theme.cornerBg)
 
         ; column headers (VIEW cols → MODEL labels; ▼ when filter/sort active)
-        this.pushRect(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH) theme.headerBg)
-        this.pushClip(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH))
-        def hc:int grid.firstVisibleCol
-        while (hc <= grid.lastVisibleCol) {
-            def mc:int (grid.mapCol(hc))
-            def hr:GridRect (grid.cellRect(model 0 mc))
-            ; use view Y for header band; X from model col mapping
-            def hx:int (grid.viewColScreenX(model hc))
-            def label:string (SpreadsheetModel.colLabel(mc))
-            if (model.sortCol == mc) {
-                if model.sortAsc {
-                    label = (label + " ^")
-                } {
-                    label = (label + " v")
-                }
-            }
-            if ((model.filterEnabled) && (model.filterCol == mc)) {
-                label = (label + " [#]")
-            }
-            def cw:int (model.colWidth(mc))
-            def lw:int (to_int (ctx.tr.measureWidth(label (fontSize * 0.9))))
-            def lx:int (hx + (to_int ((to_double (cw - lw)) / 2.0)))
-            this.pushText(dl label (to_double lx) (to_double (headerTop + 4)) (fontSize * 0.9) theme.headerText)
-            this.pushRect(dl (to_double (hx + cw - 1)) (to_double headerTop) 1.0 (to_double grid.colHeaderH) theme.gridLine)
-            hc = (hc + 1)
-        }
-        this.popClip(dl)
+        this.paintColHeaders(dl model grid bodyLeft headerTop vw)
 
         ; row headers — show MODEL row numbers
         this.pushRect(dl (to_double grid.x) (to_double bodyTop) (to_double grid.rowHeaderW) (to_double vh) theme.headerBg)
@@ -818,10 +822,18 @@ class GridView {
             def rr:GridRect (grid.cellRect(model mr 0))
             def num:string (to_string (mr + 1))
             def rh:int (model.rowHeight(mr))
-            def nw:int (to_int (ctx.tr.measureWidth(num (fontSize * 0.85))))
-            def nx:int ((grid.x + grid.rowHeaderW) - nw - 6)
-            this.pushText(dl num (to_double nx) (to_double (rr.y + 3)) (fontSize * 0.85) theme.headerText)
-            this.pushRect(dl (to_double grid.x) (to_double (rr.y + rh - 1)) (to_double grid.rowHeaderW) 1.0 theme.gridLine)
+            ; Skip labels fully outside the body band — backends that ignore
+            ; clip commands would otherwise paint them over the col headers
+            ; or sheet tabs.
+            def bandBot:int (bodyTop + vh)
+            if ((rr.y + rh) > bodyTop) {
+                if (rr.y < bandBot) {
+                    def nw:int (to_int (ctx.tr.measureWidth(num (fontSize * 0.85))))
+                    def nx:int ((grid.x + grid.rowHeaderW) - nw - 6)
+                    this.pushText(dl num (to_double nx) (to_double (rr.y + 3)) (fontSize * 0.85) theme.headerText)
+                    this.pushRect(dl (to_double grid.x) (to_double (rr.y + rh - 1)) (to_double grid.rowHeaderW) 1.0 theme.gridLine)
+                }
+            }
             hr2 = (hr2 + 1)
         }
         this.popClip(dl)
@@ -1060,6 +1072,11 @@ class GridView {
         }
 
         this.popClip(dl)
+
+        ; Cover any body / row-header ink that spilled into the header band —
+        ; SoftCanvas and the GL host still ignore clip commands.
+        this.pushRect(dl (to_double grid.x) (to_double headerTop) (to_double grid.rowHeaderW) (to_double grid.colHeaderH) theme.cornerBg)
+        this.paintColHeaders(dl model grid bodyLeft headerTop vw)
 
         ; Live guide while dragging a header edge, so the drop position is visible.
         if (grid.resizingCol >= 0) {

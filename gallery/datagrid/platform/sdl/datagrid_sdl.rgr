@@ -104,7 +104,10 @@ class DataGridSdl {
         input.setPointerDown(down)
         def wy:int (dgfx_wheel)
         if (wy != 0) {
-            input.addScroll(wy)
+            ; SDL wheel Y (after FLIPPED normalize) is opposite the UIInput
+            ; convention (+up / -down) that GridApp and the web host share —
+            ; X already matches, so only invert vertical here.
+            input.addScroll((0 - wy))
         }
         def wx:int (dgfx_wheel_x)
         if (wx != 0) {

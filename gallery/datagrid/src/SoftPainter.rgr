@@ -14,9 +14,9 @@
 ; what you saw" true rather than hoped for.
 ;
 ; The kinds are EVG's, unchanged:
-;   0 RECT   1 BORDER   2 IMAGE   3 TEXT   6 PATH   7 STROKE
-; Clip commands (4/5) are the WebGL backend's business; the software path
-; renders them as the bounds they already are.
+;   0 RECT   1 BORDER   2 IMAGE   3 TEXT   4 PUSH_CLIP   5 POP_CLIP
+;   6 PATH   7 STROKE
+; SoftCanvas has no scissor, so clip commands intersect the draw calls here.
 ; ==============================================================================
 
 Import "GridImages.rgr"
@@ -36,6 +36,8 @@ class SoftPainter {
     def clipW:int 0
     def clipH:int 0
     def fontFamily:string "Open Sans"
+    ; Nested clip rectangles (x,y,w,h packed as four ints per level).
+    def clipStack:[int]
 
     Constructor () {
     }
@@ -47,6 +49,7 @@ class SoftPainter {
         images = im
         clipW = w
         clipH = h
+        clear clipStack
     }
 
     ; Paint onto a surface of this painter's own, sharing the caller's text
@@ -59,6 +62,137 @@ class SoftPainter {
         ctx.tr = tr
         clipW = w
         clipH = h
+        clear clipStack
+    }
+
+    fn pushClipRect:void (x:int y:int w:int h:int) {
+        def cx:int x
+        def cy:int y
+        def cw:int w
+        def ch:int h
+        if ((array_length clipStack) >= 4) {
+            def n:int (array_length clipStack)
+            def ox:int (itemAt clipStack (n - 4))
+            def oy:int (itemAt clipStack (n - 3))
+            def ow:int (itemAt clipStack (n - 2))
+            def oh:int (itemAt clipStack (n - 1))
+            def x1:int cx
+            if (ox > x1) {
+                x1 = ox
+            }
+            def y1:int cy
+            if (oy > y1) {
+                y1 = oy
+            }
+            def x2:int (cx + cw)
+            if ((ox + ow) < x2) {
+                x2 = (ox + ow)
+            }
+            def y2:int (cy + ch)
+            if ((oy + oh) < y2) {
+                y2 = (oy + oh)
+            }
+            cx = x1
+            cy = y1
+            cw = (x2 - x1)
+            ch = (y2 - y1)
+            if (cw < 0) {
+                cw = 0
+            }
+            if (ch < 0) {
+                ch = 0
+            }
+        }
+        push clipStack cx
+        push clipStack cy
+        push clipStack cw
+        push clipStack ch
+    }
+
+    fn popClipRect:void () {
+        def n:int (array_length clipStack)
+        if (n >= 4) {
+            removeLast clipStack
+            removeLast clipStack
+            removeLast clipStack
+            removeLast clipStack
+        }
+    }
+
+    fn hasClip:boolean () {
+        return ((array_length clipStack) >= 4)
+    }
+
+    fn clipX0:int () {
+        def n:int (array_length clipStack)
+        return (itemAt clipStack (n - 4))
+    }
+
+    fn clipY0:int () {
+        def n:int (array_length clipStack)
+        return (itemAt clipStack (n - 3))
+    }
+
+    fn clipX1:int () {
+        def n:int (array_length clipStack)
+        return ((itemAt clipStack (n - 4)) + (itemAt clipStack (n - 2)))
+    }
+
+    fn clipY1:int () {
+        def n:int (array_length clipStack)
+        return ((itemAt clipStack (n - 3)) + (itemAt clipStack (n - 1)))
+    }
+
+    ; Intersect a rect with the current clip; returns false if empty.
+    fn intersectClip:boolean (x:[int] y:[int] w:[int] h:[int]) {
+        if ((this.hasClip()) == false) {
+            return true
+        }
+        def x0:int (itemAt x 0)
+        def y0:int (itemAt y 0)
+        def x1:int (x0 + (itemAt w 0))
+        def y1:int (y0 + (itemAt h 0))
+        def cx0:int (this.clipX0())
+        def cy0:int (this.clipY0())
+        def cx1:int (this.clipX1())
+        def cy1:int (this.clipY1())
+        if (cx0 > x0) {
+            x0 = cx0
+        }
+        if (cy0 > y0) {
+            y0 = cy0
+        }
+        if (cx1 < x1) {
+            x1 = cx1
+        }
+        if (cy1 < y1) {
+            y1 = cy1
+        }
+        if ((x1 <= x0) || (y1 <= y0)) {
+            return false
+        }
+        set_at x 0 x0
+        set_at y 0 y0
+        set_at w 0 (x1 - x0)
+        set_at h 0 (y1 - y0)
+        return true
+    }
+
+    fn textInClip:boolean (x:int y:int size:double) {
+        if ((this.hasClip()) == false) {
+            return true
+        }
+        def h:int (to_int (size + 4.0))
+        if ((y + h) <= (this.clipY0())) {
+            return false
+        }
+        if (y >= (this.clipY1())) {
+            return false
+        }
+        if (x >= (this.clipX1())) {
+            return false
+        }
+        return true
     }
 
     fn raw:buffer () {
@@ -94,31 +228,74 @@ class SoftPainter {
     }
 
     fn draw:void (dl:EVGDisplayList) {
+        clear clipStack
         def i:int 0
         def n:int (dl.count())
         while (i < n) {
             def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 4) {
+                this.pushClipRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h))
+            }
+            if (c.kind == 5) {
+                this.popClipRect()
+            }
             if (c.kind == 0) {
-                def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) col)
+                def rx:[int]
+                def ry:[int]
+                def rw:[int]
+                def rh:[int]
+                push rx (to_int c.x)
+                push ry (to_int c.y)
+                push rw (to_int c.w)
+                push rh (to_int c.h)
+                if (this.intersectClip(rx ry rw rh)) {
+                    def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                    ctx.fillRect((itemAt rx 0) (itemAt ry 0) (itemAt rw 0) (itemAt rh 0) col)
+                }
             }
             if (c.kind == 1) {
-                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
+                def bx:[int]
+                def by:[int]
+                def bw:[int]
+                def bh:[int]
+                push bx (to_int c.x)
+                push by (to_int c.y)
+                push bw (to_int c.w)
+                push bh (to_int c.h)
+                if (this.intersectClip(bx by bw bh)) {
+                    def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                    ctx.strokeRect((itemAt bx 0) (itemAt by 0) (itemAt bw 0) (itemAt bh 0) (to_int c.thickness) col2)
+                }
             }
             if (c.kind == 3) {
-                def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
-                if (c.rotate == 0.0) {
-                    ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
-                } {
-                    ctx.textRotated(c.text (to_int c.x) (to_int c.y) c.fontSize col3 c.rotate)
+                if (this.textInClip((to_int c.x) (to_int c.y) c.fontSize)) {
+                    def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                    this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
+                    if (c.rotate == 0.0) {
+                        ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                    } {
+                        ctx.textRotated(c.text (to_int c.x) (to_int c.y) c.fontSize col3 c.rotate)
+                    }
                 }
             }
             if (c.kind == 2) {
                 def entry:DecodedImage (images.cached(c.src))
                 if entry.ok {
-                    images.blitScaled(canvas entry.img (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) 0 0 clipW clipH)
+                    def ix:int (to_int c.x)
+                    def iy:int (to_int c.y)
+                    def iw:int (to_int c.w)
+                    def ih:int (to_int c.h)
+                    def destW:int clipW
+                    def destH:int clipH
+                    if (this.hasClip()) {
+                        destW = (this.clipX1())
+                        destH = (this.clipY1())
+                        if (ix < (this.clipX0())) {
+                            ; blitScaled clips to dest origin 0,0 — shift via
+                            ; destination bounds only when clip starts at 0.
+                        }
+                    }
+                    images.blitScaled(canvas entry.img ix iy iw ih 0 0 destW destH)
                 } {
                     ; A picture that could not be decoded is drawn as its own
                     ; outline with the reason in it, rather than as nothing.
