@@ -99,7 +99,9 @@ brew install sdl2
 # Xcode / Command Line Tools for clang++ and OpenGL.framework
 ```
 
-Linux: `libsdl2-dev` and `libGL` (mesa). Needs OpenGL 3.2+ core for the EVG shaders.
+Linux: `libsdl2-dev` and `libGL` (mesa). Needs OpenGL 3.2+ core for the EVG shaders
+and for the SoftCanvas blit fallback (`#version 150`). Older `#version 120`
+shaders are kept only as a last-resort compile fallback.
 
 ## Build & run
 
