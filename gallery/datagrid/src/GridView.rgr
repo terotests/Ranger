@@ -834,6 +834,10 @@ class GridView {
 
     ; Column letter band. Painted once before the body and again after, so any
     ; cell / row-number ink that ignored clip cannot sit on top of the letters.
+    sfn colMenuArrowW:int () {
+        return 16
+    }
+
     fn paintColHeaders:void (dl:EVGDisplayList model:SpreadsheetModel grid:DataGrid bodyLeft:int headerTop:int vw:int) {
         this.pushRect(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH) theme.headerBg)
         this.pushClip(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH))
@@ -853,9 +857,26 @@ class GridView {
                 label = (label + " [#]")
             }
             def cw:int (model.colWidth(mc))
+            def aw:int (GridView.colMenuArrowW())
             def lw:int (to_int (ctx.tr.measureWidth(label (fontSize * 0.9))))
-            def lx:int (hx + (to_int ((to_double (cw - lw)) / 2.0)))
+            def labelW:int (cw - aw)
+            if (labelW < 1) {
+                labelW = 1
+            }
+            def lx:int (hx + (to_int ((to_double (labelW - lw)) / 2.0)))
             this.pushText(dl label (to_double lx) (to_double (headerTop + 4)) (fontSize * 0.9) theme.headerText)
+            ; Always-visible dropdown target: clicking the letter selects data,
+            ; clicking this arrow opens the existing sort/filter menu.
+            def ax:int ((hx + cw) - aw)
+            this.pushRect(dl (to_double ax) (to_double headerTop) 1.0 (to_double grid.colHeaderH) theme.gridLine)
+            def triY:int (headerTop + (idiv grid.colHeaderH 2))
+            def triW:int 7
+            def triX:int (ax + (idiv (aw - triW) 2))
+            def ti:int 0
+            while (ti < 4) {
+                this.pushRect(dl (to_double (triX + ti)) (to_double (triY + ti)) (to_double (triW - (ti * 2))) 1.0 theme.headerText)
+                ti = (ti + 1)
+            }
             this.pushRect(dl (to_double (hx + cw - 1)) (to_double headerTop) 1.0 (to_double grid.colHeaderH) theme.gridLine)
             hc = (hc + 1)
         }

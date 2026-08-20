@@ -44,6 +44,16 @@ class DumpColumnChart {
         app.selectDataColumn(2 true)
         DumpColumnChart.writePng(app dir "chart_columns_selected.png")
 
+        ; Click B's arrow: menu opens without replacing the A + C selection.
+        def bi:UIInput (new UIInput)
+        def br:GridRect (app.grid.cellRect(app.model 0 1))
+        bi.newFrame()
+        bi.setPointerPos(((br.x + br.w) - 7) ((app.grid.headerTop()) + 5))
+        bi.setPointerDown(true)
+        app.update(bi)
+        DumpColumnChart.writePng(app dir "column_header_arrow_menu.png")
+        app.closeHeaderMenu()
+
         app.openChartDialog(0)
         app.applyChartDialog()
         DumpColumnChart.writePng(app dir "chart_from_selected_columns.png")

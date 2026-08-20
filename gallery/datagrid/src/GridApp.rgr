@@ -923,6 +923,23 @@ class GridApp {
         return false
     }
 
+    fn hitColumnMenuArrow:boolean (col:int px:int py:int) {
+        def top:int (grid.headerTop())
+        if (py < top) {
+            return false
+        }
+        if (py >= (top + grid.colHeaderH)) {
+            return false
+        }
+        def x0:int (grid.colScreenX(model col))
+        def x1:int (x0 + (model.colWidth(col)))
+        def aw:int (GridView.colMenuArrowW())
+        if (px < (x1 - aw)) {
+            return false
+        }
+        return (px < x1)
+    }
+
     ; Row height that fits wrapped content — the counterpart of column auto-fit.
     fn autoFitRow:void (row:int) {
         if (row < 0) {
@@ -5348,13 +5365,13 @@ class GridApp {
             } {
                 if ((hit.row == -2) && (hit.col >= 0)) {
                     ; Header click selects populated cells only. Ctrl adds
-                    ; another column; Shift keeps the old sort/filter popup.
+                    ; another column. The small arrow owns the old menu.
                     view.focused = true
                     if editing {
                         this.commitEdit()
                     }
-                    if input.shiftDown {
-                        this.openHeaderMenu(hit.col input.pointerX (grid.y + grid.formulaBarH + grid.colHeaderH))
+                    if ((this.hitColumnMenuArrow(hit.col input.pointerX input.pointerY)) || input.shiftDown) {
+                        this.openHeaderMenu(hit.col input.pointerX (grid.gridOriginY()))
                     } {
                         this.selectDataColumn(hit.col input.ctrlDown)
                     }

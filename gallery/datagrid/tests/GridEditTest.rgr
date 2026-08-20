@@ -560,6 +560,18 @@ class GridEditTest {
         c.eqInt("first selected column is A" keptCol.c0 0)
         c.eqInt("second selected column is C" liveCol.c0 2)
         c.eqInt("second also stops at its data" liveCol.r1 3)
+        chi.newFrame()
+        chi.setPointerDown(false)
+        cols.update(chi)
+        def bh:GridRect (cols.grid.cellRect(cols.model 0 1))
+        chi.newFrame()
+        chi.setModifiers(false false)
+        chi.setPointerPos(((bh.x + bh.w) - 7) headerY)
+        chi.setPointerDown(true)
+        cols.update(chi)
+        c.ok("column arrow opens the menu" cols.view.menuOpen)
+        c.eqInt("arrow menu belongs to B" cols.view.menuCol 1)
+        c.eqInt("opening menu keeps column selection" (cols.sel.rangeCount()) 2)
 
         print "== caret keys through UIInput =="
         def input:UIInput (new UIInput)
