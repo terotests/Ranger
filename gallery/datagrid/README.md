@@ -413,7 +413,9 @@ bottom, right and corner so the span can be dragged wider and the formula
 updates. Matching tokens in the formula bar (and in-cell editor) pick up the
 same colours. The formula bar is a grey strip with a white name box and white
 formula field: click in the field to place the caret, which stays solid while
-the bar owns the edit. Copy/paste of formulas still re-bases relative refs
+editing a formula. Formula edits use that one caret in the top bar even when
+editing began from the cell, avoiding a second offset caret over cell text.
+Copy/paste of formulas still re-bases relative refs
 (`=A1*3` pasted one row down becomes `=A2*3`).
 
 ## Images

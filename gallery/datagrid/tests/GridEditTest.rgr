@@ -418,6 +418,8 @@ class GridEditTest {
         c.ok("bar edit started" fb2.editing)
         c.ok("bar owns the caret" fb2.editInFormulaBar)
         c.ok("caret not forced to end" (fb2.editCaret < (strlen fb2.editBuf)))
+        fb2.sceneJson()
+        c.ok("explicit bar edit paints caret in bar" fb2.view.caretInFormulaBar)
         fbi.newFrame()
         fbi.setPointerDown(false)
         fb2.update(fbi)
@@ -461,6 +463,14 @@ class GridEditTest {
         c.ok("and keeps editing so the change is visible" fb2.editing)
         fb2.commitEdit()
         c.eqStr("commit writes SUM(A1:A4)" (fb2.model.getFormula(5 1)) "SUM(A1:A4)")
+        ; Entering formula edit from the cell still paints its only caret in
+        ; the top formula editor, not offset over the cell text.
+        fb2.beginEdit("" false)
+        fb2.editCaret = 5
+        fb2.editInFormulaBar = false
+        fb2.sceneJson()
+        c.ok("cell-started formula edit paints caret in bar" fb2.view.caretInFormulaBar)
+        fb2.cancelEdit()
 
         print "== caret keys through UIInput =="
         def input:UIInput (new UIInput)
