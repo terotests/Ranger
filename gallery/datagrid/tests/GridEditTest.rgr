@@ -807,6 +807,32 @@ class GridEditTest {
         ; Enter fires the default button.
         c.ok("enter fires default" (wnd.handleKey(2 4 2)))
         c.eqInt("default activated" wnd.activated 9)
+
+        print "== colour palette swatches =="
+        def pal:EVGWindow (new EVGWindow)
+        pal.title = "Palette"
+        pal.w = 300
+        pal.reset()
+        pal.beginColumns(5)
+        pal.addSwatch(101 "#FF0000" 1 true)
+        pal.addSwatch(102 "#00FF00" 1 false)
+        pal.addSwatch(103 "#0000FF" 1 false)
+        pal.endColumns()
+        def pIds:[int]
+        push pIds 110
+        def pLabels:[string]
+        push pLabels "Apply"
+        pal.addButtonRow(pIds pLabels 110)
+        pal.finish()
+        pal.openAt(20 20)
+        c.eqStr("first swatch is the choice" (pal.selectedSwatchValue(1)) "#FF0000")
+        def sw:EVGControl (pal.controlById(102))
+        def sx:int ((pal.x + sw.x) + 2)
+        def sy:int ((pal.y + sw.y) + 2)
+        pal.handlePointer(sx sy true true false)
+        c.eqInt("click selects the green chip" (pal.selectedInGroup(1)) 102)
+        c.eqStr("and reports its hex" (pal.selectedSwatchValue(1)) "#00FF00")
+        c.eqInt("swatch click activates" pal.activated 102)
         ; Dragging the title bar moves the window.
         def ox:int wnd.x
         wnd.handlePointer((wnd.x + 30) (wnd.y + 8) true true false)
@@ -1645,6 +1671,36 @@ class GridEditTest {
         def clearSt:CellStyle (tb.model.getCellStyle(4 1))
         c.ok("everything is plain again" ((clearSt.hasFill == false) && (clearSt.align == "left")))
 
+        print "== colour palette modal from the toolbar =="
+        GridEditTest.select(tb 4 1)
+        c.ok("text colour with no arg opens the picker" (tb.runCommand("format.color" "")))
+        c.ok("the colour dialog is up" tb.colorDialog.visible)
+        c.eqStr("it is editing text colour" tb.colorDialogOp "color")
+        def colorScene:string (tb.sceneJson())
+        c.ok("scene names the dialog" (GridEditTest.hasSub(colorScene "Text colour")))
+        tb.colorDialog.selectRadio(903)
+        tb.applyColorDialog()
+        c.ok("apply closes it" (tb.colorDialog.visible == false))
+        def colSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("and paints the active cell" colSt.textRgb "#C00000")
+        c.ok("recent colours remember the choice" ((array_length tb.colorRecent) > 0))
+        c.eqStr("the first recent is what was applied" (itemAt tb.colorRecent 0) "#C00000")
+
+        c.ok("fill with no arg opens the fill picker" (tb.runCommand("format.fill" "")))
+        c.ok("fill dialog visible" tb.colorDialog.visible)
+        c.eqStr("mode is fill" tb.colorDialogOp "fill")
+        tb.colorDialog.selectRadio(929)
+        tb.applyColorDialog()
+        def fillPick:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("fill from the palette" fillPick.hasFill)
+        c.eqStr("amber fill applied" fillPick.fillRgb "#FFF2CC")
+        c.ok("empty fill arg still applies a hex directly" (tb.runCommand("format.fill" "#BDD7EE")))
+        def fillDirect:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("direct hex bypasses the modal" fillDirect.fillRgb "#BDD7EE")
+        c.ok("clearing after palette" (tb.runCommand("format.clear" "")))
+        def clearSt2:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("plain again after palette tests" (clearSt2.hasFill == false))
+
         print "== opening and saving: what the app asks its host for =="
         ; The app cannot open a file picker — it does not know whether it is in
         ; a browser, a window, or on the end of a socket. So it says what it
@@ -1855,6 +1911,9 @@ class GridEditTest {
         dlg.openLinkDialog()
         c.eqStr("hyperlink" (GridEditTest.firstEscapee(dlg.linkDialog)) "")
         dlg.linkDialog.close()
+        dlg.openColorDialog("color" "#C00000")
+        c.eqStr("colour palette" (GridEditTest.firstEscapee(dlg.colorDialog)) "")
+        dlg.colorDialog.close()
 
         ; A narrow panel is the case that broke: the row has to shrink, and
         ; then wrap, rather than run off the edge.

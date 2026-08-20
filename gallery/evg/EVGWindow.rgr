@@ -45,6 +45,9 @@ class EVGControlKind {
     ; A one-line text field. Find and replace is the reason it exists: a dialog
     ; that cannot be typed into can only ask yes-or-no questions.
     sfn input:int ()     { return 6 }
+    ; A coloured square in a palette. `value` holds the hex (#RRGGBB); the
+    ; group / checked fields work like a radio so one swatch is the choice.
+    sfn swatch:int ()    { return 7 }
 }
 
 class EVGControl {
@@ -260,6 +263,19 @@ class EVGWindow {
     fn addCheckbox:void (id:int text:string selected:boolean) {
         def c:EVGControl (this.addControl(id (EVGControlKind.checkbox()) text rowH))
         c.checked = selected
+    }
+
+    ; A palette chip. Laid out in columns like radios; the square is fixed so
+    ; a ten-wide row stays even when the panel is a little wider than it needs.
+    fn addSwatch:void (id:int hex:string group:int selected:boolean) {
+        def side:int 24
+        def c:EVGControl (this.addControl(id (EVGControlKind.swatch()) "" side))
+        c.value = hex
+        c.group = group
+        c.checked = selected
+        if (c.w > side) {
+            c.w = side
+        }
     }
 
     ; A region the window will not paint. The owner reads `contentX/Y/W/H` and
@@ -568,14 +584,21 @@ class EVGWindow {
         c.checked = value
     }
 
-    ; Selecting a radio clears the rest of its group.
+    ; Selecting a radio or swatch clears the rest of its group.
     fn selectRadio:void (id:int) {
         def target:EVGControl (this.controlById(id))
         def g:int target.group
         def i:int 0
         while (i < (array_length controls)) {
             def c:EVGControl (itemAt controls i)
+            def exclusive:boolean false
             if (c.kind == (EVGControlKind.radio())) {
+                exclusive = true
+            }
+            if (c.kind == (EVGControlKind.swatch())) {
+                exclusive = true
+            }
+            if exclusive {
                 if (c.group == g) {
                     c.checked = false
                 }
@@ -589,7 +612,14 @@ class EVGWindow {
         def i:int 0
         while (i < (array_length controls)) {
             def c:EVGControl (itemAt controls i)
+            def exclusive:boolean false
             if (c.kind == (EVGControlKind.radio())) {
+                exclusive = true
+            }
+            if (c.kind == (EVGControlKind.swatch())) {
+                exclusive = true
+            }
+            if exclusive {
                 if (c.group == group) {
                     if c.checked {
                         return c.id
@@ -599,6 +629,19 @@ class EVGWindow {
             i = (i + 1)
         }
         return -1
+    }
+
+    ; Hex of the checked swatch in a group, or "" when none / not a swatch.
+    fn selectedSwatchValue:string (group:int) {
+        def id:int (this.selectedInGroup(group))
+        if (id < 0) {
+            return ""
+        }
+        def c:EVGControl (this.controlById(id))
+        if (c.kind != (EVGControlKind.swatch())) {
+            return ""
+        }
+        return c.value
     }
 
     fn defaultButtonId:int () {
@@ -705,6 +748,9 @@ class EVGWindow {
             if (c.kind == (EVGControlKind.input())) {
                 interactive = true
             }
+            if (c.kind == (EVGControlKind.swatch())) {
+                interactive = true
+            }
             if (interactive && c.enabled) {
                 if (c.contains(lx ly)) {
                     return c.id
@@ -766,6 +812,10 @@ class EVGWindow {
                 def c:EVGControl (this.controlById(id))
                 if (c.kind == (EVGControlKind.radio())) {
                     this.selectRadio(id)
+                }
+                if (c.kind == (EVGControlKind.swatch())) {
+                    this.selectRadio(id)
+                    activated = id
                 }
                 if (c.kind == (EVGControlKind.checkbox())) {
                     c.checked = (c.checked == false)
@@ -1003,6 +1053,27 @@ class EVGWindow {
                     this.rect(dl (cx + 3) (by2 + 3) (br - 6) (br - 6) theme.accent)
                 }
                 this.text(dl c.text (cx + br + 8) (cy + 4) fontSize theme.text tr false)
+            }
+            if (c.kind == (EVGControlKind.swatch())) {
+                def fill:EVGColor (EVGColor.parse(c.value))
+                this.rect(dl cx cy c.w c.h fill)
+                def edge3:EVGColor theme.border
+                if c.checked {
+                    edge3 = theme.accent
+                }
+                if (hot == c.id) {
+                    edge3 = theme.accent
+                }
+                def thick:double 1.0
+                if c.checked {
+                    thick = 2.0
+                }
+                this.frame(dl cx cy c.w c.h thick edge3)
+                ; A pale chip needs an inner edge so white is still visible on
+                ; the panel; the outer frame alone disappears into it.
+                if ((fill.r > 230.0) && (fill.g > 230.0) && (fill.b > 230.0)) {
+                    this.frame(dl (cx + 1) (cy + 1) (c.w - 2) (c.h - 2) 1.0 theme.muted)
+                }
             }
             if (c.kind == (EVGControlKind.input())) {
                 def lw:int labelW
