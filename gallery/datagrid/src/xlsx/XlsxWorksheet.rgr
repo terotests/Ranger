@@ -46,6 +46,16 @@ class XlsxWorksheet {
     def rowMinCol:[int]
     def rowMaxCol:[int]
     def rowStated:[boolean]
+    ; True when any cell carried a style index. Unstyled sheets (common for
+    ; large CSV-style exports) can auto-fit from `defaultFontPt` alone — the
+    ; per-cell `getCell` walk is what made C++ hang for minutes on 500k rows
+    ; while the browser finished in seconds (JS string maps share values;
+    ; C++ copies every key lookup).
+    def sawCellStyle:boolean false
+    ; Scratch for the hot `parseCell` path so we do not allocate two int
+    ; vectors per cell just to read A1-style refs.
+    def refRow:int 0
+    def refCol:int 0
 
     Constructor () {
     }
@@ -317,6 +327,7 @@ class XlsxWorksheet {
         clear rowMinCol
         clear rowMaxCol
         clear rowStated
+        sawCellStyle = false
         if ((strlen xml) == 0) {
             return
         }
@@ -710,6 +721,50 @@ class XlsxWorksheet {
         return best
     }
 
+    ; A1 / AA17 → 0-based row/col into `refRow` / `refCol` (no heap arrays).
+    fn parseCellRefFast:void (ref:string) {
+        def i:int 0
+        def n:int (strlen ref)
+        def col:int 0
+        def sawCol:boolean false
+        while (i < n) {
+            def ch:int (charAt ref i)
+            if ((ch >= 65) && (ch <= 90)) {
+                col = ((col * 26) + ((ch - 65) + 1))
+                sawCol = true
+                i = (i + 1)
+            } {
+                if ((ch >= 97) && (ch <= 122)) {
+                    col = ((col * 26) + ((ch - 97) + 1))
+                    sawCol = true
+                    i = (i + 1)
+                } {
+                    break
+                }
+            }
+        }
+        if sawCol {
+            col = (col - 1)
+        }
+        def row:int 0
+        def sawRow:boolean false
+        while (i < n) {
+            def ch2:int (charAt ref i)
+            if ((ch2 >= 48) && (ch2 <= 57)) {
+                row = ((row * 10) + (ch2 - 48))
+                sawRow = true
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        if sawRow {
+            row = (row - 1)
+        }
+        refRow = row
+        refCol = col
+    }
+
     ; Grow every row the file did not size to fit the largest text in it. The
     ; factor is Excel's own: a row is about 1.275 times the point size of its
     ; text, which is exactly how 10pt text yields the familiar 12.75pt row.
@@ -718,6 +773,31 @@ class XlsxWorksheet {
     fn autoFitRows:void (model:SpreadsheetModel) {
         def i:int 0
         def n:int (array_length rowMinCol)
+        ; Unstyled sheet: every content row needs the same height. Do not call
+        ; `getCell` millions of times — that dominates native loads of large
+        ; workbooks (web profile: setCellRaw + getCell; C++ copies string keys).
+        if (sawCellStyle == false) {
+            def uniPx:int (CellStyle.rowHeightForPt(model.defaultFontPt))
+            while (i < n) {
+                if (i >= model.rowCount) {
+                    break
+                }
+                def statedU:boolean false
+                if (i < (array_length rowStated)) {
+                    statedU = (itemAt rowStated i)
+                }
+                if (statedU == false) {
+                    if ((itemAt rowMinCol i) >= 0) {
+                        def haveU:int (model.rowHeight(i))
+                        if (uniPx > haveU) {
+                            model.setRowHeight(i uniPx)
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            return
+        }
         while (i < n) {
             if (i >= model.rowCount) {
                 break
@@ -761,16 +841,13 @@ class XlsxWorksheet {
 
     fn parseCell:void (p:XmlLite open:XmlTag model:SpreadsheetModel sst:XlsxSharedStrings fallBackRow:int) {
         def ref:string (open.attr("r"))
-        def rows:[int]
-        def cols:[int]
+        def row:int fallBackRow
+        def col:int 0
         if ((strlen ref) > 0) {
-            XlsxWorksheet.parseCellRef(ref rows cols)
-        } {
-            push rows fallBackRow
-            push cols 0
+            this.parseCellRefFast(ref)
+            row = refRow
+            col = refCol
         }
-        def row:int (itemAt rows 0)
-        def col:int (itemAt cols 0)
         def cellType:string (open.attr("t"))
         def styleAttr:string (open.attr("s"))
         def formula:string ""
@@ -784,6 +861,7 @@ class XlsxWorksheet {
             if ((strlen styleAttr) > 0) {
                 this.ensureSize(model row col)
                 model.setCellStyleId(row col (XlsxWorksheet.parseInt0(styleAttr)))
+                sawCellStyle = true
             }
             return
         }
@@ -885,6 +963,7 @@ class XlsxWorksheet {
         }
         if ((strlen styleAttr) > 0) {
             model.setCellStyleId(row col (XlsxWorksheet.parseInt0(styleAttr)))
+            sawCellStyle = true
         }
         ; Only a cell with something in it can make a row taller; an empty one
         ; that merely carries a fill should not.

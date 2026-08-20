@@ -6,8 +6,8 @@
 ; column widths, prefix offsets) lives here so DataGrid can virtualize without
 ; CSS grid / one View per cell.
 ;
-; Cell keys are "row,col" strings. Empty cells are absent from the map — a
-; 100k×26 sheet costs almost nothing until cells are written.
+; Cell values are sparse by row, then by int column. Empty cells are absent —
+; a 100k×26 sheet costs almost nothing until cells are written.
 ; ==============================================================================
 
 Import "CellStyle.rgr"
@@ -190,7 +190,12 @@ class SpreadsheetModel {
     def defaultFontPt:double 11.0
     def freezeRows:int 0
     def freezeCols:int 0
-    def cells:[string:string]
+    ; Cell values, sparse by row then column. Was a flat `"row,col"` string map:
+    ; that is fine in JS (shared string keys) and catastrophic in C++ (a new
+    ; std::string key per cell — minutes to insert 4M entries). Row maps keyed
+    ; by int column avoid the string churn; `set_at` writes the row map back
+    ; because C++ `itemAt` returns a copy.
+    def cellRows:[[int:string]]
     def formulas:[string:string]
     def formulaKeys:[string]
     def cellStyleIds:[string:int]
@@ -249,15 +254,19 @@ class SpreadsheetModel {
     def curTx:int 0
     def maxUndo:int 200
     def version:int 0
+    ; When true, `setCellRaw` / style / height writers skip bumping `version`
+    ; on every cell. Xlsx load writes millions of cells; a version stamp per
+    ; write was free on the JS heap and expensive as native store traffic.
+    def quietWrites:boolean false
 
     Constructor () {
     }
 
     fn clearSheet:void () {
-        def emptyCells:[string:string]
+        def emptyRows:[[int:string]]
         def emptyFormulas:[string:string]
         def emptyStyleIds:[string:int]
-        cells = emptyCells
+        cellRows = emptyRows
         formulas = emptyFormulas
         cellStyleIds = emptyStyleIds
         clear formulaKeys
@@ -293,6 +302,13 @@ class SpreadsheetModel {
 
     fn cellKey:string (row:int col:int) {
         return ((to_string row) + "," + (to_string col))
+    }
+
+    fn ensureCellRow:void (row:int) {
+        while ((array_length cellRows) <= row) {
+            def blank:[int:string]
+            push cellRows blank
+        }
     }
 
     ; A1, B17, AA3 — 0-based row/col in, Excel-style label out.
@@ -406,14 +422,11 @@ class SpreadsheetModel {
     ; ids, widths, hidden flags and merges all move together — anything left
     ; behind would show up as a value with someone else's formatting.
     fn moveCellRaw:void (fromRow:int fromCol:int toRow:int toCol:int) {
+        def v:string (this.getCell(fromRow fromCol))
+        this.setCellRaw(toRow toCol v)
+        this.setCellRaw(fromRow fromCol "")
         def src:string (this.cellKey(fromRow fromCol))
         def dst:string (this.cellKey(toRow toCol))
-        def v:string ""
-        if (has cells src) {
-            v = (unwrap (get cells src))
-        }
-        set cells dst v
-        set cells src ""
         def f:string ""
         if (has formulas src) {
             f = (unwrap (get formulas src))
@@ -431,8 +444,8 @@ class SpreadsheetModel {
     }
 
     fn clearCellAt:void (row:int col:int) {
+        this.setCellRaw(row col "")
         def k:string (this.cellKey(row col))
-        set cells k ""
         if (has formulas k) {
             set formulas k ""
         }
@@ -933,9 +946,15 @@ class SpreadsheetModel {
     }
 
     fn getCell:string (row:int col:int) {
-        def k:string (this.cellKey(row col))
-        if (has cells k) {
-            return (unwrap (get cells k))
+        if (row < 0) {
+            return ""
+        }
+        if (row >= (array_length cellRows)) {
+            return ""
+        }
+        def m:[int:string] (itemAt cellRows row)
+        if (has m col) {
+            return (unwrap (get m col))
         }
         return ""
     }
@@ -1654,10 +1673,16 @@ class SpreadsheetModel {
     }
 
     fn setCellRaw:void (row:int col:int value:string) {
-        def k:string (this.cellKey(row col))
-        ; Keep empty strings as present keys so clear is a normal set (map
-        ; remove is target-fragile); getCell still returns "".
-        set cells k value
+        if (row < 0) {
+            return
+        }
+        if (col < 0) {
+            return
+        }
+        this.ensureCellRow(row)
+        def m:[int:string] (itemAt cellRows row)
+        set m col value
+        set_at cellRows row m
         ; Used range, for Ctrl+End. Like Excel it only grows: clearing cells
         ; does not shrink it, and it stays O(1) instead of rescanning a sheet
         ; that may declare 100k rows.
@@ -1669,7 +1694,9 @@ class SpreadsheetModel {
                 usedMaxCol = col
             }
         }
-        version = (version + 1)
+        if (quietWrites == false) {
+            version = (version + 1)
+        }
     }
 
     ; Bottom-right of the used range, clamped to the sheet.
@@ -2066,7 +2093,9 @@ class SpreadsheetModel {
         }
         set_at rowHeights row h
         rowGeomDirty = true
-        version = (version + 1)
+        if (quietWrites == false) {
+            version = (version + 1)
+        }
     }
 
     fn setColWidth:void (col:int w:int) {
