@@ -3,6 +3,8 @@
 *.jpg
 !artifacts/
 !artifacts/**
+!src/xlsx/vendor/
+!src/xlsx/vendor/**
 bin/
 harness/out/
 !fixtures/
