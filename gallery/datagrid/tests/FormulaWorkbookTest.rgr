@@ -301,6 +301,41 @@ class FormulaWorkbookTest {
             c.eqStr("xlsx H1 cross" (calc.getCell(0 7)) "21")
         }
 
+        print "== cross-sheet VLOOKUP =="
+        def bookV:WorkbookModel (new WorkbookModel)
+        def india:SpreadsheetModel (new SpreadsheetModel)
+        india.name = "India"
+        india.resize(10 5)
+        india.setCellRaw(1 0 "Punjab")
+        india.setCellRaw(1 1 "27743338")
+        india.setCellRaw(1 2 "50362")
+        india.setCellRaw(2 0 "Delhi")
+        india.setCellRaw(2 1 "16787941")
+        india.setCellRaw(2 2 "11297")
+        india.setCellRaw(3 0 "Puducherry")
+        india.setCellRaw(3 1 "1247953")
+        india.setCellRaw(3 2 "2598")
+        def pop:SpreadsheetModel (new SpreadsheetModel)
+        pop.name = "Population of India"
+        pop.resize(10 5)
+        pop.setCellRaw(1 0 "Punjab")
+        pop.setCellRaw(2 0 "Delhi")
+        pop.setCellRaw(3 0 "Puducherry")
+        pop.setCellRaw(4 0 "Goa")
+        pop.setFormula(1 2 "VLOOKUP(A2,India!$A$2:$C$4,3,0)")
+        pop.setFormula(2 2 "VLOOKUP(A3,india!$A$2:$C$4,3,FALSE)")
+        pop.setFormula(3 2 "VLOOKUP(A4,India!$B$2:$C$4,2,0)")
+        pop.setFormula(4 2 "VLOOKUP(A5,India!$A$2:$C$4,3,0)")
+        bookV.addSheet(india)
+        bookV.addSheet(pop)
+        def engV:FormulaEngine (new FormulaEngine)
+        engV.attach(bookV)
+        engV.rebuildAll()
+        c.eqStr("VLOOKUP cross-sheet area" (pop.getCell(1 2)) "50362")
+        c.eqStr("VLOOKUP sheet name case-insensitive" (pop.getCell(2 2)) "11297")
+        c.eqStr("VLOOKUP wrong first column is #N/A" (pop.getCell(3 2)) "#N/A")
+        c.eqStr("VLOOKUP missing key is #N/A" (pop.getCell(4 2)) "#N/A")
+
         print ("FormulaWorkbookTest: " + (to_string c.passed) + " passed, " + (to_string c.failed) + " failed")
         if (c.failed == 0) {
             print "ALL PASS"

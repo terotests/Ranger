@@ -266,6 +266,48 @@ class FormulaFunctions {
         if (n == "AVERAGEIF") {
             return true
         }
+        if (n == "COUNTIFS") {
+            return true
+        }
+        if (n == "SUMIFS") {
+            return true
+        }
+        if (n == "AVERAGEIFS") {
+            return true
+        }
+        if (n == "CHOOSE") {
+            return true
+        }
+        if (n == "SWITCH") {
+            return true
+        }
+        if (n == "TEXTJOIN") {
+            return true
+        }
+        if (n == "REPLACE") {
+            return true
+        }
+        if (n == "XLOOKUP") {
+            return true
+        }
+        if (n == "LOOKUP") {
+            return true
+        }
+        if (n == "FILTER") {
+            return true
+        }
+        if (n == "UNIQUE") {
+            return true
+        }
+        if (n == "SORT") {
+            return true
+        }
+        if (n == "NA") {
+            return true
+        }
+        if (n == "XOR") {
+            return true
+        }
         if (n == "VLOOKUP") {
             return true
         }
@@ -329,7 +371,7 @@ class FormulaFunctions {
     ; Every function name this library answers, space-separated — for docs,
     ; hosts, and "what do we actually have?" checks.
     sfn catalog:string () {
-        return "SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF IFS AND OR NOT ABS ROUND INT MOD POWER SQRT SIGN PI EXP LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT CONCATENATE VALUE TRUE FALSE IFERROR IFNA ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T DATE YEAR MONTH DAY WEEKDAY EDATE EOMONTH DAYS DATEVALUE TEXT ROUNDUP ROUNDDOWN TRUNC MEDIAN COUNTBLANK COUNTIF SUMIF AVERAGEIF VLOOKUP HLOOKUP INDEX MATCH SUMPRODUCT LARGE SMALL SUBSTITUTE FIND SEARCH REPT PROPER EXACT CHAR CODE TRANSPOSE TODAY NOW"
+        return "SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF IFS SWITCH AND OR NOT XOR ABS ROUND INT MOD POWER SQRT SIGN PI EXP LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT CONCATENATE TEXTJOIN REPLACE VALUE TRUE FALSE IFERROR IFNA ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T NA DATE YEAR MONTH DAY WEEKDAY EDATE EOMONTH DAYS DATEVALUE TEXT ROUNDUP ROUNDDOWN TRUNC MEDIAN COUNTBLANK COUNTIF SUMIF AVERAGEIF COUNTIFS SUMIFS AVERAGEIFS CHOOSE VLOOKUP HLOOKUP XLOOKUP LOOKUP INDEX MATCH FILTER UNIQUE SORT SUMPRODUCT LARGE SMALL SUBSTITUTE FIND SEARCH REPT PROPER EXACT CHAR CODE TRANSPOSE TODAY NOW"
     }
 
     ; Dispatch by uppercase function name. (`call` is reserved in Ranger.)
@@ -362,11 +404,17 @@ class FormulaFunctions {
         if (n == "IFS") {
             return (FormulaFunctions.fnIfs(args))
         }
+        if (n == "SWITCH") {
+            return (FormulaFunctions.fnSwitch(args))
+        }
         if (n == "AND") {
             return (FormulaFunctions.fnAnd(args))
         }
         if (n == "OR") {
             return (FormulaFunctions.fnOr(args))
+        }
+        if (n == "XOR") {
+            return (FormulaFunctions.fnXor(args))
         }
         if (n == "NOT") {
             return (FormulaFunctions.fnNot(args))
@@ -437,6 +485,12 @@ class FormulaFunctions {
         if (n == "CONCATENATE") {
             return (FormulaFunctions.fnConcat(args))
         }
+        if (n == "TEXTJOIN") {
+            return (FormulaFunctions.fnTextjoin(args))
+        }
+        if (n == "REPLACE") {
+            return (FormulaFunctions.fnReplace(args))
+        }
         if (n == "VALUE") {
             return (FormulaFunctions.fnValue(args))
         }
@@ -472,6 +526,9 @@ class FormulaFunctions {
         }
         if (n == "T") {
             return (FormulaFunctions.fnT(args))
+        }
+        if (n == "NA") {
+            return (FormulaFunctions.fnNa(args))
         }
         if (n == "DATE") {
             return (FormulaFunctions.fnDate(args))
@@ -527,17 +584,44 @@ class FormulaFunctions {
         if (n == "AVERAGEIF") {
             return (FormulaFunctions.fnAverageif(args))
         }
+        if (n == "COUNTIFS") {
+            return (FormulaFunctions.fnCountifs(args))
+        }
+        if (n == "SUMIFS") {
+            return (FormulaFunctions.fnSumifs(args))
+        }
+        if (n == "AVERAGEIFS") {
+            return (FormulaFunctions.fnAverageifs(args))
+        }
+        if (n == "CHOOSE") {
+            return (FormulaFunctions.fnChoose(args))
+        }
         if (n == "VLOOKUP") {
             return (FormulaFunctions.fnVlookup(args))
         }
         if (n == "HLOOKUP") {
             return (FormulaFunctions.fnHlookup(args))
         }
+        if (n == "XLOOKUP") {
+            return (FormulaFunctions.fnXlookup(args))
+        }
+        if (n == "LOOKUP") {
+            return (FormulaFunctions.fnLookup(args))
+        }
         if (n == "INDEX") {
             return (FormulaFunctions.fnIndex(args))
         }
         if (n == "MATCH") {
             return (FormulaFunctions.fnMatch(args))
+        }
+        if (n == "FILTER") {
+            return (FormulaFunctions.fnFilter(args))
+        }
+        if (n == "UNIQUE") {
+            return (FormulaFunctions.fnUnique(args))
+        }
+        if (n == "SORT") {
+            return (FormulaFunctions.fnSort(args))
         }
         if (n == "SUMPRODUCT") {
             return (FormulaFunctions.fnSumproduct(args))
@@ -802,6 +886,37 @@ class FormulaFunctions {
         return (FormulaValue.fromError("#N/A"))
     }
 
+    ; SWITCH(expr, v1, r1, …, [default]) — first equal value wins.
+    sfn fnSwitch:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 3))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def expr:FormulaValue (itemAt args 0)
+        def ee:boolean (expr.isError())
+        if ee {
+            return expr
+        }
+        def i:int 1
+        def n:int (array_length args)
+        while ((i + 1) < n) {
+            def cand:FormulaValue (itemAt args i)
+            def ce:boolean (cand.isError())
+            if ce {
+                return cand
+            }
+            if (FormulaFunctions.valuesEqualLoose(expr cand)) {
+                return (itemAt args (i + 1))
+            }
+            i = (i + 2)
+        }
+        if (i < n) {
+            return (itemAt args i)
+        }
+        return (FormulaValue.fromError("#N/A"))
+    }
+
     sfn fnAnd:FormulaValue (args:[FormulaValue]) {
         def err:FormulaValue (FormulaFunctions.firstError(args))
         def ee:boolean (err.isError())
@@ -844,6 +959,29 @@ class FormulaFunctions {
             i = (i + 1)
         }
         return (FormulaValue.fromBool(false))
+    }
+
+    ; XOR — true when an odd number of arguments are true (Excel).
+    sfn fnXor:FormulaValue (args:[FormulaValue]) {
+        def err:FormulaValue (FormulaFunctions.firstError(args))
+        def ee:boolean (err.isError())
+        if ee {
+            return err
+        }
+        def n:int (array_length args)
+        if (n == 0) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def hits:int 0
+        def i:int 0
+        while (i < n) {
+            if ((itemAt args i).isTrue()) {
+                hits = (hits + 1)
+            }
+            i = (i + 1)
+        }
+        def odd:int (hits - ((idiv hits 2) * 2))
+        return (FormulaValue.fromBool((odd != 0)))
     }
 
     sfn fnNot:FormulaValue (args:[FormulaValue]) {
@@ -891,6 +1029,10 @@ class FormulaFunctions {
             }
         }
         return v
+    }
+
+    sfn fnNa:FormulaValue (args:[FormulaValue]) {
+        return (FormulaValue.fromError("#N/A"))
     }
 
     ; --- math ---
@@ -1348,6 +1490,90 @@ class FormulaFunctions {
             i = (i + 1)
         }
         return (FormulaValue.fromString(out))
+    }
+
+    ; TEXTJOIN(delimiter, ignore_empty, text1, …)
+    sfn fnTextjoin:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 3))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def delim:string ((itemAt args 0).toText())
+        def ignoreEmpty:boolean ((itemAt args 1).isTrue())
+        def rest:[FormulaValue]
+        def i:int 2
+        while (i < (array_length args)) {
+            push rest (itemAt args i)
+            i = (i + 1)
+        }
+        def flat:[FormulaValue] (FormulaFunctions.flatArgs(rest))
+        def out:string ""
+        def first:boolean true
+        i = 0
+        while (i < (array_length flat)) {
+            def v:FormulaValue (itemAt flat i)
+            def ee:boolean (v.isError())
+            if ee {
+                return v
+            }
+            def piece:string (v.asDisplay())
+            def skip:boolean false
+            if ignoreEmpty {
+                if ((strlen piece) == 0) {
+                    skip = true
+                }
+                if (v.isBlank()) {
+                    skip = true
+                }
+            }
+            if (skip == false) {
+                if first {
+                    first = false
+                } {
+                    out = (out + delim)
+                }
+                out = (out + piece)
+            }
+            i = (i + 1)
+        }
+        return (FormulaValue.fromString(out))
+    }
+
+    ; REPLACE(old_text, start_num, num_chars, new_text) — 1-based start.
+    sfn fnReplace:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 4))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def v0:FormulaValue (itemAt args 0)
+        def ee:boolean (v0.isError())
+        if ee {
+            return v0
+        }
+        def s:string (v0.asDisplay())
+        def start:int (to_int ((itemAt args 1).asNumber()))
+        def num:int (to_int ((itemAt args 2).asNumber()))
+        def neu:string ((itemAt args 3).asDisplay())
+        if (start < 1) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        if (num < 0) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def n:int (strlen s)
+        def leftEnd:int (start - 1)
+        if (leftEnd > n) {
+            leftEnd = n
+        }
+        def rightStart:int (leftEnd + num)
+        if (rightStart > n) {
+            rightStart = n
+        }
+        def left:string (substring s 0 leftEnd)
+        def right:string (substring s rightStart n)
+        return (FormulaValue.fromString(((left + neu) + right)))
     }
 
 
@@ -1894,21 +2120,147 @@ class FormulaFunctions {
         return (FormulaFunctions.conditionalTotal(args true))
     }
 
+    ; COUNTIFS / SUMIFS / AVERAGEIFS — AND across criterion pairs, stepped by
+    ; index. SUMIFS(sumRange, critRange1, crit1, …); COUNTIFS has only pairs;
+    ; AVERAGEIFS mirrors SUMIFS but divides by hits.
+    sfn multiConditional:FormulaValue (args:[FormulaValue] mode:int) {
+        ; mode: 0 = COUNTIFS, 1 = SUMIFS, 2 = AVERAGEIFS
+        def minArgs:int 2
+        if (mode > 0) {
+            minArgs = 3
+        }
+        def ar:FormulaValue (FormulaFunctions.needArity(args minArgs))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def pairStart:int 0
+        def values:[FormulaValue]
+        if (mode > 0) {
+            def head:[FormulaValue]
+            push head (itemAt args 0)
+            values = (FormulaFunctions.flatArgs(head))
+            pairStart = 1
+        }
+        def pairCount:int (idiv ((array_length args) - pairStart) 2)
+        if (pairCount < 1) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        if ((((array_length args) - pairStart) - (pairCount * 2)) != 0) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def critFlats:[[FormulaValue]]
+        def crits:[FormulaValue]
+        def p:int 0
+        def nRows:int -1
+        while (p < pairCount) {
+            def ri:int (pairStart + (p * 2))
+            def rh:[FormulaValue]
+            push rh (itemAt args ri)
+            def flat:[FormulaValue] (FormulaFunctions.flatArgs(rh))
+            if (nRows < 0) {
+                nRows = (array_length flat)
+            } {
+                if ((array_length flat) != nRows) {
+                    return (FormulaValue.fromError("#VALUE!"))
+                }
+            }
+            push critFlats flat
+            push crits (itemAt args (ri + 1))
+            p = (p + 1)
+        }
+        if (mode > 0) {
+            if ((array_length values) != nRows) {
+                return (FormulaValue.fromError("#VALUE!"))
+            }
+        }
+        def total:double 0.0
+        def hits:int 0
+        def i:int 0
+        while (i < nRows) {
+            def ok:boolean true
+            def c:int 0
+            while (c < pairCount) {
+                def crow:[FormulaValue] (itemAt critFlats c)
+                if ((FormulaFunctions.criterionMatches((itemAt crow i) (itemAt crits c))) == false) {
+                    ok = false
+                    break
+                }
+                c = (c + 1)
+            }
+            if ok {
+                if (mode == 0) {
+                    hits = (hits + 1)
+                } {
+                    def nums:[double]
+                    def sv:FormulaValue (itemAt values i)
+                    if (sv.tryNumber(nums)) {
+                        total = (total + (itemAt nums 0))
+                        hits = (hits + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (mode == 0) {
+            return (FormulaValue.fromNumber((to_double hits)))
+        }
+        if (mode == 2) {
+            if (hits == 0) {
+                return (FormulaValue.fromError("#DIV/0!"))
+            }
+            return (FormulaValue.fromNumber((total / (to_double hits))))
+        }
+        return (FormulaValue.fromNumber(total))
+    }
+
+    sfn fnCountifs:FormulaValue (args:[FormulaValue]) {
+        return (FormulaFunctions.multiConditional(args 0))
+    }
+
+    sfn fnSumifs:FormulaValue (args:[FormulaValue]) {
+        return (FormulaFunctions.multiConditional(args 1))
+    }
+
+    sfn fnAverageifs:FormulaValue (args:[FormulaValue]) {
+        return (FormulaFunctions.multiConditional(args 2))
+    }
+
+    ; CHOOSE(index, value1, value2, …) — 1-based pick from the trailing args.
+    sfn fnChoose:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def idx:int (to_int ((itemAt args 0).asNumber()))
+        if (idx < 1) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        if (idx >= (array_length args)) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        return (itemAt args idx)
+    }
+
     ; ==========================================================================
     ; Lookups. These are why a range had to keep its shape.
     ; ==========================================================================
     sfn valuesEqualLoose:boolean (a:FormulaValue b:FormulaValue) {
         def an:[double]
         def bn:[double]
-        if (a.tryNumber(an)) {
-            if (b.tryNumber(bn)) {
-                return ((itemAt an 0) == (itemAt bn 0))
-            }
-            return false
+        def aOk:boolean (a.tryNumber(an))
+        def bOk:boolean (b.tryNumber(bn))
+        if (aOk && bOk) {
+            return ((itemAt an 0) == (itemAt bn 0))
         }
         return ((FormulaFunctions.upper((a.toText()))) == (FormulaFunctions.upper((b.toText()))))
     }
 
+    ; Exact match only (Excel's range_lookup = FALSE / 0). The optional 4th
+    ; argument is accepted and ignored: approximate / sorted search is not
+    ; implemented — same stance as MATCH — so a miss stays #N/A rather than a
+    ; quietly wrong neighbour row.
     sfn fnVlookup:FormulaValue (args:[FormulaValue]) {
         def ar:FormulaValue (FormulaFunctions.needArity(args 3))
         def ae:boolean (ar.isError())
@@ -1963,6 +2315,272 @@ class FormulaFunctions {
             c = (c + 1)
         }
         return (FormulaValue.fromError("#N/A"))
+    }
+
+    ; XLOOKUP(lookup, lookup_array, return_array, [if_not_found]) — exact match.
+    sfn fnXlookup:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 3))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def needle:FormulaValue (itemAt args 0)
+        def lookHead:[FormulaValue]
+        push lookHead (itemAt args 1)
+        def look:[FormulaValue] (FormulaFunctions.flatArgs(lookHead))
+        def retArg:FormulaValue (itemAt args 2)
+        def i:int 0
+        while (i < (array_length look)) {
+            if (FormulaFunctions.valuesEqualLoose((itemAt look i) needle)) {
+                if (retArg.isArray()) {
+                    if (retArg.rows == (array_length look)) {
+                        if (retArg.cols > 1) {
+                            def rowItems:[FormulaValue]
+                            def c:int 0
+                            while (c < retArg.cols) {
+                                push rowItems (retArg.at(i c))
+                                c = (c + 1)
+                            }
+                            return (FormulaValue.fromArray(1 retArg.cols rowItems))
+                        }
+                        return (retArg.at(i 0))
+                    }
+                }
+                def retHead:[FormulaValue]
+                push retHead retArg
+                def retFlat:[FormulaValue] (FormulaFunctions.flatArgs(retHead))
+                if (i < (array_length retFlat)) {
+                    return (itemAt retFlat i)
+                }
+                return (FormulaValue.fromError("#N/A"))
+            }
+            i = (i + 1)
+        }
+        if ((array_length args) >= 4) {
+            return (itemAt args 3)
+        }
+        return (FormulaValue.fromError("#N/A"))
+    }
+
+    ; LOOKUP(lookup_value, lookup_vector, [result_vector]) — approximate when
+    ; both sides are numbers (largest <= needle); otherwise exact.
+    sfn fnLookup:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def needle:FormulaValue (itemAt args 0)
+        def lookHead:[FormulaValue]
+        push lookHead (itemAt args 1)
+        def look:[FormulaValue] (FormulaFunctions.flatArgs(lookHead))
+        def retFlat:[FormulaValue] look
+        if ((array_length args) >= 3) {
+            def retHead:[FormulaValue]
+            push retHead (itemAt args 2)
+            retFlat = (FormulaFunctions.flatArgs(retHead))
+        }
+        def exact:int -1
+        def best:int -1
+        def nn:[double]
+        def needleNum:boolean (needle.tryNumber(nn))
+        def i:int 0
+        while (i < (array_length look)) {
+            def cell:FormulaValue (itemAt look i)
+            if (FormulaFunctions.valuesEqualLoose(cell needle)) {
+                exact = i
+            }
+            if needleNum {
+                def cn:[double]
+                if (cell.tryNumber(cn)) {
+                    if ((itemAt cn 0) <= (itemAt nn 0)) {
+                        best = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def pick:int exact
+        if (pick < 0) {
+            pick = best
+        }
+        if (pick < 0) {
+            return (FormulaValue.fromError("#N/A"))
+        }
+        if (pick >= (array_length retFlat)) {
+            return (FormulaValue.fromError("#N/A"))
+        }
+        return (itemAt retFlat pick)
+    }
+
+    ; FILTER(array, include, [if_empty]) — keeps rows where include is true.
+    sfn fnFilter:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def src:FormulaValue (itemAt args 0)
+        def rows:int 1
+        def cols:int 1
+        if (src.isArray()) {
+            rows = src.rows
+            cols = src.cols
+        }
+        def incHead:[FormulaValue]
+        push incHead (itemAt args 1)
+        def inc:[FormulaValue] (FormulaFunctions.flatArgs(incHead))
+        if ((array_length inc) != rows) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def out:[FormulaValue]
+        def kept:int 0
+        def r:int 0
+        while (r < rows) {
+            if ((itemAt inc r).isTrue()) {
+                def c:int 0
+                while (c < cols) {
+                    if (src.isArray()) {
+                        push out (src.at(r c))
+                    } {
+                        push out src
+                    }
+                    c = (c + 1)
+                }
+                kept = (kept + 1)
+            }
+            r = (r + 1)
+        }
+        if (kept == 0) {
+            if ((array_length args) >= 3) {
+                return (itemAt args 2)
+            }
+            return (FormulaValue.fromError("#CALC!"))
+        }
+        return (FormulaValue.fromArray(kept cols out))
+    }
+
+    ; UNIQUE(array) — distinct values in order, spilled as a column.
+    sfn fnUnique:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def head:[FormulaValue]
+        push head (itemAt args 0)
+        def flat:[FormulaValue] (FormulaFunctions.flatArgs(head))
+        def out:[FormulaValue]
+        def i:int 0
+        while (i < (array_length flat)) {
+            def v:FormulaValue (itemAt flat i)
+            def seen:boolean false
+            def j:int 0
+            while (j < (array_length out)) {
+                if (FormulaFunctions.valuesEqualLoose((itemAt out j) v)) {
+                    seen = true
+                    break
+                }
+                j = (j + 1)
+            }
+            if (seen == false) {
+                push out v
+            }
+            i = (i + 1)
+        }
+        return (FormulaValue.fromArray((array_length out) 1 out))
+    }
+
+    ; SORT(array, [sort_index], [sort_order]) — sort rows by a column.
+    ; sort_order: 1 ascending (default), -1 descending.
+    sfn fnSort:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 1))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def src:FormulaValue (itemAt args 0)
+        def rows:int 1
+        def cols:int 1
+        if (src.isArray()) {
+            rows = src.rows
+            cols = src.cols
+        } {
+            return src
+        }
+        def sortIdx:int 1
+        if ((array_length args) >= 2) {
+            sortIdx = (to_int ((itemAt args 1).asNumber()))
+        }
+        def ascending:boolean true
+        if ((array_length args) >= 3) {
+            if ((to_int ((itemAt args 2).asNumber())) < 0) {
+                ascending = false
+            }
+        }
+        if (sortIdx < 1) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        if (sortIdx > cols) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def order:[int]
+        def r:int 0
+        while (r < rows) {
+            push order r
+            r = (r + 1)
+        }
+        def a:int 0
+        while (a < rows) {
+            def b:int (a + 1)
+            while (b < rows) {
+                def ra:int (itemAt order a)
+                def rb:int (itemAt order b)
+                def va:FormulaValue (src.at(ra (sortIdx - 1)))
+                def vb:FormulaValue (src.at(rb (sortIdx - 1)))
+                def cmp:int 0
+                def an:[double]
+                def bn:[double]
+                if ((va.tryNumber(an)) && (vb.tryNumber(bn))) {
+                    if ((itemAt an 0) < (itemAt bn 0)) {
+                        cmp = -1
+                    }
+                    if ((itemAt an 0) > (itemAt bn 0)) {
+                        cmp = 1
+                    }
+                } {
+                    cmp = (FormulaFunctions.compareText((FormulaFunctions.upper((va.toText()))) (FormulaFunctions.upper((vb.toText())))))
+                }
+                def swap:boolean false
+                if ascending {
+                    if (cmp > 0) {
+                        swap = true
+                    }
+                } {
+                    if (cmp < 0) {
+                        swap = true
+                    }
+                }
+                if swap {
+                    set_at order a rb
+                    set_at order b ra
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        def out:[FormulaValue]
+        r = 0
+        while (r < rows) {
+            def rr:int (itemAt order r)
+            def c:int 0
+            while (c < cols) {
+                push out (src.at(rr c))
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        return (FormulaValue.fromArray(rows cols out))
     }
 
     ; INDEX(range, row, [col]). A one-row or one-column range takes a single
