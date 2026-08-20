@@ -370,14 +370,55 @@ window.addEventListener("paste", async (ev) => {
 fileEl?.addEventListener("change", async (ev) => {
   const file = ev.target.files && ev.target.files[0];
   if (!file) return;
-  const ok = web.openWorkbook(asRangerBuffer(await file.arrayBuffer()), file.name);
-  statusEl.textContent = ok ? "opened " + file.name : "could not open: " + web.note;
+  const raw = await file.arrayBuffer();
+  let opened = false;
+  try {
+    const bytes = await maybeDecryptWorkbook(raw, "");
+    opened = web.openWorkbook(asRangerBuffer(bytes), file.name);
+    // Encrypted OLE packages need a password; ask once and retry.
+    if (!opened && /password-protected/i.test(web.note || "")) {
+      const password = window.prompt("This workbook is password-protected. Enter the password:", "");
+      if (password != null && password.length > 0) {
+        const unlocked = await maybeDecryptWorkbook(raw, password);
+        opened = web.openWorkbookPassword
+          ? web.openWorkbookPassword(asRangerBuffer(unlocked), file.name, password)
+          : web.openWorkbook(asRangerBuffer(unlocked), file.name);
+      }
+    }
+  } catch (e) {
+    web.note = String(e && e.message ? e.message : e);
+    opened = false;
+  }
+  statusEl.textContent = opened ? "opened " + file.name : "could not open: " + web.note;
   imageCache.clear();
   for (const url of blobUrls.values()) if (url) URL.revokeObjectURL(url);
   blobUrls.clear();
   lastScene = "";
   await draw();
 });
+
+/** OLE compound magic: password-protected OOXML before decryption. */
+function isOleCompound(ab) {
+  if (!ab || ab.byteLength < 8) return false;
+  const u8 = new Uint8Array(ab);
+  return u8[0] === 0xd0 && u8[1] === 0xcf && u8[2] === 0x11 && u8[3] === 0xe0;
+}
+
+/**
+ * Browser hosts decrypt with Web Crypto (vendored ooxml-encryption) before the
+ * Ranger ZIP loader runs. Node already decrypts inside GridApp; this path is
+ * for the static page where `require('crypto')` is unavailable.
+ */
+async function maybeDecryptWorkbook(ab, password) {
+  if (!isOleCompound(ab)) return ab;
+  if (!password) {
+    // Let Ranger report the clear "password required" error.
+    return ab;
+  }
+  const { decryptWorkbook } = await import("./ooxml-encryption/dist/index.js");
+  const plain = await decryptWorkbook(new Uint8Array(ab), password);
+  return plain.buffer.slice(plain.byteOffset, plain.byteOffset + plain.byteLength);
+}
 
 // --- start -------------------------------------------------------------------
 

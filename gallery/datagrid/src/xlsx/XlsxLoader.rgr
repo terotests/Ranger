@@ -20,10 +20,17 @@ class XlsxLoader {
     }
 
     fn loadPath:boolean (fullPath:string book:WorkbookModel) {
+        return (this.loadPathPassword(fullPath book ""))
+    }
+
+    fn loadPathPassword:boolean (fullPath:string book:WorkbookModel password:string) {
         lastError = ""
         def pkg:XlsxPackage (new XlsxPackage)
-        if ((pkg.openPath(fullPath)) == false) {
-            lastError = ("could not open zip: " + fullPath)
+        if ((pkg.openPathPassword(fullPath password)) == false) {
+            lastError = pkg.lastError
+            if ((strlen lastError) == 0) {
+                lastError = ("could not open zip: " + fullPath)
+            }
             return false
         }
         def ok:boolean (this.loadPackage(pkg book))
@@ -34,10 +41,17 @@ class XlsxLoader {
     ; The same, from bytes. `loadPath` is this with a file read in front of it;
     ; the browser build has no file read and calls straight in here.
     fn loadBytes:boolean (bytes:buffer book:WorkbookModel) {
+        return (this.loadBytesPassword(bytes book ""))
+    }
+
+    fn loadBytesPassword:boolean (bytes:buffer book:WorkbookModel password:string) {
         lastError = ""
         def pkg:XlsxPackage (new XlsxPackage)
-        if ((pkg.openBytes(bytes)) == false) {
-            lastError = "could not open the workbook: not a zip"
+        if ((pkg.openBytesPassword(bytes password)) == false) {
+            lastError = pkg.lastError
+            if ((strlen lastError) == 0) {
+                lastError = "could not open the workbook: not a zip"
+            }
             return false
         }
         def ok:boolean (this.loadPackage(pkg book))

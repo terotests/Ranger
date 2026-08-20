@@ -256,8 +256,12 @@ class GridApp {
     ; The workbook from bytes: what a browser has after a fetch, and what a
     ; drag-and-dropped file is. Same path as `loadXlsx` past the read.
     fn loadXlsxBytes:boolean (bytes:buffer name:string) {
+        return (this.loadXlsxBytesPassword(bytes name ""))
+    }
+
+    fn loadXlsxBytesPassword:boolean (bytes:buffer name:string password:string) {
         def loader:XlsxLoader (new XlsxLoader)
-        def ok:boolean (loader.loadBytes(bytes book))
+        def ok:boolean (loader.loadBytesPassword(bytes book password))
         if ok {
             view.chartLayer.removeAll(windows)
             book.sourcePath = name
@@ -273,8 +277,12 @@ class GridApp {
     }
 
     fn loadXlsx:boolean (fullPath:string) {
+        return (this.loadXlsxPassword(fullPath ""))
+    }
+
+    fn loadXlsxPassword:boolean (fullPath:string password:string) {
         def loader:XlsxLoader (new XlsxLoader)
-        def ok:boolean (loader.loadPath(fullPath book))
+        def ok:boolean (loader.loadPathPassword(fullPath book password))
         if ok {
             ; The charts belonged to the workbook that was open. Left up, they
             ; would go on drawing ranges of a document nobody has any more.

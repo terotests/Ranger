@@ -77,6 +77,10 @@ cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# Web Crypto decrypt for password-protected .xlsx (OLE / Agile encryption).
+mkdir -p "$OUT/ooxml-encryption"
+cp -a gallery/datagrid/src/xlsx/vendor/ooxml-encryption/dist "$OUT/ooxml-encryption/"
+cp gallery/datagrid/src/xlsx/vendor/ooxml-encryption/LICENSE "$OUT/ooxml-encryption/LICENSE" 2>/dev/null || true
 FONT_SRC=gallery/pdf_writer/assets/fonts
 cp "$FONT_SRC/Open_Sans/OpenSans-Regular.ttf" "$OUT/fonts/OpenSans-Regular.ttf"
 cp "$FONT_SRC/Open_Sans/OpenSans-Bold.ttf" "$OUT/fonts/OpenSans-Bold.ttf"
