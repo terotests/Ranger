@@ -228,22 +228,33 @@ class GridView {
         this.applyFaceNamed("" bold italic)
     }
 
-    ; Map a workbook font name onto a loaded face. Calibri / Arial have no
-    ; files here, so they share Open Sans; names we do ship keep their face.
+    ; Map a workbook / menu font name onto a face we ship. Excel stand-ins
+    ; (Calibri, Arial, …) have no TTF here, so each aliases to a distinct
+    ; loaded family — otherwise picking them looks like a no-op.
     sfn faceFamily:string (name:string) {
-        if (name == "Noto Sans") {
+        def n:string (to_lowercase (trim name))
+        if ((strlen n) == 0) {
+            return "Open Sans"
+        }
+        if (n == "open sans") {
+            return "Open Sans"
+        }
+        if (n == "noto sans") {
             return "Noto Sans"
         }
-        if (name == "Helvetica") {
+        if ((n == "helvetica") || (n == "helvetica neue")) {
             return "Helvetica"
         }
-        if (name == "Droid Serif") {
+        if ((n == "droid serif") || (n == "times new roman") || (n == "times") || (n == "georgia") || (n == "serif")) {
             return "Droid Serif"
         }
-        if (name == "Josefin Sans") {
+        if ((n == "josefin sans") || (n == "courier new") || (n == "courier") || (n == "consolas") || (n == "monospace")) {
             return "Josefin Sans"
         }
-        if (name == "Open Sans") {
+        if (n == "arial") {
+            return "Noto Sans"
+        }
+        if ((n == "calibri") || (n == "candara") || (n == "segoe ui") || (n == "sans-serif")) {
             return "Open Sans"
         }
         return "Open Sans"
@@ -297,13 +308,14 @@ class GridView {
         }
     }
 
-    ; Text with per-cell weight / slant. The face is selected before measuring
-    ; so the width recorded on the command matches what gets painted.
-    fn pushStyledText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor bold:boolean italic:boolean) {
+    ; Text with per-cell face / weight / slant. `fontName` is the workbook
+    ; name (or ""); painters read `c.fontFamily` (resolved base) so SoftCanvas
+    ; and WebGL do not fall back to the view default.
+    fn pushStyledText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor fontName:string bold:boolean italic:boolean) {
         if ((strlen text) == 0) {
             return
         }
-        this.applyFaceStyled(bold italic)
+        this.applyFaceNamed(fontName bold italic)
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 3
         c.x = x
@@ -311,7 +323,7 @@ class GridView {
         c.w = (ctx.tr.measureWidth(text size))
         c.h = (ctx.tr.lineHeight(size))
         c.text = text
-        c.fontFamily = fontFamily
+        c.fontFamily = (GridView.faceFamily(fontName))
         c.fontSize = size
         if bold {
             c.fontWeight = "bold"
@@ -475,7 +487,7 @@ class GridView {
             def lw:int (to_int (ctx.tr.measureWidth(line cellPx)))
             def lx:double (this.alignedX(rect st lw))
             def ly:int (top + (i * lineH))
-            this.pushStyledText(dl line lx (to_double ly) cellPx col st.bold st.italic)
+            this.pushStyledText(dl line lx (to_double ly) cellPx col st.fontName st.bold st.italic)
             this.paintDecoration(dl st lx ly lw cellPx col)
             i = (i + 1)
         }
@@ -513,11 +525,11 @@ class GridView {
     ; about the command's own box centre, so the anchor is the middle of the
     ; text rather than a corner — which is also what makes a 90° header label
     ; sit in its column rather than beside it.
-    fn pushRotatedText:void (dl:EVGDisplayList text:string cx:double cy:double size:double col:EVGColor bold:boolean italic:boolean degrees:double) {
+    fn pushRotatedText:void (dl:EVGDisplayList text:string cx:double cy:double size:double col:EVGColor fontName:string bold:boolean italic:boolean degrees:double) {
         if ((strlen text) == 0) {
             return
         }
-        this.applyFaceStyled(bold italic)
+        this.applyFaceNamed(fontName bold italic)
         def tw:double (ctx.tr.measureWidth(text size))
         def th:double (ctx.tr.lineHeight(size))
         def c:EVGDrawCmd (new EVGDrawCmd)
@@ -527,7 +539,7 @@ class GridView {
         c.w = tw
         c.h = th
         c.text = text
-        c.fontFamily = fontFamily
+        c.fontFamily = (GridView.faceFamily(fontName))
         c.fontSize = size
         c.rotate = degrees
         if bold {
@@ -560,7 +572,7 @@ class GridView {
             def ch:string (substring txt i (i + 1))
             def cw:int (to_int (ctx.tr.measureWidth(ch cellPx)))
             def x:int ((rect.x + (idiv rect.w 2)) - (idiv cw 2))
-            this.pushStyledText(dl ch (to_double x) (to_double y) cellPx col st.bold st.italic)
+            this.pushStyledText(dl ch (to_double x) (to_double y) cellPx col st.fontName st.bold st.italic)
             y = (y + lineH)
             i = (i + 1)
         }
@@ -578,7 +590,7 @@ class GridView {
             def run:CellRun (itemAt rt.runs i)
             def rs:CellStyle (run.styleOver(base))
             def px:double (this.sizeOf(rs cellPx))
-            this.applyFaceStyled(rs.bold rs.italic)
+            this.applyFaceNamed(rs.fontName rs.bold rs.italic)
             total = (total + (to_int (ctx.tr.measureWidth(run.text px))))
             i = (i + 1)
         }
@@ -597,13 +609,13 @@ class GridView {
             if ((strlen rs2.textRgb) >= 4) {
                 runCol = (EVGColor.parse(rs2.textRgb))
             }
-            this.applyFaceStyled(rs2.bold rs2.italic)
+            this.applyFaceNamed(rs2.fontName rs2.bold rs2.italic)
             def w:int (to_int (ctx.tr.measureWidth(run2.text px2)))
             ; Runs of different sizes sit on one baseline rather than one top,
             ; which is what makes a smaller suffix look attached to the word
             ; before it instead of floating above it.
             def runTop:int (top + (to_int (ctx.tr.lineHeight(cellPx))) - (to_int (ctx.tr.lineHeight(px2))))
-            this.pushStyledText(dl run2.text x (to_double runTop) px2 runCol rs2.bold rs2.italic)
+            this.pushStyledText(dl run2.text x (to_double runTop) px2 runCol rs2.fontName rs2.bold rs2.italic)
             this.paintDecoration(dl rs2 x runTop w px2 runCol)
             x = (x + (to_double w))
             k = (k + 1)
@@ -643,7 +655,7 @@ class GridView {
             this.pushClip(dl (to_double rect.x) (to_double rect.y) (to_double rect.w) (to_double rect.h))
             def ccx:double ((to_double rect.x) + ((to_double rect.w) / 2.0))
             def ccy:double ((to_double rect.y) + ((to_double rect.h) / 2.0))
-            this.pushRotatedText(dl txt ccx ccy cellPx col st.bold st.italic turn)
+            this.pushRotatedText(dl txt ccx ccy cellPx col st.fontName st.bold st.italic turn)
             this.popClip(dl)
             return
         }
@@ -676,7 +688,7 @@ class GridView {
             }
         }
         this.pushClip(dl (to_double clipX) (to_double rect.y) (to_double clipW) (to_double rect.h))
-        this.pushStyledText(dl txt tx (to_double top) cellPx col st.bold st.italic)
+        this.pushStyledText(dl txt tx (to_double top) cellPx col st.fontName st.bold st.italic)
         this.paintDecoration(dl st tx top textW cellPx col)
         this.popClip(dl)
     }
@@ -1442,7 +1454,7 @@ class GridView {
         def tw:double (ctx.tr.measureWidth(sample px))
         def tx:double ((to_double x0) + (((to_double cw) - tw) * 0.5))
         def ty:double ((to_double y0) + (((to_double ch) - px) * 0.5))
-        this.pushStyledText(dl sample tx ty px fg false false)
+        this.pushStyledText(dl sample tx ty px fg "" false false)
     }
 
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
@@ -1866,7 +1878,7 @@ class GridView {
         def w:double (ctx.tr.measureWidth(s size))
         def x:double ((to_double cx) - (w / 2.0))
         def y:double ((to_double cy) - (size * 0.62))
-        this.pushStyledText(dl s x y size col bold false)
+        this.pushStyledText(dl s x y size col "" bold false)
     }
 
     ; Width the grid would paint this text at, for auto-fit.

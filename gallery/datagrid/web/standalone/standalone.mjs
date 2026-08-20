@@ -41,6 +41,19 @@ const FONTS = [
   [null, "OpenSans-Bold.ttf"],
   [null, "OpenSans-Italic.ttf"],
   [null, "OpenSans-BoldItalic.ttf"],
+  ["Noto Sans", "NotoSans-Regular.ttf"],
+  [null, "NotoSans-Bold.ttf"],
+  [null, "NotoSans-Italic.ttf"],
+  [null, "NotoSans-BoldItalic.ttf"],
+  ["Helvetica", "Helvetica.ttf"],
+  ["Droid Serif", "DroidSerif.ttf"],
+  [null, "DroidSerif-Bold.ttf"],
+  [null, "DroidSerif-Italic.ttf"],
+  [null, "DroidSerif-BoldItalic.ttf"],
+  ["Josefin Sans", "JosefinSans-Regular.ttf"],
+  [null, "JosefinSans-Bold.ttf"],
+  [null, "JosefinSans-Italic.ttf"],
+  [null, "JosefinSans-BoldItalic.ttf"],
 ];
 const WORKBOOK = "./business-workbook.xlsx";
 
