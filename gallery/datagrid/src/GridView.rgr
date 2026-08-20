@@ -232,7 +232,7 @@ class GridView {
     ; (Calibri, Arial, …) have no TTF here, so each aliases to a distinct
     ; loaded family — otherwise picking them looks like a no-op.
     sfn faceFamily:string (name:string) {
-        def n:string (to_lower (trim name))
+        def n:string (to_lowercase (trim name))
         if ((strlen n) == 0) {
             return "Open Sans"
         }
