@@ -351,8 +351,8 @@ static std::string dgfx_as_string(const std::string& in) {
 
 static std::string dgfx_pick_open_file(const std::string& title) {
 #if defined(__APPLE__)
-    // AppleScript `of type` wants UTIs (or classic type codes), not bare
-    // extensions — "xlsx" matches nothing and greys every workbook out.
+    // AppleScript of type wants UTIs (or classic type codes), not bare
+    // extensions — a literal xlsx type matches nothing and greys workbooks out.
     std::string script = std::string(\"POSIX path of (choose file with prompt \")
         + dgfx_as_string(title)
         + \" of type {\"
