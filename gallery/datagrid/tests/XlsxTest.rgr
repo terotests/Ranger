@@ -464,6 +464,21 @@ class XlsxTest {
             c.eqInt("by Excel's own measure" (sh.rowHeight(7)) 21)
         }
 
+        print "== large buffer_to_string (no stack blow on >200KB) =="
+        ; ES6 used to call String.fromCharCode.apply on the whole Uint8Array.
+        ; That throws Maximum call stack size exceeded around 200KB — which is
+        ; smaller than real xlsx parts (sharedStrings / sheet XML).
+        def bigN:int 300000
+        def bigRaw:buffer (buffer_alloc bigN)
+        def bi:int 0
+        while (bi < bigN) {
+            buffer_set bigRaw bi 65
+            bi = (bi + 1)
+        }
+        def bigText:string (Utf8.decode((buffer_to_string bigRaw)))
+        c.eqInt("300KB decode length" (strlen bigText) bigN)
+        c.ok("300KB decode is ASCII A" ((charAt bigText 0) == 65))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

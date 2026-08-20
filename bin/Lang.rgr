@@ -5027,7 +5027,12 @@ static bool r_regex_test_i(string pattern, string s) {
             templates {
                 ranger ( "(buffer_to_string " (e 1) ")" )
                 llvm ( "(buffer_to_string " (e 1) ")" )
-                es6 ( "(function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(" (e 1) ")" )
+                ; Latin-1 one char per byte. Do NOT use fromCharCode.apply on the
+                ; whole view — apply builds the arg list on the stack and throws
+                ; "Maximum call stack size exceeded" above ~100–200 KB (xlsx sheet
+                ; XML and sharedStrings routinely exceed that). TextDecoder('latin1')
+                ; is stack-safe; the chunked apply loop is the fallback.
+                es6 ( "(function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); if (typeof TextDecoder !== \"undefined\") { return new TextDecoder(\"latin1\").decode(v); } var s = \"\"; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(" (e 1) ")" )
                 go ( "string(" (e 1) ")" )
                 rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
                 cpp ( "std::string(" (e 1) ".begin(), " (e 1) ".end())" )

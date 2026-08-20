@@ -59,8 +59,24 @@ class Utf8 {
         if (Utf8.stringIsBytes()) {
             return raw
         }
-        def out:string ""
         def len:int (strlen raw)
+        ; ASCII-only Latin-1 is already valid UTF-8. Skip the per-character
+        ; rebuild — xlsx sheet XML can be hundreds of MB of ASCII, and
+        ; `out = out + …` for that size is unusable even when it does not
+        ; blow the stack.
+        def scan:int 0
+        def asciiOnly:boolean true
+        while (scan < len) {
+            if ((charAt raw scan) > 127) {
+                asciiOnly = false
+                break
+            }
+            scan = (scan + 1)
+        }
+        if asciiOnly {
+            return raw
+        }
+        def out:string ""
         def i:int 0
         while (i < len) {
             def b0:int (charAt raw i)
