@@ -94,6 +94,8 @@ class ToolItem {
     def h:int 0
     ; A separator is drawn as a rule and cannot be clicked.
     def isSeparator:boolean false
+    ; Wider than an icon: font / size dropdowns show a readable label.
+    def textW:int 0
 
     Constructor () {
     }
@@ -135,6 +137,12 @@ class GridToolbar {
         return t
     }
 
+    fn addText:ToolItem (command:string arg:string label:string width:int) {
+        def t:ToolItem (this.add(command arg label (ToolIcon.none())))
+        t.textW = width
+        return t
+    }
+
     fn addSeparator:void () {
         def t (new ToolItem)
         t.isSeparator = true
@@ -157,6 +165,8 @@ class GridToolbar {
         this.addToggle("format.italic" "" "Italic" (ToolIcon.italic()) "italic" "")
         this.addToggle("format.underline" "" "Underline" (ToolIcon.underline()) "underline" "")
         this.addToggle("format.strike" "" "Strikethrough" (ToolIcon.strike()) "strike" "")
+        this.addText("format.font" "" "Font" 78)
+        this.addText("format.size.pick" "" "Size" 40)
         this.add("format.size.up" "" "Bigger" (ToolIcon.sizeUp()))
         this.add("format.size.down" "" "Smaller" (ToolIcon.sizeDown()))
         this.add("format.color" "" "Text colour" (ToolIcon.textColor()))
@@ -214,6 +224,9 @@ class GridToolbar {
             def w:int iconW
             if t.isSeparator {
                 w = 9
+            }
+            if (t.textW > 0) {
+                w = t.textW
             }
             if ((cx + w) > right) {
                 ; Wrap. A separator never starts a row — it would be a rule

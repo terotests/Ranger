@@ -337,6 +337,9 @@ class GridApp {
         commands.addArg("format.decimals" "Decimal places" "Format" "")
         commands.add("format.size.up" "Bigger text" "Format" "")
         commands.add("format.size.down" "Smaller text" "Format" "")
+        commands.addArg("format.size" "Font size" "Format" "")
+        commands.addArg("format.size.pick" "Font size…" "Format" "")
+        commands.addArg("format.font" "Font" "Format" "")
         commands.add("format.clear" "Clear formatting" "Format" "")
         commands.add("view.freeze.here" "Freeze panes here" "View" "")
         commands.add("view.freeze.none" "Unfreeze panes" "View" "")
@@ -867,11 +870,16 @@ class GridApp {
     ; Grow one row to fit what is now in it — and only grow.
     ;
     ; A spreadsheet makes room when the type gets bigger: put 20pt in a row and
-    ; the row becomes 20pt tall, in Excel and in Sheets alike. It does not take
-    ; the room back when you make the type small again, because by then the
-    ; height might be one you dragged out yourself, and there is no way to tell
-    ; the two apart. So this only ever adds.
+    ; the row becomes 20pt tall, in Excel and in Sheets alike. Shrinking when
+    ; the type gets smaller is a separate call (`fitRowToContent`), because a
+    ; height the user dragged out should not vanish on an unrelated edit.
     fn growRowToFit:boolean (row:int) {
+        return (this.fitRowToContent(row false))
+    }
+
+    ; Set the row to the height its contents need. `allowShrink` is true when
+    ; the type just got smaller — then taking the room back is the point.
+    fn fitRowToContent:boolean (row:int allowShrink:boolean) {
         if (row < 0) {
             return false
         }
@@ -902,8 +910,14 @@ class GridApp {
         if (want > 400) {
             want = 400
         }
-        if (want <= (model.rowHeight(row))) {
+        def cur:int (model.rowHeight(row))
+        if (want == cur) {
             return false
+        }
+        if (want < cur) {
+            if (allowShrink == false) {
+                return false
+            }
         }
         model.setRowHeight(row want)
         return true
@@ -912,14 +926,18 @@ class GridApp {
     ; The same over every row the selection touches, plus the caret's own row,
     ; refreshing the view once if anything moved.
     fn growSelectedRowsToFit:void () {
-        def moved:boolean (this.growRowToFit(sel.active.row))
+        this.fitSelectedRowsToContent(false)
+    }
+
+    fn fitSelectedRowsToContent:void (allowShrink:boolean) {
+        def moved:boolean (this.fitRowToContent(sel.active.row allowShrink))
         def i:int 0
         while (i < (sel.rangeCount())) {
             def rg:GridRange (sel.rangeAt(i))
             def r:int rg.r0
             def last:int rg.r1
             while (r <= last) {
-                if (this.growRowToFit(r)) {
+                if (this.fitRowToContent(r allowShrink)) {
                     moved = true
                 }
                 r = (r + 1)
@@ -1417,13 +1435,108 @@ class GridApp {
         view.menuRow = -1
         view.menuKind = 0
         view.menuH = 270
+        view.menuW = 190
     }
 
     fn menuItemCount:int () {
         if (view.menuKind == 1) {
             return 9
         }
+        if (view.menuKind == 2) {
+            return (GridApp.fontSizeCount())
+        }
+        if (view.menuKind == 3) {
+            return (GridApp.fontNameCount())
+        }
         return 12
+    }
+
+    sfn fontSizeCount:int () {
+        return 12
+    }
+
+    sfn fontSizeAt:string (i:int) {
+        if (i == 0) { return "8" }
+        if (i == 1) { return "9" }
+        if (i == 2) { return "10" }
+        if (i == 3) { return "11" }
+        if (i == 4) { return "12" }
+        if (i == 5) { return "14" }
+        if (i == 6) { return "16" }
+        if (i == 7) { return "18" }
+        if (i == 8) { return "20" }
+        if (i == 9) { return "24" }
+        if (i == 10) { return "28" }
+        if (i == 11) { return "36" }
+        return "11"
+    }
+
+    sfn fontNameCount:int () {
+        return 10
+    }
+
+    sfn fontNameAt:string (i:int) {
+        if (i == 0) { return "Calibri" }
+        if (i == 1) { return "Arial" }
+        if (i == 2) { return "Times New Roman" }
+        if (i == 3) { return "Georgia" }
+        if (i == 4) { return "Courier New" }
+        if (i == 5) { return "Open Sans" }
+        if (i == 6) { return "Noto Sans" }
+        if (i == 7) { return "Helvetica" }
+        if (i == 8) { return "Droid Serif" }
+        if (i == 9) { return "Josefin Sans" }
+        return "Calibri"
+    }
+
+    fn openFontSizeMenu:void (px:int py:int) {
+        view.menuOpen = true
+        view.menuKind = 2
+        view.menuCol = -1
+        view.menuRow = -1
+        view.menuW = 72
+        view.menuH = (26 + ((GridApp.fontSizeCount()) * 20) + 4)
+        view.menuX = px
+        view.menuY = py
+    }
+
+    fn openFontNameMenu:void (px:int py:int) {
+        view.menuOpen = true
+        view.menuKind = 3
+        view.menuCol = -1
+        view.menuRow = -1
+        view.menuW = 160
+        view.menuH = (26 + ((GridApp.fontNameCount()) * 20) + 4)
+        view.menuX = px
+        view.menuY = py
+    }
+
+    fn runFontSizeMenu:void (action:int) {
+        if (action < 1) {
+            return
+        }
+        def idx:int (action - 1)
+        if (idx >= (GridApp.fontSizeCount())) {
+            this.closeHeaderMenu()
+            return
+        }
+        def pt:string (GridApp.fontSizeAt(idx))
+        this.closeHeaderMenu()
+        this.runFormatCommand("format.size" pt)
+    }
+
+    fn runFontNameMenu:void (action:int) {
+        if (action < 1) {
+            return
+        }
+        def idx:int (action - 1)
+        if (idx >= (GridApp.fontNameCount())) {
+            this.closeHeaderMenu()
+            return
+        }
+        def name:string (GridApp.fontNameAt(idx))
+        this.closeHeaderMenu()
+        this.runFormatCommand("format.font" name)
     }
 
     fn hitHeaderMenu:int (px:int py:int) {
@@ -1459,6 +1572,14 @@ class GridApp {
     fn runHeaderMenu:void (action:int) {
         if (view.menuKind == 1) {
             this.runRowMenu(action)
+            return
+        }
+        if (view.menuKind == 2) {
+            this.runFontSizeMenu(action)
+            return
+        }
+        if (view.menuKind == 3) {
+            this.runFontNameMenu(action)
             return
         }
         def col:int view.menuCol
@@ -2647,13 +2768,47 @@ class GridApp {
         if (id == "format.size.up") {
             def up:boolean (GridFormat.apply(model sel "size" "1"))
             if up {
-                this.growSelectedRowsToFit()
+                this.fitSelectedRowsToContent(true)
             }
             return up
         }
         if (id == "format.size.down") {
-            ; Smaller type never shrinks a row — see growRowToFit.
-            return (GridFormat.apply(model sel "size" "-1"))
+            def down:boolean (GridFormat.apply(model sel "size" "-1"))
+            if down {
+                this.fitSelectedRowsToContent(true)
+            }
+            return down
+        }
+        if (id == "format.size.pick") {
+            def stPick:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+            def tip:ToolItem (view.toolbar.at(view.toolbar.hot))
+            def mx:int tip.x
+            def my:int ((tip.y + tip.h) + 2)
+            if (view.toolbar.hot < 0) {
+                mx = (grid.x + 120)
+                my = ((grid.toolbarY()) + grid.toolbarH)
+            }
+            this.openFontSizeMenu(mx my)
+            view.status = (("Size " + (to_string (to_int stPick.fontSizePt))) + " pt")
+            return true
+        }
+        if (id == "format.size") {
+            if ((strlen arg) == 0) {
+                return (this.runFormatCommand("format.size.pick" ""))
+            }
+        }
+        if (id == "format.font") {
+            if ((strlen arg) == 0) {
+                def tipF:ToolItem (view.toolbar.at(view.toolbar.hot))
+                def mxF:int tipF.x
+                def myF:int ((tipF.y + tipF.h) + 2)
+                if (view.toolbar.hot < 0) {
+                    mxF = (grid.x + 80)
+                    myF = ((grid.toolbarY()) + grid.toolbarH)
+                }
+                this.openFontNameMenu(mxF myF)
+                return true
+            }
         }
         ; Empty arg opens the palette; a host that already knows the hex still
         ; applies it directly — same command string either way.
@@ -2681,7 +2836,11 @@ class GridApp {
         }
         def done:boolean (GridFormat.apply(model sel op arg))
         if done {
-            this.growSelectedRowsToFit()
+            if (op == "size") {
+                this.fitSelectedRowsToContent(true)
+            } {
+                this.growSelectedRowsToFit()
+            }
             sheetView.markDirty()
             grid.updateVisible(model)
         }
@@ -4409,9 +4568,28 @@ class GridApp {
         }
         ; The toolbar lights up under the pointer whether or not a button is
         ; pressed — without that it is a row of shapes rather than something
-        ; that looks clickable.
+        ; that looks clickable. The hot label is this app's tooltip.
         view.toolbar.hot = (this.toolbarHit(input.pointerX input.pointerY))
+        def tip:string (view.toolbar.hotLabel())
+        if ((strlen tip) > 0) {
+            view.status = tip
+        }
         if input.pointerPressed {
+            ; A font / size dropdown owns the click before the toolbar does,
+            ; so picking a size does not also re-open the menu.
+            if view.menuOpen {
+                if ((view.menuKind == 2) || (view.menuKind == 3)) {
+                    def menuHit0:int (this.hitHeaderMenu(input.pointerX input.pointerY))
+                    if (menuHit0 >= 0) {
+                        view.focused = true
+                        if (menuHit0 >= 1) {
+                            this.runHeaderMenu(menuHit0)
+                        }
+                        return
+                    }
+                    this.closeHeaderMenu()
+                }
+            }
             def hitTool:int (this.toolbarHit(input.pointerX input.pointerY))
             if (hitTool >= 0) {
                 view.focused = true
@@ -4694,7 +4872,22 @@ class GridApp {
     }
 
     fn render:void () {
-        view.status = ("v" + (to_string model.version))
+        ; Keep a toolbar tooltip / save note visible; only fall back to the
+        ; version stamp when nothing more useful is showing.
+        def tip:string (view.toolbar.hotLabel())
+        if ((strlen tip) > 0) {
+            view.status = tip
+        } {
+            if ((strlen view.status) == 0) {
+                view.status = ("v" + (to_string model.version))
+            }
+            if ((charAt view.status 0) == 118) {
+                ; "vN…" — refresh the stamp so it tracks the model.
+                if ((strlen view.status) < 12) {
+                    view.status = ("v" + (to_string model.version))
+                }
+            }
+        }
         view.editCaret = editCaret
         view.windows = windows
         view.render(model sel grid editing editBuf book)
@@ -4705,7 +4898,14 @@ class GridApp {
     }
 
     fn sceneJson:string () {
-        view.status = ("v" + (to_string model.version))
+        def tip2:string (view.toolbar.hotLabel())
+        if ((strlen tip2) > 0) {
+            view.status = tip2
+        } {
+            if ((strlen view.status) == 0) {
+                view.status = ("v" + (to_string model.version))
+            }
+        }
         view.editCaret = editCaret
         view.windows = windows
         return (view.sceneJson(model sel grid editing editBuf book))

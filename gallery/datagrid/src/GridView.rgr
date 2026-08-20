@@ -127,6 +127,21 @@ class GridView {
         ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
         ctx.tr.fm.loadFont("Open_Sans/OpenSans-Italic.ttf")
         ctx.tr.fm.loadFont("Open_Sans/OpenSans-BoldItalic.ttf")
+        ; Extra faces for the font dropdown. Unknown workbook faces still fall
+        ; back to Open Sans when the file is missing.
+        ctx.tr.fm.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        ctx.tr.fm.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Noto_Sans/NotoSans-Italic.ttf")
+        ctx.tr.fm.loadFont("Noto_Sans/NotoSans-BoldItalic.ttf")
+        ctx.tr.fm.loadFont("Helvetica/Helvetica.ttf")
+        ctx.tr.fm.loadFont("Droid_Serif/DroidSerif.ttf")
+        ctx.tr.fm.loadFont("Droid_Serif/DroidSerif-Bold.ttf")
+        ctx.tr.fm.loadFont("Droid_Serif/DroidSerif-Italic.ttf")
+        ctx.tr.fm.loadFont("Droid_Serif/DroidSerif-BoldItalic.ttf")
+        ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-Italic.ttf")
+        ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-BoldItalic.ttf")
         if (ok == false) {
             status = "bitmap-font fallback"
         } {
@@ -203,15 +218,41 @@ class GridView {
     }
 
     fn applyFaceStyled:void (bold:boolean italic:boolean) {
-        def want:string "Open Sans"
+        this.applyFaceNamed("" bold italic)
+    }
+
+    ; Map a workbook font name onto a loaded face. Calibri / Arial have no
+    ; files here, so they share Open Sans; names we do ship keep their face.
+    sfn faceFamily:string (name:string) {
+        if (name == "Noto Sans") {
+            return "Noto Sans"
+        }
+        if (name == "Helvetica") {
+            return "Helvetica"
+        }
+        if (name == "Droid Serif") {
+            return "Droid Serif"
+        }
+        if (name == "Josefin Sans") {
+            return "Josefin Sans"
+        }
+        if (name == "Open Sans") {
+            return "Open Sans"
+        }
+        return "Open Sans"
+    }
+
+    fn applyFaceNamed:void (name:string bold:boolean italic:boolean) {
+        def base:string (GridView.faceFamily(name))
+        def want:string base
         if bold {
-            want = "Open Sans-Bold"
+            want = (base + "-Bold")
             if italic {
-                want = "Open Sans-BoldItalic"
+                want = (base + "-BoldItalic")
             }
         } {
             if italic {
-                want = "Open Sans-Italic"
+                want = (base + "-Italic")
             }
         }
         if (ctx.tr.fontFamily == want) {
@@ -220,6 +261,31 @@ class GridView {
         def face:TrueTypeFont (ctx.tr.fm.getFont(want))
         if (face.unitsPerEm > 0) {
             ctx.tr.fontFamily = want
+            ctx.tr.applyFace()
+            return
+        }
+        ; Missing bold/italic variant: try the regular of that family, then
+        ; Open Sans, rather than painting with a stale face.
+        def fallback:TrueTypeFont (ctx.tr.fm.getFont(base))
+        if (fallback.unitsPerEm > 0) {
+            ctx.tr.fontFamily = base
+            ctx.tr.applyFace()
+            return
+        }
+        def os:string "Open Sans"
+        if bold {
+            os = "Open Sans-Bold"
+            if italic {
+                os = "Open Sans-BoldItalic"
+            }
+        } {
+            if italic {
+                os = "Open Sans-Italic"
+            }
+        }
+        def oface:TrueTypeFont (ctx.tr.fm.getFont(os))
+        if (oface.unitsPerEm > 0) {
+            ctx.tr.fontFamily = os
             ctx.tr.applyFace()
         }
     }
@@ -669,7 +735,7 @@ class GridView {
             if (cellPx < 6.0) {
                 cellPx = 6.0
             }
-            this.applyFaceStyled(st.bold st.italic)
+            this.applyFaceNamed(st.fontName st.bold st.italic)
             def paintStyle:CellStyle st
             if linked {
                 paintStyle = (st.copy())
@@ -1147,12 +1213,52 @@ class GridView {
         ; outer chrome
         this.pushBorder(dl (to_double grid.x) (to_double grid.y) (to_double grid.w) (to_double grid.h) 1.0 theme.gridLine)
 
-        ; sort/filter header popup
+        ; sort/filter header popup — also font size / family dropdowns
         if menuOpen {
             def mw:int menuW
             def mh:int menuH
             this.pushRect(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) theme.formulaBg)
             this.pushBorder(dl (to_double menuX) (to_double menuY) (to_double mw) (to_double mh) 1.0 theme.activeBorder)
+            if (menuKind == 2) {
+                this.pushText(dl "Size" (to_double (menuX + 8)) (to_double (menuY + 6)) 12.0 theme.headerText)
+                def sizeIdx:int 0
+                while (sizeIdx < 12) {
+                    def sLab:string "8"
+                    if (sizeIdx == 0) { sLab = "8" }
+                    if (sizeIdx == 1) { sLab = "9" }
+                    if (sizeIdx == 2) { sLab = "10" }
+                    if (sizeIdx == 3) { sLab = "11" }
+                    if (sizeIdx == 4) { sLab = "12" }
+                    if (sizeIdx == 5) { sLab = "14" }
+                    if (sizeIdx == 6) { sLab = "16" }
+                    if (sizeIdx == 7) { sLab = "18" }
+                    if (sizeIdx == 8) { sLab = "20" }
+                    if (sizeIdx == 9) { sLab = "24" }
+                    if (sizeIdx == 10) { sLab = "28" }
+                    if (sizeIdx == 11) { sLab = "36" }
+                    this.pushText(dl sLab (to_double (menuX + 8)) (to_double ((menuY + 28) + (sizeIdx * 20))) 12.0 theme.cellText)
+                    sizeIdx = (sizeIdx + 1)
+                }
+            } {
+            if (menuKind == 3) {
+                this.pushText(dl "Font" (to_double (menuX + 8)) (to_double (menuY + 6)) 12.0 theme.headerText)
+                def fontIdx:int 0
+                while (fontIdx < 10) {
+                    def fLab:string "Calibri"
+                    if (fontIdx == 0) { fLab = "Calibri" }
+                    if (fontIdx == 1) { fLab = "Arial" }
+                    if (fontIdx == 2) { fLab = "Times New Roman" }
+                    if (fontIdx == 3) { fLab = "Georgia" }
+                    if (fontIdx == 4) { fLab = "Courier New" }
+                    if (fontIdx == 5) { fLab = "Open Sans" }
+                    if (fontIdx == 6) { fLab = "Noto Sans" }
+                    if (fontIdx == 7) { fLab = "Helvetica" }
+                    if (fontIdx == 8) { fLab = "Droid Serif" }
+                    if (fontIdx == 9) { fLab = "Josefin Sans" }
+                    this.pushText(dl fLab (to_double (menuX + 8)) (to_double ((menuY + 28) + (fontIdx * 20))) 12.0 theme.cellText)
+                    fontIdx = (fontIdx + 1)
+                }
+            } {
             if (menuKind == 1) {
                 def rtitle:string ("Row " + (to_string (menuRow + 1)))
                 this.pushText(dl rtitle (to_double (menuX + 8)) (to_double (menuY + 8)) 12.0 theme.headerText)
@@ -1182,6 +1288,8 @@ class GridView {
                 this.pushText(dl "10  Delete column" (to_double (menuX + 8)) (to_double (menuY + 212)) 12.0 theme.cellText)
                 this.pushText(dl "11  Move left" (to_double (menuX + 8)) (to_double (menuY + 232)) 12.0 theme.cellText)
                 this.pushText(dl "12  Move right" (to_double (menuX + 8)) (to_double (menuY + 252)) 12.0 theme.cellText)
+            }
+            }
             }
         }
 
@@ -1341,11 +1449,60 @@ class GridView {
                             this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) theme.headerBg)
                         }
                     }
-                    this.paintToolIcon(dl t)
+                    if (t.textW > 0) {
+                        this.paintToolTextButton(dl t model sel)
+                    } {
+                        this.paintToolIcon(dl t)
+                    }
                 }
             }
             i = (i + 1)
         }
+        ; A real helper tip next to the hot icon — the status bar alone is easy
+        ; to miss, and icon-only buttons need a name under the pointer.
+        if (toolbar.hot >= 0) {
+            def tip:string (toolbar.hotLabel())
+            if ((strlen tip) > 0) {
+                def ht:ToolItem (toolbar.at(toolbar.hot))
+                this.applyFace(false)
+                def tw:int (to_int ((ctx.tr.measureWidth(tip 12.0)) + 12.0))
+                def th:int 20
+                def tx:int ht.x
+                def ty:int ((ht.y + ht.h) + 4)
+                if ((tx + tw) > (grid.x + grid.w)) {
+                    tx = (((grid.x + grid.w) - tw) - 4)
+                }
+                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) theme.formulaBg)
+                this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 theme.activeBorder)
+                this.pushText(dl tip (to_double (tx + 6)) (to_double (ty + 3)) 12.0 theme.cellText)
+            }
+        }
+    }
+
+    ; Font / size dropdown buttons: show the active cell's face or point size.
+    fn paintToolTextButton:void (dl:EVGDisplayList t:ToolItem model:SpreadsheetModel sel:GridSelection) {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        def label:string t.label
+        if (t.command == "format.size.pick") {
+            label = (to_string (to_int st.fontSizePt))
+        }
+        if (t.command == "format.font") {
+            label = st.fontName
+            if ((strlen label) == 0) {
+                label = "Font"
+            }
+            if ((strlen label) > 10) {
+                label = (substring label 0 10)
+            }
+        }
+        this.pushBorder(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) 1.0 theme.gridLine)
+        this.pushText(dl label (to_double (t.x + 4)) (to_double (t.y + 4)) 11.0 theme.cellText)
+        ; A small chevron on the right so it reads as a dropdown.
+        def cx:int ((t.x + t.w) - 8)
+        def cy:int (t.y + (idiv t.h 2))
+        this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 1)) 7.0 1.0 theme.statusText)
+        this.pushRect(dl (to_double (cx - 2)) (to_double (cy + 1)) 5.0 1.0 theme.statusText)
+        this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 3.0 1.0 theme.statusText)
     }
 
     ; A glyph for one button, inside its box.

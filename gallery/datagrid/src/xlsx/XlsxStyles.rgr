@@ -17,6 +17,7 @@ class XlsxStyles {
     def fontsStrike:[boolean]
     def fontsSize:[double]
     def fontsColor:[string]
+    def fontsName:[string]
     ; One entry per <border> id, four edges each.
     def bTopStyle:[string]
     def bTopRgb:[string]
@@ -128,6 +129,7 @@ class XlsxStyles {
         clear fontsStrike
         clear fontsSize
         clear fontsColor
+        clear fontsName
         clear fillsRgb
         clear fillsHas
         clear bTopStyle
@@ -181,6 +183,7 @@ class XlsxStyles {
                     sizePt = (itemAt fontsSize 0)
                 }
                 def color:string ""
+                def face:string ""
                 def depth:int 1
                 if t.selfClose {
                     depth = 0
@@ -223,6 +226,9 @@ class XlsxStyles {
                         if ((ft.name == "color") && (ft.isEnd == false)) {
                             color = (this.parseColorAttr(ft))
                         }
+                        if ((ft.name == "name") && (ft.isEnd == false)) {
+                            face = (ft.attr("val"))
+                        }
                     }
                 }
                 push fontsBold bold
@@ -231,6 +237,7 @@ class XlsxStyles {
                 push fontsStrike strike
                 push fontsSize sizePt
                 push fontsColor color
+                push fontsName face
             }
             ; <border><left style="thin"><color rgb="FFFF0000"/></left>…</border>
             if ((t.name == "border") && (t.isEnd == false)) {
@@ -376,6 +383,9 @@ class XlsxStyles {
                         st.strike = (itemAt fontsStrike fontId)
                         st.fontSizePt = (itemAt fontsSize fontId)
                         st.textRgb = (itemAt fontsColor fontId)
+                        if (fontId < (array_length fontsName)) {
+                            st.fontName = (itemAt fontsName fontId)
+                        }
                     }
                     def borderId:int (XlsxStyles.parseInt0((t2.attr("borderId"))))
                     if ((borderId >= 0) && (borderId < (array_length bTopStyle))) {

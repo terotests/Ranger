@@ -248,7 +248,11 @@ class XlsxWriter {
         if ((strlen col) > 0) {
             x = (x + "<color rgb=\"" + col + "\"/>")
         }
-        x = (x + "<name val=\"Calibri\"/></font>")
+        def face:string st.fontName
+        if ((strlen face) == 0) {
+            face = "Calibri"
+        }
+        x = (x + "<name val=\"" + face + "\"/></font>")
         return (this.indexOfOrAdd(fontXml x))
     }
 
