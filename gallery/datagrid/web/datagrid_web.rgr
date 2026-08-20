@@ -72,7 +72,11 @@ class DataGridWeb {
     }
 
     fn openWorkbook:boolean (data:buffer name:string) {
-        def ok:boolean (app.loadXlsxBytes(data name))
+        return (this.openWorkbookPassword(data name ""))
+    }
+
+    fn openWorkbookPassword:boolean (data:buffer name:string password:string) {
+        def ok:boolean (app.loadXlsxBytesPassword(data name password))
         if (ok == false) {
             note = app.loadError
         } {

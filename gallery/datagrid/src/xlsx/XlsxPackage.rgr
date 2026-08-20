@@ -5,12 +5,15 @@
 Import "../../../zip/ZipReader.rgr"
 Import "../../../zip/ZipEntry.rgr"
 Import "../../../pdf_writer/src/core/Utf8.rgr"
+Import "xlsx_office_crypto_ops.rgr"
+Import "XlsxOfficeCrypto.rgr"
 
 class XlsxPackage {
     def zip:ZipReader (new ZipReader)
     def openOk:boolean false
     def pathDir:string "."
     def pathName:string ""
+    def lastError:string ""
 
     Constructor () {
     }
@@ -35,21 +38,66 @@ class XlsxPackage {
         }
     }
 
+    ; Turn file bytes into a plain ZIP package. Password-protected Office files
+    ; arrive as OLE compounds; without a password (or without a decryptor) we
+    ; stop here with a clear error instead of hunting for a ZIP EOCD that does
+    ; not exist yet.
+    fn unwrapBytes:buffer (bytes:buffer password:string) {
+        lastError = ""
+        if ((XlsxOfficeCrypto.isOleCompound(bytes)) == false) {
+            return bytes
+        }
+        if ((strlen password) == 0) {
+            lastError = "password-protected workbook (Office encryption); a password is required"
+            return (buffer_alloc 0)
+        }
+        if ((XlsxOfficeCrypto.canDecrypt()) == false) {
+            lastError = "password-protected workbook (Office encryption); decryption is not available on this target"
+            return (buffer_alloc 0)
+        }
+        def plain:buffer (XlsxOfficeCrypto.decrypt(bytes password))
+        if ((buffer_length plain) < 22) {
+            lastError = "could not decrypt workbook (wrong password, or unsupported encryption)"
+            return (buffer_alloc 0)
+        }
+        return plain
+    }
+
     fn openPath:boolean (fullPath:string) {
+        return (this.openPathPassword(fullPath ""))
+    }
+
+    fn openPathPassword:boolean (fullPath:string password:string) {
         def dirs:[string]
         def names:[string]
         XlsxPackage.splitPath(fullPath dirs names)
-        pathDir = (itemAt dirs 0)
-        pathName = (itemAt names 0)
-        openOk = (zip.open(pathDir pathName))
-        return openOk
+        ; Locals (not this.pathDir) — buffer_read_file's ES6 template wraps the
+        ; call in an IIFE, so `this` would not be the package instance.
+        def dir:string (itemAt dirs 0)
+        def name:string (itemAt names 0)
+        pathDir = dir
+        pathName = name
+        def bytes:buffer (buffer_read_file dir name)
+        return (this.openBytesPassword(bytes password))
     }
 
     ; The package from bytes rather than from a path — what a browser has.
     fn openBytes:boolean (bytes:buffer) {
+        return (this.openBytesPassword(bytes ""))
+    }
+
+    fn openBytesPassword:boolean (bytes:buffer password:string) {
         pathDir = ""
         pathName = "workbook.xlsx"
-        openOk = (zip.openBytes(bytes))
+        def data:buffer (this.unwrapBytes(bytes password))
+        if ((strlen lastError) > 0) {
+            openOk = false
+            return false
+        }
+        openOk = (zip.openBytes(data))
+        if (openOk == false) {
+            lastError = "could not open the workbook: not a zip"
+        }
         return openOk
     }
 

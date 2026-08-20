@@ -1,0 +1,7 @@
+{
+  "name": "ooxml-encryption",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Vendored subset for DataGrid browser decrypt (Web Crypto Agile OOXML)."
+}

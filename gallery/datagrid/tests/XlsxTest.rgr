@@ -465,6 +465,29 @@ class XlsxTest {
             c.eqInt("by Excel's own measure" (sh.rowHeight(7)) 21)
         }
 
+        print "== password-protected OLE workbook (crypto2016.xlsx) =="
+        ; Not a ZIP until decrypted. Without a password the loader must say so
+        ; rather than "Could not find End of Central Directory record".
+        def cryptoLoader:XlsxLoader (new XlsxLoader)
+        def cryptoBook:WorkbookModel (new WorkbookModel)
+        def cryptoNoPw:boolean (cryptoLoader.loadPath("gallery/datagrid/fixtures/crypto2016.xlsx" cryptoBook))
+        c.ok("encrypted file refuses without a password" (cryptoNoPw == false))
+        c.ok("and names the reason" (XlsxTest.hasSub(cryptoLoader.lastError "password-protected")))
+        def cryptoOk:boolean (cryptoLoader.loadPathPassword("gallery/datagrid/fixtures/crypto2016.xlsx" cryptoBook "AZE"))
+        c.ok("opens with the sample password" cryptoOk)
+        if cryptoOk {
+            c.ok("has at least one sheet" ((cryptoBook.sheetCount()) >= 1))
+            def cSheet:SpreadsheetModel (cryptoBook.sheetAt(0))
+            c.eqStr("sheet name" cSheet.name "Feuil1")
+            ; Column C from row 5 holds 1, 2, 3 in the published sample.
+            c.eqStr("C5" (cSheet.getCell(4 2)) "1")
+            c.eqStr("C6" (cSheet.getCell(5 2)) "2")
+            c.eqStr("C7" (cSheet.getCell(6 2)) "3")
+        }
+        def cryptoBad:boolean (cryptoLoader.loadPathPassword("gallery/datagrid/fixtures/crypto2016.xlsx" cryptoBook "not-the-password"))
+        c.ok("wrong password is refused" (cryptoBad == false))
+        c.ok("with a decrypt error" (XlsxTest.hasSub(cryptoLoader.lastError "decrypt")))
+
         print "== large buffer_to_string (no stack blow on >200KB) =="
         ; ES6 used to call String.fromCharCode.apply on the whole Uint8Array.
         ; That throws Maximum call stack size exceeded around 200KB — which is

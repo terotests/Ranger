@@ -54,7 +54,10 @@ const xlsxPath = path.resolve(
   xlsxArg || "gallery/datagrid/fixtures/business-workbook.xlsx",
 );
 if (fs.existsSync(xlsxPath)) {
-  const ok = app.loadXlsx(xlsxPath);
+  const password = argVal("--password", "");
+  const ok = password
+    ? app.loadXlsxPassword(xlsxPath, password)
+    : app.loadXlsx(xlsxPath);
   console.log(ok ? "  loaded " + xlsxPath : "  xlsx load failed: " + app.loadError);
   // Prefer Summary sheet when present (KPIs + CF demo).
   if (ok && typeof app.book?.sheetCount === "function") {

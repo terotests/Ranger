@@ -39,6 +39,14 @@ class ZipReader {
             print "Error: File too small to be a valid ZIP archive"
             return false
         }
+
+        ; Password-protected Office files are OLE compounds, not ZIPs. The
+        ; caller (XlsxPackage) unwraps them first; if one still reaches here,
+        ; say so instead of searching for an EOCD that cannot exist.
+        if ((dataLen >= 8) && ((buffer_get data 0) == 208) && ((buffer_get data 1) == 207) && ((buffer_get data 2) == 17) && ((buffer_get data 3) == 224)) {
+            print "Error: password-protected Office file (OLE compound); decrypt before opening as ZIP"
+            return false
+        }
         
         reader.initWithBuffer(data)
         

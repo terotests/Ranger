@@ -1,0 +1,37 @@
+; ==============================================================================
+; XlsxOfficeCrypto.rgr — detect / unwrap password-protected .xlsx packages.
+; ==============================================================================
+
+Import "xlsx_office_crypto_ops.rgr"
+
+class XlsxOfficeCrypto {
+
+    ; OLE Compound File magic: D0 CF 11 E0 A1 B1 1A E1
+    sfn isOleCompound:boolean (data:buffer) {
+        if ((buffer_length data) < 8) {
+            return false
+        }
+        if ((buffer_get data 0) != 208) {
+            return false
+        }
+        if ((buffer_get data 1) != 207) {
+            return false
+        }
+        if ((buffer_get data 2) != 17) {
+            return false
+        }
+        if ((buffer_get data 3) != 224) {
+            return false
+        }
+        return true
+    }
+
+    sfn canDecrypt:boolean () {
+        return (xlsx_office_can_decrypt 0)
+    }
+
+    ; Plain ZIP bytes on success; empty buffer on failure.
+    sfn decrypt:buffer (data:buffer password:string) {
+        return (xlsx_office_decrypt data password)
+    }
+}

@@ -77,6 +77,10 @@ cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# Web Crypto decrypt for password-protected .xlsx (OLE / Agile encryption).
+mkdir -p "$OUT/ooxml-encryption"
+cp -a gallery/datagrid/src/xlsx/vendor/ooxml-encryption/dist "$OUT/ooxml-encryption/"
+cp gallery/datagrid/src/xlsx/vendor/ooxml-encryption/LICENSE "$OUT/ooxml-encryption/LICENSE" 2>/dev/null || true
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
 done
