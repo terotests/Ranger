@@ -203,18 +203,22 @@ class SoftPainter {
         canvas.clear((col.red()) (col.green()) (col.blue()))
     }
 
-    ; The face a TEXT command asks for. Selected before drawing so the glyphs
-    ; painted are the ones whose widths were measured.
-    fn applyFaceStyled:void (bold:boolean italic:boolean) {
-        def want:string fontFamily
+    ; The face a TEXT command asks for. `c.fontFamily` is the resolved base
+    ; (Open Sans, Noto Sans, …); weight/slant pick the cut.
+    fn applyFaceStyled:void (family:string bold:boolean italic:boolean) {
+        def base:string fontFamily
+        if ((strlen family) > 0) {
+            base = family
+        }
+        def want:string base
         if bold {
-            want = (fontFamily + "-Bold")
+            want = (base + "-Bold")
             if italic {
-                want = (fontFamily + "-BoldItalic")
+                want = (base + "-BoldItalic")
             }
         } {
             if italic {
-                want = (fontFamily + "-Italic")
+                want = (base + "-Italic")
             }
         }
         if (ctx.tr.fontFamily == want) {
@@ -224,6 +228,15 @@ class SoftPainter {
         if (face.unitsPerEm > 0) {
             ctx.tr.fontFamily = want
             ctx.tr.applyFace()
+            return
+        }
+        ; Missing bold/italic cut: try the regular of that family.
+        if (want != base) {
+            def reg:TrueTypeFont (ctx.tr.fm.getFont(base))
+            if (reg.unitsPerEm > 0) {
+                ctx.tr.fontFamily = base
+                ctx.tr.applyFace()
+            }
         }
     }
 
@@ -270,7 +283,7 @@ class SoftPainter {
             if (c.kind == 3) {
                 if (this.textInClip((to_int c.x) (to_int c.y) c.fontSize)) {
                     def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                    this.applyFaceStyled((c.fontWeight == "bold") (c.textAlign == "italic"))
+                    this.applyFaceStyled(c.fontFamily (c.fontWeight == "bold") (c.textAlign == "italic"))
                     if (c.rotate == 0.0) {
                         ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
                     } {
@@ -305,7 +318,7 @@ class SoftPainter {
                     if ((strlen why) == 0) {
                         why = "image"
                     }
-                    this.applyFaceStyled(false false)
+                    this.applyFaceStyled("" false false)
                     ctx.text(why ((to_int c.x) + 4) ((to_int c.y) + 4) 11.0 note)
                 }
             }

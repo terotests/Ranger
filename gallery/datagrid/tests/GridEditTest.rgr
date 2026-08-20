@@ -1714,6 +1714,12 @@ class GridEditTest {
         c.ok("and a direct font arg still works" (tb.runCommand("format.font" "Helvetica")))
         def helv:CellStyle (tb.model.getCellStyle(4 1))
         c.eqStr("Helvetica applied" helv.fontName "Helvetica")
+        ; The paint path used to wipe the named face back to Open Sans on every
+        ; TEXT command. The scene must carry the resolved face the cell asked for.
+        tb.model.setCellRaw(4 1 "FontProbe")
+        def fontScene:string (tb.sceneJson())
+        c.ok("scene paints Helvetica" (GridEditTest.hasSub(fontScene "\"font\":\"Helvetica\"")))
+        c.ok("and the probe text" (GridEditTest.hasSub(fontScene "FontProbe")))
         ; Hover tip: the toolbar's hot label is what the tooltip paints.
         tb.view.toolbar.layout(tb.grid.x (tb.grid.toolbarY()) tb.grid.w)
         def tipIdx:int -1

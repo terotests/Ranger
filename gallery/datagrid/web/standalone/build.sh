@@ -77,9 +77,24 @@ cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
-for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
-  cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
-done
+FONT_SRC=gallery/pdf_writer/assets/fonts
+cp "$FONT_SRC/Open_Sans/OpenSans-Regular.ttf" "$OUT/fonts/OpenSans-Regular.ttf"
+cp "$FONT_SRC/Open_Sans/OpenSans-Bold.ttf" "$OUT/fonts/OpenSans-Bold.ttf"
+cp "$FONT_SRC/Open_Sans/OpenSans-Italic.ttf" "$OUT/fonts/OpenSans-Italic.ttf"
+cp "$FONT_SRC/Open_Sans/OpenSans-BoldItalic.ttf" "$OUT/fonts/OpenSans-BoldItalic.ttf"
+cp "$FONT_SRC/Noto_Sans/NotoSans-Regular.ttf" "$OUT/fonts/NotoSans-Regular.ttf"
+cp "$FONT_SRC/Noto_Sans/NotoSans-Bold.ttf" "$OUT/fonts/NotoSans-Bold.ttf"
+cp "$FONT_SRC/Noto_Sans/NotoSans-Italic.ttf" "$OUT/fonts/NotoSans-Italic.ttf"
+cp "$FONT_SRC/Noto_Sans/NotoSans-BoldItalic.ttf" "$OUT/fonts/NotoSans-BoldItalic.ttf"
+cp "$FONT_SRC/Helvetica/Helvetica.ttf" "$OUT/fonts/Helvetica.ttf"
+cp "$FONT_SRC/Droid_Serif/DroidSerif.ttf" "$OUT/fonts/DroidSerif.ttf"
+cp "$FONT_SRC/Droid_Serif/DroidSerif-Bold.ttf" "$OUT/fonts/DroidSerif-Bold.ttf"
+cp "$FONT_SRC/Droid_Serif/DroidSerif-Italic.ttf" "$OUT/fonts/DroidSerif-Italic.ttf"
+cp "$FONT_SRC/Droid_Serif/DroidSerif-BoldItalic.ttf" "$OUT/fonts/DroidSerif-BoldItalic.ttf"
+cp "$FONT_SRC/Josefin_Sans/JosefinSans-Regular.ttf" "$OUT/fonts/JosefinSans-Regular.ttf"
+cp "$FONT_SRC/Josefin_Sans/JosefinSans-Bold.ttf" "$OUT/fonts/JosefinSans-Bold.ttf"
+cp "$FONT_SRC/Josefin_Sans/JosefinSans-Italic.ttf" "$OUT/fonts/JosefinSans-Italic.ttf"
+cp "$FONT_SRC/Josefin_Sans/JosefinSans-BoldItalic.ttf" "$OUT/fonts/JosefinSans-BoldItalic.ttf"
 # A workbook to open on load. The page reads it with fetch and hands the bytes
 # to the app, exactly as it does with a file the user picks.
 cp gallery/datagrid/fixtures/business-workbook.xlsx "$OUT/business-workbook.xlsx"
