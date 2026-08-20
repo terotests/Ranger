@@ -227,7 +227,7 @@ class WorkbookTest {
         def sf:GridApp (new GridApp)
         sf.init("gallery/pdf_writer/assets/fonts")
         sf.model.clearSheet()
-        sf.model.resize(5 2)
+        sf.model.resize(4 2)
         sf.model.setCellRaw(0 0 "H")
         sf.model.setCellRaw(1 0 "3")
         sf.model.setCellRaw(2 0 "1")
@@ -248,6 +248,7 @@ class WorkbookTest {
         c.eqStr("model value updated" (sf.model.getCell(1 0)) "0")
         ; Filter: only "North" — changing it to South must drop the row.
         sf.clearFilter()
+        sf.model.setSort(-1 true)
         sf.model.setCellRaw(1 0 "North")
         sf.model.setCellRaw(2 0 "South")
         sf.model.setCellRaw(3 0 "North")
