@@ -377,6 +377,14 @@ class GridEditTest {
         pk.refreshFormulaHilites()
         c.eqInt("unclosed paren still hilites" (array_length pk.view.formulaHiliteR0) 1)
         pk.cancelEdit()
+        ; Stronger overlays + formula-bar chrome must show up in the scene the
+        ; host paints — a faint fill was easy to miss on white cells.
+        GridEditTest.select(pk 4 1)
+        pk.beginEdit("=SUM(F2:F15)" true)
+        def hiliteScene:string (pk.sceneJson())
+        c.ok("scene carries a yellow formula fill" (GridEditTest.hasSub(hiliteScene "0.38")))
+        c.ok("and a thick formula-range border" (GridEditTest.hasSub(hiliteScene "\"t\":3.00")))
+        pk.cancelEdit()
 
         print "== caret keys through UIInput =="
         def input:UIInput (new UIInput)
