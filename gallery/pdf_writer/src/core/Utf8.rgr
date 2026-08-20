@@ -36,7 +36,7 @@ class Utf8 {
     ; know which one it is standing in — and the language will say, if asked.
     ; Asking it is cheaper and more honest than asking which compiler ran.
     sfn stringIsBytes:boolean () {
-        return ((strlen "ä") > 1)
+        return (EVGCodepoint.stringIsBytes())
     }
 
     ; Encoding back out. Delegates to EVGCodepoint so that astral codepoints

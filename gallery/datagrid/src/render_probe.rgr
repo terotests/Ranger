@@ -1,0 +1,61 @@
+; ==============================================================================
+; render_probe — draw one workbook to a PNG, for the cross-target comparison
+; ==============================================================================
+;
+; The point is that this file is compiled TWICE — once to JavaScript, once to
+; C++ — and the two pictures must be identical byte for byte. Ranger's `string`
+; is UTF-16 code units on one target and BYTES on the other, so text handling
+; can be correct in one and silently wrong in the other; the only honest test is
+; to draw the same sheet with both and hold the results against each other.
+;
+;   node  tmp/…/render_js.js  book.xlsx out.png
+;   ./tmp/…/render          book.xlsx out.png
+;
+; See tools/run_render_parity.sh, which does both and compares.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class RenderProbe {
+    sfn main:void () {
+        def path:string ""
+        def out:string "render.png"
+        def dir:string "tmp"
+        def n:int (shell_arg_cnt)
+        def i:int 0
+        def seen:int 0
+        while (i < n) {
+            def a:string (shell_arg i)
+            if ((strlen a) > 5) {
+                if (seen == 0) {
+                    path = a
+                    seen = 1
+                } {
+                    if (seen == 1) {
+                        out = a
+                        seen = 2
+                    } {
+                        dir = a
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        if ((app.loadXlsx(path)) == false) {
+            print ("load failed: " + app.loadError)
+            return
+        }
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir out)
+        print (("wrote " + dir) + "/" + out)
+    }
+}

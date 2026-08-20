@@ -25,6 +25,22 @@
 
 class EVGCodepoint {
 
+    ; Is a string BYTES here, or UTF-16 code units?
+    ;
+    ; Ranger's `string` does not mean the same thing on every target it
+    ; compiles to. In JavaScript it is UTF-16 code units, so "ä" is one of them
+    ; and `charAt` hands back 228. In C++ it is a `std::string` of bytes, so
+    ; "ä" is the two bytes UTF-8 spells it with and `charAt` hands back 195.
+    ;
+    ; This module's whole job is to say where one character ends and the next
+    ; begins, so it is the one place that has to know — and it asks the
+    ; language rather than the build, which cannot be got wrong by a compiler
+    ; flag. Everything above it — measurement, wrapping, kerning, the
+    ; rasterizer — then walks real characters on both.
+    sfn stringIsBytes:boolean () {
+        return ((strlen "ä") > 1)
+    }
+
     sfn isHighSurrogate:boolean (u:int) {
         return ((u >= 55296) && (u <= 56319))
     }
@@ -40,6 +56,9 @@ class EVGCodepoint {
     ; different kind of damage.
     sfn codeAt:int (s:string i:int) {
         def u:int (charAt s i)
+        if (EVGCodepoint.stringIsBytes()) {
+            return (EVGCodepoint.utf8CodeAt(s i u))
+        }
         if (EVGCodepoint.isHighSurrogate(u)) {
             if ((i + 1) < (strlen s)) {
                 def lo:int (charAt s (i + 1))
@@ -51,8 +70,96 @@ class EVGCodepoint {
         return u
     }
 
+    ; The codepoint whose UTF-8 lead byte `u` sits at `i`.
+    ;
+    ; A byte that is not a valid lead, or a sequence that runs off the end, is
+    ; returned as itself: text that is already damaged should stay
+    ; recognisable rather than turn into a different kind of damage.
+    sfn utf8CodeAt:int (s:string i:int u:int) {
+        def n:int (strlen s)
+        if (u < 128) {
+            return u
+        }
+        if ((u >= 192) && (u < 224)) {
+            if ((i + 1) < n) {
+                def b1:int (charAt s (i + 1))
+                if (EVGCodepoint.isUtf8Cont(b1)) {
+                    return (((u - 192) * 64) + (b1 - 128))
+                }
+            }
+            return u
+        }
+        if ((u >= 224) && (u < 240)) {
+            if ((i + 2) < n) {
+                def c1:int (charAt s (i + 1))
+                def c2:int (charAt s (i + 2))
+                if ((EVGCodepoint.isUtf8Cont(c1)) && (EVGCodepoint.isUtf8Cont(c2))) {
+                    return ((((u - 224) * 4096) + ((c1 - 128) * 64)) + (c2 - 128))
+                }
+            }
+            return u
+        }
+        if ((u >= 240) && (u < 248)) {
+            if ((i + 3) < n) {
+                def d1:int (charAt s (i + 1))
+                def d2:int (charAt s (i + 2))
+                def d3:int (charAt s (i + 3))
+                if (((EVGCodepoint.isUtf8Cont(d1)) && (EVGCodepoint.isUtf8Cont(d2))) && (EVGCodepoint.isUtf8Cont(d3))) {
+                    return (((((u - 240) * 262144) + ((d1 - 128) * 4096)) + ((d2 - 128) * 64)) + (d3 - 128))
+                }
+            }
+            return u
+        }
+        return u
+    }
+
+    sfn isUtf8Cont:boolean (b:int) {
+        return ((b >= 128) && (b < 192))
+    }
+
+    ; How many storage units the character at `i` occupies — bytes where a
+    ; string is bytes, UTF-16 units where it is units.
+    sfn utf8UnitsAt:int (s:string i:int) {
+        def u:int (charAt s i)
+        def n:int (strlen s)
+        if (u < 128) {
+            return 1
+        }
+        if ((u >= 192) && (u < 224)) {
+            if ((i + 1) < n) {
+                if (EVGCodepoint.isUtf8Cont((charAt s (i + 1)))) {
+                    return 2
+                }
+            }
+            return 1
+        }
+        if ((u >= 224) && (u < 240)) {
+            if ((i + 2) < n) {
+                if ((EVGCodepoint.isUtf8Cont((charAt s (i + 1)))) && (EVGCodepoint.isUtf8Cont((charAt s (i + 2))))) {
+                    return 3
+                }
+            }
+            return 1
+        }
+        if ((u >= 240) && (u < 248)) {
+            if ((i + 3) < n) {
+                def e1:boolean (EVGCodepoint.isUtf8Cont((charAt s (i + 1))))
+                def e2:boolean (EVGCodepoint.isUtf8Cont((charAt s (i + 2))))
+                def e3:boolean (EVGCodepoint.isUtf8Cont((charAt s (i + 3))))
+                if ((e1 && e2) && e3) {
+                    return 4
+                }
+            }
+            return 1
+        }
+        return 1
+    }
+
     ; How many UTF-16 units the codepoint at `i` occupies: 1, or 2 for a pair.
     sfn unitsAt:int (s:string i:int) {
+        if (EVGCodepoint.stringIsBytes()) {
+            return (EVGCodepoint.utf8UnitsAt(s i))
+        }
         def u:int (charAt s i)
         if (EVGCodepoint.isHighSurrogate(u)) {
             if ((i + 1) < (strlen s)) {
@@ -66,6 +173,18 @@ class EVGCodepoint {
 
     ; Number of codepoints, which is what "how long is this text" should mean
     ; anywhere a glyph is about to be looked up.
+    ; `count` is a name the compiler keeps for itself at a call site, so the
+    ; one callers use is `charCount`; both answer the same question.
+    sfn charCount:int (s:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            i = (i + (EVGCodepoint.unitsAt(s i)))
+            n = (n + 1)
+        }
+        return n
+    }
+
     sfn count:int (s:string) {
         def n:int 0
         def i:int 0
@@ -91,6 +210,12 @@ class EVGCodepoint {
     ; A single codepoint back to a string, re-splitting into a surrogate pair
     ; when it is above the BMP.
     sfn toStr:string (cp:int) {
+        if (EVGCodepoint.stringIsBytes()) {
+            ; `strfromcode` writes the whole codepoint as UTF-8 here, including
+            ; the four-byte form. Splitting it into a surrogate pair first and
+            ; encoding each half would produce CESU-8, which is not UTF-8.
+            return (strfromcode cp)
+        }
         if (cp < 65536) {
             return (strfromcode cp)
         }
@@ -107,6 +232,10 @@ class EVGCodepoint {
     ; codepoints become the proper four-byte form rather than two three-byte
     ; sequences (CESU-8), which is the bug this replaced.
     sfn encodeUtf8:string (s:string) {
+        ; Where a string is already bytes, it is already UTF-8.
+        if (EVGCodepoint.stringIsBytes()) {
+            return s
+        }
         def out:string ""
         def i:int 0
         while (i < (strlen s)) {

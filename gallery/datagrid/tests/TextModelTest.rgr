@@ -24,6 +24,7 @@ Import "../src/xlsx/XlsxWriter.rgr"
 Import "../src/xlsx/XmlLite.rgr"
 Import "../src/FormulaFunctions.rgr"
 Import "../src/XlsxNumberFormat.rgr"
+Import "../../evg/EVGCodepoint.rgr"
 
 class TextCheck {
     def passed:int 0
@@ -121,6 +122,26 @@ class TextModelTest {
         def fmt:string (("0.00 \"" + (strfromcode 228)) + "\"")
         def shown:string (XlsxNumberFormat.format("12" fmt))
         c.ok("the literal in a format survives it" ((TextModelTest.holds(shown (strfromcode 228)))))
+
+        print "== one character is one character, for a glyph to be looked up =="
+        ; This is what the text renderer walks. Where it counted storage units
+        ; instead of characters, every accented letter was drawn as the two
+        ; bytes UTF-8 spells it with — "ä" as "Ã¤" — no matter how correctly it
+        ; had been loaded.
+        c.eqInt("an accented letter is one character" (EVGCodepoint.charCount(one)) 1)
+        c.eqInt("and its codepoint is the letter's" (EVGCodepoint.codeAt(one 0)) 228)
+        def word:string (TextModelTest.finnish())
+        c.eqInt("a name is as long as it reads" (EVGCodepoint.charCount(word)) 14)
+        def cps:[int] (EVGCodepoint.toArray(word))
+        c.eqInt("as an array of codepoints too" (array_length cps) 14)
+        c.eqInt("the H" (itemAt cps 0) 72)
+        c.eqInt("the letter after it" (itemAt cps 1) 228)
+        c.eqStr("and one codepoint back to text is what it was"
+                (EVGCodepoint.toStr(228)) one)
+        ; Above the BMP: one character, whatever the storage.
+        def astral:string (EVGCodepoint.toStr(128169))
+        c.eqInt("an astral codepoint is still one character" (EVGCodepoint.charCount(astral)) 1)
+        c.eqInt("and reads back as itself" (EVGCodepoint.codeAt(astral 0)) 128169)
 
         print "== a workbook out and back in =="
         def book:WorkbookModel (new WorkbookModel)
