@@ -80,6 +80,10 @@ class GridView {
     ; by the host every frame the picker is up; zero means nothing to preview.
     def previewChart:GridChart (new GridChart)
     def previewWid:int 0
+    ; Colour picker example cell — painted into the dialog's content region.
+    def colorPreviewWid:int 0
+    def colorPreviewHex:string "#C00000"
+    def colorPreviewIsFill:boolean false
     def ghostVisible:boolean false
     def ghostR0:int 0
     def ghostC0:int 0
@@ -1239,10 +1243,53 @@ class GridView {
                     }
                 }
             }
+            if (colorPreviewWid > 0) {
+                if ((wnd.wid == colorPreviewWid) && wnd.visible) {
+                    if wnd.hasContent {
+                        this.paintColorPreviewCell(dl wnd)
+                    }
+                }
+            }
             wi = (wi + 1)
         }
 
         return dl
+    }
+
+    ; Mini "AaBbYyZz" cell inside the colour dialog so Selected is a picture,
+    ; not only a hex string.
+    fn paintColorPreviewCell:void (dl:EVGDisplayList wnd:EVGWindow) {
+        def pc:EVGControl (wnd.contentControl())
+        def x0:int ((wnd.x + pc.x) + 2)
+        def y0:int ((wnd.y + pc.y) + 2)
+        def cw:int (pc.w - 4)
+        def ch:int (pc.h - 4)
+        if (cw < 20) {
+            return
+        }
+        if (ch < 16) {
+            return
+        }
+        def bg:EVGColor (EVGColor.rgb(255 255 255))
+        def fg:EVGColor theme.cellText
+        if colorPreviewIsFill {
+            if ((strlen colorPreviewHex) >= 4) {
+                bg = (EVGColor.parse(colorPreviewHex))
+            }
+        } {
+            if ((strlen colorPreviewHex) >= 4) {
+                fg = (EVGColor.parse(colorPreviewHex))
+            }
+        }
+        this.pushRect(dl (to_double x0) (to_double y0) (to_double cw) (to_double ch) bg)
+        this.pushBorder(dl (to_double x0) (to_double y0) (to_double cw) (to_double ch) 1.0 theme.gridLine)
+        this.applyFaceStyled(false false)
+        def sample:string "AaBbYyZz"
+        def px:double 16.0
+        def tw:double (ctx.tr.measureWidth(sample px))
+        def tx:double ((to_double x0) + (((to_double cw) - tw) * 0.5))
+        def ty:double ((to_double y0) + (((to_double ch) - px) * 0.5))
+        this.pushStyledText(dl sample tx ty px fg false false)
     }
 
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
