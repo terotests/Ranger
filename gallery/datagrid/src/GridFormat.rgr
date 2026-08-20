@@ -42,6 +42,7 @@ class GridFormat {
         if (op == "size")      { return true }
         if (op == "fill")      { return true }
         if (op == "color")     { return true }
+        if (op == "font")      { return true }
         if (op == "numfmt")    { return true }
         if (op == "decimals")  { return true }
         if (op == "border")    { return true }
@@ -227,6 +228,10 @@ class GridFormat {
             st.textRgb = arg
             return
         }
+        if (op == "font") {
+            st.fontName = arg
+            return
+        }
         if (op == "numfmt") {
             st.numFmt = (GridFormat.namedFormat(arg))
             return
@@ -249,6 +254,7 @@ class GridFormat {
             st.underline = false
             st.strike = false
             st.fontSizePt = 11.0
+            st.fontName = ""
             st.align = "left"
             st.valign = "bottom"
             st.wrapText = false

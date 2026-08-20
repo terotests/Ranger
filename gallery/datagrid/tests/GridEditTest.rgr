@@ -1687,14 +1687,48 @@ class GridEditTest {
         c.ok("and the row grew with it" (rowBig > rowBefore))
         def bigSt:CellStyle (tb.model.getCellStyle(4 1))
         c.ok("enough for the line" (rowBig >= (CellStyle.rowHeightForPt(bigSt.fontSizePt))))
-        ; …and does not take the room back, because by then the height might be
-        ; one the user dragged out and there is no telling the two apart.
+        ; Shrinking the type takes the room back to what the line needs —
+        ; that is what A− is for. A height the user dragged out is still
+        ; theirs until they change the type or auto-fit the row.
         def smallTimes:int 0
         while (smallTimes < 7) {
             tb.runCommand("format.size.down" "")
             smallTimes = (smallTimes + 1)
         }
-        c.eqInt("smaller type leaves the row alone" (tb.model.rowHeight(4)) rowBig)
+        def rowSmall:int (tb.model.rowHeight(4))
+        c.ok("smaller type shrinks the row again" (rowSmall < rowBig))
+        def smallSt:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("and fits the smaller type" (rowSmall >= (CellStyle.rowHeightForPt(smallSt.fontSizePt))))
+        c.ok("size dropdown opens" (tb.runCommand("format.size.pick" "")))
+        c.ok("the size menu is up" tb.view.menuOpen)
+        c.eqInt("as a size picker" tb.view.menuKind 2)
+        tb.runFontSizeMenu(5)
+        c.ok("picking a size closes it" (tb.view.menuOpen == false))
+        def picked:CellStyle (tb.model.getCellStyle(4 1))
+        c.ok("12 pt from the menu" (picked.fontSizePt == 12.0))
+        c.ok("font dropdown opens" (tb.runCommand("format.font" "")))
+        c.eqInt("as a font picker" tb.view.menuKind 3)
+        tb.runFontNameMenu(7)
+        def named:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("Noto Sans from the menu" named.fontName "Noto Sans")
+        c.ok("and a direct font arg still works" (tb.runCommand("format.font" "Helvetica")))
+        def helv:CellStyle (tb.model.getCellStyle(4 1))
+        c.eqStr("Helvetica applied" helv.fontName "Helvetica")
+        ; Hover tip: the toolbar's hot label is what the tooltip paints.
+        tb.view.toolbar.layout(tb.grid.x (tb.grid.toolbarY()) tb.grid.w)
+        def tipIdx:int -1
+        def ti:int 0
+        while (ti < (tb.view.toolbar.count())) {
+            def it:ToolItem (tb.view.toolbar.at(ti))
+            if (it.command == "format.bold") {
+                tipIdx = ti
+            }
+            ti = (ti + 1)
+        }
+        c.ok("bold is on the bar" (tipIdx >= 0))
+        tb.view.toolbar.hot = tipIdx
+        c.eqStr("tooltip names the command" (tb.view.toolbar.hotLabel()) "Bold")
+        tb.view.toolbar.hot = -1
         tb.model.setRowHeight(4 rowBefore)
         c.ok("fill" (tb.runCommand("format.fill" "#FFF2CC")))
         def fillSt:CellStyle (tb.model.getCellStyle(4 1))

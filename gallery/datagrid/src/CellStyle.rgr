@@ -101,6 +101,10 @@ class CellStyle {
     def underline:boolean false
     def strike:boolean false
     def fontSizePt:double 11.0
+    ; Typeface name as OOXML writes it (`<name val="Calibri"/>`). Empty means
+    ; the workbook default; the painter falls back to Open Sans when the face
+    ; is not loaded.
+    def fontName:string ""
     def align:string "left"
     def valign:string "bottom"
     def wrapText:boolean false
@@ -152,6 +156,7 @@ class CellStyle {
         o.underline = underline
         o.strike = strike
         o.fontSizePt = fontSizePt
+        o.fontName = fontName
         o.align = align
         o.valign = valign
         o.wrapText = wrapText
@@ -186,6 +191,9 @@ class CellStyle {
             return false
         }
         if (fontSizePt != o.fontSizePt) {
+            return false
+        }
+        if (fontName != o.fontName) {
             return false
         }
         if (align != o.align) {
