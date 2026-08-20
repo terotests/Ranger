@@ -159,8 +159,8 @@ class GridToolbar {
         this.addToggle("format.strike" "" "Strikethrough" (ToolIcon.strike()) "strike" "")
         this.add("format.size.up" "" "Bigger" (ToolIcon.sizeUp()))
         this.add("format.size.down" "" "Smaller" (ToolIcon.sizeDown()))
-        this.add("format.color" "#C00000" "Text colour" (ToolIcon.textColor()))
-        this.add("format.fill" "#FFF2CC" "Fill colour" (ToolIcon.fill()))
+        this.add("format.color" "" "Text colour" (ToolIcon.textColor()))
+        this.add("format.fill" "" "Fill colour" (ToolIcon.fill()))
         this.addSeparator()
 
         this.addToggle("format.align" "left" "Align left" (ToolIcon.alignLeft()) "align" "left")
