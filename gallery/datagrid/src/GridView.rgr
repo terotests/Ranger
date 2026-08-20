@@ -58,6 +58,9 @@ class GridView {
     def theme:GridTheme (new GridTheme)
     def status:string ""
     def editCaret:int 0
+    ; When true the blinking caret belongs in the formula bar, not only in the
+    ; active cell — clicking the bar focuses editing there.
+    def editInFormulaBar:boolean false
     ; Dialogs painted on top of the grid, from the shared EVG window layer.
     def windows:EVGWindowManager (new EVGWindowManager)
     ; The charts floating over the sheet. Painted here rather than by the
@@ -790,6 +793,9 @@ class GridView {
         }
 
         ; --- formula bar ---
+        ; Address box + formula field. When editing from the bar the field
+        ; lights up and carries the caret — without that it looks like a
+        ; static label and nobody believes they can type into it.
         def fbY:int (grid.formulaBarY())
         this.pushRect(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) theme.formulaBg)
         def addr:string (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
@@ -797,8 +803,47 @@ class GridView {
         if editing {
             shown = editBuf
         }
-        this.pushText(dl addr (to_double (grid.x + 8)) (to_double (fbY + 6)) 13.0 theme.headerText)
-        this.pushText(dl shown (to_double (grid.x + 64)) (to_double (fbY + 6)) 13.0 theme.formulaText)
+        def addrBoxW:int 56
+        def addrX:int (grid.x + 4)
+        def fieldX:int ((grid.x + addrBoxW) + 8)
+        def fieldW:int ((grid.w - addrBoxW) - 16)
+        def fieldY:int (fbY + 3)
+        def fieldH:int (grid.formulaBarH - 6)
+        this.pushRect(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) theme.headerBg)
+        this.pushBorder(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) 1.0 theme.gridLine)
+        this.pushText(dl addr (to_double (addrX + 6)) (to_double (fieldY + 3)) 12.0 theme.headerText)
+        def fieldBg:EVGColor theme.formulaBg
+        def fieldEdge:EVGColor theme.gridLine
+        if editing {
+            if editInFormulaBar {
+                fieldBg = (EVGColor.rgb(255 255 255))
+                fieldEdge = theme.activeBorder
+            }
+        }
+        this.pushRect(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) fieldBg)
+        this.pushBorder(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) 1.0 fieldEdge)
+        this.pushText(dl shown (to_double (fieldX + 6)) (to_double (fieldY + 3)) 13.0 theme.formulaText)
+        if editing {
+            if editInFormulaBar {
+                if focused {
+                    def phase:int (to_int (frame / 30))
+                    def on:int (phase - ((to_int (phase / 2)) * 2))
+                    if (on == 0) {
+                        def upTo:string shown
+                        def cn:int (strlen shown)
+                        if (editCaret < cn) {
+                            def cc:int editCaret
+                            if (cc < 0) {
+                                cc = 0
+                            }
+                            upTo = (substring shown 0 cc)
+                        }
+                        def ew:int (to_int (ctx.tr.measureWidth(upTo 13.0)))
+                        this.pushRect(dl (to_double ((fieldX + 6) + ew)) (to_double (fieldY + 3)) 2.0 (to_double (fieldH - 6)) theme.activeBorder)
+                    }
+                }
+            }
+        }
         this.pushBorder(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) 1.0 theme.gridLine)
 
         def headerTop:int (grid.headerTop())

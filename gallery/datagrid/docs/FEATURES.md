@@ -76,11 +76,14 @@
 ; Refs: A1 $A$1 A$1 $A1, Sheet!A1, 'My Sheet'!A1, ranges. Fill/copy translates
 ; relative refs via AST; serialization is precedence-aware, so a filled
 ; "=A2+B2" stays "=A3+B3" instead of growing "( )" around every operator.
-; Library: SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF
+; Library: SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF IFS
 ; AND OR NOT TRUE FALSE IFERROR IFNA ABS ROUND INT MOD POWER SQRT SIGN PI EXP
 ; LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT VALUE
-; ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T. Unsupported keep cached <v>.
-; Display: FormulaValue.asRaw → XlsxNumberFormat → DataGrid.
+; ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T DATE… TEXT ROUNDUP/DOWN TRUNC
+; MEDIAN COUNTBLANK COUNTIF SUMIF AVERAGEIF VLOOKUP HLOOKUP INDEX MATCH
+; SUMPRODUCT LARGE SMALL SUBSTITUTE FIND SEARCH REPT PROPER EXACT CHAR CODE
+; TRANSPOSE TODAY NOW. See FormulaFunctions.catalog(). Unsupported → #NAME?
+; (cached <v> kept on load). Display: FormulaValue.asRaw → XlsxNumberFormat.
 ; SheetView drives DataGrid virtualization (sort/filter order). Header popup:
 ; sort asc/desc, filter unique, clear. CF: colorScale + cellIs on paint.
 ; Oracles: openpyxl semantic + LibreOffice visual/formula (SKIP if LO absent).
