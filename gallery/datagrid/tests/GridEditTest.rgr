@@ -1811,6 +1811,24 @@ class GridEditTest {
         scrollApp.update(back)
         c.eqInt("and it comes back to the first column" scrollApp.grid.firstVisibleCol 0)
 
+        print "== vertical wheel follows UIInput (+up / -down) =="
+        def vScroll:GridApp (new GridApp)
+        vScroll.init("gallery/pdf_writer/assets/fonts")
+        vScroll.model.growTo(80 8)
+        vScroll.grid.updateVisible(vScroll.model)
+        def y0:int vScroll.grid.scrollY
+        def down (new UIInput)
+        down.newFrame()
+        down.addScroll(-3)
+        vScroll.update(down)
+        c.ok("wheel down increases scrollY" (vScroll.grid.scrollY > y0))
+        def midY:int vScroll.grid.scrollY
+        def up (new UIInput)
+        up.newFrame()
+        up.addScroll(3)
+        vScroll.update(up)
+        c.ok("wheel up decreases scrollY" (vScroll.grid.scrollY < midY))
+
         print "== every dialog keeps its controls inside itself =="
         def dlg:GridApp (new GridApp)
         dlg.init("gallery/pdf_writer/assets/fonts")

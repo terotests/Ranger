@@ -39,8 +39,83 @@ class EvgGlPainter {
     def atlasW:int 0
     def atlasH:int 0
     def fontFamily:string "Open Sans"
+    ; Page-space clip stack (x,y,w,h × levels). Used to skip draws outside the
+    ; current band — glScissor is not wired yet, but culling stops row numbers
+    ; and cell ink from being submitted over the chrome.
+    def clipStack:[int]
 
     Constructor () {
+    }
+
+    fn pushClipRect:void (x:int y:int w:int h:int) {
+        def cx:int x
+        def cy:int y
+        def cw:int w
+        def ch:int h
+        if ((array_length clipStack) >= 4) {
+            def n:int (array_length clipStack)
+            def ox:int (itemAt clipStack (n - 4))
+            def oy:int (itemAt clipStack (n - 3))
+            def ow:int (itemAt clipStack (n - 2))
+            def oh:int (itemAt clipStack (n - 1))
+            def x1:int cx
+            if (ox > x1) {
+                x1 = ox
+            }
+            def y1:int cy
+            if (oy > y1) {
+                y1 = oy
+            }
+            def x2:int (cx + cw)
+            if ((ox + ow) < x2) {
+                x2 = (ox + ow)
+            }
+            def y2:int (cy + ch)
+            if ((oy + oh) < y2) {
+                y2 = (oy + oh)
+            }
+            cx = x1
+            cy = y1
+            cw = (x2 - x1)
+            ch = (y2 - y1)
+            if (cw < 0) {
+                cw = 0
+            }
+            if (ch < 0) {
+                ch = 0
+            }
+        }
+        push clipStack cx
+        push clipStack cy
+        push clipStack cw
+        push clipStack ch
+    }
+
+    fn popClipRect:void () {
+        if ((array_length clipStack) >= 4) {
+            removeLast clipStack
+            removeLast clipStack
+            removeLast clipStack
+            removeLast clipStack
+        }
+    }
+
+    fn rectInClip:boolean (x:double y:double w:double h:double) {
+        if ((array_length clipStack) < 4) {
+            return true
+        }
+        def n:int (array_length clipStack)
+        def cx:int (itemAt clipStack (n - 4))
+        def cy:int (itemAt clipStack (n - 3))
+        def cw:int (itemAt clipStack (n - 2))
+        def ch:int (itemAt clipStack (n - 1))
+        if (((to_int (x + w)) <= cx) || ((to_int x) >= (cx + cw))) {
+            return false
+        }
+        if (((to_int (y + h)) <= cy) || ((to_int y) >= (cy + ch))) {
+            return false
+        }
+        return true
     }
 
     fn applyFace:void (tr:UITextRenderer bold:boolean italic:boolean) {
@@ -327,6 +402,7 @@ class EvgGlPainter {
         this.buildAtlas(dl tr scale)
         dgfx_evg_begin pageW pageH drawW drawH
         dgfx_evg_set_atlas (atlas.raw()) atlasW atlasH
+        clear clipStack
 
         def i:int 0
         def n:int (dl.count())
@@ -335,28 +411,42 @@ class EvgGlPainter {
             def rf:double ((to_double c.r) / 255.0)
             def gf:double ((to_double c.g) / 255.0)
             def bf:double ((to_double c.b) / 255.0)
+            if (c.kind == 4) {
+                this.pushClipRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h))
+            }
+            if (c.kind == 5) {
+                this.popClipRect()
+            }
             if (c.kind == 0) {
-                dgfx_evg_rect c.x c.y c.w c.h rf gf bf c.a c.radius
+                if (this.rectInClip(c.x c.y c.w c.h)) {
+                    dgfx_evg_rect c.x c.y c.w c.h rf gf bf c.a c.radius
+                }
             }
             if (c.kind == 1) {
-                dgfx_evg_border c.x c.y c.w c.h c.thickness rf gf bf c.a c.radius
+                if (this.rectInClip(c.x c.y c.w c.h)) {
+                    dgfx_evg_border c.x c.y c.w c.h c.thickness rf gf bf c.a c.radius
+                }
             }
             if (c.kind == 3) {
                 def s:AtlasSlot (this.slotFor(i))
                 if (s.cmdIndex == i) {
-                    ; The glyph sits `pad` in from the slot's corner on both
-                    ; axes, so the quad starts `pad` before the command's
-                    ; corner on both. Subtracting it only in x put every run
-                    ; two pixels low.
-                    def tx:double (c.x - s.pad)
-                    def ty:double (c.y - s.pad)
-                    dgfx_evg_text tx ty s.w s.h s.u0 s.v0 s.u1 s.v1 rf gf bf c.a c.rotate
+                    if (this.rectInClip(c.x c.y s.w s.h)) {
+                        ; The glyph sits `pad` in from the slot's corner on both
+                        ; axes, so the quad starts `pad` before the command's
+                        ; corner on both. Subtracting it only in x put every run
+                        ; two pixels low.
+                        def tx:double (c.x - s.pad)
+                        def ty:double (c.y - s.pad)
+                        dgfx_evg_text tx ty s.w s.h s.u0 s.v0 s.u1 s.v1 rf gf bf c.a c.rotate
+                    }
                 }
             }
             if (c.kind == 2) {
                 def entry:DecodedImage (images.cached(c.src))
                 if entry.ok {
-                    dgfx_evg_image c.x c.y c.w c.h (entry.img.pixels) entry.img.width entry.img.height c.radius
+                    if (this.rectInClip(c.x c.y c.w c.h)) {
+                        dgfx_evg_image c.x c.y c.w c.h (entry.img.pixels) entry.img.width entry.img.height c.radius
+                    }
                 }
             }
             if (c.kind == 6) {
