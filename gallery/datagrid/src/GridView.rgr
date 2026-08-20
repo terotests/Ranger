@@ -910,6 +910,12 @@ class GridView {
         return (EVGColor.rgb(180 50 70))
     }
 
+    fn paintFormulaGrip:void (dl:EVGDisplayList x:int y:int hs:int edge:EVGColor) {
+        this.pushRect(dl (to_double x) (to_double y) (to_double hs) (to_double hs) (EVGColor.rgb(255 255 255)))
+        this.pushBorder(dl (to_double x) (to_double y) (to_double hs) (to_double hs) 1.0 edge)
+        this.pushRect(dl (to_double (x + 2)) (to_double (y + 2)) (to_double (hs - 4)) (to_double (hs - 4)) edge)
+    }
+
     sfn chartButtonH:int () {
         return 17
     }
@@ -1364,8 +1370,8 @@ class GridView {
             }
         }
 
-        ; Formula range highlights: selection-like border + resize handles so
-        ; a SUM range can be dragged wider from the bottom or right edge.
+        ; Formula range highlights: all four edges/corners resize; dragging the
+        ; tinted interior moves the whole reference horizontally.
         def hi:int 0
         def hn:int (array_length formulaHiliteR0)
         while (hi < hn) {
@@ -1398,24 +1404,23 @@ class GridView {
                 def edge:EVGColor (GridView.formulaHiliteEdge(hi))
                 this.pushRect(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) fill)
                 this.pushBorder(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) 2.0 edge)
-                ; Bottom, right and corner grips — same idea as the cell fill
-                ; handle, but for expanding the formula's range.
+                ; Eight selection-style grips: four edge centres + corners.
                 def hs:int 10
-                def bx:int ((hx + (idiv hw 2)) - (idiv hs 2))
-                def by:int ((hy + hh) - (idiv hs 2))
-                def rx:int ((hx + hw) - (idiv hs 2))
-                def ry:int ((hy + (idiv hh 2)) - (idiv hs 2))
-                def cx2:int ((hx + hw) - (idiv hs 2))
-                def cy2:int ((hy + hh) - (idiv hs 2))
-                this.pushRect(dl (to_double bx) (to_double by) (to_double hs) (to_double hs) (EVGColor.rgb(255 255 255)))
-                this.pushBorder(dl (to_double bx) (to_double by) (to_double hs) (to_double hs) 1.0 edge)
-                this.pushRect(dl (to_double (bx + 2)) (to_double (by + 2)) (to_double (hs - 4)) (to_double (hs - 4)) edge)
-                this.pushRect(dl (to_double rx) (to_double ry) (to_double hs) (to_double hs) (EVGColor.rgb(255 255 255)))
-                this.pushBorder(dl (to_double rx) (to_double ry) (to_double hs) (to_double hs) 1.0 edge)
-                this.pushRect(dl (to_double (rx + 2)) (to_double (ry + 2)) (to_double (hs - 4)) (to_double (hs - 4)) edge)
-                this.pushRect(dl (to_double cx2) (to_double cy2) (to_double hs) (to_double hs) (EVGColor.rgb(255 255 255)))
-                this.pushBorder(dl (to_double cx2) (to_double cy2) (to_double hs) (to_double hs) 1.0 edge)
-                this.pushRect(dl (to_double (cx2 + 2)) (to_double (cy2 + 2)) (to_double (hs - 4)) (to_double (hs - 4)) edge)
+                def half:int (idiv hs 2)
+                def left:int (hx - half)
+                def midX:int ((hx + (idiv hw 2)) - half)
+                def right:int ((hx + hw) - half)
+                def top:int (hy - half)
+                def midY:int ((hy + (idiv hh 2)) - half)
+                def bottom:int ((hy + hh) - half)
+                this.paintFormulaGrip(dl left top hs edge)
+                this.paintFormulaGrip(dl midX top hs edge)
+                this.paintFormulaGrip(dl right top hs edge)
+                this.paintFormulaGrip(dl left midY hs edge)
+                this.paintFormulaGrip(dl right midY hs edge)
+                this.paintFormulaGrip(dl left bottom hs edge)
+                this.paintFormulaGrip(dl midX bottom hs edge)
+                this.paintFormulaGrip(dl right bottom hs edge)
             }
             hi = (hi + 1)
         }

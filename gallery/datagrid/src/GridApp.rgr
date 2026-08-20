@@ -85,6 +85,7 @@ class GridApp {
     def formulaRangeFixC:int 0
     def formulaRangeFixR1:int 0
     def formulaRangeFixC1:int 0
+    def formulaRangeGrabC:int 0
     def formulaRangeStartedEdit:boolean false
     def fillR0:int 0
     def fillC0:int 0
@@ -4047,9 +4048,9 @@ class GridApp {
         view.focused = true
     }
 
-    ; Handle / border hit: 1=bottom, 2=right, 0=corner, -1=miss.
-    ; The whole lower/right border is draggable, not only the small square:
-    ; users naturally grab the line itself when a range is many rows tall.
+    ; Formula-range manipulation:
+    ;   0 BR corner, 1 bottom, 2 right, 3 top, 4 left, 5 horizontal move,
+    ;   6 TL corner, 7 TR corner, 8 BL corner; -1 means miss.
     fn hitFormulaRangeHandle:int (px:int py:int) {
         def hn:int (array_length view.formulaHiliteR0)
         def hi:int (hn - 1)
@@ -4064,14 +4065,30 @@ class GridApp {
             def hy:int htl.y
             def hw:int ((hbr.x + hbr.w) - htl.x)
             def hh:int ((hbr.y + hbr.h) - htl.y)
-            def hs:int 10
             def pad:int 5
-            def cx2:int ((hx + hw) - (idiv hs 2))
-            def cy2:int ((hy + hh) - (idiv hs 2))
-            if ((px >= (cx2 - pad)) && (px <= ((cx2 + hs) + pad))) {
-                if ((py >= (cy2 - pad)) && (py <= ((cy2 + hs) + pad))) {
+            ; Corners win over their adjacent edges.
+            if ((px >= ((hx + hw) - pad)) && (px <= ((hx + hw) + pad))) {
+                if ((py >= ((hy + hh) - pad)) && (py <= ((hy + hh) + pad))) {
                     formulaRangeIdx = hi
                     return 0
+                }
+            }
+            if ((px >= (hx - pad)) && (px <= (hx + pad))) {
+                if ((py >= (hy - pad)) && (py <= (hy + pad))) {
+                    formulaRangeIdx = hi
+                    return 6
+                }
+            }
+            if ((px >= ((hx + hw) - pad)) && (px <= ((hx + hw) + pad))) {
+                if ((py >= (hy - pad)) && (py <= (hy + pad))) {
+                    formulaRangeIdx = hi
+                    return 7
+                }
+            }
+            if ((px >= (hx - pad)) && (px <= (hx + pad))) {
+                if ((py >= ((hy + hh) - pad)) && (py <= ((hy + hh) + pad))) {
+                    formulaRangeIdx = hi
+                    return 8
                 }
             }
             ; Bottom border, including its centre grip.
@@ -4088,20 +4105,24 @@ class GridApp {
                     return 2
                 }
             }
-            def bx:int ((hx + (idiv hw 2)) - (idiv hs 2))
-            def by:int ((hy + hh) - (idiv hs 2))
-            if ((px >= (bx - pad)) && (px <= ((bx + hs) + pad))) {
-                if ((py >= (by - pad)) && (py <= ((by + hs) + pad))) {
+            ; Top and left resize the starting edge.
+            if ((px >= (hx - pad)) && (px <= ((hx + hw) + pad))) {
+                if ((py >= (hy - pad)) && (py <= (hy + pad))) {
                     formulaRangeIdx = hi
-                    return 1
+                    return 3
                 }
             }
-            def rx:int ((hx + hw) - (idiv hs 2))
-            def ry:int ((hy + (idiv hh 2)) - (idiv hs 2))
-            if ((px >= (rx - pad)) && (px <= ((rx + hs) + pad))) {
-                if ((py >= (ry - pad)) && (py <= ((ry + hs) + pad))) {
+            if ((px >= (hx - pad)) && (px <= (hx + pad))) {
+                if ((py >= (hy - pad)) && (py <= ((hy + hh) + pad))) {
                     formulaRangeIdx = hi
-                    return 2
+                    return 4
+                }
+            }
+            ; Dragging the tinted interior shifts the whole reference sideways.
+            if ((px > (hx + pad)) && (px < ((hx + hw) - pad))) {
+                if ((py > (hy + pad)) && (py < ((hy + hh) - pad))) {
+                    formulaRangeIdx = hi
+                    return 5
                 }
             }
             hi = (hi - 1)
@@ -4109,7 +4130,7 @@ class GridApp {
         return -1
     }
 
-    fn beginFormulaRangeDrag:void (edge:int) {
+    fn beginFormulaRangeDrag:void (edge:int grabCol:int) {
         formulaRangeStartedEdit = false
         this.ensureFormulaEditForRange()
         formulaRangeDrag = true
@@ -4118,6 +4139,7 @@ class GridApp {
         formulaRangeFixC = (itemAt view.formulaHiliteC0 formulaRangeIdx)
         formulaRangeFixR1 = (itemAt view.formulaHiliteR1 formulaRangeIdx)
         formulaRangeFixC1 = (itemAt view.formulaHiliteC1 formulaRangeIdx)
+        formulaRangeGrabC = grabCol
         dragging = false
         filling = false
         formulaPicking = false
@@ -4141,6 +4163,33 @@ class GridApp {
         }
         if (formulaRangeEdge == 2) {
             c1 = col
+        }
+        if (formulaRangeEdge == 3) {
+            r0 = row
+        }
+        if (formulaRangeEdge == 4) {
+            c0 = col
+        }
+        if (formulaRangeEdge == 5) {
+            def dc:int (col - formulaRangeGrabC)
+            c0 = (formulaRangeFixC + dc)
+            c1 = (formulaRangeFixC1 + dc)
+            if (c0 < 0) {
+                c1 = (c1 - c0)
+                c0 = 0
+            }
+        }
+        if (formulaRangeEdge == 6) {
+            r0 = row
+            c0 = col
+        }
+        if (formulaRangeEdge == 7) {
+            r0 = row
+            c1 = col
+        }
+        if (formulaRangeEdge == 8) {
+            r1 = row
+            c0 = col
         }
         if (r1 < r0) {
             def t:int r0
@@ -5134,10 +5183,21 @@ class GridApp {
     fn handlePress:void (input:UIInput) {
         ; Formula-range grips (bottom / right / corner) resize the named span.
         this.refreshFormulaHilites()
-        def rangeEdge:int (this.hitFormulaRangeHandle(input.pointerX input.pointerY))
-        if (rangeEdge >= 0) {
-            this.beginFormulaRangeDrag(rangeEdge)
-            return
+        ; A real multi-cell selection's own move border has priority over a
+        ; formula reference that happens to overlap it.
+        def allowFormulaRange:boolean (sel.isSingle())
+        if (this.isFormulaEdit()) {
+            allowFormulaRange = true
+        }
+        if allowFormulaRange {
+            def rangeEdge:int (this.hitFormulaRangeHandle(input.pointerX input.pointerY))
+            if (rangeEdge >= 0) {
+                def rangeHit:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+                if ((rangeHit.row >= 0) && (rangeHit.col >= 0)) {
+                    this.beginFormulaRangeDrag(rangeEdge rangeHit.col)
+                    return
+                }
+            }
         }
         ; The list arrow belongs to the active cell and sits inside it, so it
         ; has to be asked before the cell is.

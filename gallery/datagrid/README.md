@@ -408,10 +408,11 @@ paste never touched.
 Typing `=SUM(` (or any formula) and then clicking or dragging on the sheet
 inserts `A1` / `A1:A3` at the caret without leaving edit mode — the same
 point-and-click Excel uses. Selecting a formula cell (or editing one) also
-draws a selection-like border over each same-sheet range, with grips on the
-bottom, right and corner. The full bottom/right border is also draggable; the
-span and formula update immediately, and a drag started from a selected formula
-commits on release. Matching tokens in the formula bar (and in-cell editor) pick up the
+draws a selection-like border over each same-sheet range, with grips on all four
+edges and corners. Every edge is draggable to resize; dragging the tinted
+interior left or right moves the whole reference without changing its size.
+The span and formula update immediately, and a drag started from a selected
+formula commits on release. Matching tokens in the formula bar (and in-cell editor) pick up the
 same colours. The formula bar is a grey strip with a white name box and white
 formula field: click in the field to place the caret, which stays solid while
 editing a formula. Formula edits use that one caret in the top bar even when

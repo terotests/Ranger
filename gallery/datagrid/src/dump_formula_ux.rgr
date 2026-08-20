@@ -65,6 +65,17 @@ class DumpFormulaUx {
         app.editCaret = 5
         app.view.editCaret = 5
         DumpFormulaUx.writePng(app dir "formula_range_resized.png")
+
+        ; Commit the resize, then move the same six-row span two columns right.
+        app.commitEdit()
+        app.refreshFormulaHilites()
+        app.formulaRangeIdx = 0
+        app.beginFormulaRangeDrag(5 0)
+        app.updateFormulaRangeDragAt(0 2)
+        app.formulaRangeDrag = false
+        app.editInFormulaBar = true
+        app.view.editInFormulaBar = true
+        DumpFormulaUx.writePng(app dir "formula_range_moved.png")
         print "done"
     }
 }
