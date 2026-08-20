@@ -311,9 +311,11 @@ class SpreadsheetModel {
         return ((SpreadsheetModel.colLabel(col)) + (to_string (row + 1)))
     }
 
-    fn ensureGeometry:void () {
-        def needRows:int (rowCount + 1)
-        def needCols:int (colCount + 1)
+    ; Allocate per-row / per-column size arrays when missing. Does NOT rebuild
+    ; prefix-sum offsets — `autoFitRows` (and any bulk height pass) calls
+    ; `rowHeight` / `setRowHeight` once per row, and rebuilding offsets on
+    ; every call is O(rows²). Paint paths still go through `ensureGeometry`.
+    fn ensureSizeArrays:void () {
         if ((array_length rowHeights) != rowCount) {
             clear rowHeights
             clear rowHidden
@@ -354,6 +356,10 @@ class SpreadsheetModel {
                 hj = (hj + 1)
             }
         }
+    }
+
+    fn ensureGeometry:void () {
+        this.ensureSizeArrays()
         if rowGeomDirty {
             clear rowOffsets
             def acc:int 0
@@ -388,13 +394,6 @@ class SpreadsheetModel {
                 c = (c + 1)
             }
             colGeomDirty = false
-        }
-        ; silence unused in some targets
-        if (needRows < 0) {
-            needRows = 0
-        }
-        if (needCols < 0) {
-            needCols = 0
         }
     }
 
@@ -1994,7 +1993,7 @@ class SpreadsheetModel {
     }
 
     fn rowHeight:int (row:int) {
-        this.ensureGeometry()
+        this.ensureSizeArrays()
         if (row < 0) {
             return defaultRowH
         }
@@ -2005,7 +2004,7 @@ class SpreadsheetModel {
     }
 
     fn colWidth:int (col:int) {
-        this.ensureGeometry()
+        this.ensureSizeArrays()
         if (col < 0) {
             return defaultColW
         }
@@ -2052,7 +2051,7 @@ class SpreadsheetModel {
     }
 
     fn setRowHeight:void (row:int h:int) {
-        this.ensureGeometry()
+        this.ensureSizeArrays()
         if (row < 0) {
             return
         }
@@ -2071,7 +2070,7 @@ class SpreadsheetModel {
     }
 
     fn setColWidth:void (col:int w:int) {
-        this.ensureGeometry()
+        this.ensureSizeArrays()
         if (col < 0) {
             return
         }
