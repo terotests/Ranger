@@ -138,6 +138,13 @@ class GridApp {
     def colorDialogOp:string "color"
     def colorPick:string "#C00000"
     def colorRecent:[string]
+    ; Live preview while the palette is open: styles before the picker ran,
+    ; restored on Cancel / Escape, and committed as one undo on Apply.
+    def colorPreviewOn:boolean false
+    def colorPreviewCommitted:boolean false
+    def colorSnapRows:[int]
+    def colorSnapCols:[int]
+    def colorSnapStyles:[CellStyle]
     def listValues:[string]
     def dvKind:int 701
     def dvOp:int 721
@@ -1814,6 +1821,72 @@ class GridApp {
         colorRecent = next
     }
 
+    ; Capture every cell the picker will touch, so Cancel can put them back
+    ; and Apply can record one undo from this baseline.
+    fn snapshotColorSelection:void () {
+        clear colorSnapRows
+        clear colorSnapCols
+        clear colorSnapStyles
+        def gi:int 0
+        while (gi < (sel.rangeCount())) {
+            def g:GridRange (sel.rangeAt(gi))
+            def r:int g.r0
+            while (r <= g.r1) {
+                def c:int g.c0
+                while (c <= g.c1) {
+                    push colorSnapRows r
+                    push colorSnapCols c
+                    push colorSnapStyles ((model.getCellStyle(r c)).copy())
+                    c = (c + 1)
+                }
+                r = (r + 1)
+            }
+            gi = (gi + 1)
+        }
+        colorPreviewOn = true
+        colorPreviewCommitted = false
+    }
+
+    fn restoreColorSnapshot:void () {
+        def i:int 0
+        while (i < (array_length colorSnapRows)) {
+            def r:int (itemAt colorSnapRows i)
+            def c:int (itemAt colorSnapCols i)
+            def st:CellStyle (itemAt colorSnapStyles i)
+            model.setCellStyleResolved(r c st)
+            i = (i + 1)
+        }
+        sheetView.markDirty()
+        grid.updateVisible(model)
+    }
+
+    ; Paint the chosen colour onto the selection without an undo entry — the
+    ; sheet shows it immediately; Apply / Cancel decide whether it sticks.
+    fn previewColorOnSheet:void (hex:string) {
+        def i:int 0
+        while (i < (array_length colorSnapRows)) {
+            def r:int (itemAt colorSnapRows i)
+            def c:int (itemAt colorSnapCols i)
+            def base:CellStyle (itemAt colorSnapStyles i)
+            def st:CellStyle (base.copy())
+            if (colorDialogOp == "fill") {
+                if ((strlen hex) == 0) {
+                    st.hasFill = false
+                    st.fillRgb = ""
+                } {
+                    st.hasFill = true
+                    st.fillRgb = hex
+                }
+            } {
+                st.textRgb = hex
+            }
+            model.setCellStyleResolved(r c st)
+            i = (i + 1)
+        }
+        sheetView.markDirty()
+        grid.updateVisible(model)
+    }
+
     fn openColorDialog:void (op:string initial:string) {
         this.buildDialogs()
         if editing {
@@ -1833,14 +1906,23 @@ class GridApp {
         } {
             colorDialog.title = "Text colour"
         }
+        this.snapshotColorSelection()
         colorDialog.w = 340
         colorDialog.reset()
         colorDialog.addLabel("Theme")
         colorDialog.beginColumns(10)
+        def matched:boolean false
         def ti:int 0
         while (ti < (GridApp.paletteThemeCount())) {
             def th:string (GridApp.paletteTheme(ti))
-            colorDialog.addSwatch((901 + ti) th 1 (th == colorPick))
+            def on:boolean false
+            if (matched == false) {
+                if (th == colorPick) {
+                    on = true
+                    matched = true
+                }
+            }
+            colorDialog.addSwatch((901 + ti) th 1 on)
             ti = (ti + 1)
         }
         colorDialog.endColumns()
@@ -1850,7 +1932,14 @@ class GridApp {
         def si:int 0
         while (si < (GridApp.paletteStandardCount())) {
             def sh:string (GridApp.paletteStandard(si))
-            colorDialog.addSwatch((911 + si) sh 1 (sh == colorPick))
+            def onS:boolean false
+            if (matched == false) {
+                if (sh == colorPick) {
+                    onS = true
+                    matched = true
+                }
+            }
+            colorDialog.addSwatch((911 + si) sh 1 onS)
             si = (si + 1)
         }
         colorDialog.endColumns()
@@ -1861,13 +1950,22 @@ class GridApp {
             def ri:int 0
             while (ri < (array_length colorRecent)) {
                 def rh:string (itemAt colorRecent ri)
-                colorDialog.addSwatch((960 + ri) rh 1 (rh == colorPick))
+                def onR:boolean false
+                if (matched == false) {
+                    if (rh == colorPick) {
+                        onR = true
+                        matched = true
+                    }
+                }
+                colorDialog.addSwatch((960 + ri) rh 1 onR)
                 ri = (ri + 1)
             }
             colorDialog.endColumns()
         }
         colorDialog.addSeparator()
         colorDialog.addLabel(("Selected: " + colorPick))
+        ; Example cell the picker paints itself — what the sheet will look like.
+        colorDialog.addContent(980 44)
         def ids:[int]
         def labels:[string]
         push ids 991
@@ -1884,6 +1982,22 @@ class GridApp {
         colorDialog.openWithin(px (grid.y + 40) W H)
         windows.raise(colorDialog)
         view.focused = true
+        ; Live-preview only when the cell already had a colour (or the user
+        ; picks one). Opening with an empty style must not paint a default.
+        if ((strlen initial) > 0) {
+            this.previewColorOnSheet(colorPick)
+        }
+        this.syncColorPreviewView()
+    }
+
+    fn syncColorPreviewView:void () {
+        view.colorPreviewHex = colorPick
+        view.colorPreviewIsFill = (colorDialogOp == "fill")
+        if colorDialog.visible {
+            view.colorPreviewWid = colorDialog.wid
+        } {
+            view.colorPreviewWid = 0
+        }
     }
 
     fn refreshColorDialogSelection:void () {
@@ -1891,9 +2005,6 @@ class GridApp {
         if ((strlen hex) > 0) {
             colorPick = hex
         }
-        ; Rebuild the "Selected:" label without closing — find the label that
-        ; starts with that prefix and rewrite it. Labels have id -1, so walk
-        ; controls and update the last non-button label before the buttons.
         def i:int 0
         def lastLabel:int -1
         while (i < (array_length colorDialog.controls)) {
@@ -1911,17 +2022,16 @@ class GridApp {
             def lab:EVGControl (itemAt colorDialog.controls lastLabel)
             lab.text = ("Selected: " + colorPick)
         }
+        this.previewColorOnSheet(colorPick)
+        this.syncColorPreviewView()
     }
 
     fn applyColorDialog:void () {
         this.refreshColorDialogSelection()
         def arg:string colorPick
-        if (colorDialogOp == "fill") {
-            ; Empty arg clears the fill — same as format.fill "".
-            if ((strlen arg) == 0) {
-                arg = ""
-            }
-        }
+        ; Put the snapshot back, then apply once through the normal format
+        ; path so Ctrl+Z undoes the whole pick as a single action.
+        this.restoreColorSnapshot()
         if ((strlen arg) > 0) {
             this.rememberColor(arg)
         }
@@ -1932,17 +2042,36 @@ class GridApp {
             grid.updateVisible(model)
             view.status = (colorDialog.title + ": " + arg)
         }
+        colorPreviewCommitted = true
+        colorPreviewOn = false
+        view.colorPreviewWid = 0
         colorDialog.close()
     }
 
     fn clearFillFromColorDialog:void () {
         colorPick = ""
+        this.restoreColorSnapshot()
         def done:boolean (GridFormat.apply(model sel "fill" ""))
         if done {
             sheetView.markDirty()
             grid.updateVisible(model)
             view.status = "Fill cleared"
         }
+        colorPreviewCommitted = true
+        colorPreviewOn = false
+        view.colorPreviewWid = 0
+        colorDialog.close()
+    }
+
+    fn cancelColorDialog:void () {
+        if colorPreviewOn {
+            if (colorPreviewCommitted == false) {
+                this.restoreColorSnapshot()
+            }
+        }
+        colorPreviewOn = false
+        colorPreviewCommitted = false
+        view.colorPreviewWid = 0
         colorDialog.close()
     }
 
@@ -3366,10 +3495,20 @@ class GridApp {
                 this.applyColorDialog()
             }
             if (colorDialog.activated == 991) {
-                colorDialog.close()
+                this.cancelColorDialog()
             }
             if (colorDialog.activated == 990) {
                 this.clearFillFromColorDialog()
+            }
+        } {
+            ; Escape / outside close while previewing — put the sheet back.
+            if colorPreviewOn {
+                if (colorPreviewCommitted == false) {
+                    this.restoreColorSnapshot()
+                }
+                colorPreviewOn = false
+                colorPreviewCommitted = false
+                view.colorPreviewWid = 0
             }
         }
         if (linkDialog.activated > 0) {

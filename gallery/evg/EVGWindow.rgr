@@ -268,12 +268,13 @@ class EVGWindow {
     ; A palette chip. Laid out in columns like radios; the square is fixed so
     ; a ten-wide row stays even when the panel is a little wider than it needs.
     fn addSwatch:void (id:int hex:string group:int selected:boolean) {
-        def side:int 24
+        def side:int 26
         def c:EVGControl (this.addControl(id (EVGControlKind.swatch()) "" side))
         c.value = hex
         c.group = group
         c.checked = selected
-        if (c.w > side) {
+        ; Keep the hit box square; column layout may have given a wider slot.
+        if (c.w != side) {
             c.w = side
         }
     }
@@ -1056,12 +1057,20 @@ class EVGWindow {
             }
             if (c.kind == (EVGControlKind.swatch())) {
                 def fill:EVGColor (EVGColor.parse(c.value))
+                ; Selected chips get a clear ring: dark outer, light gap, then
+                ; the colour — a 2px accent alone disappears on similar hues.
+                if c.checked {
+                    this.rect(dl (cx - 3) (cy - 3) (c.w + 6) (c.h + 6) (EVGColor.rgb(20 30 45)))
+                    this.rect(dl (cx - 2) (cy - 2) (c.w + 4) (c.h + 4) (EVGColor.rgb(255 255 255)))
+                } {
+                    if (hot == c.id) {
+                        this.rect(dl (cx - 2) (cy - 2) (c.w + 4) (c.h + 4) theme.accent)
+                        this.rect(dl (cx - 1) (cy - 1) (c.w + 2) (c.h + 2) (EVGColor.rgb(255 255 255)))
+                    }
+                }
                 this.rect(dl cx cy c.w c.h fill)
                 def edge3:EVGColor theme.border
                 if c.checked {
-                    edge3 = theme.accent
-                }
-                if (hot == c.id) {
                     edge3 = theme.accent
                 }
                 def thick:double 1.0
