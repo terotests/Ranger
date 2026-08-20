@@ -92,6 +92,11 @@ class GridView {
     def ghostC0:int 0
     def ghostR1:int 0
     def ghostC1:int 0
+    ; Coloured rectangles for ranges named in the active formula (Excel-style).
+    def formulaHiliteR0:[int]
+    def formulaHiliteC0:[int]
+    def formulaHiliteR1:[int]
+    def formulaHiliteC1:[int]
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -839,6 +844,47 @@ class GridView {
         return 68
     }
 
+    ; Soft fills / borders cycling through Excel-like formula-ref colours.
+    sfn formulaHiliteFill:EVGColor (i:int) {
+        def k:int (i - ((idiv i 6) * 6))
+        if (k == 1) {
+            return (EVGColor.rgba(40 160 80 0.20))
+        }
+        if (k == 2) {
+            return (EVGColor.rgba(150 70 190 0.18))
+        }
+        if (k == 3) {
+            return (EVGColor.rgba(220 150 40 0.20))
+        }
+        if (k == 4) {
+            return (EVGColor.rgba(30 160 160 0.18))
+        }
+        if (k == 5) {
+            return (EVGColor.rgba(200 70 90 0.18))
+        }
+        return (EVGColor.rgba(50 120 220 0.20))
+    }
+
+    sfn formulaHiliteEdge:EVGColor (i:int) {
+        def k:int (i - ((idiv i 6) * 6))
+        if (k == 1) {
+            return (EVGColor.rgb(40 150 70))
+        }
+        if (k == 2) {
+            return (EVGColor.rgb(130 50 170))
+        }
+        if (k == 3) {
+            return (EVGColor.rgb(200 130 30))
+        }
+        if (k == 4) {
+            return (EVGColor.rgb(20 140 140))
+        }
+        if (k == 5) {
+            return (EVGColor.rgb(180 50 70))
+        }
+        return (EVGColor.rgb(40 100 210))
+    }
+
     sfn chartButtonH:int () {
         return 17
     }
@@ -1150,6 +1196,43 @@ class GridView {
                     }
                 }
             }
+        }
+
+        ; Formula range highlights (under the active-cell border).
+        def hi:int 0
+        def hn:int (array_length formulaHiliteR0)
+        while (hi < hn) {
+            def hr0:int (itemAt formulaHiliteR0 hi)
+            def hc0:int (itemAt formulaHiliteC0 hi)
+            def hr1:int (itemAt formulaHiliteR1 hi)
+            def hc1:int (itemAt formulaHiliteC1 hi)
+            def htl:GridRect (grid.cellRect(model hr0 hc0))
+            def hbr:GridRect (grid.cellRect(model hr1 hc1))
+            def hx:int htl.x
+            def hy:int htl.y
+            def hw:int ((hbr.x + hbr.w) - htl.x)
+            def hh:int ((hbr.y + hbr.h) - htl.y)
+            if (hx < bodyLeft) {
+                hw = (hw - (bodyLeft - hx))
+                hx = bodyLeft
+            }
+            if (hy < bodyTop) {
+                hh = (hh - (bodyTop - hy))
+                hy = bodyTop
+            }
+            if ((hx + hw) > (bodyLeft + vw)) {
+                hw = ((bodyLeft + vw) - hx)
+            }
+            if ((hy + hh) > (bodyTop + vh)) {
+                hh = ((bodyTop + vh) - hy)
+            }
+            if ((hw > 0) && (hh > 0)) {
+                def fill:EVGColor (GridView.formulaHiliteFill(hi))
+                def edge:EVGColor (GridView.formulaHiliteEdge(hi))
+                this.pushRect(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) fill)
+                this.pushBorder(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) 2.0 edge)
+            }
+            hi = (hi + 1)
         }
 
         ; drop target for a dragged range
