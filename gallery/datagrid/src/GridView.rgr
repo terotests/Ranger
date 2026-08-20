@@ -765,10 +765,24 @@ class GridView {
                 paintStyle = (st.copy())
                 paintStyle.underline = true
             }
-            if st.wrapText {
-                this.paintWrapped(dl txt rect paintStyle cellPx col)
+            def formulaEdit:boolean false
+            if editing {
+                if ((r == sel.active.row) && (c == sel.active.col)) {
+                    if ((strlen editBuf) > 0) {
+                        if ((charAt editBuf 0) == 61) {
+                            formulaEdit = true
+                        }
+                    }
+                }
+            }
+            if formulaEdit {
+                this.paintFormulaBarText(dl txt (rect.x + 4) (rect.y + 3) cellPx)
             } {
-                this.paintSingleLine(dl model rect paintStyle cellPx col txt r c)
+                if st.wrapText {
+                    this.paintWrapped(dl txt rect paintStyle cellPx col)
+                } {
+                    this.paintSingleLine(dl model rect paintStyle cellPx col txt r c)
+                }
             }
         }
         ; A note is marked rather than shown: the text would cover the numbers
@@ -845,44 +859,45 @@ class GridView {
     }
 
     ; Soft fills / borders cycling through Excel-like formula-ref colours.
+    ; Yellow and green lead so a single SUM range reads clearly on white cells.
     sfn formulaHiliteFill:EVGColor (i:int) {
         def k:int (i - ((idiv i 6) * 6))
+        if (k == 0) {
+            return (EVGColor.rgba(240 190 40 0.38))
+        }
         if (k == 1) {
-            return (EVGColor.rgba(40 160 80 0.20))
+            return (EVGColor.rgba(50 170 90 0.32))
         }
         if (k == 2) {
-            return (EVGColor.rgba(150 70 190 0.18))
+            return (EVGColor.rgba(90 130 230 0.30))
         }
         if (k == 3) {
-            return (EVGColor.rgba(220 150 40 0.20))
+            return (EVGColor.rgba(170 80 200 0.28))
         }
         if (k == 4) {
-            return (EVGColor.rgba(30 160 160 0.18))
+            return (EVGColor.rgba(30 160 160 0.28))
         }
-        if (k == 5) {
-            return (EVGColor.rgba(200 70 90 0.18))
-        }
-        return (EVGColor.rgba(50 120 220 0.20))
+        return (EVGColor.rgba(210 70 90 0.28))
     }
 
     sfn formulaHiliteEdge:EVGColor (i:int) {
         def k:int (i - ((idiv i 6) * 6))
+        if (k == 0) {
+            return (EVGColor.rgb(200 150 20))
+        }
         if (k == 1) {
-            return (EVGColor.rgb(40 150 70))
+            return (EVGColor.rgb(30 140 60))
         }
         if (k == 2) {
-            return (EVGColor.rgb(130 50 170))
+            return (EVGColor.rgb(40 100 210))
         }
         if (k == 3) {
-            return (EVGColor.rgb(200 130 30))
+            return (EVGColor.rgb(130 50 170))
         }
         if (k == 4) {
             return (EVGColor.rgb(20 140 140))
         }
-        if (k == 5) {
-            return (EVGColor.rgb(180 50 70))
-        }
-        return (EVGColor.rgb(40 100 210))
+        return (EVGColor.rgb(180 50 70))
     }
 
     sfn chartButtonH:int () {
@@ -909,6 +924,128 @@ class GridView {
         return (statusTop + 2)
     }
 
+    ; How many characters of an A1 / $A$1 / A1:B2 token start at `at`, or 0.
+    sfn formulaRefLen:int (src:string at:int) {
+        def n:int (strlen src)
+        if (at >= n) {
+            return 0
+        }
+        def i:int at
+        def sawCol:boolean false
+        def sawRow:boolean false
+        if ((charAt src i) == 36) {
+            i = (i + 1)
+        }
+        while (i < n) {
+            def ch:int (charAt src i)
+            if (((ch >= 65) && (ch <= 90)) || ((ch >= 97) && (ch <= 122))) {
+                sawCol = true
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        if (i < n) {
+            if ((charAt src i) == 36) {
+                i = (i + 1)
+            }
+        }
+        while (i < n) {
+            def ch2:int (charAt src i)
+            if ((ch2 >= 48) && (ch2 <= 57)) {
+                sawRow = true
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        if ((sawCol == false) || (sawRow == false)) {
+            return 0
+        }
+        if (i < n) {
+            if ((charAt src i) == 58) {
+                def j:int (i + 1)
+                def sawCol2:boolean false
+                def sawRow2:boolean false
+                if (j < n) {
+                    if ((charAt src j) == 36) {
+                        j = (j + 1)
+                    }
+                }
+                while (j < n) {
+                    def ch3:int (charAt src j)
+                    if (((ch3 >= 65) && (ch3 <= 90)) || ((ch3 >= 97) && (ch3 <= 122))) {
+                        sawCol2 = true
+                        j = (j + 1)
+                    } {
+                        break
+                    }
+                }
+                if (j < n) {
+                    if ((charAt src j) == 36) {
+                        j = (j + 1)
+                    }
+                }
+                while (j < n) {
+                    def ch4:int (charAt src j)
+                    if ((ch4 >= 48) && (ch4 <= 57)) {
+                        sawRow2 = true
+                        j = (j + 1)
+                    } {
+                        break
+                    }
+                }
+                if sawCol2 {
+                    if sawRow2 {
+                        i = j
+                    }
+                }
+            }
+        }
+        return (i - at)
+    }
+
+    ; Draw formula-bar text with each A1 / range tinted to match its overlay.
+    fn paintFormulaBarText:void (dl:EVGDisplayList text:string x:int y:int size:double) {
+        if ((strlen text) == 0) {
+            return
+        }
+        if ((array_length formulaHiliteR0) == 0) {
+            this.pushText(dl text (to_double x) (to_double y) size theme.formulaText)
+            return
+        }
+        def i:int 0
+        def n:int (strlen text)
+        def hi:int 0
+        def xCursor:double (to_double x)
+        def plain:string ""
+        while (i < n) {
+            def refLen:int (GridView.formulaRefLen(text i))
+            if (refLen > 0) {
+                if ((strlen plain) > 0) {
+                    this.pushText(dl plain xCursor (to_double y) size theme.formulaText)
+                    xCursor = (xCursor + (ctx.tr.measureWidth(plain size)))
+                    plain = ""
+                }
+                def tok:string (substring text i (i + refLen))
+                def col:EVGColor theme.formulaText
+                if (hi < (array_length formulaHiliteR0)) {
+                    col = (GridView.formulaHiliteEdge(hi))
+                    hi = (hi + 1)
+                }
+                this.pushText(dl tok xCursor (to_double y) size col)
+                xCursor = (xCursor + (ctx.tr.measureWidth(tok size)))
+                i = (i + refLen)
+            } {
+                plain = (plain + (substring text i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        if ((strlen plain) > 0) {
+            this.pushText(dl plain xCursor (to_double y) size theme.formulaText)
+        }
+    }
+
     fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
         grid.updateVisible(model)
         def dl:EVGDisplayList (new EVGDisplayList)
@@ -921,36 +1058,35 @@ class GridView {
         }
 
         ; --- formula bar ---
-        ; Address box + formula field. When editing from the bar the field
-        ; lights up and carries the caret — without that it looks like a
-        ; static label and nobody believes they can type into it.
+        ; Grey chrome + white name/formula inputs (Excel-style). The field used
+        ; to share formulaBg with the bar, so it read as a static label.
         def fbY:int (grid.formulaBarY())
-        this.pushRect(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) theme.formulaBg)
+        this.pushRect(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) theme.statusBg)
         def addr:string (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
         def shown:string (model.formulaBarText(sel.active.row sel.active.col))
         if editing {
             shown = editBuf
         }
-        def addrBoxW:int 56
+        def addrBoxW:int 64
         def addrX:int (grid.x + 4)
-        def fieldX:int ((grid.x + addrBoxW) + 8)
-        def fieldW:int ((grid.w - addrBoxW) - 16)
+        def fieldX:int ((grid.x + addrBoxW) + 10)
+        def fieldW:int ((grid.w - addrBoxW) - 18)
         def fieldY:int (fbY + 3)
         def fieldH:int (grid.formulaBarH - 6)
-        this.pushRect(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) theme.headerBg)
-        this.pushBorder(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) 1.0 theme.gridLine)
-        this.pushText(dl addr (to_double (addrX + 6)) (to_double (fieldY + 3)) 12.0 theme.headerText)
-        def fieldBg:EVGColor theme.formulaBg
-        def fieldEdge:EVGColor theme.gridLine
+        def nameEdge:EVGColor theme.gridLine
+        def fieldEdge:EVGColor (EVGColor.rgb(160 170 185))
         if editing {
+            fieldEdge = theme.activeBorder
             if editInFormulaBar {
-                fieldBg = (EVGColor.rgb(255 255 255))
-                fieldEdge = theme.activeBorder
+                nameEdge = theme.activeBorder
             }
         }
-        this.pushRect(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) fieldBg)
+        this.pushRect(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) (EVGColor.rgb(255 255 255)))
+        this.pushBorder(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) 1.0 nameEdge)
+        this.pushText(dl addr (to_double (addrX + 6)) (to_double (fieldY + 3)) 12.0 theme.headerText)
+        this.pushRect(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) (EVGColor.rgb(255 255 255)))
         this.pushBorder(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) 1.0 fieldEdge)
-        this.pushText(dl shown (to_double (fieldX + 6)) (to_double (fieldY + 3)) 13.0 theme.formulaText)
+        this.paintFormulaBarText(dl shown (fieldX + 6) (fieldY + 3) 13.0)
         if editing {
             if editInFormulaBar {
                 if focused {
@@ -1230,7 +1366,7 @@ class GridView {
                 def fill:EVGColor (GridView.formulaHiliteFill(hi))
                 def edge:EVGColor (GridView.formulaHiliteEdge(hi))
                 this.pushRect(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) fill)
-                this.pushBorder(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) 2.0 edge)
+                this.pushBorder(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) 3.0 edge)
             }
             hi = (hi + 1)
         }
