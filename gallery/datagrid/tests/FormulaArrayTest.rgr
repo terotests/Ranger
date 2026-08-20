@@ -97,6 +97,16 @@ class FormulaArrayTest {
         c.eqStr("AVERAGEIF" (FormulaArrayTest.cell(app 9 3)) "20")
         c.eqStr("COUNTBLANK sees the empty row" (FormulaArrayTest.cell(app 9 4)) "3")
 
+        FormulaArrayTest.formula(app 10 0 "COUNTIFS(A1:A3,\"south\",B1:B3,\">15\")")
+        FormulaArrayTest.formula(app 10 1 "SUMIFS(B1:B3,A1:A3,\"<>west\",C1:C3,\">3\")")
+        FormulaArrayTest.formula(app 10 2 "AVERAGEIFS(B1:B3,C1:C3,\">=4\")")
+        FormulaArrayTest.formula(app 10 3 "CHOOSE(2,A1,B1,C1)")
+        app.engine.rebuildAll()
+        c.eqStr("COUNTIFS both criteria" (FormulaArrayTest.cell(app 10 0)) "1")
+        c.eqStr("SUMIFS two criteria" (FormulaArrayTest.cell(app 10 1)) "50")
+        c.eqStr("AVERAGEIFS" (FormulaArrayTest.cell(app 10 2)) "25")
+        c.eqStr("CHOOSE picks the second" (FormulaArrayTest.cell(app 10 3)) "10")
+
         print "== arithmetic over a rectangle =="
         ; One cell asking for a rectangle keeps the top-left, as a spreadsheet
         ; does when a formula is not laid out.

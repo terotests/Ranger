@@ -1051,9 +1051,10 @@ class FormulaEngine {
     fn sheetByName:int (name:string) {
         def i:int 0
         def n:int (book.sheetCount())
+        def want:string (FormulaFunctions.upper(name))
         while (i < n) {
             def s:SpreadsheetModel (book.sheetAt(i))
-            if (s.name == name) {
+            if ((FormulaFunctions.upper(s.name)) == want) {
                 return i
             }
             i = (i + 1)

@@ -114,6 +114,19 @@ class FormulaFunctionsTest {
         c.ok("catalog lists SUM" ((indexOf cat "SUM") >= 0))
         c.ok("catalog lists VLOOKUP" ((indexOf cat "VLOOKUP") >= 0))
         c.ok("catalog lists IFS" ((indexOf cat "IFS") >= 0))
+        c.ok("catalog lists SUMIFS" ((indexOf cat "SUMIFS") >= 0))
+        c.ok("catalog lists CHOOSE" ((indexOf cat "CHOOSE") >= 0))
+        c.ok("SUMIFS known" (FormulaFunctions.isKnown("SUMIFS")))
+        c.ok("COUNTIFS known" (FormulaFunctions.isKnown("COUNTIFS")))
+        c.ok("CHOOSE known" (FormulaFunctions.isKnown("CHOOSE")))
+
+        clear args
+        push args (FormulaValue.fromNumber(2.0))
+        push args (FormulaValue.fromString("a"))
+        push args (FormulaValue.fromString("b"))
+        push args (FormulaValue.fromString("c"))
+        r = (FormulaFunctionsTest.invokeN("CHOOSE" args))
+        c.eqStr("CHOOSE 2" r.text "b")
 
         FormulaFunctionsTest.args2((FormulaValue.fromBool(true)) (FormulaValue.fromBool(true)) args)
         r = (FormulaFunctionsTest.invokeN("AND" args))

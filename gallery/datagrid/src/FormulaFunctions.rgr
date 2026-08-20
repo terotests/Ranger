@@ -266,6 +266,18 @@ class FormulaFunctions {
         if (n == "AVERAGEIF") {
             return true
         }
+        if (n == "COUNTIFS") {
+            return true
+        }
+        if (n == "SUMIFS") {
+            return true
+        }
+        if (n == "AVERAGEIFS") {
+            return true
+        }
+        if (n == "CHOOSE") {
+            return true
+        }
         if (n == "VLOOKUP") {
             return true
         }
@@ -329,7 +341,7 @@ class FormulaFunctions {
     ; Every function name this library answers, space-separated — for docs,
     ; hosts, and "what do we actually have?" checks.
     sfn catalog:string () {
-        return "SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF IFS AND OR NOT ABS ROUND INT MOD POWER SQRT SIGN PI EXP LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT CONCATENATE VALUE TRUE FALSE IFERROR IFNA ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T DATE YEAR MONTH DAY WEEKDAY EDATE EOMONTH DAYS DATEVALUE TEXT ROUNDUP ROUNDDOWN TRUNC MEDIAN COUNTBLANK COUNTIF SUMIF AVERAGEIF VLOOKUP HLOOKUP INDEX MATCH SUMPRODUCT LARGE SMALL SUBSTITUTE FIND SEARCH REPT PROPER EXACT CHAR CODE TRANSPOSE TODAY NOW"
+        return "SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF IFS AND OR NOT ABS ROUND INT MOD POWER SQRT SIGN PI EXP LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT CONCATENATE VALUE TRUE FALSE IFERROR IFNA ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T DATE YEAR MONTH DAY WEEKDAY EDATE EOMONTH DAYS DATEVALUE TEXT ROUNDUP ROUNDDOWN TRUNC MEDIAN COUNTBLANK COUNTIF SUMIF AVERAGEIF COUNTIFS SUMIFS AVERAGEIFS CHOOSE VLOOKUP HLOOKUP INDEX MATCH SUMPRODUCT LARGE SMALL SUBSTITUTE FIND SEARCH REPT PROPER EXACT CHAR CODE TRANSPOSE TODAY NOW"
     }
 
     ; Dispatch by uppercase function name. (`call` is reserved in Ranger.)
@@ -526,6 +538,18 @@ class FormulaFunctions {
         }
         if (n == "AVERAGEIF") {
             return (FormulaFunctions.fnAverageif(args))
+        }
+        if (n == "COUNTIFS") {
+            return (FormulaFunctions.fnCountifs(args))
+        }
+        if (n == "SUMIFS") {
+            return (FormulaFunctions.fnSumifs(args))
+        }
+        if (n == "AVERAGEIFS") {
+            return (FormulaFunctions.fnAverageifs(args))
+        }
+        if (n == "CHOOSE") {
+            return (FormulaFunctions.fnChoose(args))
         }
         if (n == "VLOOKUP") {
             return (FormulaFunctions.fnVlookup(args))
@@ -1894,21 +1918,147 @@ class FormulaFunctions {
         return (FormulaFunctions.conditionalTotal(args true))
     }
 
+    ; COUNTIFS / SUMIFS / AVERAGEIFS — AND across criterion pairs, stepped by
+    ; index. SUMIFS(sumRange, critRange1, crit1, …); COUNTIFS has only pairs;
+    ; AVERAGEIFS mirrors SUMIFS but divides by hits.
+    sfn multiConditional:FormulaValue (args:[FormulaValue] mode:int) {
+        ; mode: 0 = COUNTIFS, 1 = SUMIFS, 2 = AVERAGEIFS
+        def minArgs:int 2
+        if (mode > 0) {
+            minArgs = 3
+        }
+        def ar:FormulaValue (FormulaFunctions.needArity(args minArgs))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def pairStart:int 0
+        def values:[FormulaValue]
+        if (mode > 0) {
+            def head:[FormulaValue]
+            push head (itemAt args 0)
+            values = (FormulaFunctions.flatArgs(head))
+            pairStart = 1
+        }
+        def pairCount:int (idiv ((array_length args) - pairStart) 2)
+        if (pairCount < 1) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        if ((((array_length args) - pairStart) - (pairCount * 2)) != 0) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def critFlats:[[FormulaValue]]
+        def crits:[FormulaValue]
+        def p:int 0
+        def nRows:int -1
+        while (p < pairCount) {
+            def ri:int (pairStart + (p * 2))
+            def rh:[FormulaValue]
+            push rh (itemAt args ri)
+            def flat:[FormulaValue] (FormulaFunctions.flatArgs(rh))
+            if (nRows < 0) {
+                nRows = (array_length flat)
+            } {
+                if ((array_length flat) != nRows) {
+                    return (FormulaValue.fromError("#VALUE!"))
+                }
+            }
+            push critFlats flat
+            push crits (itemAt args (ri + 1))
+            p = (p + 1)
+        }
+        if (mode > 0) {
+            if ((array_length values) != nRows) {
+                return (FormulaValue.fromError("#VALUE!"))
+            }
+        }
+        def total:double 0.0
+        def hits:int 0
+        def i:int 0
+        while (i < nRows) {
+            def ok:boolean true
+            def c:int 0
+            while (c < pairCount) {
+                def crow:[FormulaValue] (itemAt critFlats c)
+                if ((FormulaFunctions.criterionMatches((itemAt crow i) (itemAt crits c))) == false) {
+                    ok = false
+                    break
+                }
+                c = (c + 1)
+            }
+            if ok {
+                if (mode == 0) {
+                    hits = (hits + 1)
+                } {
+                    def nums:[double]
+                    def sv:FormulaValue (itemAt values i)
+                    if (sv.tryNumber(nums)) {
+                        total = (total + (itemAt nums 0))
+                        hits = (hits + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (mode == 0) {
+            return (FormulaValue.fromNumber((to_double hits)))
+        }
+        if (mode == 2) {
+            if (hits == 0) {
+                return (FormulaValue.fromError("#DIV/0!"))
+            }
+            return (FormulaValue.fromNumber((total / (to_double hits))))
+        }
+        return (FormulaValue.fromNumber(total))
+    }
+
+    sfn fnCountifs:FormulaValue (args:[FormulaValue]) {
+        return (FormulaFunctions.multiConditional(args 0))
+    }
+
+    sfn fnSumifs:FormulaValue (args:[FormulaValue]) {
+        return (FormulaFunctions.multiConditional(args 1))
+    }
+
+    sfn fnAverageifs:FormulaValue (args:[FormulaValue]) {
+        return (FormulaFunctions.multiConditional(args 2))
+    }
+
+    ; CHOOSE(index, value1, value2, …) — 1-based pick from the trailing args.
+    sfn fnChoose:FormulaValue (args:[FormulaValue]) {
+        def ar:FormulaValue (FormulaFunctions.needArity(args 2))
+        def ae:boolean (ar.isError())
+        if ae {
+            return ar
+        }
+        def idx:int (to_int ((itemAt args 0).asNumber()))
+        if (idx < 1) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        if (idx >= (array_length args)) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        return (itemAt args idx)
+    }
+
     ; ==========================================================================
     ; Lookups. These are why a range had to keep its shape.
     ; ==========================================================================
     sfn valuesEqualLoose:boolean (a:FormulaValue b:FormulaValue) {
         def an:[double]
         def bn:[double]
-        if (a.tryNumber(an)) {
-            if (b.tryNumber(bn)) {
-                return ((itemAt an 0) == (itemAt bn 0))
-            }
-            return false
+        def aOk:boolean (a.tryNumber(an))
+        def bOk:boolean (b.tryNumber(bn))
+        if (aOk && bOk) {
+            return ((itemAt an 0) == (itemAt bn 0))
         }
         return ((FormulaFunctions.upper((a.toText()))) == (FormulaFunctions.upper((b.toText()))))
     }
 
+    ; Exact match only (Excel's range_lookup = FALSE / 0). The optional 4th
+    ; argument is accepted and ignored: approximate / sorted search is not
+    ; implemented — same stance as MATCH — so a miss stays #N/A rather than a
+    ; quietly wrong neighbour row.
     sfn fnVlookup:FormulaValue (args:[FormulaValue]) {
         def ar:FormulaValue (FormulaFunctions.needArity(args 3))
         def ae:boolean (ar.isError())
