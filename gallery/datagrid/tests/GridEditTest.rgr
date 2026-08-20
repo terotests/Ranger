@@ -477,6 +477,47 @@ class GridEditTest {
         c.ok("cell-started formula edit paints caret in bar" fb2.view.caretInFormulaBar)
         fb2.cancelEdit()
 
+        print "== formula range all-side resize + horizontal move =="
+        def frg:GridApp (new GridApp)
+        frg.init("gallery/pdf_writer/assets/fonts")
+        frg.model.clearSheet()
+        frg.model.resize(12 8)
+        frg.model.setFormula(6 5 "SUM(B2:C4)")
+        frg.sheetView.markDirty()
+        frg.sheetView.rebuild()
+        frg.engine.rebuildAll()
+        GridEditTest.select(frg 6 5)
+        frg.refreshFormulaHilites()
+        def b2:GridRect (frg.grid.cellRect(frg.model 1 1))
+        def c4:GridRect (frg.grid.cellRect(frg.model 3 2))
+        def rangeLeft:int b2.x
+        def rangeTop:int b2.y
+        def rangeRight:int (c4.x + c4.w)
+        def rangeBottom:int (c4.y + c4.h)
+        c.eqInt("top border resizes" (frg.hitFormulaRangeHandle((rangeLeft + 20) rangeTop)) 3)
+        c.eqInt("left border resizes" (frg.hitFormulaRangeHandle(rangeLeft (rangeTop + 20))) 4)
+        c.eqInt("range interior moves horizontally" (frg.hitFormulaRangeHandle((rangeLeft + 20) (rangeTop + 20))) 5)
+        frg.formulaRangeIdx = 0
+        frg.beginFormulaRangeDrag(3 1)
+        frg.updateFormulaRangeDragAt(0 1)
+        c.ok("top drag expands to B1" (GridEditTest.hasSub(frg.editBuf "B1:C4")))
+        frg.commitEdit()
+        frg.model.setFormula(6 5 "SUM(B2:C4)")
+        frg.refreshFormulaHilites()
+        frg.formulaRangeIdx = 0
+        frg.beginFormulaRangeDrag(4 1)
+        frg.updateFormulaRangeDragAt(1 0)
+        c.ok("left drag expands to A2" (GridEditTest.hasSub(frg.editBuf "A2:C4")))
+        frg.commitEdit()
+        frg.model.setFormula(6 5 "SUM(B2:C4)")
+        frg.refreshFormulaHilites()
+        frg.formulaRangeIdx = 0
+        frg.beginFormulaRangeDrag(5 1)
+        frg.updateFormulaRangeDragAt(1 3)
+        c.ok("horizontal move preserves size" (GridEditTest.hasSub(frg.editBuf "D2:E4")))
+        frg.commitEdit()
+        c.eqStr("horizontal move writes formula" (frg.model.getFormula(6 5)) "SUM(D2:E4)")
+
         print "== caret keys through UIInput =="
         def input:UIInput (new UIInput)
         GridEditTest.select(app 51 0)
