@@ -93,11 +93,17 @@ fi
 
 CXX_OPT="${CXX_OPT:--O3}"
 EVG_GL_NATIVE="$ROOT/gallery/datagrid/platform/sdl/evg_gl_native.cpp"
+MENU_SRC="$ROOT/gallery/datagrid/platform/sdl/dgfx_menu_stub.cpp"
+MENU_FLAGS=""
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  MENU_SRC="$ROOT/gallery/datagrid/platform/sdl/dgfx_menu.mm"
+  MENU_FLAGS="-framework AppKit"
+fi
 # shellcheck disable=SC2086
 "$CXX" $CXX_OPT -std=c++17 \
   -I"$ROOT/gallery/datagrid/platform/sdl" \
-  "$CPP_FILE" "$EVG_GL_NATIVE" \
-  -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS
+  "$CPP_FILE" "$EVG_GL_NATIVE" $MENU_SRC \
+  -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS $MENU_FLAGS
 
 echo "==> 3/3 Ready: $BIN_FILE"
 

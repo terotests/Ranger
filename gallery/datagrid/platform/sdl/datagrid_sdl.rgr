@@ -33,11 +33,13 @@ class DataGridSdl {
     def xlsxPath:string ""
     def fontDir:string "gallery/pdf_writer/assets/fonts"
     def saveOnExit:boolean false
+    def wantQuit:boolean false
 
     fn openWindow:void () {
         def ok:int (dgfx_open "Ranger DataGrid (SDL2 / OpenGL)" pw ph)
         if (ok == 1) {
             hasWindow = true
+            dgfx_install_menus
         } {
             print "dgfx_open failed (no display?) — SoftCanvas fallback for smoke"
         }
@@ -127,6 +129,7 @@ class DataGridSdl {
         }
         app.update(input)
         this.serveFileRequest()
+        this.serveMenuAction()
     }
 
     ; The app cannot open a picker — it does not know what it is running in —
@@ -153,7 +156,10 @@ class DataGridSdl {
             ; Suggest what it is already called, not a name with a suffix
             ; bolted on: the person is about to choose one.
             def suggest:string (GridApp.baseName(xlsxPath))
-            if ((strlen xlsxPath) == 0) {
+            if ((strlen suggest) == 0) {
+                suggest = (GridApp.baseName(app.book.sourcePath))
+            }
+            if ((strlen suggest) == 0) {
                 suggest = "workbook.xlsx"
             }
             def target:string (dgfx_pick_save_file "Save the workbook as" suggest)
@@ -161,13 +167,65 @@ class DataGridSdl {
                 app.view.status = "save cancelled"
                 return
             }
-            app.saveXlsx((GridApp.exportDir(target)) (GridApp.baseName(target)))
+            def saved:boolean (app.saveXlsx((GridApp.exportDir(target)) (GridApp.baseName(target))))
+            if saved {
+                xlsxPath = app.savedPath
+            }
+            return
+        }
+    }
+
+    ; File menu / toolbar requests that need the OS.
+    fn serveMenuAction:void () {
+        def a:int (dgfx_pop_menu_action)
+        while (a != 0) {
+            if (a == 1) {
+                app.runCommand("file.open" "")
+                this.serveFileRequest()
+            }
+            if (a == 2) {
+                app.runCommand("file.save" "")
+                this.serveFileRequest()
+            }
+            if (a == 3) {
+                app.runCommand("file.saveAs" "")
+                this.serveFileRequest()
+            }
+            if (a == 4) {
+                wantQuit = true
+            }
+            a = (dgfx_pop_menu_action)
         }
     }
 
     ; WebGL-style path: display list → OpenGL (not a SoftCanvas blit).
     fn draw:void () {
-        app.view.status = ("v" + (to_string app.model.version))
+        ; Keep save/open feedback visible — the old version ticker wiped it
+        ; every frame, which made Save look like a no-op.
+        def st:string app.view.status
+        def keep:boolean false
+        if ((strlen st) >= 5) {
+            def head:string (substring st 0 5)
+            if (head == "saved") {
+                keep = true
+            }
+            if (head == "save ") {
+                keep = true
+            }
+            if (head == "open ") {
+                keep = true
+            }
+            if (head == "loade") {
+                keep = true
+            }
+        }
+        if (keep == false) {
+            if ((strlen app.savedPath) > 0) {
+                app.view.status = ("v" + (to_string app.model.version) + " · " + app.savedPath)
+            } {
+                app.view.status = ("v" + (to_string app.model.version))
+            }
+        }
         app.view.editCaret = app.editCaret
         app.view.windows = app.windows
         def dl:EVGDisplayList (app.view.buildDisplayList(app.model app.sel app.grid app.editing app.editBuf app.book))
@@ -201,6 +259,9 @@ class DataGridSdl {
             if sc {
                 running = false
             }
+            if wantQuit {
+                running = false
+            }
             if (maxFrames > 0) {
                 if (frames >= maxFrames) {
                     running = false
@@ -208,7 +269,7 @@ class DataGridSdl {
             }
         }
         if saveOnExit {
-            def saved:boolean (app.saveXlsxDefault())
+            def saved:boolean (app.saveXlsxDefaultSilent())
             if saved {
                 print ("saved " + app.savedPath)
             } {
