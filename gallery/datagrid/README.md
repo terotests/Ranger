@@ -404,8 +404,10 @@ paste never touched.
 
 Typing `=SUM(` (or any formula) and then clicking or dragging on the sheet
 inserts `A1` / `A1:A3` at the caret without leaving edit mode — the same
-point-and-click Excel uses. Copy/paste of formulas still re-bases relative
-refs (`=A1*3` pasted one row down becomes `=A2*3`).
+point-and-click Excel uses. Selecting a formula cell (or editing one) also
+draws coloured rectangles over each same-sheet range the formula names, so
+`=SUM(A1:A3)+C1` lights up both spans. Copy/paste of formulas still re-bases
+relative refs (`=A1*3` pasted one row down becomes `=A2*3`).
 
 ## Images
 

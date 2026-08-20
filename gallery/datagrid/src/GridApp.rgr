@@ -3789,6 +3789,147 @@ class GridApp {
         return ((charAt editBuf 0) == 61)
     }
 
+    ; Close dangling `(` so an in-progress edit like `=SUM(A1:A3` still parses
+    ; enough for range highlights.
+    sfn balanceFormulaParens:string (src:string) {
+        def open:int 0
+        def i:int 0
+        def n:int (strlen src)
+        def inStr:boolean false
+        while (i < n) {
+            def ch:int (charAt src i)
+            if inStr {
+                if (ch == 34) {
+                    if (((i + 1) < n) && ((charAt src (i + 1)) == 34)) {
+                        i = (i + 1)
+                    } {
+                        inStr = false
+                    }
+                }
+            } {
+                if (ch == 34) {
+                    inStr = true
+                } {
+                    if (ch == 40) {
+                        open = (open + 1)
+                    }
+                    if (ch == 41) {
+                        if (open > 0) {
+                            open = (open - 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def out:string src
+        while (open > 0) {
+            out = (out + ")")
+            open = (open - 1)
+        }
+        return out
+    }
+
+    fn clearFormulaHilites:void () {
+        clear view.formulaHiliteR0
+        clear view.formulaHiliteC0
+        clear view.formulaHiliteR1
+        clear view.formulaHiliteC1
+    }
+
+    fn pushFormulaHilite:void (r0:int c0:int r1:int c1:int) {
+        if ((array_length view.formulaHiliteR0) >= 12) {
+            return
+        }
+        def a:int r0
+        def b:int r1
+        def c:int c0
+        def d:int c1
+        if (a > b) {
+            def t:int a
+            a = b
+            b = t
+        }
+        if (c > d) {
+            def t2:int c
+            c = d
+            d = t2
+        }
+        if (a < 0) {
+            a = 0
+        }
+        if (c < 0) {
+            c = 0
+        }
+        push view.formulaHiliteR0 a
+        push view.formulaHiliteC0 c
+        push view.formulaHiliteR1 b
+        push view.formulaHiliteC1 d
+    }
+
+    ; Walk a formula AST and collect same-sheet cell / range rectangles.
+    fn collectFormulaHilites:void (n:FormulaNode) {
+        if (n.kind == 3) {
+            def skip:boolean false
+            if ((strlen n.sheet) > 0) {
+                if (n.sheet != model.name) {
+                    skip = true
+                }
+            }
+            if (skip == false) {
+                this.pushFormulaHilite(n.row n.col n.row n.col)
+            }
+            return
+        }
+        if (n.kind == 4) {
+            def skip2:boolean false
+            if ((strlen n.sheet) > 0) {
+                if (n.sheet != model.name) {
+                    skip2 = true
+                }
+            }
+            if (skip2 == false) {
+                this.pushFormulaHilite(n.row n.col n.row2 n.col2)
+            }
+            return
+        }
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            this.collectFormulaHilites((itemAt n.kids i))
+            i = (i + 1)
+        }
+    }
+
+    ; Excel-style coloured overlays for ranges named in the active formula —
+    ; when the selected cell has one, or while that formula is being edited.
+    fn refreshFormulaHilites:void () {
+        this.clearFormulaHilites()
+        def src:string ""
+        if editing {
+            if (this.isFormulaEdit()) {
+                src = editBuf
+            } {
+                return
+            }
+        } {
+            src = (model.formulaBarText(sel.active.row sel.active.col))
+        }
+        if ((strlen src) == 0) {
+            return
+        }
+        if ((charAt src 0) != 61) {
+            return
+        }
+        def balanced:string (GridApp.balanceFormulaParens(src))
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(balanced))
+        if (p.ok == false) {
+            return
+        }
+        this.collectFormulaHilites(ast)
+    }
+
     sfn rangeA1:string (r0:int c0:int r1:int c1:int) {
         def a:int r0
         def b:int r1
@@ -5262,6 +5403,7 @@ class GridApp {
         view.editCaret = editCaret
         view.editInFormulaBar = editInFormulaBar
         view.windows = windows
+        this.refreshFormulaHilites()
         view.render(model sel grid editing editBuf book)
     }
 
@@ -5281,6 +5423,7 @@ class GridApp {
         view.editCaret = editCaret
         view.editInFormulaBar = editInFormulaBar
         view.windows = windows
+        this.refreshFormulaHilites()
         return (view.sceneJson(model sel grid editing editBuf book))
     }
 
