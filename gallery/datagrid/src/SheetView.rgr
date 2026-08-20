@@ -118,43 +118,78 @@ class SheetView {
     }
 
     fn sortRows:void (rows:[int] col:int asc:boolean) {
-        ; simple insertion sort on model row indices by cell display/raw
-        def i:int 1
+        ; Stable merge sort — insertion sort was O(n²) and fought the grid's
+        ; 100k-row virtualization story.
         def n:int (array_length rows)
+        if (n < 2) {
+            return
+        }
+        def tmp:[int]
+        def i:int 0
         while (i < n) {
-            def key:int (itemAt rows i)
-            def keyVal:string (model.getCell(key col))
-            def j:int (i - 1)
-            while (j >= 0) {
-                def cur:int (itemAt rows j)
-                ; do not reorder freeze header
-                if (cur < model.freezeRows) {
-                    break
-                }
-                if (key < model.freezeRows) {
-                    break
-                }
-                def cv:string (model.getCell(cur col))
-                def cmp:int (this.compareValues(cv keyVal))
-                def outOfOrder:boolean false
-                if asc {
-                    if (cmp > 0) {
-                        outOfOrder = true
-                    }
+            push tmp (itemAt rows i)
+            i = (i + 1)
+        }
+        this.mergeSortRows(rows tmp 0 n col asc)
+    }
+
+    fn mergeSortRows:void (rows:[int] tmp:[int] lo:int hi:int col:int asc:boolean) {
+        def n:int (hi - lo)
+        if (n < 2) {
+            return
+        }
+        def mid:int (lo + (idiv n 2))
+        this.mergeSortRows(rows tmp lo mid col asc)
+        this.mergeSortRows(rows tmp mid hi col asc)
+        def i:int lo
+        def j:int mid
+        def k:int lo
+        while (k < hi) {
+            def takeLeft:boolean false
+            if (i >= mid) {
+                takeLeft = false
+            } {
+                if (j >= hi) {
+                    takeLeft = true
                 } {
-                    if (cmp < 0) {
-                        outOfOrder = true
+                    def left:int (itemAt rows i)
+                    def right:int (itemAt rows j)
+                    ; Freeze header rows stay ahead of body forever.
+                    if (left < model.freezeRows) {
+                        takeLeft = true
+                    } {
+                        if (right < model.freezeRows) {
+                            takeLeft = false
+                        } {
+                            def lv:string (model.getCell(left col))
+                            def rv:string (model.getCell(right col))
+                            def cmp:int (this.compareValues(lv rv))
+                            if asc {
+                                if (cmp <= 0) {
+                                    takeLeft = true
+                                }
+                            } {
+                                if (cmp >= 0) {
+                                    takeLeft = true
+                                }
+                            }
+                        }
                     }
-                }
-                if outOfOrder {
-                    set_at rows (j + 1) cur
-                    j = (j - 1)
-                } {
-                    break
                 }
             }
-            set_at rows (j + 1) key
-            i = (i + 1)
+            if takeLeft {
+                set_at tmp k (itemAt rows i)
+                i = (i + 1)
+            } {
+                set_at tmp k (itemAt rows j)
+                j = (j + 1)
+            }
+            k = (k + 1)
+        }
+        def t:int lo
+        while (t < hi) {
+            set_at rows t (itemAt tmp t)
+            t = (t + 1)
         }
     }
 

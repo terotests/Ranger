@@ -777,12 +777,15 @@ class FormulaParser {
     ;   sheet "" matches references with no sheet prefix (same sheet)
     ; A reference to a DELETED column cannot be repaired — it becomes #REF!,
     ; exactly as Excel does, rather than silently pointing at the neighbour.
-    sfn adjustColsNode:boolean (n:FormulaNode sheetName:string at:int delta:int) {
+    ; allowUnprefixed: true on the sheet being structurally edited (local
+    ; A1 refs move with it). False on other sheets — only SheetName!A1 refs
+    ; that name the edited sheet should shift; their local A1 must stay put.
+    sfn adjustColsNode:boolean (n:FormulaNode sheetName:string at:int delta:int allowUnprefixed:boolean) {
         def broke:boolean false
         if ((n.kind == 3) || (n.kind == 4)) {
             def applies:boolean false
             if ((strlen n.sheet) == 0) {
-                applies = true
+                applies = allowUnprefixed
             } {
                 if (n.sheet == sheetName) {
                     applies = true
@@ -824,7 +827,7 @@ class FormulaParser {
         def i:int 0
         def kn:int (array_length n.kids)
         while (i < kn) {
-            if (FormulaParser.adjustColsNode((itemAt n.kids i) sheetName at delta)) {
+            if (FormulaParser.adjustColsNode((itemAt n.kids i) sheetName at delta allowUnprefixed)) {
                 broke = true
             }
             i = (i + 1)
@@ -835,12 +838,12 @@ class FormulaParser {
     ; The column walk, transposed. Same rules: a reference AT a deleted line
     ; breaks, a reference past it shifts, and a range breaks only when its
     ; whole span goes.
-    sfn adjustRowsNode:boolean (n:FormulaNode sheetName:string at:int delta:int) {
+    sfn adjustRowsNode:boolean (n:FormulaNode sheetName:string at:int delta:int allowUnprefixed:boolean) {
         def broke:boolean false
         if ((n.kind == 3) || (n.kind == 4)) {
             def applies:boolean false
             if ((strlen n.sheet) == 0) {
-                applies = true
+                applies = allowUnprefixed
             } {
                 if (n.sheet == sheetName) {
                     applies = true
@@ -881,7 +884,7 @@ class FormulaParser {
         def i:int 0
         def kn:int (array_length n.kids)
         while (i < kn) {
-            if (FormulaParser.adjustRowsNode((itemAt n.kids i) sheetName at delta)) {
+            if (FormulaParser.adjustRowsNode((itemAt n.kids i) sheetName at delta allowUnprefixed)) {
                 broke = true
             }
             i = (i + 1)
@@ -889,13 +892,13 @@ class FormulaParser {
         return broke
     }
 
-    sfn adjustRows:string (expr:string sheetName:string at:int delta:int) {
+    sfn adjustRows:string (expr:string sheetName:string at:int delta:int allowUnprefixed:boolean) {
         def p:FormulaParser (new FormulaParser)
         def ast:FormulaNode (p.parse(expr))
         if (p.ok == false) {
             return ""
         }
-        def broke:boolean (FormulaParser.adjustRowsNode(ast sheetName at delta))
+        def broke:boolean (FormulaParser.adjustRowsNode(ast sheetName at delta allowUnprefixed))
         if broke {
             return "#REF!"
         }
@@ -904,13 +907,13 @@ class FormulaParser {
 
     ; Returns the rewritten formula, or "#REF!" when a reference was destroyed.
     ; "" means the expression could not be parsed and should be left alone.
-    sfn adjustColumns:string (expr:string sheetName:string at:int delta:int) {
+    sfn adjustColumns:string (expr:string sheetName:string at:int delta:int allowUnprefixed:boolean) {
         def p:FormulaParser (new FormulaParser)
         def ast:FormulaNode (p.parse(expr))
         if (p.ok == false) {
             return ""
         }
-        def broke:boolean (FormulaParser.adjustColsNode(ast sheetName at delta))
+        def broke:boolean (FormulaParser.adjustColsNode(ast sheetName at delta allowUnprefixed))
         if broke {
             return "#REF!"
         }

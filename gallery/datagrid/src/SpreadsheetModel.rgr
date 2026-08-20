@@ -92,6 +92,12 @@ class SpreadsheetUndoOp {
     ; original text is the only way back.
     def savedKeys:[string]
     def savedTexts:[string]
+    ; Formulas on OTHER workbook sheets that named this sheet (qualified
+    ; refs). GridApp fills these before adjustFormulasFor; undo restores them
+    ; because SpreadsheetModel only owns the active sheet's snapshot above.
+    def otherSheetIdx:[int]
+    def otherKeys:[string]
+    def otherTexts:[string]
     def txId:int 0
 
     Constructor () {
@@ -118,6 +124,9 @@ class SpreadsheetUndoOp {
         clear colStyles
         clear savedKeys
         clear savedTexts
+        clear otherSheetIdx
+        clear otherKeys
+        clear otherTexts
         def i:int 0
         while (i < (array_length o.colValues)) {
             push colValues (itemAt o.colValues i)
@@ -142,6 +151,21 @@ class SpreadsheetUndoOp {
         while (n < (array_length o.savedTexts)) {
             push savedTexts (itemAt o.savedTexts n)
             n = (n + 1)
+        }
+        def oi:int 0
+        while (oi < (array_length o.otherSheetIdx)) {
+            push otherSheetIdx (itemAt o.otherSheetIdx oi)
+            oi = (oi + 1)
+        }
+        def ok:int 0
+        while (ok < (array_length o.otherKeys)) {
+            push otherKeys (itemAt o.otherKeys ok)
+            ok = (ok + 1)
+        }
+        def ot:int 0
+        while (ot < (array_length o.otherTexts)) {
+            push otherTexts (itemAt o.otherTexts ot)
+            ot = (ot + 1)
         }
         txId = o.txId
     }

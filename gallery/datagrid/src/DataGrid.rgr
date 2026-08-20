@@ -471,6 +471,41 @@ class DataGrid {
         return (this.rowScreenY(model (this.mapRow(viewRow))))
     }
 
+    ; Visible width of a merge spanning model columns c1..c2. Does not require
+    ; c2+1 to be in the view (hidden/filtered columns return sentinel from
+    ; geoColToX and would make width negative / collapse the merge).
+    fn mergeVisibleWidth:int (model:SpreadsheetModel c1:int c2:int) {
+        def w:int 0
+        def c:int c1
+        while (c <= c2) {
+            if hasView {
+                if ((sheetView.viewColOf(c)) >= 0) {
+                    w = (w + (model.colWidth(c)))
+                }
+            } {
+                w = (w + (model.colWidth(c)))
+            }
+            c = (c + 1)
+        }
+        return w
+    }
+
+    fn mergeVisibleHeight:int (model:SpreadsheetModel r1:int r2:int) {
+        def h:int 0
+        def r:int r1
+        while (r <= r2) {
+            if hasView {
+                if ((sheetView.viewRowOf(r)) >= 0) {
+                    h = (h + (model.rowHeight(r)))
+                }
+            } {
+                h = (h + (model.rowHeight(r)))
+            }
+            r = (r + 1)
+        }
+        return h
+    }
+
     ; Screen-space rect of a MODEL cell (may be partially off-viewport).
     fn cellRect:GridRect (model:SpreadsheetModel row:int col:int) {
         def cx:int (this.colScreenX(model col))
@@ -487,8 +522,8 @@ class DataGrid {
             if ((row == r1) && (col == c1)) {
                 cx = (this.colScreenX(model c1))
                 cy = (this.rowScreenY(model r1))
-                cw = ((this.geoColToX(model (c2 + 1))) - (this.geoColToX(model c1)))
-                ch = ((this.geoRowToY(model (r2 + 1))) - (this.geoRowToY(model r1)))
+                cw = (this.mergeVisibleWidth(model c1 c2))
+                ch = (this.mergeVisibleHeight(model r1 r2))
                 if (cw < 1) {
                     cw = (model.colWidth(c1))
                 }
@@ -660,31 +695,71 @@ class DataGrid {
     fn ensureCellVisible:void (model:SpreadsheetModel row:int col:int) {
         def p:CellPos (CellPos.create(row col))
         model.clampPos(p)
+        ; Scroll in VIEW coordinates when SheetView is bound — a sorted/filtered
+        ; model-row 500 may be the first body row on screen.
+        if hasView {
+            def vr:int (sheetView.viewRowOf(p.row))
+            def vc:int (sheetView.viewColOf(p.col))
+            def fzR:int (this.freezeViewRows(model))
+            def fzC:int (this.freezeViewCols(model))
+            if (vr >= 0) {
+                if (vr < fzR) {
+                } {
+                    def baseY:int (sheetView.rowToY(fzR))
+                    def y0:int ((sheetView.rowToY(vr)) - baseY)
+                    def y1:int (y0 + (sheetView.rowHeight(vr)))
+                    def sh:int (this.scrollAreaH(model))
+                    if (y0 < scrollY) {
+                        scrollY = y0
+                    }
+                    if (y1 > (scrollY + sh)) {
+                        scrollY = (y1 - sh)
+                    }
+                }
+            }
+            if (vc >= 0) {
+                if (vc < fzC) {
+                } {
+                    def baseX:int (sheetView.colToX(fzC))
+                    def x0:int ((sheetView.colToX(vc)) - baseX)
+                    def x1:int (x0 + (sheetView.colWidth(vc)))
+                    def sw:int (this.scrollAreaW(model))
+                    if (x0 < scrollX) {
+                        scrollX = x0
+                    }
+                    if (x1 > (scrollX + sw)) {
+                        scrollX = (x1 - sw)
+                    }
+                }
+            }
+            this.updateVisible(model)
+            return
+        }
         if (p.row < model.freezeRows) {
             ; frozen rows always visible
         } {
-            def baseY:int (model.rowToY(model.freezeRows))
-            def y0:int ((model.rowToY(p.row)) - baseY)
-            def y1:int (y0 + (model.rowHeight(p.row)))
-            def sh:int (this.scrollAreaH(model))
-            if (y0 < scrollY) {
-                scrollY = y0
+            def baseY2:int (model.rowToY(model.freezeRows))
+            def y0b:int ((model.rowToY(p.row)) - baseY2)
+            def y1b:int (y0b + (model.rowHeight(p.row)))
+            def sh2:int (this.scrollAreaH(model))
+            if (y0b < scrollY) {
+                scrollY = y0b
             }
-            if (y1 > (scrollY + sh)) {
-                scrollY = (y1 - sh)
+            if (y1b > (scrollY + sh2)) {
+                scrollY = (y1b - sh2)
             }
         }
         if (p.col < model.freezeCols) {
         } {
-            def baseX:int (model.colToX(model.freezeCols))
-            def x0:int ((model.colToX(p.col)) - baseX)
-            def x1:int (x0 + (model.colWidth(p.col)))
-            def sw:int (this.scrollAreaW(model))
-            if (x0 < scrollX) {
-                scrollX = x0
+            def baseX2:int (model.colToX(model.freezeCols))
+            def x0b:int ((model.colToX(p.col)) - baseX2)
+            def x1b:int (x0b + (model.colWidth(p.col)))
+            def sw2:int (this.scrollAreaW(model))
+            if (x0b < scrollX) {
+                scrollX = x0b
             }
-            if (x1 > (scrollX + sw)) {
-                scrollX = (x1 - sw)
+            if (x1b > (scrollX + sw2)) {
+                scrollX = (x1b - sw2)
             }
         }
         this.updateVisible(model)

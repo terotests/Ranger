@@ -351,14 +351,22 @@ static std::string dgfx_as_string(const std::string& in) {
 
 static std::string dgfx_pick_open_file(const std::string& title) {
 #if defined(__APPLE__)
+    // AppleScript `of type` wants UTIs (or classic type codes), not bare
+    // extensions — "xlsx" matches nothing and greys every workbook out.
     std::string script = std::string(\"POSIX path of (choose file with prompt \")
-        + dgfx_as_string(title) + \" of type {\" + dgfx_as_string(\"xlsx\") + \"})\";
+        + dgfx_as_string(title)
+        + \" of type {\"
+        + dgfx_as_string(\"org.openxmlformats.spreadsheetml.sheet\")
+        + \", \"
+        + dgfx_as_string(\"com.microsoft.excel.xlsx\")
+        + \"})\";
     return dgfx_run_capture(\"osascript -e \" + dgfx_shell_quote(script) + \" 2>/dev/null\");
 #else
     if (dgfx_have(\"zenity\")) {
         return dgfx_run_capture(std::string(\"zenity --file-selection --title=\")
             + dgfx_shell_quote(title)
             + \" --file-filter=\" + dgfx_shell_quote(\"Workbooks | *.xlsx\")
+            + \" --file-filter=\" + dgfx_shell_quote(\"All files | *\")
             + \" 2>/dev/null\");
     }
     if (dgfx_have(\"kdialog\")) {
