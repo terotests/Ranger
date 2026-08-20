@@ -7,6 +7,7 @@ Import "../src/XlsxNumberFormat.rgr"
 Import "../src/xlsx/XlsxLoader.rgr"
 Import "../src/xlsx/XlsxWorksheet.rgr"
 Import "../src/CellStyle.rgr"
+Import "../../pdf_writer/src/core/Utf8.rgr"
 
 class Checker {
     def passed:int 0
