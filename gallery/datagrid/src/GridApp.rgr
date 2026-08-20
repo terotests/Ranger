@@ -4037,8 +4037,9 @@ class GridApp {
         if (this.isFormulaEdit()) {
             return
         }
-        formulaRangeStartedEdit = true
         this.clearFormulaPick()
+        ; clearFormulaPick resets this flag, so ownership is recorded after it.
+        formulaRangeStartedEdit = true
         editBuf = (model.formulaBarText(sel.active.row sel.active.col))
         editing = true
         editInFormulaBar = true
@@ -4046,7 +4047,9 @@ class GridApp {
         view.focused = true
     }
 
-    ; Handle hit: returns edge (1=bottom 2=right 0=corner) or -1. Sets formulaRangeIdx.
+    ; Handle / border hit: 1=bottom, 2=right, 0=corner, -1=miss.
+    ; The whole lower/right border is draggable, not only the small square:
+    ; users naturally grab the line itself when a range is many rows tall.
     fn hitFormulaRangeHandle:int (px:int py:int) {
         def hn:int (array_length view.formulaHiliteR0)
         def hi:int (hn - 1)
@@ -4062,13 +4065,27 @@ class GridApp {
             def hw:int ((hbr.x + hbr.w) - htl.x)
             def hh:int ((hbr.y + hbr.h) - htl.y)
             def hs:int 10
-            def pad:int 2
+            def pad:int 5
             def cx2:int ((hx + hw) - (idiv hs 2))
             def cy2:int ((hy + hh) - (idiv hs 2))
             if ((px >= (cx2 - pad)) && (px <= ((cx2 + hs) + pad))) {
                 if ((py >= (cy2 - pad)) && (py <= ((cy2 + hs) + pad))) {
                     formulaRangeIdx = hi
                     return 0
+                }
+            }
+            ; Bottom border, including its centre grip.
+            if ((px >= (hx - pad)) && (px <= ((hx + hw) + pad))) {
+                if ((py >= ((hy + hh) - pad)) && (py <= ((hy + hh) + pad))) {
+                    formulaRangeIdx = hi
+                    return 1
+                }
+            }
+            ; Right border, including its centre grip.
+            if ((px >= ((hx + hw) - pad)) && (px <= ((hx + hw) + pad))) {
+                if ((py >= (hy - pad)) && (py <= ((hy + hh) + pad))) {
+                    formulaRangeIdx = hi
+                    return 2
                 }
             }
             def bx:int ((hx + (idiv hw 2)) - (idiv hs 2))
@@ -4501,6 +4518,9 @@ class GridApp {
             sel.collapseToActive()
         }
         grid.ensureCellVisible(model p.row p.col)
+        ; Do not leave the previous cell's formula overlay around for one frame.
+        ; Its border and its hit target must change atomically with the cell.
+        this.refreshFormulaHilites()
     }
 
     fn handleKey:void (key:int input:UIInput) {
@@ -5442,8 +5462,13 @@ class GridApp {
 
         if input.pointerReleased {
             if formulaRangeDrag {
+                def commitRange:boolean formulaRangeStartedEdit
                 formulaRangeDrag = false
                 formulaRangeStartedEdit = false
+                if commitRange {
+                    this.commitEdit()
+                    this.refreshFormulaHilites()
+                }
             }
             if movingRange {
                 def hitD:CellPos (grid.hitTest(model input.pointerX input.pointerY))
