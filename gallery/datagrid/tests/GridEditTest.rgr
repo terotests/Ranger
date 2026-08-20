@@ -1676,7 +1676,8 @@ class GridEditTest {
         c.ok("text colour with no arg opens the picker" (tb.runCommand("format.color" "")))
         c.ok("the colour dialog is up" tb.colorDialog.visible)
         c.eqStr("it is editing text colour" tb.colorDialogOp "color")
-        c.ok("scene names the dialog" (GridEditTest.hasSub(tb.sceneJson() "Text colour")))
+        def colorScene:string (tb.sceneJson())
+        c.ok("scene names the dialog" (GridEditTest.hasSub(colorScene "Text colour")))
         tb.colorDialog.selectRadio(903)
         tb.applyColorDialog()
         c.ok("apply closes it" (tb.colorDialog.visible == false))
@@ -1696,7 +1697,7 @@ class GridEditTest {
         c.ok("empty fill arg still applies a hex directly" (tb.runCommand("format.fill" "#BDD7EE")))
         def fillDirect:CellStyle (tb.model.getCellStyle(4 1))
         c.eqStr("direct hex bypasses the modal" fillDirect.fillRgb "#BDD7EE")
-        c.ok("clearing" (tb.runCommand("format.clear" "")))
+        c.ok("clearing after palette" (tb.runCommand("format.clear" "")))
         def clearSt2:CellStyle (tb.model.getCellStyle(4 1))
         c.ok("plain again after palette tests" (clearSt2.hasFill == false))
 
@@ -1910,6 +1911,9 @@ class GridEditTest {
         dlg.openLinkDialog()
         c.eqStr("hyperlink" (GridEditTest.firstEscapee(dlg.linkDialog)) "")
         dlg.linkDialog.close()
+        dlg.openColorDialog("color" "#C00000")
+        c.eqStr("colour palette" (GridEditTest.firstEscapee(dlg.colorDialog)) "")
+        dlg.colorDialog.close()
 
         ; A narrow panel is the case that broke: the row has to shrink, and
         ; then wrap, rather than run off the edge.
