@@ -145,13 +145,14 @@ class ChartDocCodec {
                 out = (out + ",")
             }
             out = (out + "[")
-            def c:int ch.c0
-            while (c <= ch.c1) {
-                if (c > ch.c0) {
+            def ci:int 0
+            while (ci < (ch.sourceColCount())) {
+                if (ci > 0) {
                     out = (out + ",")
                 }
+                def c:int (ch.sourceColAt(ci))
                 out = (out + "\"" + (ChartDocCodec.jsonEsc((model.getCell(r c)))) + "\"")
-                c = (c + 1)
+                ci = (ci + 1)
             }
             out = (out + "]")
             r = (r + 1)

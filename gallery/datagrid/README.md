@@ -576,8 +576,13 @@ picker opens on that range. Pick a type and a style, and the chart appears in a
 window floating over the sheet that you can drag, resize, and reopen for
 editing.
 
-Nothing about the drawing is stored. A chart *is* its range: `GridChart` holds
-the rectangle, the kind, the style, the two header flags and the window box, and
+Clicking a column header selects from its header through its last populated
+cell. Ctrl+click keeps additional columns; **+ Chart** uses exactly those
+columns even when they are not adjacent, without including columns in between.
+Shift+click a column header opens its sort/filter menu.
+
+Nothing about the drawing is stored. A chart *is* its source: `GridChart` holds
+the rectangle (or ordered selected columns), the kind, style, header flags and window box, and
 the picture is recomputed from the cells. Edit a number the chart reads and the
 chart follows on the next frame.
 

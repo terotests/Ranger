@@ -239,6 +239,9 @@ class GridChart {
     def c0:int 0
     def r1:int 0
     def c1:int 0
+    ; Optional ordered, non-contiguous source columns (Ctrl+header selection).
+    ; Empty means every column in c0..c1, preserving old chart documents.
+    def sourceCols:[int]
     ; The first row names the series; the first column names the categories.
     ; Both default on, which is what a spreadsheet selection usually looks like.
     def useHeaderRow:boolean true
@@ -267,6 +270,12 @@ class GridChart {
         c0 = o.c0
         r1 = o.r1
         c1 = o.c1
+        clear sourceCols
+        def sci:int 0
+        while (sci < (array_length o.sourceCols)) {
+            push sourceCols (itemAt o.sourceCols sci)
+            sci = (sci + 1)
+        }
         useHeaderRow = o.useHeaderRow
         useHeaderCol = o.useHeaderCol
         title = o.title
@@ -279,7 +288,34 @@ class GridChart {
     }
 
     fn rangeLabel:string () {
+        if ((array_length sourceCols) > 0) {
+            def out:string ""
+            def i:int 0
+            while (i < (array_length sourceCols)) {
+                if (i > 0) {
+                    out = (out + ",")
+                }
+                def c:int (itemAt sourceCols i)
+                out = (out + (SpreadsheetModel.cellLabel(r0 c)) + ":" + (SpreadsheetModel.cellLabel(r1 c)))
+                i = (i + 1)
+            }
+            return out
+        }
         return ((SpreadsheetModel.cellLabel(r0 c0)) + ":" + (SpreadsheetModel.cellLabel(r1 c1)))
+    }
+
+    fn sourceColCount:int () {
+        if ((array_length sourceCols) > 0) {
+            return (array_length sourceCols)
+        }
+        return ((c1 - c0) + 1)
+    }
+
+    fn sourceColAt:int (i:int) {
+        if ((array_length sourceCols) > 0) {
+            return (itemAt sourceCols i)
+        }
+        return (c0 + i)
     }
 
     ; The window's caption: the user's title if they gave one, else what the
@@ -300,6 +336,16 @@ class GridChart {
             return false
         }
         if (r > r1) {
+            return false
+        }
+        if ((array_length sourceCols) > 0) {
+            def i:int 0
+            while (i < (array_length sourceCols)) {
+                if (c == (itemAt sourceCols i)) {
+                    return true
+                }
+                i = (i + 1)
+            }
             return false
         }
         if (c < c0) {
@@ -422,32 +468,34 @@ class ChartData {
         seriesTitle = ""
 
         def top:int ch.r0
-        def left:int ch.c0
+        def firstValue:int 0
         if ch.useHeaderRow {
             top = (top + 1)
         }
         if ch.useHeaderCol {
-            left = (left + 1)
+            firstValue = 1
         }
         if (top > ch.r1) {
             return false
         }
-        if (left > ch.c1) {
+        def sourceN:int (ch.sourceColCount())
+        if (firstValue >= sourceN) {
             return false
         }
 
         ; Series names: the header row over the value columns, or "Series n".
-        def c:int left
-        while (c <= ch.c1) {
+        def ci:int firstValue
+        while (ci < sourceN) {
+            def c:int (ch.sourceColAt(ci))
             def name:string ""
             if ch.useHeaderRow {
                 name = (model.getCell(ch.r0 c))
             }
             if ((strlen name) == 0) {
-                name = ("Series " + (to_string ((c - left) + 1)))
+                name = ("Series " + (to_string ((ci - firstValue) + 1)))
             }
             push series name
-            c = (c + 1)
+            ci = (ci + 1)
         }
 
         def flag:[boolean]
@@ -455,7 +503,7 @@ class ChartData {
         while (r <= ch.r1) {
             def label:string ""
             if ch.useHeaderCol {
-                label = (model.getCell(r ch.c0))
+                label = (model.getCell(r (ch.sourceColAt(0))))
             }
             if ((strlen label) == 0) {
                 label = (to_string ((r - top) + 1))
@@ -467,8 +515,9 @@ class ChartData {
                 }
             }
             push cats label
-            def cc:int left
-            while (cc <= ch.c1) {
+            def cci:int firstValue
+            while (cci < sourceN) {
+                def cc:int (ch.sourceColAt(cci))
                 def raw:string (model.getCell(r cc))
                 def v:double (ChartData.asNumber(raw flag))
                 def ok:boolean false
@@ -480,7 +529,7 @@ class ChartData {
                 if ok {
                     points = (points + 1)
                 }
-                cc = (cc + 1)
+                cci = (cci + 1)
             }
             r = (r + 1)
         }
@@ -488,7 +537,7 @@ class ChartData {
             return false
         }
         if ch.useHeaderCol {
-            catTitle = (model.getCell(ch.r0 ch.c0))
+            catTitle = (model.getCell(ch.r0 (ch.sourceColAt(0))))
         }
         if ((array_length series) == 1) {
             valueTitle = (itemAt series 0)

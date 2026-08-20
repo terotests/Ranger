@@ -1,0 +1,52 @@
+; ==============================================================================
+; dump_column_chart - column-header selection and resulting chart screenshots.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DumpColumnChart {
+
+    sfn writePng:void (app:GridApp dir:string file:string) {
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+        print ("wrote " + dir + "/" + file)
+    }
+
+    sfn main:void () {
+        def dir:string "/opt/cursor/artifacts/screenshots"
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.resize(14 6)
+        app.model.setCellRaw(0 0 "Quarter")
+        app.model.setCellRaw(0 1 "Ignored")
+        app.model.setCellRaw(0 2 "Revenue")
+        def labels:[string] ([] "Q1" "Q2" "Q3" "Q4" "Q5" "Q6")
+        def values:[string] ([] "120" "180" "145" "230" "205" "275")
+        def r:int 1
+        while (r <= 6) {
+            app.model.setCellRaw(r 0 (itemAt labels (r - 1)))
+            app.model.setCellRaw(r 1 "999")
+            app.model.setCellRaw(r 2 (itemAt values (r - 1)))
+            r = (r + 1)
+        }
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.engine.rebuildAll()
+        app.selectDataColumn(0 false)
+        app.selectDataColumn(2 true)
+        DumpColumnChart.writePng(app dir "chart_columns_selected.png")
+
+        app.openChartDialog(0)
+        app.applyChartDialog()
+        DumpColumnChart.writePng(app dir "chart_from_selected_columns.png")
+        print "done"
+    }
+}

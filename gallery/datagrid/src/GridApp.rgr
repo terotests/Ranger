@@ -2639,6 +2639,7 @@ class GridApp {
     }
 
     fn selectionChart:void (out:GridChart) {
+        clear out.sourceCols
         def a:CellPos (new CellPos)
         def b:CellPos (new CellPos)
         sel.normalized(a b)
@@ -2674,6 +2675,47 @@ class GridApp {
                 }
             }
         }
+        ; Ctrl+clicked column headers are disjoint one-column rectangles. Keep
+        ; exactly those columns, in click order, instead of charting the gaps.
+        if (sel.rangeCount() > 1) {
+            def allColumns:boolean true
+            def dri:int 0
+            def minR:int (model.rowCount - 1)
+            def maxR:int 0
+            def minC:int (model.colCount - 1)
+            def maxC:int 0
+            while (dri < (sel.rangeCount())) {
+                def dg:GridRange (sel.rangeAt(dri))
+                if (dg.c0 != dg.c1) {
+                    allColumns = false
+                }
+                if (dg.r0 < minR) {
+                    minR = dg.r0
+                }
+                if (dg.r1 > maxR) {
+                    maxR = dg.r1
+                }
+                if (dg.c0 < minC) {
+                    minC = dg.c0
+                }
+                if (dg.c1 > maxC) {
+                    maxC = dg.c1
+                }
+                dri = (dri + 1)
+            }
+            if allColumns {
+                dri = 0
+                while (dri < (sel.rangeCount())) {
+                    def dg2:GridRange (sel.rangeAt(dri))
+                    push out.sourceCols dg2.c0
+                    dri = (dri + 1)
+                }
+                r0 = minR
+                r1 = maxR
+                c0 = minC
+                c1 = maxC
+            }
+        }
         out.r0 = r0
         out.c0 = c0
         out.r1 = r1
@@ -2682,7 +2724,13 @@ class GridApp {
         ; Headers are guessed the way a reader would: a top row of words over a
         ; column of numbers is a header, not data.
         def flag:[boolean]
-        ChartData.asNumber((model.getCell(r0 c1)) flag)
+        def lastSourceCol:int c1
+        def firstSourceCol:int c0
+        if ((array_length out.sourceCols) > 0) {
+            firstSourceCol = (itemAt out.sourceCols 0)
+            lastSourceCol = (itemAt out.sourceCols ((array_length out.sourceCols) - 1))
+        }
+        ChartData.asNumber((model.getCell(r0 lastSourceCol)) flag)
         def topIsText:boolean true
         if ((array_length flag) > 0) {
             topIsText = ((itemAt flag 0) == false)
@@ -2691,7 +2739,7 @@ class GridApp {
         if (r1 > r0) {
             out.useHeaderRow = topIsText
         }
-        ChartData.asNumber((model.getCell(r1 c0)) flag)
+        ChartData.asNumber((model.getCell(r1 firstSourceCol)) flag)
         def leftIsText:boolean true
         if ((array_length flag) > 0) {
             leftIsText = ((itemAt flag 0) == false)
@@ -4497,10 +4545,42 @@ class GridApp {
         return (CellPos.create(r c))
     }
 
-    ; Band selection. The far end is the anchor so the active cell stays at the
-    ; top / left of the band — otherwise the next arrow key would resume from
-    ; the last row of the sheet.
+    fn lastContentRowInColumn:int (col:int) {
+        def r:int (model.rowCount - 1)
+        while (r > 0) {
+            def hasValue:boolean ((strlen (model.getCell(r col))) > 0)
+            if (hasValue == false) {
+                hasValue = ((strlen (model.getFormula(r col))) > 0)
+            }
+            if hasValue {
+                return r
+            }
+            r = (r - 1)
+        }
+        return 0
+    }
+
+    ; Header-click selection stops at the last value instead of selecting a
+    ; million empty spreadsheet rows. Ctrl keeps earlier column rectangles.
+    fn selectDataColumn:void (col:int additive:boolean) {
+        if additive {
+            sel.keepCurrent()
+        } {
+            sel.clearExtra()
+        }
+        def last:int (this.lastContentRowInColumn(col))
+        sel.anchor.row = last
+        sel.anchor.col = col
+        sel.active.row = 0
+        sel.active.col = col
+        grid.ensureCellVisible(model 0 col)
+        this.refreshFormulaHilites()
+    }
+
+    ; Keyboard Ctrl+Space retains Excel's full-column band semantics.
+    ; The far end is the anchor so the active cell stays at the top / left.
     fn selectColumn:void (col:int) {
+        sel.clearExtra()
         sel.anchor.row = (model.rowCount - 1)
         sel.anchor.col = col
         sel.active.row = 0
@@ -5267,12 +5347,17 @@ class GridApp {
                 }
             } {
                 if ((hit.row == -2) && (hit.col >= 0)) {
-                    ; Column header → sort/filter popup
+                    ; Header click selects populated cells only. Ctrl adds
+                    ; another column; Shift keeps the old sort/filter popup.
                     view.focused = true
                     if editing {
                         this.commitEdit()
                     }
-                    this.openHeaderMenu(hit.col input.pointerX (grid.y + grid.formulaBarH + grid.colHeaderH))
+                    if input.shiftDown {
+                        this.openHeaderMenu(hit.col input.pointerX (grid.y + grid.formulaBarH + grid.colHeaderH))
+                    } {
+                        this.selectDataColumn(hit.col input.ctrlDown)
+                    }
                 } {
                 if ((hit.col == -2) && (hit.row >= 0)) {
                     ; Row header → the row's own popup.

@@ -101,13 +101,14 @@ class ChartClipboard {
             if (r > ch.r0) {
                 out = (out + "\n")
             }
-            def c:int ch.c0
-            while (c <= ch.c1) {
-                if (c > ch.c0) {
+            def ci:int 0
+            while (ci < (ch.sourceColCount())) {
+                if (ci > 0) {
                     out = (out + "\t")
                 }
+                def c:int (ch.sourceColAt(ci))
                 out = (out + (model.getCell(r c)))
-                c = (c + 1)
+                ci = (ci + 1)
             }
             r = (r + 1)
         }
