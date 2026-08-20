@@ -402,6 +402,11 @@ class GridEditTest {
         fb2.sheetView.markDirty()
         fb2.sheetView.rebuild()
         fb2.engine.rebuildAll()
+        GridEditTest.select(fb2 4 1)
+        fb2.refreshFormulaHilites()
+        c.eqInt("blank cell has no stale range" (array_length fb2.view.formulaHiliteR0) 0)
+        fb2.moveActive(5 1 false)
+        c.eqInt("moving onto formula shows range immediately" (array_length fb2.view.formulaHiliteR0) 1)
         GridEditTest.select(fb2 5 1)
         fb2.refreshFormulaHilites()
         c.eqInt("selected formula shows range" (array_length fb2.view.formulaHiliteR0) 1)
@@ -418,6 +423,8 @@ class GridEditTest {
         c.ok("bar edit started" fb2.editing)
         c.ok("bar owns the caret" fb2.editInFormulaBar)
         c.ok("caret not forced to end" (fb2.editCaret < (strlen fb2.editBuf)))
+        fb2.sceneJson()
+        c.ok("explicit bar edit paints caret in bar" fb2.view.caretInFormulaBar)
         fbi.newFrame()
         fbi.setPointerDown(false)
         fb2.update(fbi)
@@ -442,6 +449,7 @@ class GridEditTest {
         def hs:int 10
         def gripX:int ((hx + (idiv hw 2)))
         def gripY:int (hy + hh)
+        c.eqInt("whole bottom border is a resize target" (fb2.hitFormulaRangeHandle((hx + 10) gripY)) 1)
         def a4:GridRect (fb2.grid.cellRect(fb2.model 3 0))
         fbi.newFrame()
         fbi.setPointerPos(gripX gripY)
@@ -458,9 +466,16 @@ class GridEditTest {
         fbi.setPointerDown(false)
         fb2.update(fbi)
         c.ok("release ends the range drag" (fb2.formulaRangeDrag == false))
-        c.ok("and keeps editing so the change is visible" fb2.editing)
-        fb2.commitEdit()
-        c.eqStr("commit writes SUM(A1:A4)" (fb2.model.getFormula(5 1)) "SUM(A1:A4)")
+        c.ok("range drag commits when it opened editing" (fb2.editing == false))
+        c.eqStr("release writes SUM(A1:A4)" (fb2.model.getFormula(5 1)) "SUM(A1:A4)")
+        ; Entering formula edit from the cell still paints its only caret in
+        ; the top formula editor, not offset over the cell text.
+        fb2.beginEdit("" false)
+        fb2.editCaret = 5
+        fb2.editInFormulaBar = false
+        fb2.sceneJson()
+        c.ok("cell-started formula edit paints caret in bar" fb2.view.caretInFormulaBar)
+        fb2.cancelEdit()
 
         print "== caret keys through UIInput =="
         def input:UIInput (new UIInput)

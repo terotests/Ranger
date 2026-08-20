@@ -105,6 +105,8 @@ class GridView {
     def fbTextX:int 0
     def fbTextY:int 0
     def fbFontSize:double 13.0
+    ; Set during paint for tests/hosts: formula edits always own the bar caret.
+    def caretInFormulaBar:boolean false
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -1075,6 +1077,23 @@ class GridView {
         if editing {
             shown = editBuf
         }
+        def formulaEdit:boolean false
+        if editing {
+            if ((strlen editBuf) > 0) {
+                if ((charAt editBuf 0) == 61) {
+                    formulaEdit = true
+                }
+            }
+        }
+        caretInFormulaBar = false
+        if editing {
+            if editInFormulaBar {
+                caretInFormulaBar = true
+            }
+            if formulaEdit {
+                caretInFormulaBar = true
+            }
+        }
         def addrBoxW:int 64
         def addrX:int (grid.x + 4)
         def fieldX:int ((grid.x + addrBoxW) + 10)
@@ -1102,24 +1121,22 @@ class GridView {
         fbTextY = (fieldY + 3)
         fbFontSize = 13.0
         this.paintFormulaBarText(dl shown (fieldX + 6) (fieldY + 3) 13.0)
-        ; Solid caret while the formula bar owns the edit — a blinking one is
-        ; easy to miss and makes arrow keys feel unresponsive.
-        if editing {
-            if editInFormulaBar {
-                def upTo:string shown
-                def cn:int (strlen shown)
-                if (editCaret < cn) {
-                    def cc:int editCaret
-                    if (cc < 0) {
-                        cc = 0
-                    }
-                    upTo = (substring shown 0 cc)
+        ; Formula edits always put the solid caret here, even when editing was
+        ; entered from the cell (F2 / typing). There must be only one caret.
+        if caretInFormulaBar {
+            def upTo:string shown
+            def cn:int (strlen shown)
+            if (editCaret < cn) {
+                def cc:int editCaret
+                if (cc < 0) {
+                    cc = 0
                 }
-                def ew:int (to_int (ctx.tr.measureWidth(upTo 13.0)))
-                ; White halo + 3px caret so it stays visible on yellow tokens.
-                this.pushRect(dl (to_double (((fieldX + 6) + ew) - 1)) (to_double (fieldY + 3)) 4.0 (to_double (fieldH - 6)) (EVGColor.rgb(255 255 255)))
-                this.pushRect(dl (to_double ((fieldX + 6) + ew)) (to_double (fieldY + 3)) 3.0 (to_double (fieldH - 6)) theme.activeBorder)
+                upTo = (substring shown 0 cc)
             }
+            def ew:int (to_int (ctx.tr.measureWidth(upTo 13.0)))
+            ; One pixel of visual gap keeps the caret after, not over, a glyph.
+            def caretX:int (((fieldX + 6) + ew) + 1)
+            this.pushRect(dl (to_double caretX) (to_double (fieldY + 3)) 2.0 (to_double (fieldH - 6)) theme.activeBorder)
         }
         this.pushBorder(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) 1.0 theme.gridLine)
 
@@ -1428,9 +1445,10 @@ class GridView {
             this.pushRect(dl (to_double fh.x) (to_double fh.y) (to_double fh.w) (to_double fh.h) theme.activeBorder)
         }
 
-        ; edit caret blink inside active cell when editing in the cell (not the bar)
+        ; Plain text can still be edited in-cell. Formula edits have their one
+        ; caret in the formula bar, so never draw a second, offset caret here.
         if editing {
-            if (editInFormulaBar == false) {
+            if (caretInFormulaBar == false) {
                 if focused {
                     def phase:int (to_int (frame / 30))
                     def on:int (phase - ((to_int (phase / 2)) * 2))

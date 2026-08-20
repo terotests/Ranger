@@ -40,12 +40,13 @@ class DumpFormulaUx {
         app.refreshFormulaHilites()
         DumpFormulaUx.writePng(app dir "formula_range_selected.png")
 
-        app.beginFormulaBarEdit()
+        ; Enter from the cell (the reported case): formula caret must still
+        ; appear in the top editor, and not as a second caret in H6.
+        app.beginEdit("" false)
         app.editCaret = 5
         app.view.editCaret = 5
-        app.view.editInFormulaBar = true
-        ; Advance a frame so layout + solid caret are painted.
-        app.render()
+        app.editInFormulaBar = false
+        app.view.editInFormulaBar = false
         DumpFormulaUx.writePng(app dir "formula_bar_caret.png")
 
         ; Expand range to A1:A6 via the drag API, still editing in the bar.
