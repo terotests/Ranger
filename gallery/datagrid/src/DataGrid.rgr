@@ -42,7 +42,7 @@ class DataGrid {
     ; one — a printed page or an oracle dump has no use for buttons — so the
     ; geometry below is written in terms of it rather than around it.
     def toolbarH:int 0
-    def formulaBarH:int 28
+    def formulaBarH:int 32
     def colHeaderH:int 24
     def rowHeaderW:int 48
     def sheetTabH:int 26
