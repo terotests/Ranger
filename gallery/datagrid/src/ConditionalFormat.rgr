@@ -156,8 +156,18 @@ class ConditionalFormat {
                             hit = true
                         }
                     }
+                    if (rule.op == "greaterThanOrEqual") {
+                        if (v >= rule.v1) {
+                            hit = true
+                        }
+                    }
                     if (rule.op == "lessThan") {
                         if (v < rule.v1) {
+                            hit = true
+                        }
+                    }
+                    if (rule.op == "lessThanOrEqual") {
+                        if (v <= rule.v1) {
                             hit = true
                         }
                     }

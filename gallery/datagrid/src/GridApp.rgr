@@ -51,6 +51,17 @@ class GridApp {
     ; True when the edit started from (or is focused in) the formula bar —
     ; the caret is drawn there rather than only inside the cell.
     def editInFormulaBar:boolean false
+    ; While editing a formula (`=…`), a click/drag on the sheet inserts a cell
+    ; or range at the caret instead of committing — Excel's point-and-click.
+    def formulaPicking:boolean false
+    def pickR0:int 0
+    def pickC0:int 0
+    def pickR1:int 0
+    def pickC1:int 0
+    ; Byte range in editBuf of the ref last inserted by a pick, so a drag (or
+    ; another click with the caret still on it) can replace rather than append.
+    def pickTokStart:int -1
+    def pickTokEnd:int -1
     def dragging:boolean false
     def resizing:boolean false
     def resizingRows:boolean false
@@ -1721,7 +1732,7 @@ class GridApp {
         findDialog.w = 380
         findDialog.title = "Find and replace"
         windows.add(findDialog)
-        cfDialog.w = 330
+        cfDialog.w = 360
         cfDialog.title = "Conditional formatting"
         windows.add(cfDialog)
         linkDialog.w = 360
@@ -2116,6 +2127,12 @@ class GridApp {
         if (choice == 604) {
             return "between"
         }
+        if (choice == 606) {
+            return "greaterThanOrEqual"
+        }
+        if (choice == 607) {
+            return "lessThanOrEqual"
+        }
         return "greaterThan"
     }
 
@@ -2132,7 +2149,9 @@ class GridApp {
         cfDialog.addLabel("Format cells where the value is")
         cfDialog.beginColumns(2)
         cfDialog.addRadio(601 "Greater than" 1 (cfTest == 601))
+        cfDialog.addRadio(606 "At least (≥)" 1 (cfTest == 606))
         cfDialog.addRadio(602 "Less than" 1 (cfTest == 602))
+        cfDialog.addRadio(607 "At most (≤)" 1 (cfTest == 607))
         cfDialog.addRadio(603 "Equal to" 1 (cfTest == 603))
         cfDialog.addRadio(604 "Between" 1 (cfTest == 604))
         cfDialog.endColumns()
@@ -2176,6 +2195,8 @@ class GridApp {
         push labels "Close"
         push ids 632
         push labels "Clear"
+        push ids 634
+        push labels "± colours"
         push ids 633
         push labels "Add rule"
         cfDialog.addButtonRow(ids labels 633)
@@ -2250,6 +2271,38 @@ class GridApp {
         def g:GridRange (sel.liveRange())
         model.clearCfRulesIn(g.r0 g.c0 g.r1 g.c1)
         cfStatus = ("cleared — " + (to_string (model.cfRuleCount())) + " rule(s) left")
+        def keepX:int cfDialog.x
+        def keepY:int cfDialog.y
+        this.openCfDialog()
+        cfDialog.x = keepX
+        cfDialog.y = keepY
+    }
+
+    ; One click: ≥0 green, <0 red — the usual profit / loss pair.
+    fn addCfPosNegFromDialog:void () {
+        this.syncCfDialog()
+        def g:GridRange (sel.liveRange())
+        def pos:CfRule (new CfRule)
+        pos.r0 = g.r0
+        pos.c0 = g.c0
+        pos.r1 = g.r1
+        pos.c1 = g.c1
+        pos.kind = 1
+        pos.op = "greaterThanOrEqual"
+        pos.v1 = 0.0
+        pos.fillRgb = "#C6EFCE"
+        model.addCfRule(pos)
+        def neg:CfRule (new CfRule)
+        neg.r0 = g.r0
+        neg.c0 = g.c0
+        neg.r1 = g.r1
+        neg.c1 = g.c1
+        neg.kind = 1
+        neg.op = "lessThan"
+        neg.v1 = 0.0
+        neg.fillRgb = "#FFC7CE"
+        model.addCfRule(neg)
+        cfStatus = ("± colours — " + (to_string (model.cfRuleCount())) + " rule(s)")
         def keepX:int cfDialog.x
         def keepY:int cfDialog.y
         this.openCfDialog()
@@ -3485,6 +3538,9 @@ class GridApp {
             if (cfDialog.activated == 633) {
                 this.addCfRuleFromDialog()
             }
+            if (cfDialog.activated == 634) {
+                this.addCfPosNegFromDialog()
+            }
             if (cfDialog.activated == 632) {
                 this.clearCfRulesFromDialog()
             }
@@ -3638,6 +3694,7 @@ class GridApp {
         if (editing == false) {
             return
         }
+        this.clearFormulaPick()
         def r:int sel.active.row
         def c:int sel.active.col
         ; A validation rule is asked BEFORE the value is written, because a
@@ -3707,13 +3764,126 @@ class GridApp {
     }
 
     fn cancelEdit:void () {
+        this.clearFormulaPick()
         editing = false
         editBuf = ""
         editCaret = 0
         editInFormulaBar = false
     }
 
+    fn clearFormulaPick:void () {
+        formulaPicking = false
+        pickTokStart = -1
+        pickTokEnd = -1
+        view.ghostVisible = false
+    }
+
+    ; Editing a formula that starts with `=`.
+    fn isFormulaEdit:boolean () {
+        if (editing == false) {
+            return false
+        }
+        if ((strlen editBuf) == 0) {
+            return false
+        }
+        return ((charAt editBuf 0) == 61)
+    }
+
+    sfn rangeA1:string (r0:int c0:int r1:int c1:int) {
+        def a:int r0
+        def b:int r1
+        def c:int c0
+        def d:int c1
+        if (a > b) {
+            def t:int a
+            a = b
+            b = t
+        }
+        if (c > d) {
+            def t2:int c
+            c = d
+            d = t2
+        }
+        def left:string (SpreadsheetModel.cellLabel(a c))
+        if ((a == b) && (c == d)) {
+            return left
+        }
+        return ((left + ":") + (SpreadsheetModel.cellLabel(b d)))
+    }
+
+    fn showPickGhost:void () {
+        def a:int pickR0
+        def b:int pickR1
+        def c:int pickC0
+        def d:int pickC1
+        if (a > b) {
+            def t:int a
+            a = b
+            b = t
+        }
+        if (c > d) {
+            def t2:int c
+            c = d
+            d = t2
+        }
+        view.ghostVisible = true
+        view.ghostR0 = a
+        view.ghostC0 = c
+        view.ghostR1 = b
+        view.ghostC1 = d
+    }
+
+    ; Write (or replace) the A1 / A1:B2 token for the current pick into editBuf.
+    fn applyPickToFormula:void () {
+        def label:string (GridApp.rangeA1(pickR0 pickC0 pickR1 pickC1))
+        if (pickTokStart < 0) {
+            this.insertAtCaret(label)
+            pickTokEnd = editCaret
+            pickTokStart = (editCaret - (strlen label))
+            return
+        }
+        def n:int (strlen editBuf)
+        if (pickTokStart > n) {
+            pickTokStart = n
+        }
+        if (pickTokEnd > n) {
+            pickTokEnd = n
+        }
+        if (pickTokEnd < pickTokStart) {
+            pickTokEnd = pickTokStart
+        }
+        def head:string (substring editBuf 0 pickTokStart)
+        def tail:string (substring editBuf pickTokEnd n)
+        editBuf = ((head + label) + tail)
+        pickTokEnd = (pickTokStart + (strlen label))
+        editCaret = pickTokEnd
+    }
+
+    fn beginFormulaPickAt:void (row:int col:int) {
+        ; A fresh click with the caret still on the last pick replaces it;
+        ; otherwise insert at the caret (type a comma first for another arg).
+        if (pickTokEnd != editCaret) {
+            pickTokStart = -1
+            pickTokEnd = -1
+        }
+        formulaPicking = true
+        pickR0 = row
+        pickC0 = col
+        pickR1 = row
+        pickC1 = col
+        this.applyPickToFormula()
+        this.showPickGhost()
+    }
+
+    fn updateFormulaPickAt:void (row:int col:int) {
+        pickR1 = row
+        pickC1 = col
+        this.applyPickToFormula()
+        this.showPickGhost()
+    }
+
     fn beginEdit:void (seed:string clearFirst:boolean) {
+        this.clearFormulaPick()
         if clearFirst {
             editBuf = seed
             editInFormulaBar = false
@@ -3732,6 +3902,7 @@ class GridApp {
 
     fn beginFormulaBarEdit:void () {
         if (editing == false) {
+            this.clearFormulaPick()
             editBuf = (model.formulaBarText(sel.active.row sel.active.col))
             editCaret = (strlen editBuf)
         }
@@ -3753,6 +3924,11 @@ class GridApp {
 
     fn insertAtCaret:void (text:string) {
         this.clampCaret()
+        ; Typing (or any non-pick insert) ends the replaceable pick token.
+        if (formulaPicking == false) {
+            pickTokStart = -1
+            pickTokEnd = -1
+        }
         def n:int (strlen editBuf)
         def head:string (substring editBuf 0 editCaret)
         def tail:string (substring editBuf editCaret n)
@@ -3765,6 +3941,8 @@ class GridApp {
         if (editCaret <= 0) {
             return
         }
+        pickTokStart = -1
+        pickTokEnd = -1
         def n:int (strlen editBuf)
         def head:string (substring editBuf 0 (editCaret - 1))
         def tail:string (substring editBuf editCaret n)
@@ -3778,6 +3956,8 @@ class GridApp {
         if (editCaret >= n) {
             return
         }
+        pickTokStart = -1
+        pickTokEnd = -1
         def head:string (substring editBuf 0 editCaret)
         def tail:string (substring editBuf (editCaret + 1) n)
         editBuf = (head + tail)
@@ -3786,6 +3966,8 @@ class GridApp {
     fn moveCaret:void (delta:int) {
         editCaret = (editCaret + delta)
         this.clampCaret()
+        pickTokStart = -1
+        pickTokEnd = -1
     }
 
     ; --- used range ----------------------------------------------------------
@@ -4629,6 +4811,16 @@ class GridApp {
                     } {
                         if ((hit.row >= 0) && (hit.col >= 0)) {
                             view.focused = true
+                            ; While typing a formula, a click on another cell
+                            ; inserts A1 / A1:B2 at the caret — it must not
+                            ; commit the edit or move the cell being written.
+                            if (this.isFormulaEdit()) {
+                                if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
+                                    this.beginFormulaPickAt(hit.row hit.col)
+                                    dragging = true
+                                    return
+                                }
+                            }
                             if editing {
                                 if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
                                     this.commitEdit()
@@ -4669,6 +4861,13 @@ class GridApp {
 
     ; Pointer drag that is not a resize: fill-handle rubber band or range select.
     fn handleDrag:void (input:UIInput) {
+        if formulaPicking {
+            def hitP:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+            if ((hitP.row >= 0) && (hitP.col >= 0)) {
+                this.updateFormulaPickAt(hitP.row hitP.col)
+            }
+            return
+        }
         if movingRange {
             def hitM:CellPos (grid.hitTest(model input.pointerX input.pointerY))
             if ((hitM.row >= 0) && (hitM.col >= 0)) {
@@ -4850,7 +5049,16 @@ class GridApp {
             filling = false
             dragging = false
             movingRange = false
-            view.ghostVisible = false
+            if formulaPicking {
+                formulaPicking = false
+                this.showPickGhost()
+            } {
+                if ((this.isFormulaEdit()) && (pickTokStart >= 0)) {
+                    this.showPickGhost()
+                } {
+                    view.ghostVisible = false
+                }
+            }
             resizing = false
             resizingRows = false
             grid.resizingCol = -1

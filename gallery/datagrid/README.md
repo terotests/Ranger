@@ -391,13 +391,21 @@ is written back to the formula and recalculates.
 ## Conditional formatting
 
 Rules read from a workbook are painted — colour scales and `cellIs` — and
-`Ctrl+L` now writes them too: pick a test (greater than, less than, equal to,
-between, or a colour scale over the range), a number, and a fill, and the rule
-applies to the selection. *Clear* drops the rules that start inside it.
+`Ctrl+L` writes them too: greater / at least / less / at most / equal / between,
+or a colour scale over the range, plus a fill. **± colours** adds the usual
+pair in one click: `≥ 0` green (`#C6EFCE`), `< 0` red (`#FFC7CE`). *Clear*
+drops the rules that start inside the selection.
 
 Rules are sheet metadata rather than cell contents, so they are deliberately
 **not** on the undo stack: undoing a paste must not silently drop a rule the
 paste never touched.
+
+## Formulas while editing
+
+Typing `=SUM(` (or any formula) and then clicking or dragging on the sheet
+inserts `A1` / `A1:A3` at the caret without leaving edit mode — the same
+point-and-click Excel uses. Copy/paste of formulas still re-bases relative
+refs (`=A1*3` pasted one row down becomes `=A2*3`).
 
 ## Images
 
