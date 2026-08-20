@@ -13,6 +13,8 @@ class SheetView {
     def model:SpreadsheetModel
     def rowOrder:[int]
     def colOrder:[int]
+    ; Frozen rows, plus an inferred table header while sorting.
+    def sortHeadRows:int 0
     def rowOffsets:[int]
     def colOffsets:[int]
     def dirty:boolean true
@@ -49,7 +51,11 @@ class SheetView {
             }
             r = (r + 1)
         }
+        sortHeadRows = model.freezeRows
         if (model.sortCol >= 0) {
+            if (sortHeadRows == 0) {
+                sortHeadRows = (this.inferHeaderRows())
+            }
             this.sortRows(rows model.sortCol model.sortAsc)
         }
         ; keep freeze header rows first if present
@@ -133,6 +139,41 @@ class SheetView {
         this.mergeSortRows(rows tmp 0 n col asc)
     }
 
+    ; Keep a styled table heading (or a text heading over numeric data) above
+    ; the sorted body even when the sheet did not explicitly freeze row 1.
+    fn inferHeaderRows:int () {
+        if (model.rowCount < 2) {
+            return 0
+        }
+        def lastCol:int (model.usedCol())
+        def c:int 0
+        while (c <= lastCol) {
+            def top:string (model.getCell(0 c))
+            def body:string (model.getCell(1 c))
+            if ((strlen top) > 0) {
+                def st:CellStyle (model.getCellStyle(0 c))
+                if (st.bold || st.hasFill) {
+                    return 1
+                }
+                if ((strlen body) > 0) {
+                    def a@(optional):double (to_double top)
+                    def b@(optional):double (to_double body)
+                    def topNumeric:boolean false
+                    if a {
+                        topNumeric = true
+                    }
+                    if (topNumeric == false) {
+                        if b {
+                            return 1
+                        }
+                    }
+                }
+            }
+            c = (c + 1)
+        }
+        return 0
+    }
+
     fn mergeSortRows:void (rows:[int] tmp:[int] lo:int hi:int col:int asc:boolean) {
         def n:int (hi - lo)
         if (n < 2) {
@@ -154,23 +195,36 @@ class SheetView {
                 } {
                     def left:int (itemAt rows i)
                     def right:int (itemAt rows j)
-                    ; Freeze header rows stay ahead of body forever.
-                    if (left < model.freezeRows) {
+                    ; Header rows stay ahead of body forever.
+                    if (left < sortHeadRows) {
                         takeLeft = true
                     } {
-                        if (right < model.freezeRows) {
+                        if (right < sortHeadRows) {
                             takeLeft = false
                         } {
                             def lv:string (model.getCell(left col))
                             def rv:string (model.getCell(right col))
-                            def cmp:int (this.compareValues(lv rv))
-                            if asc {
-                                if (cmp <= 0) {
+                            ; Empty tail rows belong after data in both orders.
+                            if ((strlen lv) == 0) {
+                                if ((strlen rv) == 0) {
                                     takeLeft = true
+                                } {
+                                    takeLeft = false
                                 }
                             } {
-                                if (cmp >= 0) {
+                                if ((strlen rv) == 0) {
                                     takeLeft = true
+                                } {
+                                    def cmp:int (this.compareValues(lv rv))
+                                    if asc {
+                                        if (cmp <= 0) {
+                                            takeLeft = true
+                                        }
+                                    } {
+                                        if (cmp >= 0) {
+                                            takeLeft = true
+                                        }
+                                    }
                                 }
                             }
                         }

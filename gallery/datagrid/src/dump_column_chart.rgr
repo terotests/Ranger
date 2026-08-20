@@ -57,6 +57,12 @@ class DumpColumnChart {
         app.openChartDialog(0)
         app.applyChartDialog()
         DumpColumnChart.writePng(app dir "chart_from_selected_columns.png")
+
+        ; Remove the floating chart and show descending Revenue sort: Quarter
+        ; labels and the ignored column travel with each complete row.
+        app.view.chartLayer.removeAll(app.windows)
+        app.applySort(2 false)
+        DumpColumnChart.writePng(app dir "column_rows_sorted.png")
         print "done"
     }
 }

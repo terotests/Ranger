@@ -580,7 +580,9 @@ Clicking a column header selects from its header through its last populated
 cell. Ctrl+click keeps additional columns; **+ Chart** uses exactly those
 columns even when they are not adjacent, without including columns in between.
 The small arrow beside each column letter opens its sort/filter menu (Shift+
-click remains a keyboard-friendly shortcut).
+click remains a keyboard-friendly shortcut). Clicking outside closes the menu.
+Sorting keeps a detected table header first, leaves empty tail rows last, and
+reorders complete rows across every column — not just values in the sort column.
 
 Nothing about the drawing is stored. A chart *is* its source: `GridChart` holds
 the rectangle (or ordered selected columns), the kind, style, header flags and window box, and

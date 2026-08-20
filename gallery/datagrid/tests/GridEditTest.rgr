@@ -879,6 +879,13 @@ class GridEditTest {
         rz.runHeaderMenu(5)
         c.ok("menu auto-fit" ((rz.model.colWidth(0)) != 100))
         c.ok("menu closes after an action" (rz.view.menuOpen == false))
+        rz.openHeaderMenu(0 100 100)
+        def outsideMenu:UIInput (new UIInput)
+        outsideMenu.newFrame()
+        outsideMenu.setPointerPos(500 400)
+        outsideMenu.setPointerDown(true)
+        rz.update(outsideMenu)
+        c.ok("outside click closes column menu" (rz.view.menuOpen == false))
         ; Width never collapses to nothing.
         def sh:int 0
         while (sh < 20) {
@@ -886,6 +893,38 @@ class GridEditTest {
             sh = (sh + 1)
         }
         c.ok("narrowing has a floor" ((rz.model.colWidth(0)) >= 24))
+
+        print "== sorting a column reorders complete rows =="
+        def sortApp:GridApp (new GridApp)
+        sortApp.init("gallery/pdf_writer/assets/fonts")
+        sortApp.model.clearSheet()
+        sortApp.model.resize(7 4)
+        sortApp.model.setCellRaw(0 0 "Name")
+        sortApp.model.setCellRaw(0 1 "Value")
+        sortApp.model.setCellRaw(0 2 "Note")
+        sortApp.model.setCellRaw(1 0 "C")
+        sortApp.model.setCellRaw(1 1 "30")
+        sortApp.model.setCellRaw(1 2 "third")
+        sortApp.model.setCellRaw(2 0 "A")
+        sortApp.model.setCellRaw(2 1 "10")
+        sortApp.model.setCellRaw(2 2 "first")
+        sortApp.model.setCellRaw(3 0 "B")
+        sortApp.model.setCellRaw(3 1 "20")
+        sortApp.model.setCellRaw(3 2 "second")
+        sortApp.sheetView.markDirty()
+        sortApp.sheetView.rebuild()
+        sortApp.openHeaderMenu(1 100 100)
+        sortApp.runHeaderMenu(1)
+        c.eqInt("header remains first" (itemAt sortApp.sheetView.rowOrder 0) 0)
+        def firstSorted:int (itemAt sortApp.sheetView.rowOrder 1)
+        c.eqInt("smallest value row comes first" firstSorted 2)
+        c.eqStr("name moved with sorted value" (sortApp.model.getCell(firstSorted 0)) "A")
+        c.eqStr("other columns move with the row" (sortApp.model.getCell(firstSorted 2)) "first")
+        c.eqInt("blank tail stays after populated rows" (itemAt sortApp.sheetView.rowOrder 4) 4)
+        sortApp.applySort(1 false)
+        def firstDesc:int (itemAt sortApp.sheetView.rowOrder 1)
+        c.eqInt("descending puts largest row first" firstDesc 1)
+        c.eqStr("descending keeps row intact" (sortApp.model.getCell(firstDesc 2)) "third")
 
         print "== double-click a header auto-fits =="
         def dz:GridApp (new GridApp)

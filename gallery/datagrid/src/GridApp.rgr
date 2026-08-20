@@ -5532,20 +5532,18 @@ class GridApp {
             view.status = tip
         }
         if input.pointerPressed {
-            ; A font / size dropdown owns the click before the toolbar does,
-            ; so picking a size does not also re-open the menu.
+            ; Every popup owns clicks inside it and closes on the first click
+            ; outside — before toolbar/header/sheet hit tests can consume it.
             if view.menuOpen {
-                if ((view.menuKind == 2) || (view.menuKind == 3)) {
-                    def menuHit0:int (this.hitHeaderMenu(input.pointerX input.pointerY))
-                    if (menuHit0 >= 0) {
-                        view.focused = true
-                        if (menuHit0 >= 1) {
-                            this.runHeaderMenu(menuHit0)
-                        }
-                        return
+                def menuHit0:int (this.hitHeaderMenu(input.pointerX input.pointerY))
+                if (menuHit0 >= 0) {
+                    view.focused = true
+                    if (menuHit0 >= 1) {
+                        this.runHeaderMenu(menuHit0)
                     }
-                    this.closeHeaderMenu()
+                    return
                 }
+                this.closeHeaderMenu()
             }
             def hitTool:int (this.toolbarHit(input.pointerX input.pointerY))
             if (hitTool >= 0) {
