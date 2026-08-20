@@ -218,6 +218,19 @@ class XlsxWriteTest {
             ; The default name is derived from where the workbook came from.
             c.eqStr("default export name" (GridApp.exportName("gallery/datagrid/fixtures/sales.xlsx")) "sales-export.xlsx")
             c.eqStr("default export directory" (GridApp.exportDir("gallery/datagrid/fixtures/sales.xlsx")) "gallery/datagrid/fixtures")
+
+            ; Ctrl+S / toolbar Save must overwrite the open file, not invent a
+            ; -export copy beside it (that looked like Save did nothing).
+            def overwrite:GridApp (new GridApp)
+            overwrite.init("gallery/pdf_writer/assets/fonts")
+            c.ok("load for overwrite" (overwrite.loadXlsx((dir + "/annotations-out.xlsx"))))
+            overwrite.model.setCellRaw(0 0 "OVERWRITE-ME")
+            c.ok("Save overwrites source" (overwrite.saveXlsxDefault()))
+            c.eqStr("path unchanged" overwrite.savedPath (dir + "/annotations-out.xlsx"))
+            def checkOw:GridApp (new GridApp)
+            checkOw.init("gallery/pdf_writer/assets/fonts")
+            c.ok("reread overwritten" (checkOw.loadXlsx((dir + "/annotations-out.xlsx"))))
+            c.eqStr("new value on disk" (checkOw.model.getCell(0 0)) "OVERWRITE-ME")
         }
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

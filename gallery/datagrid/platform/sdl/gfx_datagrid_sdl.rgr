@@ -46,6 +46,12 @@ void evggl_tris_doubles(const double* xy, int nFloats, float r, float g, float b
 void evggl_flush(void);
 }
 
+// Native File menu (dgfx_menu.mm / dgfx_menu_stub.cpp).
+extern \"C\" {
+void dgfx_install_menus(void);
+int dgfx_pop_menu_action(void);
+}
+
 static SDL_Window* g_dgfx_win = nullptr;
 static SDL_GLContext g_dgfx_glctx = nullptr;
 static int g_dgfx_should_close_flag = 0;
@@ -621,6 +627,22 @@ static void dgfx_close() {
         templates {
             cpp ( "dgfx_pick_save_file(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") )
             es6 ( "\"\"" )
+        }
+    }
+
+    ; --- OS File menu (macOS native; no-op stub elsewhere) --------------------
+    dgfx_install_menus _:void () {
+        templates {
+            cpp ( "dgfx_install_menus()" )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; 0 none, 1 open, 2 save, 3 saveAs, 4 quit
+    dgfx_pop_menu_action _:int () {
+        templates {
+            cpp ( "dgfx_pop_menu_action()" )
+            es6 ( "0" )
         }
     }
 

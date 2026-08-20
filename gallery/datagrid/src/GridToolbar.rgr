@@ -147,6 +147,7 @@ class GridToolbar {
         clear items
         this.add("file.open" "" "Open a workbook" (ToolIcon.openFile()))
         this.add("file.save" "" "Save" (ToolIcon.save()))
+        this.add("file.saveAs" "" "Save As…" (ToolIcon.save()))
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
         this.add("edit.formatPainter" "" "Format painter" (ToolIcon.paint()))

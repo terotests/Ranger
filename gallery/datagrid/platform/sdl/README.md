@@ -41,8 +41,14 @@ different numbers and mixing them is this whole class of bug.
 
 ## Opening and saving
 
-`Ctrl+O` and the folder button open a workbook; `Ctrl+S` writes beside the file
-it came from, and `Ctrl+Shift+S` asks where a copy should go.
+**macOS:** the menu bar has **File → Open… / Save / Save As… / Quit** (⌘O / ⌘S /
+⇧⌘S / ⌘Q). Linux has no native app menu here; use the toolbar or shortcuts.
+
+| Action | How |
+| --- | --- |
+| Open | File menu, folder toolbar button, or `Ctrl/⌘+O` — system open dialog |
+| Save | File menu, Save toolbar button, or `Ctrl/⌘+S` — **overwrites** the file that was opened (or asks Save As if there is none yet) |
+| Save As | File menu, Save As toolbar button, or `Ctrl/⌘+Shift+S` — system save dialog |
 
 `GridApp` cannot open a picker — it does not know whether it is in a browser, a
 window, or on the end of a socket, and each of those answers differently. So it
@@ -53,6 +59,9 @@ macOS, `zenity` or `kdialog` on Linux — so nothing extra is linked or installe
 for it. Where none of them answer, the picker returns nothing and the workbook
 already open is untouched. The browser page serves the same request with the
 file input it already had, so the button means the same thing in both.
+
+On macOS the File menu is a real `NSMenu` (`dgfx_menu.mm`); choosing an item
+queues an action the host drains each frame.
 
 ## The one thing the two backends do not share
 
@@ -115,7 +124,7 @@ npm run datagrid:sdl:smoke
 | --- | --- |
 | `path.xlsx` | Open workbook from disk (default: business-workbook fixture) |
 | `N` (integer) | Render N frames then exit (CI / smoke) |
-| `--save` | On exit, write beside the source via `saveXlsxDefault` |
+| `--save` | On exit, overwrite the open file via `saveXlsxDefaultSilent` |
 | `--demo` | Skip the default fixture and use the built-in demo sheet |
 
 Ctrl+S inside the window also saves (same as the WebGL host).

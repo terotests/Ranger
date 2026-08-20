@@ -614,6 +614,8 @@ class GridApp {
         def ok:boolean (w.write(book dir name))
         if ok {
             savedPath = (dir + "/" + name)
+            ; Next Save should overwrite this file, not invent a -export copy.
+            book.sourcePath = savedPath
             view.status = ("saved " + savedPath)
         } {
             savedPath = ""
@@ -692,12 +694,26 @@ class GridApp {
         return (file + "-export.xlsx")
     }
 
+    ; Ctrl+S / toolbar Save: overwrite the file we opened. If there is none yet,
+    ; ask the host for a path (Save As). Headless `--save` uses
+    ; `saveXlsxDefaultSilent` so it never blocks on a dialog.
     fn saveXlsxDefault:boolean () {
+        def src:string book.sourcePath
+        if ((strlen src) == 0) {
+            fileRequest = "saveAs"
+            view.status = "save a workbook as…"
+            return true
+        }
+        return (this.saveXlsx((GridApp.exportDir(src)) (GridApp.baseName(src))))
+    }
+
+    ; Write without prompting — used by CLI `--save` and tests.
+    fn saveXlsxDefaultSilent:boolean () {
         def src:string book.sourcePath
         if ((strlen src) == 0) {
             return (this.saveXlsx("." "workbook-export.xlsx"))
         }
-        return (this.saveXlsx((GridApp.exportDir(src)) (GridApp.exportName(src))))
+        return (this.saveXlsx((GridApp.exportDir(src)) (GridApp.baseName(src))))
     }
 
     fn setActiveSheet:void (i:int) {
