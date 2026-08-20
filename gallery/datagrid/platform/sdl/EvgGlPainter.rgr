@@ -118,16 +118,20 @@ class EvgGlPainter {
         return true
     }
 
-    fn applyFace:void (tr:UITextRenderer bold:boolean italic:boolean) {
-        def want:string fontFamily
+    fn applyFace:void (tr:UITextRenderer family:string bold:boolean italic:boolean) {
+        def base:string fontFamily
+        if ((strlen family) > 0) {
+            base = family
+        }
+        def want:string base
         if bold {
-            want = (fontFamily + "-Bold")
+            want = (base + "-Bold")
             if italic {
-                want = (fontFamily + "-BoldItalic")
+                want = (base + "-BoldItalic")
             }
         } {
             if italic {
-                want = (fontFamily + "-Italic")
+                want = (base + "-Italic")
             }
         }
         if (tr.fontFamily == want) {
@@ -137,6 +141,14 @@ class EvgGlPainter {
         if (face.unitsPerEm > 0) {
             tr.fontFamily = want
             tr.applyFace()
+            return
+        }
+        if (want != base) {
+            def reg:TrueTypeFont (tr.fm.getFont(base))
+            if (reg.unitsPerEm > 0) {
+                tr.fontFamily = base
+                tr.applyFace()
+            }
         }
     }
 
@@ -173,7 +185,7 @@ class EvgGlPainter {
         while (i < n) {
             def c:EVGDrawCmd (dl.at(i))
             if ((c.kind == 3) && ((strlen c.text) > 0)) {
-                this.applyFace(tr (c.fontWeight == "bold") false)
+                this.applyFace(tr c.fontFamily (c.fontWeight == "bold") (c.textAlign == "italic"))
                 def px:double (c.fontSize * sc)
                 def wf:double (tr.measureWidth(c.text px))
                 def hf:double (tr.lineHeight(px))
@@ -263,7 +275,7 @@ class EvgGlPainter {
         while (mi < (array_length measured)) {
             def m3:AtlasSlot (itemAt measured mi)
             def cmd:EVGDrawCmd (dl.at(m3.cmdIndex))
-            this.applyFace(tr (cmd.fontWeight == "bold") false)
+            this.applyFace(tr cmd.fontFamily (cmd.fontWeight == "bold") (cmd.textAlign == "italic"))
             def col:EVGColor (EVGColor.rgb(255 255 255))
             def tx:int ((to_int m3.x) + pad)
             def ty:int ((to_int m3.y) + pad)
