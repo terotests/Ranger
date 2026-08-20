@@ -781,6 +781,11 @@ class DataGrid {
             return miss
         }
         if (py < (this.headerTop())) {
+            ; Toolbar lives above the formula bar — a miss on a tool button
+            ; must not start an edit. Only the formula bar itself does.
+            if (py < (this.formulaBarY())) {
+                return miss
+            }
             return (CellPos.create(-3 -3))
         }
         def headerTop:int (this.headerTop())

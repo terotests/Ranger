@@ -102,6 +102,19 @@ class FormulaFunctionsTest {
         r = (FormulaFunctionsTest.invokeN("IF" args))
         c.eqNum("IF false" r.num 20.0)
 
+        clear args
+        push args (FormulaValue.fromBool(false))
+        push args (FormulaValue.fromNumber(1.0))
+        push args (FormulaValue.fromBool(true))
+        push args (FormulaValue.fromNumber(2.0))
+        r = (FormulaFunctionsTest.invokeN("IFS" args))
+        c.eqNum("IFS picks the first true" r.num 2.0)
+        c.ok("IFS is known" (FormulaFunctions.isKnown("IFS")))
+        def cat:string (FormulaFunctions.catalog())
+        c.ok("catalog lists SUM" ((indexOf cat "SUM") >= 0))
+        c.ok("catalog lists VLOOKUP" ((indexOf cat "VLOOKUP") >= 0))
+        c.ok("catalog lists IFS" ((indexOf cat "IFS") >= 0))
+
         FormulaFunctionsTest.args2((FormulaValue.fromBool(true)) (FormulaValue.fromBool(true)) args)
         r = (FormulaFunctionsTest.invokeN("AND" args))
         c.eqBool("AND tt" r.flag true)

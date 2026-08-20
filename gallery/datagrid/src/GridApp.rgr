@@ -48,6 +48,9 @@ class GridApp {
     def editing:boolean false
     def editBuf:string ""
     def editCaret:int 0
+    ; True when the edit started from (or is focused in) the formula bar —
+    ; the caret is drawn there rather than only inside the cell.
+    def editInFormulaBar:boolean false
     def dragging:boolean false
     def resizing:boolean false
     def resizingRows:boolean false
@@ -3393,6 +3396,7 @@ class GridApp {
         editing = false
         editBuf = ""
         editCaret = 0
+        editInFormulaBar = false
         this.afterCellMutation()
     }
 
@@ -3400,14 +3404,17 @@ class GridApp {
         editing = false
         editBuf = ""
         editCaret = 0
+        editInFormulaBar = false
     }
 
     fn beginEdit:void (seed:string clearFirst:boolean) {
         if clearFirst {
             editBuf = seed
+            editInFormulaBar = false
         } {
             if (editing == false) {
                 editBuf = (model.formulaBarText(sel.active.row sel.active.col))
+                editInFormulaBar = false
             }
             if ((strlen seed) > 0) {
                 editBuf = (editBuf + seed)
@@ -3415,6 +3422,16 @@ class GridApp {
         }
         editing = true
         editCaret = (strlen editBuf)
+    }
+
+    fn beginFormulaBarEdit:void () {
+        if (editing == false) {
+            editBuf = (model.formulaBarText(sel.active.row sel.active.col))
+            editCaret = (strlen editBuf)
+        }
+        editing = true
+        editInFormulaBar = true
+        view.focused = true
     }
 
     ; --- in-cell edit buffer: caret-relative editing --------------------------
@@ -4302,8 +4319,7 @@ class GridApp {
                         this.closeHeaderMenu()
                     }
                     if ((hit.row == -3) && (hit.col == -3)) {
-                        view.focused = true
-                        this.beginEdit("" false)
+                        this.beginFormulaBarEdit()
                     } {
                         if ((hit.row >= 0) && (hit.col >= 0)) {
                             view.focused = true
@@ -4696,6 +4712,7 @@ class GridApp {
     fn render:void () {
         view.status = ("v" + (to_string model.version))
         view.editCaret = editCaret
+        view.editInFormulaBar = editInFormulaBar
         view.windows = windows
         view.render(model sel grid editing editBuf book)
     }
@@ -4707,6 +4724,7 @@ class GridApp {
     fn sceneJson:string () {
         view.status = ("v" + (to_string model.version))
         view.editCaret = editCaret
+        view.editInFormulaBar = editInFormulaBar
         view.windows = windows
         return (view.sceneJson(model sel grid editing editBuf book))
     }

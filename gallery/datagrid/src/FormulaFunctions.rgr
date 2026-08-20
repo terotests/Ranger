@@ -314,7 +314,22 @@ class FormulaFunctions {
         if (n == "TRANSPOSE") {
             return true
         }
+        if (n == "TODAY") {
+            return true
+        }
+        if (n == "NOW") {
+            return true
+        }
+        if (n == "IFS") {
+            return true
+        }
         return false
+    }
+
+    ; Every function name this library answers, space-separated — for docs,
+    ; hosts, and "what do we actually have?" checks.
+    sfn catalog:string () {
+        return "SUM AVERAGE MIN MAX COUNT COUNTA PRODUCT IF IFS AND OR NOT ABS ROUND INT MOD POWER SQRT SIGN PI EXP LN LOG10 FLOOR CEILING LEN LEFT RIGHT MID UPPER LOWER TRIM CONCAT CONCATENATE VALUE TRUE FALSE IFERROR IFNA ISBLANK ISNUMBER ISTEXT ISERROR ISERR N T DATE YEAR MONTH DAY WEEKDAY EDATE EOMONTH DAYS DATEVALUE TEXT ROUNDUP ROUNDDOWN TRUNC MEDIAN COUNTBLANK COUNTIF SUMIF AVERAGEIF VLOOKUP HLOOKUP INDEX MATCH SUMPRODUCT LARGE SMALL SUBSTITUTE FIND SEARCH REPT PROPER EXACT CHAR CODE TRANSPOSE TODAY NOW"
     }
 
     ; Dispatch by uppercase function name. (`call` is reserved in Ranger.)
@@ -343,6 +358,9 @@ class FormulaFunctions {
         }
         if (n == "IF") {
             return (FormulaFunctions.fnIf(args))
+        }
+        if (n == "IFS") {
+            return (FormulaFunctions.fnIfs(args))
         }
         if (n == "AND") {
             return (FormulaFunctions.fnAnd(args))
@@ -758,6 +776,30 @@ class FormulaFunctions {
             return (itemAt args 2)
         }
         return (FormulaValue.fromBool(false))
+    }
+
+    ; IFS(cond1, val1, cond2, val2, …) — first true condition wins; else #N/A.
+    sfn fnIfs:FormulaValue (args:[FormulaValue]) {
+        def n:int (array_length args)
+        if (n < 2) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        if (((n - ((idiv n 2) * 2)) != 0)) {
+            return (FormulaValue.fromError("#VALUE!"))
+        }
+        def i:int 0
+        while (i < n) {
+            def cond:FormulaValue (itemAt args i)
+            def ce:boolean (cond.isError())
+            if ce {
+                return cond
+            }
+            if (cond.isTrue()) {
+                return (itemAt args (i + 1))
+            }
+            i = (i + 2)
+        }
+        return (FormulaValue.fromError("#N/A"))
     }
 
     sfn fnAnd:FormulaValue (args:[FormulaValue]) {

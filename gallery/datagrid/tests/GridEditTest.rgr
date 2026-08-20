@@ -276,6 +276,38 @@ class GridEditTest {
         c.eqInt("caret clamps high" app.editCaret 4)
         app.cancelEdit()
 
+        print "== formula bar is an editable field =="
+        ; The bar used to look like a static label: clicking it did start an
+        ; edit, but nothing on the chrome said so, and a miss on the toolbar
+        ; could also land in the same hit. The bar alone starts a bar edit.
+        def fbApp:GridApp (new GridApp)
+        fbApp.init("gallery/pdf_writer/assets/fonts")
+        fbApp.model.setCellRaw(0 0 "10")
+        fbApp.model.setFormula(1 0 "A1*2")
+        fbApp.engine.rebuildAll()
+        GridEditTest.select(fbApp 1 0)
+        c.eqStr("bar shows the formula" (fbApp.model.formulaBarText(1 0)) "=A1*2")
+        def fbY:int (fbApp.grid.formulaBarY())
+        def fbHit:CellPos (fbApp.grid.hitTest(fbApp.model (fbApp.grid.x + 80) (fbY + 10)))
+        c.eqInt("formula bar hit row sentinel" fbHit.row -3)
+        c.eqInt("formula bar hit col sentinel" fbHit.col -3)
+        def toolMiss:CellPos (fbApp.grid.hitTest(fbApp.model (fbApp.grid.x + 80) (fbApp.grid.y + 4)))
+        c.eqInt("toolbar chrome is not a formula-bar hit" toolMiss.row -1)
+        def fbIn (new UIInput)
+        fbIn.newFrame()
+        fbIn.setPointerPos((fbApp.grid.x + 80) (fbY + 10))
+        fbIn.setPointerDown(true)
+        fbApp.update(fbIn)
+        c.ok("clicking the bar starts editing" fbApp.editing)
+        c.ok("and focuses the bar" fbApp.editInFormulaBar)
+        c.eqStr("with the formula in the buffer" fbApp.editBuf "=A1*2")
+        fbApp.insertAtCaret("+1")
+        c.eqStr("typing goes into the bar buffer" fbApp.editBuf "=A1*2+1")
+        fbApp.commitEdit()
+        c.eqStr("commit writes the formula" (fbApp.model.getFormula(1 0)) "A1*2+1")
+        c.eqStr("and recalculates" (fbApp.model.getDisplay(1 0)) "21")
+        c.ok("bar focus clears after commit" (fbApp.editInFormulaBar == false))
+
         print "== caret keys through UIInput =="
         def input:UIInput (new UIInput)
         GridEditTest.select(app 51 0)
