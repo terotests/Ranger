@@ -137,6 +137,7 @@ class XlsxLoader {
             def sheet:SpreadsheetModel (new SpreadsheetModel)
             sheet.name = info.name
             sheet.sheetHidden = info.hidden
+            sheet.quietWrites = true
             def xml:string (pkg.entryText(info.path))
             if ((strlen xml) == 0) {
                 lastError = ("missing sheet part: " + info.path)
@@ -179,6 +180,8 @@ class XlsxLoader {
             ; Only now can a row be measured: until the style table is on the
             ; sheet, every cell reports the default size rather than its own.
             parser.autoFitRows(sheet)
+            sheet.quietWrites = false
+            sheet.version = (sheet.version + 1)
             book.addSheet(sheet)
             if (info.hidden == false) {
                 if (firstVisible < 0) {

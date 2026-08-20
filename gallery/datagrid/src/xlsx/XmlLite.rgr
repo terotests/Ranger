@@ -29,6 +29,18 @@ class XmlTag {
         attrs = a
     }
 
+    ; Reset for reuse. Callers must not keep a tag across `nextTag` /
+    ; `readTag` — those hand back the same instance.
+    fn clearTag:void () {
+        name = ""
+        isEnd = false
+        selfClose = false
+        valid = false
+        startPos = 0
+        endPos = 0
+        clear attrs
+    }
+
     fn has:boolean (n:string) {
         def k:int 0
         while (k < (array_length attrs)) {
@@ -66,6 +78,12 @@ class XmlLite {
     def src:string ""
     def pos:int 0
     def len:int 0
+    ; One tag instance for the whole scan. Large sheets create tens of millions
+    ; of tags if each `nextTag` allocates; native builds then spend minutes in
+    ; the allocator while the JS host finishes in seconds.
+    def cur:XmlTag (new XmlTag)
+    def attrPool:[XmlAttr]
+    def attrPoolN:int 0
 
     Constructor () {
     }
@@ -74,6 +92,22 @@ class XmlLite {
         src = s
         pos = 0
         len = (strlen s)
+        attrPoolN = 0
+        cur.clearTag()
+    }
+
+    fn takeAttr:XmlAttr () {
+        if (attrPoolN < (array_length attrPool)) {
+            def a:XmlAttr (itemAt attrPool attrPoolN)
+            attrPoolN = (attrPoolN + 1)
+            a.name = ""
+            a.value = ""
+            return a
+        }
+        def fresh:XmlAttr (new XmlAttr)
+        push attrPool fresh
+        attrPoolN = (attrPoolN + 1)
+        return fresh
     }
 
     ; `&lt;` and friends back into the characters they stand for.
@@ -243,18 +277,19 @@ class XmlLite {
     }
 
     fn readTag:XmlTag () {
-        def tag:XmlTag (new XmlTag)
+        cur.clearTag()
+        attrPoolN = 0
         this.skipWs()
         if (pos >= len) {
-            return tag
+            return cur
         }
         if ((charAt src pos) != 60) {
-            return tag
+            return cur
         }
-        tag.startPos = pos
+        cur.startPos = pos
         pos = (pos + 1)
         if (pos >= len) {
-            return tag
+            return cur
         }
         ; comment / PI / doctype — skip
         def peek:int (charAt src pos)
@@ -266,28 +301,28 @@ class XmlLite {
             return (this.readTag())
         }
         if (peek == 47) {
-            tag.isEnd = true
+            cur.isEnd = true
             pos = (pos + 1)
         }
-        tag.name = (this.localName((this.readName())))
+        cur.name = (this.localName((this.readName())))
         this.skipWs()
         while (pos < len) {
             def ch:int (charAt src pos)
             if (ch == 62) {
                 pos = (pos + 1)
-                tag.endPos = pos
-                tag.valid = true
-                return tag
+                cur.endPos = pos
+                cur.valid = true
+                return cur
             }
             if (ch == 47) {
                 pos = (pos + 1)
                 this.skipWs()
                 if ((pos < len) && ((charAt src pos) == 62)) {
                     pos = (pos + 1)
-                    tag.selfClose = true
-                    tag.endPos = pos
-                    tag.valid = true
-                    return tag
+                    cur.selfClose = true
+                    cur.endPos = pos
+                    cur.valid = true
+                    return cur
                 }
             }
             def an:string (this.readName())
@@ -314,21 +349,21 @@ class XmlLite {
                         }
                     }
                 }
-                def a:XmlAttr (new XmlAttr)
+                def a:XmlAttr (this.takeAttr())
                 a.name = (this.localName(an))
                 ; also keep prefixed form for r:id lookups via attrAny
                 if (an != a.name) {
-                    def a2:XmlAttr (new XmlAttr)
+                    def a2:XmlAttr (this.takeAttr())
                     a2.name = an
                     a2.value = av
-                    push tag.attrs a2
+                    push cur.attrs a2
                 }
                 a.value = av
-                push tag.attrs a
+                push cur.attrs a
                 this.skipWs()
             }
         }
-        return tag
+        return cur
     }
 
     ; Advance to next start/end tag; returns invalid at EOF.
@@ -339,7 +374,8 @@ class XmlLite {
             }
             pos = (pos + 1)
         }
-        return (new XmlTag)
+        cur.clearTag()
+        return cur
     }
 
     ; Text content from current pos until the matching end tag of `name`.
