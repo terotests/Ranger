@@ -64,11 +64,28 @@ class DataGridWeb {
     ; What the app would like the page to do about a file — "open", "saveAs",
     ; or "" — read and cleared by the page. The toolbar's Open button and
     ; Ctrl+O go through here, so the same button means the same thing in a
-    ; window and in a tab; only the picker differs.
+    ; window and in a tab; only the picker differs. New (`file.new`) is handled
+    ; inside the app and never asks the host.
     fn takeFileRequest:string () {
         def want:string app.fileRequest
         app.fileRequest = ""
         return want
+    }
+
+    ; The workbook as .xlsx bytes for a browser download (Save / Save As).
+    fn saveWorkbookBytes:buffer () {
+        return (app.saveXlsxBytes())
+    }
+
+    fn suggestSaveName:string () {
+        return (app.suggestSaveName())
+    }
+
+    ; After a successful download, remember the name so the next Save reuses it.
+    fn markSavedAs:void (name:string) {
+        app.book.sourcePath = name
+        app.savedPath = name
+        app.view.status = ("saved " + name)
     }
 
     fn openWorkbook:boolean (data:buffer name:string) {

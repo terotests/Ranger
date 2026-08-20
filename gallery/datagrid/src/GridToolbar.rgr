@@ -74,6 +74,7 @@ class ToolIcon {
     sfn validate:int ()    { return 41 }
     sfn save:int ()        { return 42 }
     sfn openFile:int ()    { return 43 }
+    sfn newFile:int ()     { return 44 }
 }
 
 class ToolItem {
@@ -153,6 +154,7 @@ class GridToolbar {
     ; command the app already answers to.
     fn build:void () {
         clear items
+        this.add("file.new" "" "New workbook" (ToolIcon.newFile()))
         this.add("file.open" "" "Open a workbook" (ToolIcon.openFile()))
         this.add("file.save" "" "Save" (ToolIcon.save()))
         this.add("file.saveAs" "" "Save As…" (ToolIcon.save()))

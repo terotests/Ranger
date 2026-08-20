@@ -1,5 +1,5 @@
 // macOS File menu for the DataGrid SDL host.
-// Extends SDL's default menu bar with Open / Save / Save As / Quit.
+// Extends SDL's default menu bar with New / Open / Save / Save As / Quit.
 
 #import <Cocoa/Cocoa.h>
 #include "dgfx_menu.h"
@@ -18,6 +18,7 @@ void pushAction(int a) {
 } // namespace
 
 @interface DgfxMenuTarget : NSObject
+- (void)onNew:(id)sender;
 - (void)onOpen:(id)sender;
 - (void)onSave:(id)sender;
 - (void)onSaveAs:(id)sender;
@@ -25,6 +26,7 @@ void pushAction(int a) {
 @end
 
 @implementation DgfxMenuTarget
+- (void)onNew:(id)sender { (void)sender; pushAction(DGFX_MENU_NEW); }
 - (void)onOpen:(id)sender { (void)sender; pushAction(DGFX_MENU_OPEN); }
 - (void)onSave:(id)sender { (void)sender; pushAction(DGFX_MENU_SAVE); }
 - (void)onSaveAs:(id)sender { (void)sender; pushAction(DGFX_MENU_SAVE_AS); }
@@ -72,6 +74,7 @@ extern "C" void dgfx_install_menus(void) {
         NSMenu* fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
         fileRoot.submenu = fileMenu;
 
+        addItem(fileMenu, @"New", @selector(onNew:), @"n", NSEventModifierFlagCommand);
         addItem(fileMenu, @"Open…", @selector(onOpen:), @"o", NSEventModifierFlagCommand);
         [fileMenu addItem:[NSMenuItem separatorItem]];
         addItem(fileMenu, @"Save", @selector(onSave:), @"s", NSEventModifierFlagCommand);

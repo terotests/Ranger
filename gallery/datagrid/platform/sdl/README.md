@@ -41,11 +41,13 @@ different numbers and mixing them is this whole class of bug.
 
 ## Opening and saving
 
-**macOS:** the menu bar has **File → Open… / Save / Save As… / Quit** (⌘O / ⌘S /
-⇧⌘S / ⌘Q). Linux has no native app menu here; use the toolbar or shortcuts.
+**macOS:** the menu bar has **File → New / Open… / Save / Save As… / Quit**
+(⌘N / ⌘O / ⌘S / ⇧⌘S / ⌘Q). Linux has no native app menu here; use the toolbar
+or shortcuts.
 
 | Action | How |
 | --- | --- |
+| New | File menu, New toolbar button, or `Ctrl/⌘+N` — blank Sheet1, no path yet |
 | Open | File menu, folder toolbar button, or `Ctrl/⌘+O` — system open dialog |
 | Save | File menu, Save toolbar button, or `Ctrl/⌘+S` — **overwrites** the file that was opened (or asks Save As if there is none yet) |
 | Save As | File menu, Save As toolbar button, or `Ctrl/⌘+Shift+S` — system save dialog |

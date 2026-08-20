@@ -2210,6 +2210,15 @@ class SpreadsheetModel {
         }
     }
 
+    ; Seed an empty sheet: named Sheet1, sized like a new workbook, no sample data.
+    fn seedBlank:void () {
+        this.clearSheet()
+        this.name = "Sheet1"
+        this.resize(1000 26)
+        clear undoStack
+        clear redoStack
+    }
+
     ; Seed a demo sheet: headers + a few sample rows. Sparse — rest stay empty.
     fn seedDemo:void () {
         this.clearSheet()

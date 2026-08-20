@@ -1,7 +1,7 @@
 #pragma once
 
 // Native OS menu bridge for the DataGrid SDL host.
-// On macOS: installs a File menu (Open / Save / Save As / Quit).
+// On macOS: installs a File menu (New / Open / Save / Save As / Quit).
 // Elsewhere: no-ops; pop returns DGFX_MENU_NONE.
 
 #ifdef __cplusplus
@@ -13,7 +13,8 @@ enum {
     DGFX_MENU_OPEN = 1,
     DGFX_MENU_SAVE = 2,
     DGFX_MENU_SAVE_AS = 3,
-    DGFX_MENU_QUIT = 4
+    DGFX_MENU_QUIT = 4,
+    DGFX_MENU_NEW = 5
 };
 
 // Call once after the SDL window exists (macOS needs NSApp).

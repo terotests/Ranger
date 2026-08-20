@@ -207,9 +207,32 @@ function serveFileRequest() {
     return;
   }
   if (want === "saveAs") {
-    // A page cannot choose where a file goes; it can only hand one over.
-    statusEl.textContent = "use the browser's download for a copy";
+    downloadWorkbook();
   }
+}
+
+/** Hand the current workbook to the browser as a .xlsx download. */
+function downloadWorkbook() {
+  const raw = web.saveWorkbookBytes();
+  if (!raw || !(raw instanceof ArrayBuffer) || raw.byteLength === 0) {
+    statusEl.textContent = "save failed";
+    return;
+  }
+  const name = web.suggestSaveName() || "workbook.xlsx";
+  const blob = new Blob([raw], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  web.markSavedAs(name);
+  statusEl.textContent = "saved " + name;
 }
 
 async function afterInput() {
