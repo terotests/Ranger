@@ -186,6 +186,119 @@ class WorkbookTest {
         c.ok("menu open" app.view.menuOpen)
         app.closeHeaderMenu()
 
+        print "== structural undo/redo restores cross-sheet formulas =="
+        def xb:GridApp (new GridApp)
+        xb.init("gallery/pdf_writer/assets/fonts")
+        xb.book.clear()
+        def s1:SpreadsheetModel (new SpreadsheetModel)
+        s1.name = "Sheet1"
+        s1.resize(5 5)
+        s1.setCellRaw(0 0 "10")
+        s1.setCellRaw(0 1 "20")
+        s1.setFormula(0 2 "B1")
+        def s2:SpreadsheetModel (new SpreadsheetModel)
+        s2.name = "Sheet2"
+        s2.resize(5 5)
+        s2.setFormula(0 0 "Sheet1!B1")
+        s2.setFormula(0 1 "A1*2")
+        xb.book.addSheet(s1)
+        xb.book.addSheet(s2)
+        xb.book.setActive(0)
+        xb.engine.attach(xb.book)
+        xb.syncActiveModel()
+        xb.engine.rebuildAll()
+        c.eqStr("same-sheet baseline" (s1.getFormula(0 2)) "B1")
+        c.eqStr("cross-sheet baseline" (s2.getFormula(0 0)) "Sheet1!B1")
+        c.eqStr("Sheet2 local baseline" (s2.getFormula(0 1)) "A1*2")
+        xb.insertColumn(0)
+        c.eqStr("same-sheet shifted" (s1.getFormula(0 3)) "C1")
+        c.eqStr("cross-sheet shifted" (s2.getFormula(0 0)) "Sheet1!C1")
+        c.eqStr("Sheet2 local untouched" (s2.getFormula(0 1)) "A1*2")
+        xb.undoEdit()
+        c.eqStr("undo same-sheet" (s1.getFormula(0 2)) "B1")
+        c.eqStr("undo cross-sheet" (s2.getFormula(0 0)) "Sheet1!B1")
+        c.eqStr("undo keeps Sheet2 local" (s2.getFormula(0 1)) "A1*2")
+        xb.redoEdit()
+        c.eqStr("redo same-sheet" (s1.getFormula(0 3)) "C1")
+        c.eqStr("redo cross-sheet" (s2.getFormula(0 0)) "Sheet1!C1")
+        c.eqStr("redo keeps Sheet2 local" (s2.getFormula(0 1)) "A1*2")
+
+        print "== sort/filter view refreshes after edit =="
+        def sf:GridApp (new GridApp)
+        sf.init("gallery/pdf_writer/assets/fonts")
+        sf.model.clearSheet()
+        sf.model.resize(4 2)
+        sf.model.setCellRaw(0 0 "H")
+        sf.model.setCellRaw(1 0 "3")
+        sf.model.setCellRaw(2 0 "1")
+        sf.model.setCellRaw(3 0 "2")
+        sf.model.setFreeze(1 0)
+        sf.sheetView.markDirty()
+        sf.sheetView.rebuild()
+        sf.engine.rebuildAll()
+        sf.applySort(0 true)
+        c.eqInt("sorted body first" (sf.sheetView.modelRow(1)) 2)
+        c.eqInt("sorted body second" (sf.sheetView.modelRow(2)) 3)
+        c.eqInt("sorted body third" (sf.sheetView.modelRow(3)) 1)
+        ; Edit the model row that held 3 (row 1) to 0 — view must re-order.
+        sf.sel.setActive(1 0)
+        sf.beginEdit("0" true)
+        sf.commitEdit()
+        c.eqInt("after edit lowest first" (sf.sheetView.modelRow(1)) 1)
+        c.eqStr("model value updated" (sf.model.getCell(1 0)) "0")
+        ; Filter: only "North" — changing it to South must drop the row.
+        sf.clearFilter()
+        sf.model.setSort(-1 true)
+        sf.model.setCellRaw(1 0 "North")
+        sf.model.setCellRaw(2 0 "South")
+        sf.model.setCellRaw(3 0 "North")
+        def keepN:[string]
+        push keepN "North"
+        sf.applyFilter(0 keepN)
+        def beforeCnt:int (sf.sheetView.rowCount())
+        c.ok("filter shows North rows" (beforeCnt == 3))
+        sf.sel.setActive(1 0)
+        sf.beginEdit("South" true)
+        sf.commitEdit()
+        c.ok("edited row left the filter view" ((sf.sheetView.viewRowOf(1)) < 0))
+        c.eqInt("view shrunk" (sf.sheetView.rowCount()) 2)
+
+        print "== ensureCellVisible uses view coordinates =="
+        def ev:GridApp (new GridApp)
+        ev.init("gallery/pdf_writer/assets/fonts")
+        ev.model.clearSheet()
+        ev.model.resize(20 3)
+        ev.model.setFreeze(1 0)
+        def ri:int 1
+        while (ri < 20) {
+            ev.model.setCellRaw(ri 0 (to_string (20 - ri)))
+            ri = (ri + 1)
+        }
+        ev.sheetView.markDirty()
+        ev.sheetView.rebuild()
+        ev.applySort(0 true)
+        ; Model row 19 has value 1 → first body row in sorted view.
+        c.eqInt("row 19 is first body" (ev.sheetView.modelRow(1)) 19)
+        ev.grid.scrollY = 500
+        ev.grid.ensureCellVisible(ev.model 19 0)
+        c.ok("scrolled to view top not model-row Y" (ev.grid.scrollY < 50))
+
+        print "== merge width ignores hidden columns =="
+        def mg:GridApp (new GridApp)
+        mg.init("gallery/pdf_writer/assets/fonts")
+        mg.model.clearSheet()
+        mg.model.resize(3 5)
+        mg.model.setColWidth(0 40)
+        mg.model.setColWidth(1 50)
+        mg.model.setColWidth(2 60)
+        mg.model.setColWidth(3 70)
+        mg.model.addMerge(0 0 0 2)
+        mg.model.setColHidden(3 true)
+        mg.sheetView.markDirty()
+        mg.sheetView.rebuild()
+        def rect:GridRect (mg.grid.cellRect(mg.model 0 0))
+        c.eqInt("merge spans visible A:C" rect.w 150)
+
         ; Summary CF color scale
         def si:int 0
         while (si < (app.book.sheetCount())) {
