@@ -278,7 +278,10 @@ snapshot — no DOM or SDL below the app.
 | Ctrl+L | Conditional-formatting rule editor | — |
 | Ctrl+K | Hyperlink on the active cell | — |
 | Ctrl+E | Data-validation rule for the selection | — |
-| Ctrl+S | Save the workbook as .xlsx | — |
+| Ctrl+N | New blank workbook | — |
+| Ctrl+S | Save the workbook as .xlsx (Save As if none yet) | — |
+| Ctrl+Shift+S | Save As… | — |
+| Ctrl+O | Open a workbook… | — |
 | Ctrl+click a link | Follows it — the host is told the target | — |
 | Ctrl+M | Chart the selection (live preview in the picker) | — |
 | Ctrl+C over a chart | Copies it as a picture — pastes into Excel and Word | — |
@@ -523,9 +526,11 @@ run over midnight. Unset, they answer `#N/A` rather than inventing a date.
 
 ## Saving
 
-`Ctrl+S` writes the workbook back out as **.xlsx**, beside the file it came
-from and under a name that cannot overwrite it (`sales.xlsx` →
-`sales-export.xlsx`). `GridApp.saveXlsx(dir name)` puts it wherever you like.
+`Ctrl+N` starts a blank workbook (`Sheet1`, no path). `Ctrl+S` then asks the
+host where to put it (Save As); once a path exists, Save overwrites that file.
+`Ctrl+Shift+S` always asks. On the web host, Save As becomes a `.xlsx`
+download. `GridApp.saveXlsx(dir name)` and `saveXlsxBytes()` write to disk or
+memory.
 
 The writer and the loader share one model, so a round trip is a test rather
 than a hope — and `npm run datagrid:export:test` runs both halves of it:

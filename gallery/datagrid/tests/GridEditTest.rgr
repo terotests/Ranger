@@ -1887,6 +1887,27 @@ class GridEditTest {
         ; code either way, which is why it can be checked here.
         c.eqStr("nothing is wanted to begin with" tb.fileRequest ""
         )
+        ; New stays inside the app: a blank sheet, no path, no host dialog.
+        tb.model.setCellRaw(0 0 "keep me")
+        c.ok("New clears the sheet" (tb.runCommand("file.new" "")))
+        c.eqStr("New does not ask the host" tb.fileRequest ""
+        )
+        c.eqStr("New has no path yet" tb.book.sourcePath ""
+        )
+        c.eqStr("New sheet is blank" (tb.model.getCell(0 0)) ""
+        )
+        c.eqStr("New sheet is called Sheet1" tb.model.name "Sheet1"
+        )
+        c.eqStr("suggested Save As name" (tb.suggestSaveName()) "workbook.xlsx"
+        )
+        def blankBytes:buffer (tb.saveXlsxBytes())
+        c.ok("blank book packs to .xlsx bytes" ((buffer_length blankBytes) > 100)
+        )
+        ; Save with no path asks Save As — that is how a new file gets written.
+        c.ok("Save on a new book asks where" (tb.runCommand("file.save" "")))
+        c.eqStr("Save becomes Save As" tb.fileRequest "saveAs"
+        )
+        tb.fileRequest = ""
         c.ok("Open asks" (tb.runCommand("file.open" "")))
         c.eqStr("and says what for" tb.fileRequest "open"
         )
@@ -1895,6 +1916,16 @@ class GridEditTest {
         c.eqStr("with its own answer" tb.fileRequest "saveAs"
         )
         tb.fileRequest = ""
+        ; Ctrl+N, through the keyboard rather than the button.
+        def nk (new UIInput)
+        nk.newFrame()
+        nk.setModifiers(false true)
+        nk.pushText("n")
+        tb.update(nk)
+        c.eqStr("Ctrl+N makes a blank book" tb.book.sourcePath ""
+        )
+        c.eqStr("Ctrl+N does not ask the host" tb.fileRequest ""
+        )
         ; Ctrl+O, through the keyboard rather than the button.
         def ok (new UIInput)
         ok.newFrame()

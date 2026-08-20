@@ -264,6 +264,27 @@ class GridApp {
         loadError = ""
     }
 
+    ; A brand-new empty workbook — one blank sheet, no path yet. Save then asks
+    ; the host where to put it (Save As).
+    fn newBlankWorkbook:void () {
+        if editing {
+            this.commitEdit()
+        }
+        view.chartLayer.removeAll(windows)
+        book.clear()
+        def sheet:SpreadsheetModel (new SpreadsheetModel)
+        sheet.seedBlank()
+        book.addSheet(sheet)
+        book.sourcePath = ""
+        book.setActive(0)
+        engine.attach(book)
+        engine.rebuildAll()
+        this.syncActiveModel()
+        loadError = ""
+        savedPath = ""
+        view.status = "new workbook"
+    }
+
     ; The workbook from bytes: what a browser has after a fetch, and what a
     ; drag-and-dropped file is. Same path as `loadXlsx` past the read.
     fn loadXlsxBytes:boolean (bytes:buffer name:string) {
@@ -323,6 +344,7 @@ class GridApp {
             return
         }
         commandsReady = true
+        commands.add("file.new" "New workbook" "File" "Ctrl+N")
         commands.add("file.open" "Open a workbook…" "File" "Ctrl+O")
         commands.add("file.save" "Save as .xlsx" "File" "Ctrl+S")
         commands.add("file.saveAs" "Save a copy as…" "File" "Ctrl+Shift+S")
@@ -449,6 +471,10 @@ class GridApp {
         }
         if editing {
             this.commitEdit()
+        }
+        if (id == "file.new") {
+            this.newBlankWorkbook()
+            return true
         }
         if (id == "file.open") {
             fileRequest = "open"
@@ -661,6 +687,28 @@ class GridApp {
             view.status = ("save failed: " + w.lastError)
         }
         return ok
+    }
+
+    ; The .xlsx as bytes — what a browser download needs when there is no disk.
+    fn saveXlsxBytes:buffer () {
+        if editing {
+            this.commitEdit()
+        }
+        def w:XlsxWriter (new XlsxWriter)
+        def data:buffer (w.writeToBuffer(book))
+        if ((strlen w.lastError) > 0) {
+            view.status = ("save failed: " + w.lastError)
+        }
+        return data
+    }
+
+    ; A sensible download / Save As filename for the current workbook.
+    fn suggestSaveName:string () {
+        def n:string (GridApp.baseName(book.sourcePath))
+        if ((strlen n) == 0) {
+            return "workbook.xlsx"
+        }
+        return n
     }
 
     ; Where Ctrl+S puts it when nobody said: beside the file it came from, with
@@ -5325,6 +5373,12 @@ class GridApp {
                     } {
                         this.saveXlsxDefault()
                     }
+                }
+                if ((ch == 110) || (ch == 78)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.runCommand("file.new" "")
                 }
                 if ((ch == 111) || (ch == 79)) {
                     if editing {

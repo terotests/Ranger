@@ -194,6 +194,10 @@ class DataGridSdl {
             if (a == 4) {
                 wantQuit = true
             }
+            if (a == 5) {
+                app.runCommand("file.new" "")
+                xlsxPath = ""
+            }
             a = (dgfx_pop_menu_action)
         }
     }

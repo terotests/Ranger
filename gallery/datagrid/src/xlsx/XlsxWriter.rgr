@@ -764,16 +764,13 @@ class XlsxWriter {
         z.addFile(name (XlsxWriter.utf8Buffer(text)))
     }
 
-    ; Write the whole workbook. `dir` and `name` are what ZipWriter's own save
-    ; takes: a directory and a file name.
-    fn write:boolean (book:WorkbookModel dir:string name:string) {
+    ; Pack the workbook into an open ZipWriter (parts only; caller finalizes).
+    fn packInto:boolean (book:WorkbookModel z:ZipWriter) {
         lastError = ""
         if ((book.sheetCount()) == 0) {
             lastError = "workbook has no sheets"
             return false
         }
-        def z:ZipWriter (new ZipWriter)
-        z.create()
         XlsxWriter.addPart(z "[Content_Types].xml" (this.contentTypesXml(book)))
         XlsxWriter.addPart(z "_rels/.rels" "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>")
         XlsxWriter.addPart(z "xl/workbook.xml" (this.workbookXml(book)))
@@ -792,7 +789,30 @@ class XlsxWriter {
             }
             i = (i + 1)
         }
+        return true
+    }
+
+    ; Write the whole workbook. `dir` and `name` are what ZipWriter's own save
+    ; takes: a directory and a file name.
+    fn write:boolean (book:WorkbookModel dir:string name:string) {
+        def z:ZipWriter (new ZipWriter)
+        z.create()
+        def ok:boolean (this.packInto(book z))
+        if (ok == false) {
+            return false
+        }
         z.save(dir name)
         return true
+    }
+
+    ; Same package as `write`, as bytes — for browser download / in-memory hosts.
+    fn writeToBuffer:buffer (book:WorkbookModel) {
+        def z:ZipWriter (new ZipWriter)
+        z.create()
+        def ok:boolean (this.packInto(book z))
+        if (ok == false) {
+            return (buffer_alloc 0)
+        }
+        return (z.toBuffer())
     }
 }
