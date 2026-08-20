@@ -11,6 +11,9 @@ class XlsxSharedStrings {
     ; several styled ones, and the styled case is the whole point of rich text —
     ; keeping only the concatenation throws away what the file said.
     def rich:[RichText]
+    ; True when any shared entry has more than one styled run. Load paths that
+    ; only need the plain string skip `richAt` when this is false.
+    def anyRich:boolean false
 
     Constructor () {
     }
@@ -42,6 +45,7 @@ class XlsxSharedStrings {
     fn parse:void (xml:string) {
         clear strings
         clear rich
+        anyRich = false
         if ((strlen xml) == 0) {
             return
         }
@@ -56,6 +60,9 @@ class XlsxSharedStrings {
                 def rt:RichText (XlsxSharedStrings.parseRuns(p "si"))
                 push rich rt
                 push strings (rt.text())
+                if (rt.isRich()) {
+                    anyRich = true
+                }
             }
         }
     }

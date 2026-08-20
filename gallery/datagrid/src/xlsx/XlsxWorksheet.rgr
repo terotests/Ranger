@@ -674,6 +674,9 @@ class XlsxWorksheet {
     ; The largest point size among the cells that have something in them, on
     ; one row. Only the span the file actually wrote to is looked at, so a
     ; sheet with a hundred thousand empty columns costs nothing here.
+    ;
+    ; Uses style ids + `defaultFontPt` rather than `getCellStyle`, which would
+    ; allocate a fresh default CellStyle for every unstyled cell.
     fn tallestIn:double (model:SpreadsheetModel row:int) {
         if (row >= (array_length rowMinCol)) {
             return 0.0
@@ -687,13 +690,19 @@ class XlsxWorksheet {
             hi = (model.colCount - 1)
         }
         def best:double 0.0
+        def styleN:int (array_length model.styles)
         def c:int lo
         while (c <= hi) {
             def txt:string (model.getCell(row c))
             if ((strlen txt) > 0) {
-                def st:CellStyle (model.getCellStyle(row c))
-                if (st.fontSizePt > best) {
-                    best = st.fontSizePt
+                def pt:double model.defaultFontPt
+                def sid:int (model.getCellStyleId(row c))
+                if ((sid >= 0) && (sid < styleN)) {
+                    def st:CellStyle (itemAt model.styles sid)
+                    pt = st.fontSizePt
+                }
+                if (pt > best) {
+                    best = pt
                 }
             }
             c = (c + 1)
@@ -767,7 +776,7 @@ class XlsxWorksheet {
         def formula:string ""
         def value:string ""
         def inline:string ""
-        def inlineRich:RichText (new RichText)
+        def inlineRich@(optional):RichText
         if open.selfClose {
             ; An empty but FORMATTED cell is written self-closing, e.g.
             ; <c r="B3" s="2"/>. Returning here dropped its fill and borders —
@@ -828,7 +837,7 @@ class XlsxWorksheet {
                     ; An inline string can be written in styled pieces too, so
                     ; it is read the same way a shared one is.
                     inlineRich = (XlsxSharedStrings.parseRuns(p "is"))
-                    inline = (inlineRich.text())
+                    inline = ((unwrap inlineRich).text())
                 }
             }
         }
@@ -838,16 +847,21 @@ class XlsxWorksheet {
             def idx:int (XlsxWorksheet.parseInt0(value))
             display = (sst.at(idx))
             ; Several styles inside one string: keep the pieces, not only what
-            ; they spell.
-            def shared:RichText (sst.richAt(idx))
-            if (shared.isRich()) {
-                model.setRichText(row col (shared.copy()))
+            ; they spell. Skip the rich-table probe when the SST has none.
+            if sst.anyRich {
+                def shared:RichText (sst.richAt(idx))
+                if (shared.isRich()) {
+                    model.setRichText(row col (shared.copy()))
+                }
             }
         } {
             if (cellType == "inlineStr") {
                 display = inline
-                if (inlineRich.isRich()) {
-                    model.setRichText(row col inlineRich)
+                if (!null? inlineRich) {
+                    def ir:RichText (unwrap inlineRich)
+                    if (ir.isRich()) {
+                        model.setRichText(row col ir)
+                    }
                 }
             } {
                 if (cellType == "b") {
