@@ -1,0 +1,69 @@
+; ==============================================================================
+; dump_formula_ux - PNG shots of formula-bar caret + range selector for review.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DumpFormulaUx {
+
+    sfn writePng:void (app:GridApp dir:string file:string) {
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+        print ("wrote " + dir + "/" + file)
+    }
+
+    sfn main:void () {
+        def dir:string "/opt/cursor/artifacts/screenshots"
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.resize(16 8)
+        def r:int 0
+        while (r < 8) {
+            app.model.setCellRaw(r 0 ((to_string ((r + 1) * 10))))
+            app.model.setCellRaw(r 5 ((to_string ((r + 1) * 3))))
+            r = (r + 1)
+        }
+        app.model.setFormula(5 7 "SUM(A1:A4)")
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.engine.rebuildAll()
+        app.sel.setActive(5 7)
+        app.sel.collapseToActive()
+        app.refreshFormulaHilites()
+        DumpFormulaUx.writePng(app dir "formula_range_selected.png")
+
+        app.beginFormulaBarEdit()
+        app.editCaret = 5
+        app.view.editCaret = 5
+        app.view.editInFormulaBar = true
+        ; Advance a frame so layout + solid caret are painted.
+        app.render()
+        DumpFormulaUx.writePng(app dir "formula_bar_caret.png")
+
+        ; Expand range to A1:A6 via the drag API, still editing in the bar.
+        app.formulaRangeIdx = 0
+        app.formulaRangeFixR = 0
+        app.formulaRangeFixC = 0
+        app.formulaRangeFixR1 = 3
+        app.formulaRangeFixC1 = 0
+        app.formulaRangeEdge = 1
+        app.formulaRangeDrag = true
+        app.formulaRangeStartedEdit = false
+        app.updateFormulaRangeDragAt(5 0)
+        app.formulaRangeDrag = false
+        app.editInFormulaBar = true
+        app.view.editInFormulaBar = true
+        app.editCaret = 5
+        app.view.editCaret = 5
+        DumpFormulaUx.writePng(app dir "formula_range_resized.png")
+        print "done"
+    }
+}

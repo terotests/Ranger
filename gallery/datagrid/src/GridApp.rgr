@@ -77,6 +77,15 @@ class GridApp {
     def moveC1:int 0
     def moveGrabR:int 0
     def moveGrabC:int 0
+    ; Dragging a formula-range overlay handle rewrites that A1:B2 in the formula.
+    def formulaRangeDrag:boolean false
+    def formulaRangeIdx:int 0
+    def formulaRangeEdge:int 0
+    def formulaRangeFixR:int 0
+    def formulaRangeFixC:int 0
+    def formulaRangeFixR1:int 0
+    def formulaRangeFixC1:int 0
+    def formulaRangeStartedEdit:boolean false
     def fillR0:int 0
     def fillC0:int 0
     def fillR1:int 0
@@ -3821,6 +3830,8 @@ class GridApp {
 
     fn clearFormulaPick:void () {
         formulaPicking = false
+        formulaRangeDrag = false
+        formulaRangeStartedEdit = false
         pickTokStart = -1
         pickTokEnd = -1
         view.ghostVisible = false
@@ -3978,6 +3989,157 @@ class GridApp {
         this.collectFormulaHilites(ast)
     }
 
+    ; Byte span of the idx-th A1 / A1:B2 token in src, or -1/-1 if missing.
+    fn formulaRefSpan:void (src:string idx:int startOut:[int] endOut:[int]) {
+        clear startOut
+        clear endOut
+        def i:int 0
+        def n:int (strlen src)
+        def seen:int 0
+        while (i < n) {
+            def refLen:int (GridView.formulaRefLen(src i))
+            if (refLen > 0) {
+                if (seen == idx) {
+                    push startOut i
+                    push endOut (i + refLen)
+                    return
+                }
+                seen = (seen + 1)
+                i = (i + refLen)
+            } {
+                i = (i + 1)
+            }
+        }
+        push startOut -1
+        push endOut -1
+    }
+
+    fn replaceFormulaRefAt:void (idx:int label:string) {
+        def src:string editBuf
+        def startOut:[int]
+        def endOut:[int]
+        this.formulaRefSpan(src idx startOut endOut)
+        def a:int (itemAt startOut 0)
+        def b:int (itemAt endOut 0)
+        if (a < 0) {
+            return
+        }
+        def head:string (substring src 0 a)
+        def tail:string (substring src b (strlen src))
+        editBuf = ((head + label) + tail)
+        editCaret = (a + (strlen label))
+        pickTokStart = a
+        pickTokEnd = editCaret
+    }
+
+    ; Ensure we are editing the active cell's formula before rewriting a range.
+    fn ensureFormulaEditForRange:void () {
+        if (this.isFormulaEdit()) {
+            return
+        }
+        formulaRangeStartedEdit = true
+        this.clearFormulaPick()
+        editBuf = (model.formulaBarText(sel.active.row sel.active.col))
+        editing = true
+        editInFormulaBar = true
+        editCaret = (strlen editBuf)
+        view.focused = true
+    }
+
+    ; Handle hit: returns edge (1=bottom 2=right 0=corner) or -1. Sets formulaRangeIdx.
+    fn hitFormulaRangeHandle:int (px:int py:int) {
+        def hn:int (array_length view.formulaHiliteR0)
+        def hi:int (hn - 1)
+        while (hi >= 0) {
+            def hr0:int (itemAt view.formulaHiliteR0 hi)
+            def hc0:int (itemAt view.formulaHiliteC0 hi)
+            def hr1:int (itemAt view.formulaHiliteR1 hi)
+            def hc1:int (itemAt view.formulaHiliteC1 hi)
+            def htl:GridRect (grid.cellRect(model hr0 hc0))
+            def hbr:GridRect (grid.cellRect(model hr1 hc1))
+            def hx:int htl.x
+            def hy:int htl.y
+            def hw:int ((hbr.x + hbr.w) - htl.x)
+            def hh:int ((hbr.y + hbr.h) - htl.y)
+            def hs:int 10
+            def pad:int 2
+            def cx2:int ((hx + hw) - (idiv hs 2))
+            def cy2:int ((hy + hh) - (idiv hs 2))
+            if ((px >= (cx2 - pad)) && (px <= ((cx2 + hs) + pad))) {
+                if ((py >= (cy2 - pad)) && (py <= ((cy2 + hs) + pad))) {
+                    formulaRangeIdx = hi
+                    return 0
+                }
+            }
+            def bx:int ((hx + (idiv hw 2)) - (idiv hs 2))
+            def by:int ((hy + hh) - (idiv hs 2))
+            if ((px >= (bx - pad)) && (px <= ((bx + hs) + pad))) {
+                if ((py >= (by - pad)) && (py <= ((by + hs) + pad))) {
+                    formulaRangeIdx = hi
+                    return 1
+                }
+            }
+            def rx:int ((hx + hw) - (idiv hs 2))
+            def ry:int ((hy + (idiv hh 2)) - (idiv hs 2))
+            if ((px >= (rx - pad)) && (px <= ((rx + hs) + pad))) {
+                if ((py >= (ry - pad)) && (py <= ((ry + hs) + pad))) {
+                    formulaRangeIdx = hi
+                    return 2
+                }
+            }
+            hi = (hi - 1)
+        }
+        return -1
+    }
+
+    fn beginFormulaRangeDrag:void (edge:int) {
+        formulaRangeStartedEdit = false
+        this.ensureFormulaEditForRange()
+        formulaRangeDrag = true
+        formulaRangeEdge = edge
+        formulaRangeFixR = (itemAt view.formulaHiliteR0 formulaRangeIdx)
+        formulaRangeFixC = (itemAt view.formulaHiliteC0 formulaRangeIdx)
+        formulaRangeFixR1 = (itemAt view.formulaHiliteR1 formulaRangeIdx)
+        formulaRangeFixC1 = (itemAt view.formulaHiliteC1 formulaRangeIdx)
+        dragging = false
+        filling = false
+        formulaPicking = false
+        view.focused = true
+    }
+
+    fn updateFormulaRangeDragAt:void (row:int col:int) {
+        if (formulaRangeDrag == false) {
+            return
+        }
+        def r0:int formulaRangeFixR
+        def c0:int formulaRangeFixC
+        def r1:int formulaRangeFixR1
+        def c1:int formulaRangeFixC1
+        if (formulaRangeEdge == 0) {
+            r1 = row
+            c1 = col
+        }
+        if (formulaRangeEdge == 1) {
+            r1 = row
+        }
+        if (formulaRangeEdge == 2) {
+            c1 = col
+        }
+        if (r1 < r0) {
+            def t:int r0
+            r0 = r1
+            r1 = t
+        }
+        if (c1 < c0) {
+            def t2:int c0
+            c0 = c1
+            c1 = t2
+        }
+        def label:string (GridApp.rangeA1(r0 c0 r1 c1))
+        this.replaceFormulaRefAt(formulaRangeIdx label)
+        this.refreshFormulaHilites()
+    }
+
     sfn rangeA1:string (r0:int c0:int r1:int c1:int) {
         def a:int r0
         def b:int r1
@@ -4098,6 +4260,54 @@ class GridApp {
         editing = true
         editInFormulaBar = true
         view.focused = true
+    }
+
+    ; Place the caret from a pointer x inside the formula field.
+    fn caretIndexAtFormulaBarX:int (px:int) {
+        def text:string editBuf
+        if (editing == false) {
+            text = (model.formulaBarText(sel.active.row sel.active.col))
+        }
+        def local:int (px - view.fbTextX)
+        if (local <= 0) {
+            return 0
+        }
+        def n:int (strlen text)
+        def best:int n
+        def i:int 0
+        while (i <= n) {
+            def prefix:string (substring text 0 i)
+            def w:int (to_int (view.ctx.tr.measureWidth(prefix view.fbFontSize)))
+            if (w >= local) {
+                ; Pick the closer of i and i-1.
+                if (i == 0) {
+                    return 0
+                }
+                def prev:string (substring text 0 (i - 1))
+                def pw:int (to_int (view.ctx.tr.measureWidth(prev view.fbFontSize)))
+                def d0:int (local - pw)
+                def d1:int (w - local)
+                if (d0 <= d1) {
+                    return (i - 1)
+                }
+                return i
+            }
+            best = i
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn beginFormulaBarEditAt:void (px:int) {
+        this.beginFormulaBarEdit()
+        ; Mirror the formula-bar layout from GridView so a click works even
+        ; before the next paint stores fbTextX.
+        def addrBoxW:int 64
+        def fieldX:int ((grid.x + addrBoxW) + 10)
+        view.fbTextX = (fieldX + 6)
+        view.fbFontSize = 13.0
+        editCaret = (this.caretIndexAtFormulaBarX(px))
+        this.clampCaret()
     }
 
     ; --- in-cell edit buffer: caret-relative editing --------------------------
@@ -4902,6 +5112,13 @@ class GridApp {
     }
 
     fn handlePress:void (input:UIInput) {
+        ; Formula-range grips (bottom / right / corner) resize the named span.
+        this.refreshFormulaHilites()
+        def rangeEdge:int (this.hitFormulaRangeHandle(input.pointerX input.pointerY))
+        if (rangeEdge >= 0) {
+            this.beginFormulaRangeDrag(rangeEdge)
+            return
+        }
         ; The list arrow belongs to the active cell and sits inside it, so it
         ; has to be asked before the cell is.
         if (editing == false) {
@@ -4996,7 +5213,7 @@ class GridApp {
                         this.closeHeaderMenu()
                     }
                     if ((hit.row == -3) && (hit.col == -3)) {
-                        this.beginFormulaBarEdit()
+                        this.beginFormulaBarEditAt(input.pointerX)
                     } {
                         if ((hit.row >= 0) && (hit.col >= 0)) {
                             view.focused = true
@@ -5050,6 +5267,13 @@ class GridApp {
 
     ; Pointer drag that is not a resize: fill-handle rubber band or range select.
     fn handleDrag:void (input:UIInput) {
+        if formulaRangeDrag {
+            def hitR:CellPos (grid.hitTest(model input.pointerX input.pointerY))
+            if ((hitR.row >= 0) && (hitR.col >= 0)) {
+                this.updateFormulaRangeDragAt(hitR.row hitR.col)
+            }
+            return
+        }
         if formulaPicking {
             def hitP:CellPos (grid.hitTest(model input.pointerX input.pointerY))
             if ((hitP.row >= 0) && (hitP.col >= 0)) {
@@ -5217,6 +5441,10 @@ class GridApp {
         }
 
         if input.pointerReleased {
+            if formulaRangeDrag {
+                formulaRangeDrag = false
+                formulaRangeStartedEdit = false
+            }
             if movingRange {
                 def hitD:CellPos (grid.hitTest(model input.pointerX input.pointerY))
                 if ((hitD.row >= 0) && (hitD.col >= 0)) {

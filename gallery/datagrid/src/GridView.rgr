@@ -97,6 +97,14 @@ class GridView {
     def formulaHiliteC0:[int]
     def formulaHiliteR1:[int]
     def formulaHiliteC1:[int]
+    ; Last-painted formula-bar field geometry, so a click can place the caret.
+    def fbFieldX:int 0
+    def fbFieldY:int 0
+    def fbFieldW:int 0
+    def fbFieldH:int 0
+    def fbTextX:int 0
+    def fbTextY:int 0
+    def fbFontSize:double 13.0
     def focused:boolean true
     def frame:int 0
     def fontFamily:string "Open Sans"
@@ -1086,26 +1094,31 @@ class GridView {
         this.pushText(dl addr (to_double (addrX + 6)) (to_double (fieldY + 3)) 12.0 theme.headerText)
         this.pushRect(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) (EVGColor.rgb(255 255 255)))
         this.pushBorder(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) 1.0 fieldEdge)
+        fbFieldX = fieldX
+        fbFieldY = fieldY
+        fbFieldW = fieldW
+        fbFieldH = fieldH
+        fbTextX = (fieldX + 6)
+        fbTextY = (fieldY + 3)
+        fbFontSize = 13.0
         this.paintFormulaBarText(dl shown (fieldX + 6) (fieldY + 3) 13.0)
+        ; Solid caret while the formula bar owns the edit — a blinking one is
+        ; easy to miss and makes arrow keys feel unresponsive.
         if editing {
             if editInFormulaBar {
-                if focused {
-                    def phase:int (to_int (frame / 30))
-                    def on:int (phase - ((to_int (phase / 2)) * 2))
-                    if (on == 0) {
-                        def upTo:string shown
-                        def cn:int (strlen shown)
-                        if (editCaret < cn) {
-                            def cc:int editCaret
-                            if (cc < 0) {
-                                cc = 0
-                            }
-                            upTo = (substring shown 0 cc)
-                        }
-                        def ew:int (to_int (ctx.tr.measureWidth(upTo 13.0)))
-                        this.pushRect(dl (to_double ((fieldX + 6) + ew)) (to_double (fieldY + 3)) 2.0 (to_double (fieldH - 6)) theme.activeBorder)
+                def upTo:string shown
+                def cn:int (strlen shown)
+                if (editCaret < cn) {
+                    def cc:int editCaret
+                    if (cc < 0) {
+                        cc = 0
                     }
+                    upTo = (substring shown 0 cc)
                 }
+                def ew:int (to_int (ctx.tr.measureWidth(upTo 13.0)))
+                ; White halo + 3px caret so it stays visible on yellow tokens.
+                this.pushRect(dl (to_double (((fieldX + 6) + ew) - 1)) (to_double (fieldY + 3)) 4.0 (to_double (fieldH - 6)) (EVGColor.rgb(255 255 255)))
+                this.pushRect(dl (to_double ((fieldX + 6) + ew)) (to_double (fieldY + 3)) 3.0 (to_double (fieldH - 6)) theme.activeBorder)
             }
         }
         this.pushBorder(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) 1.0 theme.gridLine)
@@ -1334,7 +1347,8 @@ class GridView {
             }
         }
 
-        ; Formula range highlights (under the active-cell border).
+        ; Formula range highlights: selection-like border + resize handles so
+        ; a SUM range can be dragged wider from the bottom or right edge.
         def hi:int 0
         def hn:int (array_length formulaHiliteR0)
         while (hi < hn) {
@@ -1366,7 +1380,25 @@ class GridView {
                 def fill:EVGColor (GridView.formulaHiliteFill(hi))
                 def edge:EVGColor (GridView.formulaHiliteEdge(hi))
                 this.pushRect(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) fill)
-                this.pushBorder(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) 3.0 edge)
+                this.pushBorder(dl (to_double hx) (to_double hy) (to_double hw) (to_double hh) 2.0 edge)
+                ; Bottom, right and corner grips — same idea as the cell fill
+                ; handle, but for expanding the formula's range.
+                def hs:int 10
+                def bx:int ((hx + (idiv hw 2)) - (idiv hs 2))
+                def by:int ((hy + hh) - (idiv hs 2))
+                def rx:int ((hx + hw) - (idiv hs 2))
+                def ry:int ((hy + (idiv hh 2)) - (idiv hs 2))
+                def cx2:int ((hx + hw) - (idiv hs 2))
+                def cy2:int ((hy + hh) - (idiv hs 2))
+                this.pushRect(dl (to_double bx) (to_double by) (to_double hs) (to_double hs) (EVGColor.rgb(255 255 255)))
+                this.pushBorder(dl (to_double bx) (to_double by) (to_double hs) (to_double hs) 1.0 edge)
+                this.pushRect(dl (to_double (bx + 2)) (to_double (by + 2)) (to_double (hs - 4)) (to_double (hs - 4)) edge)
+                this.pushRect(dl (to_double rx) (to_double ry) (to_double hs) (to_double hs) (EVGColor.rgb(255 255 255)))
+                this.pushBorder(dl (to_double rx) (to_double ry) (to_double hs) (to_double hs) 1.0 edge)
+                this.pushRect(dl (to_double (rx + 2)) (to_double (ry + 2)) (to_double (hs - 4)) (to_double (hs - 4)) edge)
+                this.pushRect(dl (to_double cx2) (to_double cy2) (to_double hs) (to_double hs) (EVGColor.rgb(255 255 255)))
+                this.pushBorder(dl (to_double cx2) (to_double cy2) (to_double hs) (to_double hs) 1.0 edge)
+                this.pushRect(dl (to_double (cx2 + 2)) (to_double (cy2 + 2)) (to_double (hs - 4)) (to_double (hs - 4)) edge)
             }
             hi = (hi + 1)
         }
@@ -1396,23 +1428,25 @@ class GridView {
             this.pushRect(dl (to_double fh.x) (to_double fh.y) (to_double fh.w) (to_double fh.h) theme.activeBorder)
         }
 
-        ; edit caret blink inside active cell when editing
+        ; edit caret blink inside active cell when editing in the cell (not the bar)
         if editing {
-            if focused {
-                def phase:int (to_int (frame / 30))
-                def on:int (phase - ((to_int (phase / 2)) * 2))
-                if (on == 0) {
-                    def upTo:string editBuf
-                    def cn:int (strlen editBuf)
-                    if (editCaret < cn) {
-                        def cc:int editCaret
-                        if (cc < 0) {
-                            cc = 0
+            if (editInFormulaBar == false) {
+                if focused {
+                    def phase:int (to_int (frame / 30))
+                    def on:int (phase - ((to_int (phase / 2)) * 2))
+                    if (on == 0) {
+                        def upTo:string editBuf
+                        def cn:int (strlen editBuf)
+                        if (editCaret < cn) {
+                            def cc:int editCaret
+                            if (cc < 0) {
+                                cc = 0
+                            }
+                            upTo = (substring editBuf 0 cc)
                         }
-                        upTo = (substring editBuf 0 cc)
+                        def ew:int (to_int (ctx.tr.measureWidth(upTo fontSize)))
+                        this.pushRect(dl (to_double (ar.x + 4 + ew)) (to_double (ar.y + 3)) 2.0 (to_double (ar.h - 6)) theme.activeBorder)
                     }
-                    def ew:int (to_int (ctx.tr.measureWidth(upTo fontSize)))
-                    this.pushRect(dl (to_double (ar.x + 4 + ew)) (to_double (ar.y + 3)) 2.0 (to_double (ar.h - 6)) theme.activeBorder)
                 }
             }
         }
