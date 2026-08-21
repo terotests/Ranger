@@ -898,35 +898,9 @@ class LayeredLayout {
             cy = y
             i = (i + 1)
         }
-        return (LayeredLayout.dropCollinear(out))
+        return (EdgeRouter.dropCollinear(out))
     }
 
-    sfn dropCollinear:[double] (pts:[double]) {
-        def out:[double]
-        def n:int (idiv (array_length pts) 2)
-        def i:int 0
-        while (i < n) {
-            def x:double (itemAt pts (i * 2))
-            def yat:int ((i * 2) + 1)
-            def y:double (itemAt pts yat)
-            def keep:boolean true
-            if ((array_length out) >= 2) {
-                def lx:double (itemAt out ((array_length out) - 2))
-                def ly:double (itemAt out ((array_length out) - 1))
-                if ((fabs (x - lx)) < 0.01) {
-                    if ((fabs (y - ly)) < 0.01) {
-                        keep = false
-                    }
-                }
-            }
-            if keep {
-                push out x
-                push out y
-            }
-            i = (i + 1)
-        }
-        return out
-    }
 
     ; Point each node's default handles the way the layout runs, so an edge
     ; leaves the side that faces where it is going.

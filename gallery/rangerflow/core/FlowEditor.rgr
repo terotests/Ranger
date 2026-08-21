@@ -44,7 +44,9 @@ class FlowInput {
 ; putting a deleted node back is the same node, with its ports, its rows and
 ; its identity intact — not a copy that looks like it.
 class FlowUndoEntry {
-    ; 0 move, 1 add nodes, 2 remove nodes, 3 add edges, 4 remove edges
+    ; 0 move, 1 add nodes, 2 remove nodes, 3 add edges, 4 remove edges,
+    ; 5 reroute (hand-dragged edge corners; the before/after corner lists live
+    ; in oldX / newX, x and y interleaved, and `edges` holds the one edge)
     def kind:int 0
     def nodeIds:[string]
     def oldX:[double]
@@ -125,6 +127,25 @@ class FlowUndo {
             }
             return
         }
+        if (e.kind == 5) {
+            if ((array_length e.edges) > 0) {
+                def ed:FlowEdge (itemAt e.edges 0)
+                def want:[double] e.newX
+                if reverse {
+                    want = e.oldX
+                }
+                clear ed.waypoints
+                def c:int 0
+                while (c < (array_length want)) {
+                    push ed.waypoints (itemAt want c)
+                    c = (c + 1)
+                }
+                ; An edge with no corners of its own is back to being routed
+                ; for it, so it must stop refusing the router.
+                ed.pinnedRoute = ((array_length ed.waypoints) >= 4)
+            }
+            return
+        }
         def adding:boolean false
         if (e.kind == 1) { adding = true }
         if (e.kind == 3) { adding = true }
@@ -189,7 +210,8 @@ class FlowEditor {
     def view:FlowView (new FlowView)
     def undo:FlowUndo (new FlowUndo)
 
-    ; 0 idle, 1 panning, 2 dragging, 3 box select, 4 connecting, 5 resizing
+    ; 0 idle, 1 panning, 2 dragging, 3 box select, 4 connecting, 5 resizing,
+    ; 6 dragging one segment of an edge
     def mode:int 0
     def pressX:double 0.0
     def pressY:double 0.0
@@ -206,6 +228,13 @@ class FlowEditor {
     def resizeW:double 0.0
     def resizeH:double 0.0
 
+    ; --- dragging a segment of an edge ---------------------------------------
+    def segEdge:int -1
+    def segIndex:int -1
+    def segVertical:boolean false
+    def segStart:double 0.0
+    def segUndoBefore:[double]
+
     def snapToGrid:boolean false
     def snapSize:double 16.0
     def panOnDrag:boolean true
@@ -215,6 +244,10 @@ class FlowEditor {
     def edgeHitSlop:double 6.0
     ; Size of the resize grip in the bottom-right corner of a resizable node.
     def gripSize:double 10.0
+    ; How near a segment the pointer has to be to grab it, in screen pixels.
+    def segmentGrabSlop:double 7.0
+    ; Whether an edge's middle can be dragged sideways at all.
+    def edgeSegmentDrag:boolean true
 
     ; Set by the host when a force simulation is driving positions, so a drag
     ; can pin the node the way the React Flow force example does.
@@ -306,6 +339,69 @@ class FlowEditor {
             k = (k + 1)
         }
         return best
+    }
+
+    ; Which segment of which edge is under the pointer, as `edge * 1000 +
+    ; segment`, or -1. Only the INTERIOR segments count: the first and last
+    ; touch a port, and moving one of those would detach the edge from the
+    ; column it is supposed to point at.
+    ;
+    ; A straight line and a bezier have no segments to speak of, so they are
+    ; not offered — "drag it sideways" has no meaning for a curve whose shape
+    ; is a function of its endpoints.
+    fn segmentAt:int (sx:double sy:double) {
+        if (edgeSegmentDrag == false) {
+            return -1
+        }
+        def slop:double (segmentGrabSlop / view.viewport.zoom)
+        def best:int -1
+        def bestD:double slop
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            if (e.hidden == false) {
+                def corners:[double] (EdgeRouter.cornersFor(graph e))
+                def n:int (idiv (array_length corners) 2)
+                if (n >= 4) {
+                    def fx:double (this.flowX(sx))
+                    def fy:double (this.flowY(sy))
+                    def i:int 1
+                    while (i < (n - 2)) {
+                        def ax:double (itemAt corners (i * 2))
+                        def ayAt:int ((i * 2) + 1)
+                        def ay:double (itemAt corners ayAt)
+                        def bx:double (itemAt corners ((i + 1) * 2))
+                        def byAt:int (((i + 1) * 2) + 1)
+                        def by:double (itemAt corners byAt)
+                        def d:double (FlowEditor.distanceToSegment(fx fy ax ay bx by))
+                        if (d <= bestD) {
+                            bestD = d
+                            best = ((k * 1000) + i)
+                        }
+                        i = (i + 1)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    sfn distanceToSegment:double (px:double py:double x1:double y1:double x2:double y2:double) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def len2:double ((dx * dx) + (dy * dy))
+        def t:double 0.0
+        if (len2 > 0.0) {
+            t = ((((px - x1) * dx) + ((py - y1) * dy)) / len2)
+            if (t < 0.0) { t = 0.0 }
+            if (t > 1.0) { t = 1.0 }
+        }
+        def cx:double (x1 + (dx * t))
+        def cy:double (y1 + (dy * t))
+        def ex:double (px - cx)
+        def ey:double (py - cy)
+        return (sqrt ((ex * ex) + (ey * ey)))
     }
 
     ; The bottom-right grip of a resizable node — React Flow's NodeResizer,
@@ -406,6 +502,16 @@ class FlowEditor {
                 graph.clearSelection()
             }
             e.selected = true
+            ; Selecting and dragging are the same gesture: the press selects,
+            ; and if the pointer then moves, the segment under it comes along.
+            ; A click that does not move leaves the route exactly as it was.
+            def hit:int (this.segmentAt(inp.x inp.y))
+            if (hit >= 0) {
+                if ((idiv hit 1000) == ei) {
+                    this.beginSegmentDrag(ei (hit % 1000))
+                    return
+                }
+            }
             mode = 0
             return
         }
@@ -422,6 +528,159 @@ class FlowEditor {
         } {
             mode = 0
         }
+    }
+
+    ; Which way the segment behind a `segmentAt` hit runs. The handles are
+    ; invisible, so a host that wants to show a resize cursor has to be able to
+    ; ask without starting a drag.
+    fn segmentIsVertical:boolean (hit:int) {
+        if (hit < 0) {
+            return false
+        }
+        def ei:int (idiv hit 1000)
+        def seg:int (hit % 1000)
+        if (ei >= (graph.edgeCount())) {
+            return false
+        }
+        def e:FlowEdge (graph.edgeAt(ei))
+        def corners:[double] (EdgeRouter.cornersFor(graph e))
+        def n:int (idiv (array_length corners) 2)
+        if ((seg + 1) >= n) {
+            return false
+        }
+        def ax:double (itemAt corners (seg * 2))
+        def ayAt:int ((seg * 2) + 1)
+        def ay:double (itemAt corners ayAt)
+        def bx:double (itemAt corners ((seg + 1) * 2))
+        def byAt:int (((seg + 1) * 2) + 1)
+        def by:double (itemAt corners byAt)
+        return ((fabs (bx - ax)) < (fabs (by - ay)))
+    }
+
+    ; Take the edge's corners as they are, whoever produced them, and hold on
+    ; to the original for one undo step.
+    fn beginSegmentDrag:void (edgeIdx:int seg:int) {
+        def e:FlowEdge (graph.edgeAt(edgeIdx))
+        def corners:[double] (EdgeRouter.cornersFor(graph e))
+        def n:int (idiv (array_length corners) 2)
+        if (seg < 1) {
+            mode = 0
+            return
+        }
+        if (seg > (n - 3)) {
+            mode = 0
+            return
+        }
+        clear segUndoBefore
+        def w:int 0
+        while (w < (array_length e.waypoints)) {
+            push segUndoBefore (itemAt e.waypoints w)
+            w = (w + 1)
+        }
+        clear e.waypoints
+        def c:int 0
+        while (c < (array_length corners)) {
+            push e.waypoints (itemAt corners c)
+            c = (c + 1)
+        }
+        def ax:double (itemAt corners (seg * 2))
+        def ayAt:int ((seg * 2) + 1)
+        def ay:double (itemAt corners ayAt)
+        def bx:double (itemAt corners ((seg + 1) * 2))
+        def byAt:int (((seg + 1) * 2) + 1)
+        def by:double (itemAt corners byAt)
+        segVertical = ((fabs (bx - ax)) < (fabs (by - ay)))
+        segStart = ay
+        if segVertical {
+            segStart = ax
+        }
+        segEdge = edgeIdx
+        segIndex = seg
+        mode = 6
+    }
+
+    ; A segment only moves ACROSS itself — a vertical run slides left and
+    ; right, a horizontal one up and down. Moving it along its own direction
+    ; would not change the drawing, and letting it go diagonal would stop the
+    ; route being orthogonal, which is the property the whole router exists to
+    ; keep.
+    fn segmentDragTo:void (sx:double sy:double) {
+        if (segEdge < 0) {
+            return
+        }
+        def e:FlowEdge (graph.edgeAt(segEdge))
+        def n:int (idiv (array_length e.waypoints) 2)
+        if (segIndex < 1) {
+            return
+        }
+        if ((segIndex + 1) >= (n - 1)) {
+            return
+        }
+        def want:double (this.flowY(sy))
+        if segVertical {
+            want = (this.flowX(sx))
+        }
+        if snapToGrid {
+            want = (FlowEditor.snap(want snapSize))
+        }
+        def a:int (segIndex * 2)
+        def b:int ((segIndex + 1) * 2)
+        if segVertical {
+            set_at e.waypoints a want
+            set_at e.waypoints b want
+        } {
+            set_at e.waypoints (a + 1) want
+            set_at e.waypoints (b + 1) want
+        }
+        e.pinnedRoute = true
+    }
+
+    fn endSegmentDrag:void () {
+        if (segEdge < 0) {
+            return
+        }
+        def e:FlowEdge (graph.edgeAt(segEdge))
+        def moved:boolean false
+        def n:int (idiv (array_length e.waypoints) 2)
+        if (segIndex >= 1) {
+            def at:int (segIndex * 2)
+            def now:double (itemAt e.waypoints (at + 1))
+            if segVertical {
+                now = (itemAt e.waypoints at)
+            }
+            if ((fabs (now - segStart)) > 0.001) {
+                moved = true
+            }
+        }
+        if moved {
+            def entry (new FlowUndoEntry)
+            entry.kind = 5
+            entry.label = "reroute"
+            push entry.edges e
+            def w:int 0
+            while (w < (array_length segUndoBefore)) {
+                push entry.oldX (itemAt segUndoBefore w)
+                w = (w + 1)
+            }
+            def v:int 0
+            while (v < (array_length e.waypoints)) {
+                push entry.newX (itemAt e.waypoints v)
+                v = (v + 1)
+            }
+            undo.record(entry)
+            onGraphChanged = true
+        } {
+            ; A click that did not move must not pin the route.
+            e.pinnedRoute = false
+            clear e.waypoints
+            def r:int 0
+            while (r < (array_length segUndoBefore)) {
+                push e.waypoints (itemAt segUndoBefore r)
+                r = (r + 1)
+            }
+        }
+        segEdge = -1
+        segIndex = -1
     }
 
     fn beginDrag:void () {
@@ -484,6 +743,10 @@ class FlowEditor {
         }
         if (mode == 5) {
             this.resizeTo(inp.x inp.y)
+            return
+        }
+        if (mode == 6) {
+            this.segmentDragTo(inp.x inp.y)
             return
         }
     }
@@ -566,6 +829,9 @@ class FlowEditor {
         }
         if (mode == 5) {
             resizeIndex = -1
+        }
+        if (mode == 6) {
+            this.endSegmentDrag()
         }
         mode = 0
         view.connecting = false

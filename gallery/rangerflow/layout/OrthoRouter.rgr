@@ -1,0 +1,674 @@
+; ============================================================================
+; OrthoRouter.rgr — an orthogonal route that goes round what is in the way.
+; ============================================================================
+;
+; The layered layout can route an edge round the nodes IT placed, because it
+; knew where they were going to be. That is not enough for three cases the
+; editor produces constantly:
+;
+;   * a node dragged by hand into the middle of somebody else's corridor;
+;   * a corridor track that happens to land exactly on a node's border;
+;   * any graph that was not laid out by the layered layout at all.
+;
+; So this is the general version, and it is the standard one: an **orthogonal
+; visibility grid** plus a shortest path across it.
+;
+;   1. Every obstacle contributes two candidate x coordinates (its left and
+;      right, pushed out by `margin`) and two candidate y coordinates. The
+;      edge's own two stub points contribute one each. Sorted and deduplicated,
+;      those are the only lines a sensible orthogonal route ever needs — a
+;      route that turned anywhere else could be slid onto one of them without
+;      getting longer.
+;   2. The grid is their cross product. A grid segment is usable when it
+;      crosses no obstacle, which is one Liang-Barsky clip per segment.
+;   3. Dijkstra over (cell, arrival direction), because a bend has to cost
+;      something or the result is a staircase. `bendPenalty` is in the same
+;      units as length: 30 means "a turn is worth thirty pixels of detour".
+;   4. The path comes back as waypoints — the same list the layered layout
+;      produces, drawn by the same `bendPath`.
+;
+; The edge's own two nodes are obstacles too, but uninflated: the route may not
+; cut through them, and the stub already starts outside.
+;
+; Cost. One Dijkstra per edge over a grid that grows with the node count, so it
+; is not something to run every frame on a thousand nodes — `maxAxis` refuses
+; rather than hanging, and the caller keeps whatever route the edge already
+; had. On the graphs an editor actually shows it is well under a millisecond.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+Import "../core/EdgeRouter.rgr"
+Import "EdgeLanes.rgr"
+
+; A binary min-heap. Dijkstra over a few thousand states with a linear scan for
+; the minimum is quadratic and shows; this is the difference between a router
+; you can call on a drag and one you cannot.
+class OrthoHeap {
+    def costs:[double]
+    def items:[int]
+
+    Constructor () {
+    }
+
+    fn size:int () {
+        return (array_length items)
+    }
+
+    fn push:void (cost:double item:int) {
+        push costs cost
+        push items item
+        def i:int ((array_length items) - 1)
+        while (i > 0) {
+            def parent:int (idiv (i - 1) 2)
+            if ((itemAt costs parent) <= (itemAt costs i)) {
+                i = 0
+            } {
+                this.swap(i parent)
+                i = parent
+            }
+        }
+    }
+
+    fn popItem:int () {
+        def n:int (array_length items)
+        if (n == 0) {
+            return -1
+        }
+        def top:int (itemAt items 0)
+        def lastCost:double (itemAt costs (n - 1))
+        def lastItem:int (itemAt items (n - 1))
+        removeLast costs
+        removeLast items
+        def m:int (array_length items)
+        if (m > 0) {
+            set_at costs 0 lastCost
+            set_at items 0 lastItem
+            def i:int 0
+            def running:boolean true
+            while (running) {
+                def l:int ((i * 2) + 1)
+                def r:int ((i * 2) + 2)
+                def small:int i
+                if (l < m) {
+                    if ((itemAt costs l) < (itemAt costs small)) {
+                        small = l
+                    }
+                }
+                if (r < m) {
+                    if ((itemAt costs r) < (itemAt costs small)) {
+                        small = r
+                    }
+                }
+                if (small == i) {
+                    running = false
+                } {
+                    this.swap(i small)
+                    i = small
+                }
+            }
+        }
+        return top
+    }
+
+    fn swap:void (a:int b:int) {
+        def ca:double (itemAt costs a)
+        def ia:int (itemAt items a)
+        set_at costs a (itemAt costs b)
+        set_at items a (itemAt items b)
+        set_at costs b ca
+        set_at items b ia
+    }
+}
+
+class OrthoRouter {
+    ; How far a route is kept from a node it is going past.
+    def margin:double 14.0
+    ; What a turn is worth, in pixels of detour. Low values give staircases;
+    ; high values give long detours to avoid one bend.
+    def bendPenalty:double 30.0
+    ; The clearance the router will not give up even when nothing else fits.
+    def minClearance:double 3.0
+    ; How far an edge leaves its node before it may turn.
+    def stub:double 20.0
+    ; Refuse rather than hang: the grid is (obstacles*2 + 2) per axis.
+    def maxAxis:int 160
+    ; Set when the last call gave up, so a caller can say so.
+    def refused:int 0
+    ; Diagnostics for the drag sweep: how many repairs found no route at all,
+    ; and how many found one that was no better than what it replaced.
+    def noPath:int 0
+    def stillCrossing:int 0
+
+    ; obstacles, already inflated
+    def ox:[double]
+    def oy:[double]
+    def ow:[double]
+    def oh:[double]
+    ; grid lines
+    def xs:[double]
+    def ys:[double]
+    ; per-segment passability, indexed [j * nx + i]
+    def freeRight:[boolean]
+    def freeDown:[boolean]
+
+    Constructor () {
+    }
+
+    sfn routeAll:int (g:FlowGraph) {
+        def r (new OrthoRouter)
+        return (r.applyAll(g))
+    }
+
+    ; The one to call. Routing every edge from scratch throws away what the
+    ; layered layout knew — its dummy chains were ordered against each other to
+    ; keep the long edges from crossing, and this router optimises each edge
+    ; alone and would happily put two of them on the same track. So it runs as
+    ; a REPAIR pass: only the edges that are actually drawn through something
+    ; are re-routed, and the rest keep the route they have.
+    ;
+    ; That is also what makes it affordable on a drag. Moving one node breaks
+    ; one or two edges, not all of them.
+    sfn repairAll:int (g:FlowGraph) {
+        def r (new OrthoRouter)
+        return (r.applyBroken(g))
+    }
+
+    fn applyBroken:int (g:FlowGraph) {
+        refused = 0
+        noPath = 0
+        stillCrossing = 0
+        def fixed:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (this.wantsRouting(e)) {
+                if (this.crossesSomething(g e)) {
+                    def before:[double] (OrthoRouter.copyOf(e.waypoints))
+                    def ok:boolean (this.routeEdge(g e))
+                    if (ok == false) {
+                        noPath = (noPath + 1)
+                    }
+                    if ok {
+                        ; A repair that still crosses something is not a
+                        ; repair; put the old route back rather than trade one
+                        ; bad line for a different bad line.
+                        if (this.crossesSomething(g e)) {
+                            stillCrossing = (stillCrossing + 1)
+                            clear e.waypoints
+                            def w:int 0
+                            while (w < (array_length before)) {
+                                push e.waypoints (itemAt before w)
+                                w = (w + 1)
+                            }
+                        } {
+                            fixed = (fixed + 1)
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return fixed
+    }
+
+    sfn copyOf:[double] (src:[double]) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length src)) {
+            push out (itemAt src i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn crossesSomething:boolean (g:FlowGraph e:FlowEdge) {
+        def p:EdgePath (EdgeRouter.route(g e))
+        p.flatten(4)
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def skip:boolean false
+            if (i == e.sourceIndex) { skip = true }
+            if (i == e.targetIndex) { skip = true }
+            if (skip == false) {
+                def nd:FlowNode (g.nodeAt(i))
+                if (nd.hidden == false) {
+                    if (EdgeOverlap.pathEntersRect(p nd)) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Route every edge that has somewhere to bend. A bezier or a straight line
+    ; is left alone: it has no corners, and giving it some would be a different
+    ; edge type than the one that was asked for.
+    fn applyAll:int (g:FlowGraph) {
+        refused = 0
+        def done:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (this.wantsRouting(e)) {
+                if (this.routeEdge(g e)) {
+                    done = (done + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return done
+    }
+
+    fn wantsRouting:boolean (e:FlowEdge) {
+        if e.hidden {
+            return false
+        }
+        ; A route the viewer placed by hand is theirs, even where it crosses
+        ; something. Repairing it would be overruling them.
+        if e.pinnedRoute {
+            return false
+        }
+        if (e.sourceIndex < 0) {
+            return false
+        }
+        if (e.targetIndex < 0) {
+            return false
+        }
+        if (e.edgeType == "step") { return true }
+        if (e.edgeType == "smoothstep") { return true }
+        if (e.edgeType == "orthogonal") { return true }
+        return false
+    }
+
+    ; ------------------------------------------------------------- one edge --
+    ; Clearance is a preference, not a requirement. The first attempt keeps a
+    ; full `margin` away from every box, which is what makes a route readable;
+    ; but a port whose stub already stands inside another box's margin has no
+    ; such route, and refusing to draw one leaves the line where it was —
+    ; straight through the box, which is worse than a tight squeeze. So the
+    ; margin is given up in steps, and only a route that touches nothing at all
+    ; is accepted at the end.
+    fn routeEdge:boolean (g:FlowGraph e:FlowEdge) {
+        def pads:[double]
+        push pads margin
+        push pads (margin * 0.5)
+        push pads minClearance
+        push pads 0.0
+        ; The stub is a preference too. A box dropped within a stub's length of
+        ; a port walls the search in before it has taken a single step, and the
+        ; honest answer there is a shorter stub — the line turns as soon as it
+        ; leaves the port — not a straight line through the box.
+        def stubs:[double]
+        push stubs stub
+        push stubs (stub * 0.4)
+        push stubs 1.0
+        def p:int 0
+        while (p < (array_length pads)) {
+            def si:int 0
+            while (si < (array_length stubs)) {
+                if (this.routeEdgeAt(g e (itemAt pads p) (itemAt stubs si))) {
+                    return true
+                }
+                si = (si + 1)
+            }
+            p = (p + 1)
+        }
+        return false
+    }
+
+    fn routeEdgeAt:boolean (g:FlowGraph e:FlowEdge pad:double stubLen:double) {
+        def s1:int (g.edgeSide(e true))
+        def s2:int (g.edgeSide(e false))
+        def x1:double (g.endpointX(e true))
+        def y1:double (g.endpointY(e true))
+        def x2:double (g.endpointX(e false))
+        def y2:double (g.endpointY(e false))
+        def ax:double (x1 + ((FlowPosition.normalX(s1)) * stubLen))
+        def ay:double (y1 + ((FlowPosition.normalY(s1)) * stubLen))
+        def bx:double (x2 + ((FlowPosition.normalX(s2)) * stubLen))
+        def by:double (y2 + ((FlowPosition.normalY(s2)) * stubLen))
+
+        this.collectObstacles(g e pad)
+        this.collectGrid(ax ay bx by)
+        def nx:int (array_length xs)
+        def ny:int (array_length ys)
+        if (nx > maxAxis) {
+            refused = (refused + 1)
+            return false
+        }
+        if (ny > maxAxis) {
+            refused = (refused + 1)
+            return false
+        }
+        this.markPassable()
+
+        def i0:int (OrthoRouter.nearest(xs ax))
+        def j0:int (OrthoRouter.nearest(ys ay))
+        def i1:int (OrthoRouter.nearest(xs bx))
+        def j1:int (OrthoRouter.nearest(ys by))
+        ; Which way the edge is already travelling when it reaches the grid,
+        ; and which way it has to be travelling when it leaves — a route that
+        ; arrives at a left-hand handle from above enters through the node.
+        def startAxis:int (OrthoRouter.axisOf(s1))
+        def endAxis:int (OrthoRouter.axisOf(s2))
+        def cells:[int] (this.search(nx ny i0 j0 i1 j1 startAxis endAxis))
+        if ((array_length cells) == 0) {
+            return false
+        }
+        def pts:[double]
+        push pts x1
+        push pts y1
+        def c:int 0
+        while (c < (array_length cells)) {
+            def cell:int (itemAt cells c)
+            def ci:int (cell % nx)
+            def cj:int (idiv cell nx)
+            push pts (itemAt xs ci)
+            push pts (itemAt ys cj)
+            c = (c + 1)
+        }
+        push pts x2
+        push pts y2
+        def corners:[double] (EdgeRouter.dropCollinear(pts))
+        if ((idiv (array_length corners) 2) < 2) {
+            return false
+        }
+        clear e.waypoints
+        def w:int 0
+        while (w < (array_length corners)) {
+            push e.waypoints (itemAt corners w)
+            w = (w + 1)
+        }
+        e.hasLaneX = false
+        e.hasLaneY = false
+        return true
+    }
+
+    sfn axisOf:int (side:int) {
+        if (side == 1) { return 0 }
+        if (side == 3) { return 0 }
+        return 1
+    }
+
+    ; ---------------------------------------------------------- the grid ----
+    fn collectObstacles:void (g:FlowGraph e:FlowEdge inflate:double) {
+        clear ox
+        clear oy
+        clear ow
+        clear oh
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (n.hidden == false) {
+                ; The edge's own nodes block too — a route may not cut through
+                ; the table it starts at — but they are not inflated, because
+                ; the stub already stands `stub` away from them and an inflated
+                ; box would swallow it.
+                def pad:double inflate
+                if (i == e.sourceIndex) { pad = 0.0 }
+                if (i == e.targetIndex) { pad = 0.0 }
+                push ox (n.x - pad)
+                push oy (n.y - pad)
+                push ow (n.width + (pad * 2.0))
+                push oh (n.height + (pad * 2.0))
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn collectGrid:void (ax:double ay:double bx:double by:double) {
+        clear xs
+        clear ys
+        OrthoRouter.addCoord(xs ax)
+        OrthoRouter.addCoord(xs bx)
+        OrthoRouter.addCoord(ys ay)
+        OrthoRouter.addCoord(ys by)
+        def i:int 0
+        while (i < (array_length ox)) {
+            OrthoRouter.addCoord(xs (itemAt ox i))
+            OrthoRouter.addCoord(xs ((itemAt ox i) + (itemAt ow i)))
+            OrthoRouter.addCoord(ys (itemAt oy i))
+            OrthoRouter.addCoord(ys ((itemAt oy i) + (itemAt oh i)))
+            i = (i + 1)
+        }
+        OrthoRouter.sortDoubles(xs)
+        OrthoRouter.sortDoubles(ys)
+        ; A visibility grid built only from the obstacles' own edges can miss a
+        ; corridor entirely: if two boxes stand a hundred pixels apart, there is
+        ; no grid line anywhere in the gap between them, and the search has to
+        ; hug one box or the other — or, where hugging is blocked at both ends,
+        ; find no route at all and leave the line drawn through something. So
+        ; put a line down the middle of every gap wide enough to walk through.
+        this.densify(xs)
+        this.densify(ys)
+    }
+
+    fn densify:void (arr:[double]) {
+        def gap:double (margin * 2.0)
+        def added:[double]
+        def i:int 0
+        while (i < ((array_length arr) - 1)) {
+            def a:double (itemAt arr i)
+            def b:double (itemAt arr (i + 1))
+            if ((b - a) > gap) {
+                push added ((a + b) * 0.5)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length added)) {
+            OrthoRouter.addCoord(arr (itemAt added k))
+            k = (k + 1)
+        }
+        OrthoRouter.sortDoubles(arr)
+    }
+
+    sfn addCoord:void (arr:[double] v:double) {
+        def i:int 0
+        while (i < (array_length arr)) {
+            if ((fabs ((itemAt arr i) - v)) < 0.5) {
+                return
+            }
+            i = (i + 1)
+        }
+        push arr v
+    }
+
+    sfn sortDoubles:void (arr:[double]) {
+        def n:int (array_length arr)
+        def i:int 1
+        while (i < n) {
+            def v:double (itemAt arr i)
+            def j:int (i - 1)
+            def at:int 0
+            def settled:boolean false
+            while (j >= 0) {
+                if (settled == false) {
+                    if ((itemAt arr j) > v) {
+                        set_at arr (j + 1) (itemAt arr j)
+                        j = (j - 1)
+                    } {
+                        at = (j + 1)
+                        settled = true
+                        j = -1
+                    }
+                }
+            }
+            if (settled == false) {
+                at = 0
+            }
+            set_at arr at v
+            i = (i + 1)
+        }
+    }
+
+    sfn nearest:int (arr:[double] v:double) {
+        def best:int 0
+        def bestD:double 1000000000.0
+        def i:int 0
+        while (i < (array_length arr)) {
+            def d:double (fabs ((itemAt arr i) - v))
+            if (d < bestD) {
+                bestD = d
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; One clip per grid segment, once, rather than once per Dijkstra relaxation.
+    fn markPassable:void () {
+        clear freeRight
+        clear freeDown
+        def nx:int (array_length xs)
+        def ny:int (array_length ys)
+        def j:int 0
+        while (j < ny) {
+            def i:int 0
+            while (i < nx) {
+                def okR:boolean false
+                if (i < (nx - 1)) {
+                    okR = (this.segmentClear((itemAt xs i) (itemAt ys j) (itemAt xs (i + 1)) (itemAt ys j)))
+                }
+                push freeRight okR
+                def okD:boolean false
+                if (j < (ny - 1)) {
+                    okD = (this.segmentClear((itemAt xs i) (itemAt ys j) (itemAt xs i) (itemAt ys (j + 1))))
+                }
+                push freeDown okD
+                i = (i + 1)
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; Grazing an obstacle's border is allowed; entering it is not. Without the
+    ; shrink, a grid line that lies exactly on a node's edge — and every one of
+    ; them does, because that is where the coordinates came from — reads as a
+    ; collision and the router walls itself in.
+    fn segmentClear:boolean (x1:double y1:double x2:double y2:double) {
+        def eps:double 0.5
+        def i:int 0
+        while (i < (array_length ox)) {
+            def r:FlowRect (FlowRect.create(((itemAt ox i) + eps) ((itemAt oy i) + eps) ((itemAt ow i) - (eps * 2.0)) ((itemAt oh i) - (eps * 2.0))))
+            if (r.w > 0.0) {
+                if (r.h > 0.0) {
+                    if (EdgeOverlap.segmentHitsRect(x1 y1 x2 y2 r)) {
+                        return false
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; ------------------------------------------------------------- search ----
+    ; Dijkstra over (cell, arrival axis). The axis is part of the state because
+    ; the cost of a move depends on how you arrived: continuing straight is
+    ; free, turning costs `bendPenalty`.
+    fn search:[int] (nx:int ny:int i0:int j0:int i1:int j1:int startAxis:int endAxis:int) {
+        def cellCount:int (nx * ny)
+        def stateCount:int (cellCount * 2)
+        def dist:[double]
+        def prev:[int]
+        def seen:[boolean]
+        def i:int 0
+        while (i < stateCount) {
+            push dist 1000000000.0
+            push prev -1
+            push seen false
+            i = (i + 1)
+        }
+        def startCell:int ((j0 * nx) + i0)
+        def goalCell:int ((j1 * nx) + i1)
+        def startState:int ((startCell * 2) + startAxis)
+        set_at dist startState 0.0
+        def heap (new OrthoHeap)
+        heap.push(0.0 startState)
+        def goalState:int -1
+        while ((heap.size()) > 0) {
+            def s:int (heap.popItem())
+            if (s < 0) {
+                break
+            }
+            if ((itemAt seen s) == false) {
+                set_at seen s true
+                def cell:int (idiv s 2)
+                def axis:int (s % 2)
+                if (cell == goalCell) {
+                    if (axis == endAxis) {
+                        goalState = s
+                        clear heap.costs
+                        clear heap.items
+                    }
+                }
+                if (goalState < 0) {
+                    def ci:int (cell % nx)
+                    def cj:int (idiv cell nx)
+                    def base:double (itemAt dist s)
+                    ; four neighbours, each with its own passability flag
+                    if (ci > 0) {
+                        if (itemAt freeRight ((cj * nx) + (ci - 1))) {
+                            this.relax(s base ((cj * nx) + (ci - 1)) 0 axis ((itemAt xs ci) - (itemAt xs (ci - 1))) dist prev heap)
+                        }
+                    }
+                    if (ci < (nx - 1)) {
+                        if (itemAt freeRight ((cj * nx) + ci)) {
+                            this.relax(s base ((cj * nx) + (ci + 1)) 0 axis ((itemAt xs (ci + 1)) - (itemAt xs ci)) dist prev heap)
+                        }
+                    }
+                    if (cj > 0) {
+                        if (itemAt freeDown (((cj - 1) * nx) + ci)) {
+                            this.relax(s base (((cj - 1) * nx) + ci) 1 axis ((itemAt ys cj) - (itemAt ys (cj - 1))) dist prev heap)
+                        }
+                    }
+                    if (cj < (ny - 1)) {
+                        if (itemAt freeDown ((cj * nx) + ci)) {
+                            this.relax(s base (((cj + 1) * nx) + ci) 1 axis ((itemAt ys (cj + 1)) - (itemAt ys cj)) dist prev heap)
+                        }
+                    }
+                }
+            }
+        }
+        def out:[int]
+        if (goalState < 0) {
+            return out
+        }
+        def rev:[int]
+        def cur:int goalState
+        def guard:int 0
+        while (cur >= 0) {
+            guard = (guard + 1)
+            if (guard > 1000000) {
+                clear out
+                return out
+            }
+            push rev (idiv cur 2)
+            cur = (itemAt prev cur)
+        }
+        def k:int ((array_length rev) - 1)
+        while (k >= 0) {
+            push out (itemAt rev k)
+            k = (k - 1)
+        }
+        return out
+    }
+
+    fn relax:void (from:int base:double toCell:int toAxis:int fromAxis:int length:double dist:[double] prev:[int] heap:OrthoHeap) {
+        def step:double (fabs length)
+        if (toAxis != fromAxis) {
+            step = (step + bendPenalty)
+        }
+        def to:int ((toCell * 2) + toAxis)
+        def cand:double (base + step)
+        if (cand < (itemAt dist to)) {
+            set_at dist to cand
+            set_at prev to from
+            heap.push(cand to)
+        }
+    }
+}
