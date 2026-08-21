@@ -30,7 +30,7 @@ npm run datagrid:workbook:test
 npm run datagrid:db:test        # a sheet over RangerDB / SQLite / DuckDB
 npm run datagrid:db:demo        # …and a headless session that edits one
 npm run datagrid:db:window      # the editor in a browser window, on a database
-                                #   …Ctrl+Q there opens the SQL box
+                                #   …Ctrl+D shows the connection, Ctrl+Q the SQL box
 npm run datagrid:db:window:smoke  # …the same, checked without a browser
 npm run datagrid:formula:test
 npm run datagrid:formula:array:test
@@ -255,6 +255,38 @@ events the browser posts, and checks that the edit is in the next scene, that
 the app says the database took it, and that a bad value never reaches the
 cell. It passes on all three engines.
 
+### The connection window
+
+**Ctrl+D** shows what the workbook is talking to, and is the way to point it
+somewhere else:
+
+![The database connection window](artifacts/db_connection.png)
+
+Engine, data source and table are editable; below them is what was actually
+negotiated — the rows loaded, the columns that identify a row (without them the
+sheet is read only and says so), what the engine can do for itself
+(`DBCapabilities`), and what Ranger had to do instead (`DBSession.lastFallback`,
+so a backend that cannot group tells you the grouping happened here).
+
+Connecting is the **host's** part, exactly like opening a file picker: the app
+cannot name an engine, so **Connect** leaves a request behind —
+`app.takeDbRequest()` returns `"connect"` with `dbRequestDriver`,
+`dbRequestDsn` and `dbRequestTable` — and whoever is hosting opens it and calls
+`bindDatabase`. `web/serve.mjs` does that with `GridDbLauncher`; a host that
+ignores the request loses nothing, since the sheet it already has keeps
+working.
+
+```bash
+npm run datagrid:db:window     # …then Ctrl+D
+```
+
+Typing `rangerdb` into Engine and pressing Enter switches the live workbook
+from DuckDB to the Ranger engine and reloads the sheet — which is what
+`datagrid:db:window:smoke` checks, through the same events a person sends.
+
+Demo rows are only seeded into `:memory:`. Pointed at a file, a table that is
+not there comes back as `no table called …` rather than being invented.
+
 ### The SQL box
 
 **Ctrl+Q** opens a query box inside the editor. What you type is parsed by
@@ -280,7 +312,7 @@ curl -s localhost:8766/command -d '{"id":"db.sql","arg":"SELECT country, revenue
 `npm run datagrid:db:window:smoke` opens the box the way a person does — the
 command, then text events, then Enter — and checks the query became a sheet.
 
-`npm run datagrid:db:test` runs all of it over all three engines (134/134), and
+`npm run datagrid:db:test` runs all of it over all three engines (164/164), and
 `npm run datagrid:db:demo` is a headless session that seeds a table, edits a
 cell through the UI, reads the new value back out of the database, has one
 edit refused, sorts (which re-runs the query) and leaves this behind:

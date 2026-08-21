@@ -65,6 +65,7 @@ app.init(fontDir);
 // Default showcase workbook (M4+): multi-sheet, formats, formulas, CF.
 // Override: node serve.mjs --xlsx gallery/datagrid/fixtures/sales.xlsx
 let dbLauncher = null;
+const DB_SEED_ROWS = parseInt(argVal("--db-rows", "120"), 10);
 if (DB_DRIVER) {
   dbLauncher = new GridDbLauncher();
   const ok = dbLauncher.start(
@@ -72,7 +73,7 @@ if (DB_DRIVER) {
     DB_DRIVER === "auto" ? "" : DB_DRIVER,
     argVal("--db-dsn", ":memory:"),
     argVal("--db-table", "sales"),
-    parseInt(argVal("--db-rows", "120"), 10),
+    DB_SEED_ROWS,
   );
   console.log("  engines: " + GridDbLauncher.availableList());
   console.log((ok ? "  " : "  database failed: ") + dbLauncher.status);
@@ -159,6 +160,27 @@ function mediaBytes(part) {
   return null;
 }
 
+// The app cannot open a database itself - naming an engine is the host's job,
+// the same way opening a file picker is - so the connection window leaves a
+// request behind and this reads it. A host that ignored it would simply keep
+// the sheet it already has.
+function serviceDbRequest() {
+  if (typeof app.takeDbRequest !== "function") return;
+  const req = app.takeDbRequest();
+  if (req !== "connect") return;
+  if (!dbLauncher) {
+    dbLauncher = new GridDbLauncher();
+  }
+  const driver = app.dbRequestDriver === "auto" ? "" : String(app.dbRequestDriver || "");
+  const dsn = String(app.dbRequestDsn || ":memory:");
+  const table = String(app.dbRequestTable || "sales");
+  // Demo rows are only seeded into an in-memory database. Pointed at a file,
+  // a table that is not there has to say so rather than be invented.
+  const seed = dsn === ":memory:" ? DB_SEED_ROWS : 0;
+  const ok = dbLauncher.start(app, driver, dsn, table, seed);
+  console.log((ok ? "  connected: " : "  connect failed: ") + dbLauncher.status);
+}
+
 function applyEvent(ev) {
   if (ev.type === "paste") {
     // OS clipboard → grid. Text we exported ourselves keeps the structured
@@ -200,6 +222,7 @@ function applyEvent(ev) {
     return null;
   }
   app.update(liveInput);
+  serviceDbRequest();
   // Anything at all may have copied: Ctrl+C, Ctrl+X, or the Copy button on a
   // chart window, which arrives as an ordinary pointer click. The app counts
   // copies, so noticing one is a comparison rather than a guess about which
@@ -363,6 +386,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const ran = app.runCommand(String(payload.id || ""), String(payload.arg || ""));
+    serviceDbRequest();
     // A custom tool leaves its id in the app's mailbox; the host is the only
     // thing that knows what its own tool means, so it is handed back here.
     const custom = app.takeCustomCommand();

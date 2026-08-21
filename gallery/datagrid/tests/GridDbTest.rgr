@@ -186,6 +186,31 @@ class GridDbTest {
         check.eqInt("one category per row" (data.catCount()) app.db.loadedRows)
         check.eqStr("series named by the query column" (itemAt data.series 0) "revenue")
 
+        ; --- the connection window ---------------------------------------------
+        ; What the workbook is talking to, in one place: engine, data source,
+        ; table, keys, and what the engine could do for itself.
+        app.noteConnection((session.engineName()) ":memory:" (GridDbTest.tableName()))
+        app.runCommand("db.connection" "")
+        check.ok("the connection window opens" app.connDialog.visible)
+        check.eqStr("it names the engine" (app.connectionEngine()) (session.engineName()))
+        check.eqStr("and the table" (app.connectionTable()) (GridDbTest.tableName()))
+        check.eqStr("and the key columns" (app.connectionKeys()) "id")
+        def caps:DBCapabilities (session.capabilities())
+        check.ok("and what the engine can do" ((strlen (caps.describe())) > 0))
+        def engineField:EVGControl (app.connDialog.controlById(721))
+        check.eqStr("the engine is in the field" engineField.value (session.engineName()))
+        def sourceField:EVGControl (app.connDialog.controlById(722))
+        check.eqStr("the data source is in the field" sourceField.value ":memory:")
+
+        ; Connecting is the host's part: the app writes down what was asked for.
+        def tableField:EVGControl (app.connDialog.controlById(723))
+        tableField.value = "other_table"
+        app.connectFromDialog()
+        check.eqStr("a connect request is left for the host" (app.takeDbRequest()) "connect")
+        check.eqStr("with the table that was asked for" app.dbRequestTable "other_table")
+        check.eqStr("and it is taken only once" (app.takeDbRequest()) "")
+        app.connDialog.close()
+
         ; --- a sheet from typed SQL -------------------------------------------
         ; The query box: RangerSQL parses what was typed and SqlFront plans it
         ; into the same QuerySpec a sheet built in code uses, so a typed SELECT

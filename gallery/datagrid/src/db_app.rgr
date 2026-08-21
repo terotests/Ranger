@@ -193,10 +193,20 @@ class GridDbLauncher {
     ; sheet. Everything after this is the ordinary editor.
     fn start:boolean (app:GridApp driver:string dsn:string table:string seedRows:int) {
         if ((this.openSession(driver dsn)) == false) {
+            app.dbConnStatus = status
             return false
         }
         def fresh:boolean ((this.tableExists(table)) == false)
         if fresh {
+            ; A demo table is only invented when the caller asked for demo rows.
+            ; Pointed at a real database, a wrong table name has to come back as
+            ; "no such table" rather than as a new empty one.
+            if (seedRows <= 0) {
+                status = (engine + ": no table called " + table)
+                app.dbConnStatus = status
+                app.view.status = status
+                return false
+            }
             session.createTable(table (GridDbLauncher.columns()))
         }
         def probe:QuerySpec (QuerySpec.forTable(table))
@@ -212,11 +222,17 @@ class GridDbLauncher {
         push keys "id"
         def ok:boolean (app.bindDatabase(session spec keys ("DB " + table)))
         rows = app.db.loadedRows
+        ; What the connection window shows: which engine, which data source,
+        ; which table. The app holds a session and nothing else - this is the
+        ; part only the host knows.
+        app.noteConnection(engine dsn table)
         if (ok == false) {
             status = (engine + ": " + app.db.status)
+            app.dbConnStatus = status
             return false
         }
         status = (engine + ": " + table + ", " + (to_string rows) + " rows - edit a cell and it is written back")
+        app.dbConnStatus = status
         app.view.status = status
         return true
     }

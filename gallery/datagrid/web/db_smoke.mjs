@@ -141,6 +141,27 @@ try {
   const oneColumn = (await scene()) || queried;
   must("the new query replaced the sheet", oneColumn.includes("country"));
 
+  // --- the connection window, and switching engines through it ---------------
+  await command("db.connection", "");
+  await sleep(200);
+  const connOpen = (await scene()) || oneColumn;
+  must("the connection window is on screen", connOpen.includes("Database connection"));
+  must("it names the engine it is connected to", connOpen.includes("connected: "));
+  must("and what that engine can do", connOpen.includes("engine can: "));
+  must("and which columns identify a row", connOpen.includes("key columns: "));
+
+  // The Engine field has focus: clear it, type another engine, Enter is
+  // Connect. RangerDB is always present, so this switch works anywhere.
+  for (let i = 0; i < 14; i++) {
+    await post({ type: "key", key: "backspace" });
+  }
+  await post({ type: "text", text: "rangerdb" });
+  await post({ type: "key", key: "enter" });
+  await sleep(800);
+  const switched = (await scene()) || connOpen;
+  must("the host connected the engine that was asked for", switched.includes("rangerdb: sales"));
+  must("and the sheet came back with it", switched.includes("Finland"));
+
   console.log(failed === 0 ? "ALL PASS" : "FAILURES");
 } catch (e) {
   console.error("[db-smoke] " + (e && e.message ? e.message : e));

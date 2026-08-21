@@ -209,6 +209,21 @@ class DbDemo {
         def sheetPng:PNGEncoder (new PNGEncoder)
         sheetPng.encode(sheetShot "gallery/datagrid/artifacts" "db_sheet.png")
 
+        ; --- the connection window --------------------------------------------
+        app.noteConnection((session.engineName()) ":memory:" (DbDemo.tableName()))
+        app.runCommand("db.connection" "")
+        print ""
+        print ("connection: " + (app.connectionEngine()) + "  source " + (app.connectionSource()) + "  table " + (app.connectionTable()))
+        print ("keys: " + (app.connectionKeys()) + "  " + (app.connectionRows()))
+        app.render()
+        def connShot:RasterBuffer (new RasterBuffer)
+        connShot.width = app.W
+        connShot.height = app.H
+        connShot.pixels = (app.raw())
+        def connPng:PNGEncoder (new PNGEncoder)
+        connPng.encode(connShot "gallery/datagrid/artifacts" "db_connection.png")
+        app.connDialog.close()
+
         ; --- the SQL box ------------------------------------------------------
         ; The same query, typed rather than built: RangerSQL parses it and
         ; SqlFront plans it into the QuerySpec the sheet already speaks.
@@ -229,6 +244,6 @@ class DbDemo {
         sqlPng.encode(sqlShot "gallery/datagrid/artifacts" "db_sql_box.png")
 
         print ""
-        print "wrote gallery/datagrid/artifacts/db_sheet.png and db_sql_box.png"
+        print "wrote gallery/datagrid/artifacts/db_sheet.png, db_connection.png and db_sql_box.png"
     }
 }
