@@ -333,6 +333,27 @@ class VlChartTest {
         this.sameChart("polar column" chart want)
     }
 
+    ; A Pareto chart: bars against one scale and a line against another, up
+    ; opposite sides of the same plot.
+    fn testDualAxis:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(220 160)
+        chart.independent("y")
+        def bars (chart.bar())
+        bars.x("region").keepOrder()
+        bars.y("sales").aggregate("sum")
+        def trend (chart.line())
+        trend.withPoints(true)
+        trend.x("region").keepOrder()
+        trend.y("cost").aggregate("mean").axisOrient("right")
+        def want:string ("{\"width\":220,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"layer\":[{\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"region\",\"sort\":null,\"type\":\"nominal\"},\"y\":{\"field\":\"sales\",\"aggregate\":\"sum\",\"type\":\"quantitative\"}}}")
+        want = (want + ",{\"mark\":{\"type\":\"line\",\"point\":true},\"encoding\":{\"x\":{\"field\":\"region\",\"sort\":null,\"type\":\"nominal\"},\"y\":{\"field\":\"cost\",\"aggregate\":\"mean\",\"axis\":{\"orient\":\"right\"},\"type\":\"quantitative\"}}}]")
+        want = (want + ",\"resolve\":{\"scale\":{\"y\":\"independent\"}}}")
+        this.sameChart("dual axis" chart want)
+    }
+
     ; --- what the API answers on its own -------------------------------------
 
     fn testInference:void () {
@@ -453,6 +474,7 @@ class VlChartTest {
         this.testStackedLine()
         this.testBoxplotSized()
         this.testPolarColumn()
+        this.testDualAxis()
         if (failures > 0) {
             print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
         } {

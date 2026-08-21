@@ -574,6 +574,11 @@ class VlChartScript {
             chart.on(channel)
             return
         }
+        if (name == "independent") {
+            def apart:string (this.text(args 0 "independent"))
+            chart.independent(apart)
+            return
+        }
         this.fail((("a chart has no method '" + name) + "'"))
     }
 
@@ -829,6 +834,11 @@ class VlChartScript {
             def channel3:string (this.text(args 0 "valueString"))
             def value3:string (this.text(args 1 "valueString"))
             current.valueString(channel3 value3)
+            return
+        }
+        if (name == "axisOrient") {
+            def side:string (this.text(args 0 "axisOrient"))
+            current.axisOrient(side)
             return
         }
         if (name == "chart") {

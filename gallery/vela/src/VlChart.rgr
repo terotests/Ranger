@@ -465,6 +465,17 @@ class VlChartMark {
     fn noAxis:VlChartMark () {
         return (this.setOnCursor("axis" (VlJson.nullValue())))
     }
+    ; Which side of the plot this channel's axis stands on — "left", "right",
+    ; "top", "bottom". A Pareto chart's cumulative line is measured up the
+    ; right-hand side, which is the whole point of drawing it there.
+    fn axisOrient:VlChartMark (side:string) {
+        def axis (VlJson.objectValue())
+        axis.setMember("orient" (VlJson.stringValue(side)))
+        return (this.setOnCursor("axis" axis))
+    }
+    fn axisJson:VlChartMark (axis:VlJson) {
+        return (this.setOnCursor("axis" axis))
+    }
 
     ; --- properties of the mark itself ---------------------------------------
     fn propNumber:VlChartMark (key:string value:double) {
@@ -552,6 +563,8 @@ class VlChart {
     def props:VlJson (VlJson.objectValue())
     def transforms:VlJson (VlJson.arrayValue())
     def cfg:VlJson (VlJson.objectValue())
+    ; What the layers must not share.
+    def resolve:VlJson (VlJson.objectValue())
     ; What could not be built, said out loud. A chart that names a column its
     ; data does not have is the case this exists for: Vega-Lite would draw an
     ; empty axis and say nothing.
@@ -751,6 +764,21 @@ class VlChart {
         return this
     }
 
+    ; Two marks measuring different things up the same side of the plot must
+    ; not share a scale: `chart.independent("y")` is what makes a Pareto chart
+    ; — bars against a count, a line against a running percentage — rather than
+    ; two series averaged into one axis neither of them asked for.
+    fn independent:VlChart (channel:string) {
+        def scales:VlJson (resolve.get("scale"))
+        if (! (scales.isObject())) {
+            def fresh (VlJson.objectValue())
+            resolve.setMember("scale" fresh)
+            scales = fresh
+        }
+        scales.setMember(channel (VlJson.stringValue("independent")))
+        return this
+    }
+
     ; Said once. `toSpec` may be called more than once — a caller that writes
     ; the specification out and then hands it on calls it twice — and the same
     ; missing column reported twice reads as two mistakes.
@@ -893,6 +921,10 @@ class VlChart {
                 push layers.arr layer
             }
             out.setMember("layer" layers)
+            def resolveCount:int (array_length resolve.keys)
+            if (resolveCount > 0) {
+                out.setMember("resolve" resolve)
+            }
         }
         def cfgCount:int (array_length cfg.keys)
         if (cfgCount > 0) {

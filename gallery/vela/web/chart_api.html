@@ -81,6 +81,7 @@
         <button type="button" data-preset="donut">Donitsi</button>
         <button type="button" data-preset="heat">Lämpökartta</button>
         <button type="button" data-preset="rose">Ruusu</button>
+        <button type="button" data-preset="pareto">Pareto</button>
       </div>
       <textarea id="code" spellcheck="false" aria-label="API-kutsut"></textarea>
       <div id="status">…</div>
@@ -146,6 +147,17 @@ def wedges (chart.arc())
 wedges.innerRadius(52)
 wedges.theta("sales").aggregate("sum")
 wedges.color("region")`,
+    data: null,
+  },
+  pareto: {
+    code: `chart.size(300 180)
+chart.independent("y")
+def bars (chart.bar())
+bars.x("region").keepOrder().y("sales").aggregate("sum")
+def trend (chart.line())
+trend.withPoints(true)
+trend.x("region").keepOrder()
+trend.y("cost").aggregate("mean").axisOrient("right")`,
     data: null,
   },
   rose: {

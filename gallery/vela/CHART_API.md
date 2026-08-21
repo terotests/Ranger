@@ -332,7 +332,7 @@ in [`tests/chart_types`](tests/chart_types/) and go through both implementations
 npm run vela:types      # Ranger and official Vega-Lite, scene against scene
 ```
 
-**34 of 37 draw exactly what the reference draws.** Getting there fixed six
+**35 of 37 draw exactly what the reference draws.** Getting there fixed nine
 defects, each of which was invisible from the suite that existed:
 
 | what was wrong | what the reference does |
@@ -342,14 +342,13 @@ defects, each of which was invisible from the suite that existed:
 | A **stacked line was not stacked** | a line stacks when the chart *says* so (a bar and an area stack by default and a line never), and a stacked line imputes the categories a series skips, so the ones above it stand on something |
 | A **rule on a discrete axis sat half a pixel off** | a rule is a **band** scale with no padding, placed in the middle of its band — not a point scale. Only a band takes back the half pixel its axis group is offset by, so the hi-lo chart's geometry was right and its axis was not |
 | An **error bar was titled after the columns it was computed from** — `"lower_y, upper_y"` — and called itself a rule | the axis is named after the column the interval is *about*, the band is expanded as a layer of one (`layer_0_marks`), and a composite says what it is: `ariaRoleDescription: "errorbar"` |
+| A **dual-axis chart measured its first layer against the second one's column** | `resolve` belongs to the composition that states it, not to its layers. Inherited, a layer that expands into layers of its own — a line asked to show its points — numbered its scales from zero again and gave them the names the outer layers already had. Two more came out from under it: a layer inside a layer is `layer_1_layer_0_marks`, not `layer_11_marks`; and a nested layer must be told what its parent already knows about the scales, or its line stands at the start of the band the bar beside it fills |
+| A **second axis stood on both sides of the plot** | a layer that does not share a scale gets its axis on the far side and no grid — and the grid axis is *dropped* rather than kept with its grid turned off, because an axis with no ink still reserves room beside the plot |
 | A **polar column collapsed to one wedge** | an angle read from a CATEGORY is a **band of the circle** — one slice per category, all the same size — and the length of the wedge inside it is what the chart measures. Typed as a number, a category answered nothing and every wedge came out at the same degenerate angle. The radius is then what accumulates, so a polar column stacks by default the way a bar does, and the stack beats a stated `innerRadius` |
 
 What still differs, and it is worth naming precisely rather than rounding up:
 
-* **`pareto`** — two y scales resolved independently. One of the second layer's
-  two domain entries lands in the *first* layer's scale, so the left axis is
-  scaled to a column it does not draw and gets a fifth tick. The two axes are
-  also emitted twice each. Dual-axis charts draw, but not yet exactly.
+
 * **`errorbar` / `errorband`** — the geometry, the styles, the names and the
   aria role now match; the `description` string a screen reader is handed still
   lists the two ends where the reference lists the mean and both ends.

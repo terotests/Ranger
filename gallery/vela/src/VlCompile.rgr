@@ -850,7 +850,16 @@ class VlCompile {
             ; whole path down to it. Named after its own index alone, the
             ; second layer of the first layer and the second layer of the chart
             ; were both "data_1", and one silently replaced the other.
-            child.layerPath = (layerPath + (VlJson.intToText(index)))
+            ; A layer inside a layer is `1_layer_0`, which is the name the
+            ; reference gives it: a line asked to show its points expands into
+            ; layers of its own, and run together the eleventh layer of a chart
+            ; and the first sub-layer of its second layer were both called
+            ; `layer_11_marks`.
+            def path:string (VlJson.intToText(index))
+            if ((strlen layerPath) > 0) {
+                path = ((layerPath + "_layer_") + path)
+            }
+            child.layerPath = path
             ; Where the layered chart itself sits: a pane of a concatenation
             ; names its scales, its data and its size after the pane. A layer
             ; that did not inherit that named its scales `x` and `y` like every
@@ -862,6 +871,16 @@ class VlCompile {
             child.insidePanel = insidePanel
             child.dataLabel = ((prefix + "data_") + child.layerPath)
             child.markLabel = (((prefix + "layer_") + child.layerPath) + "_marks")
+            ; What THIS layering already knows about its scales goes down with
+            ; the layer: a layer that expands into layers of its own — a line
+            ; asked to show its points — would otherwise decide afresh that a
+            ; category is a point scale, and its marks would stand at the start
+            ; of a band the bar beside them fills. Twenty pixels out, on a
+            ; forty-five pixel band.
+            for (keys forcedTypes) forced:string fi {
+                def already:string (unwrap (get forcedTypes forced))
+                set child.forcedTypes forced already
+            }
             if bandX {
                 set child.forcedTypes "x" "band"
             }
@@ -3284,19 +3303,30 @@ class VlCompile {
         if (channel == "x") {
             far = "top"
         }
+        def kept:[VlJson]
         def k:int 0
         while (k < (axes.count())) {
             def a:VlJson (axes.at(k))
             if ((a.stringOr("scale" "")) == scaleName) {
                 if (a.boolOr("grid" false)) {
                     ; A grid axis for a scale nothing else measures rules the
-                    ; plot twice over. The reference draws one grid.
-                    a.setMember("grid" (VlJson.boolValue(false)))
+                    ; plot twice over, and the reference draws one grid — from
+                    ; the FIRST layer. Kept with its grid turned off it is a
+                    ; second axis standing on the near side drawing nothing,
+                    ; and an axis with no ink still reserves room beside the
+                    ; plot: dropped is what the reference writes.
                 } {
                     a.setMember("orient" (VlJson.stringValue(far)))
+                    push kept a
                 }
+            } {
+                push kept a
             }
             k = (k + 1)
+        }
+        clear axes.arr
+        for kept one:VlJson oi {
+            push axes.arr one
         }
     }
 
@@ -3596,11 +3626,17 @@ class VlCompile {
             ; The composition itself is not inherited — a pane of a
             ; concatenation is not another concatenation.
             def composition:boolean (((key == "layer") || (key == "hconcat")) || ((key == "vconcat") || (key == "facet")))
+            ; …and neither is `resolve`: it says how THIS composition's panes
+            ; share their scales. Inherited, a layer that expands into layers
+            ; of its own — a line asked to show its points is two marks —
+            ; numbered its scales from zero again and gave them the names the
+            ; OUTER layers were already using, so a dual-axis chart's first
+            ; scale ended up measuring the second layer's column.
             ; `concat` and the column count that folds it belong to the
             ; concatenation, not to its panes — inherited, every pane became a
             ; copy of the whole thing and the compiler recursed until the stack
             ; ran out.
-            if ((key == "concat") || (key == "columns")) {
+            if (((key == "concat") || (key == "columns")) || (key == "resolve")) {
                 composition = true
             }
             if composition {
