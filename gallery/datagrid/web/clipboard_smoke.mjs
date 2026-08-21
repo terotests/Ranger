@@ -64,9 +64,24 @@ async function clickText(label, dx, dy) {
   if (!at) throw new Error(`nothing painted says "${label}"`);
   const x = Math.round(at.x + (dx || 8));
   const y = Math.round(at.y + (dy || 6));
-  const down = await post("/input", { type: "pointer", x, y, down: true });
-  const up = await post("/input", { type: "pointer", x, y, down: false });
+  return clickAt(x, y);
+}
+
+async function clickAt(x, y) {
+  const down = await post("/input", { type: "pointer", x: Math.round(x), y: Math.round(y), down: true });
+  const up = await post("/input", { type: "pointer", x: Math.round(x), y: Math.round(y), down: false });
   return down || up;
+}
+
+/** A chart's tools are icons, so they are found by asking the app where they
+ *  are rather than by reading a label out of the scene. */
+async function chartTool(glyph) {
+  const state = await get("/charts");
+  const chart = (state.charts || [])[0];
+  if (!chart) throw new Error("no chart on the sheet");
+  const tool = (chart.tools || []).find((t) => t.glyph === glyph);
+  if (!tool) throw new Error(`the chart has no "${glyph}" tool`);
+  return { chart, tool };
 }
 
 /** The PNG, read the way any other program would read it. */
@@ -135,9 +150,18 @@ async function main() {
     await post("/command", { id: "insert.chart", arg: "" });
     check("the picker opened on the selection", !!(await findText("Chart type")));
     await clickText("Create", 8, 6);
-    check("a chart window appeared", !!(await findText("Copy")));
+    const placed = await chartTool("copy");
+    check("a chart appeared", placed.chart.w > 0 && placed.chart.h > 0);
+    check("wearing no window chrome", placed.chart.bare && !placed.chart.selected);
 
-    const reply = await clickText("Copy", 8, 6);
+    // Click the picture first: that is what selects a chart and brings its
+    // tools out. Clicking where a hidden tool sits must NOT fire it.
+    const idle = await clickAt(placed.chart.x + placed.chart.w / 2, placed.chart.y + placed.chart.h / 2);
+    const selected = await get("/charts");
+    check("clicking the picture selects it", !!selected.charts[0].selected);
+
+    const copy = await chartTool("copy");
+    const reply = await clickAt(copy.tool.x + copy.tool.w / 2, copy.tool.y + copy.tool.h / 2);
     check("clicking Copy answers with a payload", !!(reply && reply.clipboard !== undefined));
     if (!reply) throw new Error("no clipboard payload");
 

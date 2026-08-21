@@ -347,36 +347,52 @@ class ChartLayer {
         return (p.chart.id == id)
     }
 
-    ; The window a chart lives in: a title bar you can drag, a close box, a
-    ; content region this layer paints, and one button to get back to the
-    ; editor. Rebuilt whenever the chart changes, because the caption is part
-    ; of the chart.
+    ; The window a chart lives in — and it is deliberately hardly a window.
+    ;
+    ; It used to be a dialog: a dark caption bar with the range written across
+    ; it, a close box in the corner, a sunken recess around the drawing, and a
+    ; row of "Copy" and "Edit…" buttons underneath. Sixty pixels of furniture
+    ; around a picture, permanently, whether or not anyone was doing anything
+    ; to it — and on a spreadsheet a chart is a thing sitting on the page, not
+    ; a dialog floating over it.
+    ;
+    ; So: bare. A hairline, a hint of shadow, and the whole body is the drag
+    ; handle — you move a chart by taking hold of the chart. Copy, Edit and
+    ; Close became three small icons over the top-right corner, and they are
+    ; drawn only while this is the chart you are working with. Click it and
+    ; they appear; click anywhere else and the chart goes back to being a
+    ; picture.
+    ;
+    ; Rebuilt whenever the chart changes, as before.
     fn layoutWindow:void (p:ChartPanel) {
         def wnd:EVGWindow p.win
+        def wasOpen:boolean wnd.toolsOpen
         wnd.title = (p.chart.caption())
+        wnd.bare = true
         wnd.modal = false
-        wnd.closable = true
+        ; The close is a tool now, so the caption's box — which needs a caption
+        ; to sit in — is off.
+        wnd.closable = false
         wnd.closeId = (ChartLayer.closeId())
         wnd.resizable = true
-        wnd.minW = 220
-        wnd.minH = 170
-        wnd.padX = 6
-        wnd.padY = 6
+        wnd.minW = 180
+        wnd.minH = 120
+        wnd.padX = 4
+        wnd.padY = 4
         wnd.w = p.chart.w
         wnd.reset()
         wnd.addContent((ChartLayer.contentId()) 120)
-        def ids:[int]
-        push ids (ChartLayer.copyId())
-        push ids (ChartLayer.editId())
-        def labels:[string]
-        push labels "Copy"
-        push labels "Edit…"
-        wnd.addButtonRow(ids labels (ChartLayer.editId()))
+        wnd.addTool((ChartLayer.copyId()) "copy")
+        wnd.addTool((ChartLayer.editId()) "edit")
+        wnd.addTool((ChartLayer.closeId()) "close")
         wnd.finish()
         wnd.setSize(p.chart.w p.chart.h)
         wnd.x = p.chart.x
         wnd.y = p.chart.y
         wnd.visible = true
+        ; Editing a chart from its own tools rebuilds this window; coming back
+        ; to find the chart deselected would be a second thing the click did.
+        wnd.toolsOpen = wasOpen
     }
 
     ; Add a chart described by `spec` (its range, kind, style and box) and give

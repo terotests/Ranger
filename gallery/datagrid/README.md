@@ -572,9 +572,48 @@ under `game_engine`, and both are fixed.
 ## Charts
 
 Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
-picker opens on that range. Pick a type and a style, and the chart appears in a
-window floating over the sheet that you can drag, resize, and reopen for
-editing.
+picker opens on that range. Pick a type and a style, and the chart appears on
+the sheet — a picture with a hairline round it, which you drag by taking hold
+of the picture.
+
+### A chart is not a dialog
+
+It used to be one: a dark caption bar with the range written across it, a close
+box, a sunken recess around the drawing, and a row of **Copy** and **Edit…**
+buttons underneath. Sixty pixels of furniture around a picture, permanently,
+whether or not anyone was doing anything to it — and on a spreadsheet a chart
+is a thing sitting on the page, not a dialog floating over it.
+
+So the frame went. `EVGWindow` grew a **bare** mode: a hairline and a hint of
+shadow instead of a caption bar, the whole body as the drag handle (there is no
+bar to grab, and grabbing a chart by the chart is the obvious gesture), and no
+recess around the content — a sunken border around a picture that already has
+one is a second frame nobody asked for. The same window class, three fields
+different; a dialog is unchanged.
+
+Copy, Edit and Close became three small icons over the top-right corner, drawn
+only while that chart is the one being worked with. Click the picture and they
+appear, along with the resize grip and an accent edge; click anywhere else and
+the chart goes back to being a picture. The strip is painted **after** the
+content — a window paints its frame, the owner paints the picture, and then
+`paintOverlay` puts the tools on top, because that is the only order in which a
+strip over a picture is over it.
+
+Selecting takes one click and pressing a tool takes the next, and the ordering
+is deliberate rather than incidental: the strip opens in the window's own drag
+handler and the manager only ever *closes* it. Open it from the manager instead
+and the strip would already be up by the time that same press reached the
+window, so the first click on a chart would fire whichever invisible tool it
+happened to land on.
+
+The icons are drawn as rectangles — the close box always was — because a glyph
+would need a face the host may not have loaded and a path would need a stencil
+buffer the GL backend only keeps for fills. Six rectangles each, and every
+backend already draws rectangles.
+
+Nothing was lost with the caption: `wnd.title` is still what the chart is
+called, the editor still opens on the range, and a chart that used to spend
+sixty pixels on chrome now spends them on the drawing.
 
 Clicking a column header selects from its header through its last populated
 cell. Ctrl+click keeps additional columns; **+ Chart** uses exactly those
@@ -594,7 +633,7 @@ chart follows on the next frame.
 | cells → Vega-Lite JSON | `GridChart.rgr` (`ChartData.specJson`) |
 | Vega-Lite → Vega → scene → draw commands | [Vela](../vela/README.md), unchanged |
 | draw commands → `EVGDrawCmd` | [`VlEvgList.rgr`](../vela/src/VlEvgList.rgr) |
-| the window, the drag, the resize | [`EVGWindow`](../evg/EVGWindow.rgr) |
+| the frame, the drag, the resize, the tool strip | [`EVGWindow`](../evg/EVGWindow.rgr) |
 
 Only the first arrow is new. Everything below it is Vela's, which is checked
 against the official Vega implementation by its own corpus, so a bar here is

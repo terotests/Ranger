@@ -1791,6 +1791,9 @@ class GridView {
             def wnd:EVGWindow (itemAt windows.windows wi)
             wnd.paint(dl ctx.tr pageW pageH)
             chartLayer.paintContent(dl model ctx.tr wnd)
+            ; And only now the window's own overlay: a chart's tool strip sits
+            ; ON the chart, so it has to be drawn after the chart is.
+            wnd.paintOverlay(dl ctx.tr)
             ; The picker's own preview, drawn into the region it left for it.
             ; Same renderer, same cache, same everything as a chart on the
             ; sheet — which is the point: what you see is what you will get.
