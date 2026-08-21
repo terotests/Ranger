@@ -119,6 +119,9 @@ class GridView {
     ; cell's top corner.
     ; The insertion point a carried column would drop at, or -1.
     def colDropAt:int -1
+    ; A tab being carried, and where it would land. -1 for neither.
+    def tabDragFrom:int -1
+    def tabDropSlot:int -1
     ; The span of selected text inside the field being edited, as character
     ; offsets, or -1 -1 for none. Drawn as a band behind the letters, which is
     ; what a text field looks like everywhere.
@@ -1706,6 +1709,12 @@ class GridView {
                     if (si == book.activeIndex) {
                         this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
                     }
+                    ; The tab you are carrying is greyed where it came from,
+                    ; the way a dragged column header is: the strip has to
+                    ; show that this one has been picked up.
+                    if (si == tabDragFrom) {
+                        this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.selection)
+                    }
                     this.pushText(dl shown (to_double (tabX + tabPad)) (to_double (tabY + 5)) 12.0 theme.headerText)
                     this.pushRect(dl (to_double ((tabX + tabW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
                     grid.addTabLayout(si tabX tabW)
@@ -1713,6 +1722,22 @@ class GridView {
                     si = (si + 1)
                 }
             }
+        }
+        ; The new-sheet button, after the last tab. Excel's plus, in Excel's
+        ; place, doing Excel's thing — a sheet after the one you are on.
+        def plusW:int 26
+        if ((tabX + plusW) <= (grid.x + grid.w)) {
+            grid.setTabPlus(tabX plusW)
+            def pcx:int (tabX + (idiv plusW 2))
+            def pcy:int (tabY + (idiv grid.sheetTabH 2))
+            this.pushRect(dl (to_double (pcx - 5)) (to_double pcy) 11.0 1.0 theme.headerText)
+            this.pushRect(dl (to_double pcx) (to_double (pcy - 5)) 1.0 11.0 theme.headerText)
+            this.pushRect(dl (to_double ((tabX + plusW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+        }
+        ; Where a carried tab would land.
+        if (tabDropSlot >= 0) {
+            def dropX:int (grid.tabSlotX(tabDropSlot))
+            this.pushRect(dl (to_double (dropX - 1)) (to_double tabY) 2.0 (to_double grid.sheetTabH) theme.activeBorder)
         }
         this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
 

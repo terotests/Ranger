@@ -224,6 +224,17 @@ class GridApp {
     def borderDialog:EVGWindow (new EVGWindow)
     def borderLine:string "thin"
     def borderInk:string "#000000"
+    ; Renaming a sheet, and which one.
+    def renameDialog:EVGWindow (new EVGWindow)
+    def renameIndex:int 0
+    def renameStatus:string ""
+    ; A tab being carried. `tabDragArmed` is the same idea as `colDragArmed`:
+    ; a press on a tab is a click until the pointer has travelled far enough
+    ; that it cannot be one.
+    def tabDragFrom:int -1
+    def tabDragStartX:int 0
+    def tabDragArmed:boolean false
+    def movingTab:boolean false
     def colorPick:string "#C00000"
     def colorRecent:[string]
     ; Live preview while the palette is open: styles before the picker ran,
@@ -812,6 +823,9 @@ class GridApp {
         commands.add("select.all" "Select all" "Select" "Ctrl+A")
         commands.add("select.column" "Select column" "Select" "Ctrl+Space")
         commands.add("select.row" "Select row" "Select" "Shift+Space")
+        commands.add("sheet.add" "New sheet" "Sheet" "")
+        commands.addArg("sheet.rename" "Rename sheet…" "Sheet" "")
+        commands.addArg("sheet.move" "Move sheet" "Sheet" "")
         commands.addArg("nav.goto" "Go to cell" "Select" "")
         commands.add("view.sheet.next" "Next sheet" "View" "")
         commands.add("view.sheet.prev" "Previous sheet" "View" "")
@@ -1071,6 +1085,26 @@ class GridApp {
         if (id == "select.row") {
             this.selectRow(sel.active.row)
             return true
+        }
+        ; --- the sheet tabs ---------------------------------------------------
+        if (id == "sheet.add") {
+            return (this.addSheet())
+        }
+        if (id == "sheet.rename") {
+            ; No argument opens the window on the sheet you are on; an
+            ; argument renames it outright, which is what a host wants.
+            if ((strlen arg) == 0) {
+                this.openRenameDialog(book.activeIndex)
+                return true
+            }
+            return (this.renameSheetTo(book.activeIndex arg))
+        }
+        if (id == "sheet.move") {
+            def want@(optional):int (to_int arg)
+            if (!null? want) {
+                return (this.moveSheetTo(book.activeIndex (unwrap want)))
+            }
+            return false
         }
         if (id == "nav.goto") {
             return (this.gotoCell(arg))
@@ -1665,6 +1699,219 @@ class GridApp {
         view.chartLayer.showSheet(book.activeIndex)
     }
 
+
+    ; --- the sheet tabs -------------------------------------------------------
+    ; The strip could switch sheets and nothing else: a workbook that arrived
+    ; with three sheets stayed a workbook with three sheets, in that order,
+    ; under those names, forever. The three things a tab strip is for are here
+    ; now — a `+` after the last tab, a double click to rename, and a drag to
+    ; reorder — and all three go through the command table, so the keyboard and
+    ; a host reach them the same way the mouse does.
+    ;
+    ; Two consequences a caller must not have to remember, and does not:
+    ;
+    ;   * A rename moves every formula in the workbook that names the sheet.
+    ;     `Costs!B4` is TEXT, so renaming the sheet and leaving the formulas
+    ;     alone turns each of them into `#NAME?`.
+    ;   * Adding or moving a sheet renumbers every index anyone was holding.
+    ;     A chart remembers which sheet it belongs to as a NUMBER, and a number
+    ;     that is not remapped does not become invalid — it quietly starts
+    ;     naming a different sheet, which is worse.
+    fn addSheet:boolean () {
+        if editing {
+            this.commitEdit()
+        }
+        def fresh:SpreadsheetModel (new SpreadsheetModel)
+        fresh.clearSheet()
+        fresh.resize(200 26)
+        fresh.name = (book.nextSheetName())
+        def at:int (book.activeIndex + 1)
+        book.insertSheet(at fresh)
+        this.remapChartSheets(at 1)
+        this.setActiveSheet(at)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+        view.status = ("added " + fresh.name)
+        return true
+    }
+
+    ; Every chart's sheet number, after `count` sheets were inserted at `at`.
+    fn remapChartSheets:void (at:int count:int) {
+        def i:int 0
+        while (i < (view.chartLayer.count())) {
+            def p:ChartPanel (view.chartLayer.panelAt(i))
+            if (p.chart.sheet >= at) {
+                p.chart.sheet = (p.chart.sheet + count)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; And after a move, which is a permutation rather than a shift.
+    fn remapChartMove:void (from:int to:int) {
+        def i:int 0
+        while (i < (view.chartLayer.count())) {
+            def p:ChartPanel (view.chartLayer.panelAt(i))
+            p.chart.sheet = (WorkbookModel.remapIndex(p.chart.sheet from to))
+            i = (i + 1)
+        }
+    }
+
+    fn moveSheetTo:boolean (from:int to:int) {
+        if ((from < 0) || (from >= (book.sheetCount()))) {
+            return false
+        }
+        def dest:int to
+        if (dest < 0) {
+            dest = 0
+        }
+        if (dest >= (book.sheetCount())) {
+            dest = ((book.sheetCount()) - 1)
+        }
+        if (dest == from) {
+            return false
+        }
+        def moved:SpreadsheetModel (book.sheetAt(from))
+        def nm:string moved.name
+        book.moveSheet(from dest)
+        this.remapChartMove(from dest)
+        this.syncActiveModel()
+        view.chartLayer.showSheet(book.activeIndex)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+        view.status = ("moved " + nm)
+        return true
+    }
+
+    ; Rename the sheet at `at`, and every formula that named it.
+    fn renameSheetTo:boolean (at:int name:string) {
+        if ((at < 0) || (at >= (book.sheetCount()))) {
+            return false
+        }
+        if ((book.nameIsValid(at name)) == false) {
+            return false
+        }
+        def sheet:SpreadsheetModel (book.sheetAt(at))
+        def was:string sheet.name
+        if (was == name) {
+            return true
+        }
+        sheet.name = name
+        this.rewriteSheetName(was name)
+        this.syncActiveModel()
+        engine.rebuildAll()
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+        view.status = (("renamed " + was) + " to " + name)
+        return true
+    }
+
+    ; Every formula in the workbook, through the parser: the ones that name
+    ; the old sheet come back rewritten and the rest come back "", which is
+    ; also what an unparseable one gives — either way that cell is left alone.
+    fn rewriteSheetName:void (was:string now:string) {
+        def si:int 0
+        def sn:int (book.sheetCount())
+        while (si < sn) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            def keys:[string]
+            def texts:[string]
+            sheet.snapshotFormulas(keys texts)
+            def i:int 0
+            while (i < (array_length keys)) {
+                def key:string (itemAt keys i)
+                def expr:string (itemAt texts i)
+                def rewritten:string (FormulaParser.renameSheet(expr was now))
+                if ((strlen rewritten) > 0) {
+                    if (rewritten != expr) {
+                        set sheet.formulas key rewritten
+                    }
+                }
+                i = (i + 1)
+            }
+            si = (si + 1)
+        }
+        model.version = (model.version + 1)
+    }
+
+    ; --- the rename window ----------------------------------------------------
+    ; Ids: 1201 the name, 1291 Cancel, 1292 Rename.
+    fn openRenameDialog:void (at:int) {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        if ((at < 0) || (at >= (book.sheetCount()))) {
+            return
+        }
+        renameIndex = at
+        def sh:SpreadsheetModel (book.sheetAt(at))
+        renameDialog.reset()
+        renameDialog.labelW = 60
+        renameDialog.addLabel("Rename the sheet")
+        renameDialog.addInput(1201 "Name" sh.name)
+        if ((strlen renameStatus) > 0) {
+            renameDialog.addLabel(renameStatus)
+        }
+        def ids:[int]
+        def labels:[string]
+        push ids 1291
+        push labels "Cancel"
+        push ids 1292
+        push labels "Rename"
+        renameDialog.addButtonRow(ids labels 1292)
+        renameDialog.finish()
+        renameDialog.openWithin((grid.x + (idiv (W - renameDialog.w) 2)) (grid.y + 70) W H)
+        windows.raise(renameDialog)
+        renameDialog.focusedId = 1201
+        view.focused = true
+    }
+
+    fn applyRenameDialog:void () {
+        def want:string (renameDialog.inputValue(1201))
+        if (this.renameSheetTo(renameIndex want)) {
+            renameStatus = ""
+            renameDialog.close()
+            return
+        }
+        ; Say WHICH rule it broke. "Invalid" on its own is a puzzle, and the
+        ; rules are not guessable — 31 characters and six punctuation marks.
+        renameStatus = (GridApp.renameProblem(book renameIndex want))
+        def keepX:int renameDialog.x
+        def keepY:int renameDialog.y
+        this.openRenameDialog(renameIndex)
+        renameDialog.x = keepX
+        renameDialog.y = keepY
+    }
+
+    sfn renameProblem:string (book:WorkbookModel at:int name:string) {
+        def n:int (strlen name)
+        if (n == 0) {
+            return "A sheet needs a name."
+        }
+        if (n > 31) {
+            return "At most 31 characters."
+        }
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt name i)
+            if ((ch == 58) || (ch == 92) || (ch == 47) || (ch == 63) || (ch == 42) || (ch == 91) || (ch == 93)) {
+                return "Not : \\ / ? * [ ] — a reference uses those."
+            }
+            i = (i + 1)
+        }
+        if ((charAt name 0) == 39) {
+            return "Not a leading apostrophe."
+        }
+        if ((charAt name (n - 1)) == 39) {
+            return "Not a trailing apostrophe."
+        }
+        return "Another sheet is already called that."
+    }
+
     ; --- column sizing --------------------------------------------------------
     ; Auto-fit: widest painted cell in the column, plus the cell padding. The
     ; scan is capped so a 100k-row sheet stays instant — Excel samples too.
@@ -1727,6 +1974,14 @@ class GridApp {
 
     ; Double-click on a header edge (or anywhere in a header) auto-fits it.
     fn autoFitAt:boolean (px:int py:int) {
+        ; A double click on a sheet tab is how every spreadsheet asks for a
+        ; rename, and this is the double-click entry every host already calls.
+        def onTab:int (grid.hitSheetTab((book.sheetCount()) px py))
+        if (onTab >= 0) {
+            renameStatus = ""
+            this.openRenameDialog(onTab)
+            return true
+        }
         def edgeCol:int (grid.hitColResize(model px py))
         if (edgeCol >= 0) {
             this.autoFitColumn(edgeCol)
@@ -2701,6 +2956,9 @@ class GridApp {
         borderDialog.w = 300
         borderDialog.title = "Borders"
         windows.add(borderDialog)
+        renameDialog.w = 300
+        renameDialog.title = "Sheet name"
+        windows.add(renameDialog)
         sqlDialog.w = 460
         sqlDialog.title = "SQL query"
         windows.add(sqlDialog)
@@ -4890,6 +5148,15 @@ class GridApp {
                 view.colorPreviewWid = 0
             }
         }
+        if (renameDialog.activated > 0) {
+            if (renameDialog.activated == 1292) {
+                this.applyRenameDialog()
+            }
+            if (renameDialog.activated == 1291) {
+                renameStatus = ""
+                renameDialog.close()
+            }
+        }
         if borderDialog.visible {
             ; Live, like the chart picker: the preview draws whatever the
             ; controls say, so you can see a medium red box before you own one.
@@ -7005,6 +7272,9 @@ class GridApp {
         if movingColumn {
             return (GridCursor.grabbing())
         }
+        if movingTab {
+            return (GridCursor.grabbing())
+        }
         if resizing {
             return (GridCursor.resizeX())
         }
@@ -7188,6 +7458,22 @@ class GridApp {
     }
 
     fn handleDrag:void (input:UIInput) {
+        ; A tab press becomes a carry the same way a column header press does.
+        if tabDragArmed {
+            def moved:int (input.pointerX - tabDragStartX)
+            if (moved < 0) {
+                moved = (0 - moved)
+            }
+            if (moved > 5) {
+                tabDragArmed = false
+                movingTab = true
+            }
+        }
+        if movingTab {
+            view.tabDragFrom = tabDragFrom
+            view.tabDropSlot = (grid.tabDropSlot(input.pointerX))
+            return
+        }
         ; A header press becomes a carry once the pointer has travelled far
         ; enough that it cannot have been a click.
         if colDragArmed {
@@ -7328,10 +7614,20 @@ class GridApp {
                 this.runCommand(tool.id "")
                 return
             }
+            if (grid.hitSheetPlus(input.pointerX input.pointerY)) {
+                view.focused = true
+                this.addSheet()
+                return
+            }
             def tab:int (grid.hitSheetTab((book.sheetCount()) input.pointerX input.pointerY))
             if (tab >= 0) {
                 this.setActiveSheet(tab)
                 view.focused = true
+                ; Armed, not yet carried: a press on a tab is a click until
+                ; the pointer has moved far enough that it cannot be one.
+                tabDragArmed = true
+                tabDragFrom = tab
+                tabDragStartX = input.pointerX
             } {
                 def resizeCol:int (grid.hitColResize(model input.pointerX input.pointerY))
                 def resizeRow:int -1
@@ -7387,6 +7683,27 @@ class GridApp {
         }
 
         if input.pointerReleased {
+            if movingTab {
+                movingTab = false
+                tabDragArmed = false
+                def slot:int view.tabDropSlot
+                def lifted:int tabDragFrom
+                view.tabDragFrom = -1
+                view.tabDropSlot = -1
+                tabDragFrom = -1
+                if (slot >= 0) {
+                    ; An insertion SLOT turns into a destination index the
+                    ; same way a column drop does: landing after yourself is
+                    ; where you already are.
+                    def dest:int (grid.sheetForSlot(slot (book.sheetCount())))
+                    if (dest > lifted) {
+                        dest = (dest - 1)
+                    }
+                    this.moveSheetTo(lifted dest)
+                }
+                return
+            }
+            tabDragArmed = false
             if movingColumn {
                 movingColumn = false
                 colDragArmed = false

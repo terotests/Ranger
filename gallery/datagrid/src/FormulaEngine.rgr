@@ -1169,6 +1169,47 @@ class FormulaParser {
         return broke
     }
 
+    ; --- renaming a sheet -----------------------------------------------------
+    ; A cross-sheet reference names its sheet in TEXT — `Costs!B4`, or
+    ; `'Q3 Forecast'!B4` when the name needs quoting — so renaming a sheet and
+    ; leaving the formulas alone turns every one of them into `#NAME?`. Excel
+    ; rewrites them, and so does this: parse, swap the name on every node that
+    ; carries it, serialize back. Going through the AST rather than the text is
+    ; what keeps `SUM(Costs!B4)` apart from a string literal that happens to
+    ; say "Costs!", and what re-quotes a name that has become "Q3 Costs".
+    sfn renameSheetNode:boolean (n:FormulaNode was:string now:string) {
+        def touched:boolean false
+        if ((strlen n.sheet) > 0) {
+            if ((SheetTable.fold(n.sheet)) == (SheetTable.fold(was))) {
+                n.sheet = now
+                touched = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            if (FormulaParser.renameSheetNode((itemAt n.kids i) was now)) {
+                touched = true
+            }
+            i = (i + 1)
+        }
+        return touched
+    }
+
+    ; The rewritten formula, or "" when it did not need rewriting or could not
+    ; be parsed — either way the caller leaves the cell alone, which is the
+    ; right answer for both.
+    sfn renameSheet:string (expr:string was:string now:string) {
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(expr))
+        if (p.ok == false) {
+            return ""
+        }
+        if ((FormulaParser.renameSheetNode(ast was now)) == false) {
+            return ""
+        }
+        return (FormulaParser.serializeNode(ast))
+    }
+
     sfn adjustRows:string (expr:string sheetName:string at:int delta:int allowUnprefixed:boolean) {
         def p:FormulaParser (new FormulaParser)
         def ast:FormulaNode (p.parse(expr))
