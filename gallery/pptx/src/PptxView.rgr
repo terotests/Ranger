@@ -21,6 +21,9 @@ class PptxView {
     ; leaves it clear. `PptxApp` sets it — it is the one that knows how tall
     ; the shared strip came out at this width.
     def chromeH:int 28
+    ; Room the slide panel takes out of the width, the same way `chromeH` is
+    ; the room the toolbar and the status line take out of the height.
+    def chromeW:int 0
     def fontFamily:string "Open Sans"
     def status:string ""
     def deckName:string ""
@@ -38,6 +41,7 @@ class PptxView {
         pageH = h
         canvas.init(w h)
         ctx.attach(canvas)
+        this.attachMeasurer()
         status = "no fonts yet"
     }
 
@@ -58,6 +62,13 @@ class PptxView {
         ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-BoldItalic.ttf")
         ctx.tr.fontFamily = fontFamily
         ctx.tr.applyFace()
+        this.attachMeasurer()
+    }
+
+    ; The painter's own text renderer, handed to the layout: from here on the
+    ; wrap, the caret and the click all measure with the font that will draw.
+    fn attachMeasurer:void () {
+        converter.measure.attach(ctx fontFamily)
     }
 
     fn clearImages:void () {
@@ -123,7 +134,7 @@ class PptxView {
     }
 
     fn fitScale:double (slide:PptxSlide) {
-        def availW:double (to_double pageW)
+        def availW:double (to_double (pageW - chromeW))
         def availH:double (to_double (pageH - chromeH))
         def slideWpx:double (slide.width * (96.0 / 72.0))
         def slideHpx:double (slide.height * (96.0 / 72.0))
@@ -171,6 +182,10 @@ class PptxView {
         def x:double c.x
         def y:double c.y
         def size:double c.fontSize
+        def turnedText:boolean false
+        if ((c.rotate > 0.001) || (c.rotate < -0.001)) {
+            turnedText = true
+        }
         if ((strlen c.textAlign) > 0) {
             if (c.w > 0.0) {
                 def mw:double (ctx.measureWidth(c.text size))
@@ -182,12 +197,66 @@ class PptxView {
                 }
             }
         }
-        if (c.maxWidth > 8.0) {
-            ctx.textWrapped(c.text (to_int x) (to_int y) size c.maxWidth col)
+        if turnedText {
+            ctx.textRotated(c.text (to_int x) (to_int y) size col c.rotate)
         } {
-            ctx.text(c.text (to_int x) (to_int y) size col)
+            if (c.maxWidth > 8.0) {
+                ctx.textWrapped(c.text (to_int x) (to_int y) size c.maxWidth col)
+            } {
+                ctx.text(c.text (to_int x) (to_int y) size col)
+            }
         }
         ctx.tr.fontFamily = prevFamily
+    }
+
+    ; A rectangle turned about its own centre, as four points. The GPU backend
+    ; rotates a quad in the shader; the CPU one has a polygon filler and had
+    ; been ignoring `rotate` entirely, so a shape you turned in the editor
+    ; drew straight here and turned in the browser.
+    sfn rotatedCorners:[double] (x:double y:double w:double h:double degrees:double) {
+        def out:[double]
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        def rad:double (degrees * 0.017453292519943295)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        def xs:[double] ([] _:double ( 0.0 1.0 1.0 0.0 ))
+        def ys:[double] ([] _:double ( 0.0 0.0 1.0 1.0 ))
+        def i:int 0
+        while (i < 4) {
+            def px:double ((x + ((itemAt xs i) * w)) - cx)
+            def py:double ((y + ((itemAt ys i) * h)) - cy)
+            push out (cx + ((px * cs) - (py * sn)))
+            push out (cy + ((px * sn) + (py * cs)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; One edge of a turned outline, as a quad through the polygon filler.
+    sfn strokeSegment:void (ctx:UIContext x0:double y0:double x1:double y1:double thickness:double r:int g:int b:int a:int) {
+        def dx:double (x1 - x0)
+        def dy:double (y1 - y0)
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        if (len < 0.0001) {
+            return
+        }
+        def t:double thickness
+        if (t < 1.0) {
+            t = 1.0
+        }
+        def nx:double (((0.0 - dy) / len) * (t * 0.5))
+        def ny:double ((dx / len) * (t * 0.5))
+        def pts:[double]
+        push pts (x0 + nx)
+        push pts (y0 + ny)
+        push pts (x1 + nx)
+        push pts (y1 + ny)
+        push pts (x1 - nx)
+        push pts (y1 - ny)
+        push pts (x0 - nx)
+        push pts (y0 - ny)
+        ctx.fillPolygon(pts r g b a)
     }
 
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
@@ -197,8 +266,24 @@ class PptxView {
         while (i < n) {
             def c:EVGDrawCmd (dl.at(i))
             if (c.kind == 0) {
+                def turned:boolean false
+                if ((c.rotate > 0.001) || (c.rotate < -0.001)) {
+                    if (c.hasGrad == false) {
+                        if (c.a > 0.001) {
+                            turned = true
+                        }
+                    }
+                }
+                if turned {
+                    def corners:[double] (PptxView.rotatedCorners(c.x c.y c.w c.h c.rotate))
+                    ctx.fillPolygon(corners c.r c.g c.b (to_int (c.a * 255.0)))
+                }
                 if c.hasShadow {
                     ctx.shadowRoundRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) (to_int c.shadowX) (to_int c.shadowY) (to_int c.shadowBlur) c.shadowR c.shadowG c.shadowB (to_int (c.shadowA * 255.0)))
+                }
+                if turned {
+                    i = (i + 1)
+                    continue
                 }
                 if c.hasGrad {
                     ctx.fillRoundRectGrad((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) c.gradDir c.r c.g c.b (to_int (c.a * 255.0)) c.r2 c.g2 c.b2 (to_int (c.a2 * 255.0)))
@@ -215,7 +300,20 @@ class PptxView {
             }
             if (c.kind == 1) {
                 def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
+                if ((c.rotate > 0.001) || (c.rotate < -0.001)) {
+                    ; A turned outline has no axis-aligned edges: four quads
+                    ; through the polygon filler, the same way the editor draws
+                    ; a turned selection.
+                    def corners:[double] (PptxView.rotatedCorners(c.x c.y c.w c.h c.rotate))
+                    def e:int 0
+                    while (e < 4) {
+                        def f:int ((e + 1) % 4)
+                        PptxView.strokeSegment(ctx (itemAt corners (e * 2)) (itemAt corners ((e * 2) + 1)) (itemAt corners (f * 2)) (itemAt corners ((f * 2) + 1)) c.thickness c.r c.g c.b (to_int (c.a * 255.0)))
+                        e = (e + 1)
+                    }
+                } {
+                    ctx.strokeRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.thickness) col2)
+                }
             }
             if (c.kind == 3) {
                 this.paintTextCmd(c)
@@ -225,7 +323,20 @@ class PptxView {
                 if (!null? img) {
                     def pixels:ImageBuffer (unwrap img)
                     if ((pixels.width > 0) && (pixels.height > 0)) {
-                        canvas.blitImageRectScaled(pixels 0 0 pixels.width pixels.height (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h))
+                        def turnedPic:boolean false
+                        if ((c.rotate > 0.001) || (c.rotate < -0.001)) {
+                            turnedPic = true
+                        }
+                        if turnedPic {
+                            ; The rotated blit takes the pivot rather than a
+                            ; corner, and cannot mirror as well — a picture
+                            ; that is both turned and mirrored is drawn turned.
+                            def pivotX:int (to_int (c.x + (c.w * 0.5)))
+                            def pivotY:int (to_int (c.y + (c.h * 0.5)))
+                            canvas.blitImageRectScaledRotated(pixels 0 0 pixels.width pixels.height pivotX pivotY (to_int c.w) (to_int c.h) c.rotate)
+                        } {
+                            canvas.blitImageRectScaledFlipped(pixels 0 0 pixels.width pixels.height (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) c.flipH c.flipV)
+                        }
                     } {
                         ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (EVGColor.rgb(180 198 230)))
                     }

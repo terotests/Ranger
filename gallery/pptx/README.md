@@ -42,7 +42,12 @@ gallery/pptx/
     PptxChartVela.rgr   ChartML → VL JSON → Vela → display list
     PptxToEvg.rgr       ResolvedSlide → EVG + display list
     PptxView.rgr        SoftCanvas / sceneJson (+ image cache)
-    PptxApp.rgr         UIInput navigation host
+    PptxEdit.rgr        editing core: selection, transforms, history
+    PptxTextEdit.rgr    the caret inside a shape, and the runs it splits
+    PptxTextLayout.rgr  text broken into lines, once, for painter and caret
+    PptxTextMeasure.rgr how wide a string is — one answer, for both
+    PptxWriter.rgr      model → OPC package (save)
+    PptxApp.rgr         UIInput navigation + editing host
     pptx_demo.rgr       headless PNG demo
     pptx_oracle_dump.rgr  inspect.json + oracle PNGs
   harness/              feature + semantic + visual oracles
@@ -64,7 +69,9 @@ gallery/pptx/
       run color, insets, wrap, vertical anchor (top/middle/bottom estimate)
 - [x] Two-stop linear gradients + outer shadow under SoftCanvas rects
 - [x] Bullets (`buChar` / `buAutoNum`) as indented prefixes
-- [x] Preset + `custGeom` path fills (triangle / diamond / chevron / star / …)
+- [x] Preset + `custGeom` fills as **SVG paths** through EVG's `SVGPathParser`
+      — real curves, so an ellipse is round and `cubicBezTo` / `quadBezTo` /
+      `arcTo` draw instead of being dropped
 - [x] Tables (`graphicFrame` / `a:tbl`) as cell grid + text
 - [x] Charts → Vela PoC (bar ChartML → VL → SoftCanvas)
 - [x] UIInput navigation + fixture picker; chrome shows deck name + slide index
@@ -72,6 +79,66 @@ gallery/pptx/
 
 Still later: multi-stop gradients, crop/transparency, table merges, richer
 ChartML (pie/line/multi-series), curve geom, animations, embedded fonts.
+
+## Editing
+
+The viewer is a mode away from being an editor. `PptxEdit.rgr` is the editing
+core — host-agnostic, in slide points — and `PptxApp` is the only place a
+window pixel becomes one:
+
+- [x] Edit mode (`edit.toggle`, Ctrl+E). A deck opened to read stays read-only
+- [x] Click to select, shift-click to add, Ctrl+A for the lot; master / layout
+      chrome is drawn but never selectable
+- [x] Drag to move, eight handles to resize, rotation-aware hit testing
+- [x] Alignment guides: shape edges, shape centres and the slide's own thirds
+- [x] Align 6 ways, distribute across / down, z-order, group / ungroup
+- [x] A rubber band over empty canvas; copy / cut / paste (Ctrl+C/X/V), on this
+      slide or another; lock (`a:spLocks`, so it survives the file); a grid to
+      snap to; a rotation handle with 15° steps under shift; flip across and
+      down; a format painter
+- [x] Insert box / ellipse / text box / picture, delete, duplicate
+- [x] Fill, outline, opacity, preset, and bold / italic / size / colour / align
+      on a shape's text
+- [x] Slides: add, duplicate, delete, reorder — and a **slide panel** down the
+      left whose thumbnails are the slides' own scenes at a small scale, with
+      click to go, drag to reorder and the wheel to scroll
+- [x] One shared **text layout**: the painter, the caret and the click all use
+      the same lines, so a caret lands on the glyphs of a wrapped line, mixed
+      runs are placed by measurement rather than by an average character width,
+      and vertical anchoring divides by a line count that is known
+- [x] A **text caret**: F2 to type in the selected shape, arrows and word
+      steps, shift-selection, Home/End, Enter to split a paragraph, click to
+      place the caret; typing inside a bold word stays bold and styling a
+      selection splits the runs it covers
+- [x] Undo / redo — a drag is one step, a burst of typing is one step
+- [x] **Save keeps the file you opened**: every part of the original package is
+      copied through and only the slides you touched are rewritten, so the
+      master, the layouts and everything else the model does not describe
+      survive an edit (`saveOver`); a deck with no package behind it is
+      written from the model instead
+- [x] Checked three ways: a round trip through our own parser, a Python script
+      that reads the package with `zipfile` alone, and a pixel comparison in
+      which 42 written slides redraw byte for byte. In the browser saving is a
+      download; Ctrl+S
+- [x] The selection outline and its handles are pushed into the same
+      `EVGDisplayList` as the slide, so WebGL and SoftCanvas both draw them and
+      an export has none of them
+
+Not yet: bullets as real paragraph properties rather than a painted prefix,
+keeping what is on an EDITED slide that the model does not describe (untouched
+slides keep everything), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
+governs them — none of this is derived from another editor's source.
+
+```bash
+npm run pptx:geom:test          # presets and custGeom, as paths
+npm run pptx:editor:test        # the editing core
+npm run pptx:text:test          # the caret, the runs it splits
+npm run pptx:editor:host:test   # pointer, keys, overlay, commands
+npm run pptx:writer:test        # write a deck, read it back, compare
+npm run pptx:writer:verify      # …and check the package from outside
+npm run pptx:writer:visual      # …and that it redraws the same picture
+npm run pptx:editor:shots       # artifacts/*.png — what the editor looks like
+```
 
 ## Running it in a browser, with no host
 
@@ -97,6 +164,8 @@ them, which is also why pictures appear in the WebGL path at all now.
 ```bash
 npm run pptx:fixtures
 npm run pptx:test
+npm run pptx:editor:test
+npm run pptx:editor:host:test
 npm run pptx:harness
 npm run pptx:oracles          # A+B+C (LibreOffice visual)
 npm run pptx:oracles:visual   # fail on visual MAE

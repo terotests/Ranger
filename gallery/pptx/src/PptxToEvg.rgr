@@ -12,6 +12,7 @@
 
 Import "PptxModel.rgr"
 Import "PptxGeom.rgr"
+Import "PptxTextLayout.rgr"
 Import "PptxChartVela.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
@@ -20,6 +21,10 @@ Import "../../evg/EVGDisplayList.rgr"
 
 class PptxToEvg {
     def scale:double 1.0        ; extra zoom on top of pt→px
+    ; Who says how wide a string is. A host attaches its text renderer to this
+    ; and the painter, the caret and the click all measure through the one
+    ; object — the whole point of the layout below.
+    def measure:PptxTextMeasure (new PptxTextMeasure())
 
     Constructor () {
     }
@@ -283,7 +288,7 @@ class PptxToEvg {
         push dl.cmds c
     }
 
-    fn pushImage:void (dl:EVGDisplayList src:string x:double y:double w:double h:double) {
+    fn pushImage:void (dl:EVGDisplayList src:string x:double y:double w:double h:double flipH:boolean flipV:boolean rotate:double) {
         def c (new EVGDrawCmd())
         c.kind = 2
         c.x = x
@@ -292,151 +297,177 @@ class PptxToEvg {
         c.h = h
         c.src = src
         c.a = 1.0
+        c.flipH = flipH
+        c.flipV = flipV
+        c.rotate = rotate
         push dl.cmds c
     }
 
-    fn estimateTextBlockHeight:double (body:PptxTextBody contentW:double) {
-        def h:double 0.0
-        def pi:int 0
-        while (pi < (array_length body.paragraphs)) {
-            def para:PptxParagraph (itemAt body.paragraphs pi)
-            def fontSize:double 18.0
-            if ((array_length para.runs) > 0) {
-                def r0:PptxTextRun (itemAt para.runs 0)
-                fontSize = (this.ptToPx(r0.fontSizePt))
-            }
-            def lineH:double (fontSize * (para.lineSpacingPct / 100.0) * 1.2)
-            if (lineH < (fontSize * 1.15)) {
-                lineH = (fontSize * 1.15)
-            }
-            ; Rough wrap estimate: ~0.5em average char width
-            def chars:int 0
-            def ri:int 0
-            while (ri < (array_length para.runs)) {
-                def rr:PptxTextRun (itemAt para.runs ri)
-                chars = (chars + (strlen rr.text))
-                ri = (ri + 1)
-            }
-            def avgW:double (fontSize * 0.5)
-            def lines:int 1
-            if ((avgW > 0.0) && (contentW > 0.0) && body.wrap) {
-                def need:double (((to_double chars) * avgW) / contentW)
-                lines = (to_int (need + 0.999))
-                if (lines < 1) {
-                    lines = 1
-                }
-            }
-            h = (h + (this.ptToPx(para.spaceBeforePt)))
-            h = (h + ((to_double lines) * lineH))
-            h = (h + (this.ptToPx(para.spaceAfterPt)))
-            pi = (pi + 1)
+    ; A point turned about another one. Both backends rotate an element about
+    ; the element's OWN centre — the shader says so and so does the software
+    ; canvas — which is right for a shape's box and wrong for everything drawn
+    ; inside it: a line of text turned twenty degrees about its own middle is
+    ; not the same as the same line turned with the shape it sits in.
+    sfn rotateAbout:[double] (px:double py:double cx:double cy:double degrees:double) {
+        def out:[double]
+        def rad:double (degrees * 0.017453292519943295)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        def dx:double (px - cx)
+        def dy:double (py - cy)
+        push out (cx + ((dx * cs) - (dy * sn)))
+        push out (cy + ((dx * sn) + (dy * cs)))
+        return out
+    }
+
+    ; Every point of a path, turned about the shape's centre. A filled polygon
+    ; carries no rotation of its own in the display list, so a preset shape
+    ; that had been rotated drew straight in BOTH backends until now.
+    sfn rotatePoints:[double] (pts:[double] cx:double cy:double degrees:double) {
+        if ((degrees > (0.0 - 0.001)) && (degrees < 0.001)) {
+            return pts
         }
-        return h
+        def out:[double]
+        def rad:double (degrees * 0.017453292519943295)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        def i:int 0
+        while (i < (array_length pts)) {
+            def dx:double ((itemAt pts i) - cx)
+            def dy:double ((itemAt pts (i + 1)) - cy)
+            push out (cx + ((dx * cs) - (dy * sn)))
+            push out (cy + ((dx * sn) + (dy * cs)))
+            i = (i + 2)
+        }
+        return out
+    }
+
+    ; A mirrored shape is its path read from the other side of its own box.
+    sfn mirrorUnit:[double] (unit:[double] flipH:boolean flipV:boolean) {
+        if (flipH == false) {
+            if (flipV == false) {
+                return unit
+            }
+        }
+        def out:[double]
+        def i:int 0
+        while (i < (array_length unit)) {
+            def ux:double (itemAt unit i)
+            def uy:double (itemAt unit (i + 1))
+            if flipH {
+                ux = (1.0 - ux)
+            }
+            if flipV {
+                uy = (1.0 - uy)
+            }
+            push out ux
+            push out uy
+            i = (i + 2)
+        }
+        return out
+    }
+
+    ; The lines of a shape's text, in painter pixels. One layout, asked for by
+    ; the painter below and by the host that draws the caret — which is what
+    ; makes a caret land on the glyphs of a WRAPPED line and not just on the
+    ; first line of the paragraph.
+    fn lineBoxes:[PptxTextLine] (shape:PptxShape x:double y:double w:double h:double) {
+        def s:double ((96.0 / 72.0) * scale)
+        return (PptxTextLayout.layout(shape.text measure s x y w h))
     }
 
     fn emitTextBody:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
+        def lines:[PptxTextLine] (this.lineBoxes(shape x y w h))
         def body:PptxTextBody shape.text
-        def padL:double (this.ptToPx(body.insetL))
-        def padT:double (this.ptToPx(body.insetT))
-        def padR:double (this.ptToPx(body.insetR))
-        def padB:double (this.ptToPx(body.insetB))
-        def contentW:double ((w - padL) - padR)
-        if (contentW < 8.0) {
-            contentW = 8.0
+        def s:double ((96.0 / 72.0) * scale)
+        ; The shape's centre, which is what its text turns about.
+        def rotDeg:double shape.rotation
+        def hasRot:boolean false
+        if ((rotDeg > 0.001) || (rotDeg < -0.001)) {
+            hasRot = true
         }
-        def contentH:double ((h - padT) - padB)
-        def blockH:double (this.estimateTextBlockHeight(body contentW))
-        def originY:double (y + padT)
-        if (body.anchor == "ctr") {
-            originY = (y + padT + ((contentH - blockH) * 0.5))
-        }
-        if (body.anchor == "b") {
-            originY = (y + padT + (contentH - blockH))
-        }
-        if (originY < (y + padT)) {
-            originY = (y + padT)
-        }
-        def ty:double originY
-        def pi:int 0
-        while (pi < (array_length body.paragraphs)) {
-            def para:PptxParagraph (itemAt body.paragraphs pi)
-            ty = (ty + (this.ptToPx(para.spaceBeforePt)))
-            def align:string (this.alignToken(para.align))
-            def maxW:double 0.0
-            if body.wrap {
-                maxW = contentW
-            }
-            def bulletPrefix:string ""
-            def textOriginX:double (x + padL)
-            if para.hasBullet {
-                bulletPrefix = (para.bulletChar + " ")
-                textOriginX = (textOriginX + ((to_double para.level) * (this.ptToPx(18.0))) + (this.ptToPx(12.0)))
-            }
-            ; Approximate total line width so ctr/r can place multi-run lines.
-            def approxW:double 0.0
-            def ri0:int 0
-            def lineSize:double 14.0
-            while (ri0 < (array_length para.runs)) {
-                def r0:PptxTextRun (itemAt para.runs ri0)
-                def fs0:double (this.ptToPx(r0.fontSizePt))
-                if (fs0 > lineSize) {
-                    lineSize = fs0
+        def pivotX:double (x + (w * 0.5))
+        def pivotY:double (y + (h * 0.5))
+        def li:int 0
+        while (li < (array_length lines)) {
+            def line:PptxTextLine (itemAt lines li)
+            def para:PptxParagraph (itemAt body.paragraphs line.para)
+            if ((strlen line.bullet) > 0) {
+                def bw:double (measure.widthOf(line.bullet line.bulletSize false false))
+                def bx:double line.bulletX
+                def by:double line.y
+                if hasRot {
+                    def bcx:double (bx + (bw * 0.5))
+                    def bcy:double (by + (line.h * 0.5))
+                    def bp:[double] (PptxToEvg.rotateAbout(bcx bcy pivotX pivotY rotDeg))
+                    bx = ((itemAt bp 0) - (bw * 0.5))
+                    by = ((itemAt bp 1) - (line.h * 0.5))
                 }
-                approxW = (approxW + ((to_double (strlen r0.text)) * fs0 * 0.52))
-                ri0 = (ri0 + 1)
+                this.pushTextCmd(dl line.bullet bx by line.bulletSize (EVGColor.rgb(40 40 50)) "Calibri" shape.rotation "left" 0.0 false 0.0)
             }
-            if para.hasBullet {
-                approxW = (approxW + ((to_double (strlen bulletPrefix)) * lineSize * 0.52))
-            }
-            def runX:double textOriginX
-            if (align == "center") {
-                runX = (textOriginX + ((contentW - approxW) * 0.5))
-            }
-            if (align == "right") {
-                runX = (textOriginX + (contentW - approxW))
-            }
-            def singleRun:boolean ((array_length para.runs) == 1)
-            if para.hasBullet {
-                this.pushTextCmd(dl bulletPrefix runX ty lineSize (EVGColor.rgb(40 40 50)) "Calibri" shape.rotation "left" 0.0 false 0.0)
-                runX = (runX + ((to_double (strlen bulletPrefix)) * lineSize * 0.52))
-                singleRun = false
-            }
+            ; Each run's slice of this line, placed by measurement rather than
+            ; by an average character width — which is why a paragraph of two
+            ; sizes no longer draws its second half on top of its first.
+            def penX:double line.x
+            def at:int 0
             def ri:int 0
             while (ri < (array_length para.runs)) {
                 def run:PptxTextRun (itemAt para.runs ri)
-                def fontSize:double (this.ptToPx(run.fontSizePt))
-                def fontFamily:string "Calibri"
-                if ((strlen run.fontFamily) > 0) {
-                    fontFamily = run.fontFamily
+                def len:int (strlen run.text)
+                def s0:int at
+                def s1:int (at + len)
+                def a:int line.startCol
+                def b:int line.endCol
+                if (a < s0) {
+                    a = s0
                 }
-                def col:EVGColor (EVGColor.rgb(0 0 0))
-                if (run.color.isSet) {
-                    col = (this.colorFrom(run.color))
+                if (b > s1) {
+                    b = s1
                 }
-                def weight:string ""
-                if run.bold {
-                    if run.italic {
-                        weight = "bolditalic"
+                if (b > a) {
+                    def piece:string (substring run.text (a - s0) (b - s0))
+                    def fontSize:double (run.fontSizePt * s)
+                    def pieceW:double (measure.widthOf(piece fontSize run.bold run.italic))
+                    def drawX:double penX
+                    def drawY:double line.y
+                    if hasRot {
+                        def pcx:double (penX + (pieceW * 0.5))
+                        def pcy:double (line.y + (line.h * 0.5))
+                        def rp:[double] (PptxToEvg.rotateAbout(pcx pcy pivotX pivotY rotDeg))
+                        drawX = ((itemAt rp 0) - (pieceW * 0.5))
+                        drawY = ((itemAt rp 1) - (line.h * 0.5))
+                    }
+                    def fontFamily:string "Calibri"
+                    if ((strlen run.fontFamily) > 0) {
+                        fontFamily = run.fontFamily
+                    }
+                    def col:EVGColor (EVGColor.rgb(0 0 0))
+                    if (run.color.isSet) {
+                        col = (this.colorFrom(run.color))
+                    }
+                    def weight:string ""
+                    if run.bold {
+                        if run.italic {
+                            weight = "bolditalic"
+                        } {
+                            weight = "bold"
+                        }
                     } {
-                        weight = "bold"
+                        if run.italic {
+                            weight = "italic"
+                        }
                     }
-                } {
-                    if run.italic {
-                        weight = "italic"
-                    }
-                }
-                if (singleRun && (para.hasBullet == false)) {
                     def c (new EVGDrawCmd())
                     c.kind = 3
-                    c.x = (x + padL)
-                    c.y = ty
-                    c.w = contentW
+                    c.x = drawX
+                    c.y = drawY
+                    c.w = 0.0
                     c.h = fontSize
-                    c.text = run.text
+                    c.text = piece
                     c.fontFamily = fontFamily
                     c.fontSize = fontSize
-                    c.textAlign = align
-                    c.maxWidth = maxW
+                    c.textAlign = "left"
+                    c.maxWidth = 0.0
                     c.fontWeight = weight
                     c.r = (col.red())
                     c.g = (col.green())
@@ -444,35 +475,12 @@ class PptxToEvg {
                     c.a = (col.alpha())
                     c.rotate = shape.rotation
                     push dl.cmds c
-                } {
-                    def c2 (new EVGDrawCmd())
-                    c2.kind = 3
-                    c2.x = runX
-                    c2.y = ty
-                    c2.w = 0.0
-                    c2.h = fontSize
-                    c2.text = run.text
-                    c2.fontFamily = fontFamily
-                    c2.fontSize = fontSize
-                    c2.textAlign = "left"
-                    c2.fontWeight = weight
-                    c2.r = (col.red())
-                    c2.g = (col.green())
-                    c2.b = (col.blue())
-                    c2.a = (col.alpha())
-                    c2.rotate = shape.rotation
-                    push dl.cmds c2
-                    runX = (runX + ((to_double (strlen run.text)) * fontSize * 0.52))
+                    penX = (penX + pieceW)
                 }
+                at = s1
                 ri = (ri + 1)
             }
-            def spacing:double (para.lineSpacingPct / 100.0)
-            if (spacing < 0.8) {
-                spacing = 1.0
-            }
-            ty = (ty + (lineSize * 1.2 * spacing))
-            ty = (ty + (this.ptToPx(para.spaceAfterPt)))
-            pi = (pi + 1)
+            li = (li + 1)
         }
     }
 
@@ -581,7 +589,7 @@ class PptxToEvg {
         }
         if (shape.kind == 1) {
             if ((strlen shape.imagePart) > 0) {
-                this.pushImage(dl shape.imagePart x y w h)
+                this.pushImage(dl shape.imagePart x y w h shape.flipH shape.flipV shape.rotation)
             } {
                 this.pushRect(dl x y w h (EVGColor.rgb(200 210 230)))
             }
@@ -602,6 +610,7 @@ class PptxToEvg {
             ; use pushGradRect path via temporary
             this.pushGradRect(dl x y w h shape.fillGrad)
             def last:EVGDrawCmd (itemAt dl.cmds ((array_length dl.cmds) - 1))
+            last.rotate = shape.rotation
             this.applyShadowToCmd(last shape)
             filled = true
         } {
@@ -614,14 +623,19 @@ class PptxToEvg {
                 if (shape.hasPath == false) {
                     unit = (PptxGeom.unitPreset(shape.preset))
                 }
-                def pts:[double] (PptxGeom.scaleToBox(unit x y w h))
+                unit = (PptxToEvg.mirrorUnit(unit shape.flipH shape.flipV))
+                def pathCx:double (x + (w * 0.5))
+                def pathCy:double (y + (h * 0.5))
+                def flat:[double] (PptxGeom.scaleToBox(unit x y w h))
+                def pts:[double] (PptxToEvg.rotatePoints(flat pathCx pathCy shape.rotation))
                 def col:EVGColor (EVGColor.rgb(180 180 190))
                 if (shape.fill.isSet) {
                     col = (this.colorFrom(shape.fill))
                 }
                 ; shadow as offset dark polygon first
                 if (shape.shadow.isSet) {
-                    def spts:[double] (PptxGeom.scaleToBox(unit (x + (this.ptToPx(shape.shadow.offsetXPt))) (y + (this.ptToPx(shape.shadow.offsetYPt))) w h))
+                    def sflat:[double] (PptxGeom.scaleToBox(unit (x + (this.ptToPx(shape.shadow.offsetXPt))) (y + (this.ptToPx(shape.shadow.offsetYPt))) w h))
+                    def spts:[double] (PptxToEvg.rotatePoints(sflat pathCx pathCy shape.rotation))
                     def sc:EVGColor (this.colorFrom(shape.shadow.color))
                     def sh (new EVGDrawCmd())
                     sh.kind = 6
@@ -650,6 +664,7 @@ class PptxToEvg {
                     if (shape.preset == "roundRect") {
                         rc.radius = 12.0
                     }
+                    rc.rotate = shape.rotation
                     this.applyShadowToCmd(rc shape)
                     push dl.cmds rc
                     filled = true
@@ -665,6 +680,7 @@ class PptxToEvg {
                         rc2.g = 255
                         rc2.b = 255
                         rc2.a = 0.0
+                        rc2.rotate = shape.rotation
                         this.applyShadowToCmd(rc2 shape)
                         push dl.cmds rc2
                     }
@@ -673,6 +689,8 @@ class PptxToEvg {
         }
         if ((shape.line.isSet) && (shape.lineWidthPt > 0.0)) {
             this.pushBorder(dl x y w h (this.ptToPx(shape.lineWidthPt)) (this.colorFrom(shape.line)))
+            def border:EVGDrawCmd (itemAt dl.cmds ((array_length dl.cmds) - 1))
+            border.rotate = shape.rotation
         }
         if shape.hasText {
             this.emitTextBody(dl shape x y w h)

@@ -3,5 +3,7 @@
 !harness/**/*.mjs
 bin/
 *.png
+!artifacts/
+!artifacts/**
 demo_*.png
 harness/out/

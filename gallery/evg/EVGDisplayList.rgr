@@ -79,6 +79,11 @@ class EVGDrawCmd {
     def shadowA:double 0.35
     ; IMAGE
     def src:string ""
+    ; An image drawn mirrored in its own box: a deck can say `flipH` / `flipV`
+    ; on a picture, and mirroring is the texture read backwards rather than a
+    ; transform of the quad.
+    def flipH:boolean false
+    def flipV:boolean false
     ; PATH / STROKE. The rings are already flattened and already in page
     ; coordinates: a GPU backend should not have to carry a path parser, and
     ; the curve subdivision belongs where the drawn size is known. `ringEnds`
@@ -672,6 +677,12 @@ class EVGDisplayList {
             }
             if ((strlen c.src) > 0) {
                 out = out + ",\"src\":" + (EVGDisplayList.jsonString(c.src))
+            }
+            if c.flipH {
+                out = out + ",\"fx\":true"
+            }
+            if c.flipV {
+                out = out + ",\"fy\":true"
             }
             if (c.rotate != 0.0) {
                 out = out + ",\"rot\":" + (EVGDisplayList.num(c.rotate))

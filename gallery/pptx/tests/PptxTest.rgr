@@ -74,6 +74,19 @@ class PptxTest {
                 this.check("attr x=1" ((bn.attr("x")) == "1"))
                 this.check("text hi" ((bn.textContent()) == "hi"))
             }
+            ; A deck in the wild can carry a bare `&` in its text — Word and
+            ; PowerPoint both write one occasionally — and the reader has to
+            ; pass it through rather than stop. The fixtures are well-formed;
+            ; this is where the tolerance is checked.
+            def loose@(optional):PptxXmlNode (p.parse("<a:t>R&D Hämeenlinna</a:t>"))
+            this.check("a bare ampersand parses" (!null? loose))
+            if (!null? loose) {
+                this.check("and the text survives it whole" ((((unwrap loose).textContent())) == "R&D Hämeenlinna"))
+            }
+            def esc@(optional):PptxXmlNode (p.parse("<a:t>Ærø &amp; Ω</a:t>"))
+            if (!null? esc) {
+                this.check("an escaped ampersand decodes" ((((unwrap esc).textContent())) == "Ærø & Ω"))
+            }
             def ns@(optional):PptxXmlNode (p.parse("<p:sp><p:spPr/></p:sp>"))
             this.check("ns local name" (!null? ns))
             if (!null? ns) {

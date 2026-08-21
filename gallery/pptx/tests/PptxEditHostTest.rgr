@@ -1,0 +1,563 @@
+; ==============================================================================
+; PptxEditHostTest — the editor as a host reaches it: pointer, keys, overlay
+; ==============================================================================
+;
+; `PptxEditorTest` checks the model operations. This checks the seam above
+; them: that a press in window pixels lands on the right shape in slide
+; points, that a drag is one history step, that the selection is drawn into
+; the same display list as the slide, and that a viewer which is not in edit
+; mode still turns the page when you click it.
+;
+;   npm run pptx:editor:host:test
+; ==============================================================================
+
+Import "../src/PptxApp.rgr"
+
+class EditHostCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class PptxEditHostTest {
+    sfn build:PptxApp () {
+        return (PptxEditHostTest.buildDeck("02-shapes.pptx"))
+    }
+
+    sfn buildDeck:PptxApp (name:string) {
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.resize(960 720)
+        if ((app.loadParts("gallery/pptx/fixtures" name)) == false) {
+            print "  could not open the fixture"
+        }
+        return app
+    }
+
+    sfn screenX:int (app:PptxApp xPt:double) {
+        def sc:double (app.ptScale())
+        return (to_int ((xPt * sc) + (app.slideOriginX())))
+    }
+
+    sfn screenY:int (app:PptxApp yPt:double) {
+        def sc:double (app.ptScale())
+        def v:double ((yPt * sc) + (app.slideOriginY()))
+        return (to_int v)
+    }
+
+    sfn firstShape:PptxShape (app:PptxApp) {
+        def shapes:[PptxShape] (app.editor.editableShapes())
+        return (itemAt shapes 0)
+    }
+
+    sfn indexOfCommand:int (app:PptxApp id:string) {
+        def i:int 0
+        while (i < (app.toolbar.count())) {
+            def t:ToolItem (app.toolbar.at(i))
+            if (t.command == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn countRotated:int (dl:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (dl.count())) {
+            def c:EVGDrawCmd (dl.at(i))
+            if ((c.rotate > 0.001) || (c.rotate < -0.001)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn countFlipped:int (dl:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (dl.count())) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 2) {
+                if (c.flipH) {
+                    n = (n + 1)
+                }
+                if (c.flipV) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn copyOf:buffer (src:buffer) {
+        def n:int (buffer_length src)
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (buffer_get src i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn sameBytes:boolean (a:buffer b:buffer) {
+        def n:int (buffer_length a)
+        if (n != (buffer_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((buffer_get a i) != (buffer_get b i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn near:boolean (a:double b:double tol:double) {
+        def d:double (fabs (a - b))
+        return (d < tol)
+    }
+
+    sfn main:void () {
+        def c (new EditHostCheck)
+        print "=== PptxEditHostTest ==="
+
+        print "-- the strip carries the editing commands --"
+        def app:PptxApp (PptxEditHostTest.build())
+        def wanted:[string] ([] _:string ( "edit.toggle" "edit.undo" "edit.redo" "edit.delete" "shape.rect" "text.add" "edit.group" "edit.align.left" "slide.add" ))
+        def missing:int 0
+        def unknown:int 0
+        def wi:int 0
+        while (wi < (array_length wanted)) {
+            def id:string (itemAt wanted wi)
+            def found:boolean false
+            def i:int 0
+            while (i < (app.toolbar.count())) {
+                def t:ToolItem (app.toolbar.at(i))
+                if (t.command == id) {
+                    found = true
+                }
+                i = (i + 1)
+            }
+            if (found == false) {
+                missing = (missing + 1)
+            }
+            if ((app.commands.has(id)) == false) {
+                unknown = (unknown + 1)
+            }
+            wi = (wi + 1)
+        }
+        c.ok("every editing button is on the strip" (missing == 0))
+        c.ok("and the command table has heard of them all" (unknown == 0))
+
+        print "-- edit mode is a mode, and it is off to begin with --"
+        c.ok("a deck opens in the viewer" (app.editMode == false))
+        c.ok("the toggle is a command" (app.runCommand("edit.toggle" "")))
+        c.ok("edit mode is on" app.editMode)
+        c.ok("the strip shows it" app.toolbar.editOn)
+        app.runCommand("edit.toggle" "")
+        c.ok("and it turns back off" (app.editMode == false))
+
+        print "-- a click in the slide picks a shape up --"
+        def app2:PptxApp (PptxEditHostTest.build())
+        app2.runCommand("edit.toggle" "")
+        def sh:PptxShape (PptxEditHostTest.firstShape(app2))
+        def cxPt:double (sh.x + (sh.width * 0.5))
+        def cyPt:double (sh.y + (sh.height * 0.5))
+        def px:int (PptxEditHostTest.screenX(app2 cxPt))
+        def py:int (PptxEditHostTest.screenY(app2 cyPt))
+        app2.pointer(px py true true false)
+        c.ok("the press selected something" ((app2.editor.selectionCount()) == 1))
+        c.ok("and it is the shape that was under it" (app2.editor.isSelected(sh.editId)))
+        app2.pointer(px py false false true)
+
+        print "-- a drag is one edit, however many frames it took --"
+        def depth0:int (app2.editor.historyDepth())
+        def x0:double sh.x
+        app2.pointer(px py true true false)
+        def step:int 1
+        while (step <= 10) {
+            app2.pointer((px + (step * 3)) py false true false)
+            step = (step + 1)
+        }
+        app2.pointer((px + 30) py false false true)
+        def moved@(optional):PptxShape (app2.editor.findShape(sh.editId))
+        c.ok("the shape is still there after the drag" (!null? moved))
+        if (!null? moved) {
+            def m:PptxShape (unwrap moved)
+            def sc:double (app2.ptScale())
+            def wantX:double (x0 + (30.0 / sc))
+            c.ok("it followed the pointer" (PptxEditHostTest.near(m.x wantX 4.0)))
+        }
+        c.ok("the whole drag is one history step" ((app2.editor.historyDepth()) == (depth0 + 1)))
+        c.ok("and undo takes the drag back" (app2.runCommand("edit.undo" "")))
+        def back@(optional):PptxShape (app2.editor.findShape(sh.editId))
+        if (!null? back) {
+            def b2:PptxShape (unwrap back)
+            c.ok("back where it was pressed" (PptxEditHostTest.near(b2.x x0 0.5)))
+        }
+
+        print "-- the selection is drawn into the same display list --"
+        def bare:PptxApp (PptxEditHostTest.build())
+        bare.runCommand("edit.toggle" "")
+        def plain:EVGDisplayList (bare.buildFrame())
+        def plainCount:int (plain.count())
+        def sh2:PptxShape (PptxEditHostTest.firstShape(bare))
+        bare.editor.select(sh2.editId)
+        def withSel:EVGDisplayList (bare.buildFrame())
+        c.ok("selecting adds chrome to the frame" ((withSel.count()) > plainCount))
+        bare.editor.clearSelection()
+        def cleared:EVGDisplayList (bare.buildFrame())
+        c.ok("and clearing it takes the chrome away" ((cleared.count()) == plainCount))
+
+        print "-- a corner handle resizes --"
+        def app3:PptxApp (PptxEditHostTest.build())
+        app3.runCommand("edit.toggle" "")
+        def sh3:PptxShape (PptxEditHostTest.firstShape(app3))
+        app3.editor.select(sh3.editId)
+        def hx:int (PptxEditHostTest.screenX(app3 (sh3.x + sh3.width)))
+        def hy:int (PptxEditHostTest.screenY(app3 (sh3.y + sh3.height)))
+        c.ok("the south-east handle is where the corner is" ((app3.handleAt(hx hy)) == 4))
+        c.ok("and the middle of the shape is not a handle" ((app3.handleAt((PptxEditHostTest.screenX(app3 (sh3.x + (sh3.width * 0.5)))) (PptxEditHostTest.screenY(app3 (sh3.y + (sh3.height * 0.5)))))) == (0 - 1)))
+        def w0:double sh3.width
+        app3.pointer(hx hy true true false)
+        app3.pointer((hx + 20) (hy + 20) false true false)
+        app3.pointer((hx + 20) (hy + 20) false false true)
+        def sized@(optional):PptxShape (app3.editor.findShape(sh3.editId))
+        if (!null? sized) {
+            def s4:PptxShape (unwrap sized)
+            c.ok("the shape grew" (s4.width > w0))
+        }
+
+        print "-- a caret inside a shape --"
+        def app5:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
+        app5.runCommand("edit.toggle" "")
+        def texts:[PptxShape] (app5.editor.editableShapes())
+        def target@(optional):PptxShape
+        def ti:int 0
+        while (ti < (array_length texts)) {
+            def cand:PptxShape (itemAt texts ti)
+            if cand.hasText {
+                if ((strlen (cand.text.plainText())) > 4) {
+                    if (null? target) {
+                        target = cand
+                    }
+                }
+            }
+            ti = (ti + 1)
+        }
+        c.ok("the fixture has a shape with text in it" (!null? target))
+        if (!null? target) {
+            def ts:PptxShape (unwrap target)
+            app5.editor.select(ts.editId)
+            c.ok("F2 is a command as well as a key" (app5.runCommand("text.edit" "")))
+            c.ok("there is a caret now" (app5.editor.isEditingText()))
+            ; The caret is a rectangle inside the shape it is in.
+            def shapeBox:PptxEditRect (app5.shapeScreenBox(ts))
+            def atEnd:PptxEditRect (app5.caretRect(ts app5.editor.caret))
+            c.ok("the caret has height" (atEnd.h > 2.0))
+            c.ok("and it is inside the shape" ((atEnd.x >= (shapeBox.x - 1.0)) && (atEnd.x <= ((shapeBox.x + shapeBox.w) + 1.0))))
+            def atStart:PptxEditRect (app5.caretRect(ts (PptxTextPos.of(0 0))))
+            c.ok("the end of the line is further right than its start" (atEnd.x > atStart.x))
+            ; Measured there, measured back: clicking on a caret's own
+            ; rectangle puts the caret back where it was.
+            def probe:PptxTextPos (PptxTextPos.of(0 3))
+            def r3:PptxEditRect (app5.caretRect(ts probe))
+            def back:PptxTextPos (app5.caretFromPoint(ts (to_int (r3.x + 1.0)) (to_int (r3.y + 2.0))))
+            c.ok("a click lands on the column it was measured from" ((back.para == 0) && (back.col == 3)))
+            ; It is drawn, and a selection is drawn behind it.
+            def noCaret:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
+            noCaret.runCommand("edit.toggle" "")
+            noCaret.editor.select(ts.editId)
+            def plainCount:int ((noCaret.buildFrame()).count())
+            def withCaret:int ((app5.buildFrame()).count())
+            c.ok("the caret is drawn into the frame" (withCaret > plainCount))
+            app5.editor.selectAllText()
+            def withSel:int ((app5.buildFrame()).count())
+            c.ok("and a selection is drawn behind it" (withSel > withCaret))
+            ; A press inside keeps the caret; a press outside gives it up.
+            def cx:int (to_int (shapeBox.x + (shapeBox.w * 0.5)))
+            def cy:int (to_int (shapeBox.y + (shapeBox.h * 0.5)))
+            app5.pointer(cx cy true true false)
+            app5.pointer(cx cy false false true)
+            c.ok("a press inside still has the caret" (app5.editor.isEditingText()))
+            c.ok("and did not start a drag" (app5.dragMode == 0))
+            def outX:int (to_int (shapeBox.x + shapeBox.w + 30.0))
+            app5.pointer(outX cy true true false)
+            app5.pointer(outX cy false false true)
+            c.ok("a press outside stops typing" ((app5.editor.isEditingText()) == false))
+        }
+
+        print "-- a caret on a wrapped line --"
+        def app6:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
+        app6.runCommand("edit.toggle" "")
+        def boxId:int (app6.editor.addTextBox(60.0 260.0 200.0 120.0 "The quick brown fox jumps over the lazy dog and keeps going for a while"))
+        app6.editor.beginTextEdit(boxId)
+        def wrapped@(optional):PptxShape (app6.editor.findShape(boxId))
+        c.ok("the text box is there" (!null? wrapped))
+        if (!null? wrapped) {
+            def ws:PptxShape (unwrap wrapped)
+            def lines:[PptxTextLine] (app6.lineBoxesFor(ws))
+            c.ok("the paragraph wrapped into several lines" ((array_length lines) > 2))
+            if ((array_length lines) > 2) {
+                def second:PptxTextLine (itemAt lines 1)
+                def third:PptxTextLine (itemAt lines 2)
+                c.ok("the second line is below the first" (second.y > ((itemAt lines 0).y)))
+                ; A caret in the middle of the second line, measured out to a
+                ; rectangle and clicked back in, comes home.
+                def mid:int (second.startCol + (idiv (second.endCol - second.startCol) 2))
+                def r:PptxEditRect (app6.caretRect(ws (PptxTextPos.of(0 mid))))
+                c.ok("the caret is on the second line's row" ((fabs (r.y - second.y)) < 0.01))
+                def back:PptxTextPos (app6.caretFromPoint(ws (to_int (r.x + 1.0)) (to_int (r.y + 2.0))))
+                c.ok("clicking it comes back to the same column" ((back.para == 0) && (back.col == mid)))
+                ; A click on the third line is on the third line, which is the
+                ; thing a per-paragraph caret could not do at all.
+                def onThird:PptxTextPos (app6.caretFromPoint(ws (to_int (third.x + 2.0)) (to_int (third.y + 2.0))))
+                c.ok("a click on the third line lands in its columns" ((onThird.col >= third.startCol) && (onThird.col <= third.endCol)))
+                ; And the selection highlight over a wrapped range draws a rect
+                ; per line rather than one enormous one.
+                app6.editor.setCaretPos(0 0 false)
+                app6.editor.setCaretPos(0 (third.endCol) true)
+                def painted:EVGDisplayList (app6.buildFrame())
+                app6.editor.setCaretPos(0 0 false)
+                def bare2:EVGDisplayList (app6.buildFrame())
+                c.ok("a wrapped selection is drawn" ((painted.count()) > (bare2.count())))
+            }
+        }
+
+        print "-- a rubber band, a rotation handle and a lock --"
+        def app7:PptxApp (PptxEditHostTest.buildDeck("02-shapes.pptx"))
+        app7.runCommand("edit.toggle" "")
+        def all7:[PptxShape] (app7.editor.editableShapes())
+        c.ok("the fixture has shapes to band over" ((array_length all7) >= 2))
+        if ((array_length all7) >= 2) {
+            ; A drag from an empty corner across everything.
+            def bandStartX:int (PptxEditHostTest.screenX(app7 2.0))
+            def bandStartY:int (PptxEditHostTest.screenY(app7 2.0))
+            def slideWpt:double (app7.slideW())
+            def slideHpt:double (app7.slideH())
+            def bandEndX:int (PptxEditHostTest.screenX(app7 (slideWpt - 4.0)))
+            def bandEndY:int (PptxEditHostTest.screenY(app7 (slideHpt - 4.0)))
+            app7.pointer(bandStartX bandStartY true true false)
+            c.ok("a press on empty canvas starts a band" (app7.dragMode == 3))
+            app7.pointer((idiv (bandStartX + bandEndX) 2) (idiv (bandStartY + bandEndY) 2) false true false)
+            app7.pointer(bandEndX bandEndY false true false)
+            app7.pointer(bandEndX bandEndY false false true)
+            c.ok("and letting go selects what it touched" ((app7.editor.selectionCount()) == (array_length all7)))
+            c.ok("the band is gone afterwards" (app7.dragMode == 0))
+            ; The rotation handle sits above the selection box.
+            def one:PptxShape (itemAt all7 0)
+            app7.editor.select(one.editId)
+            def sb:PptxEditRect (app7.shapeScreenBox(one))
+            def rotX:int (to_int (sb.x + (sb.w * 0.5)))
+            def rotY:int (to_int (app7.rotateHandleY(sb.y)))
+            c.ok("the rotation handle is the ninth" ((app7.handleAt(rotX rotY)) == 8))
+            app7.pointer(rotX rotY true true false)
+            c.ok("dragging it is a rotation, not a resize" (app7.dragMode == 4))
+            def sideX:int (to_int (sb.x + sb.w + 40.0))
+            def sideY:int (to_int (sb.y + (sb.h * 0.5)))
+            app7.pointer(sideX sideY false true false)
+            app7.pointer(sideX sideY false false true)
+            def turned@(optional):PptxShape (app7.editor.findShape(one.editId))
+            if (!null? turned) {
+                def ts:PptxShape (unwrap turned)
+                c.ok("the shape turned toward the pointer" ((fabs (ts.rotation - 90.0)) < 6.0))
+            }
+            c.ok("and it is one history step" (app7.runCommand("edit.undo" "")))
+            ; A locked selection draws no handles.
+            app7.editor.select(one.editId)
+            def unlockedCount:int ((app7.buildFrame()).count())
+            app7.runCommand("edit.lock" "")
+            c.ok("the lock command locks" (app7.editor.selectionLocked()))
+            def lockedCount:int ((app7.buildFrame()).count())
+            c.ok("a locked shape shows no handles" (lockedCount < unlockedCount))
+            app7.runCommand("edit.lock" "")
+            c.ok("and unlocks again" ((app7.editor.selectionLocked()) == false))
+            ; Copy and paste through the command surface.
+            def before7:int (array_length (app7.editor.editableShapes()))
+            c.ok("copy is a command" (app7.runCommand("edit.copy" "")))
+            c.ok("paste is a command" (app7.runCommand("edit.paste" "")))
+            c.ok("and it put one down" ((array_length (app7.editor.editableShapes())) == (before7 + 1)))
+            ; The grid is a command too, and it draws.
+            def plain7:int ((app7.buildFrame()).count())
+            app7.runCommand("view.grid" "")
+            c.ok("the grid turns on" app7.editor.gridEnabled)
+            c.ok("and it is drawn" (((app7.buildFrame()).count()) > plain7))
+            app7.runCommand("view.grid" "")
+        }
+
+        print "-- a mirrored picture, and the format painter --"
+        def app8:PptxApp (PptxEditHostTest.buildDeck("16-image-png.pptx"))
+        app8.runCommand("edit.toggle" "")
+        def pics:[PptxShape] (app8.editor.editableShapes())
+        def picId:int 0
+        def pi:int 0
+        while (pi < (array_length pics)) {
+            def cand:PptxShape (itemAt pics pi)
+            if (cand.kind == 1) {
+                if (picId == 0) {
+                    picId = cand.editId
+                }
+            }
+            pi = (pi + 1)
+        }
+        c.ok("the fixture has a picture" (picId > 0))
+        if (picId > 0) {
+            app8.editor.select(picId)
+            ; The flags reach the display list, which is what both backends read.
+            def plainList:EVGDisplayList (app8.buildFrame())
+            def mirroredBefore:int (PptxEditHostTest.countFlipped(plainList))
+            c.ok("nothing is mirrored yet" (mirroredBefore == 0))
+            c.ok("flip it across" (app8.runCommand("edit.flip.h" "")))
+            def flippedList:EVGDisplayList (app8.buildFrame())
+            ; The slide draws it, and so does its thumbnail in the panel: both
+            ; are the same scene, which is the point of the panel.
+            c.ok("the picture command carries the mirror" ((PptxEditHostTest.countFlipped(flippedList)) > 0))
+            ; And the pixels differ, which is the part a flag alone would not
+            ; prove: a mirrored blit reads the other column.
+            app8.renderOracleSlide(0)
+            def afterPixels:buffer (PptxEditHostTest.copyOf((app8.raw())))
+            app8.runCommand("edit.undo" "")
+            app8.renderOracleSlide(0)
+            def beforePixels:buffer (app8.raw())
+            c.ok("and the picture is drawn differently" ((PptxEditHostTest.sameBytes(beforePixels afterPixels)) == false))
+        }
+
+        print "-- a turned shape's chrome and its axes --"
+        def appR:PptxApp (PptxEditHostTest.buildDeck("02-shapes.pptx"))
+        appR.runCommand("edit.toggle" "")
+        def rShapes:[PptxShape] (appR.editor.editableShapes())
+        if ((array_length rShapes) > 0) {
+            def rs:PptxShape (itemAt rShapes 0)
+            appR.editor.select(rs.editId)
+            ; Upright, the handles are where the box says they are.
+            def upright:[double] (appR.handlePos(4))
+            def sb2:PptxEditRect (appR.shapeScreenBox(rs))
+            c.ok("the south-east handle is on the corner" (((fabs ((itemAt upright 0) - (sb2.x + sb2.w))) < 1.0) && ((fabs ((itemAt upright 1) - (sb2.y + sb2.h))) < 1.0)))
+            c.ok("and there is no angle to draw at" ((appR.selectionAngle()) == 0.0))
+            ; Everything the shape draws carries the angle — the fill, the
+            ; outline and the picture as well as the text. Only text used to,
+            ; which is why a turned shape drew its box straight and its words
+            ; crooked.
+            appR.editor.setSelectionRotation(30.0)
+            def turnedFrame:EVGDisplayList (appR.buildFrame())
+            def turnedCmds:int (PptxEditHostTest.countRotated(turnedFrame))
+            appR.editor.setSelectionRotation(0.0)
+            def straightFrame:EVGDisplayList (appR.buildFrame())
+            c.ok("turning a shape turns what it draws" (turnedCmds > (PptxEditHostTest.countRotated(straightFrame))))
+            ; Turn it a quarter turn: the handles turn with it, and the one
+            ; that was on the right is now at the bottom.
+            appR.editor.setSelectionRotation(90.0)
+            c.ok("the selection has an angle now" ((fabs ((appR.selectionAngle()) - 90.0)) < 0.01))
+            def turnedH:[double] (appR.handlePos(3))
+            def cx2:double (sb2.x + (sb2.w * 0.5))
+            def cy2:double (sb2.y + (sb2.h * 0.5))
+            c.ok("the east handle went to the bottom" ((itemAt turnedH 1) > cy2))
+            c.ok("and onto the centre line" ((fabs ((itemAt turnedH 0) - cx2)) < 1.5))
+            c.ok("clicking there finds the east handle" ((appR.handleAt((to_int (itemAt turnedH 0)) (to_int (itemAt turnedH 1)))) == 3))
+            ; Dragging it away from the centre makes the shape LONGER, not
+            ; taller: a turned shape resizes along its own axes.
+            def w0:double rs.width
+            def h0:double rs.height
+            def dragX:int (to_int (itemAt turnedH 0))
+            def dragY:int (to_int (itemAt turnedH 1))
+            appR.pointer(dragX dragY true true false)
+            appR.pointer(dragX (dragY + 30) false true false)
+            appR.pointer(dragX (dragY + 30) false false true)
+            def sized@(optional):PptxShape (appR.editor.findShape(rs.editId))
+            if (!null? sized) {
+                def ss:PptxShape (unwrap sized)
+                c.ok("the width grew" (ss.width > (w0 + 4.0)))
+                c.ok("and the height did not" ((fabs (ss.height - h0)) < 0.5))
+            }
+        }
+
+        print "-- the slide panel --"
+        def app9:PptxApp (PptxEditHostTest.buildDeck("20-business-deck.pptx"))
+        c.ok("the deck has several slides" ((app9.slideCount()) > 2))
+        c.ok("the panel is up by default" app9.panelVisible)
+        c.ok("and it takes width out of the slide" ((app9.slideOriginX()) >= (to_double (app9.panelWidth()))))
+        ; A thumbnail is the slide's own scene, so the panel draws a lot.
+        def withPanel:int ((app9.buildFrame()).count())
+        app9.runCommand("view.panel" "")
+        c.ok("it can be folded away" ((app9.panelVisible) == false))
+        def withoutPanel:int ((app9.buildFrame()).count())
+        c.ok("and folding it away draws less" (withoutPanel < withPanel))
+        c.ok("the slide then starts at the window edge" ((app9.slideOriginX()) < 2.0))
+        app9.runCommand("view.panel" "")
+        c.ok("and it comes back" app9.panelVisible)
+        ; Clicking a thumbnail goes to that slide.
+        def thumbX:int ((app9.panelThumbX()) + (idiv (app9.panelThumbW()) 2))
+        def thumb2Y:int ((app9.panelThumbY(2)) + (idiv (app9.panelThumbH()) 2))
+        app9.pointer(thumbX thumb2Y true true false)
+        app9.pointer(thumbX thumb2Y false false true)
+        c.ok("clicking the third thumbnail goes to the third slide" (app9.index == 2))
+        c.ok("and the editor followed" (app9.editor.slideIndex == 2))
+        ; Dragging one reorders the deck.
+        def firstPart:string ((itemAt app9.presentation.slides 2).partPath)
+        def thumb0Y:int ((app9.panelThumbY(0)) + 2)
+        app9.pointer(thumbX thumb2Y true true false)
+        c.ok("a press on a thumbnail picks the slide up" (app9.panelDrag == 2))
+        app9.pointer(thumbX thumb0Y false true false)
+        app9.pointer(thumbX thumb0Y false false true)
+        c.ok("dropping it at the top moves it there" (((itemAt app9.presentation.slides 0).partPath) == firstPart))
+        c.ok("and the viewer is on it" (app9.index == 0))
+        c.ok("undo puts the order back" (app9.runCommand("edit.undo" "")))
+        c.ok("the deck is in its old order" (((itemAt app9.presentation.slides 2).partPath) == firstPart))
+        ; A press on the toolbar above the panel is still the toolbar's.
+        def firstButton:int (PptxEditHostTest.indexOfCommand(app9 "slide.next"))
+        if (firstButton >= 0) {
+            def t9:ToolItem (app9.toolbar.at(firstButton))
+            def beforeIdx:int app9.index
+            app9.pointer((t9.x + 2) (t9.y + 2) true true false)
+            c.ok("the strip still works over the panel" (app9.index != beforeIdx))
+        }
+
+        print "-- the viewer is still a viewer --"
+        def viewer:PptxApp (PptxEditHostTest.buildDeck("04-multi.pptx"))
+        def before:int viewer.index
+        viewer.pointer(700 400 true true false)
+        c.ok("a click on the right third still turns the page" (viewer.index != before))
+        c.ok("and nothing was selected by it" ((viewer.editor.selectionCount()) == 0))
+
+        print "-- inserting, deleting, and the slide list --"
+        def app4:PptxApp (PptxEditHostTest.build())
+        def n0:int (array_length (app4.editor.editableShapes()))
+        c.ok("insert a box" (app4.runCommand("shape.rect" "")))
+        c.ok("inserting turns editing on" app4.editMode)
+        c.ok("there is one more shape" ((array_length (app4.editor.editableShapes())) == (n0 + 1)))
+        c.ok("and it is selected" ((app4.editor.selectionCount()) == 1))
+        c.ok("delete takes it away" (app4.runCommand("edit.delete" "")))
+        c.ok("back to where we started" ((array_length (app4.editor.editableShapes())) == n0))
+        def slides0:int (app4.slideCount())
+        c.ok("a new slide" (app4.runCommand("slide.add" "")))
+        c.ok("the deck grew" ((app4.slideCount()) == (slides0 + 1)))
+        c.ok("and the viewer is on it" (app4.index == (app4.editor.slideIndex)))
+        c.ok("undo removes the slide again" (app4.runCommand("edit.undo" "")))
+        c.ok("the deck is back" ((app4.slideCount()) == slides0))
+        c.ok("and the viewer is on a slide that exists" (app4.index < (app4.slideCount())))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

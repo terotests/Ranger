@@ -22,6 +22,7 @@ const backendEl = document.getElementById("backend");
 const cmdsEl = document.getElementById("cmds");
 const slideEl = document.getElementById("slide");
 const fileEl = document.getElementById("file");
+const imageEl = document.getElementById("image");
 
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
 if (!gl) {
@@ -169,41 +170,95 @@ function coords(ev) {
   };
 }
 
+// Whether the button is still held is this file's to remember: the app is
+// told down/pressed/released and a move that says "not down" cannot be a drag,
+// which is the whole of dragging a shape.
+let pointerHeld = false;
+
 canvas.addEventListener("pointerdown", async (ev) => {
   canvas.focus();
   const { x, y } = coords(ev);
+  pointerHeld = true;
+  web.mods(!!ev.shiftKey, !!(ev.ctrlKey || ev.metaKey));
   // Through the frame: a press lands on a window, then the toolbar, then the
   // slide — in that order, decided by the app rather than by this file.
   web.pointerAt(x, y, true, true, false);
   await draw();
+  await servicePendingFile();
 });
 
 canvas.addEventListener("pointermove", async (ev) => {
   const { x, y } = coords(ev);
-  if (web.pointerAt(x, y, false, false, false)) await draw();
+  if (web.pointerAt(x, y, false, pointerHeld, false)) await draw();
 });
 
 canvas.addEventListener("pointerup", async (ev) => {
   const { x, y } = coords(ev);
+  pointerHeld = false;
   web.pointerAt(x, y, false, false, true);
   await draw();
 });
 
+canvas.addEventListener("pointercancel", () => {
+  pointerHeld = false;
+});
+
+canvas.addEventListener("wheel", async (ev) => {
+  const { x, y } = coords(ev);
+  // Only the panel scrolls today, and the app is the one that knows where it
+  // is — so the wheel is handed over with the pointer's position rather than
+  // decided here.
+  if (x >= (web.slidePanelWidth() | 0)) return;
+  ev.preventDefault();
+  web.scroll(x, y, ev.deltaY > 0 ? -1 : 1);
+  await draw();
+}, { passive: false });
+
 const KEYS = {
   ArrowLeft: "left",
   ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
   Home: "home",
   End: "end",
   PageUp: "pageUp",
   PageDown: "pageDown",
+  Delete: "del",
+  Backspace: "backspace",
+  Escape: "escape",
+  Enter: "enter",
+  F2: "f2",
 };
 
 window.addEventListener("keydown", async (ev) => {
+  const ctrl = !!(ev.ctrlKey || ev.metaKey);
+  // Ctrl chords are characters with the modifier held — undo, redo, select
+  // all, group, bold — and the app decides which of them mean anything.
+  if (ctrl && (ev.key === "s" || ev.key === "S")) {
+    ev.preventDefault();
+    downloadDeck();
+    return;
+  }
+  if (ctrl && ev.key.length === 1) {
+    ev.preventDefault();
+    web.type(ev.key, !!ev.shiftKey, true);
+    await draw();
+    return;
+  }
   const name = KEYS[ev.key];
-  if (!name) return;
-  ev.preventDefault();
-  web.key(name);
-  await draw();
+  if (name) {
+    ev.preventDefault();
+    web.keyMod(name, !!ev.shiftKey, ctrl);
+    await draw();
+    return;
+  }
+  // Typing into the selected shape. Only while editing — otherwise a deck
+  // being read would collect stray letters.
+  if (ev.key.length === 1 && web.editing()) {
+    ev.preventDefault();
+    web.type(ev.key, !!ev.shiftKey, false);
+    await draw();
+  }
 });
 
 document.getElementById("next")?.addEventListener("click", async () => {
@@ -212,6 +267,47 @@ document.getElementById("next")?.addEventListener("click", async () => {
 });
 document.getElementById("prev")?.addEventListener("click", async () => {
   web.prev();
+  await draw();
+});
+
+// A toolbar button cannot open a file dialog — the app says what it wants and
+// the page is the only thing here that can ask for it.
+async function servicePendingFile() {
+  const want = web.takeFileRequest();
+  if (want === "open") fileEl?.click();
+  if (want === "image") imageEl?.click();
+  if (want === "save") downloadDeck();
+}
+
+// Saving, in a tab: the app writes the package into memory and the browser is
+// asked to keep it. There is no path to save to and nothing to save it with.
+function downloadDeck() {
+  const raw = web.saveBytes();
+  const view = raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw;
+  if (!view || !(view.length || view.byteLength)) {
+    statusEl.textContent = "nothing to save";
+    return;
+  }
+  const url = URL.createObjectURL(
+    new Blob([view], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = web.suggestedName() || "deck.pptx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  statusEl.textContent = "saved " + a.download;
+}
+
+imageEl?.addEventListener("change", async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const ok = web.insertPicture(file.name, asRangerBuffer(await file.arrayBuffer()));
+  statusEl.textContent = ok ? "inserted " + file.name : "could not read " + file.name;
+  refreshMedia();
+  lastScene = "";
   await draw();
 });
 
@@ -259,6 +355,161 @@ async function selftest() {
     ok("and it is up", JSON.parse(web.scene()).list.cmds.length > 0);
     web.run("slide.first", "");
     ok("first comes back", (web.slideIndex() | 0) === 0);
+    ok("and the picker closes again", web.run("dialog.close", ""));
+  }
+
+  // Editing: the viewer is a mode away from being an editor, and the seam is
+  // the pointer — a press in window pixels has to reach a shape in slide
+  // points, and a drag has to be one undoable step.
+  {
+    web.run("slide.first", "");
+    await draw();
+    ok("a deck opens in the viewer, not the editor", web.editing() === false);
+    ok("the edit toggle is a command", web.run("edit.toggle", ""));
+    ok("and it turns editing on", web.editing() === true);
+    const before = JSON.parse(web.scene()).list.cmds.length;
+    ok("insert a box", web.run("shape.rect", ""));
+    await draw();
+    ok("a shape was selected by inserting it", (web.selectionCount() | 0) === 1);
+    const after = JSON.parse(web.scene()).list.cmds.length;
+    ok("the slide and its selection are one display list", after > before);
+    // Drag it: press in the middle of what is selected, three moves with the
+    // button held, release. Where that is in window pixels is the app's
+    // arithmetic, so the page asks rather than guessing.
+    const box = JSON.parse(web.selectionBox());
+    const midX = Math.round(box.x + box.w / 2);
+    const midY = Math.round(box.y + box.h / 2);
+    web.pointerAt(midX, midY, true, true, false);
+    ok("a press in the selection keeps hold of it", (web.selectionCount() | 0) === 1);
+    for (let i = 1; i <= 3; i++) web.pointerAt(midX + i * 6, midY + i * 3, false, true, false);
+    web.pointerAt(midX + 18, midY + 9, false, false, true);
+    await draw();
+    ok("the drag kept the shape selected", (web.selectionCount() | 0) === 1);
+    const movedBox = JSON.parse(web.selectionBox());
+    ok("and the shape went with the pointer", movedBox.x > box.x + 8);
+    ok("undo is a command too", web.run("edit.undo", ""));
+    await draw();
+    ok("delete takes the inserted shape away", web.run("edit.delete", "") || (web.selectionCount() | 0) === 0);
+    web.run("edit.toggle", "");
+    ok("and the viewer comes back", web.editing() === false);
+  }
+
+  // Typing into a shape: F2 puts a caret in the selected shape, and what is
+  // typed goes in at the caret rather than at the end of the text.
+  {
+    web.run("shape.rect", "");
+    await draw();
+    const before = JSON.parse(web.scene()).list.cmds.length;
+    web.keyMod("f2", false, false);
+    await draw();
+    ok("F2 puts a caret in the shape", JSON.parse(web.scene()).list.cmds.length > before);
+    web.type("Hei", false, false);
+    web.type(" maailma", false, false);
+    await draw();
+    ok("typing kept the shape selected", (web.selectionCount() | 0) === 1);
+    web.keyMod("home", false, false);
+    web.type("→ ", false, false);
+    await draw();
+    ok("Home moved the caret, and typing followed it", true);
+    web.keyMod("escape", false, false);
+    await draw();
+    ok("Escape gives the caret up", true);
+    web.run("edit.undo", "");
+    web.run("edit.delete", "");
+    await draw();
+  }
+
+  // The slide panel: the deck down the left, each thumbnail the same scene the
+  // slide itself is drawn from.
+  {
+    web.run("slide.first", "");
+    await draw();
+    const panelW = web.slidePanelWidth() | 0;
+    ok("the panel has a width", panelW > 40);
+    const withPanel = JSON.parse(web.scene()).list.cmds.length;
+    web.run("view.panel", "");
+    await draw();
+    const withoutPanel = JSON.parse(web.scene()).list.cmds.length;
+    ok("folding the panel away draws less", withoutPanel < withPanel);
+    web.run("view.panel", "");
+    await draw();
+    // A click on the second thumbnail: the panel is a column of them under the
+    // toolbar, so the second is one step down from the first.
+    const scene = JSON.parse(web.scene());
+    const step = Math.round((scene.height - 60) / 8);
+    let moved = false;
+    for (let i = 1; i < 8 && !moved; i++) {
+      web.pointerAt(Math.round(panelW / 2), 60 + i * step, true, true, false);
+      web.pointerAt(Math.round(panelW / 2), 60 + i * step, false, false, true);
+      if ((web.slideIndex() | 0) !== 0) moved = true;
+    }
+    ok("clicking a thumbnail changes the slide", moved);
+    web.run("slide.first", "");
+    await draw();
+  }
+
+  // Direct manipulation: a rubber band over the slide, the clipboard, and the
+  // grid — all through the same command surface a toolbar button uses.
+  {
+    web.run("edit.toggle", "");
+    if (!web.editing()) web.run("edit.toggle", "");
+    web.run("shape.rect", "");
+    await draw();
+    // Where the shape is, in window pixels, so the band can start on empty
+    // canvas beside it rather than at a guessed corner — the toolbar wraps to
+    // as many rows as the width needs, so "near the top" is not empty.
+    const box = JSON.parse(web.selectionBox());
+    const x0 = Math.max(1, Math.round(box.x - 60));
+    // Only just above it: the toolbar wraps to as many rows as it needs, so a
+    // point far above the shape is a point on the toolbar, and a press there
+    // turns the page instead of starting a band.
+    const y0 = Math.round(box.y - 12);
+    const x1 = Math.round(box.x + box.w + 40);
+    const y1 = Math.round(box.y + box.h + 40);
+    web.pointerAt(x0, y0, true, true, false);
+    ok("a press beside the shape drops the selection", (web.selectionCount() | 0) === 0);
+    web.pointerAt(Math.round((x0 + x1) / 2), Math.round((y0 + y1) / 2), false, true, false);
+    web.pointerAt(x1, y1, false, true, false);
+    web.pointerAt(x1, y1, false, false, true);
+    await draw();
+    // The deck under it has shapes of its own, so the band takes those too —
+    // which is the point of a band.
+    ok("and a band picks up everything it touched", (web.selectionCount() | 0) >= 1);
+    ok("copy is a command", web.run("edit.copy", ""));
+    ok("paste is a command", web.run("edit.paste", ""));
+    await draw();
+    ok("pasting kept a selection", (web.selectionCount() | 0) >= 1);
+    const before = JSON.parse(web.scene()).list.cmds.length;
+    ok("the grid turns on", web.run("view.grid", ""));
+    await draw();
+    ok("and it is drawn", JSON.parse(web.scene()).list.cmds.length > before);
+    web.run("view.grid", "");
+    web.run("edit.undo", "");
+    web.run("edit.undo", "");
+    web.run("edit.undo", "");
+    web.run("edit.toggle", "");
+    await draw();
+  }
+
+  // Saving: the page can write the package it is showing, and the proof is
+  // that the page can open what it just wrote.
+  {
+    web.run("edit.toggle", "");
+    web.run("shape.rect", "");
+    await draw();
+    const slidesBefore = web.slideCount() | 0;
+    const raw = web.saveBytes();
+    const view = raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw || []);
+    ok("save produced bytes", view.length > 1000);
+    ok("and they are a ZIP", view[0] === 0x50 && view[1] === 0x4b);
+    const copy = view.slice().buffer;
+    copy._view = new DataView(copy);
+    ok("the page can open what it wrote", web.openDeck(copy, "written.pptx"));
+    refreshMedia();
+    lastScene = "";
+    await draw();
+    ok("with the same number of slides", (web.slideCount() | 0) === slidesBefore);
+    ok("and something drawn on the first one", JSON.parse(web.scene()).list.cmds.length > 4);
   }
 
   // Pictures: the deck carries them, so they should be textures by now.

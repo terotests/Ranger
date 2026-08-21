@@ -10,6 +10,8 @@ Import "PptxParser.rgr"
 Import "PptxResolver.rgr"
 Import "PptxModel.rgr"
 Import "PptxView.rgr"
+Import "PptxEdit.rgr"
+Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -22,12 +24,17 @@ Import "../../evg/EVGCommands.rgr"
 ; component the spreadsheet's and the document's are — and this is the only
 ; part that is about slides.
 class PptxToolbar extends EVGToolbar {
+    ; The strip cannot work out whether the deck is being edited any more than
+    ; it can work out which slide you are on; the app sets it before paint.
+    def editOn:boolean false
+
     Constructor () {
     }
 
     fn build:void () {
         clear items
         this.add("file.open" "" "Open a deck" (ToolIcon.openFile()))
+        this.add("file.save" "" "Save the deck" (ToolIcon.save()))
         this.addSeparator()
         this.add("slide.first" "" "First slide" (ToolIcon.alignLeft()))
         this.add("slide.prev" "" "Previous slide" (ToolIcon.undo()))
@@ -35,6 +42,42 @@ class PptxToolbar extends EVGToolbar {
         this.add("slide.last" "" "Last slide" (ToolIcon.alignRight()))
         this.addSeparator()
         this.addText("slide.pick" "" "1 / 1" 88)
+        this.addSeparator()
+        ; The editing half of the strip. It is always here — the buttons are
+        ; live only while `edit.toggle` is pressed, which is what tells you
+        ; the deck can be changed at all.
+        this.add("edit.toggle" "" "Edit the slide" (ToolIcon.paint()))
+        this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        this.addSeparator()
+        this.add("shape.rect" "" "Insert a box" (ToolIcon.borderAll()))
+        this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.cond()))
+        this.add("text.add" "" "Insert a text box" (ToolIcon.textColor()))
+        this.add("picture.add" "" "Insert a picture" (ToolIcon.report()))
+        this.addSeparator()
+        this.add("edit.copy" "" "Copy" (ToolIcon.paint()))
+        this.add("edit.paste" "" "Paste" (ToolIcon.clearFmt()))
+        this.add("edit.lock" "" "Lock or unlock" (ToolIcon.freeze()))
+        this.add("edit.flip.h" "" "Flip across" (ToolIcon.borderOut()))
+        this.add("edit.flip.v" "" "Flip down" (ToolIcon.borderMore()))
+        this.add("edit.duplicate" "" "Duplicate" (ToolIcon.merge()))
+        this.add("edit.delete" "" "Delete" (ToolIcon.deleteRow()))
+        this.add("edit.front" "" "Bring to front" (ToolIcon.valignTop()))
+        this.add("edit.back" "" "Send to back" (ToolIcon.valignBot()))
+        this.add("edit.group" "" "Group" (ToolIcon.freeze()))
+        this.add("edit.ungroup" "" "Ungroup" (ToolIcon.borderNone()))
+        this.addSeparator()
+        this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
+        this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
+        this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
+        this.add("format.copy" "" "Pick up the formatting" (ToolIcon.paint()))
+        this.add("format.paste" "" "Paint it on" (ToolIcon.borderAll()))
+        this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
+        this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
+        this.addSeparator()
+        this.add("slide.add" "" "New slide" (ToolIcon.newFile()))
+        this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.insertRow()))
+        this.add("slide.delete" "" "Delete slide" (ToolIcon.deleteRow()))
     }
 
     ; The one button that shows a value rather than a picture. The strip
@@ -46,6 +89,9 @@ class PptxToolbar extends EVGToolbar {
             t.pressed = false
             if (t.command == "slide.pick") {
                 t.label = ((to_string (index + 1)) + " / " + (to_string count))
+            }
+            if (t.command == "edit.toggle") {
+                t.pressed = editOn
             }
             i = (i + 1)
         }
@@ -75,6 +121,29 @@ class PptxApp {
     def statusH:int 22
     def status:string ""
     def fileRequest:string ""
+    ; Editing. The viewer is the default and the editor is a mode on top of
+    ; it — a deck you opened to read cannot be changed by a stray click.
+    def editor:PptxEditor (new PptxEditor())
+    def editMode:boolean false
+    def dragMode:int 0          ; 0 none, 1 move, 2 resize, 3 marquee, 4 rotate
+    ; The rubber band, in slide points, while a drag over empty canvas is
+    ; happening.
+    def marqueeX:double 0.0
+    def marqueeY:double 0.0
+    def marqueeW:double 0.0
+    def marqueeH:double 0.0
+    def dragHandle:int -1
+    def dragLastX:double 0.0    ; slide points
+    def dragLastY:double 0.0
+    def dragMoved:boolean false
+    def modShift:boolean false
+    def modCtrl:boolean false
+    ; The slide panel: the deck down the left-hand side.
+    def panelW:int 150
+    def panelVisible:boolean true
+    def panelScroll:int 0
+    def panelDrag:int -1
+    def panelDropAt:int -1
     ; The slide picker. Ids: 1601.. the slides, 1691 Close.
     def slideDialog:EVGWindow (new EVGWindow)
     def dialogsReady:boolean false
@@ -94,17 +163,66 @@ class PptxApp {
         toolbar.build()
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (toolbarH + statusH)
+        view.chromeW = (this.panelWidth())
         this.registerCommands()
     }
 
     fn registerCommands:void () {
         commands.add("file.open" "Open a deck" "File" "Ctrl+O")
+        commands.addArg("file.save" "Save the deck" "File" "Ctrl+S")
         commands.add("slide.next" "Next slide" "View" "Right")
         commands.add("slide.prev" "Previous slide" "View" "Left")
         commands.add("slide.first" "First slide" "View" "Home")
         commands.add("slide.last" "Last slide" "View" "End")
         commands.addArg("slide.pick" "Go to slide…" "View" "")
         commands.addArg("slide.goto" "Go to slide" "View" "")
+        commands.add("dialog.close" "Close the dialog" "View" "Esc")
+        commands.add("edit.toggle" "Edit the slide" "Edit" "Ctrl+E")
+        commands.add("edit.undo" "Undo" "Edit" "Ctrl+Z")
+        commands.add("edit.redo" "Redo" "Edit" "Ctrl+Y")
+        commands.add("edit.delete" "Delete" "Edit" "Del")
+        commands.add("edit.duplicate" "Duplicate" "Edit" "Ctrl+D")
+        commands.add("edit.selectall" "Select all" "Edit" "Ctrl+A")
+        commands.add("text.edit" "Type in the shape" "Edit" "F2")
+        commands.add("edit.copy" "Copy" "Edit" "Ctrl+C")
+        commands.add("edit.cut" "Cut" "Edit" "Ctrl+X")
+        commands.add("edit.paste" "Paste" "Edit" "Ctrl+V")
+        commands.add("edit.lock" "Lock or unlock" "Arrange" "")
+        commands.add("format.copy" "Pick up the formatting" "Format" "")
+        commands.add("format.paste" "Paint the formatting on" "Format" "")
+        commands.add("edit.flip.h" "Flip across" "Arrange" "")
+        commands.add("edit.flip.v" "Flip down" "Arrange" "")
+        commands.add("view.panel" "Show the slides" "View" "")
+        commands.add("view.grid" "Snap to the grid" "View" "")
+        commands.add("view.snap" "Snap to the shapes" "View" "")
+        commands.add("edit.front" "Bring to front" "Arrange" "")
+        commands.add("edit.back" "Send to back" "Arrange" "")
+        commands.add("edit.forward" "Bring forward" "Arrange" "")
+        commands.add("edit.backward" "Send backward" "Arrange" "")
+        commands.add("edit.group" "Group" "Arrange" "Ctrl+G")
+        commands.add("edit.ungroup" "Ungroup" "Arrange" "")
+        commands.add("edit.align.left" "Align left" "Arrange" "")
+        commands.add("edit.align.hcenter" "Align centre" "Arrange" "")
+        commands.add("edit.align.right" "Align right" "Arrange" "")
+        commands.add("edit.align.top" "Align top" "Arrange" "")
+        commands.add("edit.align.vcenter" "Align middle" "Arrange" "")
+        commands.add("edit.align.bottom" "Align bottom" "Arrange" "")
+        commands.add("edit.distribute.h" "Distribute across" "Arrange" "")
+        commands.add("edit.distribute.v" "Distribute down" "Arrange" "")
+        commands.add("edit.bold" "Bold text" "Format" "Ctrl+B")
+        commands.add("edit.italic" "Italic text" "Format" "Ctrl+I")
+        commands.addArg("edit.fill" "Fill colour" "Format" "")
+        commands.addArg("edit.line" "Outline colour" "Format" "")
+        commands.addArg("edit.text" "Set the text" "Format" "")
+        commands.add("shape.rect" "Insert a box" "Insert" "")
+        commands.add("shape.ellipse" "Insert an ellipse" "Insert" "")
+        commands.add("text.add" "Insert a text box" "Insert" "")
+        commands.add("picture.add" "Insert a picture" "Insert" "")
+        commands.add("slide.add" "New slide" "Slides" "")
+        commands.add("slide.duplicate" "Duplicate slide" "Slides" "")
+        commands.add("slide.delete" "Delete slide" "Slides" "")
+        commands.add("slide.moveup" "Move slide earlier" "Slides" "")
+        commands.add("slide.movedown" "Move slide later" "Slides" "")
     }
 
     fn load:boolean (fullPath:string) {
@@ -123,6 +241,7 @@ class PptxApp {
         view.deckName = (this.basenameOf(fullPath))
         index = 0
         loaded = true
+        editor.attach(presentation)
         view.status = ((to_string (presentation.slideCount())) + " slides")
         return true
     }
@@ -143,6 +262,7 @@ class PptxApp {
         view.deckName = name
         index = 0
         loaded = true
+        editor.attach(presentation)
         view.status = ((to_string (presentation.slideCount())) + " slides")
         return true
     }
@@ -165,6 +285,7 @@ class PptxApp {
         view.deckName = name
         index = 0
         loaded = true
+        editor.attach(presentation)
         view.status = ((to_string (presentation.slideCount())) + " slides")
         return true
     }
@@ -327,6 +448,9 @@ class PptxApp {
             i = (n - 1)
         }
         index = i
+        editor.slideIndex = i
+        editor.clearSelection()
+        this.ensureSlideVisible()
     }
 
     fn resize:void (nw:int nh:int) {
@@ -334,6 +458,7 @@ class PptxApp {
         H = nh
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (toolbarH + statusH)
+        view.chromeW = (this.panelWidth())
         view.resize(W H)
     }
 
@@ -374,7 +499,28 @@ class PptxApp {
             }
             return false
         }
-        return false
+        ; Saving. With no argument the app can only say that it wants to —
+        ; a browser tab and a file system disagree about what a path is, and
+        ; the host is the one that knows.
+        if (id == "file.save") {
+            if ((strlen arg) == 0) {
+                fileRequest = "save"
+                return true
+            }
+            def cut:int (PptxApp.lastSlash(arg))
+            def dir:string "."
+            def base:string arg
+            if (cut >= 0) {
+                dir = (substring arg 0 cut)
+                base = (substring arg (cut + 1) (strlen arg))
+            }
+            return (this.saveDeck(dir base))
+        }
+        if (id == "dialog.close") {
+            slideDialog.close()
+            return true
+        }
+        return (this.runEditCommand(id arg))
     }
 
     ; --- the slide picker -----------------------------------------------------
@@ -435,12 +581,25 @@ class PptxApp {
             this.pollDialogs()
             return true
         }
+        ; The panel is beside the slide, so it is asked before the slide is.
+        if (this.panelPointer(px py pressed down released)) {
+            return true
+        }
         toolbar.hot = (toolbar.hit(px py))
         if pressed {
             if (toolbar.hot >= 0) {
                 def t:ToolItem (toolbar.at(toolbar.hot))
                 return (this.runCommand(t.command t.arg))
             }
+        }
+        ; In edit mode the slide is a canvas, not a page: a click selects and
+        ; a drag moves, and the left / right thirds stop turning the page.
+        if editMode {
+            if (this.editPointer(px py pressed down released)) {
+                return true
+            }
+        }
+        if pressed {
             ; Clicking the left or right third of the SLIDE turns the page —
             ; the way a deck is read. It used to be the whole window, which
             ; meant the status band was a navigation button too.
@@ -461,22 +620,71 @@ class PptxApp {
     }
 
     fn update:void (input:UIInput) {
+        modShift = input.shiftDown
+        modCtrl = input.ctrlDown
+        if input.ctrlDown {
+            this.editChords(input.textInput)
+        }
         def i:int 0
         while (i < (input.keyCount())) {
             def k:int (input.keyAt(i))
-            if (k == (UIKey.right())) {
-                this.runCommand("slide.next" "")
+            def taken:boolean false
+            if editMode {
+                taken = (this.textKey(k input.shiftDown))
             }
-            if (k == (UIKey.left())) {
-                this.runCommand("slide.prev" "")
+            if (taken == false) {
+                if (k == (UIKey.f2())) {
+                    taken = (this.startTextEdit())
+                }
+                if (k == (UIKey.enter())) {
+                    if (taken == false) {
+                        taken = (this.startTextEdit())
+                    }
+                }
             }
-            if (k == (UIKey.home())) {
-                this.runCommand("slide.first" "")
+            if (k == (UIKey.escape())) {
+                if slideDialog.visible {
+                    slideDialog.close()
+                    taken = true
+                }
             }
-            if (k == (UIKey.end())) {
-                this.runCommand("slide.last" "")
+            if editMode {
+                taken = (this.editKey(k input.shiftDown))
+            }
+            if (taken == false) {
+                if (k == (UIKey.right())) {
+                    this.runCommand("slide.next" "")
+                }
+                if (k == (UIKey.left())) {
+                    this.runCommand("slide.prev" "")
+                }
+                if (k == (UIKey.home())) {
+                    this.runCommand("slide.first" "")
+                }
+                if (k == (UIKey.end())) {
+                    this.runCommand("slide.last" "")
+                }
             }
             i = (i + 1)
+        }
+        ; Typing goes into the selected shape. Not a caret yet — text arrives
+        ; at the end of what is there, and backspace takes it off the end.
+        if editMode {
+            if (input.ctrlDown == false) {
+                if ((strlen input.textInput) > 0) {
+                    this.syncEditor()
+                    if (editor.isEditingText()) {
+                        editor.typeAtCaret(input.textInput)
+                    } {
+                        editor.appendText(input.textInput)
+                    }
+                }
+            }
+        }
+        if (input.scrollDelta != 0) {
+            if (input.pointerX < (this.panelWidth())) {
+                this.scrollPanel(input.scrollDelta)
+            }
         }
         this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
         this.render()
@@ -487,11 +695,23 @@ class PptxApp {
     fn buildFrame:EVGDisplayList () {
         def framed:EVGDisplayList (new EVGDisplayList)
         framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
+        this.paintPanel(framed)
         def slide@(optional):PptxSlide (this.currentSlide())
         if (!null? slide) {
-            def dl:EVGDisplayList (view.buildDisplayList((unwrap slide)))
-            PptxApp.offsetList(dl 0 toolbarH)
+            def sl:PptxSlide (unwrap slide)
+            def sc:double (this.ptScale())
+            def ox:double (this.slideOriginX())
+            def oy:double (this.slideOriginY())
+            ; The page, and the desk it is on. A slide drawn into the corner of
+            ; a window that is a different shape reads as a rendering fault.
+            framed.addFrame((ox - 1.0) (oy - 1.0) ((sl.width * sc) + 2.0) ((sl.height * sc) + 2.0) 1.0 (EVGColor.rgb(70 78 96)))
+            def dl:EVGDisplayList (view.buildDisplayList(sl))
+            PptxApp.offsetList(dl (to_int ox) (to_int oy))
             PptxApp.appendList(framed dl)
+        }
+        if editMode {
+            this.paintEditOverlay(framed)
+            this.paintCaret(framed)
         }
         toolbarView.attach(view.ctx view.fontFamily)
         toolbarView.theme = theme
@@ -507,6 +727,10 @@ class PptxApp {
         }
         if ((strlen status) > 0) {
             label = ((label + "   ") + status)
+        }
+        def es:string (this.editStatus())
+        if ((strlen es) > 0) {
+            label = ((label + "   ") + es)
         }
         toolbarView.pushText(framed label 8.0 (to_double (sy + 4)) 12.0 theme.dim)
 
@@ -800,4 +1024,1478 @@ class PptxApp {
         parser.close()
         loaded = false
     }
+
+    ; --- editing --------------------------------------------------------------
+    ;
+    ; The viewer's geometry is points; the window's is pixels. Everything the
+    ; pointer says has to cross that line, and this is the only place it does.
+
+    fn ptScale:double () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return (96.0 / 72.0)
+        }
+        def s:PptxSlide (unwrap slide)
+        def f:double (view.fitScale(s))
+        return ((96.0 / 72.0) * f)
+    }
+
+    ; Where the slide's top-left corner sits in the window. The fit-to-window
+    ; scale leaves a margin on one axis; the page is centred in it.
+    fn slideOriginX:double () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return 0.0
+        }
+        def s:PptxSlide (unwrap slide)
+        def sc:double (this.ptScale())
+        def wpx:double (s.width * sc)
+        def left:double (to_double (this.panelWidth()))
+        def dx:double (left + ((((to_double W) - left) - wpx) * 0.5))
+        if (dx < left) {
+            return left
+        }
+        return dx
+    }
+
+    fn slideOriginY:double () {
+        def top:double (to_double toolbarH)
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return top
+        }
+        def s:PptxSlide (unwrap slide)
+        def sc:double (this.ptScale())
+        def hpx:double (s.height * sc)
+        def avail:double (to_double ((H - toolbarH) - statusH))
+        def dy:double ((avail - hpx) * 0.5)
+        if (dy < 0.0) {
+            return top
+        }
+        return (top + dy)
+    }
+
+    fn screenToSlideX:double (px:int) {
+        def sc:double (this.ptScale())
+        if (sc <= 0.0) {
+            return 0.0
+        }
+        return (((to_double px) - (this.slideOriginX())) / sc)
+    }
+
+    fn screenToSlideY:double (py:int) {
+        def sc:double (this.ptScale())
+        if (sc <= 0.0) {
+            return 0.0
+        }
+        return (((to_double py) - (this.slideOriginY())) / sc)
+    }
+
+    fn syncEditor:void () {
+        editor.slideIndex = index
+    }
+
+    fn syncFromEditor:void () {
+        def n:int (array_length presentation.slides)
+        def i:int editor.slideIndex
+        if (i < 0) {
+            i = 0
+        }
+        if (i >= n) {
+            i = (n - 1)
+        }
+        index = i
+        editor.slideIndex = i
+    }
+
+    ; Handles, clockwise from the top-left, on the selection's box.
+    sfn handleCx:double (x0:double x1:double idx:int) {
+        def mid:double ((x0 + x1) * 0.5)
+        if (idx == 1) {
+            return mid
+        }
+        if (idx == 5) {
+            return mid
+        }
+        if (idx == 2) {
+            return x1
+        }
+        if (idx == 3) {
+            return x1
+        }
+        if (idx == 4) {
+            return x1
+        }
+        return x0
+    }
+
+    sfn handleCy:double (y0:double y1:double idx:int) {
+        def mid:double ((y0 + y1) * 0.5)
+        if (idx == 3) {
+            return mid
+        }
+        if (idx == 7) {
+            return mid
+        }
+        if (idx == 4) {
+            return y1
+        }
+        if (idx == 5) {
+            return y1
+        }
+        if (idx == 6) {
+            return y1
+        }
+        return y0
+    }
+
+    ; The rotation handle stands off the top of the box, where every editor
+    ; puts it.
+    fn rotateHandleY:double (y0:double) {
+        return (y0 - 18.0)
+    }
+
+    ; One shape, turned: its selection turns with it. Several shapes, or none
+    ; turned, and the box is the upright one that contains them — which is
+    ; what PowerPoint draws too, because there is no single angle to draw at.
+    fn selectionAngle:double () {
+        if ((editor.selectionCount()) != 1) {
+            return 0.0
+        }
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (null? hit) {
+            return 0.0
+        }
+        def sh:PptxShape (unwrap hit)
+        return sh.rotation
+    }
+
+    ; Where handle `idx` is on screen, rotation included. -1 asks for the
+    ; rotation handle, which stands off the top edge in the shape's own
+    ; direction rather than straight up the window.
+    fn handlePos:[double] (idx:int) {
+        def out:[double]
+        def sc:double (this.ptScale())
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
+        def b:PptxEditRect (editor.selectionBounds())
+        def x0:double ((b.x * sc) + ox)
+        def y0:double ((b.y * sc) + oy)
+        def x1:double (((b.right()) * sc) + ox)
+        def y1:double (((b.bottom()) * sc) + oy)
+        def hx:double (PptxApp.handleCx(x0 x1 idx))
+        def hy:double (PptxApp.handleCy(y0 y1 idx))
+        if (idx == 8) {
+            hx = ((x0 + x1) * 0.5)
+            hy = (this.rotateHandleY(y0))
+        }
+        def deg:double (this.selectionAngle())
+        if ((deg > 0.001) || (deg < -0.001)) {
+            def cx:double ((x0 + x1) * 0.5)
+            def cy:double ((y0 + y1) * 0.5)
+            def p:[double] (PptxToEvg.rotateAbout(hx hy cx cy deg))
+            push out (itemAt p 0)
+            push out (itemAt p 1)
+            return out
+        }
+        push out hx
+        push out hy
+        return out
+    }
+
+    ; The four corners of the selection box, turned with it.
+    fn selectionCorners:[double] () {
+        def out:[double]
+        def i:int 0
+        while (i < 8) {
+            def useIt:boolean false
+            if (i == 0) {
+                useIt = true
+            }
+            if (i == 2) {
+                useIt = true
+            }
+            if (i == 4) {
+                useIt = true
+            }
+            if (i == 6) {
+                useIt = true
+            }
+            if useIt {
+                def p:[double] (this.handlePos(i))
+                push out (itemAt p 0)
+                push out (itemAt p 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A line as a quad, because the display list's frame is axis-aligned and a
+    ; turned box has no axis-aligned edges.
+    fn pushLine:void (dl:EVGDisplayList x0:double y0:double x1:double y1:double thickness:double col:EVGColor) {
+        def dx:double (x1 - x0)
+        def dy:double (y1 - y0)
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        if (len < 0.0001) {
+            return
+        }
+        def nx:double (((0.0 - dy) / len) * (thickness * 0.5))
+        def ny:double ((dx / len) * (thickness * 0.5))
+        def pts:[double]
+        push pts (x0 + nx)
+        push pts (y0 + ny)
+        push pts (x1 + nx)
+        push pts (y1 + ny)
+        push pts (x1 - nx)
+        push pts (y1 - ny)
+        push pts (x0 - nx)
+        push pts (y0 - ny)
+        def c (new EVGDrawCmd())
+        c.kind = 6
+        c.pts = pts
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushQuadOutline:void (dl:EVGDisplayList corners:[double] thickness:double col:EVGColor) {
+        if ((array_length corners) < 8) {
+            return
+        }
+        def i:int 0
+        while (i < 4) {
+            def j:int ((i + 1) % 4)
+            this.pushLine(dl (itemAt corners (i * 2)) (itemAt corners ((i * 2) + 1)) (itemAt corners (j * 2)) (itemAt corners ((j * 2) + 1)) thickness col)
+            i = (i + 1)
+        }
+    }
+
+    fn handleAt:int (px:int py:int) {
+        if ((editor.selectionCount()) == 0) {
+            return -1
+        }
+        def sc:double (this.ptScale())
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
+        def b:PptxEditRect (editor.selectionBounds())
+        def x0:double ((b.x * sc) + ox)
+        def y0:double ((b.y * sc) + oy)
+        def x1:double (((b.right()) * sc) + ox)
+        def y1:double (((b.bottom()) * sc) + oy)
+        def fx:double (to_double px)
+        def fy:double (to_double py)
+        def rot:[double] (this.handlePos(8))
+        if ((fabs (fx - (itemAt rot 0))) <= 7.0) {
+            if ((fabs (fy - (itemAt rot 1))) <= 7.0) {
+                return 8
+            }
+        }
+        def i:int 0
+        while (i < 8) {
+            def p:[double] (this.handlePos(i))
+            def dx:double (fabs (fx - (itemAt p 0)))
+            def dy:double (fabs (fy - (itemAt p 1)))
+            if (dx <= 6.0) {
+                if (dy <= 6.0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A press picks something up, a drag carries it, and the release is the
+    ; single history step. Nothing between press and release is undoable on
+    ; its own — a drag is one edit however many frames it took.
+    fn editPointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        if (py < toolbarH) {
+            return false
+        }
+        if (py >= (H - statusH)) {
+            return false
+        }
+        def sx:double (this.screenToSlideX(px))
+        def sy:double (this.screenToSlideY(py))
+        if pressed {
+            this.syncEditor()
+            ; While a caret is in a shape, a click inside that shape moves the
+            ; caret rather than picking the shape up again.
+            if (editor.isEditingText()) {
+                def edited@(optional):PptxShape (editor.editingShape())
+                if (!null? edited) {
+                    def es:PptxShape (unwrap edited)
+                    def sxPt:double (this.screenToSlideX(px))
+                    def syPt:double (this.screenToSlideY(py))
+                    if (PptxEditor.containsPoint(es sxPt syPt)) {
+                        def at:PptxTextPos (this.caretFromPoint(es px py))
+                        editor.setCaretPos(at.para at.col modShift)
+                        dragMode = 0
+                        return true
+                    }
+                }
+                editor.endTextEdit()
+            }
+            def h:int (this.handleAt(px py))
+            if (h >= 0) {
+                dragMode = 2
+                if (h == 8) {
+                    dragMode = 4
+                }
+                dragHandle = h
+                dragLastX = sx
+                dragLastY = sy
+                dragMoved = false
+                return true
+            }
+            def hitId:int (editor.hitTest(sx sy))
+            editor.selectAt(sx sy modShift)
+            dragMode = 0
+            if (hitId > 0) {
+                dragMode = 1
+                dragLastX = sx
+                dragLastY = sy
+                dragMoved = false
+            } {
+                ; Nothing under the pointer: a drag from here is a rubber band.
+                dragMode = 3
+                marqueeX = sx
+                marqueeY = sy
+                marqueeW = 0.0
+                marqueeH = 0.0
+                dragLastX = sx
+                dragLastY = sy
+                dragMoved = false
+            }
+            return true
+        }
+        if released {
+            if (dragMode > 0) {
+                if (dragMode == 3) {
+                    ; A band that never moved is a click on empty canvas, and
+                    ; that already cleared the selection.
+                    if dragMoved {
+                        editor.selectInRect(marqueeX marqueeY marqueeW marqueeH modShift)
+                    }
+                    marqueeW = 0.0
+                    marqueeH = 0.0
+                } {
+                    if dragMoved {
+                        if (dragMode == 1) {
+                            editor.pushSnapshot("move")
+                        } {
+                            if (dragMode == 4) {
+                                editor.pushSnapshot("rotate")
+                            } {
+                                editor.pushSnapshot("resize")
+                            }
+                        }
+                    }
+                }
+                editor.clearGuides()
+                dragMode = 0
+                dragHandle = -1
+                return true
+            }
+            return false
+        }
+        if (dragMode > 0) {
+            if down {
+                def dx:double (sx - dragLastX)
+                def dy:double (sy - dragLastY)
+                if (dragMode == 1) {
+                    def adj:PptxEditRect (editor.snapDelta(dx dy))
+                    editor.applyMove(adj.x adj.y)
+                    ; Follow the shape rather than the pointer, so a snapped
+                    ; edge stays put until the pointer has really left it.
+                    dragLastX = (dragLastX + adj.x)
+                    dragLastY = (dragLastY + adj.y)
+                }
+                if (dragMode == 2) {
+                    ; A turned shape is resized along its OWN axes: dragging
+                    ; the right-hand handle of a shape lying on its side has to
+                    ; make it longer, not taller. The pointer's movement is
+                    ; turned back by the shape's angle before the box hears
+                    ; about it.
+                    def deg:double (this.selectionAngle())
+                    def ldx:double dx
+                    def ldy:double dy
+                    if ((deg > 0.001) || (deg < -0.001)) {
+                        def local:[double] (PptxToEvg.rotateAbout(dx dy 0.0 0.0 (0.0 - deg)))
+                        ldx = (itemAt local 0)
+                        ldy = (itemAt local 1)
+                    }
+                    editor.applyResize(dragHandle ldx ldy)
+                    dragLastX = sx
+                    dragLastY = sy
+                }
+                if (dragMode == 3) {
+                    marqueeW = (sx - marqueeX)
+                    marqueeH = (sy - marqueeY)
+                }
+                if (dragMode == 4) {
+                    ; The pointer's angle about the centre of the selection,
+                    ; with the handle standing at twelve o'clock.
+                    def b2:PptxEditRect (editor.selectionBounds())
+                    def cx:double (b2.midX())
+                    def cy:double (b2.midY())
+                    def ang:double (atan2 (sy - cy) (sx - cx))
+                    def deg:double (((ang * 180.0) / 3.141592653589793) + 90.0)
+                    if modShift {
+                        deg = (PptxEditor.snapToStep(deg 15.0))
+                    }
+                    editor.applyRotate(deg)
+                }
+                dragMoved = true
+                return true
+            }
+        }
+        return false
+    }
+
+    fn setMods:void (shift:boolean ctrl:boolean) {
+        modShift = shift
+        modCtrl = ctrl
+    }
+
+    fn setEditMode:void (on:boolean) {
+        editMode = on
+        toolbar.editOn = on
+        if (on == false) {
+            editor.clearSelection()
+            editor.clearGuides()
+            dragMode = 0
+        }
+    }
+
+    fn nudge:boolean (dx:double dy:double) {
+        if ((editor.selectionCount()) == 0) {
+            return false
+        }
+        this.syncEditor()
+        return (editor.moveSelection(dx dy))
+    }
+
+    ; Bold and italic are toggles, and what they toggle from is whatever the
+    ; first run of the first selected shape says.
+    fn selectionBold:boolean () {
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        def run@(optional):PptxTextRun (PptxEditor.firstRun(sh.text))
+        if (null? run) {
+            return false
+        }
+        def r:PptxTextRun (unwrap run)
+        return r.bold
+    }
+
+    fn selectionItalic:boolean () {
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        def run@(optional):PptxTextRun (PptxEditor.firstRun(sh.text))
+        if (null? run) {
+            return false
+        }
+        def r:PptxTextRun (unwrap run)
+        return r.italic
+    }
+
+    ; A picture from the host: the bytes go into the viewer's decode cache
+    ; under a package-shaped name, which is all the painter ever asks for.
+    fn insertPicture:boolean (name:string bytes:buffer) {
+        if (loaded == false) {
+            return false
+        }
+        this.syncEditor()
+        def part:string ("ppt/media/" + name)
+        view.cacheImage(part bytes)
+        def w:double ((this.slideW()) * 0.35)
+        def h:double (w * 0.6)
+        def x:double (((this.slideW()) - w) * 0.5)
+        def y:double (((this.slideH()) - h) * 0.5)
+        def id:int (editor.addPicture(part bytes x y w h))
+        def added@(optional):PptxShape (editor.findShape(id))
+        if (!null? added) {
+            def sh:PptxShape (unwrap added)
+            view.cacheShapeImages(sh)
+        }
+        this.setEditMode(true)
+        return (id > 0)
+    }
+
+    fn slideW:double () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return presentation.slideWidth
+        }
+        def s:PptxSlide (unwrap slide)
+        return s.width
+    }
+
+    fn slideH:double () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return presentation.slideHeight
+        }
+        def s:PptxSlide (unwrap slide)
+        return s.height
+    }
+
+    ; --- the editing commands -------------------------------------------------
+    ; Every one of them is a command id, so a toolbar button, a keyboard chord
+    ; and a host over a socket all reach the same code.
+    fn runEditCommand:boolean (id:string arg:string) {
+        if (id == "edit.toggle") {
+            def want:boolean (editMode == false)
+            this.setEditMode(want)
+            return true
+        }
+        if (loaded == false) {
+            return false
+        }
+        this.syncEditor()
+        if (id == "edit.undo") {
+            def ok:boolean (editor.undo())
+            this.syncFromEditor()
+            return ok
+        }
+        if (id == "edit.redo") {
+            def ok2:boolean (editor.redo())
+            this.syncFromEditor()
+            return ok2
+        }
+        if (id == "edit.delete") {
+            return (editor.deleteSelection())
+        }
+        if (id == "edit.duplicate") {
+            return (editor.duplicateSelection())
+        }
+        if (id == "edit.copy") {
+            return ((editor.copySelection()) > 0)
+        }
+        if (id == "edit.cut") {
+            return ((editor.cutSelection()) > 0)
+        }
+        if (id == "edit.paste") {
+            return (editor.pasteClipboard(true))
+        }
+        if (id == "format.copy") {
+            return (editor.copyFormat())
+        }
+        if (id == "format.paste") {
+            return (editor.applyFormat())
+        }
+        if (id == "edit.flip.h") {
+            return (editor.flipSelection(true))
+        }
+        if (id == "edit.flip.v") {
+            return (editor.flipSelection(false))
+        }
+        if (id == "edit.lock") {
+            def locked:boolean (editor.selectionLocked())
+            return (editor.setLocked((locked == false)))
+        }
+        if (id == "view.panel") {
+            panelVisible = (panelVisible == false)
+            view.chromeW = (this.panelWidth())
+            return true
+        }
+        if (id == "view.grid") {
+            editor.setGrid((editor.gridEnabled == false))
+            return true
+        }
+        if (id == "view.snap") {
+            editor.snapEnabled = (editor.snapEnabled == false)
+            return true
+        }
+        if (id == "edit.selectall") {
+            if (editor.isEditingText()) {
+                editor.selectAllText()
+                return true
+            }
+            editor.selectAll()
+            return true
+        }
+        if (id == "text.edit") {
+            if (editor.isEditingText()) {
+                editor.endTextEdit()
+                return true
+            }
+            this.setEditMode(true)
+            return (this.startTextEdit())
+        }
+        if (id == "edit.front") {
+            return (editor.bringToFront())
+        }
+        if (id == "edit.back") {
+            return (editor.sendToBack())
+        }
+        if (id == "edit.forward") {
+            return (editor.bringForward())
+        }
+        if (id == "edit.backward") {
+            return (editor.sendBackward())
+        }
+        if (id == "edit.group") {
+            return (editor.groupSelection())
+        }
+        if (id == "edit.ungroup") {
+            return (editor.ungroupSelection())
+        }
+        if (id == "edit.align.left") {
+            return (editor.alignSelection("left"))
+        }
+        if (id == "edit.align.hcenter") {
+            return (editor.alignSelection("hcenter"))
+        }
+        if (id == "edit.align.right") {
+            return (editor.alignSelection("right"))
+        }
+        if (id == "edit.align.top") {
+            return (editor.alignSelection("top"))
+        }
+        if (id == "edit.align.vcenter") {
+            return (editor.alignSelection("vcenter"))
+        }
+        if (id == "edit.align.bottom") {
+            return (editor.alignSelection("bottom"))
+        }
+        if (id == "edit.distribute.h") {
+            return (editor.distributeSelection(true))
+        }
+        if (id == "edit.distribute.v") {
+            return (editor.distributeSelection(false))
+        }
+        if (id == "edit.bold") {
+            def b:boolean (this.selectionBold())
+            return (editor.setTextBold((b == false)))
+        }
+        if (id == "edit.italic") {
+            def it:boolean (this.selectionItalic())
+            return (editor.setTextItalic((it == false)))
+        }
+        if (id == "edit.fill") {
+            if ((strlen arg) == 0) {
+                return (editor.clearFill())
+            }
+            return (editor.setFillHex(arg))
+        }
+        if (id == "edit.line") {
+            return (editor.setLineHex(arg 1.0))
+        }
+        if (id == "edit.text") {
+            def sel@(optional):PptxShape (editor.firstSelected())
+            if (null? sel) {
+                return false
+            }
+            def sh:PptxShape (unwrap sel)
+            return (editor.setShapeText(sh.editId arg))
+        }
+        if (id == "shape.rect") {
+            def w:double ((this.slideW()) * 0.25)
+            def h:double ((this.slideH()) * 0.18)
+            def newId:int (editor.addShapeAt("rect" ((this.slideW()) * 0.25) ((this.slideH()) * 0.35) w h))
+            this.setEditMode(true)
+            return (newId > 0)
+        }
+        if (id == "shape.ellipse") {
+            def w2:double ((this.slideW()) * 0.22)
+            def h2:double w2
+            def newId2:int (editor.addShapeAt("ellipse" ((this.slideW()) * 0.4) ((this.slideH()) * 0.3) w2 h2))
+            this.setEditMode(true)
+            return (newId2 > 0)
+        }
+        if (id == "text.add") {
+            def w3:double ((this.slideW()) * 0.4)
+            def h3:double ((this.slideH()) * 0.12)
+            def newId3:int (editor.addTextBox(((this.slideW()) * 0.3) ((this.slideH()) * 0.44) w3 h3 "Text"))
+            this.setEditMode(true)
+            return (newId3 > 0)
+        }
+        if (id == "picture.add") {
+            fileRequest = "image"
+            return true
+        }
+        if (id == "slide.add") {
+            def okAdd:boolean (editor.addSlide())
+            this.syncFromEditor()
+            return okAdd
+        }
+        if (id == "slide.duplicate") {
+            def okDup:boolean (editor.duplicateSlide())
+            this.syncFromEditor()
+            return okDup
+        }
+        if (id == "slide.delete") {
+            def okDel:boolean (editor.deleteSlide())
+            this.syncFromEditor()
+            return okDel
+        }
+        if (id == "slide.moveup") {
+            def okUp:boolean (editor.moveSlide(0 - 1))
+            this.syncFromEditor()
+            return okUp
+        }
+        if (id == "slide.movedown") {
+            def okDown:boolean (editor.moveSlide(1))
+            this.syncFromEditor()
+            return okDown
+        }
+        return false
+    }
+
+    ; --- keys -----------------------------------------------------------------
+
+    fn editKey:boolean (k:int shift:boolean) {
+        def step:double 1.0
+        if shift {
+            step = 10.0
+        }
+        if (k == (UIKey.left())) {
+            return (this.nudge((0.0 - step) 0.0))
+        }
+        if (k == (UIKey.right())) {
+            return (this.nudge(step 0.0))
+        }
+        if (k == (UIKey.up())) {
+            return (this.nudge(0.0 (0.0 - step)))
+        }
+        if (k == (UIKey.down())) {
+            return (this.nudge(0.0 step))
+        }
+        if (k == (UIKey.del())) {
+            this.syncEditor()
+            return (editor.deleteSelection())
+        }
+        if (k == (UIKey.backspace())) {
+            this.syncEditor()
+            return (editor.backspaceText())
+        }
+        if (k == (UIKey.enter())) {
+            this.syncEditor()
+            return (editor.appendText("\n"))
+        }
+        if (k == (UIKey.escape())) {
+            editor.clearSelection()
+            return true
+        }
+        return false
+    }
+
+    ; Ctrl chords arrive as characters with the modifier held, the same way
+    ; the text editor reads them.
+    fn editChords:void (text:string) {
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:int (charAt text i)
+            if ((ch == 101) || (ch == 69)) {
+                this.runEditCommand("edit.toggle" "")
+            }
+            if ((ch == 122) || (ch == 90)) {
+                this.runEditCommand("edit.undo" "")
+            }
+            if ((ch == 121) || (ch == 89)) {
+                this.runEditCommand("edit.redo" "")
+            }
+            if ((ch == 97) || (ch == 65)) {
+                if (editor.isEditingText()) {
+                    editor.selectAllText()
+                } {
+                    this.runEditCommand("edit.selectall" "")
+                }
+            }
+            if ((ch == 100) || (ch == 68)) {
+                this.runEditCommand("edit.duplicate" "")
+            }
+            if ((ch == 99) || (ch == 67)) {
+                this.runEditCommand("edit.copy" "")
+            }
+            if ((ch == 120) || (ch == 88)) {
+                this.runEditCommand("edit.cut" "")
+            }
+            if ((ch == 118) || (ch == 86)) {
+                this.runEditCommand("edit.paste" "")
+            }
+            if ((ch == 103) || (ch == 71)) {
+                this.runEditCommand("edit.group" "")
+            }
+            if ((ch == 98) || (ch == 66)) {
+                this.runEditCommand("edit.bold" "")
+            }
+            if ((ch == 105) || (ch == 73)) {
+                this.runEditCommand("edit.italic" "")
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- the overlay ----------------------------------------------------------
+    ; Selection is chrome, not content: it goes into the same display list as
+    ; the slide, after it, so WebGL and SoftCanvas both get it for nothing and
+    ; an exported deck has none of it.
+    fn paintEditOverlay:void (dl:EVGDisplayList) {
+        def slideOpt@(optional):PptxSlide (this.currentSlide())
+        if (null? slideOpt) {
+            return
+        }
+        def slide:PptxSlide (unwrap slideOpt)
+        def sc:double (this.ptScale())
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
+        def sw:double (slide.width * sc)
+        def sh:double (slide.height * sc)
+        def guide:EVGColor (EVGColor.rgb(232 84 120))
+        def gi:int 0
+        while (gi < (array_length editor.guideX)) {
+            def gx:double (((itemAt editor.guideX gi) * sc) + ox)
+            dl.addRect(gx oy 1.0 sh guide)
+            gi = (gi + 1)
+        }
+        def gj:int 0
+        while (gj < (array_length editor.guideY)) {
+            def gy:double (((itemAt editor.guideY gj) * sc) + oy)
+            dl.addRect(ox gy sw 1.0 guide)
+            gj = (gj + 1)
+        }
+        ; The grid, when it is on: faint dots at the step things snap to.
+        if editor.gridEnabled {
+            def step:double (editor.gridPt * sc)
+            if (step > 6.0) {
+                def dot:EVGColor (EVGColor.rgba(120 130 160 0.5))
+                def gx:double 0.0
+                while (gx <= sw) {
+                    def gy2:double 0.0
+                    while (gy2 <= sh) {
+                        dl.addRect((ox + gx) (oy + gy2) 1.0 1.0 dot)
+                        gy2 = (gy2 + step)
+                    }
+                    gx = (gx + step)
+                }
+            }
+        }
+        ; The rubber band, while one is being dragged.
+        if (dragMode == 3) {
+            def mx:double marqueeX
+            def my:double marqueeY
+            def mw:double marqueeW
+            def mh:double marqueeH
+            if (mw < 0.0) {
+                mx = (marqueeX + marqueeW)
+                mw = (0.0 - marqueeW)
+            }
+            if (mh < 0.0) {
+                my = (marqueeY + marqueeH)
+                mh = (0.0 - marqueeH)
+            }
+            def bandX:double ((mx * sc) + ox)
+            def bandY:double ((my * sc) + oy)
+            dl.addRect(bandX bandY (mw * sc) (mh * sc) (EVGColor.rgba(90 140 230 0.15)))
+            dl.addFrame(bandX bandY (mw * sc) (mh * sc) 1.0 (EVGColor.rgb(90 140 230)))
+        }
+        def sel:[PptxShape] (editor.selectedShapes())
+        if ((array_length sel) == 0) {
+            return
+        }
+        def thin:EVGColor (EVGColor.rgb(120 160 235))
+        def i:int 0
+        while (i < (array_length sel)) {
+            def s2:PptxShape (itemAt sel i)
+            def sx0:double ((s2.x * sc) + ox)
+            def sy0:double ((s2.y * sc) + oy)
+            def sw2:double (s2.width * sc)
+            def sh2:double (s2.height * sc)
+            def turned2:boolean false
+            if ((s2.rotation > 0.001) || (s2.rotation < -0.001)) {
+                turned2 = true
+            }
+            if turned2 {
+                def corners:[double] (PptxView.rotatedCorners(sx0 sy0 sw2 sh2 s2.rotation))
+                this.pushQuadOutline(dl corners 1.0 thin)
+            } {
+                dl.addFrame(sx0 sy0 sw2 sh2 1.0 thin)
+            }
+            i = (i + 1)
+        }
+        def b:PptxEditRect (editor.selectionBounds())
+        def x0:double ((b.x * sc) + ox)
+        def y0:double ((b.y * sc) + oy)
+        def x1:double (((b.right()) * sc) + ox)
+        def y1:double (((b.bottom()) * sc) + oy)
+        def box:EVGColor (EVGColor.rgb(40 90 200))
+        def angle:double (this.selectionAngle())
+        def turnedSel:boolean false
+        if ((angle > 0.001) || (angle < -0.001)) {
+            turnedSel = true
+        }
+        if turnedSel {
+            this.pushQuadOutline(dl (this.selectionCorners()) 1.5 box)
+        } {
+            dl.addFrame(x0 y0 (x1 - x0) (y1 - y0) 1.0 box)
+        }
+        def white:EVGColor (EVGColor.rgb(255 255 255))
+        ; A locked selection shows the box and no handles: there is nothing to
+        ; drag, and drawing handles that do nothing is a lie.
+        def locked:boolean (editor.selectionLocked())
+        if locked {
+            def bar:EVGColor (EVGColor.rgb(150 150 160))
+            dl.addFrame((x0 - 2.0) (y0 - 2.0) ((x1 - x0) + 4.0) ((y1 - y0) + 4.0) 1.0 bar)
+            return
+        }
+        def hi:int 0
+        while (hi < 8) {
+            def p:[double] (this.handlePos(hi))
+            def hx:double (itemAt p 0)
+            def hy:double (itemAt p 1)
+            dl.addRect((hx - 4.0) (hy - 4.0) 8.0 8.0 white)
+            dl.addFrame((hx - 4.0) (hy - 4.0) 8.0 8.0 1.0 box)
+            hi = (hi + 1)
+        }
+        ; The rotation handle, on its stalk — which leans with the shape.
+        def rotP:[double] (this.handlePos(8))
+        def topP:[double] (this.handlePos(1))
+        def rotX:double (itemAt rotP 0)
+        def rotY:double (itemAt rotP 1)
+        this.pushLine(dl (itemAt topP 0) (itemAt topP 1) rotX rotY 1.0 box)
+        dl.addRect((rotX - 4.0) (rotY - 4.0) 8.0 8.0 white)
+        dl.addFrame((rotX - 4.0) (rotY - 4.0) 8.0 8.0 1.0 box)
+    }
+
+    ; --- saving ---------------------------------------------------------------
+
+    sfn lastSlash:int (path:string) {
+        def i:int ((strlen path) - 1)
+        while (i >= 0) {
+            def c:int (charAt path i)
+            if (c == 47) {
+                return i
+            }
+            if (c == 92) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Saving keeps the file that was opened: `saveOver` copies every part of
+    ; the original package through and rewrites only the slides that were
+    ; touched, so the master, the layouts and everything else the model does
+    ; not describe survive an edit. A deck that came from nowhere — a browser
+    ; that was handed bytes and lost them, or a deck built in memory — is
+    ; written from the model instead.
+    fn saveDeck:boolean (path:string name:string) {
+        if (loaded == false) {
+            return false
+        }
+        def writer (new PptxWriter())
+        if (parser.pkg.isOpen) {
+            writer.saveOver(presentation parser.pkg path name)
+        } {
+            writer.save(presentation path name)
+        }
+        PptxWriter.markSaved(presentation)
+        editor.dirty = false
+        status = ("saved " + name)
+        return true
+    }
+
+    ; The same package as bytes, for a host with no file system.
+    fn deckBytes:buffer () {
+        def writer (new PptxWriter())
+        if (loaded == false) {
+            return (buffer_alloc 0)
+        }
+        if (parser.pkg.isOpen) {
+            return (writer.toBufferOver(presentation parser.pkg))
+        }
+        return (writer.toBuffer(presentation))
+    }
+
+    fn suggestedName:string () {
+        def n:string view.deckName
+        if ((strlen n) == 0) {
+            return "deck.pptx"
+        }
+        return n
+    }
+
+    fn editStatus:string () {
+        if (editMode == false) {
+            return ""
+        }
+        def n:int (editor.selectionCount())
+        def out:string "edit"
+        if (editor.isEditingText()) {
+            out = "typing"
+        }
+        if (n == 1) {
+            out = (out + " · 1 selected")
+        }
+        if (n > 1) {
+            out = ((out + " · ") + (to_string n) + " selected")
+        }
+        if (editor.dirty) {
+            out = (out + " · changed")
+        }
+        return out
+    }
+
+
+    ; --- the caret on screen --------------------------------------------------
+    ;
+    ; The model says "paragraph 2, column 7"; the window needs a rectangle.
+    ; Between them is measurement, which only the host has — the converter
+    ; knows where a paragraph starts, the text renderer knows how wide a string
+    ; is in the font it will actually be drawn in.
+
+    fn shapeScreenBox:PptxEditRect (sh:PptxShape) {
+        def sc:double (this.ptScale())
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
+        return (PptxEditRect.of(((sh.x * sc) + ox) ((sh.y * sc) + oy) (sh.width * sc) (sh.height * sc)))
+    }
+
+    fn lineBoxesFor:[PptxTextLine] (sh:PptxShape) {
+        def box:PptxEditRect (this.shapeScreenBox(sh))
+        view.converter.setScale(((this.ptScale()) / (96.0 / 72.0)))
+        return (view.converter.lineBoxes(sh box.x box.y box.w box.h))
+    }
+
+    ; Where a column sits on a line, measured through the same object the
+    ; painter measured with — so the caret is where the glyphs are, on the
+    ; second line of a wrapped paragraph as much as on the first.
+    fn caretXOnLine:double (sh:PptxShape line:PptxTextLine col:int) {
+        def body:PptxTextBody sh.text
+        if (line.para >= (array_length body.paragraphs)) {
+            return line.x
+        }
+        def para:PptxParagraph (itemAt body.paragraphs line.para)
+        def at:int col
+        if (at < line.startCol) {
+            at = line.startCol
+        }
+        if (at > line.endCol) {
+            at = line.endCol
+        }
+        return (line.x + (PptxTextLayout.measureSlice(para line.startCol at view.converter.measure (this.ptScale()))))
+    }
+
+    fn caretRect:PptxEditRect (sh:PptxShape pos:PptxTextPos) {
+        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
+        if ((array_length lines) == 0) {
+            def fallback:PptxEditRect (this.shapeScreenBox(sh))
+            return (PptxEditRect.of(fallback.x fallback.y 2.0 (fallback.h * 0.5)))
+        }
+        def idx:int (PptxTextLayout.lineIndexFor(lines pos.para pos.col))
+        if (idx < 0) {
+            idx = 0
+        }
+        def line:PptxTextLine (itemAt lines idx)
+        def x:double (this.caretXOnLine(sh line pos.col))
+        return (PptxEditRect.of(x line.y 2.0 line.h))
+    }
+
+    ; The inverse: a click lands on a line, and then on the column whose edge
+    ; is nearest to it.
+    fn caretFromPoint:PptxTextPos (sh:PptxShape px:int py:int) {
+        def out:PptxTextPos (PptxTextPos.of(0 0))
+        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
+        if ((array_length lines) == 0) {
+            return out
+        }
+        def idx:int (PptxTextLayout.lineAtY(lines (to_double py)))
+        if (idx < 0) {
+            idx = 0
+        }
+        def line:PptxTextLine (itemAt lines idx)
+        def fx:double (to_double px)
+        def best:int line.startCol
+        def bestDist:double 1000000.0
+        def col:int line.startCol
+        while (col <= line.endCol) {
+            def cx:double (this.caretXOnLine(sh line col))
+            def d:double (fabs (cx - fx))
+            if (d < bestDist) {
+                bestDist = d
+                best = col
+            }
+            col = (col + 1)
+        }
+        out.para = line.para
+        out.col = best
+        return out
+    }
+
+    ; --- typing ---------------------------------------------------------------
+
+    fn startTextEdit:boolean () {
+        if ((editor.selectionCount()) != 1) {
+            return false
+        }
+        def sel@(optional):PptxShape (editor.firstSelected())
+        if (null? sel) {
+            return false
+        }
+        def sh:PptxShape (unwrap sel)
+        return (editor.beginTextEdit(sh.editId))
+    }
+
+    fn textKey:boolean (k:int shift:boolean) {
+        if ((editor.isEditingText()) == false) {
+            return false
+        }
+        if (k == (UIKey.left())) {
+            return (editor.moveCaretBy("left" shift))
+        }
+        if (k == (UIKey.right())) {
+            return (editor.moveCaretBy("right" shift))
+        }
+        if (k == (UIKey.up())) {
+            return (editor.moveCaretBy("up" shift))
+        }
+        if (k == (UIKey.down())) {
+            return (editor.moveCaretBy("down" shift))
+        }
+        if (k == (UIKey.home())) {
+            return (editor.moveCaretBy("home" shift))
+        }
+        if (k == (UIKey.end())) {
+            return (editor.moveCaretBy("end" shift))
+        }
+        if (k == (UIKey.backspace())) {
+            return (editor.backspaceAtCaret())
+        }
+        if (k == (UIKey.del())) {
+            return (editor.deleteAtCaret())
+        }
+        if (k == (UIKey.enter())) {
+            return (editor.newlineAtCaret())
+        }
+        if (k == (UIKey.escape())) {
+            editor.endTextEdit()
+            return true
+        }
+        return false
+    }
+
+    ; The caret and what it has selected, drawn into the same list as the
+    ; slide — a highlight per paragraph the selection touches, then the caret
+    ; on top of it.
+    fn paintCaret:void (dl:EVGDisplayList) {
+        if ((editor.isEditingText()) == false) {
+            return
+        }
+        def hit@(optional):PptxShape (editor.editingShape())
+        if (null? hit) {
+            return
+        }
+        def sh:PptxShape (unwrap hit)
+        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
+        if ((editor.textSelectionEmpty()) == false) {
+            def a:PptxTextPos editor.anchor
+            def b:PptxTextPos editor.caret
+            def start:PptxTextPos a
+            def end:PptxTextPos b
+            if ((PptxTextEdit.cmp(a b)) > 0) {
+                start = b
+                end = a
+            }
+            def wash:EVGColor (EVGColor.rgba(90 140 230 0.28))
+            ; A highlight per LINE the selection touches, not per paragraph —
+            ; a wrapped paragraph is several lines and the selection stops
+            ; where each of them does.
+            def i:int 0
+            while (i < (array_length lines)) {
+                def line:PptxTextLine (itemAt lines i)
+                def covered:boolean true
+                if (line.para < start.para) {
+                    covered = false
+                }
+                if (line.para > end.para) {
+                    covered = false
+                }
+                if (line.para == start.para) {
+                    if (line.endCol < start.col) {
+                        covered = false
+                    }
+                }
+                if (line.para == end.para) {
+                    if (line.startCol > end.col) {
+                        covered = false
+                    }
+                }
+                if covered {
+                    def from:int line.startCol
+                    def to:int line.endCol
+                    if (line.para == start.para) {
+                        if (start.col > from) {
+                            from = start.col
+                        }
+                    }
+                    if (line.para == end.para) {
+                        if (end.col < to) {
+                            to = end.col
+                        }
+                    }
+                    def x0:double (this.caretXOnLine(sh line from))
+                    def x1:double (this.caretXOnLine(sh line to))
+                    def wsel:double (x1 - x0)
+                    if (wsel < 2.0) {
+                        wsel = 2.0
+                    }
+                    dl.addRect(x0 line.y wsel line.h wash)
+                }
+                i = (i + 1)
+            }
+        }
+        def r:PptxEditRect (this.caretRect(sh editor.caret))
+        dl.addRect(r.x r.y r.w r.h (EVGColor.rgb(20 30 60)))
+    }
+
+    ; --- the slide panel ------------------------------------------------------
+    ;
+    ; A strip of the slides down the left, and each of them is the SAME scene
+    ; the viewer paints, at a small scale — no second renderer, no cache to go
+    ; stale, no idea of what a slide looks like that can drift from the real
+    ; one. A thumbnail is the slide's own display list scaled and moved, which
+    ; both backends draw without being told what a thumbnail is.
+    ;
+    ; Only the ones on screen are built. That is also what E7 means by
+    ; virtualizing it: the rule is already here, the deck is just never long
+    ; enough yet to notice.
+
+    fn panelWidth:int () {
+        if (panelVisible == false) {
+            return 0
+        }
+        return panelW
+    }
+
+    fn panelThumbW:int () {
+        return ((this.panelWidth()) - 34)
+    }
+
+    fn panelThumbH:int () {
+        def w:double (to_double (this.panelThumbW()))
+        def sw:double (this.slideW())
+        def sh:double (this.slideH())
+        if (sw <= 0.0) {
+            return 60
+        }
+        return (to_int ((w * sh) / sw))
+    }
+
+    fn panelStep:int () {
+        return ((this.panelThumbH()) + 12)
+    }
+
+    fn panelThumbX:int () {
+        return 26
+    }
+
+    fn panelThumbY:int (i:int) {
+        def top:int (toolbarH + 10)
+        return (((top + (i * (this.panelStep()))) - panelScroll))
+    }
+
+    fn panelSlideAt:int (px:int py:int) {
+        if (panelVisible == false) {
+            return (0 - 1)
+        }
+        if (px >= (this.panelWidth())) {
+            return (0 - 1)
+        }
+        if (py < toolbarH) {
+            return (0 - 1)
+        }
+        if (py >= (H - statusH)) {
+            return (0 - 1)
+        }
+        def n:int (this.slideCount())
+        def i:int 0
+        while (i < n) {
+            def y:int (this.panelThumbY(i))
+            if (py >= y) {
+                if (py < (y + (this.panelThumbH()))) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Where a drag would drop the slide it is carrying: between two thumbnails
+    ; rather than on one, which is the difference between reordering and
+    ; replacing.
+    fn panelDropIndex:int (py:int) {
+        def n:int (this.slideCount())
+        def step:int (this.panelStep())
+        def top:int ((toolbarH + 10) - panelScroll)
+        def rel:int (py - top)
+        if (rel < 0) {
+            return 0
+        }
+        def idx:int (idiv (rel + (idiv step 2)) step)
+        if (idx < 0) {
+            idx = 0
+        }
+        if (idx > n) {
+            idx = n
+        }
+        return idx
+    }
+
+    fn scrollPanel:void (delta:int) {
+        def n:int (this.slideCount())
+        def total:int (n * (this.panelStep()))
+        def visible:int ((H - toolbarH) - statusH)
+        def maxScroll:int (total - visible)
+        if (maxScroll < 0) {
+            maxScroll = 0
+        }
+        panelScroll = (panelScroll - (delta * 40))
+        if (panelScroll < 0) {
+            panelScroll = 0
+        }
+        if (panelScroll > maxScroll) {
+            panelScroll = maxScroll
+        }
+    }
+
+    fn ensureSlideVisible:void () {
+        if (panelVisible == false) {
+            return
+        }
+        def y:int (this.panelThumbY(index))
+        def top:int toolbarH
+        def bottom:int (H - statusH)
+        if (y < top) {
+            panelScroll = (panelScroll - (top - y))
+        }
+        def h:int (this.panelThumbH())
+        if ((y + h) > bottom) {
+            panelScroll = (panelScroll + (((y + h) - bottom) + 10))
+        }
+        if (panelScroll < 0) {
+            panelScroll = 0
+        }
+    }
+
+    fn panelPointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        if (panelVisible == false) {
+            return false
+        }
+        if pressed {
+            if (px >= (this.panelWidth())) {
+                return false
+            }
+            ; The panel is only the band between the toolbar and the status
+            ; line: a press above it belongs to the strip, and swallowing that
+            ; makes the left-hand buttons dead.
+            if (py < toolbarH) {
+                return false
+            }
+            if (py >= (H - statusH)) {
+                return false
+            }
+            def hit:int (this.panelSlideAt(px py))
+            if (hit >= 0) {
+                this.gotoSlide(hit)
+                panelDrag = hit
+                panelDropAt = hit
+                return true
+            }
+            return true
+        }
+        if (panelDrag >= 0) {
+            if down {
+                panelDropAt = (this.panelDropIndex(py))
+                return true
+            }
+        }
+        if released {
+            if (panelDrag >= 0) {
+                def target:int panelDropAt
+                if (target > panelDrag) {
+                    target = (target - 1)
+                }
+                if (target != panelDrag) {
+                    this.syncEditor()
+                    editor.moveSlideTo(target)
+                    this.syncFromEditor()
+                }
+                panelDrag = (0 - 1)
+                panelDropAt = (0 - 1)
+                return true
+            }
+        }
+        return false
+    }
+
+    fn paintPanel:void (dl:EVGDisplayList) {
+        if (panelVisible == false) {
+            return
+        }
+        def w:int (this.panelWidth())
+        def top:double (to_double toolbarH)
+        def height:double (to_double ((H - toolbarH) - statusH))
+        dl.addRect(0.0 top (to_double w) height (EVGColor.rgb(32 36 47)))
+        dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
+        def n:int (this.slideCount())
+        def tw:int (this.panelThumbW())
+        def th:int (this.panelThumbH())
+        def tx:int (this.panelThumbX())
+        def i:int 0
+        while (i < n) {
+            def ty:int (this.panelThumbY(i))
+            ; Only what is on screen is built — a hundred-slide deck must not
+            ; cost a hundred display lists to show a dozen thumbnails.
+            def visible:boolean true
+            if ((ty + th) < toolbarH) {
+                visible = false
+            }
+            if (ty > (H - statusH)) {
+                visible = false
+            }
+            if visible {
+                def slide:PptxSlide (itemAt presentation.slides i)
+                dl.addRect((to_double tx) (to_double ty) (to_double tw) (to_double th) (EVGColor.rgb(255 255 255)))
+                def scale:double ((to_double tw) / (slide.width * (96.0 / 72.0)))
+                view.converter.setScale(scale)
+                def sub:EVGDisplayList (view.converter.slideToDisplayList(slide))
+                PptxApp.offsetList(sub tx ty)
+                dl.addClip((to_double tx) (to_double ty) (to_double tw) (to_double th))
+                PptxApp.appendList(dl sub)
+                dl.addClipEnd()
+                def border:EVGColor theme.line
+                if (i == index) {
+                    border = (EVGColor.rgb(90 140 230))
+                    dl.addFrame((to_double (tx - 2)) (to_double (ty - 2)) (to_double (tw + 4)) (to_double (th + 4)) 2.0 border)
+                } {
+                    dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 border)
+                }
+                toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 theme.dim)
+            }
+            i = (i + 1)
+        }
+        ; Where a dragged slide would land.
+        if (panelDrag >= 0) {
+            if (panelDropAt >= 0) {
+                def dropY:int (((toolbarH + 10) + (panelDropAt * (this.panelStep()))) - panelScroll - 4)
+                dl.addRect((to_double tx) (to_double dropY) (to_double tw) 2.0 (EVGColor.rgb(232 84 120)))
+            }
+        }
+    }
+
 }

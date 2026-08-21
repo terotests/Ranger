@@ -1,0 +1,823 @@
+; ==============================================================================
+; PptxTextEdit - a caret inside a shape's text, and the edits it makes
+; ==============================================================================
+;
+; `PptxEditor` moves shapes; this moves a caret inside one. A position is a
+; paragraph and a column measured in UTF-16 units of that paragraph's plain
+; text — the same unit `strlen` and `substring` count in, so nothing has to be
+; converted before an edit, and `EVGCodepoint` is what steps over a surrogate
+; pair so a caret never lands inside one.
+;
+; The runs are the point. A paragraph is a list of runs, each with its own
+; size, weight and colour, and an edit has to keep them: typing in the middle
+; of a bold word stays bold, and making a selection bold splits the runs it
+; covers rather than repainting the whole paragraph. That is why this is not
+; `EditorBuffer` from the text editor — that buffer's runs carry a weight and a
+; font name over a line of plain text, and OOXML's carry the text itself along
+; with a size and a colour. Two different shapes; one of them would have to be
+; converted on every keystroke.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+Import "../../evg/EVGCodepoint.rgr"
+
+class PptxTextPos {
+    def para:int 0
+    def col:int 0
+
+    Constructor () {
+    }
+
+    sfn of:PptxTextPos (para:int col:int) {
+        def p (new PptxTextPos())
+        p.para = para
+        p.col = col
+        return p
+    }
+
+    fn copy:PptxTextPos () {
+        return (PptxTextPos.of(para col))
+    }
+
+    fn isSame:boolean (other:PptxTextPos) {
+        if (para != other.para) {
+            return false
+        }
+        return (col == other.col)
+    }
+}
+
+class PptxTextEdit {
+    ; --- reading -------------------------------------------------------------
+
+    sfn paraCount:int (body:PptxTextBody) {
+        return (array_length body.paragraphs)
+    }
+
+    sfn paraAt@(optional):PptxParagraph (body:PptxTextBody i:int) {
+        if (i < 0) {
+            def __none@(optional):PptxParagraph
+            return __none
+        }
+        if (i >= (array_length body.paragraphs)) {
+            def __none2@(optional):PptxParagraph
+            return __none2
+        }
+        def hit@(optional):PptxParagraph (itemAt body.paragraphs i)
+        return hit
+    }
+
+    sfn paraText:string (body:PptxTextBody i:int) {
+        def p@(optional):PptxParagraph (PptxTextEdit.paraAt(body i))
+        if (null? p) {
+            return ""
+        }
+        def para:PptxParagraph (unwrap p)
+        def out:string ""
+        def r:int 0
+        while (r < (array_length para.runs)) {
+            def run:PptxTextRun (itemAt para.runs r)
+            out = (out + run.text)
+            r = (r + 1)
+        }
+        return out
+    }
+
+    sfn paraLen:int (body:PptxTextBody i:int) {
+        return (strlen (PptxTextEdit.paraText(body i)))
+    }
+
+    sfn clamp:void (body:PptxTextBody pos:PptxTextPos) {
+        def n:int (array_length body.paragraphs)
+        if (n == 0) {
+            pos.para = 0
+            pos.col = 0
+            return
+        }
+        if (pos.para < 0) {
+            pos.para = 0
+        }
+        if (pos.para >= n) {
+            pos.para = (n - 1)
+        }
+        def len:int (PptxTextEdit.paraLen(body pos.para))
+        if (pos.col < 0) {
+            pos.col = 0
+        }
+        if (pos.col > len) {
+            pos.col = len
+        }
+    }
+
+    ; -1, 0 or 1, the way a comparison reads.
+    sfn cmp:int (a:PptxTextPos b:PptxTextPos) {
+        if (a.para < b.para) {
+            return (0 - 1)
+        }
+        if (a.para > b.para) {
+            return 1
+        }
+        if (a.col < b.col) {
+            return (0 - 1)
+        }
+        if (a.col > b.col) {
+            return 1
+        }
+        return 0
+    }
+
+    sfn textInRange:string (body:PptxTextBody a:PptxTextPos b:PptxTextPos) {
+        def start:PptxTextPos a
+        def end:PptxTextPos b
+        if ((PptxTextEdit.cmp(a b)) > 0) {
+            start = b
+            end = a
+        }
+        if (start.para == end.para) {
+            def line:string (PptxTextEdit.paraText(body start.para))
+            return (substring line start.col end.col)
+        }
+        def first:string (PptxTextEdit.paraText(body start.para))
+        def out:string (substring first start.col (strlen first))
+        def i:int (start.para + 1)
+        while (i < end.para) {
+            out = ((out + "\n") + (PptxTextEdit.paraText(body i)))
+            i = (i + 1)
+        }
+        def last:string (PptxTextEdit.paraText(body end.para))
+        return ((out + "\n") + (substring last 0 end.col))
+    }
+
+    sfn plainText:string (body:PptxTextBody) {
+        return (body.plainText())
+    }
+
+    ; --- runs ----------------------------------------------------------------
+
+    sfn ensureRun:PptxTextRun (body:PptxTextBody para:PptxParagraph) {
+        if ((array_length para.runs) > 0) {
+            return (itemAt para.runs 0)
+        }
+        def run (new PptxTextRun())
+        run.fontSizePt = body.defFontSizePt
+        run.sizeSet = body.hasDefRPr
+        run.bold = body.defBold
+        run.italic = body.defItalic
+        run.fontFamily = body.defFontFamily
+        if body.defColor.isSet {
+            run.color = body.defColor
+        }
+        push para.runs run
+        return run
+    }
+
+    ; Split the runs of a paragraph so that a boundary falls exactly at `col`,
+    ; and answer how many runs are entirely before it. Splitting is what makes
+    ; "bold this word" possible without touching the rest of the line.
+    sfn splitRunsAt:int (para:PptxParagraph col:int) {
+        def out:[PptxTextRun]
+        def seen:int 0
+        def boundary:int 0
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            def run:PptxTextRun (itemAt para.runs i)
+            def len:int (strlen run.text)
+            def startsAt:int seen
+            def endsAt:int (seen + len)
+            if (found == false) {
+                if (col == startsAt) {
+                    boundary = (array_length out)
+                    found = true
+                }
+            }
+            if (found == false) {
+                if (col < endsAt) {
+                    if (col > startsAt) {
+                        def left (new PptxTextRun())
+                        def right (new PptxTextRun())
+                        PptxTextEdit.copyStyle(run left)
+                        PptxTextEdit.copyStyle(run right)
+                        left.text = (substring run.text 0 (col - startsAt))
+                        right.text = (substring run.text (col - startsAt) len)
+                        push out left
+                        boundary = (array_length out)
+                        found = true
+                        push out right
+                        seen = endsAt
+                        i = (i + 1)
+                        continue
+                    }
+                }
+            }
+            push out run
+            seen = endsAt
+            i = (i + 1)
+        }
+        if (found == false) {
+            boundary = (array_length out)
+        }
+        para.runs = out
+        return boundary
+    }
+
+    sfn copyStyle:void (src:PptxTextRun dst:PptxTextRun) {
+        dst.fontFamily = src.fontFamily
+        dst.fontSizePt = src.fontSizePt
+        dst.sizeSet = src.sizeSet
+        dst.bold = src.bold
+        dst.italic = src.italic
+        def c (new PptxColor())
+        c.isSet = src.color.isSet
+        c.isScheme = src.color.isScheme
+        c.scheme = src.color.scheme
+        c.srgb = src.color.srgb
+        c.alpha = src.color.alpha
+        dst.color = c
+    }
+
+    ; The run whose style newly typed text should take: the one to the LEFT of
+    ; the caret, which is what every editor does — you type in the style of
+    ; what you just typed.
+    sfn styleRunAt@(optional):PptxTextRun (para:PptxParagraph col:int) {
+        def seen:int 0
+        def best@(optional):PptxTextRun
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            def run:PptxTextRun (itemAt para.runs i)
+            def len:int (strlen run.text)
+            if (col > seen) {
+                best = run
+            }
+            if (col == 0) {
+                if (i == 0) {
+                    best = run
+                }
+            }
+            seen = (seen + len)
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; --- editing -------------------------------------------------------------
+
+    sfn insertAt:PptxTextPos (body:PptxTextBody pos:PptxTextPos text:string) {
+        PptxTextEdit.clamp(body pos)
+        if ((array_length body.paragraphs) == 0) {
+            def fresh (new PptxParagraph())
+            fresh.align = body.defAlign
+            push body.paragraphs fresh
+        }
+        def caret:PptxTextPos (pos.copy())
+        def start:int 0
+        def n:int (strlen text)
+        def i:int 0
+        while (i <= n) {
+            def atEnd:boolean (i == n)
+            def isBreak:boolean false
+            if (atEnd == false) {
+                if ((charAt text i) == 10) {
+                    isBreak = true
+                }
+            }
+            if (atEnd || isBreak) {
+                def piece:string (substring text start i)
+                if ((strlen piece) > 0) {
+                    caret = (PptxTextEdit.insertInline(body caret piece))
+                }
+                if isBreak {
+                    caret = (PptxTextEdit.splitAt(body caret))
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return caret
+    }
+
+    sfn insertInline:PptxTextPos (body:PptxTextBody pos:PptxTextPos text:string) {
+        def p@(optional):PptxParagraph (PptxTextEdit.paraAt(body pos.para))
+        if (null? p) {
+            return pos
+        }
+        def para:PptxParagraph (unwrap p)
+        if ((array_length para.runs) == 0) {
+            def only:PptxTextRun (PptxTextEdit.ensureRun(body para))
+            only.text = text
+            return (PptxTextPos.of(pos.para (strlen text)))
+        }
+        def proto@(optional):PptxTextRun (PptxTextEdit.styleRunAt(para pos.col))
+        def at:int (PptxTextEdit.splitRunsAt(para pos.col))
+        def run (new PptxTextRun())
+        if (!null? proto) {
+            PptxTextEdit.copyStyle((unwrap proto) run)
+        }
+        run.text = text
+        ; Insert the new run at the boundary and let the merge tidy up.
+        def out:[PptxTextRun]
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            if (i == at) {
+                push out run
+            }
+            push out (itemAt para.runs i)
+            i = (i + 1)
+        }
+        if (at >= (array_length para.runs)) {
+            push out run
+        }
+        para.runs = out
+        PptxTextEdit.mergeRuns(para)
+        return (PptxTextPos.of(pos.para (pos.col + (strlen text))))
+    }
+
+    ; Runs that say the same thing about their style are one run. Without this
+    ; a paragraph grows a run per keystroke.
+    sfn mergeRuns:void (para:PptxParagraph) {
+        def out:[PptxTextRun]
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            def run:PptxTextRun (itemAt para.runs i)
+            if ((strlen run.text) > 0) {
+                def merged:boolean false
+                if ((array_length out) > 0) {
+                    def prev:PptxTextRun (itemAt out ((array_length out) - 1))
+                    if (PptxTextEdit.sameStyle(prev run)) {
+                        prev.text = (prev.text + run.text)
+                        merged = true
+                    }
+                }
+                if (merged == false) {
+                    push out run
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length out) == 0) {
+            def keep (new PptxTextRun())
+            if ((array_length para.runs) > 0) {
+                PptxTextEdit.copyStyle((itemAt para.runs 0) keep)
+            }
+            keep.text = ""
+            push out keep
+        }
+        para.runs = out
+    }
+
+    sfn sameStyle:boolean (a:PptxTextRun b:PptxTextRun) {
+        if (a.bold != b.bold) {
+            return false
+        }
+        if (a.italic != b.italic) {
+            return false
+        }
+        if (a.fontFamily != b.fontFamily) {
+            return false
+        }
+        if ((fabs (a.fontSizePt - b.fontSizePt)) > 0.01) {
+            return false
+        }
+        if (a.color.isSet != b.color.isSet) {
+            return false
+        }
+        if (a.color.srgb != b.color.srgb) {
+            return false
+        }
+        return true
+    }
+
+    sfn splitAt:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        PptxTextEdit.clamp(body pos)
+        def p@(optional):PptxParagraph (PptxTextEdit.paraAt(body pos.para))
+        if (null? p) {
+            return pos
+        }
+        def para:PptxParagraph (unwrap p)
+        def at:int (PptxTextEdit.splitRunsAt(para pos.col))
+        def tail (new PptxParagraph())
+        tail.align = para.align
+        tail.alignSet = para.alignSet
+        tail.spaceBeforePt = para.spaceBeforePt
+        tail.spaceAfterPt = para.spaceAfterPt
+        tail.lineSpacingPct = para.lineSpacingPct
+        tail.level = para.level
+        tail.hasBullet = para.hasBullet
+        tail.bulletChar = para.bulletChar
+        def keep:[PptxTextRun]
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            def run:PptxTextRun (itemAt para.runs i)
+            if (i < at) {
+                push keep run
+            } {
+                push tail.runs run
+            }
+            i = (i + 1)
+        }
+        para.runs = keep
+        PptxTextEdit.mergeRuns(para)
+        PptxTextEdit.mergeRuns(tail)
+        def paras:[PptxParagraph]
+        def j:int 0
+        while (j < (array_length body.paragraphs)) {
+            push paras (itemAt body.paragraphs j)
+            if (j == pos.para) {
+                push paras tail
+            }
+            j = (j + 1)
+        }
+        body.paragraphs = paras
+        return (PptxTextPos.of((pos.para + 1) 0))
+    }
+
+    sfn deleteRange:PptxTextPos (body:PptxTextBody a:PptxTextPos b:PptxTextPos) {
+        def start:PptxTextPos (a.copy())
+        def end:PptxTextPos (b.copy())
+        if ((PptxTextEdit.cmp(a b)) > 0) {
+            start = (b.copy())
+            end = (a.copy())
+        }
+        PptxTextEdit.clamp(body start)
+        PptxTextEdit.clamp(body end)
+        if (start.isSame(end)) {
+            return start
+        }
+        def firstOpt@(optional):PptxParagraph (PptxTextEdit.paraAt(body start.para))
+        if (null? firstOpt) {
+            return start
+        }
+        def first:PptxParagraph (unwrap firstOpt)
+        if (start.para == end.para) {
+            def cut:int (PptxTextEdit.splitRunsAt(first start.col))
+            def cut2:int (PptxTextEdit.splitRunsAt(first end.col))
+            def keep:[PptxTextRun]
+            def i:int 0
+            while (i < (array_length first.runs)) {
+                if (i < cut) {
+                    push keep (itemAt first.runs i)
+                }
+                if (i >= cut2) {
+                    push keep (itemAt first.runs i)
+                }
+                i = (i + 1)
+            }
+            first.runs = keep
+            PptxTextEdit.mergeRuns(first)
+            return start
+        }
+        def lastOpt@(optional):PptxParagraph (PptxTextEdit.paraAt(body end.para))
+        if (null? lastOpt) {
+            return start
+        }
+        def last:PptxParagraph (unwrap lastOpt)
+        def headCut:int (PptxTextEdit.splitRunsAt(first start.col))
+        def tailCut:int (PptxTextEdit.splitRunsAt(last end.col))
+        def joined:[PptxTextRun]
+        def h:int 0
+        while (h < headCut) {
+            push joined (itemAt first.runs h)
+            h = (h + 1)
+        }
+        def t:int tailCut
+        while (t < (array_length last.runs)) {
+            push joined (itemAt last.runs t)
+            t = (t + 1)
+        }
+        first.runs = joined
+        PptxTextEdit.mergeRuns(first)
+        def paras:[PptxParagraph]
+        def j:int 0
+        while (j < (array_length body.paragraphs)) {
+            def keepIt:boolean true
+            if (j > start.para) {
+                if (j <= end.para) {
+                    keepIt = false
+                }
+            }
+            if keepIt {
+                push paras (itemAt body.paragraphs j)
+            }
+            j = (j + 1)
+        }
+        body.paragraphs = paras
+        return start
+    }
+
+    ; --- moving --------------------------------------------------------------
+
+    sfn stepBack:int (s:string col:int) {
+        if (col <= 1) {
+            return 0
+        }
+        def lo:int (charAt s (col - 1))
+        if (EVGCodepoint.isLowSurrogate(lo)) {
+            def hi:int (charAt s (col - 2))
+            if (EVGCodepoint.isHighSurrogate(hi)) {
+                return (col - 2)
+            }
+        }
+        return (col - 1)
+    }
+
+    sfn stepForward:int (s:string col:int) {
+        def n:int (strlen s)
+        if (col >= n) {
+            return n
+        }
+        def units:int (EVGCodepoint.unitsAt(s col))
+        if (units < 1) {
+            units = 1
+        }
+        def next:int (col + units)
+        if (next > n) {
+            return n
+        }
+        return next
+    }
+
+    sfn moveLeft:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        def out:PptxTextPos (pos.copy())
+        PptxTextEdit.clamp(body out)
+        if (out.col > 0) {
+            def line:string (PptxTextEdit.paraText(body out.para))
+            out.col = (PptxTextEdit.stepBack(line out.col))
+            return out
+        }
+        if (out.para > 0) {
+            out.para = (out.para - 1)
+            out.col = (PptxTextEdit.paraLen(body out.para))
+        }
+        return out
+    }
+
+    sfn moveRight:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        def out:PptxTextPos (pos.copy())
+        PptxTextEdit.clamp(body out)
+        def line:string (PptxTextEdit.paraText(body out.para))
+        if (out.col < (strlen line)) {
+            out.col = (PptxTextEdit.stepForward(line out.col))
+            return out
+        }
+        if (out.para < ((array_length body.paragraphs) - 1)) {
+            out.para = (out.para + 1)
+            out.col = 0
+        }
+        return out
+    }
+
+    sfn moveUp:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        def out:PptxTextPos (pos.copy())
+        if (out.para > 0) {
+            out.para = (out.para - 1)
+        }
+        PptxTextEdit.clamp(body out)
+        return out
+    }
+
+    sfn moveDown:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        def out:PptxTextPos (pos.copy())
+        if (out.para < ((array_length body.paragraphs) - 1)) {
+            out.para = (out.para + 1)
+        }
+        PptxTextEdit.clamp(body out)
+        return out
+    }
+
+    sfn lineStart:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        return (PptxTextPos.of(pos.para 0))
+    }
+
+    sfn lineEnd:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        return (PptxTextPos.of(pos.para (PptxTextEdit.paraLen(body pos.para))))
+    }
+
+    sfn docStart:PptxTextPos (body:PptxTextBody) {
+        return (PptxTextPos.of(0 0))
+    }
+
+    sfn docEnd:PptxTextPos (body:PptxTextBody) {
+        def n:int (array_length body.paragraphs)
+        if (n == 0) {
+            return (PptxTextPos.of(0 0))
+        }
+        return (PptxTextPos.of((n - 1) (PptxTextEdit.paraLen(body (n - 1)))))
+    }
+
+    sfn isWordChar:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        if (c > 127) {
+            return true
+        }
+        return false
+    }
+
+    ; Back over any spaces, then back over the word before them. Forward is
+    ; the mirror: over the word, then over the spaces after it.
+    sfn wordLeft:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        def out:PptxTextPos (pos.copy())
+        PptxTextEdit.clamp(body out)
+        if (out.col == 0) {
+            return (PptxTextEdit.moveLeft(body out))
+        }
+        def line:string (PptxTextEdit.paraText(body out.para))
+        def c:int out.col
+        def skipping:boolean true
+        while (skipping) {
+            if (c <= 0) {
+                skipping = false
+            } {
+                if (PptxTextEdit.isWordChar((charAt line (c - 1)))) {
+                    skipping = false
+                } {
+                    c = (c - 1)
+                }
+            }
+        }
+        def eating:boolean true
+        while (eating) {
+            if (c <= 0) {
+                eating = false
+            } {
+                if (PptxTextEdit.isWordChar((charAt line (c - 1)))) {
+                    c = (c - 1)
+                } {
+                    eating = false
+                }
+            }
+        }
+        out.col = c
+        return out
+    }
+
+    sfn wordRight:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
+        def out:PptxTextPos (pos.copy())
+        PptxTextEdit.clamp(body out)
+        def line:string (PptxTextEdit.paraText(body out.para))
+        def n:int (strlen line)
+        if (out.col >= n) {
+            return (PptxTextEdit.moveRight(body out))
+        }
+        def c:int out.col
+        def eating:boolean true
+        while (eating) {
+            if (c >= n) {
+                eating = false
+            } {
+                if (PptxTextEdit.isWordChar((charAt line c))) {
+                    c = (c + 1)
+                } {
+                    eating = false
+                }
+            }
+        }
+        def skipping:boolean true
+        while (skipping) {
+            if (c >= n) {
+                skipping = false
+            } {
+                if (PptxTextEdit.isWordChar((charAt line c))) {
+                    skipping = false
+                } {
+                    c = (c + 1)
+                }
+            }
+        }
+        out.col = c
+        return out
+    }
+
+    ; --- styling a range -----------------------------------------------------
+
+    ; `what` is "bold", "italic", "size", "color" or "family".
+    sfn applyStyle:void (body:PptxTextBody a:PptxTextPos b:PptxTextPos what:string flag:boolean size:double text:string) {
+        def start:PptxTextPos (a.copy())
+        def end:PptxTextPos (b.copy())
+        if ((PptxTextEdit.cmp(a b)) > 0) {
+            start = (b.copy())
+            end = (a.copy())
+        }
+        PptxTextEdit.clamp(body start)
+        PptxTextEdit.clamp(body end)
+        def pi:int start.para
+        while (pi <= end.para) {
+            def p@(optional):PptxParagraph (PptxTextEdit.paraAt(body pi))
+            if (!null? p) {
+                def para:PptxParagraph (unwrap p)
+                def from:int 0
+                def to:int (PptxTextEdit.paraLen(body pi))
+                if (pi == start.para) {
+                    from = start.col
+                }
+                if (pi == end.para) {
+                    to = end.col
+                }
+                if (to > from) {
+                    def firstIdx:int (PptxTextEdit.splitRunsAt(para from))
+                    def lastIdx:int (PptxTextEdit.splitRunsAt(para to))
+                    def ri:int firstIdx
+                    while (ri < lastIdx) {
+                        if (ri < (array_length para.runs)) {
+                            def run:PptxTextRun (itemAt para.runs ri)
+                            if (what == "bold") {
+                                run.bold = flag
+                            }
+                            if (what == "italic") {
+                                run.italic = flag
+                            }
+                            if (what == "size") {
+                                run.fontSizePt = size
+                                run.sizeSet = true
+                            }
+                            if (what == "color") {
+                                run.color = (PptxColor.srgbOf(text))
+                            }
+                            if (what == "family") {
+                                run.fontFamily = text
+                            }
+                        }
+                        ri = (ri + 1)
+                    }
+                    PptxTextEdit.mergeRuns(para)
+                }
+            }
+            pi = (pi + 1)
+        }
+    }
+
+    ; What a toggle should do next: if everything covered is already bold, the
+    ; answer is "un-bold", the way every editor's button behaves.
+    sfn rangeIsAll:boolean (body:PptxTextBody a:PptxTextPos b:PptxTextPos what:string) {
+        def start:PptxTextPos (a.copy())
+        def end:PptxTextPos (b.copy())
+        if ((PptxTextEdit.cmp(a b)) > 0) {
+            start = (b.copy())
+            end = (a.copy())
+        }
+        PptxTextEdit.clamp(body start)
+        PptxTextEdit.clamp(body end)
+        def seen:int 0
+        def all:boolean true
+        def pi:int start.para
+        while (pi <= end.para) {
+            def p@(optional):PptxParagraph (PptxTextEdit.paraAt(body pi))
+            if (!null? p) {
+                def para:PptxParagraph (unwrap p)
+                def from:int 0
+                def to:int (PptxTextEdit.paraLen(body pi))
+                if (pi == start.para) {
+                    from = start.col
+                }
+                if (pi == end.para) {
+                    to = end.col
+                }
+                def at:int 0
+                def ri:int 0
+                while (ri < (array_length para.runs)) {
+                    def run:PptxTextRun (itemAt para.runs ri)
+                    def len:int (strlen run.text)
+                    def s0:int at
+                    def s1:int (at + len)
+                    def overlaps:boolean true
+                    if (s1 <= from) {
+                        overlaps = false
+                    }
+                    if (s0 >= to) {
+                        overlaps = false
+                    }
+                    if (len == 0) {
+                        overlaps = false
+                    }
+                    if overlaps {
+                        seen = (seen + 1)
+                        if (what == "bold") {
+                            if (run.bold == false) {
+                                all = false
+                            }
+                        }
+                        if (what == "italic") {
+                            if (run.italic == false) {
+                                all = false
+                            }
+                        }
+                    }
+                    at = s1
+                    ri = (ri + 1)
+                }
+            }
+            pi = (pi + 1)
+        }
+        if (seen == 0) {
+            return false
+        }
+        return all
+    }
+}

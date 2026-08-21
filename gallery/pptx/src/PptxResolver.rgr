@@ -142,6 +142,9 @@ class PptxResolver {
         out.phType = shape.phType
         out.phIdx = shape.phIdx
         out.inherited = shape.inherited
+        out.locked = shape.locked
+        out.flipH = shape.flipH
+        out.flipV = shape.flipV
         out.chX = shape.chX
         out.chY = shape.chY
         out.chW = shape.chW

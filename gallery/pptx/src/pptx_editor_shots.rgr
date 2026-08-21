@@ -1,0 +1,196 @@
+; ==============================================================================
+; pptx_editor_shots - PNG snapshots of the slide editor, for the record
+; ==============================================================================
+;
+; The editing chrome goes into the same display list as the slide, so a picture
+; of it is a picture of the whole frame: the strip, the slide, the selection,
+; its handles, the alignment guides and the status line. SoftCanvas paints it
+; here so the snapshots are the same on every machine — no browser, no GPU.
+;
+;   npm run pptx:editor:shots
+; ==============================================================================
+
+Import "PptxApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class PptxEditorShots {
+    sfn shot:void (app:PptxApp name:string) {
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/pptx/artifacts" name)
+        print ("wrote gallery/pptx/artifacts/" + name)
+    }
+
+    sfn open:PptxApp (name:string) {
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.resize(1100 760)
+        if ((app.loadParts("gallery/pptx/fixtures" name)) == false) {
+            print ("could not open " + name)
+        }
+        return app
+    }
+
+    sfn screenX:int (app:PptxApp xPt:double) {
+        def sc:double (app.ptScale())
+        return (to_int ((xPt * sc) + (app.slideOriginX())))
+    }
+
+    sfn screenY:int (app:PptxApp yPt:double) {
+        def sc:double (app.ptScale())
+        def v:double ((yPt * sc) + (app.slideOriginY()))
+        return (to_int v)
+    }
+
+    sfn pressOn:void (app:PptxApp sh:PptxShape) {
+        def px:int (PptxEditorShots.screenX(app (sh.x + (sh.width * 0.5))))
+        def py:int (PptxEditorShots.screenY(app (sh.y + (sh.height * 0.5))))
+        app.pointer(px py true true false)
+        app.pointer(px py false false true)
+    }
+
+    sfn main:void () {
+        print "=== editor snapshots ==="
+
+        ; 1 — a shape picked up: its own outline, the selection box, the handles
+        def app:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app.runCommand("edit.toggle" "")
+        def shapes:[PptxShape] (app.editor.editableShapes())
+        if ((array_length shapes) > 0) {
+            def first:PptxShape (itemAt shapes 0)
+            PptxEditorShots.pressOn(app first)
+            PptxEditorShots.shot(app "01_selection.png")
+        }
+
+        ; 2 — mid-drag, with the guides up. A press and a move, no release:
+        ; the guides are what the snap matched, and a release clears them.
+        def app2:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app2.runCommand("edit.toggle" "")
+        def shapes2:[PptxShape] (app2.editor.editableShapes())
+        if ((array_length shapes2) > 1) {
+            def anchor:PptxShape (itemAt shapes2 0)
+            def mover:PptxShape (itemAt shapes2 1)
+            ; Put it two points off the anchor's left edge, then nudge it with
+            ; the pointer — near enough to snap, which is when a guide is drawn.
+            mover.x = (anchor.x + 2.0)
+            mover.hasXfrm = true
+            def px:int (PptxEditorShots.screenX(app2 (mover.x + (mover.width * 0.5))))
+            def py:int (PptxEditorShots.screenY(app2 (mover.y + (mover.height * 0.5))))
+            app2.pointer(px py true true false)
+            app2.pointer((px + 1) py false true false)
+            PptxEditorShots.shot(app2 "02_snap_guides.png")
+            app2.pointer((px + 1) py false false true)
+        }
+
+        ; 3 — several shapes at once: a thin outline each, one box around them
+        def app3:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app3.runCommand("edit.toggle" "")
+        app3.runCommand("edit.selectall" "")
+        PptxEditorShots.shot(app3 "03_multi_select.png")
+
+        ; 4 — inserting, and typing into what was inserted
+        def app4:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app4.runCommand("text.add" "")
+        def sel@(optional):PptxShape (app4.editor.firstSelected())
+        if (!null? sel) {
+            def box:PptxShape (unwrap sel)
+            app4.editor.setShapeText(box.editId "Editable")
+            app4.editor.setTextSizePt(28.0)
+            app4.editor.appendText(" deck")
+        }
+        app4.runCommand("shape.ellipse" "")
+        app4.runCommand("edit.fill" "ED7D31")
+        PptxEditorShots.shot(app4 "04_insert_and_type.png")
+
+        ; 5 — a caret in a shape, with a word selected behind it
+        def app5:PptxApp (PptxEditorShots.open("01-text.pptx"))
+        app5.runCommand("edit.toggle" "")
+        def shapes5:[PptxShape] (app5.editor.editableShapes())
+        def picked:int 0
+        def si:int 0
+        while (si < (array_length shapes5)) {
+            def cand:PptxShape (itemAt shapes5 si)
+            if cand.hasText {
+                if ((strlen (cand.text.plainText())) > 6) {
+                    if (picked == 0) {
+                        picked = cand.editId
+                    }
+                }
+            }
+            si = (si + 1)
+        }
+        if (picked > 0) {
+            app5.editor.select(picked)
+            app5.runCommand("text.edit" "")
+            app5.editor.setCaretPos(0 0 false)
+            app5.editor.moveCaretBy("wordRight" true)
+            app5.editor.moveCaretBy("wordRight" true)
+            PptxEditorShots.shot(app5 "05_text_caret.png")
+        }
+
+        ; 6 — text that wraps, with a selection across the lines it made
+        def app6:PptxApp (PptxEditorShots.open("19-text-fidelity.pptx"))
+        PptxEditorShots.shot(app6 "06_text_fidelity.png")
+        def app7:PptxApp (PptxEditorShots.open("01-text.pptx"))
+        app7.runCommand("edit.toggle" "")
+        def wrapId:int (app7.editor.addTextBox(60.0 300.0 260.0 140.0 "The quick brown fox jumps over the lazy dog, and then keeps going until the line has to break somewhere."))
+        app7.editor.setTextSizePt(18.0)
+        app7.editor.beginTextEdit(wrapId)
+        app7.editor.setCaretPos(0 4 false)
+        app7.editor.setCaretPos(0 44 true)
+        PptxEditorShots.shot(app7 "07_wrapped_selection.png")
+
+        ; 8 — the grid on, a shape turned by its handle, and a mirrored picture
+        def app8:PptxApp (PptxEditorShots.open("18-image-mixed.pptx"))
+        app8.runCommand("edit.toggle" "")
+        app8.runCommand("view.grid" "")
+        def shapes8:[PptxShape] (app8.editor.editableShapes())
+        def picked8:int 0
+        def firstPic:int 0
+        def si8:int 0
+        while (si8 < (array_length shapes8)) {
+            def cand8:PptxShape (itemAt shapes8 si8)
+            if (cand8.kind == 1) {
+                if (firstPic == 0) {
+                    firstPic = cand8.editId
+                }
+            }
+            if (cand8.kind == 0) {
+                if (picked8 == 0) {
+                    picked8 = cand8.editId
+                }
+            }
+            si8 = (si8 + 1)
+        }
+        if (firstPic > 0) {
+            app8.editor.select(firstPic)
+            app8.runCommand("edit.flip.h" "")
+        }
+        ; A box of its own to turn, rather than the deck's full-width title:
+        ; turning something that wide throws its ends off the slide, which is
+        ; correct and unreadable.
+        def turnId:int (app8.editor.addTextBox(180.0 260.0 260.0 90.0 "Turned 30°"))
+        app8.editor.setTextSizePt(24.0)
+        app8.editor.setFillHex("FFF2CC")
+        app8.editor.setLineHex("BF8F00" 1.5)
+        app8.editor.setSelectionRotation(30.0)
+        PptxEditorShots.shot(app8 "08_grid_rotate_flip.png")
+
+        ; 9 — the panel, with a slide being dragged to a new place in the deck
+        def app9:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app9.gotoSlide(3)
+        def tx9:int ((app9.panelThumbX()) + (idiv (app9.panelThumbW()) 2))
+        def ty9:int ((app9.panelThumbY(3)) + (idiv (app9.panelThumbH()) 2))
+        app9.pointer(tx9 ty9 true true false)
+        app9.pointer(tx9 ((app9.panelThumbY(1)) + 4) false true false)
+        PptxEditorShots.shot(app9 "09_slide_panel.png")
+        app9.pointer(tx9 ((app9.panelThumbY(1)) + 4) false false true)
+
+        print "done"
+    }
+}

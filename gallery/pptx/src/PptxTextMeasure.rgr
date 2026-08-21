@@ -1,0 +1,62 @@
+; ==============================================================================
+; PptxTextMeasure - how wide a string is, asked once and answered consistently
+; ==============================================================================
+;
+; The painter and the caret have to agree about the width of a piece of text or
+; the caret sits somewhere the glyphs are not. That agreement is this class:
+; one measurer, handed to the layout, used by both.
+;
+; It answers with the real font when a host has attached its text renderer, and
+; with the old average-width guess (0.52em) when nothing has — a headless test
+; or an export path has no fonts loaded, and a layout that cannot be computed
+; at all is worse than one computed approximately.
+; ==============================================================================
+
+Import "../../game_engine/ui/UIContext.rgr"
+
+class PptxTextMeasure {
+    def hasCtx:boolean false
+    def ctx:UIContext (new UIContext)
+    def family:string "Open Sans"
+    def emFactor:double 0.52
+
+    Constructor () {
+    }
+
+    fn attach:void (c:UIContext fam:string) {
+        ctx = c
+        family = fam
+        hasCtx = true
+    }
+
+    ; The face the painter will actually use. `PptxView.paintTextCmd` switches
+    ; the renderer's family by weight, so measuring has to switch the same way
+    ; — a bold string is wider than the regular one, and a caret that measured
+    ; the regular face lands short of the text it belongs to.
+    fn faceFor:string (bold:boolean italic:boolean) {
+        if bold {
+            if italic {
+                return (family + "-Bold Italic")
+            }
+            return (family + "-Bold")
+        }
+        if italic {
+            return (family + "-Italic")
+        }
+        return family
+    }
+
+    fn widthOf:double (text:string sizePx:double bold:boolean italic:boolean) {
+        if ((strlen text) == 0) {
+            return 0.0
+        }
+        if (hasCtx == false) {
+            return ((to_double (strlen text)) * sizePx * emFactor)
+        }
+        def prev:string ctx.tr.fontFamily
+        ctx.tr.fontFamily = (this.faceFor(bold italic))
+        def w:double (ctx.measureWidth(text sizePx))
+        ctx.tr.fontFamily = prev
+        return w
+    }
+}

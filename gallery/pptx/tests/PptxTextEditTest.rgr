@@ -1,0 +1,496 @@
+; ==============================================================================
+; PptxTextEditTest — a caret inside a shape, and what it does to the runs
+; ==============================================================================
+;
+; The interesting half of editing text in a slide is not the characters, it is
+; the RUNS: typing inside a bold word has to stay bold, styling a selection has
+; to split the runs it covers and nothing else, and a paragraph must not grow a
+; run per keystroke.
+;
+;   npm run pptx:text:test
+; ==============================================================================
+
+Import "../src/PptxModel.rgr"
+Import "../src/PptxTextEdit.rgr"
+Import "../src/PptxEdit.rgr"
+Import "../src/PptxTextLayout.rgr"
+
+class PptxTextEditTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxTextEditTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    ; "Hello " plain, "world" bold — two runs, one paragraph.
+    fn twoRuns:PptxTextBody () {
+        def body (new PptxTextBody())
+        def para (new PptxParagraph())
+        def a (new PptxTextRun())
+        a.text = "Hello "
+        a.fontSizePt = 18.0
+        def b (new PptxTextRun())
+        b.text = "world"
+        b.bold = true
+        b.fontSizePt = 18.0
+        push para.runs a
+        push para.runs b
+        push body.paragraphs para
+        return body
+    }
+
+    fn firstPara:PptxParagraph (body:PptxTextBody) {
+        return (itemAt body.paragraphs 0)
+    }
+
+    fn run:void () {
+        print "=== PptxTextEditTest ==="
+        this.testReading()
+        this.testInsert()
+        this.testDelete()
+        this.testSplit()
+        this.testMovement()
+        this.testStyleRange()
+        this.testWrap()
+        this.testWrapCaret()
+        this.testWrapAnchorAndAlign()
+        this.testWrapBullet()
+        this.testEditorCaret()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testReading:void () {
+        print "--- reading ---"
+        def body:PptxTextBody (this.twoRuns())
+        this.check("a paragraph reads as its runs joined" ((PptxTextEdit.paraText(body 0)) == "Hello world"))
+        this.check("its length is that string's" ((PptxTextEdit.paraLen(body 0)) == 11))
+        def pos:PptxTextPos (PptxTextPos.of(0 99))
+        PptxTextEdit.clamp(body pos)
+        this.check("a column past the end clamps" (pos.col == 11))
+        def far:PptxTextPos (PptxTextPos.of(9 0))
+        PptxTextEdit.clamp(body far)
+        this.check("a paragraph past the end clamps" (far.para == 0))
+        def a:PptxTextPos (PptxTextPos.of(0 0))
+        def b:PptxTextPos (PptxTextPos.of(0 5))
+        this.check("range reads forwards" ((PptxTextEdit.textInRange(body a b)) == "Hello"))
+        this.check("and backwards" ((PptxTextEdit.textInRange(body b a)) == "Hello"))
+        this.check("a comparison orders them" ((PptxTextEdit.cmp(a b)) < 0))
+    }
+
+    fn testInsert:void () {
+        print "--- typing keeps the runs ---"
+        def body:PptxTextBody (this.twoRuns())
+        ; Inside the first (plain) run.
+        def at:PptxTextPos (PptxTextEdit.insertAt(body (PptxTextPos.of(0 5)) ","))
+        this.check("the text changed" ((PptxTextEdit.paraText(body 0)) == "Hello, world"))
+        this.check("the caret moved with it" (at.col == 6))
+        def para:PptxParagraph (this.firstPara(body))
+        this.check("no new run was needed" ((array_length para.runs) == 2))
+        def r0:PptxTextRun (itemAt para.runs 0)
+        this.check("and the plain half is still plain" (r0.bold == false))
+        ; Inside the bold run.
+        PptxTextEdit.insertAt(body (PptxTextPos.of(0 9)) "XY")
+        this.check("typing in the bold word" ((PptxTextEdit.paraText(body 0)) == "Hello, woXYrld"))
+        def para2:PptxParagraph (this.firstPara(body))
+        this.check("still two runs" ((array_length para2.runs) == 2))
+        def r1:PptxTextRun (itemAt para2.runs 1)
+        this.check("and what was typed is bold" (r1.bold))
+        this.check("the bold run holds it all" (r1.text == "woXYrld"))
+        ; A newline in inserted text makes a paragraph.
+        def multi:PptxTextBody (this.twoRuns())
+        def end:PptxTextPos (PptxTextEdit.insertAt(multi (PptxTextPos.of(0 11)) "\nsecond"))
+        this.check("a newline splits" ((array_length multi.paragraphs) == 2))
+        this.check("the second line is there" ((PptxTextEdit.paraText(multi 1)) == "second"))
+        this.check("the caret is on it" ((end.para == 1) && (end.col == 6)))
+        ; An empty body types into a paragraph of its own.
+        def empty (new PptxTextBody())
+        def fresh:PptxTextPos (PptxTextEdit.insertAt(empty (PptxTextPos.of(0 0)) "hi"))
+        this.check("typing into nothing makes a paragraph" ((PptxTextEdit.paraText(empty 0)) == "hi"))
+        this.check("with the caret after it" (fresh.col == 2))
+    }
+
+    fn testDelete:void () {
+        print "--- deleting ---"
+        def body:PptxTextBody (this.twoRuns())
+        def at:PptxTextPos (PptxTextEdit.deleteRange(body (PptxTextPos.of(0 0)) (PptxTextPos.of(0 6))))
+        this.check("a range inside one paragraph" ((PptxTextEdit.paraText(body 0)) == "world"))
+        this.check("the caret sits where it was cut" (at.col == 0))
+        def para:PptxParagraph (this.firstPara(body))
+        this.check("the emptied run is gone" ((array_length para.runs) == 1))
+        this.check("what is left is still bold" (((itemAt para.runs 0).bold)))
+        ; Across paragraphs: the join keeps the head of the first and the tail
+        ; of the last.
+        def multi (new PptxTextBody())
+        def p1 (new PptxParagraph())
+        def r1 (new PptxTextRun())
+        r1.text = "first line"
+        push p1.runs r1
+        def p2 (new PptxParagraph())
+        def r2 (new PptxTextRun())
+        r2.text = "second line"
+        push p2.runs r2
+        def p3 (new PptxParagraph())
+        def r3 (new PptxTextRun())
+        r3.text = "third line"
+        push p3.runs r3
+        push multi.paragraphs p1
+        push multi.paragraphs p2
+        push multi.paragraphs p3
+        def at2:PptxTextPos (PptxTextEdit.deleteRange(multi (PptxTextPos.of(0 5)) (PptxTextPos.of(2 5))))
+        this.check("three paragraphs became one" ((array_length multi.paragraphs) == 1))
+        this.check("joined at the cut" ((PptxTextEdit.paraText(multi 0)) == "first line"))
+        this.check("caret at the join" ((at2.para == 0) && (at2.col == 5)))
+    }
+
+    fn testSplit:void () {
+        print "--- enter ---"
+        def body:PptxTextBody (this.twoRuns())
+        def para:PptxParagraph (this.firstPara(body))
+        para.align = "ctr"
+        para.alignSet = true
+        para.hasBullet = true
+        def at:PptxTextPos (PptxTextEdit.splitAt(body (PptxTextPos.of(0 6))))
+        this.check("two paragraphs" ((array_length body.paragraphs) == 2))
+        this.check("the head kept its text" ((PptxTextEdit.paraText(body 0)) == "Hello "))
+        this.check("the tail took the rest" ((PptxTextEdit.paraText(body 1)) == "world"))
+        this.check("the caret is at the start of the tail" ((at.para == 1) && (at.col == 0)))
+        def tail:PptxParagraph (itemAt body.paragraphs 1)
+        this.check("the tail inherits the alignment" (tail.align == "ctr"))
+        this.check("and the bullet" (tail.hasBullet))
+        this.check("and the run it took is still bold" (((itemAt tail.runs 0).bold)))
+    }
+
+    fn testMovement:void () {
+        print "--- moving ---"
+        def body:PptxTextBody (this.twoRuns())
+        def start:PptxTextPos (PptxTextPos.of(0 0))
+        def r1:PptxTextPos (PptxTextEdit.moveRight(body start))
+        this.check("right is one character" (r1.col == 1))
+        def l1:PptxTextPos (PptxTextEdit.moveLeft(body r1))
+        this.check("left comes back" (l1.col == 0))
+        def home:PptxTextPos (PptxTextEdit.lineStart(body (PptxTextPos.of(0 7))))
+        this.check("home" (home.col == 0))
+        def end:PptxTextPos (PptxTextEdit.lineEnd(body (PptxTextPos.of(0 2))))
+        this.check("end" (end.col == 11))
+        def w:PptxTextPos (PptxTextEdit.wordRight(body (PptxTextPos.of(0 0))))
+        this.check("a word step lands on the next word" (w.col == 6))
+        def wl:PptxTextPos (PptxTextEdit.wordLeft(body (PptxTextPos.of(0 11))))
+        this.check("and back to the start of it" (wl.col == 6))
+        ; A caret never lands inside a surrogate pair.
+        def emoji (new PptxTextBody())
+        def p (new PptxParagraph())
+        def r (new PptxTextRun())
+        r.text = "a😀b"
+        push p.runs r
+        push emoji.paragraphs p
+        def afterA:PptxTextPos (PptxTextEdit.moveRight(emoji (PptxTextPos.of(0 0))))
+        def afterEmoji:PptxTextPos (PptxTextEdit.moveRight(emoji afterA))
+        this.check("right steps over the whole emoji" (afterEmoji.col == 3))
+        def backAgain:PptxTextPos (PptxTextEdit.moveLeft(emoji afterEmoji))
+        this.check("and left steps back over it whole" (backAgain.col == 1))
+        ; Moving off the end of one paragraph lands on the next.
+        def two:PptxTextBody (this.twoRuns())
+        PptxTextEdit.splitAt(two (PptxTextPos.of(0 6)))
+        def over:PptxTextPos (PptxTextEdit.moveRight(two (PptxTextPos.of(0 6))))
+        this.check("right at the end goes to the next paragraph" ((over.para == 1) && (over.col == 0)))
+        def back:PptxTextPos (PptxTextEdit.moveLeft(two (PptxTextPos.of(1 0))))
+        this.check("and left at the start comes back to the end" ((back.para == 0) && (back.col == 6)))
+    }
+
+    fn testStyleRange:void () {
+        print "--- styling a selection ---"
+        def body (new PptxTextBody())
+        def para (new PptxParagraph())
+        def r (new PptxTextRun())
+        r.text = "one two three"
+        r.fontSizePt = 18.0
+        push para.runs r
+        push body.paragraphs para
+        ; Bold "two" only.
+        PptxTextEdit.applyStyle(body (PptxTextPos.of(0 4)) (PptxTextPos.of(0 7)) "bold" true 0.0 "")
+        def p:PptxParagraph (this.firstPara(body))
+        this.check("one run became three" ((array_length p.runs) == 3))
+        this.check("the text is unchanged" ((PptxTextEdit.paraText(body 0)) == "one two three"))
+        this.check("the middle is the word" (((itemAt p.runs 1).text) == "two"))
+        this.check("and it is bold" (((itemAt p.runs 1).bold)))
+        this.check("its neighbours are not" ((((itemAt p.runs 0).bold) == false) && (((itemAt p.runs 2).bold) == false)))
+        this.check("a fully bold range says so" (PptxTextEdit.rangeIsAll(body (PptxTextPos.of(0 4)) (PptxTextPos.of(0 7)) "bold")))
+        this.check("a mixed range does not" ((PptxTextEdit.rangeIsAll(body (PptxTextPos.of(0 0)) (PptxTextPos.of(0 13)) "bold")) == false))
+        ; Un-bolding it again puts the paragraph back to one run.
+        PptxTextEdit.applyStyle(body (PptxTextPos.of(0 4)) (PptxTextPos.of(0 7)) "bold" false 0.0 "")
+        def p2:PptxParagraph (this.firstPara(body))
+        this.check("identical neighbours merge back into one run" ((array_length p2.runs) == 1))
+        ; Size and colour over a range.
+        PptxTextEdit.applyStyle(body (PptxTextPos.of(0 0)) (PptxTextPos.of(0 3)) "size" false 32.0 "")
+        PptxTextEdit.applyStyle(body (PptxTextPos.of(0 0)) (PptxTextPos.of(0 3)) "color" false 0.0 "C00000")
+        def p3:PptxParagraph (this.firstPara(body))
+        def head:PptxTextRun (itemAt p3.runs 0)
+        this.check("the first word is bigger" ((fabs (head.fontSizePt - 32.0)) < 0.01))
+        this.check("and coloured" (head.color.srgb == "C00000"))
+        this.check("and only the first word" (head.text == "one"))
+    }
+
+    fn testEditorCaret:void () {
+        print "--- the editor's caret ---"
+        def pres (new PptxPresentation())
+        def slide (new PptxSlide())
+        slide.width = 720.0
+        slide.height = 540.0
+        def box (new PptxShape())
+        box.x = 100.0
+        box.y = 100.0
+        box.width = 300.0
+        box.height = 100.0
+        box.hasText = true
+        def para (new PptxParagraph())
+        def run (new PptxTextRun())
+        run.text = "Title"
+        push para.runs run
+        push box.text.paragraphs para
+        push slide.shapes box
+        push pres.slides slide
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        def id:int box.editId
+
+        this.check("not editing to begin with" ((ed.isEditingText()) == false))
+        this.check("begin editing" (ed.beginTextEdit(id)))
+        this.check("the shape is selected too" (ed.isSelected(id)))
+        this.check("the caret starts at the end" (ed.caret.col == 5))
+        this.check("with nothing selected" (ed.textSelectionEmpty()))
+        def depth0:int (ed.historyDepth())
+        ed.typeAtCaret("!")
+        this.check("typing lands at the caret" ((ed.caretText()) == "Title!"))
+        ed.typeAtCaret("!")
+        this.check("a burst is one history step" ((ed.historyDepth()) == (depth0 + 1)))
+        ed.moveCaretBy("home" false)
+        this.check("home goes to the start" (ed.caret.col == 0))
+        ed.typeAtCaret("The ")
+        this.check("and typing there inserts there" ((ed.caretText()) == "The Title!!"))
+        ; Shift-arrows select, and typing replaces what is selected.
+        ed.moveCaretBy("home" false)
+        ed.moveCaretBy("wordRight" true)
+        this.check("a selection is not empty" ((ed.textSelectionEmpty()) == false))
+        this.check("it reads as the word" ((ed.selectedText()) == "The "))
+        ed.typeAtCaret("A ")
+        this.check("typing replaced the selection" ((ed.caretText()) == "A Title!!"))
+        ; Backspace and delete.
+        ed.moveCaretBy("end" false)
+        ed.backspaceAtCaret()
+        this.check("backspace takes one off" ((ed.caretText()) == "A Title!"))
+        ed.moveCaretBy("home" false)
+        ed.deleteAtCaret()
+        this.check("delete takes one forward" ((ed.caretText()) == " Title!"))
+        ; Enter splits, and undo puts it back.
+        def before:int (array_length ((itemAt ((itemAt pres.slides 0).shapes) 0).text.paragraphs))
+        ed.newlineAtCaret()
+        def shapeNow@(optional):PptxShape (ed.findShape(id))
+        if (!null? shapeNow) {
+            def sh:PptxShape (unwrap shapeNow)
+            this.check("enter made a paragraph" ((array_length sh.text.paragraphs) == (before + 1)))
+        }
+        ed.undo()
+        def shapeBack@(optional):PptxShape (ed.findShape(id))
+        if (!null? shapeBack) {
+            def sh2:PptxShape (unwrap shapeBack)
+            this.check("undo takes the paragraph back" ((array_length sh2.text.paragraphs) == before))
+        }
+        ; Style applies to the selection while a caret is in the text.
+        ed.beginTextEdit(id)
+        ed.selectAllText()
+        ed.setTextBold(true)
+        def shapeStyled@(optional):PptxShape (ed.findShape(id))
+        if (!null? shapeStyled) {
+            def sh3:PptxShape (unwrap shapeStyled)
+            def p0:PptxParagraph (itemAt sh3.text.paragraphs 0)
+            this.check("the selection went bold" (((itemAt p0.runs 0).bold)))
+        }
+        this.check("and the editor can say the whole selection is bold" (ed.selectionIsAll("bold")))
+        ed.endTextEdit()
+        this.check("editing ends" ((ed.isEditingText()) == false))
+        this.check("a picture cannot be typed into" ((ed.beginTextEdit(9999)) == false))
+    }
+
+    ; --- the shared wrap -----------------------------------------------------
+    ;
+    ; One layout pass, used by the painter and by the caret. These check the
+    ; pass itself: no measurement of a real font here, just the estimate, which
+    ; is deterministic and enough to see where a line breaks.
+
+    fn wrapBody:PptxTextBody (text:string sizePt:double) {
+        def body (new PptxTextBody())
+        body.insetL = 0.0
+        body.insetT = 0.0
+        body.insetR = 0.0
+        body.insetB = 0.0
+        def para (new PptxParagraph())
+        def run (new PptxTextRun())
+        run.text = text
+        run.fontSizePt = sizePt
+        run.sizeSet = true
+        push para.runs run
+        push body.paragraphs para
+        return body
+    }
+
+    fn testWrap:void () {
+        print "--- one layout, for the painter and the caret ---"
+        def m (new PptxTextMeasure())
+        def body:PptxTextBody (this.wrapBody("one two three four five six seven eight" 10.0))
+        ; 10pt at the estimate is ~5.2px per character; 100px of box is about
+        ; nineteen characters, so this has to break several times.
+        def lines:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 100.0 400.0))
+        this.check("a long paragraph is several lines" ((array_length lines) > 2))
+        ; The lines tile the paragraph: no gap, no overlap, no lost character.
+        def covered:boolean true
+        def expect:int 0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:PptxTextLine (itemAt lines i)
+            if (ln.startCol != expect) {
+                covered = false
+            }
+            if (ln.endCol < ln.startCol) {
+                covered = false
+            }
+            expect = ln.endCol
+            i = (i + 1)
+        }
+        this.check("the lines tile the paragraph" covered)
+        this.check("and end where the text ends" (expect == (strlen "one two three four five six seven eight")))
+        ; Each line fits the box it was given.
+        def fits:boolean true
+        def j:int 0
+        while (j < (array_length lines)) {
+            def ln2:PptxTextLine (itemAt lines j)
+            if (ln2.w > 100.5) {
+                fits = false
+            }
+            j = (j + 1)
+        }
+        this.check("every line fits the width" fits)
+        ; They go down the box in order.
+        def descending:boolean true
+        def k:int 1
+        while (k < (array_length lines)) {
+            def prev:PptxTextLine (itemAt lines (k - 1))
+            def cur:PptxTextLine (itemAt lines k)
+            if (cur.y <= prev.y) {
+                descending = false
+            }
+            k = (k + 1)
+        }
+        this.check("and each line is below the last" descending)
+        ; Only the first line of a paragraph is marked as such.
+        def firsts:int 0
+        def f:int 0
+        while (f < (array_length lines)) {
+            if (((itemAt lines f).first)) {
+                firsts = (firsts + 1)
+            }
+            f = (f + 1)
+        }
+        this.check("one first line per paragraph" (firsts == 1))
+        ; Wrapping off means one line, however long it is.
+        def noWrap:PptxTextBody (this.wrapBody("one two three four five six seven eight" 10.0))
+        noWrap.wrap = false
+        def single:[PptxTextLine] (PptxTextLayout.layout(noWrap m 1.0 0.0 0.0 100.0 400.0))
+        this.check("wrap off is one line" ((array_length single) == 1))
+    }
+
+    fn testWrapCaret:void () {
+        print "--- a caret on the second line ---"
+        def m (new PptxTextMeasure())
+        def body:PptxTextBody (this.wrapBody("alpha beta gamma delta epsilon" 10.0))
+        def lines:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 90.0 400.0))
+        this.check("it wrapped" ((array_length lines) > 1))
+        if ((array_length lines) < 2) {
+            return
+        }
+        def second:PptxTextLine (itemAt lines 1)
+        ; A column on the second line finds the second line, not the first.
+        def idx:int (PptxTextLayout.lineIndexFor(lines 0 (second.startCol + 1)))
+        this.check("a column on line two lands on line two" (idx == 1))
+        ; The break itself belongs to the line that starts there — which is
+        ; where a caret sits when you press End on line one and then Right.
+        def atBreak:int (PptxTextLayout.lineIndexFor(lines 0 second.startCol))
+        this.check("the break belongs to the line that starts there" (atBreak == 1))
+        ; A click below every line lands on the last one.
+        def deep:int (PptxTextLayout.lineAtY(lines 10000.0))
+        this.check("a click below the text lands on the last line" (deep == ((array_length lines) - 1)))
+        def high:int (PptxTextLayout.lineAtY(lines (0.0 - 500.0)))
+        this.check("and above it on the first" (high == 0))
+        ; Measuring a slice of a line is monotonic: further along is wider.
+        def para:PptxParagraph (itemAt body.paragraphs 0)
+        def w1:double (PptxTextLayout.measureSlice(para second.startCol (second.startCol + 1) m 1.0))
+        def w2:double (PptxTextLayout.measureSlice(para second.startCol (second.startCol + 3) m 1.0))
+        this.check("measuring further is measuring wider" (w2 > w1))
+    }
+
+    fn testWrapAnchorAndAlign:void () {
+        print "--- anchor and alignment over real line counts ---"
+        def m (new PptxTextMeasure())
+        def body:PptxTextBody (this.wrapBody("one two three four five six" 10.0))
+        def top:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        body.anchor = "ctr"
+        def middle:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        body.anchor = "b"
+        def bottom:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        this.check("the same text wraps the same however it is anchored" (((array_length top) == (array_length middle)) && ((array_length middle) == (array_length bottom))))
+        def t0:PptxTextLine (itemAt top 0)
+        def m0:PptxTextLine (itemAt middle 0)
+        def b0:PptxTextLine (itemAt bottom 0)
+        this.check("centred text starts lower than top-anchored" (m0.y > t0.y))
+        this.check("bottom-anchored lower still" (b0.y > m0.y))
+        ; Alignment moves the line, not the break.
+        def para:PptxParagraph (itemAt body.paragraphs 0)
+        body.anchor = "t"
+        para.align = "ctr"
+        def centred:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        this.check("centring does not change the wrap" ((array_length centred) == (array_length top)))
+        def c0:PptxTextLine (itemAt centred 0)
+        this.check("but it moves the line right" (c0.x > t0.x))
+        para.align = "r"
+        def right:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        def r0:PptxTextLine (itemAt right 0)
+        this.check("and right-aligning moves it further" (r0.x > c0.x))
+        this.check("to the far edge" ((fabs ((r0.x + r0.w) - 80.0)) < 0.6))
+    }
+
+    fn testWrapBullet:void () {
+        print "--- a bullet is part of the layout ---"
+        def m (new PptxTextMeasure())
+        def body:PptxTextBody (this.wrapBody("alpha beta gamma delta epsilon zeta" 10.0))
+        def para:PptxParagraph (itemAt body.paragraphs 0)
+        def plain:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 90.0 400.0))
+        para.hasBullet = true
+        para.bulletChar = "•"
+        def bulleted:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 90.0 400.0))
+        def first:PptxTextLine (itemAt bulleted 0)
+        this.check("the bullet is on the first line" ((strlen first.bullet) > 0))
+        this.check("and only there" (((itemAt bulleted 1).bullet) == ""))
+        this.check("the text is indented past it" (first.x > ((itemAt plain 0).x)))
+        this.check("a bulleted line has less room, so it breaks earlier" (first.endCol <= ((itemAt plain 0).endCol)))
+        def second:PptxTextLine (itemAt bulleted 1)
+        this.check("the wrapped line hangs under the text, not the bullet" ((fabs (second.x - first.x)) < 0.01))
+    }
+
+}
