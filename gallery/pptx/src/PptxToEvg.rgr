@@ -166,6 +166,17 @@ class PptxToEvg {
         mapped.phType = child.phType
         mapped.phIdx = child.phIdx
         mapped.inherited = child.inherited
+        mapped.adj = child.adj
+        mapped.noFill = child.noFill
+        mapped.noLine = child.noLine
+        mapped.headEnd = child.headEnd
+        mapped.tailEnd = child.tailEnd
+        mapped.flipH = child.flipH
+        mapped.flipV = child.flipV
+        mapped.fillGrad = child.fillGrad
+        mapped.shadow = child.shadow
+        mapped.hasPath = child.hasPath
+        mapped.pathUnit = child.pathUnit
         def sx:double 1.0
         def sy:double 1.0
         if ((shape.chW > 0.0) && (shape.width > 0.0)) {
@@ -544,41 +555,441 @@ class PptxToEvg {
         c.shadowA = shape.shadow.alpha
     }
 
+    ; The grid the file states, scaled to the frame the table is actually in —
+    ; the two disagree whenever a table has been resized, and the columns are
+    ; the file's proportions rather than equal shares.
+    fn tableTracks:[double] (stated:[double] count:int total:double) {
+        def out:[double]
+        def sum:double 0.0
+        def i:int 0
+        while (i < (array_length stated)) {
+            sum = (sum + (itemAt stated i))
+            i = (i + 1)
+        }
+        if (count < 1) {
+            return out
+        }
+        if ((array_length stated) != count) {
+            sum = 0.0
+        }
+        if (sum <= 0.0) {
+            def even:double (total / (to_double count))
+            def k:int 0
+            while (k < count) {
+                push out even
+                k = (k + 1)
+            }
+            return out
+        }
+        def f:double (total / sum)
+        def j:int 0
+        while (j < count) {
+            push out ((itemAt stated j) * f)
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; How tall a cell's words are in the width it has. The layout that answers
+    ; this is the same one that will draw them, so the two cannot disagree.
+    fn cellHeight:double (cell:PptxTableCell width:double) {
+        if ((strlen cell.text) == 0) {
+            return 0.0
+        }
+        def inner (new PptxShape())
+        inner.kind = 0
+        inner.hasText = true
+        inner.text = cell.body
+        def ml:double (this.ptToPx(cell.marLPt))
+        def mr:double (this.ptToPx(cell.marRPt))
+        def mt:double (this.ptToPx(cell.marTPt))
+        def mb:double (this.ptToPx(cell.marBPt))
+        def bw:double ((width - ml) - mr)
+        if (bw <= 0.0) {
+            return 0.0
+        }
+        def lines:[PptxTextLine] (this.lineBoxes(inner 0.0 0.0 bw 100000.0))
+        if ((array_length lines) == 0) {
+            return 0.0
+        }
+        def last:PptxTextLine (itemAt lines ((array_length lines) - 1))
+        return (((last.y + last.h) + mt) + mb)
+    }
+
     fn emitTable:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
         def rows:int shape.tableRows
         def cols:int shape.tableCols
         if (rows < 1) { rows = 1 }
         if (cols < 1) { cols = 1 }
-        def cellW:double (w / (to_double cols))
-        def cellH:double (h / (to_double rows))
+        def colW:[double] (this.tableTracks(shape.tableColW cols w))
+        def rowH:[double] (this.tableTracks(shape.tableRowH rows h))
+        ; A row is at least as tall as its words: a stated height is a minimum
+        ; in this format, and a row that ignores it draws its second line over
+        ; the row underneath.
+        def grown:boolean false
+        def gi:int 0
+        while (gi < (array_length shape.tableCells)) {
+            def gcell:PptxTableCell (itemAt shape.tableCells gi)
+            def gr:int (idiv gi cols)
+            def gc:int (gi - (gr * cols))
+            if (gr < rows) {
+                if (gcell.merged == false) {
+                    if (gcell.rowSpan == 1) {
+                        def avail:double (itemAt colW gc)
+                        def sp:int 1
+                        while (sp < gcell.gridSpan) {
+                            if ((gc + sp) < cols) {
+                                avail = (avail + (itemAt colW (gc + sp)))
+                            }
+                            sp = (sp + 1)
+                        }
+                        def need:double (this.cellHeight(gcell avail))
+                        if (need > (itemAt rowH gr)) {
+                            set_at rowH gr need
+                            grown = true
+                        }
+                    }
+                }
+            }
+            gi = (gi + 1)
+        }
+        ; Where each track starts, so a cell that spans several knows how far
+        ; it reaches.
+        def colX:[double]
+        def cx0:double x
+        def c0:int 0
+        while (c0 < cols) {
+            push colX cx0
+            cx0 = (cx0 + (itemAt colW c0))
+            c0 = (c0 + 1)
+        }
+        def rowY:[double]
+        def ry0:double y
+        def r0:int 0
+        while (r0 < rows) {
+            push rowY ry0
+            ry0 = (ry0 + (itemAt rowH r0))
+            r0 = (r0 + 1)
+        }
         def i:int 0
         while (i < (array_length shape.tableCells)) {
             def cell:PptxTableCell (itemAt shape.tableCells i)
             def ri:int (idiv i cols)
             def ci:int (i - (ri * cols))
-            def cx:double (x + ((to_double ci) * cellW))
-            def cy:double (y + ((to_double ri) * cellH))
-            def fillCol:EVGColor (EVGColor.rgb(255 255 255))
-            if (cell.fill.isSet) {
-                fillCol = (this.colorFrom(cell.fill))
-            } {
-                if ((ri % 2) == 1) {
-                    fillCol = (EVGColor.rgb(245 247 250))
-                }
+            if (ri >= rows) {
+                i = (i + 1)
+                continue
             }
-            this.pushRect(dl cx cy cellW cellH fillCol)
-            this.pushBorder(dl cx cy cellW cellH 1.0 (EVGColor.rgb(180 190 200)))
-            if ((strlen cell.text) > 0) {
-                def tc:EVGColor (EVGColor.rgb(30 30 40))
-                def fs:double (this.ptToPx(cell.fontSizePt))
-                def weight:string ""
-                if cell.bold {
-                    weight = "bold"
+            if cell.merged {
+                i = (i + 1)
+                continue
+            }
+            def cx:double (itemAt colX ci)
+            def cy:double (itemAt rowY ri)
+            def cw:double 0.0
+            def sc2:int 0
+            while (sc2 < cell.gridSpan) {
+                if ((ci + sc2) < cols) {
+                    cw = (cw + (itemAt colW (ci + sc2)))
                 }
-                this.pushTextCmd(dl cell.text (cx + 4.0) (cy + 4.0) fs tc "Calibri" 0.0 (this.alignToken(cell.align)) (cellW - 8.0) cell.bold 0.0)
+                sc2 = (sc2 + 1)
+            }
+            def ch:double 0.0
+            def sr:int 0
+            while (sr < cell.rowSpan) {
+                if ((ri + sr) < rows) {
+                    ch = (ch + (itemAt rowH (ri + sr)))
+                }
+                sr = (sr + 1)
+            }
+            ; A cell is only filled when it says so. Painting an unfilled cell
+            ; white put a white table on every dark slide in the deck.
+            if (cell.fill.isSet) {
+                this.pushRect(dl cx cy cw ch (this.colorFrom(cell.fill)))
+            }
+            this.emitCellEdges(dl cell cx cy cw ch)
+            this.emitCellText(dl cell cx cy cw ch)
+            i = (i + 1)
+        }
+    }
+
+    ; Each edge on its own, because that is how a table states them: a header
+    ; rule under the first row and nothing else is a very common table, and a
+    ; box around every cell is a different picture entirely.
+    fn emitCellEdges:void (dl:EVGDisplayList cell:PptxTableCell cx:double cy:double cw:double ch:double) {
+        this.emitCellEdge(dl cell.lnT cx cy cw 0.0)
+        this.emitCellEdge(dl cell.lnB cx (cy + ch) cw 0.0)
+        this.emitCellEdge(dl cell.lnL cx cy 0.0 ch)
+        this.emitCellEdge(dl cell.lnR (cx + cw) cy 0.0 ch)
+    }
+
+    fn emitCellEdge:void (dl:EVGDisplayList line:PptxTableLine x:double y:double w:double h:double) {
+        if (line.isSet == false) {
+            return
+        }
+        if (line.color.isSet == false) {
+            return
+        }
+        def col:EVGColor (this.colorFrom(line.color))
+        if ((col.alpha()) <= 0.004) {
+            return
+        }
+        def t:double (this.ptToPx(line.widthPt))
+        if (t < 1.0) {
+            t = 1.0
+        }
+        def rw:double w
+        def rh:double h
+        if (rw <= 0.0) {
+            rw = t
+        }
+        if (rh <= 0.0) {
+            rh = t
+        }
+        this.pushRect(dl (x - (t * 0.5)) (y - (t * 0.5)) rw rh col)
+    }
+
+    ; A cell's words go through the same layout as a shape's: it IS a text body
+    ; in a box, and giving it its own one-line painter is how a table ends up
+    ; with text running out the side of every cell.
+    fn emitCellText:void (dl:EVGDisplayList cell:PptxTableCell cx:double cy:double cw:double ch:double) {
+        if ((strlen cell.text) == 0) {
+            return
+        }
+        def inner (new PptxShape())
+        inner.kind = 0
+        inner.hasText = true
+        inner.text = cell.body
+        inner.text.anchor = cell.anchor
+        inner.text.anchorSet = true
+        def ml:double (this.ptToPx(cell.marLPt))
+        def mr:double (this.ptToPx(cell.marRPt))
+        def mt:double (this.ptToPx(cell.marTPt))
+        def mb:double (this.ptToPx(cell.marBPt))
+        def bx:double (cx + ml)
+        def by:double (cy + mt)
+        def bw:double ((cw - ml) - mr)
+        def bh:double ((ch - mt) - mb)
+        if (bw <= 0.0) {
+            return
+        }
+        dl.addClip(cx cy cw ch)
+        this.emitTextBody(dl inner bx by bw bh)
+        dl.addClipEnd()
+    }
+
+    ; A path drawn as a LINE rather than as an area: each segment is a quad,
+    ; and the joins are square, which is what `a:round` on a thin bracket looks
+    ; like at any size a slide is shown at.
+    fn pushPathStroke:void (dl:EVGDisplayList pts:[double] width:double col:EVGColor closed:boolean) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return
+        }
+        def hw:double (width * 0.5)
+        if (hw < 0.5) {
+            hw = 0.5
+        }
+        def segs:int (n - 1)
+        if closed {
+            segs = n
+        }
+        def i:int 0
+        while (i < segs) {
+            def a:int (i * 2)
+            def b:int (((i + 1) % n) * 2)
+            def x0:double (itemAt pts a)
+            def y0:double (itemAt pts (a + 1))
+            def x1:double (itemAt pts b)
+            def y1:double (itemAt pts (b + 1))
+            def dx:double (x1 - x0)
+            def dy:double (y1 - y0)
+            def len:double (sqrt ((dx * dx) + (dy * dy)))
+            if (len > 0.0001) {
+                def nx:double ((0.0 - (dy / len)) * hw)
+                def ny:double ((dx / len) * hw)
+                def quad:[double] ([] _:double (
+                    (x0 + nx) (y0 + ny)
+                    (x1 + nx) (y1 + ny)
+                    (x1 - nx) (y1 - ny)
+                    (x0 - nx) (y0 - ny)
+                ))
+                this.pushPathFill(dl quad col)
+                ; A square patch at the join, so a corner is not a notch.
+                def join:[double] ([] _:double (
+                    (x1 - hw) (y1 - hw)
+                    (x1 + hw) (y1 - hw)
+                    (x1 + hw) (y1 + hw)
+                    (x1 - hw) (y1 + hw)
+                ))
+                if (i < (segs - 1)) {
+                    this.pushPathFill(dl join col)
+                }
             }
             i = (i + 1)
         }
+    }
+
+    ; The corner radius a rounded rectangle actually asks for: `adj` times the
+    ; shorter side. DrawingML's default is 16667 (a sixth), which is what a
+    ; shape that states no adjustment gets — not the fixed 12 pixels every
+    ; rounded rectangle used to be drawn with whatever its size.
+    sfn cornerRadius:double (shape:PptxShape w:double h:double) {
+        def adj:double shape.adj
+        if (adj < 0.0) {
+            adj = 0.16667
+        }
+        def short:double w
+        if (h < w) {
+            short = h
+        }
+        def r:double (adj * short)
+        if (r < 0.0) {
+            r = 0.0
+        }
+        if (r > (short * 0.5)) {
+            r = (short * 0.5)
+        }
+        return r
+    }
+
+    ; The outline of a rounded rectangle as points, so it can be STROKED. The
+    ; display list's border primitive draws square corners, and a rounded box
+    ; with only an outline came out square.
+    sfn roundRectPoints:[double] (x:double y:double w:double h:double r:double) {
+        def out:[double]
+        if (r <= 0.5) {
+            push out x
+            push out y
+            push out (x + w)
+            push out y
+            push out (x + w)
+            push out (y + h)
+            push out x
+            push out (y + h)
+            return out
+        }
+        def steps:int 6
+        def cx:[double] ([] _:double ( (x + w - r) (x + w - r) (x + r) (x + r) ))
+        def cy:[double] ([] _:double ( (y + r) (y + h - r) (y + h - r) (y + r) ))
+        ; Corner order: top-right, bottom-right, bottom-left, top-left.
+        def start:[double] ([] _:double ( -90.0 0.0 90.0 180.0 ))
+        def c:int 0
+        while (c < 4) {
+            def a0:double (itemAt start c)
+            def s:int 0
+            while (s <= steps) {
+                def a:double (a0 + ((90.0 * (to_double s)) / (to_double steps)))
+                def rad:double ((a * 3.14159265358979) / 180.0)
+                push out ((itemAt cx c) + (r * (cos rad)))
+                push out ((itemAt cy c) + (r * (sin rad)))
+                s = (s + 1)
+            }
+            c = (c + 1)
+        }
+        return out
+    }
+
+    ; --- connectors -----------------------------------------------------------
+
+    fn emitConnector:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
+        def col:EVGColor (EVGColor.rgb(60 60 70))
+        if (shape.line.isSet) {
+            col = (this.colorFrom(shape.line))
+        }
+        def width:double (this.ptToPx(shape.lineWidthPt))
+        if (width < 1.0) {
+            width = 1.0
+        }
+        def x0:double x
+        def y0:double y
+        def x1:double (x + w)
+        def y1:double (y + h)
+        if shape.flipH {
+            x0 = (x + w)
+            x1 = x
+        }
+        if shape.flipV {
+            y0 = (y + h)
+            y1 = y
+        }
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        if (shape.rotation != 0.0) {
+            def ends:[double] ([] _:double ( x0 y0 x1 y1 ))
+            def turned:[double] (PptxToEvg.rotatePoints(ends cx cy shape.rotation))
+            x0 = (itemAt turned 0)
+            y0 = (itemAt turned 1)
+            x1 = (itemAt turned 2)
+            y1 = (itemAt turned 3)
+        }
+        ; The line itself, as a quad — a display list has no stroke primitive,
+        ; and a polygon is what both backends already draw.
+        def dx:double (x1 - x0)
+        def dy:double (y1 - y0)
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        if (len < 0.0001) {
+            return
+        }
+        def ux:double (dx / len)
+        def uy:double (dy / len)
+        def nx:double (0.0 - uy)
+        def ny:double ux
+        def hw:double (width * 0.5)
+        ; The line stops short of an arrowhead, so the point is the end and not
+        ; a blunt overhang past it.
+        def headLen:double (width * 3.5)
+        def sx:double x0
+        def sy:double y0
+        def ex:double x1
+        def ey:double y1
+        def hasHead:boolean (PptxToEvg.isArrow(shape.headEnd))
+        def hasTail:boolean (PptxToEvg.isArrow(shape.tailEnd))
+        if hasHead {
+            sx = (x0 + (ux * (headLen * 0.6)))
+            sy = (y0 + (uy * (headLen * 0.6)))
+        }
+        if hasTail {
+            ex = (x1 - (ux * (headLen * 0.6)))
+            ey = (y1 - (uy * (headLen * 0.6)))
+        }
+        def quad:[double] ([] _:double (
+            (sx + (nx * hw)) (sy + (ny * hw))
+            (ex + (nx * hw)) (ey + (ny * hw))
+            (ex - (nx * hw)) (ey - (ny * hw))
+            (sx - (nx * hw)) (sy - (ny * hw))
+        ))
+        this.pushPathFill(dl quad col)
+        if hasHead {
+            this.pushArrowHead(dl x0 y0 (0.0 - ux) (0.0 - uy) headLen (width * 1.6) col)
+        }
+        if hasTail {
+            this.pushArrowHead(dl x1 y1 ux uy headLen (width * 1.6) col)
+        }
+    }
+
+    sfn isArrow:boolean (kind:string) {
+        if ((strlen kind) == 0) {
+            return false
+        }
+        if (kind == "none") {
+            return false
+        }
+        return true
+    }
+
+    ; A triangle with its point at the end of the line, pointing along it.
+    fn pushArrowHead:void (dl:EVGDisplayList tipX:double tipY:double ux:double uy:double len:double halfW:double col:EVGColor) {
+        def nx:double (0.0 - uy)
+        def ny:double ux
+        def bx:double (tipX - (ux * len))
+        def by:double (tipY - (uy * len))
+        def tri:[double] ([] _:double (
+            tipX tipY
+            (bx + (nx * halfW)) (by + (ny * halfW))
+            (bx - (nx * halfW)) (by - (ny * halfW))
+        ))
+        this.pushPathFill(dl tri col)
     }
 
     fn emitShape:void (dl:EVGDisplayList shape:PptxShape ox:double oy:double) {
@@ -612,8 +1023,19 @@ class PptxToEvg {
             PptxChartVela.emitToDisplayList(dl shape.chart x y w h)
             return
         }
+        ; A connector is a LINE across its box, not a rectangle: the box states
+        ; the two ends, and `flipH` / `flipV` say which corner is which. Drawn
+        ; as a rectangle it was invisible — no fill, and an outline around a
+        ; box nobody can see.
+        if (shape.kind == 3) {
+            this.emitConnector(dl shape x y w h)
+            return
+        }
         ; Fill: gradient, path preset, or rect
         def filled:boolean false
+        ; An open path has already been stroked with the shape's own line, and
+        ; must not also get a rectangle drawn round it.
+        def strokedPath:boolean false
         if (shape.fillGrad.isSet) {
             def gc (new EVGDrawCmd())
             ; use pushGradRect path via temporary
@@ -655,7 +1077,27 @@ class PptxToEvg {
                     sh.a = shape.shadow.alpha
                     push dl.cmds sh
                 }
-                this.pushPathFill(dl pts col)
+                ; An open path — a bracket, a brace, a line — is a stroke and
+                ; not an area: filling it draws a solid blob where the deck
+                ; asked for a rule.
+                def openPath:boolean false
+                if (shape.hasPath == false) {
+                    openPath = (PptxGeom.isOpenPath(shape.preset))
+                }
+                if openPath {
+                    def lw:double (this.ptToPx(shape.lineWidthPt))
+                    if (lw < 1.0) {
+                        lw = 1.0
+                    }
+                    def lc:EVGColor (EVGColor.rgb(60 60 70))
+                    if (shape.line.isSet) {
+                        lc = (this.colorFrom(shape.line))
+                    }
+                    this.pushPathStroke(dl pts lw lc false)
+                    strokedPath = true
+                } {
+                    this.pushPathFill(dl pts col)
+                }
                 filled = true
             } {
                 if (shape.fill.isSet) {
@@ -671,7 +1113,7 @@ class PptxToEvg {
                     rc.b = (col2.blue())
                     rc.a = (col2.alpha())
                     if (shape.preset == "roundRect") {
-                        rc.radius = 12.0
+                        rc.radius = (PptxToEvg.cornerRadius(shape w h))
                     }
                     rc.rotate = shape.rotation
                     this.applyShadowToCmd(rc shape)
@@ -697,9 +1139,22 @@ class PptxToEvg {
             }
         }
         if ((shape.line.isSet) && (shape.lineWidthPt > 0.0)) {
-            this.pushBorder(dl x y w h (this.ptToPx(shape.lineWidthPt)) (this.colorFrom(shape.line)))
-            def border:EVGDrawCmd (itemAt dl.cmds ((array_length dl.cmds) - 1))
-            border.rotate = shape.rotation
+            def lw2:double (this.ptToPx(shape.lineWidthPt))
+            def lcol:EVGColor (this.colorFrom(shape.line))
+            if (shape.preset == "roundRect") {
+                ; A rounded box's outline follows its corners. The border
+                ; primitive only knows square ones.
+                def r2:double (PptxToEvg.cornerRadius(shape w h))
+                def ring:[double] (PptxToEvg.roundRectPoints(x y w h r2))
+                def turned:[double] (PptxToEvg.rotatePoints(ring (x + (w * 0.5)) (y + (h * 0.5)) shape.rotation))
+                this.pushPathStroke(dl turned lw2 lcol true)
+            } {
+                if (strokedPath == false) {
+                    this.pushBorder(dl x y w h lw2 lcol)
+                    def border:EVGDrawCmd (itemAt dl.cmds ((array_length dl.cmds) - 1))
+                    border.rotate = shape.rotation
+                }
+            }
         }
         if shape.hasText {
             this.emitTextBody(dl shape x y w h)

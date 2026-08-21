@@ -99,6 +99,7 @@ class PptxEditorTest {
         this.testNotes()
         this.testHistoryLimit()
         this.testRealDeck()
+        this.testShow()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -1070,5 +1071,97 @@ class PptxEditorTest {
         this.check("an unknown sheet is refused" ((ed.editSheet("ppt/slideMasters/none.xml")) == false))
         parser.close()
     }
+
+    ; --- the show ------------------------------------------------------------
+
+    fn testShow:void () {
+        print "--- transitions and builds ---"
+        def parser (new PptxParser())
+        def ok:boolean (parser.openParts("gallery/pptx/fixtures" "28-transitions.pptx"))
+        this.check("open the show fixture" ok)
+        if (ok == false) {
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        def slide1:PptxSlide (itemAt pres.slides 0)
+        this.check("slide one has a transition" slide1.transition.isSet)
+        this.check("and it is a fade" (slide1.transition.kind == "fade"))
+        this.check("a medium fade is three quarters of a second" (this.near(slide1.transition.seconds 0.75)))
+        def slide2:PptxSlide (itemAt pres.slides 1)
+        this.check("slide two pushes" (slide2.transition.kind == "push"))
+        this.check("upwards" (slide2.transition.dir == "u"))
+        this.check("and advances on its own after four seconds" (this.near(slide2.transition.afterSeconds 4.0)))
+
+        this.check("slide one has a two-step build" ((array_length slide1.build) == 2))
+        if ((array_length slide1.build) == 2) {
+            def b0:PptxBuildStep (itemAt slide1.build 0)
+            def b1:PptxBuildStep (itemAt slide1.build 1)
+            this.check("the first step fades" (b0.kind == "fade"))
+            this.check("the second wipes" (b1.kind == "wipe(right)"))
+            this.check("the first waits for a click" (b0.start == "click"))
+            this.check("the second runs three quarters of a second" (this.near(b1.seconds 0.75)))
+            ; The file names shapes by its own number; the editor names them by
+            ; editId, and the two have to have been linked on attach.
+            this.check("the first step names a shape the editor knows" (b0.editId > 0))
+            this.check("and the two steps are different shapes" (b0.editId != b1.editId))
+        }
+
+        ; What is on screen at each step of the build.
+        def notAnimated:PptxShape (itemAt slide1.shapes 0)
+        this.check("a shape with no step is there from the start" (ed.shapeVisibleAt(slide1 notAnimated 0)))
+        def firstStep:PptxBuildStep (itemAt slide1.build 0)
+        def animated@(optional):PptxShape (ed.findShape(firstStep.editId))
+        this.check("the animated shape is found" (!null? animated))
+        if (!null? animated) {
+            def an:PptxShape (unwrap animated)
+            this.check("it is not there at step 0" ((ed.shapeVisibleAt(slide1 an 0)) == false))
+            this.check("and it is after one click" (ed.shapeVisibleAt(slide1 an 1)))
+        }
+
+        ; Setting one from the editor.
+        ed.gotoSlide(1)
+        this.check("a transition can be set" (ed.setTransition("wipe" "d" 0.5)))
+        this.check("and reads back" ((ed.transitionKind()) == "wipe"))
+        this.check("clearing it works" (ed.setTransition("" "" 0.0)))
+        this.check("and it reads as none" ((ed.transitionKind()) == ""))
+        ed.undo()
+        this.check("undo brings the transition back" ((ed.transitionKind()) == "wipe"))
+
+        ; Animating a selection, and reordering the build.
+        ed.gotoSlide(0)
+        this.check("clearing the build works" (ed.clearAnimation()))
+        this.check("and there is nothing left" ((ed.buildCount()) == 0))
+        def shapes:[PptxShape] (ed.editableShapes())
+        this.check("the slide has shapes to animate" ((array_length shapes) >= 2))
+        if ((array_length shapes) >= 2) {
+            def s1:PptxShape (itemAt shapes 0)
+            def s2:PptxShape (itemAt shapes 1)
+            ed.select(s1.editId)
+            ed.addToSelection(s2.editId)
+            this.check("both can be animated" (ed.animateSelection("fade" 0.4)))
+            this.check("which is two steps" ((ed.buildCount()) == 2))
+            this.check("animating them again does not double them" (ed.animateSelection("wipe" 0.4)))
+            this.check("still two steps" ((ed.buildCount()) == 2))
+            def slide:PptxSlide (itemAt pres.slides 0)
+            def step0:PptxBuildStep (itemAt slide.build 0)
+            def was:int step0.editId
+            this.check("a step can be moved later" (ed.moveBuildStep(0 1)))
+            def step1:PptxBuildStep (itemAt slide.build 1)
+            def now:int step1.editId
+            this.check("and it went there" (now == was))
+            this.check("moving nowhere is refused" ((ed.moveBuildStep(1 1)) == false))
+            this.check("moving off the end is refused" ((ed.moveBuildStep(0 9)) == false))
+            ed.undo()
+            ; Undo restores the deck, so the slide has to be looked up again.
+            def after:PptxSlide (itemAt pres.slides 0)
+            def stepBack:PptxBuildStep (itemAt after.build 0)
+            def back:int stepBack.editId
+            this.check("undo puts the order back" (back == was))
+        }
+        parser.close()
+    }
+
 
 }

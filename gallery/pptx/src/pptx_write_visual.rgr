@@ -63,7 +63,7 @@ class PptxWriteVisual {
 
     fn run:void () {
         print "=== written decks, drawn again ==="
-        def names:[string] ([] _:string ( "01-text.pptx" "02-shapes.pptx" "04-multi.pptx" "05-group.pptx" "06-text-runs.pptx" "08-presets.pptx" "16-image-png.pptx" "19-text-fidelity.pptx" "20-business-deck.pptx" "21-gradient.pptx" "22-shadow.pptx" "23-bullets.pptx" "24-custom-geom.pptx" "25-table.pptx" "26-chart-vela.pptx" "27-accented-text.pptx" ))
+        def names:[string] ([] _:string ( "01-text.pptx" "02-shapes.pptx" "04-multi.pptx" "05-group.pptx" "06-text-runs.pptx" "08-presets.pptx" "16-image-png.pptx" "19-text-fidelity.pptx" "20-business-deck.pptx" "21-gradient.pptx" "22-shadow.pptx" "23-bullets.pptx" "24-custom-geom.pptx" "25-table.pptx" "26-chart-vela.pptx" "27-accented-text.pptx" "28-transitions.pptx" "29-theme-styles.pptx" "30-table-grid.pptx" ))
         def i:int 0
         while (i < (array_length names)) {
             this.compare((itemAt names i))

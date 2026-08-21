@@ -58,6 +58,7 @@ class PptxWriterTest {
         this.testSectionsRoundTrip()
         this.testSheetEditRoundTrip()
         this.testFooterRoundTrip()
+        this.testShowRoundTrip()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -1016,6 +1017,62 @@ class PptxWriterTest {
                 }
                 this.check("that is still a field" isField)
             }
+        }
+        p2.close()
+    }
+
+    fn testShowRoundTrip:void () {
+        print "--- a transition and a build survive a save ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "28-transitions.pptx")) == false) {
+            this.check("open the show fixture" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ; Touch both slides so both parts are rewritten from the model rather
+        ; than copied through — otherwise the check proves nothing.
+        ed.gotoSlide(0)
+        ed.setTransition("wipe" "d" 0.5)
+        ed.gotoSlide(1)
+        def shapes:[PptxShape] (ed.editableShapes())
+        this.check("slide two has a shape" ((array_length shapes) > 0))
+        if ((array_length shapes) == 0) {
+            return
+        }
+        def sh:PptxShape (itemAt shapes 0)
+        ed.select(sh.editId)
+        ed.animateSelection("fade" 0.6)
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-show.pptx")
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "over-show.pptx"))
+        this.check("the show reopens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s1:PptxSlide (itemAt back.slides 0)
+        this.check("the transition that was set came back" (s1.transition.kind == "wipe"))
+        this.check("with its direction" (s1.transition.dir == "d"))
+        this.check("the build on slide one came through" ((array_length s1.build) == 2))
+        def s2:PptxSlide (itemAt back.slides 1)
+        this.check("slide two still pushes" (s2.transition.kind == "push"))
+        this.check("and still advances on a timer" (s2.transition.afterSeconds > 3.0))
+        this.check("the step that was added is there" ((array_length s2.build) == 1))
+        if ((array_length s2.build) == 1) {
+            def step:PptxBuildStep (itemAt s2.build 0)
+            this.check("it fades" (step.kind == "fade"))
+            ; The file renumbers shapes on every save, so the step has to name
+            ; the shape it was about and not the number it had before.
+            def ed2 (new PptxEditor())
+            ed2.attach(back)
+            ed2.gotoSlide(1)
+            def found@(optional):PptxShape (ed2.findShape(step.editId))
+            this.check("and still names a shape on the slide" (!null? found))
         }
         p2.close()
     }

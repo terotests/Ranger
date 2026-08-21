@@ -33,10 +33,14 @@ class PptxResolver {
         if (c.isScheme == false) {
             return c
         }
+        if c.baked {
+            return c
+        }
         def key:string (this.mapSchemeName(c.scheme))
         def hex:string (theme.colorOf(key))
         def out:PptxColor (PptxColor.srgbOf(hex))
         out.alpha = c.alpha
+        out.copyModsFrom(c)
         ; Where the colour CAME FROM is kept, not just what it resolved to.
         ; Painting only ever reads `srgb`, so this costs nothing to draw — and
         ; it is the whole of what re-theming a deck needs: every colour that
@@ -72,6 +76,8 @@ class PptxResolver {
         out.scheme = c.scheme
         out.srgb = c.srgb
         out.alpha = c.alpha
+        out.baked = c.baked
+        out.copyModsFrom(c)
         return out
     }
 
@@ -135,6 +141,20 @@ class PptxResolver {
         out.hasXfrm = shape.hasXfrm
         out.rotation = shape.rotation
         out.preset = shape.preset
+        out.adj = shape.adj
+        out.shapeId = shape.shapeId
+        out.noFill = shape.noFill
+        out.noLine = shape.noLine
+        out.headEnd = shape.headEnd
+        out.tailEnd = shape.tailEnd
+        out.fillRef = shape.fillRef
+        out.fillRefColor = (this.cloneColor(shape.fillRefColor))
+        out.lineRef = shape.lineRef
+        out.lineRefColor = (this.cloneColor(shape.lineRefColor))
+        out.effectRef = shape.effectRef
+        out.fontRefColor = (this.cloneColor(shape.fontRefColor))
+        out.hasPath = shape.hasPath
+        out.pathUnit = shape.pathUnit
         out.fill = (this.cloneColor(shape.fill))
         out.line = (this.cloneColor(shape.line))
         out.lineWidthPt = shape.lineWidthPt
@@ -363,7 +383,210 @@ class PptxResolver {
         }
     }
 
+    ; --- colour adjustments ---------------------------------------------------
+    ;
+    ; DrawingML states a colour and then a chain of adjustments to it, and a
+    ; theme's fill styles are made almost entirely of those adjustments — the
+    ; colour in them is the placeholder `phClr`. Dropping them draws a themed
+    ; shape flat, and dropping the STYLE draws it not at all.
+
+    sfn hexNibble:int (c:string) {
+        def i:int 0
+        def digits:string "0123456789abcdef"
+        def lower:string c
+        if (lower == "A") { lower = "a" }
+        if (lower == "B") { lower = "b" }
+        if (lower == "C") { lower = "c" }
+        if (lower == "D") { lower = "d" }
+        if (lower == "E") { lower = "e" }
+        if (lower == "F") { lower = "f" }
+        while (i < 16) {
+            if ((substring digits i (i + 1)) == lower) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    sfn byteAt:int (hex:string at:int) {
+        if ((strlen hex) < (at + 2)) {
+            return 0
+        }
+        def hi:int (PptxResolver.hexNibble((substring hex at (at + 1))))
+        def lo:int (PptxResolver.hexNibble((substring hex (at + 1) (at + 2))))
+        return ((hi * 16) + lo)
+    }
+
+    sfn hexOf:string (v:int) {
+        def digits:string "0123456789ABCDEF"
+        def n:int v
+        if (n < 0) {
+            n = 0
+        }
+        if (n > 255) {
+            n = 255
+        }
+        def hi:int (idiv n 16)
+        def lo:int (n % 16)
+        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+    }
+
+    sfn clamp01:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+
+    ; The adjustments, in the order DrawingML applies them. `satMod` is done on
+    ; the distance from the channel average, which is what pushing saturation
+    ; is when there is no colour model to hand.
+    sfn applyMods:string (hex:string col:PptxColor) {
+        if ((strlen hex) != 6) {
+            return hex
+        }
+        def r:double ((to_double (PptxResolver.byteAt(hex 0))) / 255.0)
+        def g:double ((to_double (PptxResolver.byteAt(hex 2))) / 255.0)
+        def b:double ((to_double (PptxResolver.byteAt(hex 4))) / 255.0)
+        if (col.satMod != 1.0) {
+            def avg:double (((r + g) + b) / 3.0)
+            r = (PptxResolver.clamp01((avg + ((r - avg) * col.satMod))))
+            g = (PptxResolver.clamp01((avg + ((g - avg) * col.satMod))))
+            b = (PptxResolver.clamp01((avg + ((b - avg) * col.satMod))))
+        }
+        if (col.lumMod != 1.0) {
+            r = (PptxResolver.clamp01((r * col.lumMod)))
+            g = (PptxResolver.clamp01((g * col.lumMod)))
+            b = (PptxResolver.clamp01((b * col.lumMod)))
+        }
+        if (col.lumOff != 0.0) {
+            r = (PptxResolver.clamp01((r + col.lumOff)))
+            g = (PptxResolver.clamp01((g + col.lumOff)))
+            b = (PptxResolver.clamp01((b + col.lumOff)))
+        }
+        if (col.tint != 0.0) {
+            ; Towards white by however much of the colour is kept.
+            r = (PptxResolver.clamp01(((r * col.tint) + (1.0 - col.tint))))
+            g = (PptxResolver.clamp01(((g * col.tint) + (1.0 - col.tint))))
+            b = (PptxResolver.clamp01(((b * col.tint) + (1.0 - col.tint))))
+        }
+        if (col.shade != 0.0) {
+            r = (PptxResolver.clamp01((r * col.shade)))
+            g = (PptxResolver.clamp01((g * col.shade)))
+            b = (PptxResolver.clamp01((b * col.shade)))
+        }
+        def ri:int (to_int ((r * 255.0) + 0.5))
+        def gi:int (to_int ((g * 255.0) + 0.5))
+        def bi:int (to_int ((b * 255.0) + 0.5))
+        return ((PptxResolver.hexOf(ri)) + (PptxResolver.hexOf(gi)) + (PptxResolver.hexOf(bi)))
+    }
+
+    ; A theme fill style, with the placeholder colour filled in from the
+    ; shape's own `fillRef`. The style's colours carry the modifiers; the ref
+    ; carries the colour they are applied to.
+    fn styleColor:PptxColor (styleCol:PptxColor refCol:PptxColor theme:PptxTheme) {
+        def base:PptxColor refCol
+        if (styleCol.isSet) {
+            if (styleCol.isScheme == false) {
+                base = styleCol
+            } {
+                if (styleCol.scheme != "phClr") {
+                    base = styleCol
+                }
+            }
+        }
+        def resolved:PptxColor (this.resolveColor(base theme))
+        def out (new PptxColor())
+        out.isSet = true
+        out.isScheme = resolved.isScheme
+        out.scheme = resolved.scheme
+        out.alpha = (resolved.alpha * styleCol.alpha)
+        ; The reference's own modifiers apply first, then the style's.
+        def once:string (PptxResolver.applyMods(resolved.srgb base))
+        out.srgb = (PptxResolver.applyMods(once styleCol))
+        out.baked = true
+        return out
+    }
+
+    ; A shape that states no fill of its own but carries a `<p:style>` gets the
+    ; theme's fill — which is where a deck's gradients usually live.
+    fn applyStyleRefs:void (shape:PptxShape theme:PptxTheme) {
+        if (shape.fillRef > 0) {
+            if (shape.fill.isSet == false) {
+                if (shape.fillGrad.isSet == false) {
+                    if (shape.noFill == false) {
+                        def st@(optional):PptxFillStyle (theme.fillStyleAt(shape.fillRef))
+                        if (!null? st) {
+                            def style:PptxFillStyle (unwrap st)
+                            if (style.kind == 1) {
+                                shape.fillGrad.isSet = true
+                                shape.fillGrad.dir = style.dir
+                                shape.fillGrad.c1 = (this.styleColor(style.c1 shape.fillRefColor theme))
+                                shape.fillGrad.c2 = (this.styleColor(style.c2 shape.fillRefColor theme))
+                            } {
+                                if (style.kind == 0) {
+                                    shape.fill = (this.styleColor(style.solid shape.fillRefColor theme))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (shape.lineRef > 0) {
+            if ((shape.line.isSet == false) && (shape.noLine == false)) {
+                def ls@(optional):PptxLineStyle (theme.lineStyleAt(shape.lineRef))
+                if (!null? ls) {
+                    def lstyle:PptxLineStyle (unwrap ls)
+                    shape.line = (this.styleColor(lstyle.color shape.lineRefColor theme))
+                    if (shape.lineWidthPt <= 0.0) {
+                        shape.lineWidthPt = lstyle.widthPt
+                    }
+                }
+            }
+        }
+        if (shape.effectRef > 0) {
+            if (shape.shadow.isSet == false) {
+                if (theme.effectShadowAt(shape.effectRef)) {
+                    shape.shadow.isSet = true
+                    shape.shadow.color = (PptxColor.srgbOf("000000"))
+                }
+            }
+        }
+    }
+
+    ; The default text colour for a shape styled by the theme. `fontRef` sits
+    ; below what a run says and below what the body's own default style says,
+    ; and above the "black" everything else falls back to — which is why white
+    ; text on a themed shape used to come out black.
+    fn applyFontRef:void (shape:PptxShape theme:PptxTheme) {
+        if (shape.fontRefColor.isSet == false) {
+            return
+        }
+        if (shape.hasText == false) {
+            return
+        }
+        if (shape.text.defColor.isSet) {
+            return
+        }
+        shape.text.defColor = (this.styleColor(shape.fontRefColor shape.fontRefColor theme))
+    }
+
+    fn resolveTableLine:void (line:PptxTableLine theme:PptxTheme) {
+        if (line.isSet == false) {
+            return
+        }
+        if (line.color.isSet) {
+            line.color = (this.resolveColor(line.color theme))
+        }
+    }
+
     fn resolveShape:void (shape:PptxShape theme:PptxTheme) {
+        this.applyStyleRefs(shape theme)
         if (shape.fill.isSet) {
             shape.fill = (this.resolveColor(shape.fill theme))
         }
@@ -378,6 +601,7 @@ class PptxResolver {
             shape.shadow.color = (this.resolveColor(shape.shadow.color theme))
         }
         if shape.hasText {
+            this.applyFontRef(shape theme)
             this.resolveTextBody(shape.text theme)
         }
         if (shape.kind == 4) {
@@ -387,6 +611,11 @@ class PptxResolver {
                 if (cell.fill.isSet) {
                     cell.fill = (this.resolveColor(cell.fill theme))
                 }
+                this.resolveTextBody(cell.body theme)
+                this.resolveTableLine(cell.lnL theme)
+                this.resolveTableLine(cell.lnR theme)
+                this.resolveTableLine(cell.lnT theme)
+                this.resolveTableLine(cell.lnB theme)
                 ti = (ti + 1)
             }
         }

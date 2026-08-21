@@ -69,6 +69,8 @@ class PptxClone {
         c.scheme = src.scheme
         c.srgb = src.srgb
         c.alpha = src.alpha
+        c.baked = src.baked
+        c.copyModsFrom(src)
         return c
     }
 
@@ -191,6 +193,7 @@ class PptxClone {
         def s (new PptxShape())
         s.kind = src.kind
         s.editId = src.editId
+        s.shapeId = src.shapeId
         s.name = src.name
         s.x = src.x
         s.y = src.y
@@ -201,6 +204,17 @@ class PptxClone {
         s.flipH = src.flipH
         s.flipV = src.flipV
         s.preset = src.preset
+        s.adj = src.adj
+        s.noFill = src.noFill
+        s.noLine = src.noLine
+        s.headEnd = src.headEnd
+        s.tailEnd = src.tailEnd
+        s.fillRef = src.fillRef
+        s.fillRefColor = (PptxClone.color(src.fillRefColor))
+        s.lineRef = src.lineRef
+        s.lineRefColor = (PptxClone.color(src.lineRefColor))
+        s.effectRef = src.effectRef
+        s.fontRefColor = (PptxClone.color(src.fontRefColor))
         s.fill = (PptxClone.color(src.fill))
         s.fillGrad = (PptxClone.gradient(src.fillGrad))
         s.line = (PptxClone.color(src.line))
@@ -283,6 +297,28 @@ class PptxClone {
         sl.notes = (PptxClone.shape(src.notes))
         sl.notesPart = src.notesPart
         sl.slideId = src.slideId
+        def tr (new PptxTransition())
+        tr.isSet = src.transition.isSet
+        tr.kind = src.transition.kind
+        tr.dir = src.transition.dir
+        tr.seconds = src.transition.seconds
+        tr.onClick = src.transition.onClick
+        tr.afterSeconds = src.transition.afterSeconds
+        sl.transition = tr
+        def bi:int 0
+        while (bi < (array_length src.build)) {
+            def b:PptxBuildStep (itemAt src.build bi)
+            def step (new PptxBuildStep())
+            step.editId = b.editId
+            step.shapeId = b.shapeId
+            step.kind = b.kind
+            step.dir = b.dir
+            step.seconds = b.seconds
+            step.paragraph = b.paragraph
+            step.start = b.start
+            push sl.build step
+            bi = (bi + 1)
+        }
         def i:int 0
         while (i < (array_length src.shapes)) {
             def sh:PptxShape (itemAt src.shapes i)
@@ -417,8 +453,34 @@ class PptxEditor {
                 i = (i + 1)
             }
             this.assignIdTo(slide.notes)
+            this.linkBuild(slide)
             si = (si + 1)
         }
+    }
+
+    ; A build step names its shape by the number the FILE uses; everything in
+    ; the editor names shapes by `editId`, because a file's number is rewritten
+    ; on every save. Link them once, when the deck is attached.
+    fn linkBuild:void (slide:PptxSlide) {
+        def kept:[PptxBuildStep]
+        def i:int 0
+        while (i < (array_length slide.build)) {
+            def step:PptxBuildStep (itemAt slide.build i)
+            def k:int 0
+            while (k < (array_length slide.shapes)) {
+                def sh:PptxShape (itemAt slide.shapes k)
+                if (sh.shapeId == step.shapeId) {
+                    step.editId = sh.editId
+                }
+                k = (k + 1)
+            }
+            ; A step naming a shape that is not on the slide animates nothing.
+            if (step.editId > 0) {
+                push kept step
+            }
+            i = (i + 1)
+        }
+        slide.build = kept
     }
 
     fn assignIdTo:void (shape:PptxShape) {
@@ -3527,6 +3589,194 @@ class PptxEditor {
             return ""
         }
         return (((unwrap hit).text.plainText()))
+    }
+
+    ; --- the show: transitions and builds -------------------------------------
+    ;
+    ; What a slide does when it arrives, and what it does once it is there.
+    ; Both are per slide and both survive a save, which is the only thing that
+    ; makes them worth having in an editor rather than in the player.
+
+    fn setTransition:boolean (kind:string dir:string seconds:double) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s0:PptxSlide (unwrap slide)
+        def tr:PptxTransition s0.transition
+        if ((strlen kind) == 0) {
+            tr.isSet = false
+            tr.kind = ""
+            tr.dir = ""
+        } {
+            tr.isSet = true
+            tr.kind = kind
+            tr.dir = dir
+            if (seconds > 0.0) {
+                tr.seconds = seconds
+            }
+        }
+        this.pushSnapshot("transition")
+        return true
+    }
+
+    fn transitionKind:string () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return ""
+        }
+        def s0:PptxSlide (unwrap slide)
+        if (s0.transition.isSet == false) {
+            return ""
+        }
+        return s0.transition.kind
+    }
+
+    ; Advance on a timer as well as on a click. Zero seconds turns it off.
+    fn setAdvanceAfter:boolean (seconds:double) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s0:PptxSlide (unwrap slide)
+        s0.transition.afterSeconds = seconds
+        if (seconds > 0.0) {
+            s0.transition.isSet = true
+            if ((strlen s0.transition.kind) == 0) {
+                s0.transition.kind = "fade"
+            }
+        }
+        this.pushSnapshot("advance")
+        return true
+    }
+
+    fn buildCount:int () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return 0
+        }
+        def s0:PptxSlide (unwrap slide)
+        return (array_length s0.build)
+    }
+
+    ; Give every selected shape a step of its own, in the order they were
+    ; selected — which is what "animate these, one click each" means.
+    fn animateSelection:boolean (kind:string seconds:double) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        def s0:PptxSlide (unwrap slide)
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:int (itemAt selection i)
+            def already:boolean false
+            def k:int 0
+            while (k < (array_length s0.build)) {
+                def old:PptxBuildStep (itemAt s0.build k)
+                if (old.editId == id) {
+                    if (old.paragraph < 0) {
+                        already = true
+                        old.kind = kind
+                        if (seconds > 0.0) {
+                            old.seconds = seconds
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            if (already == false) {
+                def step (new PptxBuildStep())
+                step.editId = id
+                step.kind = kind
+                if (seconds > 0.0) {
+                    step.seconds = seconds
+                }
+                push s0.build step
+            }
+            i = (i + 1)
+        }
+        this.pushSnapshot("animate")
+        return true
+    }
+
+    fn clearAnimation:boolean () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s0:PptxSlide (unwrap slide)
+        if ((array_length s0.build) == 0) {
+            return false
+        }
+        def empty:[PptxBuildStep]
+        s0.build = empty
+        this.pushSnapshot("clear animation")
+        return true
+    }
+
+    ; Move a step earlier or later in the build, which is the whole of an
+    ; animation pane that is worth having: the ORDER is the interesting part.
+    fn moveBuildStep:boolean (from:int to:int) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s0:PptxSlide (unwrap slide)
+        def n:int (array_length s0.build)
+        if (from < 0) {
+            return false
+        }
+        if (from >= n) {
+            return false
+        }
+        if (to < 0) {
+            return false
+        }
+        if (to >= n) {
+            return false
+        }
+        if (from == to) {
+            return false
+        }
+        def moved:PptxBuildStep (itemAt s0.build from)
+        def out:[PptxBuildStep]
+        def i:int 0
+        while (i < n) {
+            if (i != from) {
+                if ((array_length out) == to) {
+                    push out moved
+                }
+                push out (itemAt s0.build i)
+            }
+            i = (i + 1)
+        }
+        if ((array_length out) < n) {
+            push out moved
+        }
+        s0.build = out
+        this.pushSnapshot("build order")
+        return true
+    }
+
+    ; Which shapes are visible at a given step of the build. Step 0 is the
+    ; slide as it arrives: everything that is not animated. Each click after
+    ; that turns one more step on.
+    fn shapeVisibleAt:boolean (slide:PptxSlide shape:PptxShape step:int) {
+        def i:int 0
+        while (i < (array_length slide.build)) {
+            def b:PptxBuildStep (itemAt slide.build i)
+            if (b.editId == shape.editId) {
+                if (b.paragraph < 0) {
+                    return (step > i)
+                }
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
     ; --- sections -------------------------------------------------------------

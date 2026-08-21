@@ -156,6 +156,39 @@ class PptxApp {
     def slideDialog:EVGWindow (new EVGWindow)
     def dialogsReady:boolean false
 
+    ; --- showing the deck -----------------------------------------------------
+    ; Present mode is the viewer with everything else turned off, plus a clock:
+    ; a transition and a build are pictures that change over time, so the frame
+    ; has to know how much time has passed since the last one.
+    def presenting:boolean false
+    ; Which step of the current slide's build has been reached. 0 is the slide
+    ; as it arrives.
+    def presentStep:int 0
+    ; Seconds since the current transition started, and how long it runs. When
+    ; `showLength` is zero nothing is animating.
+    def showTime:double 0.0
+    def showLength:double 0.0
+    ; The slide being left, while a transition is running.
+    def showFrom:int -1
+    ; Seconds on this slide (for a slide that advances itself) and on the whole
+    ; show (for the presenter's clock).
+    def slideClock:double 0.0
+    def showClock:double 0.0
+    ; The presenter's own screen: the slide, what is next, the notes, a clock.
+    def presenterView:boolean false
+    ; Drawing on the slide while it is being shown. "" nothing, "pen" ink that
+    ; stays, "laser" a dot that does not.
+    def penMode:string ""
+    def penHex:string "E8465C"
+    ; Ink, in slide points, as flat x,y runs — one array per stroke, with the
+    ; slide it was drawn on beside it.
+    def inkSlides:[int]
+    def inkPoints:[[double]]
+    def inkColors:[string]
+    def inkDrawing:boolean false
+    def laserX:double (0.0 - 1.0)
+    def laserY:double 0.0
+
     Constructor () {
     }
 
@@ -174,6 +207,211 @@ class PptxApp {
         view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
         view.chromeW = (this.panelWidth())
         this.registerCommands()
+    }
+
+    ; --- present mode ---------------------------------------------------------
+    ;
+    ; The deck as it is shown rather than as it is made: no strip, no panel, no
+    ; notes, no status line, the slide as large as the window allows, and a
+    ; clock — because a transition and a build are pictures that change over
+    ; time. A host drives the clock with `tick`; one that never calls it gets a
+    ; show where every transition is already finished, which is the right
+    ; answer for a test and for a still.
+
+    fn startPresenting:boolean () {
+        if (loaded == false) {
+            return false
+        }
+        presenting = true
+        this.setEditMode(false)
+        presentStep = 0
+        showFrom = -1
+        showTime = 0.0
+        showLength = 0.0
+        slideClock = 0.0
+        showClock = 0.0
+        penMode = ""
+        laserX = (0.0 - 1.0)
+        return true
+    }
+
+    fn stopPresenting:boolean () {
+        if (presenting == false) {
+            return false
+        }
+        presenting = false
+        showLength = 0.0
+        showFrom = -1
+        penMode = ""
+        inkDrawing = false
+        return true
+    }
+
+    ; Seconds since the last frame. Everything that moves in present mode moves
+    ; from here, so a headless host that never calls it sees a still picture and
+    ; a browser that calls it every frame sees the show.
+    fn tick:void (seconds:double) {
+        if (seconds <= 0.0) {
+            return
+        }
+        if (presenting == false) {
+            return
+        }
+        showClock = (showClock + seconds)
+        slideClock = (slideClock + seconds)
+        if (showLength > 0.0) {
+            showTime = (showTime + seconds)
+            if (showTime >= showLength) {
+                showLength = 0.0
+                showTime = 0.0
+                showFrom = -1
+            }
+        }
+        ; A slide that advances itself does so once its time is up, and only
+        ; when nothing is still building on it.
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return
+        }
+        def s0:PptxSlide (unwrap slide)
+        def after:double s0.transition.afterSeconds
+        if (after > 0.0) {
+            if (slideClock >= after) {
+                if (presentStep >= (array_length s0.build)) {
+                    this.presentNext()
+                }
+            }
+        }
+    }
+
+    ; How far through the transition we are, 0 to 1. 1 means it is over.
+    fn showProgress:double () {
+        if (showLength <= 0.0) {
+            return 1.0
+        }
+        def t:double (showTime / showLength)
+        if (t < 0.0) {
+            return 0.0
+        }
+        if (t > 1.0) {
+            return 1.0
+        }
+        return t
+    }
+
+    ; One click forward: the next step of the build if there is one, otherwise
+    ; the next slide.
+    fn presentNext:boolean () {
+        if (presenting == false) {
+            return false
+        }
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (!null? slide) {
+            def s0:PptxSlide (unwrap slide)
+            if (presentStep < (array_length s0.build)) {
+                presentStep = (presentStep + 1)
+                return true
+            }
+        }
+        if (index >= ((this.slideCount()) - 1)) {
+            return false
+        }
+        def from:int index
+        this.gotoSlide((index + 1))
+        this.beginTransition(from)
+        return true
+    }
+
+    ; One click back. A build is not run backwards step by step — going back
+    ; puts you on the slide before, fully built, which is what a presenter
+    ; means by "back".
+    fn presentPrev:boolean () {
+        if (presenting == false) {
+            return false
+        }
+        if (presentStep > 0) {
+            presentStep = (presentStep - 1)
+            return true
+        }
+        if (index <= 0) {
+            return false
+        }
+        def from:int index
+        this.gotoSlide((index - 1))
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (!null? slide) {
+            def s0:PptxSlide (unwrap slide)
+            presentStep = (array_length s0.build)
+        }
+        this.beginTransition(from)
+        return true
+    }
+
+    fn beginTransition:void (from:int) {
+        presentStep = 0
+        slideClock = 0.0
+        showFrom = -1
+        showLength = 0.0
+        showTime = 0.0
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return
+        }
+        def s0:PptxSlide (unwrap slide)
+        if (s0.transition.isSet == false) {
+            return
+        }
+        if (s0.transition.seconds <= 0.0) {
+            return
+        }
+        if (s0.transition.kind == "cut") {
+            return
+        }
+        showFrom = from
+        showLength = s0.transition.seconds
+    }
+
+    ; --- ink -------------------------------------------------------------------
+
+    fn setPen:boolean (mode:string) {
+        if (mode == penMode) {
+            penMode = ""
+            return true
+        }
+        penMode = mode
+        return true
+    }
+
+    fn clearInk:boolean () {
+        def slides:[int]
+        def pts:[[double]]
+        def cols:[string]
+        def i:int 0
+        while (i < (array_length inkSlides)) {
+            if ((itemAt inkSlides i) != index) {
+                push slides (itemAt inkSlides i)
+                push pts (itemAt inkPoints i)
+                push cols (itemAt inkColors i)
+            }
+            i = (i + 1)
+        }
+        def changed:boolean ((array_length slides) != (array_length inkSlides))
+        inkSlides = slides
+        inkPoints = pts
+        inkColors = cols
+        return changed
+    }
+
+    fn inkStrokeCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length inkSlides)) {
+            if ((itemAt inkSlides i) == index) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     fn registerCommands:void () {
@@ -727,6 +965,9 @@ class PptxApp {
     ; The slide, the strip above it, the status line under it, and whatever
     ; windows are open. One display list, as everything here is.
     fn buildFrame:EVGDisplayList () {
+        if presenting {
+            return (this.buildShowFrame())
+        }
         def framed:EVGDisplayList (new EVGDisplayList)
         framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
         this.paintPanel(framed)
@@ -779,6 +1020,271 @@ class PptxApp {
             wi = (wi + 1)
         }
         return framed
+    }
+
+    ; --- the show, painted ----------------------------------------------------
+    ;
+    ; No strip, no panel, no status line: the deck fills the window, and the
+    ; only things drawn over it are the ones a presenter puts there — ink, a
+    ; laser dot, and on the presenter's own screen the notes and the clock.
+
+    fn buildShowFrame:EVGDisplayList () {
+        def framed:EVGDisplayList (new EVGDisplayList)
+        framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(0 0 0)))
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return framed
+        }
+        def sl:PptxSlide (unwrap slide)
+        def sc:double (this.ptScale())
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
+        def wpx:double (sl.width * sc)
+        def hpx:double (sl.height * sc)
+        def t:double (this.showProgress())
+        def running:boolean (showLength > 0.0)
+        if running {
+            if (showFrom < 0) {
+                running = false
+            }
+        }
+        if (running == false) {
+            this.paintShowSlide(framed sl ox oy sc)
+        } {
+            this.paintTransition(framed sl ox oy sc wpx hpx t)
+        }
+        ; Ink and the laser sit over the slide, at the slide's own scale.
+        this.paintInk(framed ox oy sc)
+        if presenterView {
+            this.paintPresenter(framed)
+        }
+        return framed
+    }
+
+    ; The slide, with the build applied: a shape whose step has not been
+    ; reached is not drawn at all.
+    fn paintShowSlide:void (dl:EVGDisplayList sl:PptxSlide ox:double oy:double sc:double) {
+        def hidden:[PptxShape]
+        def i:int 0
+        while (i < (array_length sl.shapes)) {
+            def sh:PptxShape (itemAt sl.shapes i)
+            if ((editor.shapeVisibleAt(sl sh presentStep)) == false) {
+                push hidden sh
+            }
+            i = (i + 1)
+        }
+        def kept:[PptxShape] sl.shapes
+        if ((array_length hidden) > 0) {
+            def show:[PptxShape]
+            def k:int 0
+            while (k < (array_length sl.shapes)) {
+                def sh2:PptxShape (itemAt sl.shapes k)
+                if (editor.shapeVisibleAt(sl sh2 presentStep)) {
+                    push show sh2
+                }
+                k = (k + 1)
+            }
+            sl.shapes = show
+        }
+        def sub:EVGDisplayList (view.buildDisplayList(sl))
+        sl.shapes = kept
+        PptxApp.offsetList(sub (to_int ox) (to_int oy))
+        PptxApp.appendList(dl sub)
+    }
+
+    ; What a transition looks like. A wipe or a push moves the incoming page
+    ; into place — the slide is drawn where it will end up and clipped, or
+    ; drawn offset and clipped, which is the same picture for a viewer and much
+    ; less arithmetic than compositing two scenes. A fade goes through black,
+    ; because a display list has no way to draw one scene at half strength.
+    fn paintTransition:void (dl:EVGDisplayList sl:PptxSlide ox:double oy:double sc:double wpx:double hpx:double t:double) {
+        def kind:string sl.transition.kind
+        def dir:string sl.transition.dir
+        def from@(optional):PptxSlide (this.slideAt(showFrom))
+        if (kind == "fade") {
+            ; First half: the slide being left, going dark. Second half: the
+            ; new one, coming out of the dark.
+            if (t < 0.5) {
+                if (!null? from) {
+                    def prev:PptxSlide (unwrap from)
+                    def sub:EVGDisplayList (view.buildDisplayList(prev))
+                    PptxApp.offsetList(sub (to_int ox) (to_int oy))
+                    PptxApp.appendList(dl sub)
+                }
+                dl.addRect(ox oy wpx hpx (EVGColor.create(0.0 0.0 0.0 (t * 2.0))))
+            } {
+                this.paintShowSlide(dl sl ox oy sc)
+                dl.addRect(ox oy wpx hpx (EVGColor.create(0.0 0.0 0.0 ((1.0 - t) * 2.0))))
+            }
+            return
+        }
+        ; Everything else moves. `push` takes the old page with it; `wipe` and
+        ; `cover` leave it where it is and slide the new one over. The entry
+        ; vector is a whole page in the direction the effect names, so the new
+        ; page comes in at `(1 - t)` of it and the old one leaves at `-t`.
+        def vx:double 0.0
+        def vy:double 0.0
+        if (dir == "u") {
+            vy = hpx
+        }
+        if (dir == "d") {
+            vy = (0.0 - hpx)
+        }
+        if (dir == "l") {
+            vx = wpx
+        }
+        if (dir == "r") {
+            vx = (0.0 - wpx)
+        }
+        if (vx == 0.0) {
+            if (vy == 0.0) {
+                ; No direction stated: come in from the left, which is what a
+                ; wipe with nothing said does.
+                vx = wpx
+            }
+        }
+        def back:double (1.0 - t)
+        dl.addClip(ox oy wpx hpx)
+        if (!null? from) {
+            def prev2:PptxSlide (unwrap from)
+            def old2:EVGDisplayList (view.buildDisplayList(prev2))
+            def px:double ox
+            def py:double oy
+            if (kind == "push") {
+                px = (ox - (vx * t))
+                py = (oy - (vy * t))
+            }
+            PptxApp.offsetList(old2 (to_int px) (to_int py))
+            PptxApp.appendList(dl old2)
+        }
+        def sub2:EVGDisplayList (view.buildDisplayList(sl))
+        PptxApp.offsetList(sub2 (to_int (ox + (vx * back))) (to_int (oy + (vy * back))))
+        PptxApp.appendList(dl sub2)
+        dl.addClipEnd()
+    }
+
+    ; Ink is kept in slide points, not window pixels, so it stays where it was
+    ; drawn when the window is resized or the presenter's screen is a different
+    ; shape from the one the audience sees.
+    fn paintInk:void (dl:EVGDisplayList ox:double oy:double sc:double) {
+        def i:int 0
+        while (i < (array_length inkSlides)) {
+            if ((itemAt inkSlides i) == index) {
+                def pts:[double] (itemAt inkPoints i)
+                def col:EVGColor (EVGColor.parse(("#" + (itemAt inkColors i))))
+                def k:int 0
+                while ((k + 3) < (array_length pts)) {
+                    def x1:double (ox + ((itemAt pts k) * sc))
+                    def y1:double (oy + ((itemAt pts (k + 1)) * sc))
+                    def x2:double (ox + ((itemAt pts (k + 2)) * sc))
+                    def y2:double (oy + ((itemAt pts (k + 3)) * sc))
+                    this.pushLine(dl x1 y1 x2 y2 3.0 col)
+                    k = (k + 2)
+                }
+            }
+            i = (i + 1)
+        }
+        if (penMode == "laser") {
+            if (laserX >= 0.0) {
+                def lx:double (ox + (laserX * sc))
+                def ly:double (oy + (laserY * sc))
+                dl.addRect((lx - 9.0) (ly - 9.0) 18.0 18.0 (EVGColor.create(0.9 0.1 0.2 0.25)))
+                dl.addRect((lx - 4.0) (ly - 4.0) 8.0 8.0 (EVGColor.create(1.0 0.25 0.3 0.95)))
+            }
+        }
+    }
+
+    ; The presenter's own screen: what is on the wall, what comes next, the
+    ; notes for the slide that is up, and how long the show has been running.
+    fn paintPresenter:void (dl:EVGDisplayList) {
+        def right:double ((to_double W) * 0.62)
+        def panelW:double (((to_double W) - right) - 16.0)
+        dl.addRect(0.0 0.0 (to_double W) 40.0 (EVGColor.rgb(18 20 26)))
+        toolbarView.attach(view.ctx view.fontFamily)
+        toolbarView.theme = theme
+        def clock:string (PptxApp.clockText(showClock))
+        toolbarView.pushText(dl clock 16.0 12.0 16.0 (EVGColor.rgb(220 226 240)))
+        def where:string ((to_string (index + 1)) + " / " + (to_string (this.slideCount())))
+        def steps:int (editor.buildCount())
+        if (steps > 0) {
+            where = (where + "   step " + (to_string presentStep) + " / " + (to_string steps))
+        }
+        toolbarView.pushText(dl where 120.0 12.0 13.0 (EVGColor.rgb(150 160 185)))
+        ; What is next, drawn the way the panel draws a thumbnail: the slide's
+        ; own scene, small.
+        def nx:double (right + 8.0)
+        def ny:double 52.0
+        def nh:double 0.0
+        def nextIdx:int (index + 1)
+        toolbarView.pushText(dl "Next" nx (ny - 16.0) 12.0 (EVGColor.rgb(150 160 185)))
+        if (nextIdx < (this.slideCount())) {
+            def nslide:PptxSlide (itemAt presentation.slides nextIdx)
+            def nscale:double (panelW / (nslide.width * (96.0 / 72.0)))
+            nh = ((nslide.height * (96.0 / 72.0)) * nscale)
+            dl.addRect(nx ny panelW nh (EVGColor.rgb(255 255 255)))
+            view.converter.setScale(nscale)
+            view.converter.slideNumber = (nextIdx + 1)
+            def sub:EVGDisplayList (view.converter.slideToDisplayList(nslide))
+            PptxApp.offsetList(sub (to_int nx) (to_int ny))
+            dl.addClip(nx ny panelW nh)
+            PptxApp.appendList(dl sub)
+            dl.addClipEnd()
+            dl.addFrame(nx ny panelW nh 1.0 (EVGColor.rgb(70 78 96)))
+        } {
+            nh = 60.0
+            dl.addRect(nx ny panelW nh (EVGColor.rgb(24 27 34)))
+            toolbarView.pushText(dl "End of the deck" (nx + 10.0) (ny + 22.0) 12.0 (EVGColor.rgb(120 130 150)))
+        }
+        ; The notes, under it.
+        def noteY:double ((ny + nh) + 26.0)
+        toolbarView.pushText(dl "Notes" nx (noteY - 16.0) 12.0 (EVGColor.rgb(150 160 185)))
+        def noteH:double (((to_double H) - noteY) - 16.0)
+        dl.addRect(nx noteY panelW noteH (EVGColor.rgb(24 27 34)))
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (!null? slide) {
+            def s0:PptxSlide (unwrap slide)
+            dl.addClip(nx noteY panelW noteH)
+            def box:PptxEditRect (PptxEditRect.of((nx + 8.0) (noteY + 8.0) (panelW - 16.0) (noteH - 16.0)))
+            def lines:[PptxTextLine] (this.lineBoxesIn(s0.notes box 1.0))
+            def li:int 0
+            while (li < (array_length lines)) {
+                def line:PptxTextLine (itemAt lines li)
+                def para:PptxParagraph (itemAt s0.notes.text.paragraphs line.para)
+                def full:string (PptxTextLayout.paraText(para))
+                def piece:string (substring full line.startCol line.endCol)
+                toolbarView.pushText(dl piece line.x line.y 13.0 (EVGColor.rgb(215 220 232)))
+                li = (li + 1)
+            }
+            dl.addClipEnd()
+        }
+    }
+
+    sfn clockText:string (seconds:double) {
+        def total:int (to_int seconds)
+        def mm:int (idiv total 60)
+        def ss:int (total % 60)
+        def m:string (to_string mm)
+        def s2:string (to_string ss)
+        if ((strlen s2) < 2) {
+            s2 = ("0" + s2)
+        }
+        if ((strlen m) < 2) {
+            m = ("0" + m)
+        }
+        return (m + ":" + s2)
+    }
+
+    fn slideAt@(optional):PptxSlide (i:int) {
+        if (i < 0) {
+            def __none@(optional):PptxSlide
+            return __none
+        }
+        if (i >= (array_length presentation.slides)) {
+            def __none2@(optional):PptxSlide
+            return __none2
+        }
+        def hit@(optional):PptxSlide (itemAt presentation.slides i)
+        return hit
     }
 
     sfn offsetList:void (src:EVGDisplayList dx:int dy:int) {
@@ -1067,14 +1573,67 @@ class PptxApp {
     ; The viewer's geometry is points; the window's is pixels. Everything the
     ; pointer says has to cross that line, and this is the only place it does.
 
+    ; While the deck is being shown the slide is not in a frame, it IS the
+    ; frame — so the area it is fitted into is the window, or the part of it the
+    ; presenter's screen leaves beside the notes.
+    fn showAreaX:double () {
+        if (presenterView == false) {
+            return 0.0
+        }
+        return 16.0
+    }
+
+    fn showAreaY:double () {
+        if (presenterView == false) {
+            return 0.0
+        }
+        return 52.0
+    }
+
+    fn showAreaW:double () {
+        if (presenterView == false) {
+            return (to_double W)
+        }
+        return (((to_double W) * 0.60) - 24.0)
+    }
+
+    fn showAreaH:double () {
+        if (presenterView == false) {
+            return (to_double H)
+        }
+        return ((to_double H) - 104.0)
+    }
+
     fn ptScale:double () {
         def slide@(optional):PptxSlide (this.currentSlide())
         if (null? slide) {
             return (96.0 / 72.0)
         }
         def s:PptxSlide (unwrap slide)
+        if presenting {
+            return (this.showScaleFor(s))
+        }
         def f:double (view.fitScale(s))
         return ((96.0 / 72.0) * f)
+    }
+
+    fn showScaleFor:double (s:PptxSlide) {
+        def px:double (96.0 / 72.0)
+        def wpx:double (s.width * px)
+        def hpx:double (s.height * px)
+        if (wpx <= 0.0) {
+            return px
+        }
+        if (hpx <= 0.0) {
+            return px
+        }
+        def sx:double ((this.showAreaW()) / wpx)
+        def sy:double ((this.showAreaH()) / hpx)
+        def f:double sx
+        if (sy < sx) {
+            f = sy
+        }
+        return (px * f)
     }
 
     ; Where the slide's top-left corner sits in the window. The fit-to-window
@@ -1087,6 +1646,9 @@ class PptxApp {
         def s:PptxSlide (unwrap slide)
         def sc:double (this.ptScale())
         def wpx:double (s.width * sc)
+        if presenting {
+            return ((this.showAreaX()) + (((this.showAreaW()) - wpx) * 0.5))
+        }
         def left:double (to_double (this.panelWidth()))
         def dx:double (left + ((((to_double W) - left) - wpx) * 0.5))
         if (dx < left) {
@@ -1104,6 +1666,9 @@ class PptxApp {
         def s:PptxSlide (unwrap slide)
         def sc:double (this.ptScale())
         def hpx:double (s.height * sc)
+        if presenting {
+            return ((this.showAreaY()) + (((this.showAreaH()) - hpx) * 0.5))
+        }
         def avail:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
         def dy:double ((avail - hpx) * 0.5)
         if (dy < 0.0) {
