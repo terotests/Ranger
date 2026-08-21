@@ -1,0 +1,214 @@
+; ==============================================================================
+; EVGA11yTest — the accessibility tree module, and what a dialog says about
+; itself.
+; ==============================================================================
+;
+; `EVGA11yTree` is what an EVG program publishes for a screen reader: the same
+; frame the display list draws, said as roles and names. Because it is data
+; rather than DOM, it can be checked here — no browser, no host, no assistive
+; technology — which is the only reason accessibility regressions in a GPU
+; program are catchable at all.
+;
+; The lints matter as much as the assertions. Every one of them is a failure a
+; sighted developer cannot see: a button with no name is a perfectly good
+; button on screen and an unusable one to everybody else.
+; ==============================================================================
+
+Import "EVGA11yTree.rgr"
+Import "EVGWindow.rgr"
+
+class A11yCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn lintsClean:void (label:string t:EVGA11yTree) {
+        def problems:[string] (t.lint())
+        def n:int (array_length problems)
+        this.ok((label + " lints clean") (n == 0))
+        def i:int 0
+        while (i < n) {
+            print ("    ! " + (itemAt problems i))
+            i = (i + 1)
+        }
+    }
+}
+
+class EVGA11yTest {
+    sfn dialog:EVGWindow (wm:EVGWindowManager) {
+        def w:EVGWindow (new EVGWindow)
+        w.title = "Find and replace"
+        wm.add(w)
+        w.visible = true
+        w.reset()
+        w.addInput(1 "Find" "total")
+        w.addInput(2 "Replace" "sum")
+        w.addCheckbox(3 "Match case" true)
+        def ids:[int] ([] _:int ( 4 5 ))
+        def labels:[string] ([] _:string ( "Replace all" "Close" ))
+        w.addButtonRow(ids labels 4)
+        w.finish()
+        return w
+    }
+
+    sfn main:void () {
+        def c:A11yCheck (new A11yCheck)
+
+        print "== the model =="
+        def t:EVGA11yTree (new EVGA11yTree)
+        def root:EVGA11yNode (t.group("app" "" "Sheet"))
+        t.place(root 0 0 900 560)
+        def b:EVGA11yNode (t.button("app/ok" "app" "OK"))
+        t.place(b 10 20 80 24)
+        def f:EVGA11yNode (t.field("app/find" "app" "Find" "total"))
+        t.place(f 10 60 200 24)
+        f.caret = 5
+        def st:EVGA11yNode (t.statusRegion("app/status" "app" "Ready"))
+        t.place(st 0 538 900 22)
+        t.setFocus("app/find")
+        c.eqStr("the first parentless node is the root" t.rootId "app")
+        c.eqInt("four nodes" (t.count()) 4)
+        c.ok("a button can be activated" b.actActivate)
+        c.ok("a field can be typed into" f.actSetValue)
+        c.ok("the focused node is marked" f.focused)
+        c.ok("and nothing else is" (b.focused == false))
+        c.lintsClean("a small tree" t)
+
+        print "== focus is a property of the tree, not of a node =="
+        ; Two focused nodes is a reader with none. Setting focus has to clear
+        ; the last one, which is why callers do not touch the flag by hand.
+        t.setFocus("app/ok")
+        c.ok("the new one is focused" b.focused)
+        c.ok("the old one is not" (f.focused == false))
+        c.eqStr("and the tree agrees" t.focusId "app/ok")
+
+        print "== roles are spelled the way ARIA spells them =="
+        c.eqStr("button" (EVGA11yRole.ariaName((EVGA11yRole.button()))) "button")
+        c.eqStr("text field" (EVGA11yRole.ariaName((EVGA11yRole.textField()))) "textbox")
+        c.eqStr("cell" (EVGA11yRole.ariaName((EVGA11yRole.cell()))) "gridcell")
+        c.eqStr("decoration" (EVGA11yRole.ariaName((EVGA11yRole.none()))) "none")
+
+        print "== the lints catch what nobody can see =="
+        def bad:EVGA11yTree (new EVGA11yTree)
+        def broot:EVGA11yNode (bad.group("root" "" "App"))
+        bad.place(broot 0 0 100 100)
+        def nameless:EVGA11yNode (bad.node("root/x" "root" (EVGA11yRole.button())))
+        nameless.focusable = true
+        bad.place(nameless 0 0 20 20)
+        def orphan:EVGA11yNode (bad.node("root/y" "nowhere" (EVGA11yRole.text())))
+        orphan.name = "lost"
+        bad.setFocus("root/gone")
+        def problems:[string] (bad.lint())
+        c.ok("three problems found" ((array_length problems) == 3))
+        def all:string ""
+        def i:int 0
+        while (i < (array_length problems)) {
+            all = (all + (itemAt problems i) + "\n")
+            i = (i + 1)
+        }
+        c.ok("a focusable thing with no name" (EVGA11yTest.hasSub(all "no accessible name")))
+        c.ok("a node hanging off nothing" (EVGA11yTest.hasSub(all "is not in the tree")))
+        c.ok("focus pointing at nobody" (EVGA11yTest.hasSub(all "focus points at")))
+
+        print "== a dialog describes itself =="
+        def app:EVGA11yTree (new EVGA11yTree)
+        def aroot:EVGA11yNode (app.group("app" "" "Sheet"))
+        app.place(aroot 0 0 900 560)
+        def wm:EVGWindowManager (new EVGWindowManager)
+        def w:EVGWindow (EVGA11yTest.dialog(wm))
+        w.modal = true
+        w.focusedId = 2
+        wm.a11y(app "app")
+        def dlg:EVGA11yNode (app.find((w.a11yId())))
+        c.ok("it is a dialog" (dlg.role == (EVGA11yRole.dialog())))
+        c.eqStr("with the title as its name" dlg.name "Find and replace")
+        c.ok("and it says it is modal" dlg.modal)
+        def find:EVGA11yNode (app.find((w.a11yId()) + "/ctl:1"))
+        c.ok("a text field is a text field" (find.role == (EVGA11yRole.textField())))
+        c.eqStr("labelled by what is in front of it" find.name "Find")
+        c.eqStr("carrying what has been typed" find.value "total")
+        def box:EVGA11yNode (app.find((w.a11yId()) + "/ctl:3"))
+        c.ok("a checkbox is a checkbox" (box.role == (EVGA11yRole.checkbox())))
+        c.eqInt("and it is ticked" box.checked (EVGA11yTri.yes()))
+        c.eqStr("the focused field has the keys" app.focusId ((w.a11yId()) + "/ctl:2"))
+        c.lintsClean("a dialog" app)
+
+        print "== reading order is what the eye does, not what the array holds =="
+        ; A button row is laid out right to left so the default button lands in
+        ; the corner — which put "Close" before "Replace all" in the array and
+        ; would have read the dialog backwards.
+        def order:[int] (w.a11yOrder())
+        def firstBtn:string ""
+        def lastBtn:string ""
+        def k:int 0
+        while (k < (array_length order)) {
+            def ctl:EVGControl (itemAt w.controls (itemAt order k))
+            if (ctl.kind == (EVGControlKind.button())) {
+                if ((strlen firstBtn) == 0) {
+                    firstBtn = ctl.text
+                }
+                lastBtn = ctl.text
+            }
+            k = (k + 1)
+        }
+        c.eqStr("the left button is read first" firstBtn "Replace all")
+        c.eqStr("the right one last" lastBtn "Close")
+
+        print "== ids survive a window being closed and another opened =="
+        ; `wid` is a stack position and comes back after a remove; `stamp` does
+        ; not. A second dialog arriving under the first one's id is a dialog a
+        ; reader is never told about.
+        wm.remove(w)
+        def w2:EVGWindow (EVGA11yTest.dialog(wm))
+        c.eqInt("the stack position was reused" w2.wid w.wid)
+        c.ok("the accessibility id was not" ((w2.a11yId()) != (w.a11yId())))
+
+        print "== the JSON keeps the defaults out =="
+        def js:string (t.toJson())
+        c.ok("names the root" (EVGA11yTest.hasSub(js "\"root\":\"app\"")))
+        c.ok("carries a generation" (EVGA11yTest.hasSub(js "\"gen\":")))
+        c.ok("spells roles in ARIA" (EVGA11yTest.hasSub(js "\"role\":\"textbox\"")))
+        c.ok("says nothing about unchecked things" ((EVGA11yTest.hasSub(js "\"checked\"")) == false))
+
+        print ""
+        print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILED"
+        } {
+            print "OK"
+        }
+    }
+
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

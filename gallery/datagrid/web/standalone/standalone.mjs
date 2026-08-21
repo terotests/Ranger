@@ -13,12 +13,14 @@
  * font faces, and a workbook to open. Both are handed to the app as bytes.
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
 window.__pageStarted = true;
 
 const canvas = document.getElementById("screen");
+const screenWrap = document.getElementById("screenwrap") || canvas.parentElement;
 const statusEl = document.getElementById("status");
 const backendEl = document.getElementById("backend");
 const cmdsEl = document.getElementById("cmds");
@@ -174,6 +176,40 @@ async function imagesFor(doc) {
   return out;
 }
 
+// --- the accessibility mirror -------------------------------------------------
+// The canvas is one empty graphic to a screen reader, so the app's own
+// accessibility tree is mirrored as real DOM over it. `?a11y=0` turns it off,
+// which is how you tell a mirror bug from an app bug.
+const wantA11y = new URLSearchParams(location.search).get("a11y") !== "0";
+const a11y = wantA11y
+  ? createA11yMirror(screenWrap, {
+      canvas,
+      label: "Ranger DataGrid",
+      // A reader pressing something presses the APP, where the thing is. No
+      // mapping from node ids to commands, so nothing to keep in step.
+      onActivate: async (node) => {
+        pressAtCentre(node, (x, y) => {
+          web.pointer(x, y, true, false, false);
+          web.pointer(x, y, false, false, false);
+        });
+        await afterInput();
+      },
+    })
+  : null;
+
+/** The tree that says what the frame means, handed to the mirror. Built after
+ *  the scene, because it reads the geometry the scene build settled. */
+function updateA11y() {
+  if (!a11y) return;
+  try {
+    a11y.update(JSON.parse(web.a11y()));
+  } catch (err) {
+    // A broken mirror must not take the editor down with it: the picture is
+    // still correct and the mouse still works.
+    console.warn("a11y mirror:", err);
+  }
+}
+
 /** Build the scene and draw it — but only when it differs from the one already
  *  on the canvas. The app is right here, so "has anything changed" is a string
  *  comparison rather than a request. */
@@ -201,6 +237,7 @@ async function draw() {
   cmdsEl.textContent = String(doc.list.cmds.length);
   window.__evgStats = stats;
   window.__gridDoc = doc;
+  updateA11y();
   redraws += 1;
 }
 
@@ -365,7 +402,10 @@ const CTRL_CHORD = /^[abcdefhiklmqsuvxyzABCDEFHIKLMQSUVXYZ ]$/;
 
 canvas.addEventListener("pointerdown", async (ev) => {
   canvas.setPointerCapture(ev.pointerId);
-  canvas.focus();
+  // With the mirror up, the app's focused node is the element that should have
+  // the keyboard; the mirror puts focus there on the next update. Grabbing it
+  // for the canvas here would only take it away again for one frame.
+  if (!a11y) canvas.focus();
   pointerDown = true;
   const { x, y } = canvasCoords(ev);
   web.pointer(x, y, true, ev.shiftKey, ev.ctrlKey || ev.metaKey);
@@ -419,7 +459,10 @@ canvas.addEventListener(
   { passive: false }
 );
 
-canvas.addEventListener("keydown", async (ev) => {
+// Keys are listened for on the BOX rather than the canvas: with the mirror up,
+// the focused element is one of its nodes, and the canvas never sees the event.
+// Both bubble to here.
+screenWrap.addEventListener("keydown", async (ev) => {
   const special = KEY_MAP[ev.key];
   if (special) {
     ev.preventDefault();
@@ -446,7 +489,7 @@ canvas.addEventListener("keydown", async (ev) => {
 });
 
 window.addEventListener("paste", async (ev) => {
-  if (document.activeElement !== canvas) return;
+  if (!screenWrap.contains(document.activeElement)) return;
   ev.preventDefault();
   const text = ev.clipboardData ? ev.clipboardData.getData("text/plain") : "";
   web.pasteText(text);
@@ -626,6 +669,15 @@ async function selftest() {
   web.run("format.border", "");
   await draw();
   ok("the border gallery opened", web.app.borderDialog.visible === true);
+  // A dialog a reader can still walk out of is a dialog it will walk out of,
+  // and none of those keys are going anywhere.
+  const dlgEl = document.querySelector('.evg-a11y [role="dialog"]');
+  ok("the dialog is in the accessibility tree", !!dlgEl);
+  ok("…marked modal", !!dlgEl && dlgEl.getAttribute("aria-modal") === "true");
+  ok(
+    "…and the sheet behind it is hidden from the reader",
+    !!document.querySelector('.evg-a11y [role="grid"][aria-hidden="true"]')
+  );
   ok(
     "and put a window on the screen",
     JSON.parse(web.scene()).list.cmds.length > beforeBorders
@@ -656,6 +708,47 @@ async function selftest() {
   const charted = JSON.parse(web.scene());
   const geometry = charted.list.cmds.filter((c) => c.k === 6 || c.k === 7).length;
   ok("a chart was drawn from the numbers", geometry > 4);
+
+  // --- the accessibility mirror ---------------------------------------------
+  // What a screen reader would actually be handed. This is the real DOM in a
+  // real browser, which is as close as anything gets to the thing itself
+  // without an assistive technology installed.
+  web.run("nav.goto", "B7");
+  await draw();
+  const mirror = document.querySelector(".evg-a11y");
+  ok("the mirror is on the page", !!mirror);
+  ok("the canvas is hidden from the reader", canvas.getAttribute("aria-hidden") === "true");
+  const gridEl = mirror && mirror.querySelector('[role="grid"]');
+  ok("there is a grid", !!gridEl);
+  // Virtualization has to be honest in both directions: claim every row, emit
+  // the ones on screen.
+  ok(
+    "…that claims every row it has",
+    !!gridEl && parseInt(gridEl.getAttribute("aria-rowcount"), 10) === (web.app.model.rowCount | 0) + 1
+  );
+  const cellEls = mirror ? mirror.querySelectorAll('[role="gridcell"]') : [];
+  const rowEls = mirror ? mirror.querySelectorAll('[role="row"]') : [];
+  const onScreen = (web.app.grid.lastVisibleRow | 0) - (web.app.grid.firstVisibleRow | 0) + 1;
+  ok("…and emits only the rows on screen", cellEls.length > 10 && rowEls.length === onScreen + 1);
+  const focusEl = document.activeElement;
+  ok("the caret cell has the keyboard", !!focusEl && focusEl.getAttribute("role") === "gridcell");
+  ok("…at the right address", !!focusEl && focusEl.getAttribute("aria-rowindex") === "8" && focusEl.getAttribute("aria-colindex") === "3");
+  ok("…reading what the cell says", !!focusEl && focusEl.textContent === String(web.app.model.getDisplay(6, 1)));
+  // Roving tabindex: one tab stop for the whole application, and it is the
+  // thing the app says has focus.
+  const tabbable = mirror ? mirror.querySelectorAll('[tabindex="0"]') : [];
+  ok("exactly one tab stop", tabbable.length === 1 && tabbable[0] === focusEl);
+  const undoEl = mirror && [...mirror.querySelectorAll("button")].find((b) => b.textContent === "Undo");
+  ok("the toolbar buttons are named", !!undoEl);
+  // Pressing through the mirror must move the app, not just the DOM: this is
+  // the path a reader's "activate" takes.
+  const targetEl = mirror && [...mirror.querySelectorAll('[role="gridcell"]')]
+    .find((c) => c.getAttribute("aria-rowindex") === "5" && c.getAttribute("aria-colindex") === "2");
+  if (targetEl) {
+    targetEl.click();
+    await draw();
+  }
+  ok("activating a cell moved the caret", (web.app.sel.active.row | 0) === 3 && (web.app.sel.active.col | 0) === 0);
 
   const passed = checks.filter((c) => c.ok).length;
   const line = checks.map((c) => (c.ok ? "PASS " : "FAIL ") + c.name).join(" | ");

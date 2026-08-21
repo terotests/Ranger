@@ -34,6 +34,7 @@
 
 Import "EVGColor.rgr"
 Import "EVGDisplayList.rgr"
+Import "EVGA11yTree.rgr"
 
 ; The palette the strip draws itself with. An application hands one over rather
 ; than the toolbar reaching into a theme it cannot know about.
@@ -234,6 +235,53 @@ class EVGToolbar {
         }
         rows = (row + 1)
         height = (rows * rowH)
+    }
+
+    ; --- what the strip MEANS -------------------------------------------------
+    ; The same buttons, for something that cannot see them. A screen reader gets
+    ; a toolbar with named buttons instead of a band of coloured rectangles, and
+    ; the geometry is the one `layout` settled — read, not recomputed, so the
+    ; rectangle a reader routes the mouse to is the rectangle that was painted.
+    fn a11y:void (t:EVGA11yTree parentId:string idPrefix:string bx:int by:int bw:int bh:int) {
+        def barId:string (idPrefix + "/toolbar")
+        def bar:EVGA11yNode (t.node(barId parentId (EVGA11yRole.toolbar())))
+        bar.name = "Toolbar"
+        t.place(bar bx by bw bh)
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:ToolItem (itemAt items i)
+            ; A separator is a rule, and an item that did not fit was given no
+            ; rectangle. Neither is something to announce.
+            def skip:boolean it.isSeparator
+            if (it.w <= 0) {
+                skip = true
+            }
+            if (it.h <= 0) {
+                skip = true
+            }
+            if (skip == false) {
+                def label:string it.label
+                if ((strlen label) == 0) {
+                    label = it.command
+                }
+                def nid:string (barId + "/" + it.command)
+                if ((strlen it.arg) > 0) {
+                    nid = (nid + ":" + it.arg)
+                }
+                def n:EVGA11yNode (t.button(nid barId label))
+                t.place(n it.x it.y it.w it.h)
+                ; A toggle is a pressed button, not a checkbox: the host writes
+                ; aria-pressed for a button role and aria-checked for the rest.
+                if it.toggle {
+                    if it.pressed {
+                        n.checked = (EVGA11yTri.yes())
+                    } {
+                        n.checked = (EVGA11yTri.no())
+                    }
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     fn heightFor:int (width:int) {

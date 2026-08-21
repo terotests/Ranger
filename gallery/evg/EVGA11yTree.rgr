@@ -1,0 +1,643 @@
+; ==============================================================================
+; EVGA11yTree.rgr — the second list: what the frame MEANS.
+; ==============================================================================
+;
+; EVGDisplayList carries geometry — absolute pixels, resolved colours, no tree.
+; That is exactly what a GPU wants and exactly what a screen reader cannot use.
+; NVDA, VoiceOver, JAWS and Orca do not look at pixels: they ask the platform
+; for a TREE of nodes with a role, a name, a value, a state and a rectangle,
+; and they walk it with the arrow keys, drive it with Tab, mirror it onto a
+; braille display and speak what changed.
+;
+; So a program drawn with EVG on WebGL or SDL2+OpenGL is, to an assistive
+; technology, one empty graphic. The fix is not a smarter renderer and it is
+; certainly not guessing meaning back out of the display list — that is OCR
+; against your own program, and the list is lossy on purpose. The fix is to
+; emit a SECOND list from the SAME walk:
+;
+;                      +--> EVGDisplayList  (geometry)  --> WebGL / SDL2 / PDF
+;   app state --walk---|
+;                      +--> EVGA11yTree     (meaning)   --> DOM mirror / UIA /
+;                                                            AT-SPI / NSAccessibility
+;
+; One walk, because two walks drift: five painters each walking the laid-out
+; tree is how border-radius came to work in PDF and silently not in PNG. The
+; same bug in an accessibility tree would be invisible to everyone who can see
+; the screen, and only a blind user would ever hit it.
+;
+; This module is PURE — no device resources, no host calls, no file system — so
+; it compiles to ES6, C++, Rust and Go like the display list does. That is the
+; point: the accessibility model is written once and every host consumes it,
+; instead of being reimplemented per platform the way it normally is.
+;
+; The field set is deliberately the intersection of ARIA, UI Automation,
+; AT-SPI2, NSAccessibility and AccessKit. Everything here exists in all five,
+; which is what keeps the browser mirror and a future native adapter reading
+; the same tree.
+;
+; Bounds are ints. Every EVG surface that has semantics — EVGControl, the grid
+; geometry, the toolbar — already works in whole pixels, and an assistive
+; technology uses a rectangle to route the mouse, place a magnifier and answer
+; a touch, none of which care about a quarter of a pixel.
+; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; Roles. Ints so a backend can switch cheaply — the same reason the draw
+; commands are ints — with the ARIA spelling kept here so every host agrees on
+; the vocabulary instead of each inventing its own mapping.
+; ------------------------------------------------------------------------------
+class EVGA11yRole {
+    ; Decoration. Never surfaced: a node with this role and everything under it
+    ; is skipped, which is how a reader is kept from announcing 300 rectangles.
+    sfn none:int ()        { return 0 }
+    sfn group:int ()       { return 1 }
+    sfn text:int ()        { return 2 }
+    sfn heading:int ()     { return 3 }
+    sfn button:int ()      { return 4 }
+    sfn checkbox:int ()    { return 5 }
+    sfn radio:int ()       { return 6 }
+    sfn textField:int ()   { return 7 }
+    sfn image:int ()       { return 8 }
+    sfn link:int ()        { return 9 }
+    sfn grid:int ()        { return 10 }
+    sfn row:int ()         { return 11 }
+    sfn columnHeader:int () { return 12 }
+    sfn rowHeader:int ()   { return 13 }
+    sfn cell:int ()        { return 14 }
+    sfn tabList:int ()     { return 15 }
+    sfn tab:int ()         { return 16 }
+    sfn toolbar:int ()     { return 17 }
+    sfn menuItem:int ()    { return 18 }
+    sfn dialog:int ()      { return 19 }
+    sfn status:int ()      { return 20 }
+    sfn separator:int ()   { return 21 }
+    sfn list:int ()        { return 22 }
+    sfn listItem:int ()    { return 23 }
+
+    ; The ARIA role string. A browser host writes this straight into role="…";
+    ; a native adapter maps it to the platform's own constant.
+    sfn ariaName:string (role:int) {
+        if (role == 1)  { return "group" }
+        if (role == 2)  { return "text" }
+        if (role == 3)  { return "heading" }
+        if (role == 4)  { return "button" }
+        if (role == 5)  { return "checkbox" }
+        if (role == 6)  { return "radio" }
+        if (role == 7)  { return "textbox" }
+        if (role == 8)  { return "img" }
+        if (role == 9)  { return "link" }
+        if (role == 10) { return "grid" }
+        if (role == 11) { return "row" }
+        if (role == 12) { return "columnheader" }
+        if (role == 13) { return "rowheader" }
+        if (role == 14) { return "gridcell" }
+        if (role == 15) { return "tablist" }
+        if (role == 16) { return "tab" }
+        if (role == 17) { return "toolbar" }
+        if (role == 18) { return "menuitem" }
+        if (role == 19) { return "dialog" }
+        if (role == 20) { return "status" }
+        if (role == 21) { return "separator" }
+        if (role == 22) { return "list" }
+        if (role == 23) { return "listitem" }
+        return "none"
+    }
+}
+
+; Tri-states. The default is "not applicable" rather than "false", because
+; `aria-checked="false"` on something that is not checkable makes a reader
+; announce a checkbox that does not exist.
+class EVGA11yTri {
+    sfn notApplicable:int () { return 0 }
+    sfn no:int ()            { return 1 }
+    sfn yes:int ()           { return 2 }
+    sfn mixed:int ()         { return 3 }
+}
+
+class EVGA11yLive {
+    sfn off:int ()       { return 0 }
+    sfn polite:int ()    { return 1 }
+    sfn assertive:int () { return 2 }
+}
+
+class EVGA11yNode {
+    ; STABLE across frames, and derived from IDENTITY rather than paint order:
+    ; "win:7/ctrl:3", "sheet:Q3/cell:B7", "el:#total". An id that changes every
+    ; frame makes the reader lose its cursor, resets focus and flickers the
+    ; braille display — and everything still looks correct on screen, which is
+    ; why this is the most common way a first implementation fails.
+    def id:string ""
+    def parentId:string ""
+    def role:int 0
+    ; What gets spoken. A focusable node without one is a lint failure.
+    def name:string ""
+    ; Spoken after a pause, or on request: the formula behind a cell, the note
+    ; attached to it, the shortcut on a button.
+    def description:string ""
+    ; A field's text, a cell's value — separate from the name, which is the
+    ; label that does not change when the content does.
+    def value:string ""
+
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+
+    def focusable:boolean false
+    def focused:boolean false
+    def disabled:boolean false
+    def selected:boolean false
+    def readOnly:boolean false
+    ; A dialog that owns the screen while it is up. Every platform has this —
+    ; aria-modal, UIA IsModal, AT-SPI MODAL, AccessKit Modal — and a host uses
+    ; it to hide everything the user cannot currently reach, which is the
+    ; difference between "a dialog is open" and "there are two applications".
+    def modal:boolean false
+    def checked:int 0
+    def expanded:int 0
+
+    ; Position in a set the tree does not fully contain — the whole point of
+    ; virtualization. A 10,000 row sheet emits the ~40 rows on screen; "row
+    ; 4,120 of 10,000" comes from these and nothing else. Lying here makes the
+    ; reader announce positions that do not exist.
+    def rowIndex:int 0
+    def colIndex:int 0
+    def rowCount:int 0
+    def colCount:int 0
+    def posInSet:int 0
+    def setSize:int 0
+
+    ; Text fields: caret and selection as offsets into `value`.
+    def caret:int 0
+    def selStart:int 0
+    def selEnd:int 0
+
+    ; What the node can be asked to DO. A platform adapter reports these as
+    ; available actions and routes them back into the app; the browser mirror
+    ; uses them to decide what kind of element to render. Booleans rather than a
+    ; bitmask because Ranger has no bitwise operators, and because the JSON that
+    ; crosses the seam is then readable by a person debugging it.
+    ;
+    ; `focusable` is the focus action; these are the rest.
+    def actActivate:boolean false
+    def actSetValue:boolean false
+    def actExpand:boolean false
+    def actScrollTo:boolean false
+    def live:int 0
+
+    Constructor () {
+    }
+}
+
+class EVGA11yTree {
+    def nodes:[EVGA11yNode]
+    def rootId:string ""
+    ; The app's focus, never the host's. One owner, or the two chase each other
+    ; forever: the mirror focuses a node, the browser reports focusin, the app
+    ; moves its focus, the mirror focuses a node…
+    def focusId:string ""
+    ; The same counter the scene carries, so a host can skip a rebuild it has
+    ; already done — a platform accessibility API wants events, not a fresh
+    ; tree sixty times a second.
+    def generation:int 0
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length nodes)
+    }
+
+    fn at:EVGA11yNode (i:int) {
+        if (i < 0) {
+            return (new EVGA11yNode)
+        }
+        if (i >= (array_length nodes)) {
+            return (new EVGA11yNode)
+        }
+        return (itemAt nodes i)
+    }
+
+    ; Create a node and hang it under `parentId`. The first node added with an
+    ; empty parent becomes the root.
+    fn node:EVGA11yNode (id:string parentId:string role:int) {
+        def n:EVGA11yNode (new EVGA11yNode)
+        n.id = id
+        n.parentId = parentId
+        n.role = role
+        push nodes n
+        if ((strlen rootId) == 0) {
+            if ((strlen parentId) == 0) {
+                rootId = id
+            }
+        }
+        return n
+    }
+
+    ; --- the shapes that come up over and over --------------------------------
+
+    fn group:EVGA11yNode (id:string parentId:string name:string) {
+        def n:EVGA11yNode (this.node(id parentId (EVGA11yRole.group())))
+        n.name = name
+        return n
+    }
+
+    fn label:EVGA11yNode (id:string parentId:string text:string) {
+        def n:EVGA11yNode (this.node(id parentId (EVGA11yRole.text())))
+        n.name = text
+        return n
+    }
+
+    fn button:EVGA11yNode (id:string parentId:string name:string) {
+        def n:EVGA11yNode (this.node(id parentId (EVGA11yRole.button())))
+        n.name = name
+        n.focusable = true
+        n.actActivate = true
+        return n
+    }
+
+    fn field:EVGA11yNode (id:string parentId:string name:string value:string) {
+        def n:EVGA11yNode (this.node(id parentId (EVGA11yRole.textField())))
+        n.name = name
+        n.value = value
+        n.focusable = true
+        n.actSetValue = true
+        return n
+    }
+
+    ; A region whose changes are announced without the user going to look —
+    ; "Recalculated 1,200 cells", "Sorted by Region". Polite by default:
+    ; assertive interrupts whatever is being read, which is for errors only.
+    fn statusRegion:EVGA11yNode (id:string parentId:string text:string) {
+        def n:EVGA11yNode (this.node(id parentId (EVGA11yRole.status())))
+        n.value = text
+        n.live = (EVGA11yLive.polite())
+        return n
+    }
+
+    fn place:void (n:EVGA11yNode nx:int ny:int nw:int nh:int) {
+        n.x = nx
+        n.y = ny
+        n.w = nw
+        n.h = nh
+    }
+
+    ; --- lookup ---------------------------------------------------------------
+
+    fn find:EVGA11yNode (id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:EVGA11yNode (itemAt nodes i)
+            if (n.id == id) {
+                return n
+            }
+            i = (i + 1)
+        }
+        return (new EVGA11yNode)
+    }
+
+    fn has:boolean (id:string) {
+        def n:EVGA11yNode (this.find(id))
+        return ((strlen n.id) > 0)
+    }
+
+    ; Mark one node focused and clear the rest. Focus is a property of the
+    ; tree, not of a node, and letting a caller set the flag by hand is how a
+    ; tree ends up with two focused nodes and a reader with none.
+    fn setFocus:void (id:string) {
+        focusId = id
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:EVGA11yNode (itemAt nodes i)
+            n.focused = (n.id == id)
+            i = (i + 1)
+        }
+    }
+
+    ; --- serialization --------------------------------------------------------
+    ; Short keys and omitted defaults, because this crosses the same seam the
+    ; display list does and a grid emits a few hundred nodes per frame.
+
+    fn toJson:string () {
+        def out:string "{\"root\":"
+        out = (out + (EVGA11yTree.jsonString(rootId)))
+        out = (out + ",\"focus\":" + (EVGA11yTree.jsonString(focusId)))
+        out = (out + ",\"gen\":" + (to_string generation))
+        out = (out + ",\"nodes\":[")
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:EVGA11yNode (itemAt nodes i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (this.nodeJson(n)))
+            i = (i + 1)
+        }
+        return (out + "]}")
+    }
+
+    fn nodeJson:string (n:EVGA11yNode) {
+        def out:string "{\"id\":"
+        out = (out + (EVGA11yTree.jsonString(n.id)))
+        if ((strlen n.parentId) > 0) {
+            out = (out + ",\"p\":" + (EVGA11yTree.jsonString(n.parentId)))
+        }
+        out = (out + ",\"role\":" + (EVGA11yTree.jsonString((EVGA11yRole.ariaName(n.role)))))
+        if ((strlen n.name) > 0) {
+            out = (out + ",\"name\":" + (EVGA11yTree.jsonString(n.name)))
+        }
+        if ((strlen n.value) > 0) {
+            out = (out + ",\"value\":" + (EVGA11yTree.jsonString(n.value)))
+        }
+        if ((strlen n.description) > 0) {
+            out = (out + ",\"desc\":" + (EVGA11yTree.jsonString(n.description)))
+        }
+        out = (out + ",\"b\":[" + (to_string n.x) + "," + (to_string n.y))
+        out = (out + "," + (to_string n.w) + "," + (to_string n.h) + "]")
+        if n.focusable {
+            out = (out + ",\"focusable\":true")
+        }
+        if n.focused {
+            out = (out + ",\"focused\":true")
+        }
+        if n.disabled {
+            out = (out + ",\"disabled\":true")
+        }
+        if n.selected {
+            out = (out + ",\"selected\":true")
+        }
+        if n.readOnly {
+            out = (out + ",\"readonly\":true")
+        }
+        if n.modal {
+            out = (out + ",\"modal\":true")
+        }
+        if (n.checked != 0) {
+            out = (out + ",\"checked\":" + (to_string n.checked))
+        }
+        if (n.expanded != 0) {
+            out = (out + ",\"expanded\":" + (to_string n.expanded))
+        }
+        if (n.rowIndex != 0) {
+            out = (out + ",\"row\":" + (to_string n.rowIndex))
+        }
+        if (n.colIndex != 0) {
+            out = (out + ",\"col\":" + (to_string n.colIndex))
+        }
+        if (n.rowCount != 0) {
+            out = (out + ",\"rows\":" + (to_string n.rowCount))
+        }
+        if (n.colCount != 0) {
+            out = (out + ",\"cols\":" + (to_string n.colCount))
+        }
+        if (n.posInSet != 0) {
+            out = (out + ",\"pos\":" + (to_string n.posInSet))
+        }
+        if (n.setSize != 0) {
+            out = (out + ",\"size\":" + (to_string n.setSize))
+        }
+        if (n.caret != 0) {
+            out = (out + ",\"caret\":" + (to_string n.caret))
+        }
+        if (n.selStart != n.selEnd) {
+            out = (out + ",\"sel\":[" + (to_string n.selStart) + "," + (to_string n.selEnd) + "]")
+        }
+        if n.actActivate {
+            out = (out + ",\"activate\":true")
+        }
+        if n.actSetValue {
+            out = (out + ",\"setValue\":true")
+        }
+        if n.actExpand {
+            out = (out + ",\"expandable\":true")
+        }
+        if n.actScrollTo {
+            out = (out + ",\"scrollTo\":true")
+        }
+        if (n.live != 0) {
+            out = (out + ",\"live\":" + (to_string n.live))
+        }
+        return (out + "}")
+    }
+
+    ; --- the golden dump ------------------------------------------------------
+    ; The tree is text, which makes accessibility unusually easy to regression
+    ; test: check this in beside the display-list dumps and a refactor that
+    ; silently drops a name shows up as a diff. No host and no screen reader
+    ; are involved.
+
+    fn dump:string () {
+        return (this.dumpFrom(rootId 0))
+    }
+
+    fn dumpFrom:string (id:string depth:int) {
+        def n:EVGA11yNode (this.find(id))
+        if ((strlen n.id) == 0) {
+            return ""
+        }
+        def out:string (EVGA11yTree.indent(depth))
+        out = (out + (EVGA11yRole.ariaName(n.role)))
+        out = (out + " #" + n.id)
+        if ((strlen n.name) > 0) {
+            out = (out + " \"" + n.name + "\"")
+        }
+        if ((strlen n.value) > 0) {
+            out = (out + " =" + n.value)
+        }
+        def st:string (this.stateText(n))
+        if ((strlen st) > 0) {
+            out = (out + " [" + st + "]")
+        }
+        out = (out + " (" + (to_string n.x) + "," + (to_string n.y))
+        out = (out + " " + (to_string n.w) + "x" + (to_string n.h) + ")\n")
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def c:EVGA11yNode (itemAt nodes i)
+            if (c.parentId == id) {
+                def nd:int (depth + 1)
+                out = (out + (this.dumpFrom(c.id nd)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn stateText:string (n:EVGA11yNode) {
+        def out:string ""
+        if n.focused {
+            out = (EVGA11yTree.addWord(out "focused"))
+        }
+        if n.focusable {
+            if (n.focused == false) {
+                out = (EVGA11yTree.addWord(out "focusable"))
+            }
+        }
+        if n.disabled {
+            out = (EVGA11yTree.addWord(out "disabled"))
+        }
+        if n.selected {
+            out = (EVGA11yTree.addWord(out "selected"))
+        }
+        if n.readOnly {
+            out = (EVGA11yTree.addWord(out "readonly"))
+        }
+        if n.modal {
+            out = (EVGA11yTree.addWord(out "modal"))
+        }
+        if (n.checked == 2) {
+            out = (EVGA11yTree.addWord(out "checked"))
+        }
+        if (n.checked == 3) {
+            out = (EVGA11yTree.addWord(out "mixed"))
+        }
+        if (n.live == 1) {
+            out = (EVGA11yTree.addWord(out "live"))
+        }
+        if (n.live == 2) {
+            out = (EVGA11yTree.addWord(out "live!"))
+        }
+        if (n.rowIndex > 0) {
+            out = (EVGA11yTree.addWord(out ("r" + (to_string n.rowIndex))))
+        }
+        if (n.colIndex > 0) {
+            out = (EVGA11yTree.addWord(out ("c" + (to_string n.colIndex))))
+        }
+        if (n.rowCount > 0) {
+            out = (EVGA11yTree.addWord(out ("of " + (to_string n.rowCount) + " rows")))
+        }
+        return out
+    }
+
+    ; --- the lints ------------------------------------------------------------
+    ; Failures a sighted developer cannot see. These belong in the test suite,
+    ; because "the button has no name" is invisible on screen and total for
+    ; someone using a reader.
+
+    fn lint:[string] () {
+        def problems:[string]
+        if ((strlen rootId) == 0) {
+            push problems "tree has no root"
+        }
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:EVGA11yNode (itemAt nodes i)
+            def dup:int 0
+            def j:int 0
+            while (j < (array_length nodes)) {
+                def m:EVGA11yNode (itemAt nodes j)
+                if (m.id == n.id) {
+                    dup = (dup + 1)
+                }
+                j = (j + 1)
+            }
+            if (dup > 1) {
+                if (i == 0) {
+                    push problems ("duplicate id: " + n.id)
+                } {
+                    def prevSeen:boolean false
+                    def k:int 0
+                    while (k < i) {
+                        def p:EVGA11yNode (itemAt nodes k)
+                        if (p.id == n.id) {
+                            prevSeen = true
+                        }
+                        k = (k + 1)
+                    }
+                    if (prevSeen == false) {
+                        push problems ("duplicate id: " + n.id)
+                    }
+                }
+            }
+            if ((strlen n.id) == 0) {
+                push problems "node with an empty id"
+            }
+            if ((strlen n.parentId) > 0) {
+                if ((this.has(n.parentId)) == false) {
+                    push problems (n.id + ": parent " + n.parentId + " is not in the tree")
+                }
+            } {
+                if (n.id != rootId) {
+                    push problems (n.id + ": no parent, and it is not the root")
+                }
+            }
+            if n.focusable {
+                def named:boolean ((strlen n.name) > 0)
+                if (named == false) {
+                    push problems (n.id + ": focusable with no accessible name")
+                }
+                if (n.w <= 0) {
+                    push problems (n.id + ": focusable with no width")
+                }
+                if (n.h <= 0) {
+                    push problems (n.id + ": focusable with no height")
+                }
+            }
+            if (n.role == 0) {
+                if ((strlen n.name) > 0) {
+                    push problems (n.id + ": named, but the role is decoration")
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen focusId) > 0) {
+            if ((this.has(focusId)) == false) {
+                push problems ("focus points at " + focusId + ", which is not in the tree")
+            }
+        }
+        return problems
+    }
+
+    ; --- helpers --------------------------------------------------------------
+
+    sfn addWord:string (acc:string word:string) {
+        if ((strlen acc) == 0) {
+            return word
+        }
+        return (acc + " " + word)
+    }
+
+    sfn indent:string (depth:int) {
+        def out:string ""
+        def i:int 0
+        while (i < depth) {
+            out = (out + "  ")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn jsonString:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen v)) {
+            def ch:int (charAt v i)
+            if (ch == 34) {
+                out = (out + "\\\"")
+            } {
+                if (ch == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (ch == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (ch == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (ch == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (ch < 32) {
+                                    out = (out + " ")
+                                } {
+                                    out = (out + (strfromcode ch))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+}

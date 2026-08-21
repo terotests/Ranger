@@ -133,6 +133,7 @@
         padding: 10px;
         box-shadow: 0 16px 40px rgba(30, 50, 80, 0.12);
       }
+      #screenwrap { position: relative; }
       canvas {
         display: block;
         width: 100%;
@@ -165,7 +166,13 @@
         picker; it is read here, not uploaded anywhere.
       </p>
       <div class="frame">
-        <canvas id="screen" tabindex="0" width="900" height="560"></canvas>
+        <!-- The canvas and the accessibility mirror share this box, and it has
+             no padding of its own, because the mirror positions its elements at
+             the rectangles the app painted and any offset here would move every
+             one of them. -->
+        <div id="screenwrap">
+          <canvas id="screen" tabindex="0" width="900" height="560"></canvas>
+        </div>
       </div>
       <div class="bar">
         <span>status: <strong id="status">starting…</strong></span>

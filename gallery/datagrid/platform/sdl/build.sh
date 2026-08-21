@@ -94,15 +94,18 @@ fi
 CXX_OPT="${CXX_OPT:--O3}"
 EVG_GL_NATIVE="$ROOT/gallery/datagrid/platform/sdl/evg_gl_native.cpp"
 MENU_SRC="$ROOT/gallery/datagrid/platform/sdl/dgfx_menu_stub.cpp"
+# The accessibility bridge: NSAccessibility on macOS, nothing yet elsewhere.
+A11Y_SRC="$ROOT/gallery/datagrid/platform/sdl/dgfx_a11y_stub.cpp"
 MENU_FLAGS=""
 if [[ "$(uname -s)" == "Darwin" ]]; then
   MENU_SRC="$ROOT/gallery/datagrid/platform/sdl/dgfx_menu.mm"
+  A11Y_SRC="$ROOT/gallery/datagrid/platform/sdl/dgfx_a11y.mm"
   MENU_FLAGS="-framework AppKit"
 fi
 # shellcheck disable=SC2086
 "$CXX" $CXX_OPT -std=c++17 \
   -I"$ROOT/gallery/datagrid/platform/sdl" \
-  "$CPP_FILE" "$EVG_GL_NATIVE" $MENU_SRC \
+  "$CPP_FILE" "$EVG_GL_NATIVE" $MENU_SRC "$A11Y_SRC" \
   -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS $MENU_FLAGS
 
 echo "==> 3/3 Ready: $BIN_FILE"
@@ -112,6 +115,6 @@ if [[ "${1:-}" == "--run" ]]; then
   echo "==> Running $BIN_FILE $*"
   "$BIN_FILE" "$@"
 else
-  echo "Run:            $BIN_FILE [workbook.xlsx] [frames] [--save]"
+  echo "Run:            $BIN_FILE [workbook.xlsx] [frames] [--save] [--a11y]"
   echo "Headless smoke: SDL_VIDEODRIVER=dummy $BIN_FILE gallery/datagrid/fixtures/sales.xlsx 20"
 fi

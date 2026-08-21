@@ -28,6 +28,7 @@ Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGA11yTree.rgr"
 Import "WorkbookModel.rgr"
 
 class GridView {
@@ -2094,6 +2095,278 @@ class GridView {
         def dl:EVGDisplayList (this.buildDisplayList(model sel grid editing editBuf book))
         this.paintSoftCanvas(dl)
         frame = (frame + 1)
+    }
+
+    ; ==========================================================================
+    ; What the sheet MEANS — the second list, beside the display list.
+    ; ==========================================================================
+    ;
+    ; `buildDisplayList` says where every rectangle goes; this says what they
+    ; are. A screen reader cannot read a WebGL canvas — it asks the platform
+    ; for a tree of roles and names — so the app publishes one, and the host
+    ; turns it into whatever its platform speaks: a DOM mirror in a browser,
+    ; UI Automation / AT-SPI / NSAccessibility natively.
+    ;
+    ; Nothing here is invented. The names come from the same model the painter
+    ; reads, the geometry is the geometry that was painted, and the focus is
+    ; `sel.active` — the caret the user is already moving with the arrow keys.
+    ;
+    ; VIRTUALIZATION is the part to be careful about: a sheet is ten thousand
+    ; rows and the tree gets the forty that are on screen. `rowCount` /
+    ; `colCount` on the grid node carry the truth about the rest, and
+    ; `rowIndex` / `colIndex` say where each emitted cell sits in it, so a
+    ; reader can say "row 4,120 of 10,000" without the other 9,960 existing.
+    ; Both the header row and the row-number column count as index 1, which is
+    ; how an ARIA grid numbers itself.
+    fn a11yTree:EVGA11yTree (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
+        grid.updateVisible(model)
+        def t:EVGA11yTree (new EVGA11yTree)
+        t.generation = frame
+        def sheetName:string (book.activeName())
+        if ((strlen sheetName) == 0) {
+            sheetName = model.name
+        }
+        def root:EVGA11yNode (t.group("app" "" ("Spreadsheet, " + sheetName)))
+        t.place(root 0 0 pageW pageH)
+
+        if (grid.toolbarH > 0) {
+            def tby:int (grid.toolbarY())
+            toolbar.a11y(t "app" "app" grid.x tby grid.w grid.toolbarH)
+        }
+
+        this.a11yFormulaBar(t model sel grid editing editBuf)
+        this.a11yGrid(t model sel grid editing editBuf)
+        this.a11ySheetTabs(t grid book)
+
+        ; What has just happened, for things with no anchor on screen: a file
+        ; opened, a sort applied, a recalculation finished. Polite, because
+        ; assertive interrupts whatever is being read and that is for errors.
+        def st:EVGA11yNode (t.statusRegion("app/status" "app" status))
+        def sy:int (pageH - 22)
+        t.place(st 0 sy pageW 22)
+
+        ; Dialogs and panels last, so they are the innermost thing a reader
+        ; walks into — and each says whether it is modal.
+        windows.a11y(t "app")
+
+        ; Focus belongs to whatever is actually taking the keys. A dialog wins,
+        ; because while one is up the sheet is not listening.
+        this.a11yFocus(t sel editing)
+        return t
+    }
+
+    fn a11yFormulaBar:void (t:EVGA11yTree model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string) {
+        def fbY:int (grid.formulaBarY())
+        def bar:EVGA11yNode (t.group("app/formulabar" "app" "Formula bar"))
+        t.place(bar grid.x fbY grid.w grid.formulaBarH)
+
+        def addr:string (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
+        ; The name box is a field in the picture and a field here: typing an
+        ; address into it is how you jump without a mouse.
+        def nameBox:EVGA11yNode (t.field("app/namebox" "app/formulabar" "Name box" addr))
+        def addrX:int (grid.x + 4)
+        def fieldY:int (fbY + 3)
+        def fieldH:int (grid.formulaBarH - 6)
+        t.place(nameBox addrX fieldY 64 fieldH)
+
+        def shown:string (model.formulaBarText(sel.active.row sel.active.col))
+        if editing {
+            shown = editBuf
+        }
+        def f:EVGA11yNode (t.field("app/formula" "app/formulabar" "Formula" shown))
+        f.caret = editCaret
+        ; Geometry the last paint settled — the same rectangle the caret is
+        ; drawn in, rather than a second guess at where the field is.
+        if (fbFieldW > 0) {
+            t.place(f fbFieldX fbFieldY fbFieldW fbFieldH)
+        } {
+            def fx:int ((grid.x + 64) + 10)
+            def fw:int ((grid.w - 64) - 18)
+            t.place(f fx fieldY fw fieldH)
+        }
+    }
+
+    fn a11yGrid:void (t:EVGA11yTree model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string) {
+        def headerTop:int (grid.headerTop())
+        def bodyLeft:int (grid.x + grid.rowHeaderW)
+        def bodyTop:int (headerTop + grid.colHeaderH)
+        def vw:int (grid.viewportW())
+        def vh:int (grid.viewportH())
+        def gridNode:EVGA11yNode (t.node("app/grid" "app" (EVGA11yRole.grid())))
+        gridNode.name = "Sheet"
+        def totalRows:int (grid.viewRowCount(model))
+        def totalCols:int (grid.viewColCount(model))
+        gridNode.rowCount = (totalRows + 1)
+        gridNode.colCount = (totalCols + 1)
+        def gh:int (vh + grid.colHeaderH)
+        t.place(gridNode grid.x headerTop (grid.rowHeaderW + vw) gh)
+
+        ; The column letters, as a header row. A reader announces the column a
+        ; cell is in from these; without them "1,204" is a number with no
+        ; column, which is most of what makes a spreadsheet a spreadsheet.
+        def headRow:EVGA11yNode (t.node("app/grid/head" "app/grid" (EVGA11yRole.row())))
+        headRow.rowIndex = 1
+        t.place(headRow grid.x headerTop (grid.rowHeaderW + vw) grid.colHeaderH)
+        def corner:EVGA11yNode (t.node("app/grid/head/corner" "app/grid/head" (EVGA11yRole.columnHeader())))
+        corner.name = "Row"
+        corner.colIndex = 1
+        t.place(corner grid.x headerTop grid.rowHeaderW grid.colHeaderH)
+        def hc:int grid.firstVisibleCol
+        while (hc <= grid.lastVisibleCol) {
+            def mc:int (grid.mapCol(hc))
+            def label:string (SpreadsheetModel.colLabel(mc))
+            def ch:EVGA11yNode (t.node(("app/grid/head/" + label) "app/grid/head" (EVGA11yRole.columnHeader())))
+            ch.name = label
+            ch.colIndex = (hc + 2)
+            def hx:int (grid.viewColScreenX(model hc))
+            def cw:int (model.colWidth(mc))
+            t.place(ch hx headerTop cw grid.colHeaderH)
+            hc = (hc + 1)
+        }
+
+        def vr:int grid.firstVisibleRow
+        while (vr <= grid.lastVisibleRow) {
+            def mr:int (grid.mapRow(vr))
+            def rowNum:string (to_string (mr + 1))
+            def rowId:string ("app/grid/row:" + rowNum)
+            def rowNode:EVGA11yNode (t.node(rowId "app/grid" (EVGA11yRole.row())))
+            rowNode.rowIndex = (vr + 2)
+            def ry:int (grid.viewRowScreenY(model vr))
+            def rh:int (model.rowHeight(mr))
+            t.place(rowNode grid.x ry (grid.rowHeaderW + vw) rh)
+            def rhNode:EVGA11yNode (t.node((rowId + "/head") rowId (EVGA11yRole.rowHeader())))
+            rhNode.name = rowNum
+            rhNode.colIndex = 1
+            rhNode.rowIndex = (vr + 2)
+            t.place(rhNode grid.x ry grid.rowHeaderW rh)
+
+            def vc:int grid.firstVisibleCol
+            while (vc <= grid.lastVisibleCol) {
+                def mc2:int (grid.mapCol(vc))
+                this.a11yCell(t model sel grid editing editBuf rowId mr mc2 vr vc)
+                vc = (vc + 1)
+            }
+            vr = (vr + 1)
+        }
+    }
+
+    fn a11yCell:void (t:EVGA11yTree model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string rowId:string mr:int mc:int vr:int vc:int) {
+        def addr:string (SpreadsheetModel.cellLabel(mr mc))
+        def cell:EVGA11yNode (t.node((rowId + "/" + addr) rowId (EVGA11yRole.cell())))
+        cell.name = (model.getDisplay(mr mc))
+        cell.rowIndex = (vr + 2)
+        cell.colIndex = (vc + 2)
+        def rect:GridRect (grid.cellRect(model mr mc))
+        t.place(cell rect.x rect.y rect.w rect.h)
+        cell.selected = (sel.coversAny(mr mc))
+
+        ; What is behind the number, spoken after it rather than instead of it.
+        def extra:string ""
+        def formula:string (model.getFormula(mr mc))
+        if ((strlen formula) > 0) {
+            extra = ("formula " + formula)
+        }
+        def note:string (model.noteAt(mr mc))
+        if ((strlen note) > 0) {
+            extra = (EVGA11yTree.addWord(extra ("note: " + note)))
+        }
+        cell.description = extra
+
+        def isActive:boolean false
+        if (mr == sel.active.row) {
+            if (mc == sel.active.col) {
+                isActive = true
+            }
+        }
+        if isActive {
+            ; The caret cell is the one element in the grid that takes the
+            ; keyboard — the roving tabindex an ARIA grid is built on. An empty
+            ; cell still needs something to say, or moving into it is silence.
+            cell.focusable = true
+            if ((strlen cell.name) == 0) {
+                cell.name = "blank"
+            }
+            if editing {
+                ; While a cell is being edited the value is not in the model
+                ; yet, and the thing with the keyboard is a text field. A host
+                ; gives this one a real input, which is the only way a browser
+                ; hands over an IME, dictation or braille entry.
+                def ed:EVGA11yNode (t.field((rowId + "/" + addr + "/edit") (rowId + "/" + addr) ("Editing " + addr) editBuf))
+                ed.caret = editCaret
+                t.place(ed rect.x rect.y rect.w rect.h)
+            }
+        }
+    }
+
+    fn a11ySheetTabs:void (t:EVGA11yTree grid:DataGrid book:WorkbookModel) {
+        ; The tab strip's geometry is what the last paint measured — a tab is as
+        ; wide as its name — so a sheet the paint decided not to draw is not
+        ; claimed here either.
+        def n:int (array_length grid.tabSheets)
+        if (n == 0) {
+            return
+        }
+        def tabY:int (grid.sheetTabY())
+        def strip:EVGA11yNode (t.node("app/sheets" "app" (EVGA11yRole.tabList())))
+        strip.name = "Sheets"
+        t.place(strip grid.x tabY grid.w grid.sheetTabH)
+        def i:int 0
+        while (i < n) {
+            def si:int (itemAt grid.tabSheets i)
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            def nm:string sheet.name
+            if ((strlen nm) == 0) {
+                nm = ("Sheet" + (to_string (si + 1)))
+            }
+            def tab:EVGA11yNode (t.node(("app/sheet:" + (to_string si)) "app/sheets" (EVGA11yRole.tab())))
+            tab.name = nm
+            tab.focusable = true
+            tab.actActivate = true
+            tab.posInSet = (i + 1)
+            tab.setSize = n
+            tab.selected = (si == book.activeIndex)
+            t.place(tab (itemAt grid.tabXs i) tabY (itemAt grid.tabWs i) grid.sheetTabH)
+            i = (i + 1)
+        }
+    }
+
+    ; One owner for focus, and this is it. A dialog takes it while one is up;
+    ; otherwise it is the cell being edited, the formula bar, or the caret cell
+    ; — in that order, because that is the order the keys go.
+    fn a11yFocus:void (t:EVGA11yTree sel:GridSelection editing:boolean) {
+        if ((strlen t.focusId) > 0) {
+            return
+        }
+        ; A modal is up and no field inside it asked for the keys: focus the
+        ; dialog itself. Leaving focus on the sheet behind it would tell a
+        ; reader to go on editing cells that are not listening.
+        if (windows.anyModalVisible()) {
+            def top:EVGWindow (windows.topmost())
+            def topId:string (top.a11yId())
+            if (t.has(topId)) {
+                t.setFocus(topId)
+                return
+            }
+        }
+        def addr:string (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
+        def rowNum:string (to_string (sel.active.row + 1))
+        def cellId:string ("app/grid/row:" + rowNum + "/" + addr)
+        if editing {
+            if caretInFormulaBar {
+                t.setFocus("app/formula")
+                return
+            }
+            def editId:string (cellId + "/edit")
+            if (t.has(editId)) {
+                t.setFocus(editId)
+                return
+            }
+        }
+        if (t.has(cellId)) {
+            t.setFocus(cellId)
+            return
+        }
+        t.setFocus("app")
     }
 
     fn sceneJson:string (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
