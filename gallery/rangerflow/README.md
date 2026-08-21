@@ -141,6 +141,15 @@ of points out. The ring does three jobs, which is why there is only one of it:
   node's middle, so an arrow into a parallelogram ends on the slope rather than
   in the air beside it.
 
+A table carries a port per row and needs no others. A shape has no rows at all,
+so it gets the four side handles React Flow gives a node that declares none —
+without them a box is drawn, selected, and impossible to connect to anything,
+which is the first thing a reader tries. They are placed on the outline, so the
+left handle of a diamond is its left-hand point and stays there when the node is
+resized. The grab radius is eight screen pixels **or a quarter of the node's
+shorter side, whichever is smaller**: zoomed far enough out, eight screen pixels
+is the whole node, and a node that is all handle is a node you cannot select.
+
 Curves are cut into segments rather than emitted as arcs, because the display
 list has polygons and polylines and no beziers. A rounded end drawn as sixteen
 segments is indistinguishable at any zoom a reader uses; a second code path

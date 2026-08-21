@@ -252,6 +252,11 @@ class FlowPort {
     ; How many edges may attach; -1 = unlimited (React Flow's connection limit).
     def connectionLimit:int -1
     def hidden:boolean false
+    ; A handle at the middle of its side rather than at `offset` along it, and
+    ; placed on the node's OUTLINE. A field port on a table is a row and knows
+    ; its offset; a handle on a diamond is "the left-hand point of the diamond"
+    ; and has to move when the shape does.
+    def centred:boolean false
 
     Constructor () {
     }
@@ -547,15 +552,49 @@ class FlowNode {
 
     ; A port's absolute position in flow space.
     fn portX:double (p:FlowPort) {
+        if (p.centred) {
+            return (FlowShapes.anchorX(shape x y width height p.side))
+        }
         if (p.side == 1) { return (x + width) }
         if (p.side == 3) { return x }
         return (x + p.offset)
     }
 
     fn portY:double (p:FlowPort) {
+        if (p.centred) {
+            return (FlowShapes.anchorY(shape x y width height p.side))
+        }
         if (p.side == 0) { return y }
         if (p.side == 2) { return (y + height) }
         return (y + p.offset)
+    }
+
+    ; The four handles React Flow gives a node that declares none of its own.
+    ; A table has a port per row and needs no others; a flowchart step has no
+    ; rows at all, and without these there is nothing on it to drag a
+    ; connection from — the node is drawn, selected, and unconnectable.
+    ;
+    ; They are `centred`, so they follow the outline: the left handle of a
+    ; diamond is its left-hand point, and it stays there when the node is
+    ; resized.
+    fn addSideHandles:void () {
+        if ((array_length ports) > 0) {
+            return
+        }
+        this.addSideHandle(0 "t")
+        this.addSideHandle(1 "r")
+        this.addSideHandle(2 "b")
+        this.addSideHandle(3 "l")
+    }
+
+    fn addSideHandle:FlowPort (side:int suffix:string) {
+        def p (new FlowPort)
+        p.id = ((id + ":") + suffix)
+        p.nodeId = id
+        p.side = side
+        p.centred = true
+        push ports p
+        return p
     }
 
     ; Where an edge leaves or arrives. React Flow puts a handle at the middle

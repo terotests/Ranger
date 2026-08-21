@@ -208,6 +208,7 @@ class Flowchart {
         ; discovers for itself once the edges are faced.
         n.sourcePosition = 2
         n.targetPosition = 0
+        n.addSideHandles()
         n.syncFromModel()
         return n
     }

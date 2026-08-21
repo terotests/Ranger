@@ -821,6 +821,16 @@ class FlowView {
         if (r < 2.0) {
             r = 2.0
         }
+        ; A node drawn twenty pixels across has no room for handles on it, and
+        ; drawing them anyway turns it into a row of dots. The hit test caps
+        ; its grab radius the same way, so what you can aim at and what you can
+        ; see agree.
+        if ((this.sl(n.width)) < 34.0) {
+            return
+        }
+        if ((this.sl(n.height)) < 24.0) {
+            return
+        }
         def i:int 0
         while (i < (array_length n.ports)) {
             def p:FlowPort (itemAt n.ports i)

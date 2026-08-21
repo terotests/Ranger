@@ -107,6 +107,7 @@ class OrgChart {
             sec.addRow(row)
             n.layoutCompartments()
             n.height = 60.0
+            n.addSideHandles()
             n.syncFromModel()
             g.addNode(n)
             i = (i + 1)
@@ -330,6 +331,7 @@ class SwimlaneProcess {
             def col2:int (itemAt columns si)
             n.x = ((itemAt colX col2) + (((itemAt colW col2) - n.width) * 0.5))
             n.y = (((to_double lane) * (laneHeight + laneGap)) + ((laneHeight - n.height) * 0.5))
+            n.addSideHandles()
             n.syncFromModel()
             g.addNode(n)
             si = (si + 1)

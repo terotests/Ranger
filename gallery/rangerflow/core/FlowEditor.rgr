@@ -296,6 +296,20 @@ class FlowEditor {
             def n:FlowNode (graph.nodeAt(i))
             if (n.hidden == false) {
                 if n.connectable {
+                    ; Eight screen pixels is the right grab radius for a node
+                    ; you can see. Zoomed out far enough, eight screen pixels
+                    ; is the whole node, and its own handles swallow every
+                    ; click on it — so the radius is also capped at a quarter
+                    ; of the node's shorter side. A node too small to aim at
+                    ; is selected, not connected.
+                    def cap:double (n.width * 0.25)
+                    if ((n.height * 0.25) < cap) {
+                        cap = (n.height * 0.25)
+                    }
+                    def reach:double slop
+                    if (cap < reach) {
+                        reach = cap
+                    }
                     def k:int 0
                     while (k < (array_length n.ports)) {
                         def p:FlowPort (itemAt n.ports k)
@@ -304,8 +318,8 @@ class FlowEditor {
                             def dy:double ((n.portY(p)) - fy)
                             def adx:double (fabs dx)
                             def ady:double (fabs dy)
-                            if (adx <= slop) {
-                                if (ady <= slop) {
+                            if (adx <= reach) {
+                                if (ady <= reach) {
                                     return p.id
                                 }
                             }
@@ -990,6 +1004,7 @@ class FlowEditor {
             n.width = 64.0
             n.height = 64.0
         }
+        this.fitToLabel(n)
         ; Dropped centred on the point that was asked for, and snapped if the
         ; grid is on, so a new box lands on the same lattice as the old ones.
         def px:double (flowX - (n.width * 0.5))
@@ -1000,6 +1015,9 @@ class FlowEditor {
         }
         n.x = px
         n.y = py
+        ; Without handles the node is drawn, selectable, and impossible to
+        ; connect to anything — which is what a reader notices first.
+        n.addSideHandles()
         n.syncFromModel()
         graph.addNode(n)
         graph.reindex()
@@ -1081,8 +1099,46 @@ class FlowEditor {
             return false
         }
         n.label = label
+        ; A name that does not fit is drawn with its tail cut off, which is a
+        ; silent lie about what the box says. The box grows instead. It never
+        ; shrinks: a reader who widened a node by hand did it on purpose.
+        this.fitToLabel(n)
+        n.syncFromModel()
         onGraphChanged = true
         return true
+    }
+
+    ; Wide enough for the label, given how much of the box the shape leaves to
+    ; write in. A diamond has only its middle; a parallelogram loses both
+    ; slanted ends. The estimate is deliberately generous, because a box with
+    ; air in it reads fine and one with a cut-off name does not.
+    fn fitToLabel:void (n:FlowNode) {
+        if ((n.sectionCount()) > 0) {
+            return
+        }
+        def text:double ((FlowEditor.labelWidth(n.label)) + 22.0)
+        if (n.shape == "diamond") {
+            text = (text * 1.7)
+        }
+        if (n.shape == "parallelogram") {
+            text = (text + (FlowShapes.slantOf(n.width n.height)))
+        }
+        if (n.shape == "trapezoid") {
+            text = (text + ((FlowShapes.slantOf(n.width n.height)) * 2.0))
+        }
+        if (n.shape == "circle") {
+            return
+        }
+        if (text > n.width) {
+            n.width = text
+        }
+    }
+
+    ; The same rough metric the domains size their boxes with: the view
+    ; measures for real when it draws, and this only has to keep a label off
+    ; the edge.
+    sfn labelWidth:double (label:string) {
+        return ((to_double (strlen label)) * 8.2)
     }
 
     fn setSelectedShape:boolean (shape:string) {

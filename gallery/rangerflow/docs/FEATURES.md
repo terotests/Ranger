@@ -94,6 +94,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Organisation chart | ✓ | `domains/business/`: units coloured, matrix reports dashed |
 | Swimlane process | ✓ | `domains/business/`: lanes as group nodes with real parenting — drag the lane, the steps follow |
 | Sub-flows / parenting | ✓ | `node.parentId`; a dragged parent carries its children (probe `subFlowDrag`) |
+| Handles on a shape node | ✓ | the four side handles React Flow gives a node that declares none, placed on the outline (`FlowNode.addSideHandles`); a table keeps its port-per-row instead |
 | Toolbar: add a node | ✓ | eleven shapes, one undo step each (`FlowEditor.addNode`) |
 | Toolbar: click to connect | ✓ | React Flow's `connectOnClick` (probe `connectOnClick`) |
 | Toolbar: rename the selection | ✓ | renames as you type, no dialog over the canvas |
