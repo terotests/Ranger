@@ -281,11 +281,25 @@ Landed:
 - **The format painter**: fill, gradient, outline, shadow and the text's
   weight, size, colour and alignment picked up from one shape and painted onto
   others, without touching their geometry or their words.
-- And a fidelity debt this uncovered: **the CPU backend ignored `rotate`
-  entirely**, so a shape you turned in the editor drew straight in a PNG and
-  turned in the browser. A turned rectangle is four rotated corners through
-  the polygon filler it already had, and turned text goes through
-  `UIContext.textRotated`.
+- And a fidelity debt this uncovered, in two layers. The CPU backend **ignored
+  `rotate` entirely**, so a shape you turned drew straight in a PNG and turned
+  in the browser; a turned rectangle is four rotated corners through the
+  polygon filler it already had, a turned outline is four quads, a turned
+  picture goes through the rotated blit and turned text through
+  `UIContext.textRotated`. Underneath that was the larger one: **only text
+  ever carried the angle into the display list at all** — the fill, the
+  outline and the picture never set `rotate`, so they drew straight in *both*
+  backends. And the angle they now carry has to be applied about the right
+  point: both backends turn an element about the element's **own** centre,
+  which is right for the shape's box and wrong for everything drawn inside it,
+  so a line of text is placed by turning its own centre about the SHAPE's
+  centre first. A filled path carries no angle at all in the display list, so
+  its points are turned when they are emitted.
+- The selection chrome turns with the shape: one shape at an angle draws a
+  turned outline, its handles sit on the turned corners, the rotation handle
+  leans out of the turned top edge, and a resize drag is turned back into the
+  shape's own axes before the box hears about it — dragging the right-hand
+  handle of a shape lying on its side has to make it longer, not taller.
 
 Still open, and deliberately named rather than quietly dropped: **crop and
 picture filters**, **multi-stop gradients**, **shadow and outline dialogs**, a

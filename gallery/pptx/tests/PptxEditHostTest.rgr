@@ -71,6 +71,19 @@ class PptxEditHostTest {
         return (0 - 1)
     }
 
+    sfn countRotated:int (dl:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (dl.count())) {
+            def c:EVGDrawCmd (dl.at(i))
+            if ((c.rotate > 0.001) || (c.rotate < -0.001)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn countFlipped:int (dl:EVGDisplayList) {
         def n:int 0
         def i:int 0
@@ -423,6 +436,55 @@ class PptxEditHostTest {
             app8.renderOracleSlide(0)
             def beforePixels:buffer (app8.raw())
             c.ok("and the picture is drawn differently" ((PptxEditHostTest.sameBytes(beforePixels afterPixels)) == false))
+        }
+
+        print "-- a turned shape's chrome and its axes --"
+        def appR:PptxApp (PptxEditHostTest.buildDeck("02-shapes.pptx"))
+        appR.runCommand("edit.toggle" "")
+        def rShapes:[PptxShape] (appR.editor.editableShapes())
+        if ((array_length rShapes) > 0) {
+            def rs:PptxShape (itemAt rShapes 0)
+            appR.editor.select(rs.editId)
+            ; Upright, the handles are where the box says they are.
+            def upright:[double] (appR.handlePos(4))
+            def sb2:PptxEditRect (appR.shapeScreenBox(rs))
+            c.ok("the south-east handle is on the corner" (((fabs ((itemAt upright 0) - (sb2.x + sb2.w))) < 1.0) && ((fabs ((itemAt upright 1) - (sb2.y + sb2.h))) < 1.0)))
+            c.ok("and there is no angle to draw at" ((appR.selectionAngle()) == 0.0))
+            ; Everything the shape draws carries the angle — the fill, the
+            ; outline and the picture as well as the text. Only text used to,
+            ; which is why a turned shape drew its box straight and its words
+            ; crooked.
+            appR.editor.setSelectionRotation(30.0)
+            def turnedFrame:EVGDisplayList (appR.buildFrame())
+            def turnedCmds:int (PptxEditHostTest.countRotated(turnedFrame))
+            appR.editor.setSelectionRotation(0.0)
+            def straightFrame:EVGDisplayList (appR.buildFrame())
+            c.ok("turning a shape turns what it draws" (turnedCmds > (PptxEditHostTest.countRotated(straightFrame))))
+            ; Turn it a quarter turn: the handles turn with it, and the one
+            ; that was on the right is now at the bottom.
+            appR.editor.setSelectionRotation(90.0)
+            c.ok("the selection has an angle now" ((fabs ((appR.selectionAngle()) - 90.0)) < 0.01))
+            def turnedH:[double] (appR.handlePos(3))
+            def cx2:double (sb2.x + (sb2.w * 0.5))
+            def cy2:double (sb2.y + (sb2.h * 0.5))
+            c.ok("the east handle went to the bottom" ((itemAt turnedH 1) > cy2))
+            c.ok("and onto the centre line" ((fabs ((itemAt turnedH 0) - cx2)) < 1.5))
+            c.ok("clicking there finds the east handle" ((appR.handleAt((to_int (itemAt turnedH 0)) (to_int (itemAt turnedH 1)))) == 3))
+            ; Dragging it away from the centre makes the shape LONGER, not
+            ; taller: a turned shape resizes along its own axes.
+            def w0:double rs.width
+            def h0:double rs.height
+            def dragX:int (to_int (itemAt turnedH 0))
+            def dragY:int (to_int (itemAt turnedH 1))
+            appR.pointer(dragX dragY true true false)
+            appR.pointer(dragX (dragY + 30) false true false)
+            appR.pointer(dragX (dragY + 30) false false true)
+            def sized@(optional):PptxShape (appR.editor.findShape(rs.editId))
+            if (!null? sized) {
+                def ss:PptxShape (unwrap sized)
+                c.ok("the width grew" (ss.width > (w0 + 4.0)))
+                c.ok("and the height did not" ((fabs (ss.height - h0)) < 0.5))
+            }
         }
 
         print "-- the slide panel --"

@@ -1155,6 +1155,124 @@ class PptxApp {
         return (y0 - 18.0)
     }
 
+    ; One shape, turned: its selection turns with it. Several shapes, or none
+    ; turned, and the box is the upright one that contains them — which is
+    ; what PowerPoint draws too, because there is no single angle to draw at.
+    fn selectionAngle:double () {
+        if ((editor.selectionCount()) != 1) {
+            return 0.0
+        }
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (null? hit) {
+            return 0.0
+        }
+        def sh:PptxShape (unwrap hit)
+        return sh.rotation
+    }
+
+    ; Where handle `idx` is on screen, rotation included. -1 asks for the
+    ; rotation handle, which stands off the top edge in the shape's own
+    ; direction rather than straight up the window.
+    fn handlePos:[double] (idx:int) {
+        def out:[double]
+        def sc:double (this.ptScale())
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
+        def b:PptxEditRect (editor.selectionBounds())
+        def x0:double ((b.x * sc) + ox)
+        def y0:double ((b.y * sc) + oy)
+        def x1:double (((b.right()) * sc) + ox)
+        def y1:double (((b.bottom()) * sc) + oy)
+        def hx:double (PptxApp.handleCx(x0 x1 idx))
+        def hy:double (PptxApp.handleCy(y0 y1 idx))
+        if (idx == 8) {
+            hx = ((x0 + x1) * 0.5)
+            hy = (this.rotateHandleY(y0))
+        }
+        def deg:double (this.selectionAngle())
+        if ((deg > 0.001) || (deg < -0.001)) {
+            def cx:double ((x0 + x1) * 0.5)
+            def cy:double ((y0 + y1) * 0.5)
+            def p:[double] (PptxToEvg.rotateAbout(hx hy cx cy deg))
+            push out (itemAt p 0)
+            push out (itemAt p 1)
+            return out
+        }
+        push out hx
+        push out hy
+        return out
+    }
+
+    ; The four corners of the selection box, turned with it.
+    fn selectionCorners:[double] () {
+        def out:[double]
+        def i:int 0
+        while (i < 8) {
+            def useIt:boolean false
+            if (i == 0) {
+                useIt = true
+            }
+            if (i == 2) {
+                useIt = true
+            }
+            if (i == 4) {
+                useIt = true
+            }
+            if (i == 6) {
+                useIt = true
+            }
+            if useIt {
+                def p:[double] (this.handlePos(i))
+                push out (itemAt p 0)
+                push out (itemAt p 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A line as a quad, because the display list's frame is axis-aligned and a
+    ; turned box has no axis-aligned edges.
+    fn pushLine:void (dl:EVGDisplayList x0:double y0:double x1:double y1:double thickness:double col:EVGColor) {
+        def dx:double (x1 - x0)
+        def dy:double (y1 - y0)
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        if (len < 0.0001) {
+            return
+        }
+        def nx:double (((0.0 - dy) / len) * (thickness * 0.5))
+        def ny:double ((dx / len) * (thickness * 0.5))
+        def pts:[double]
+        push pts (x0 + nx)
+        push pts (y0 + ny)
+        push pts (x1 + nx)
+        push pts (y1 + ny)
+        push pts (x1 - nx)
+        push pts (y1 - ny)
+        push pts (x0 - nx)
+        push pts (y0 - ny)
+        def c (new EVGDrawCmd())
+        c.kind = 6
+        c.pts = pts
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushQuadOutline:void (dl:EVGDisplayList corners:[double] thickness:double col:EVGColor) {
+        if ((array_length corners) < 8) {
+            return
+        }
+        def i:int 0
+        while (i < 4) {
+            def j:int ((i + 1) % 4)
+            this.pushLine(dl (itemAt corners (i * 2)) (itemAt corners ((i * 2) + 1)) (itemAt corners (j * 2)) (itemAt corners ((j * 2) + 1)) thickness col)
+            i = (i + 1)
+        }
+    }
+
     fn handleAt:int (px:int py:int) {
         if ((editor.selectionCount()) == 0) {
             return -1
@@ -1169,19 +1287,17 @@ class PptxApp {
         def y1:double (((b.bottom()) * sc) + oy)
         def fx:double (to_double px)
         def fy:double (to_double py)
-        def rotX:double ((x0 + x1) * 0.5)
-        def rotY:double (this.rotateHandleY(y0))
-        if ((fabs (fx - rotX)) <= 7.0) {
-            if ((fabs (fy - rotY)) <= 7.0) {
+        def rot:[double] (this.handlePos(8))
+        if ((fabs (fx - (itemAt rot 0))) <= 7.0) {
+            if ((fabs (fy - (itemAt rot 1))) <= 7.0) {
                 return 8
             }
         }
         def i:int 0
         while (i < 8) {
-            def hx:double (PptxApp.handleCx(x0 x1 i))
-            def hy:double (PptxApp.handleCy(y0 y1 i))
-            def dx:double (fabs (fx - hx))
-            def dy:double (fabs (fy - hy))
+            def p:[double] (this.handlePos(i))
+            def dx:double (fabs (fx - (itemAt p 0)))
+            def dy:double (fabs (fy - (itemAt p 1)))
             if (dx <= 6.0) {
                 if (dy <= 6.0) {
                     return i
@@ -1299,7 +1415,20 @@ class PptxApp {
                     dragLastY = (dragLastY + adj.y)
                 }
                 if (dragMode == 2) {
-                    editor.applyResize(dragHandle dx dy)
+                    ; A turned shape is resized along its OWN axes: dragging
+                    ; the right-hand handle of a shape lying on its side has to
+                    ; make it longer, not taller. The pointer's movement is
+                    ; turned back by the shape's angle before the box hears
+                    ; about it.
+                    def deg:double (this.selectionAngle())
+                    def ldx:double dx
+                    def ldy:double dy
+                    if ((deg > 0.001) || (deg < -0.001)) {
+                        def local:[double] (PptxToEvg.rotateAbout(dx dy 0.0 0.0 (0.0 - deg)))
+                        ldx = (itemAt local 0)
+                        ldy = (itemAt local 1)
+                    }
+                    editor.applyResize(dragHandle ldx ldy)
                     dragLastX = sx
                     dragLastY = sy
                 }
@@ -1781,7 +1910,20 @@ class PptxApp {
         def i:int 0
         while (i < (array_length sel)) {
             def s2:PptxShape (itemAt sel i)
-            dl.addFrame(((s2.x * sc) + ox) ((s2.y * sc) + oy) (s2.width * sc) (s2.height * sc) 1.0 thin)
+            def sx0:double ((s2.x * sc) + ox)
+            def sy0:double ((s2.y * sc) + oy)
+            def sw2:double (s2.width * sc)
+            def sh2:double (s2.height * sc)
+            def turned2:boolean false
+            if ((s2.rotation > 0.001) || (s2.rotation < -0.001)) {
+                turned2 = true
+            }
+            if turned2 {
+                def corners:[double] (PptxView.rotatedCorners(sx0 sy0 sw2 sh2 s2.rotation))
+                this.pushQuadOutline(dl corners 1.0 thin)
+            } {
+                dl.addFrame(sx0 sy0 sw2 sh2 1.0 thin)
+            }
             i = (i + 1)
         }
         def b:PptxEditRect (editor.selectionBounds())
@@ -1790,7 +1932,16 @@ class PptxApp {
         def x1:double (((b.right()) * sc) + ox)
         def y1:double (((b.bottom()) * sc) + oy)
         def box:EVGColor (EVGColor.rgb(40 90 200))
-        dl.addFrame(x0 y0 (x1 - x0) (y1 - y0) 1.0 box)
+        def angle:double (this.selectionAngle())
+        def turnedSel:boolean false
+        if ((angle > 0.001) || (angle < -0.001)) {
+            turnedSel = true
+        }
+        if turnedSel {
+            this.pushQuadOutline(dl (this.selectionCorners()) 1.5 box)
+        } {
+            dl.addFrame(x0 y0 (x1 - x0) (y1 - y0) 1.0 box)
+        }
         def white:EVGColor (EVGColor.rgb(255 255 255))
         ; A locked selection shows the box and no handles: there is nothing to
         ; drag, and drawing handles that do nothing is a lie.
@@ -1802,16 +1953,19 @@ class PptxApp {
         }
         def hi:int 0
         while (hi < 8) {
-            def hx:double (PptxApp.handleCx(x0 x1 hi))
-            def hy:double (PptxApp.handleCy(y0 y1 hi))
+            def p:[double] (this.handlePos(hi))
+            def hx:double (itemAt p 0)
+            def hy:double (itemAt p 1)
             dl.addRect((hx - 4.0) (hy - 4.0) 8.0 8.0 white)
             dl.addFrame((hx - 4.0) (hy - 4.0) 8.0 8.0 1.0 box)
             hi = (hi + 1)
         }
-        ; The rotation handle, on its stalk.
-        def rotX:double ((x0 + x1) * 0.5)
-        def rotY:double (this.rotateHandleY(y0))
-        dl.addRect((rotX - 0.5) rotY 1.0 (y0 - rotY) box)
+        ; The rotation handle, on its stalk — which leans with the shape.
+        def rotP:[double] (this.handlePos(8))
+        def topP:[double] (this.handlePos(1))
+        def rotX:double (itemAt rotP 0)
+        def rotY:double (itemAt rotP 1)
+        this.pushLine(dl (itemAt topP 0) (itemAt topP 1) rotX rotY 1.0 box)
         dl.addRect((rotX - 4.0) (rotY - 4.0) 8.0 8.0 white)
         dl.addFrame((rotX - 4.0) (rotY - 4.0) 8.0 8.0 1.0 box)
     }

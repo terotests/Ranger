@@ -171,14 +171,14 @@ class PptxEditorShots {
             app8.editor.select(firstPic)
             app8.runCommand("edit.flip.h" "")
         }
-        if (picked8 > 0) {
-            app8.editor.select(picked8)
-            app8.editor.setSelectionRotation(20.0)
-        } {
-            if (firstPic > 0) {
-                app8.editor.select(firstPic)
-            }
-        }
+        ; A box of its own to turn, rather than the deck's full-width title:
+        ; turning something that wide throws its ends off the slide, which is
+        ; correct and unreadable.
+        def turnId:int (app8.editor.addTextBox(180.0 260.0 260.0 90.0 "Turned 30°"))
+        app8.editor.setTextSizePt(24.0)
+        app8.editor.setFillHex("FFF2CC")
+        app8.editor.setLineHex("BF8F00" 1.5)
+        app8.editor.setSelectionRotation(30.0)
         PptxEditorShots.shot(app8 "08_grid_rotate_flip.png")
 
         ; 9 — the panel, with a slide being dragged to a new place in the deck
