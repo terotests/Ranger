@@ -196,6 +196,23 @@ async function main() {
     check("the canvas is hidden from assistive tech", roles.canvasHidden === "true");
     check("there is a live region for announcements", roles.live === "polite");
 
+    console.log("\n== the mouse hands the keyboard over ==");
+    // The way a person starts: click in the text, then type. Every check in
+    // this file used to reach the editor with the KEYBOARD, and that is how a
+    // page that took a click and then ignored every key shipped — the browser
+    // moves focus on mousedown AFTER the handler runs, and the canvas is not
+    // focusable, so the default action took the keyboard straight back.
+    const box = await page.locator("#screen").boundingBox();
+    await page.mouse.click(box.x + 220, box.y + 220);
+    s = await state(page);
+    check("a click puts the keyboard in the editor", s.focused);
+    await page.keyboard.type("CLICKED");
+    s = await state(page);
+    check("so typing after a click lands in the document", s.text.includes("CLICKED"));
+    check("and in the picture", await page.evaluate(() =>
+      window.__editorDoc.list.cmds.some((c) => c.k === 3 && c.text.includes("CLICKED"))));
+    await page.keyboard.press("Control+z");
+
     console.log("\n== typing ==");
     await page.keyboard.press("Control+Home");
     await page.keyboard.type("const typed = 42;");
@@ -315,7 +332,17 @@ async function main() {
     });
     s = await state(page);
     check("paste arrives as text", s.text.includes("// pasted line"), s.text.length - before.length);
-    check("and is announced", (s.live || "").toLowerCase().includes("pasted"), s.live);
+    // The live region is filled a tick after the event, so this waits for the
+    // announcement rather than racing it.
+    const pasteSaid = await page
+      .waitForFunction(
+        () => (document.getElementById("live").textContent || "").toLowerCase().includes("pasted"),
+        null,
+        { timeout: 3000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    check("and is announced", pasteSaid, (await state(page)).live);
 
     await page.keyboard.press("Control+z");
     s = await state(page);
@@ -382,6 +409,35 @@ async function main() {
       count: window.__editorWeb.problemCount(),
     }));
     check("and an unknown file is left alone", diag.lang === "text" && diag.count === 0, diag.lang);
+
+    console.log("\n== and it does not redraw for nothing ==");
+    // A page that rebuilds and re-serializes the whole document sixty times a
+    // second while nobody types is the difference between 4 fps and 200. The
+    // caret still blinks, so "no redraws at all" would be wrong too.
+    const idle = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const started = performance.now();
+          let frames = 0;
+          let redraws = 0;
+          let last = window.__editorWeb.revision();
+          const tick = () => {
+            frames += 1;
+            const now = window.__editorWeb.revision();
+            if (now !== last) {
+              redraws += 1;
+              last = now;
+            }
+            if (performance.now() - started > 1500) resolve({ frames, redraws });
+            else requestAnimationFrame(tick);
+          };
+          tick();
+        }),
+    );
+    check("frames keep coming", idle.frames > 20, idle.frames);
+    check("but an idle second redraws a handful of times, not every frame",
+      idle.redraws <= 8, idle.redraws + " of " + idle.frames);
+    check("and the caret still blinks", idle.redraws >= 1, idle.redraws);
 
     console.log("\n== and it is still drawing ==");
     // Back to a real document: the checks below are about the scene, and the

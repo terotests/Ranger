@@ -217,12 +217,19 @@ function mirrorLine() {
 
 function afterInput() {
   draw();
+  lastRev = web.revision();
   mirrorLine();
 }
 
 // Focus follows the pointer, but the caret is placed from the canvas: the
 // textarea has `pointer-events: none` so a click reaches the picture.
 canvas.addEventListener("pointerdown", (ev) => {
+  // The browser moves focus on mousedown AFTER this handler runs, and the
+  // canvas is not focusable — so the default action would take the keyboard
+  // straight back off the textarea and give it to <body>. Clicking into the
+  // editor and then typing did nothing at all until this line existed, and no
+  // test caught it because every test focused the editor with the KEYBOARD.
+  ev.preventDefault();
   canvas.setPointerCapture(ev.pointerId);
   ta?.focus({ preventScroll: true });
   pointerDown = true;
@@ -396,9 +403,17 @@ ta?.addEventListener("focus", () => {
 // The caret blinks, so something has to ask for a frame even when nobody is
 // typing. `draw` returns immediately when the scene is unchanged, which it is
 // for 29 frames out of every 30.
+let lastRev = "";
+
 function loop() {
-  web.tick();
-  draw();
+  // Ask the cheap question first. Building the display list and serializing it
+  // is milliseconds of work; `revision()` is a few string joins, and between
+  // keystrokes the answer is the same one it was last frame.
+  const rev = web.revision();
+  if (rev !== lastRev) {
+    lastRev = rev;
+    draw();
+  }
   const now = performance.now();
   if (now - fpsT0 >= 1000) {
     fpsEl.textContent = String(redraws);

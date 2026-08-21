@@ -368,11 +368,25 @@ function makeTexture(gl, source) {
   return t;
 }
 
-export function renderDisplayList(gl, doc, opts = {}) {
-  const dpr = opts.dpr || 1;
-  const images = opts.images || new Map();
-  const cmds = doc.list.cmds;
+/**
+ * The two programs, compiled once per context and kept.
+ *
+ * They used to be built on every call — two `compileShader`s, two
+ * `linkProgram`s and the `getShaderParameter` / `getProgramParameter` that go
+ * with them, sixty times a second. Those queries are SYNCHRONOUS: asking for
+ * COMPILE_STATUS makes the CPU wait for the driver to finish the compile it
+ * had every right to defer. In a Chrome profile of the code editor it was
+ * 160 ms of a 440 ms window — 36% of the frame, spent recompiling two shaders
+ * that had not changed since the page loaded.
+ *
+ * Keyed by the context, so a page with two canvases gets two sets and a
+ * context that is thrown away takes its programs with it.
+ */
+const PROGRAMS = new WeakMap();
 
+function programsFor(gl) {
+  const found = PROGRAMS.get(gl);
+  if (found) return found;
   const prog = gl.createProgram();
   gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, VERT));
   gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, FRAG));
@@ -380,6 +394,37 @@ export function renderDisplayList(gl, doc, opts = {}) {
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
     throw new Error("link: " + gl.getProgramInfoLog(prog));
   }
+  const pathProg = gl.createProgram();
+  gl.attachShader(pathProg, compile(gl, gl.VERTEX_SHADER, PATH_VERT));
+  gl.attachShader(pathProg, compile(gl, gl.FRAGMENT_SHADER, PATH_FRAG));
+  gl.linkProgram(pathProg);
+  if (!gl.getProgramParameter(pathProg, gl.LINK_STATUS)) {
+    throw new Error("link path: " + gl.getProgramInfoLog(pathProg));
+  }
+  // The locations belong to the program, so they are cached with it rather
+  // than looked up per frame.
+  const made = {
+    prog,
+    pathProg,
+    cornerLoc: gl.getAttribLocation(prog, "aCorner"),
+    uPage: gl.getUniformLocation(prog, "uPage"),
+    uAtlas: gl.getUniformLocation(prog, "uAtlas"),
+    uImage: gl.getUniformLocation(prog, "uImage"),
+    pathPosLoc: gl.getAttribLocation(pathProg, "aPos"),
+    pathPageLoc: gl.getUniformLocation(pathProg, "uPage"),
+    pathColorLoc: gl.getUniformLocation(pathProg, "uColor"),
+  };
+  PROGRAMS.set(gl, made);
+  return made;
+}
+
+export function renderDisplayList(gl, doc, opts = {}) {
+  const dpr = opts.dpr || 1;
+  const images = opts.images || new Map();
+  const cmds = doc.list.cmds;
+
+  const built = programsFor(gl);
+  const prog = built.prog;
   gl.useProgram(prog);
 
   const { canvas: atlasCanvas, slots } = buildTextAtlas(cmds, dpr);
@@ -506,7 +551,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
   const cornerBuf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuf);
   gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
-  const cornerLoc = gl.getAttribLocation(prog, "aCorner");
+  const cornerLoc = built.cornerLoc;
   gl.enableVertexAttribArray(cornerLoc);
   gl.vertexAttribPointer(cornerLoc, 2, gl.FLOAT, false, 0, 0);
   gl.vertexAttribDivisor(cornerLoc, 0);
@@ -535,9 +580,9 @@ export function renderDisplayList(gl, doc, opts = {}) {
     }
   };
 
-  gl.uniform2f(gl.getUniformLocation(prog, "uPage"), doc.width, doc.height);
-  gl.uniform1i(gl.getUniformLocation(prog, "uAtlas"), 0);
-  gl.uniform1i(gl.getUniformLocation(prog, "uImage"), 1);
+  gl.uniform2f(built.uPage, doc.width, doc.height);
+  gl.uniform1i(built.uAtlas, 0);
+  gl.uniform1i(built.uImage, 1);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, atlas);
 
@@ -548,23 +593,18 @@ export function renderDisplayList(gl, doc, opts = {}) {
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
-  // The path pipeline: its own program, its own buffer, one draw per path.
-  const pathProg = gl.createProgram();
-  gl.attachShader(pathProg, compile(gl, gl.VERTEX_SHADER, PATH_VERT));
-  gl.attachShader(pathProg, compile(gl, gl.FRAGMENT_SHADER, PATH_FRAG));
-  gl.linkProgram(pathProg);
-  if (!gl.getProgramParameter(pathProg, gl.LINK_STATUS)) {
-    throw new Error("link path: " + gl.getProgramInfoLog(pathProg));
-  }
+  // The path pipeline: its own program (compiled with the other one, above),
+  // its own buffer, one draw per path.
+  const pathProg = built.pathProg;
   const pathVao = gl.createVertexArray();
   gl.bindVertexArray(pathVao);
   const pathBuf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
-  const pathPosLoc = gl.getAttribLocation(pathProg, "aPos");
+  const pathPosLoc = built.pathPosLoc;
   gl.enableVertexAttribArray(pathPosLoc);
   gl.vertexAttribPointer(pathPosLoc, 2, gl.FLOAT, false, 0, 0);
-  const pathPageLoc = gl.getUniformLocation(pathProg, "uPage");
-  const pathColorLoc = gl.getUniformLocation(pathProg, "uColor");
+  const pathPageLoc = built.pathPageLoc;
+  const pathColorLoc = built.pathColorLoc;
 
   const hasStencil = gl.getContextAttributes().stencil === true;
   let paths = 0, skippedFills = 0;

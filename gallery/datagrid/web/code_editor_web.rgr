@@ -96,6 +96,12 @@ class CodeEditorWeb {
         page.update(input)
     }
 
+    ; What the picture depends on, cheaply. The page asks this every animation
+    ; frame and only builds a scene when it has changed.
+    fn revision:string () {
+        return (page.revision())
+    }
+
     fn scene:string () {
         return (page.sceneJson())
     }
