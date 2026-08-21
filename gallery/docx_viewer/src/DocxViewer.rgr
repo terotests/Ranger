@@ -79,9 +79,14 @@ class DocxViewer {
 
     ; The page as an EVGDisplayList, for a backend that draws rather than
     ; receives a picture. Same layout and same painting as `renderPage`.
-    fn sceneJson:string (page:int) {
+    fn pageDisplayList:EVGDisplayList (page:int) {
         def dl:EVGDisplayList (view.buildDisplayList(doc page numbering edit (edit.isEnabled())))
         currentPage = view.pageIndex
+        return dl
+    }
+
+    fn sceneJson:string (page:int) {
+        def dl:EVGDisplayList (this.pageDisplayList(page))
         def body:string (dl.toJson())
         return ("{\"width\":" + (EVGDisplayList.num((to_double (view.sceneWidth())))) + ",\"height\":" + (EVGDisplayList.num((to_double (view.sceneHeight())))) + ",\"list\":" + body + "}")
     }
@@ -227,6 +232,9 @@ class DocxViewer {
         } {
             edit.setCaret(pos.paragraphId pos.textOffset)
         }
+        ; The toolbar describes the run the caret is in, so the caret has to
+        ; pick that up when it moves somewhere new.
+        edit.adoptRunAtCaret()
         this.renderPage(currentPage)
     }
 

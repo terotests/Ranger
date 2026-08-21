@@ -18,17 +18,83 @@
 ; renderer rather than served.
 ; ==============================================================================
 
-Import "../src/DocxViewer.rgr"
+Import "../src/DocxApp.rgr"
 
 class DocxWeb {
+    ; The application, not the page renderer. `viewer` is still here and still
+    ; means what it meant — the page, the caret, the document — so nothing that
+    ; used it had to change; what is new is the frame around it.
+    def app:DocxApp (new DocxApp)
     def viewer:DocxViewer (new DocxViewer)
     def note:string ""
 
     Constructor () {
     }
 
+    ; --- the application frame ------------------------------------------------
+    ; A host that wants the whole editor — toolbar, page, status line, windows
+    ; — asks for `frame()` and sends pointer and key events to `framePointer`
+    ; and `frameKey`. A host that only wants a page keeps using `scene(page)`,
+    ; which is what the slide viewer's page beside this one does.
+    fn frameSize:void (w:int h:int) {
+        app.resize(w h)
+    }
+
+    ; Size the frame around the paper. One call, because the page has to be
+    ; laid out before it can be measured and a host that did the two steps
+    ; itself would measure the page it was on rather than the one it is on.
+    fn frameFit:void (minWidth:int) {
+        app.fitToPage(minWidth)
+    }
+
+    fn frameWidth:int () {
+        return app.W
+    }
+
+    fn frameHeight:int () {
+        return app.H
+    }
+
+    fn frame:string () {
+        return (app.sceneJson())
+    }
+
+    fn framePointer:boolean (x:int y:int pressed:boolean down:boolean released:boolean extend:boolean) {
+        return (app.pointer(x y pressed down released extend))
+    }
+
+    fn frameWheel:boolean (dy:int) {
+        return (app.wheel(dy))
+    }
+
+    fn frameKey:boolean (name:string shift:boolean ctrl:boolean) {
+        return (app.key(name shift ctrl))
+    }
+
+    fn run:boolean (id:string arg:string) {
+        return (app.runCommand(id arg))
+    }
+
+    fn commands:string () {
+        return (app.commands.toJson())
+    }
+
+    fn status:string () {
+        return app.status
+    }
+
+    fn takeFileRequest:string () {
+        def want:string app.fileRequest
+        app.fileRequest = ""
+        return want
+    }
+
     ; Fonts arrive as bytes; there is no font directory to read.
     fn start:void () {
+        ; One viewer, shared: the app frame draws the same document the page
+        ; API draws, and two of them would be two documents.
+        app.viewer = viewer
+        app.init()
         viewer.view.ink.canvasMode(viewer.view.ctx)
     }
 

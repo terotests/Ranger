@@ -1,0 +1,602 @@
+; ==============================================================================
+; DocxApp.rgr — the Word editor as an application, not a page renderer.
+; ==============================================================================
+;
+; `DocxViewer` draws a page and answers a key. That is all it ever did, and it
+; is why the document editor had no toolbar: there was no chrome to put one in.
+; Everything a person uses to make text bold was a keyboard shortcut or an HTML
+; button one particular host had bolted on beside the canvas — which meant the
+; browser page and the window host offered different things, and the native
+; build offered none of them.
+;
+; So the document gets the frame the spreadsheet has, out of the same parts:
+;
+;   * the shared toolbar (gallery/evg/EVGToolbar) — the same strip, the same
+;     icons, the same wrapping, the same tooltips as the spreadsheet's
+;   * the shared window layer (gallery/evg/EVGWindow) — so a font list and a
+;     colour palette are windows here too, rather than a `<select>` that only
+;     exists in one host
+;   * the shared command table (gallery/evg/EVGCommands) — every button names a
+;     command, so the keyboard, the toolbar and a host driving this over a
+;     socket all reach the same code by the same string
+;
+; The seam is unchanged: this builds an EVGDisplayList and something draws it.
+; A host hands over pointer and key events and asks for a scene; it does not
+; need to know what a paragraph is, and it no longer needs to know what a
+; toolbar is either.
+; ==============================================================================
+
+Import "DocxViewer.rgr"
+Import "../../evg/EVGToolbarView.rgr"
+Import "../../evg/EVGWindow.rgr"
+Import "../../evg/EVGCommands.rgr"
+
+; Which buttons a document has. The strip itself is shared; this is the only
+; part that is about documents.
+class DocxToolbar extends EVGToolbar {
+    Constructor () {
+    }
+
+    fn build:void () {
+        clear items
+        this.add("file.save" "" "Save" (ToolIcon.save()))
+        this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        this.addSeparator()
+        this.addToggle("format.bold" "" "Bold" (ToolIcon.bold()) "bold" "")
+        this.addToggle("format.italic" "" "Italic" (ToolIcon.italic()) "italic" "")
+        this.addToggle("format.underline" "" "Underline" (ToolIcon.underline()) "underline" "")
+        this.addSeparator()
+        this.addText("format.font" "" "Font" 96)
+        this.addText("format.size.pick" "" "11" 52)
+        this.add("format.size.up" "" "Bigger text" (ToolIcon.sizeUp()))
+        this.add("format.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
+        this.add("format.color" "" "Text colour" (ToolIcon.textColor()))
+        this.addSeparator()
+        this.add("edit.mode" "" "Edit the document" (ToolIcon.paint()))
+        this.add("page.prev" "" "Previous page" (ToolIcon.undo()))
+        this.add("page.next" "" "Next page" (ToolIcon.redo()))
+    }
+
+    ; What the strip is about to draw. The strip cannot work this out: "is
+    ; bold on" is a question about the run under the caret, and it has never
+    ; heard of one.
+    fn refresh:void (edit:DocxEditController editing:boolean) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            t.pressed = false
+            if t.toggle {
+                if editing {
+                    t.pressed = (edit.caretIsOn(t.toggleOp))
+                }
+            }
+            if (t.command == "edit.mode") {
+                t.pressed = editing
+            }
+            if (t.textW > 0) {
+                if (t.command == "format.font") {
+                    def nm:string (edit.caretFont())
+                    if ((strlen nm) == 0) {
+                        nm = "Font"
+                    }
+                    if ((strlen nm) > 10) {
+                        nm = (substring nm 0 10)
+                    }
+                    t.label = nm
+                }
+                if (t.command == "format.size.pick") {
+                    t.label = (to_string (to_int (edit.caretSize())))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}
+
+class DocxApp {
+    def viewer:DocxViewer (new DocxViewer)
+    def toolbar:DocxToolbar (new DocxToolbar)
+    def toolbarView:EVGToolbarView (new EVGToolbarView)
+    def windows:EVGWindowManager (new EVGWindowManager)
+    def commands:GridCommandTable (new GridCommandTable)
+    ; The page it wants; the frame is as wide as the host's window and the page
+    ; is centred in what is left under the strip.
+    def W:int 900
+    def H:int 700
+    def toolbarH:int 32
+    def statusH:int 22
+    def status:string ""
+    def theme:EVGToolbarTheme (new EVGToolbarTheme)
+    ; What the app would like the host to do about a file — "open", "saveAs"
+    ; or "" — read and cleared by the host, exactly as the spreadsheet does it.
+    def fileRequest:string ""
+    ; The two pickers. Windows rather than host widgets, so every host offers
+    ; the same ones.
+    def fontDialog:EVGWindow (new EVGWindow)
+    def colorDialog:EVGWindow (new EVGWindow)
+    def dialogsReady:boolean false
+    def pickedColor:string "#000000"
+    ; Where the page was last painted, so a click can be turned into a
+    ; position in the text.
+    def pageX:int 0
+    def pageY:int 0
+
+    Constructor () {
+    }
+
+    fn init:void () {
+        toolbar.build()
+        this.registerCommands()
+    }
+
+    fn resize:void (w:int h:int) {
+        W = w
+        H = h
+        toolbarH = (toolbar.heightFor(w))
+    }
+
+    ; Size the frame around the paper.
+    ;
+    ; A page has to be LAID OUT before it can be measured, and a Word page is
+    ; not one size — a landscape section is wider than the one before it — so
+    ; this lays the current page out and then asks. Doing it in one call keeps
+    ; a host out of the ordering trap: measure first and you measure the page
+    ; you were on, or nothing at all on the very first frame.
+    fn fitToPage:void (minW:int) {
+        def probe:EVGDisplayList (viewer.pageDisplayList(viewer.currentPage))
+        def pw:int (viewer.view.sceneWidth())
+        def ph:int (viewer.view.sceneHeight())
+        def w:int (pw + 48)
+        if (w < minW) {
+            w = minW
+        }
+        W = w
+        toolbarH = (toolbar.heightFor(w))
+        H = ((ph + toolbarH) + statusH)
+    }
+
+    fn registerCommands:void () {
+        commands.add("file.save" "Save" "File" "Ctrl+S")
+        commands.add("edit.undo" "Undo" "Edit" "Ctrl+Z")
+        commands.add("edit.redo" "Redo" "Edit" "Ctrl+Y")
+        commands.add("edit.mode" "Edit the document" "Edit" "")
+        commands.add("format.bold" "Bold" "Format" "Ctrl+B")
+        commands.add("format.italic" "Italic" "Format" "Ctrl+I")
+        commands.add("format.underline" "Underline" "Format" "Ctrl+U")
+        commands.addArg("format.font" "Font" "Format" "")
+        commands.addArg("format.size" "Font size" "Format" "")
+        commands.addArg("format.size.pick" "Font size…" "Format" "")
+        commands.add("format.size.up" "Bigger text" "Format" "")
+        commands.add("format.size.down" "Smaller text" "Format" "")
+        commands.addArg("format.color" "Text colour" "Format" "")
+        commands.add("page.next" "Next page" "View" "PageDown")
+        commands.add("page.prev" "Previous page" "View" "PageUp")
+        commands.addArg("page.goto" "Go to page" "View" "")
+    }
+
+    ; --- geometry -------------------------------------------------------------
+    fn pageTop:int () {
+        return toolbarH
+    }
+
+    fn pageAreaH:int () {
+        return ((H - toolbarH) - statusH)
+    }
+
+    ; --- the command surface --------------------------------------------------
+    fn runCommand:boolean (id:string arg:string) {
+        if (id == "file.save") {
+            fileRequest = "saveAs"
+            return true
+        }
+        if (id == "edit.mode") {
+            viewer.setEditMode(((viewer.editMode()) == false))
+            status = "edit"
+            if ((viewer.editMode()) == false) {
+                status = "reading"
+            }
+            return true
+        }
+        if (id == "edit.undo") {
+            viewer.keyUndo()
+            return true
+        }
+        if (id == "edit.redo") {
+            viewer.keyRedo()
+            return true
+        }
+        if (id == "page.next") {
+            return (viewer.turnPage(1))
+        }
+        if (id == "page.prev") {
+            return (viewer.turnPage(-1))
+        }
+        if (id == "page.goto") {
+            def want@(optional):int (to_int arg)
+            if (!null? want) {
+                return (viewer.goToPage((unwrap want)))
+            }
+            return false
+        }
+        ; Everything below changes text, which means it needs an editor.
+        if ((viewer.editMode()) == false) {
+            viewer.setEditMode(true)
+        }
+        if (id == "format.bold") {
+            viewer.edit.toggleRun("bold")
+            viewer.renderPage(viewer.currentPage)
+            return true
+        }
+        if (id == "format.italic") {
+            viewer.edit.toggleRun("italic")
+            viewer.renderPage(viewer.currentPage)
+            return true
+        }
+        if (id == "format.underline") {
+            viewer.edit.toggleRun("underline")
+            viewer.renderPage(viewer.currentPage)
+            return true
+        }
+        if (id == "format.font") {
+            if ((strlen arg) == 0) {
+                this.openFontDialog()
+                return true
+            }
+            viewer.setFont(arg)
+            return true
+        }
+        if (id == "format.color") {
+            if ((strlen arg) == 0) {
+                this.openColorDialog()
+                return true
+            }
+            viewer.edit.setRunColor((DocxApp.hexBody(arg)))
+            viewer.renderPage(viewer.currentPage)
+            return true
+        }
+        if (id == "format.size") {
+            def pt@(optional):double (to_double arg)
+            if (!null? pt) {
+                viewer.edit.setRunSize((unwrap pt))
+                viewer.renderPage(viewer.currentPage)
+                return true
+            }
+            return false
+        }
+        if (id == "format.size.pick") {
+            if ((strlen arg) == 0) {
+                this.openFontDialog()
+                return true
+            }
+            return (this.runCommand("format.size" arg))
+        }
+        if (id == "format.size.up") {
+            return (this.nudgeSize(1.0))
+        }
+        if (id == "format.size.down") {
+            return (this.nudgeSize(-1.0))
+        }
+        return false
+    }
+
+    fn nudgeSize:boolean (delta:double) {
+        def next:double ((viewer.edit.caretSize()) + delta)
+        if (next < 6.0) {
+            next = 6.0
+        }
+        if (next > 96.0) {
+            next = 96.0
+        }
+        viewer.edit.setRunSize(next)
+        viewer.renderPage(viewer.currentPage)
+        return true
+    }
+
+    ; A run's colour is stored the way the file writes it — six hex digits,
+    ; no hash — and a palette hands out CSS.
+    sfn hexBody:string (hex:string) {
+        if ((strlen hex) == 0) {
+            return "000000"
+        }
+        if ((charAt hex 0) == 35) {
+            return (substring hex 1 (strlen hex))
+        }
+        return hex
+    }
+
+    ; --- the pickers ----------------------------------------------------------
+    ; Ids: 1401.. the faces, 1421.. the sizes, 1441.. the swatches,
+    ; 1491 Close.
+    fn buildDialogs:void () {
+        if dialogsReady {
+            return
+        }
+        fontDialog.w = 300
+        fontDialog.title = "Font"
+        windows.add(fontDialog)
+        colorDialog.w = 300
+        colorDialog.title = "Text colour"
+        windows.add(colorDialog)
+        dialogsReady = true
+    }
+
+    sfn faceCount:int () {
+        return 5
+    }
+
+    sfn faceName:string (i:int) {
+        if (i == 0) { return "Open Sans" }
+        if (i == 1) { return "Noto Sans" }
+        if (i == 2) { return "Helvetica" }
+        if (i == 3) { return "Droid Serif" }
+        if (i == 4) { return "Josefin Sans" }
+        return "Open Sans"
+    }
+
+    sfn sizeCount:int () {
+        return 8
+    }
+
+    sfn sizeAt:int (i:int) {
+        if (i == 0) { return 8 }
+        if (i == 1) { return 9 }
+        if (i == 2) { return 10 }
+        if (i == 3) { return 11 }
+        if (i == 4) { return 12 }
+        if (i == 5) { return 14 }
+        if (i == 6) { return 18 }
+        if (i == 7) { return 24 }
+        return 11
+    }
+
+    fn openFontDialog:void () {
+        this.buildDialogs()
+        def now:string (viewer.edit.caretFont())
+        def pt:int (to_int (viewer.edit.caretSize()))
+        fontDialog.reset()
+        fontDialog.addLabel("Face")
+        def i:int 0
+        while (i < (DocxApp.faceCount())) {
+            def nm:string (DocxApp.faceName(i))
+            fontDialog.addRadio((1401 + i) nm 1 (nm == now))
+            i = (i + 1)
+        }
+        fontDialog.addSeparator()
+        fontDialog.addLabel("Size")
+        fontDialog.beginColumns(4)
+        def j:int 0
+        while (j < (DocxApp.sizeCount())) {
+            def sz:int (DocxApp.sizeAt(j))
+            fontDialog.addRadio((1421 + j) (to_string sz) 2 (sz == pt))
+            j = (j + 1)
+        }
+        fontDialog.endColumns()
+        def ids:[int]
+        def labels:[string]
+        push ids 1491
+        push labels "Close"
+        fontDialog.addButtonRow(ids labels 1491)
+        fontDialog.finish()
+        fontDialog.openWithin((idiv (W - fontDialog.w) 2) (toolbarH + 30) W H)
+        windows.raise(fontDialog)
+    }
+
+    fn openColorDialog:void () {
+        this.buildDialogs()
+        colorDialog.reset()
+        colorDialog.addLabel("Text colour")
+        colorDialog.beginColumns(5)
+        def i:int 0
+        while (i < 10) {
+            def hex:string (DocxApp.swatch(i))
+            colorDialog.addSwatch((1441 + i) hex 3 (hex == pickedColor))
+            i = (i + 1)
+        }
+        colorDialog.endColumns()
+        def ids:[int]
+        def labels:[string]
+        push ids 1491
+        push labels "Close"
+        colorDialog.addButtonRow(ids labels 1491)
+        colorDialog.finish()
+        colorDialog.openWithin((idiv (W - colorDialog.w) 2) (toolbarH + 30) W H)
+        windows.raise(colorDialog)
+    }
+
+    sfn swatch:string (i:int) {
+        if (i == 0) { return "#000000" }
+        if (i == 1) { return "#404040" }
+        if (i == 2) { return "#808080" }
+        if (i == 3) { return "#C00000" }
+        if (i == 4) { return "#ED7D31" }
+        if (i == 5) { return "#FFC000" }
+        if (i == 6) { return "#70AD47" }
+        if (i == 7) { return "#4472C4" }
+        if (i == 8) { return "#7030A0" }
+        if (i == 9) { return "#FFFFFF" }
+        return "#000000"
+    }
+
+    ; Whatever a window said it was asked, once a frame.
+    fn pollDialogs:void () {
+        if fontDialog.visible {
+            def face:int (fontDialog.selectedInGroup(1))
+            if (face >= 1401) {
+                def nm:string (DocxApp.faceName((face - 1401)))
+                if (nm != (viewer.edit.caretFont())) {
+                    this.runCommand("format.font" nm)
+                }
+            }
+            def sz:int (fontDialog.selectedInGroup(2))
+            if (sz >= 1421) {
+                def pt:int (DocxApp.sizeAt((sz - 1421)))
+                if (pt != (to_int (viewer.edit.caretSize()))) {
+                    this.runCommand("format.size" (to_string pt))
+                }
+            }
+            if (fontDialog.activated == 1491) {
+                fontDialog.close()
+            }
+        }
+        if colorDialog.visible {
+            if (colorDialog.activated >= 1441) {
+                if (colorDialog.activated < 1491) {
+                    def hex:string (colorDialog.selectedSwatchValue(3))
+                    if ((strlen hex) > 0) {
+                        pickedColor = hex
+                        this.runCommand("format.color" hex)
+                    }
+                }
+            }
+            if (colorDialog.activated == 1491) {
+                colorDialog.close()
+            }
+        }
+    }
+
+    ; --- input ----------------------------------------------------------------
+    ; A press goes to the windows first, then the strip, then the page. Same
+    ; order as the spreadsheet, for the same reason: a dialog that is open is
+    ; in front of everything, and a button is in front of the paper.
+    fn pointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean extend:boolean) {
+        if (windows.handlePointer(px py pressed down released)) {
+            this.pollDialogs()
+            return true
+        }
+        toolbar.hot = (toolbar.hit(px py))
+        if pressed {
+            if (toolbar.hot >= 0) {
+                def t:ToolItem (toolbar.at(toolbar.hot))
+                this.runCommand(t.command t.arg)
+                return true
+            }
+            if (py >= (this.pageTop())) {
+                if (py < (H - statusH)) {
+                    viewer.clickAt((px - pageX) (py - pageY) extend)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fn wheel:boolean (dy:int) {
+        return (viewer.scrollBy(dy))
+    }
+
+    fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if ctrl {
+            if (name == "b") { return (this.runCommand("format.bold" "")) }
+            if (name == "i") { return (this.runCommand("format.italic" "")) }
+            if (name == "u") { return (this.runCommand("format.underline" "")) }
+            if (name == "z") { return (this.runCommand("edit.undo" "")) }
+            if (name == "y") { return (this.runCommand("edit.redo" "")) }
+            if (name == "s") { return (this.runCommand("file.save" "")) }
+        }
+        if (name == "left")     { viewer.keyLeft(shift)   return true }
+        if (name == "right")    { viewer.keyRight(shift)  return true }
+        if (name == "up")       { viewer.keyUp(shift)     return true }
+        if (name == "down")     { viewer.keyDown(shift)   return true }
+        if (name == "pageUp")   { viewer.keyPageUp(shift) return true }
+        if (name == "pageDown") { viewer.keyPageDown(shift) return true }
+        if (name == "home")     { viewer.keyHome(shift ctrl) return true }
+        if (name == "end")      { viewer.keyEnd(shift ctrl)  return true }
+        if (name == "backspace") { viewer.keyBackspace() return true }
+        if (name == "delete")    { viewer.keyDelete()    return true }
+        if (name == "enter")     { viewer.keyEnter()     return true }
+        if (name == "tab")       { viewer.keyTab(shift)  return true }
+        return false
+    }
+
+    fn text:void (s:string) {
+        viewer.typeText(s)
+    }
+
+    ; --- the picture ----------------------------------------------------------
+    ; The page, the strip above it, the status line under it, and whatever
+    ; windows are open on top. One display list, as everything here is.
+    fn buildDisplayList:EVGDisplayList () {
+        def dl:EVGDisplayList (viewer.pageDisplayList(viewer.currentPage))
+        ; The page came out at the origin; move it under the strip and centre
+        ; it in the room that is left.
+        ;
+        ; `sceneWidth`, not `pageWidth`: the second is the SoftCanvas the page
+        ; was last rasterized onto, which a host drawing display lists never
+        ; allocates. It answers zero there, and a zero-wide page centres itself
+        ; half a window to the right of where the paper is.
+        def pw:int (viewer.view.sceneWidth())
+        pageX = (idiv (W - pw) 2)
+        if (pageX < 0) {
+            pageX = 0
+        }
+        pageY = (this.pageTop())
+        DocxApp.offsetList(dl pageX pageY)
+
+        def framed:EVGDisplayList (new EVGDisplayList)
+        framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(228 232 238)))
+        DocxApp.appendList(framed dl)
+
+        toolbarView.attach(viewer.view.ctx "Open Sans")
+        toolbarView.theme = theme
+        toolbar.refresh(viewer.edit (viewer.editMode()))
+        toolbarView.paint(framed toolbar 0 0 W toolbarH)
+
+        ; The status line: which page, and what the app last did.
+        def sy:int (H - statusH)
+        framed.addRect(0.0 (to_double sy) (to_double W) (to_double statusH) theme.bg)
+        framed.addRect(0.0 (to_double sy) (to_double W) 1.0 theme.line)
+        def label:string (("page " + (to_string (viewer.currentPage + 1))) + " / " + (to_string (viewer.pageCount())))
+        if ((strlen status) > 0) {
+            label = ((label + "   ") + status)
+        }
+        toolbarView.pushText(framed label 8.0 (to_double (sy + 4)) 12.0 theme.dim)
+
+        def wi:int 0
+        while (wi < (array_length windows.windows)) {
+            def wnd:EVGWindow (itemAt windows.windows wi)
+            wnd.paint(framed viewer.view.ctx.tr W H)
+            wnd.paintOverlay(framed viewer.view.ctx.tr)
+            wi = (wi + 1)
+        }
+        return framed
+    }
+
+    ; Everything in `src` moved by (dx, dy). A clip carries its rectangle too,
+    ; so it has to move with what it clips.
+    sfn offsetList:void (src:EVGDisplayList dx:int dy:int) {
+        def i:int 0
+        while (i < (array_length src.cmds)) {
+            def c:EVGDrawCmd (itemAt src.cmds i)
+            if (c.kind != 5) {
+                c.x = (c.x + (to_double dx))
+                c.y = (c.y + (to_double dy))
+                def pi:int 0
+                while (pi < (array_length c.pts)) {
+                    def even:boolean ((pi % 2) == 0)
+                    if even {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dx))
+                    } {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dy))
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn appendList:void (into:EVGDisplayList src:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length src.cmds)) {
+            push into.cmds (itemAt src.cmds i)
+            i = (i + 1)
+        }
+    }
+
+    fn sceneJson:string () {
+        def dl:EVGDisplayList (this.buildDisplayList())
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num((to_double W))) + ",\"height\":" + (EVGDisplayList.num((to_double H))) + ",\"list\":" + body + "}")
+    }
+}
