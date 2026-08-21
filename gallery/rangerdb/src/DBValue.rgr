@@ -1,0 +1,402 @@
+; ==============================================================================
+; DBValue - one typed cell of database data, normalised across engines.
+; ==============================================================================
+;
+; Every engine names its types differently: DuckDB has BIGINT and VARCHAR,
+; SQLite has INTEGER and TEXT and no boolean at all, RangerDB has whatever we
+; give it. The layer above (DataGrid, Vela, a CSV writer) must not care, but it
+; also must not be handed everything as a string: a grid aligns numbers right,
+; formats dates, and draws a boolean as a checkbox, and a chart cannot plot
+; "1 234,50".
+;
+; So there is exactly one value type here, it is a tagged scalar, and every
+; adapter maps its engine's types onto it.
+; ==============================================================================
+
+; The type tags. Plain ints rather than an Enum so the wire format, the column
+; descriptors and the vectors can all carry them without a conversion.
+class DBType {
+    sfn nullKind:int () {
+        return 0
+    }
+    sfn boolKind:int () {
+        return 1
+    }
+    sfn intKind:int () {
+        return 2
+    }
+    sfn doubleKind:int () {
+        return 3
+    }
+    sfn stringKind:int () {
+        return 4
+    }
+    ; Days since the spreadsheet epoch - the same serial a sheet stores, so a
+    ; date column needs no conversion on its way into a cell.
+    sfn dateKind:int () {
+        return 5
+    }
+    ; Days since the epoch with a fractional part for the time of day.
+    sfn timestampKind:int () {
+        return 6
+    }
+
+    sfn kindName:string (kind:int) {
+        if (kind == 1) {
+            return "bool"
+        }
+        if (kind == 2) {
+            return "int"
+        }
+        if (kind == 3) {
+            return "double"
+        }
+        if (kind == 4) {
+            return "string"
+        }
+        if (kind == 5) {
+            return "date"
+        }
+        if (kind == 6) {
+            return "timestamp"
+        }
+        return "null"
+    }
+
+    sfn kindFromName:int (name:string) {
+        if (name == "bool") {
+            return 1
+        }
+        if (name == "int") {
+            return 2
+        }
+        if (name == "double") {
+            return 3
+        }
+        if (name == "string") {
+            return 4
+        }
+        if (name == "date") {
+            return 5
+        }
+        if (name == "timestamp") {
+            return 6
+        }
+        return 0
+    }
+
+    ; Is this a kind a grid should align right and a chart may plot?
+    sfn isNumeric:boolean (kind:int) {
+        if (kind == 2) {
+            return true
+        }
+        if (kind == 3) {
+            return true
+        }
+        if (kind == 5) {
+            return true
+        }
+        if (kind == 6) {
+            return true
+        }
+        return false
+    }
+}
+
+class DBValue {
+    def kind:int 0
+    def isNull:boolean true
+    def i:int 0
+    def d:double 0.0
+    def s:string ""
+    def b:boolean false
+
+    Constructor () {
+    }
+
+    sfn nullOf:DBValue (kind:int) {
+        def v:DBValue (new DBValue)
+        v.kind = kind
+        v.isNull = true
+        return v
+    }
+
+    sfn fromInt:DBValue (value:int) {
+        def v:DBValue (new DBValue)
+        v.kind = 2
+        v.isNull = false
+        v.i = value
+        v.d = (to_double value)
+        return v
+    }
+
+    sfn fromDouble:DBValue (value:double) {
+        def v:DBValue (new DBValue)
+        v.kind = 3
+        v.isNull = false
+        v.d = value
+        v.i = (to_int value)
+        return v
+    }
+
+    sfn fromString:DBValue (value:string) {
+        def v:DBValue (new DBValue)
+        v.kind = 4
+        v.isNull = false
+        v.s = value
+        return v
+    }
+
+    sfn fromBool:DBValue (value:boolean) {
+        def v:DBValue (new DBValue)
+        v.kind = 1
+        v.isNull = false
+        v.b = value
+        if value {
+            v.i = 1
+            v.d = 1.0
+        }
+        return v
+    }
+
+    sfn fromDate:DBValue (serial:double) {
+        def v:DBValue (new DBValue)
+        v.kind = 5
+        v.isNull = false
+        v.d = serial
+        v.i = (to_int serial)
+        return v
+    }
+
+    sfn fromTimestamp:DBValue (serial:double) {
+        def v:DBValue (new DBValue)
+        v.kind = 6
+        v.isNull = false
+        v.d = serial
+        v.i = (to_int serial)
+        return v
+    }
+
+    ; Text -> value of a declared kind. This is the one place a typed column
+    ; meets typed-in text: the grid edits strings, and the column decides what
+    ; that string means. An unparseable number is NOT silently zero - it stays
+    ; null, so a write-back can refuse it instead of storing garbage.
+    sfn parseAs:DBValue (kind:int text:string) {
+        if (kind == 4) {
+            return (DBValue.fromString(text))
+        }
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return (DBValue.nullOf(kind))
+        }
+        if (kind == 1) {
+            def low:string (to_lowercase t)
+            if (low == "true") {
+                return (DBValue.fromBool(true))
+            }
+            if (low == "1") {
+                return (DBValue.fromBool(true))
+            }
+            if (low == "false") {
+                return (DBValue.fromBool(false))
+            }
+            if (low == "0") {
+                return (DBValue.fromBool(false))
+            }
+            return (DBValue.nullOf(kind))
+        }
+        def num@(optional):double (str2double t)
+        if (null? num) {
+            return (DBValue.nullOf(kind))
+        }
+        def dv:double (unwrap num)
+        if (kind == 2) {
+            return (DBValue.fromInt((to_int dv)))
+        }
+        if (kind == 5) {
+            return (DBValue.fromDate(dv))
+        }
+        if (kind == 6) {
+            return (DBValue.fromTimestamp(dv))
+        }
+        return (DBValue.fromDouble(dv))
+    }
+
+    fn copy:DBValue () {
+        def v:DBValue (new DBValue)
+        v.kind = kind
+        v.isNull = isNull
+        v.i = i
+        v.d = d
+        v.s = s
+        v.b = b
+        return v
+    }
+
+    fn asString:string () {
+        if isNull {
+            return ""
+        }
+        if (kind == 4) {
+            return s
+        }
+        if (kind == 1) {
+            if b {
+                return "true"
+            }
+            return "false"
+        }
+        if (kind == 2) {
+            return (to_string i)
+        }
+        return (to_string d)
+    }
+
+    fn asDouble:double () {
+        if isNull {
+            return 0.0
+        }
+        if (kind == 4) {
+            def num@(optional):double (str2double s)
+            if (null? num) {
+                return 0.0
+            }
+            return (unwrap num)
+        }
+        if (kind == 2) {
+            return (to_double i)
+        }
+        if (kind == 1) {
+            if b {
+                return 1.0
+            }
+            return 0.0
+        }
+        return d
+    }
+
+    fn asInt:int () {
+        def dv:double (this.asDouble())
+        return (to_int dv)
+    }
+
+    fn asBool:boolean () {
+        if isNull {
+            return false
+        }
+        if (kind == 1) {
+            return b
+        }
+        def dv:double (this.asDouble())
+        return (dv != 0.0)
+    }
+
+    fn isNumericValue:boolean () {
+        return (DBType.isNumeric(kind))
+    }
+
+    ; Ordering across the whole value space, so ORDER BY does not have to know
+    ; which kind it is sorting. Nulls sort first, the way SQLite and DuckDB
+    ; both order them ascending by default.
+    fn compareWith:int (other:DBValue) {
+        if isNull {
+            if other.isNull {
+                return 0
+            }
+            return -1
+        }
+        if other.isNull {
+            return 1
+        }
+        def bothText:boolean false
+        if (kind == 4) {
+            if (other.kind == 4) {
+                bothText = true
+            }
+        }
+        if bothText {
+            return (DBValue.compareText(s other.s))
+        }
+        def a:double (this.asDouble())
+        def bb:double (other.asDouble())
+        if (a < bb) {
+            return -1
+        }
+        if (a > bb) {
+            return 1
+        }
+        return 0
+    }
+
+    ; Lexicographic order by code unit. `<` on two strings does not compile on
+    ; every target, and a database has to order text.
+    sfn compareText:int (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def limit:int la
+        if (lb < limit) {
+            limit = lb
+        }
+        def k:int 0
+        while (k < limit) {
+            def ca:int (charAt a k)
+            def cb:int (charAt b k)
+            if (ca < cb) {
+                return -1
+            }
+            if (ca > cb) {
+                return 1
+            }
+            k = (k + 1)
+        }
+        if (la < lb) {
+            return -1
+        }
+        if (la > lb) {
+            return 1
+        }
+        return 0
+    }
+
+    fn equalsValue:boolean (other:DBValue) {
+        def c:int (this.compareWith(other))
+        return (c == 0)
+    }
+}
+
+; One column of a result or of a table. `key` marks a column that identifies a
+; row: without one, an edited cell has no address to be written back to.
+class DBColumn {
+    def name:string ""
+    def kind:int 4
+    def nullable:boolean true
+    def key:boolean false
+
+    Constructor () {
+    }
+
+    sfn create:DBColumn (name:string kind:int) {
+        def c:DBColumn (new DBColumn)
+        c.name = name
+        c.kind = kind
+        return c
+    }
+
+    sfn createKey:DBColumn (name:string kind:int) {
+        def c:DBColumn (new DBColumn)
+        c.name = name
+        c.kind = kind
+        c.key = true
+        c.nullable = false
+        return c
+    }
+
+    fn copy:DBColumn () {
+        def c:DBColumn (new DBColumn)
+        c.name = name
+        c.kind = kind
+        c.nullable = nullable
+        c.key = key
+        return c
+    }
+}

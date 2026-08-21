@@ -1,0 +1,232 @@
+; ==============================================================================
+; HostSql - one backend for every engine that speaks SQL, through the host.
+; ==============================================================================
+;
+; Ranger describes the query; the host performs it. This file is the seam, and
+; it is deliberately four operators wide:
+;
+;     rdb_host_available (driver)          is this engine here at all?
+;     rdb_host_open      (driver dsn)      -> handle
+;     rdb_host_exec      (handle sql args) -> RDBW1 text (or ERR ...)
+;     rdb_host_close     (handle)
+;
+; Everything else - statement building, type mapping, capability fallbacks -
+; is Ranger, and is shared by every SQL engine. Adding DuckDB after SQLite is a
+; driver in host/sync_sql.cjs, not a backend here.
+;
+; Note what does NOT cross the seam: values. They travel as a parameter chunk
+; in the same wire format results come back in, so nothing quotes anything.
+;
+; The operators exist for the JavaScript targets. RangerDB is what a program
+; uses on a target that has no host database, which is why the portable half of
+; this library does not import this file.
+; ==============================================================================
+
+Import "DBBackend.rgr"
+Import "SqlText.rgr"
+Import "DbWire.rgr"
+
+operators {
+
+    rdb_host_available _:boolean (driver:string) {
+        templates {
+            es6 ("__rgrdb_host().available(" (e 1) ")"
+                (create_polyfill "
+function __rgrdb_host() {
+  if (!globalThis.__RGRDB_HOST__) {
+    var p = process.env.RANGERDB_HOST;
+    if (!p) { p = require('path').resolve(process.cwd(), 'gallery/rangerdb/host/sync_sql.cjs'); }
+    globalThis.__RGRDB_HOST__ = require(p);
+  }
+  return globalThis.__RGRDB_HOST__;
+}
+"))
+            * ("false")
+        }
+    }
+
+    rdb_host_open _:int (driver:string dsn:string) {
+        templates {
+            es6 ("__rgrdb_host().open(" (e 1) ", " (e 2) ")")
+            * ("-1")
+        }
+    }
+
+    rdb_host_exec _:string (handle:int sql:string args:string) {
+        templates {
+            es6 ("__rgrdb_host().exec(" (e 1) ", " (e 2) ", " (e 3) ")")
+            * ("\"ERR\tno host database on this target\"")
+        }
+    }
+
+    rdb_host_close _:void (handle:int) {
+        templates {
+            es6 ("__rgrdb_host().close(" (e 1) ");")
+            * ("")
+        }
+    }
+}
+
+class HostSqlBackend {
+    Extends(DBBackend)
+
+    ; "sqlite" or "duckdb" - the name the host registry knows it by.
+    def driver:string "sqlite"
+    def handle:int -1
+    def lastSql:string ""
+    def affectedRows:int 0
+
+    Constructor () {
+    }
+
+    sfn forDriver:HostSqlBackend (driver:string) {
+        def b:HostSqlBackend (new HostSqlBackend)
+        b.driver = driver
+        return b
+    }
+
+    sfn isAvailable:boolean (driver:string) {
+        return (rdb_host_available driver)
+    }
+
+    fn engineName:string () {
+        return driver
+    }
+
+    fn capabilities:DBCapabilities () {
+        def c:DBCapabilities (DBCapabilities.full())
+        ; The host returns a whole result at a time. Streaming is the next
+        ; thing to add here, and claiming it before it exists would make
+        ; DBSession stop paging on this backend's behalf.
+        c.streaming = false
+        return c
+    }
+
+    fn openDb:boolean (dsn:string) {
+        handle = (rdb_host_open driver dsn)
+        if (handle < 0) {
+            errorText = ("could not open " + driver + " at " + dsn)
+            return false
+        }
+        errorText = ""
+        return true
+    }
+
+    fn closeDb:void () {
+        if (handle >= 0) {
+            rdb_host_close handle
+        }
+        handle = -1
+    }
+
+    fn runStatement:DataChunk (st:SqlStatement) {
+        lastSql = st.text
+        affectedRows = 0
+        if (handle < 0) {
+            errorText = "not connected"
+            return (new DataChunk)
+        }
+        def args:string (DbWire.encodeChunk("params" (st.paramChunk())))
+        def reply:string (rdb_host_exec handle st.text args)
+        if ((strlen reply) >= 3) {
+            if ((substring reply 0 3) == "ERR") {
+                errorText = (substring reply 4 (strlen reply))
+                return (new DataChunk)
+            }
+        }
+        errorText = ""
+        def chunk:DataChunk (DbWire.decodeChunk(reply))
+        def ai:int (chunk.columnIndex("rdb_affected"))
+        if (ai >= 0) {
+            if (chunk.rowCount > 0) {
+                def v:DBValue (chunk.valueAt(0 ai))
+                affectedRows = (v.asInt())
+            }
+        }
+        return chunk
+    }
+
+    fn execSpec:DataChunk (spec:QuerySpec) {
+        def st:SqlStatement (SqlText.selectStatement(spec))
+        return (this.runStatement(st))
+    }
+
+    fn countRows:int (spec:QuerySpec) {
+        def st:SqlStatement (SqlText.countStatement(spec))
+        def chunk:DataChunk (this.runStatement(st))
+        if (chunk.rowCount == 0) {
+            return 0
+        }
+        def v:DBValue (chunk.valueAt(0 0))
+        return (v.asInt())
+    }
+
+    fn execSql:DataChunk (sql:string) {
+        def st:SqlStatement (new SqlStatement)
+        st.text = sql
+        return (this.runStatement(st))
+    }
+
+    fn createTable:boolean (table:string columns:[DBColumn]) {
+        def st:SqlStatement (SqlText.createTable(table columns))
+        this.runStatement(st)
+        return ((strlen errorText) == 0)
+    }
+
+    fn applyMutation:int (mutation:DBMutation) {
+        def st:SqlStatement (SqlText.mutationStatement(mutation))
+        this.runStatement(st)
+        if ((strlen errorText) > 0) {
+            return 0
+        }
+        return affectedRows
+    }
+
+    fn beginTx:boolean () {
+        this.execSql("BEGIN")
+        return ((strlen errorText) == 0)
+    }
+
+    fn commitTx:boolean () {
+        this.execSql("COMMIT")
+        return ((strlen errorText) == 0)
+    }
+
+    fn rollbackTx:boolean () {
+        this.execSql("ROLLBACK")
+        return ((strlen errorText) == 0)
+    }
+
+    fn tableNames:[string] () {
+        def out:[string]
+        def sql:string "SELECT table_name FROM information_schema.tables"
+        if (driver == "sqlite") {
+            sql = "SELECT name FROM sqlite_master WHERE type = 'table'"
+        }
+        def chunk:DataChunk (this.execSql(sql))
+        def r:int 0
+        while (r < chunk.rowCount) {
+            push out (chunk.stringAt(r 0))
+            r = (r + 1)
+        }
+        return out
+    }
+
+    ; Ask the engine for the shape of the table by selecting no rows of it.
+    ; Every SQL engine answers that with its column names and types, which is
+    ; one query instead of PRAGMA on one engine and information_schema on
+    ; another.
+    fn tableColumns:[DBColumn] (table:string) {
+        def out:[DBColumn]
+        def sql:string ("SELECT * FROM " + (SqlText.quoteName(table)) + " LIMIT 0")
+        def chunk:DataChunk (this.execSql(sql))
+        def n:int (chunk.columnCount())
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (chunk.columnAt(i))
+            push out (c.copy())
+            i = (i + 1)
+        }
+        return out
+    }
+}

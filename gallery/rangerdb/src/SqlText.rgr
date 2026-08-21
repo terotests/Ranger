@@ -1,0 +1,350 @@
+; ==============================================================================
+; SqlText - QuerySpec to SQL, for the backends that speak it.
+; ==============================================================================
+;
+; This is the direction the abstraction runs in: the structured form is the
+; interface, and SQL is one rendering of it. A backend over DuckDB or SQLite
+; renders; RangerDB executes the spec directly and never builds a string.
+;
+; Values NEVER go into the text. Every one of them becomes a `?` and travels
+; beside the statement, because the alternative is quoting rules per engine and
+; an injection bug per quoting rule.
+; ==============================================================================
+
+Import "DBQuery.rgr"
+Import "DataChunk.rgr"
+
+; A statement and the values it expects, in order.
+class SqlStatement {
+    def text:string ""
+    def params:[DBValue]
+
+    Constructor () {
+    }
+
+    fn addParam:void (v:DBValue) {
+        push params v
+    }
+
+    ; The parameters as a one-row chunk, which is how they cross to the host.
+    fn paramChunk:DataChunk () {
+        def chunk:DataChunk (new DataChunk)
+        def n:int (array_length params)
+        def i:int 0
+        while (i < n) {
+            def v:DBValue (itemAt params i)
+            def kind:int v.kind
+            if (kind == 0) {
+                kind = 4
+            }
+            chunk.addColumn((DBColumn.create(("p" + (to_string i)) kind)))
+            i = (i + 1)
+        }
+        if (n > 0) {
+            chunk.appendRow(params)
+        }
+        return chunk
+    }
+}
+
+class SqlText {
+    ; "sales" -> "sales", and a name containing a quote cannot end the quote.
+    sfn quoteName:string (name:string) {
+        def q:string (strfromcode 34)
+        def out:string q
+        def n:int (strlen name)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt name i)
+            if (c == 34) {
+                out = (out + q)
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return (out + q)
+    }
+
+    ; LIKE has two wildcards of its own; a value that contains them means them
+    ; literally, so they are escaped and the pattern says with what.
+    sfn escapeLike:string (raw:string) {
+        def bs:string (strfromcode 92)
+        def out:string ""
+        def n:int (strlen raw)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt raw i)
+            if (c == 37) {
+                out = (out + bs)
+            }
+            if (c == 95) {
+                out = (out + bs)
+            }
+            if (c == 92) {
+                out = (out + bs)
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn sqlType:string (kind:int) {
+        if (kind == 1) {
+            return "BOOLEAN"
+        }
+        if (kind == 2) {
+            return "BIGINT"
+        }
+        if (kind == 4) {
+            return "VARCHAR"
+        }
+        return "DOUBLE"
+    }
+
+    sfn createTable:SqlStatement (table:string columns:[DBColumn]) {
+        def st:SqlStatement (new SqlStatement)
+        def sql:string ("CREATE TABLE IF NOT EXISTS " + (SqlText.quoteName(table)) + " (")
+        def n:int (array_length columns)
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt columns i)
+            if (i > 0) {
+                sql = (sql + ", ")
+            }
+            sql = (sql + (SqlText.quoteName(c.name)) + " " + (SqlText.sqlType(c.kind)))
+            if c.key {
+                sql = (sql + " PRIMARY KEY")
+            }
+            i = (i + 1)
+        }
+        st.text = (sql + ")")
+        return st
+    }
+
+    sfn whereClause:string (filter:DBFilter st:SqlStatement) {
+        def n:int (array_length filter.predicates)
+        if (n == 0) {
+            return ""
+        }
+        def joiner:string " AND "
+        if (filter.matchAll == false) {
+            joiner = " OR "
+        }
+        def sql:string " WHERE "
+        def i:int 0
+        while (i < n) {
+            def p:DBPredicate (itemAt filter.predicates i)
+            if (i > 0) {
+                sql = (sql + joiner)
+            }
+            sql = (sql + (SqlText.predicateText(p st)))
+            i = (i + 1)
+        }
+        return sql
+    }
+
+    sfn predicateText:string (p:DBPredicate st:SqlStatement) {
+        def col:string (SqlText.quoteName(p.column))
+        if (p.op == 8) {
+            return (col + " IS NULL")
+        }
+        if (p.op == 9) {
+            return (col + " IS NOT NULL")
+        }
+        if (p.op == 10) {
+            def n:int (array_length p.values)
+            if (n == 0) {
+                return "1 = 0"
+            }
+            def sql:string (col + " IN (")
+            def i:int 0
+            while (i < n) {
+                if (i > 0) {
+                    sql = (sql + ", ")
+                }
+                sql = (sql + "?")
+                st.addParam((itemAt p.values i))
+                i = (i + 1)
+            }
+            return (sql + ")")
+        }
+        if (p.op == 6) {
+            def pat:string ("%" + (SqlText.escapeLike((p.value.asString()))) + "%")
+            st.addParam((DBValue.fromString(pat)))
+            def bs:string (strfromcode 92)
+            def q:string (strfromcode 39)
+            return ("LOWER(" + col + ") LIKE LOWER(?) ESCAPE " + q + bs + q)
+        }
+        if (p.op == 7) {
+            def pre:string ((SqlText.escapeLike((p.value.asString()))) + "%")
+            st.addParam((DBValue.fromString(pre)))
+            def bs2:string (strfromcode 92)
+            def q2:string (strfromcode 39)
+            return ("LOWER(" + col + ") LIKE LOWER(?) ESCAPE " + q2 + bs2 + q2)
+        }
+        st.addParam(p.value)
+        return (col + " " + (DBOp.opName(p.op)) + " ?")
+    }
+
+    sfn selectStatement:SqlStatement (spec:QuerySpec) {
+        def st:SqlStatement (new SqlStatement)
+        def sql:string "SELECT "
+        def hasAgg:boolean (spec.hasAggregates())
+        if hasAgg {
+            def parts:int 0
+            def gi:int 0
+            def gn:int (array_length spec.groupBy)
+            while (gi < gn) {
+                def gname:string (itemAt spec.groupBy gi)
+                if (parts > 0) {
+                    sql = (sql + ", ")
+                }
+                sql = (sql + (SqlText.quoteName(gname)))
+                parts = (parts + 1)
+                gi = (gi + 1)
+            }
+            def ai:int 0
+            def an:int (array_length spec.aggregates)
+            while (ai < an) {
+                def a:DBAggregate (itemAt spec.aggregates ai)
+                if (parts > 0) {
+                    sql = (sql + ", ")
+                }
+                def fname:string (DBAggFn.aggName(a.fnKind))
+                if (a.fnKind == 0) {
+                    sql = (sql + "COUNT(*)")
+                } {
+                    sql = (sql + fname + "(" + (SqlText.quoteName(a.column)) + ")")
+                }
+                sql = (sql + " AS " + (SqlText.quoteName(a.alias)))
+                parts = (parts + 1)
+                ai = (ai + 1)
+            }
+        } {
+            def cn:int (array_length spec.columns)
+            if (cn == 0) {
+                sql = (sql + "*")
+            } {
+                def ci:int 0
+                while (ci < cn) {
+                    if (ci > 0) {
+                        sql = (sql + ", ")
+                    }
+                    sql = (sql + (SqlText.quoteName((itemAt spec.columns ci))))
+                    ci = (ci + 1)
+                }
+            }
+        }
+        sql = (sql + " FROM " + (SqlText.quoteName(spec.table)))
+        sql = (sql + (SqlText.whereClause(spec.filter st)))
+        if hasAgg {
+            def gn2:int (array_length spec.groupBy)
+            if (gn2 > 0) {
+                sql = (sql + " GROUP BY ")
+                def g2:int 0
+                while (g2 < gn2) {
+                    if (g2 > 0) {
+                        sql = (sql + ", ")
+                    }
+                    sql = (sql + (SqlText.quoteName((itemAt spec.groupBy g2))))
+                    g2 = (g2 + 1)
+                }
+            }
+        }
+        def sn:int (array_length spec.sorts)
+        if (sn > 0) {
+            sql = (sql + " ORDER BY ")
+            def si:int 0
+            while (si < sn) {
+                def s:DBSort (itemAt spec.sorts si)
+                if (si > 0) {
+                    sql = (sql + ", ")
+                }
+                sql = (sql + (SqlText.quoteName(s.column)))
+                ; Where a null goes is not a detail: RangerDB puts it first
+                ; ascending and last descending, and an engine left to its own
+                ; default would answer the same query differently. Saying it in
+                ; the text is what makes one contract test pass on all of them.
+                if s.ascending {
+                    sql = (sql + " ASC NULLS FIRST")
+                } {
+                    sql = (sql + " DESC NULLS LAST")
+                }
+                si = (si + 1)
+            }
+        }
+        if (spec.limit > 0) {
+            sql = (sql + " LIMIT " + (to_string spec.limit))
+        }
+        if (spec.offset > 0) {
+            if (spec.limit <= 0) {
+                ; SQLite refuses OFFSET without LIMIT; -1 is its own idiom for
+                ; "all of them".
+                sql = (sql + " LIMIT -1")
+            }
+            sql = (sql + " OFFSET " + (to_string spec.offset))
+        }
+        st.text = sql
+        return st
+    }
+
+    sfn countStatement:SqlStatement (spec:QuerySpec) {
+        def st:SqlStatement (new SqlStatement)
+        def sql:string ("SELECT COUNT(*) AS " + (SqlText.quoteName("n")) + " FROM " + (SqlText.quoteName(spec.table)))
+        sql = (sql + (SqlText.whereClause(spec.filter st)))
+        st.text = sql
+        return st
+    }
+
+    sfn mutationStatement:SqlStatement (m:DBMutation) {
+        def st:SqlStatement (new SqlStatement)
+        def table:string (SqlText.quoteName(m.table))
+        if (m.kind == 0) {
+            def sql:string ("INSERT INTO " + table + " (")
+            def n:int (array_length m.setColumns)
+            def i:int 0
+            while (i < n) {
+                if (i > 0) {
+                    sql = (sql + ", ")
+                }
+                sql = (sql + (SqlText.quoteName((itemAt m.setColumns i))))
+                i = (i + 1)
+            }
+            sql = (sql + ") VALUES (")
+            i = 0
+            while (i < n) {
+                if (i > 0) {
+                    sql = (sql + ", ")
+                }
+                sql = (sql + "?")
+                st.addParam((itemAt m.setValues i))
+                i = (i + 1)
+            }
+            st.text = (sql + ")")
+            return st
+        }
+        if (m.kind == 2) {
+            def dsql:string ("DELETE FROM " + table)
+            def keyFilter:DBFilter (m.keyFilter())
+            dsql = (dsql + (SqlText.whereClause(keyFilter st)))
+            st.text = dsql
+            return st
+        }
+        def usql:string ("UPDATE " + table + " SET ")
+        def cn:int (array_length m.setColumns)
+        def c:int 0
+        while (c < cn) {
+            if (c > 0) {
+                usql = (usql + ", ")
+            }
+            usql = (usql + (SqlText.quoteName((itemAt m.setColumns c))) + " = ?")
+            st.addParam((itemAt m.setValues c))
+            c = (c + 1)
+        }
+        def kf:DBFilter (m.keyFilter())
+        usql = (usql + (SqlText.whereClause(kf st)))
+        st.text = usql
+        return st
+    }
+}
