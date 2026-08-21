@@ -648,6 +648,11 @@ class FlowEdge {
     def portNudgeSource:double 0.0
     def portNudgeTarget:double 0.0
 
+    ; Set when the viewer dragged one of this edge's segments. A hand-placed
+    ; route is not a suggestion: no later pass may move it, and nor may the
+    ; obstacle repair, because "that line goes there" is the whole point.
+    def pinnedRoute:boolean false
+
     ; The corners of a route somebody else worked out — the layered layout,
     ; when the edge spans more than one layer and has to be taken around what
     ; stands between its ends. Flat x,y pairs, in order, from the source port

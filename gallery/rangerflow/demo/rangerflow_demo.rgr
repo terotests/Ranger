@@ -6,6 +6,8 @@
 ;   npm run rangerflow:demo -- --uml        the UML class diagram instead
 ;   npm run rangerflow:demo -- --force      the React Flow force-layout parity
 ;   npm run rangerflow:demo -- --bench 500  layout + scene timings at a size
+;   npm run rangerflow:demo -- --drag       drop every node everywhere, count
+;                                           the routes left crossing a box
 ;
 ; It writes into gallery/rangerflow/out/ and prints what it did, so a run is
 ; both the demo and a smoke test of every backend at once.
@@ -18,6 +20,7 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
+Import "../layout/OrthoRouter.rgr"
 Import "../layout/ForceLayout.rgr"
 
 class RangerFlowDemo {
@@ -38,6 +41,7 @@ class RangerFlowDemo {
             if (a == "--uml")   { mode = "uml" }
             if (a == "--erd")   { mode = "erd" }
             if (a == "--force") { mode = "force" }
+            if (a == "--drag")  { mode = "drag" }
             if (a == "--bench") {
                 mode = "bench"
                 if ((i + 1) < argCount) {
@@ -51,6 +55,7 @@ class RangerFlowDemo {
         if (mode == "erd")   { d.runErd() }
         if (mode == "force") { d.runForce() }
         if (mode == "bench") { d.runBench(benchSize) }
+        if (mode == "drag")  { d.runDrag() }
     }
 
     ; --------------------------------------------------------------- ERD ----
@@ -79,8 +84,7 @@ class RangerFlowDemo {
     }
 
     ; --------------------------------------------------------------- UML ----
-    fn runUml:void () {
-        print "== RangerFlow: UML class diagram =="
+    fn umlDiagram:UMLDiagram () {
         def d (new UMLDiagram)
         def shape:UMLClass (d.umlClass("Shape"))
         shape.stereotype = "abstract"
@@ -107,6 +111,12 @@ class RangerFlowDemo {
         def owns:UMLRelation (d.relate("Canvas" "Shape" "composition"))
         owns.toMultiplicity = "0..*"
         d.relate("Shape" "Point" "aggregation")
+        return d
+    }
+
+    fn runUml:void () {
+        print "== RangerFlow: UML class diagram =="
+        def d:UMLDiagram (this.umlDiagram())
         def u2g (new UMLToGraph)
         def g:FlowGraph (u2g.build(d))
         def lay:LayeredLayout (LayeredLayout.of(g))
@@ -264,12 +274,148 @@ class RangerFlowDemo {
         ; dummies held open. This runs after the fan so the corners start where
         ; the edge actually starts.
         def routed:int (lay.routeLongEdges())
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(g)
+        ; …and then the repair pass, for whatever is still drawn through
+        ; something the layout did not know about.
+        def repaired:int (OrthoRouter.repairAll(g))
         def exact1:int (EdgeOverlap.pairs(g 2.0))
         def near1:int (EdgeOverlap.pairs(g 8.0))
         def cross1:int (EdgeOverlap.nodeCrossings(g))
-        print ("  routing " + (to_string moved) + " endpoints and tracks moved, " + (to_string routed) + " long edges taken round the nodes in the way")
+        print ("  routing " + (to_string moved) + " endpoints and tracks moved, " + (to_string routed) + " long edges chained, " + (to_string repaired) + " repaired by the grid router")
         print ("          overlapping segment pairs: on top of each other " + (to_string exact0) + " → " + (to_string exact1) + ", within 8 px " + (to_string near0) + " → " + (to_string near1))
         print ("          edges drawn through an unrelated node: " + (to_string cross0) + " → " + (to_string cross1))
+    }
+
+    ; ------------------------------------------------------------- drag ----
+    ; "When you drag a box the lines don't always know to go round the other
+    ; boxes" is a complaint you cannot answer by looking at one screenshot. So
+    ; drag every node to every point on a coarse grid, re-route the way the
+    ; browser does on pointer-up, and count how many of those drops leave a
+    ; line drawn straight through a table. One number, over a few thousand
+    ; drops, that goes down when the router gets better and up when it breaks.
+    fn runDrag:void () {
+        print "== RangerFlow: drag sweep =="
+        def sqlOpt:string (?? (read_file "." "gallery/rangerflow/fixtures/ecommerce.sql") "")
+        if ((strlen sqlOpt) == 0) {
+            print "could not read gallery/rangerflow/fixtures/ecommerce.sql"
+            return
+        }
+        def schema:DatabaseSchema (SqlSchemaReader.parse(sqlOpt))
+        def s2g (new SchemaToGraph)
+        def erd:FlowGraph (s2g.build(schema))
+        def lay:LayeredLayout (LayeredLayout.of(erd))
+        lay.direction = "LR"
+        lay.layerGap = 150.0
+        lay.nodeGap = 40.0
+        lay.run()
+        SchemaToGraph.faceEdges(erd)
+        EdgeLanes.assign(erd)
+        lay.routeLongEdges()
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(erd)
+        OrthoRouter.repairAll(erd)
+        this.dragSweep(erd "ERD, e-commerce schema")
+
+        def d:UMLDiagram (this.umlDiagram())
+        def u2g (new UMLToGraph)
+        def uml:FlowGraph (u2g.build(d))
+        def lay2:LayeredLayout (LayeredLayout.of(uml))
+        lay2.direction = "TB"
+        lay2.layerGap = 110.0
+        lay2.run()
+        EdgeLanes.assign(uml)
+        lay2.routeLongEdges()
+        EdgeLanes.assign(uml)
+        this.dragSweep(uml "UML class diagram")
+    }
+
+    fn dragSweep:void (g:FlowGraph label:string) {
+        def bounds:FlowRect (g.bounds())
+        def step:double 55.0
+        def drops:int 0
+        def dirty:int 0
+        def worst:int 0
+        def repairedTotal:int 0
+        def noPath:int 0
+        def stuck:int 0
+        def gaveUp:int 0
+        def t0:double (wall_clock_ms)
+        def ni:int 0
+        while (ni < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(ni))
+            def homeX:double n.x
+            def homeY:double n.y
+            def gy:double (bounds.y - 70.0)
+            while (gy < ((bounds.y + bounds.h) + 70.0)) {
+                def gx:double (bounds.x - 70.0)
+                while (gx < ((bounds.x + bounds.w) + 70.0)) {
+                    n.x = gx
+                    n.y = gy
+                    n.syncFromModel()
+                    if ((this.overlapsAnother(g ni)) == false) {
+                        EdgeLanes.reset(g)
+                        EdgeLanes.assign(g)
+                        def rt (new OrthoRouter)
+                        def fixed:int (rt.applyBroken(g))
+                        repairedTotal = (repairedTotal + fixed)
+                        noPath = (noPath + rt.noPath)
+                        stuck = (stuck + rt.stillCrossing)
+                        gaveUp = (gaveUp + rt.refused)
+                        def left:int (EdgeOverlap.nodeCrossings(g))
+                        drops = (drops + 1)
+                        if (left > 0) {
+                            dirty = (dirty + 1)
+                            print (("    still crossing: " + n.id) + ((" dropped at " + (to_string gx)) + ((", " + (to_string gy)) + (" — " + ((to_string left) + " lines")))))
+                            if (left > worst) {
+                                worst = left
+                            }
+                        }
+                    }
+                    gx = (gx + step)
+                }
+                gy = (gy + step)
+            }
+            n.x = homeX
+            n.y = homeY
+            n.syncFromModel()
+            EdgeLanes.reset(g)
+            EdgeLanes.assign(g)
+            OrthoRouter.repairAll(g)
+            ni = (ni + 1)
+        }
+        def t1:double (wall_clock_ms)
+        def pct:double 0.0
+        if (drops > 0) {
+            pct = (((to_double dirty) * 100.0) / (to_double drops))
+        }
+        print ("  " + label)
+        print ("    " + (to_string drops) + " drops, " + (to_string repairedTotal) + " edges re-routed, " + (to_string (to_int (t1 - t0))) + " ms")
+        print ("    drops still drawing a line through a box: " + (to_string dirty) + " (" + (to_string pct) + "%), worst " + (to_string worst) + " lines")
+        print ("    why: no route found " + (to_string noPath) + ", route found but no better " + (to_string stuck) + ", grid too big " + (to_string gaveUp))
+    }
+
+    ; A drop that lands on top of another table is not a routing failure — the
+    ; boxes overlap, and no line can help that. Those are left out of the count.
+    fn overlapsAnother:boolean (g:FlowGraph index:int) {
+        def n:FlowNode (g.nodeAt(index))
+        def a:FlowRect (n.rect())
+        def k:int 0
+        while (k < (g.nodeCount())) {
+            if (k != index) {
+                def other:FlowNode (g.nodeAt(k))
+                def b:FlowRect (other.rect())
+                if ((a.overlapArea(b)) > 0.0) {
+                    return true
+                }
+            }
+            k = (k + 1)
+        }
+        return false
     }
 
     ; --------------------------------------------------------------- output --

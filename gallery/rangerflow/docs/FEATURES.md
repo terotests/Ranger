@@ -86,8 +86,9 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Chen notation | · | |
 | Cardinality inference | ✓ | many-to-one unless the FK columns are unique; optional when nullable |
 | Auto layout | ✓ | layered (Sugiyama) and force (d3) |
-| Edge routing / lane separation | ✓ | channel routing plus a port fan; overlapping segment pairs 16 → 0 on the fixture |
-| Edge routing around obstacles | ~ | dummy-vertex chains in the layered layout; nodes moved by hand are not avoided |
+| Edge routing / lane separation | ✓ | channel routing plus a port fan; segment pairs drawn on top of each other 16 → 1 on the fixture, 12 → 0 on the UML one |
+| Edge routing around obstacles | ✓ | dummy-vertex chains in the layered layout, plus an orthogonal-grid repair pass for nodes moved by hand: 2 of 1261 drop positions still cross, 0 of 429 on the UML diagram (`npm run rangerflow:drag`) |
+| Drag an edge's corner by hand | ✓ | grab any interior segment; it slides across itself only, and a hand-placed route is left alone by every later pass |
 | MiniMap / zoom / pan | ✓ | from the core |
 | Keys-only view for big schemas | ✓ | `SchemaToGraph.keysOnly` |
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
