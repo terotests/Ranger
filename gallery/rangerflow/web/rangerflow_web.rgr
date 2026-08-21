@@ -34,6 +34,11 @@ class RangerFlowWeb {
     ; forgot the canvas size culls everything and draws nothing.
     def viewW:double 1200.0
     def viewH:double 800.0
+    ; The fetched fixture, kept so the scenario picker can return to it.
+    def fixtureSql:string ""
+    ; Whether the viewer has taken the wheel. Until then a running simulation
+    ; is allowed to reframe itself; after that it must not move under them.
+    def userMoved:boolean false
 
     Constructor () {
     }
@@ -55,6 +60,7 @@ class RangerFlowWeb {
         input.y = y
         input.shift = shift
         input.ctrl = ctrl
+        userMoved = true
         editor.pointerDown(input)
         if simRunning {
             editor.pinWhileDragging = true
@@ -81,6 +87,7 @@ class RangerFlowWeb {
     fn wheel:void (x:double y:double delta:double) {
         input.x = x
         input.y = y
+        userMoved = true
         editor.wheel(input delta)
     }
 
@@ -90,6 +97,185 @@ class RangerFlowWeb {
 
     fn fitView:void () {
         editor.fitView()
+    }
+
+    ; ------------------------------------------------------------ scenarios --
+    ; The demos the page can show, by name. Each one builds a graph and picks
+    ; the layout and notation that suit it — a schema wants layered and crow's
+    ; foot, a class diagram wants top-to-bottom and UML, a force graph wants
+    ; neither. `?scenario=uml` in the URL picks one, and so does the dropdown.
+    fn loadScenario:boolean (name:string) {
+        if (name == "uml") {
+            return (this.loadUml())
+        }
+        if (name == "force") {
+            return (this.loadForceDemo())
+        }
+        if (name == "flow") {
+            return (this.loadFlowchart())
+        }
+        return (this.loadSqlFixture())
+    }
+
+    fn loadSqlFixture:boolean () {
+        if ((strlen fixtureSql) == 0) {
+            status = "the schema fixture has not been fetched yet"
+            return false
+        }
+        return (this.loadSql(fixtureSql))
+    }
+
+    ; The page fetches ecommerce.sql once and hands it over; keeping it lets
+    ; the scenario dropdown come back to it without a second round trip.
+    fn setFixtureSql:void (sql:string) {
+        fixtureSql = sql
+    }
+
+    fn adopt:void (g:FlowGraph) {
+        userMoved = false
+        graph = g
+        editor = (FlowEditor.of(graph))
+        editor.setSize(viewW viewH)
+    }
+
+    fn loadUml:boolean () {
+        def d (new UMLDiagram)
+        def shape:UMLClass (d.umlClass("Shape"))
+        shape.stereotype = "abstract"
+        shape.attribute("#" "origin" "Point")
+        shape.operation("+" "area" "" "double")
+        shape.operation("+" "draw" "ctx: Canvas" "void")
+        def rect:UMLClass (d.umlClass("Rectangle"))
+        rect.attribute("-" "width" "double")
+        rect.attribute("-" "height" "double")
+        rect.operation("+" "area" "" "double")
+        def circle:UMLClass (d.umlClass("Circle"))
+        circle.attribute("-" "radius" "double")
+        circle.operation("+" "area" "" "double")
+        def poly:UMLClass (d.umlClass("Polygon"))
+        poly.attribute("-" "points" "[Point]")
+        poly.operation("+" "area" "" "double")
+        def canvas:UMLClass (d.umlClass("Canvas"))
+        canvas.attribute("-" "shapes" "[Shape]")
+        canvas.operation("+" "add" "s: Shape" "void")
+        canvas.operation("+" "render" "" "void")
+        def point:UMLClass (d.umlClass("Point"))
+        point.stereotype = "record"
+        point.attribute("+" "x" "double")
+        point.attribute("+" "y" "double")
+        d.relate("Rectangle" "Shape" "inheritance")
+        d.relate("Circle" "Shape" "inheritance")
+        d.relate("Polygon" "Shape" "inheritance")
+        def owns:UMLRelation (d.relate("Canvas" "Shape" "composition"))
+        owns.toMultiplicity = "0..*"
+        d.relate("Shape" "Point" "aggregation")
+        def u2g (new UMLToGraph)
+        def g:FlowGraph (u2g.build(d))
+        this.adopt(g)
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "TB"
+        lay.layerGap = 110.0
+        lay.nodeGap = 40.0
+        lay.run()
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " classes, " + (to_string (g.edgeCount())) + " relations")
+        return true
+    }
+
+    ; React Flow's force-layout example, which is where this library started:
+    ; a tree with a few cross links under d3-force, running live, and a node
+    ; you drag is pinned while you hold it.
+    fn loadForceDemo:boolean () {
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < 30) {
+            def n:FlowNode (g.node(("n" + (to_string i)) ("node " + (to_string i)) 0.0 0.0))
+            n.width = 110.0
+            n.height = 40.0
+            i = (i + 1)
+        }
+        def k:int 1
+        while (k < 30) {
+            def parent:int (idiv (k - 1) 3)
+            def e:FlowEdge (g.connect(("n" + (to_string parent)) ("n" + (to_string k))))
+            e.edgeType = "default"
+            e.markerEnd = ""
+            k = (k + 1)
+        }
+        def x1:FlowEdge (g.connect("n5" "n17"))
+        x1.edgeType = "default"
+        x1.markerEnd = ""
+        def x2:FlowEdge (g.connect("n8" "n23"))
+        x2.edgeType = "default"
+        x2.markerEnd = ""
+        def x3:FlowEdge (g.connect("n11" "n26"))
+        x3.edgeType = "default"
+        x3.markerEnd = ""
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "force"
+        sim = (FlowSimulation.reactFlowExample(graph -1000.0 150.0))
+        sim.collideEnabled = true
+        simRunning = true
+        editor.pinWhileDragging = true
+        status = "d3-force, 30 nodes — drag one and it pins while you hold it"
+        return true
+    }
+
+    ; A plain flowchart, because a graph editor should not need a domain to be
+    ; useful — and because it is the one scenario with no compartments in it.
+    fn loadFlowchart:boolean () {
+        def g (new FlowGraph)
+        def start:FlowNode (g.node("start" "Pull request opened" 0.0 0.0))
+        start.nodeType = "input"
+        start.width = 190.0
+        start.height = 46.0
+        def lint:FlowNode (g.node("lint" "Lint" 0.0 0.0))
+        lint.width = 150.0
+        lint.height = 44.0
+        def test:FlowNode (g.node("test" "Unit tests" 0.0 0.0))
+        test.width = 150.0
+        test.height = 44.0
+        def parity:FlowNode (g.node("parity" "Parity meter" 0.0 0.0))
+        parity.width = 150.0
+        parity.height = 44.0
+        def review:FlowNode (g.node("review" "Review" 0.0 0.0))
+        review.width = 150.0
+        review.height = 44.0
+        def merge:FlowNode (g.node("merge" "Merge" 0.0 0.0))
+        merge.nodeType = "output"
+        merge.width = 150.0
+        merge.height = 44.0
+        def fix:FlowNode (g.node("fix" "Push a fix" 0.0 0.0))
+        fix.width = 150.0
+        fix.height = 44.0
+        g.connect("start" "lint")
+        g.connect("start" "test")
+        g.connect("start" "parity")
+        g.connect("lint" "review")
+        g.connect("test" "review")
+        g.connect("parity" "review")
+        g.connect("review" "merge")
+        def back:FlowEdge (g.connect("review" "fix"))
+        back.label = "changes requested"
+        back.edgeType = "smoothstep"
+        def again:FlowEdge (g.connect("fix" "start"))
+        again.edgeType = "smoothstep"
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "LR"
+        lay.layerGap = 90.0
+        lay.nodeGap = 26.0
+        lay.run()
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = "a flowchart — the core with no domain on top of it"
+        return true
     }
 
     ; ------------------------------------------------------------- content --
@@ -102,6 +288,7 @@ class RangerFlowWeb {
             return false
         }
         def s2g (new SchemaToGraph)
+        userMoved = false
         graph = (s2g.build(schema))
         editor = (FlowEditor.of(graph))
         editor.setSize(viewW viewH)
@@ -175,6 +362,15 @@ class RangerFlowWeb {
             if ((sim.isSettled()) == false) {
                 sim.tick()
                 SchemaToGraph.faceEdges(graph)
+                ; A force layout starts as a dot at the origin and grows to
+                ; several thousand units across. Fitting once at load and never
+                ; again left the demo at 4x zoom looking at the inside of one
+                ; node, so it follows the graph while it settles — and stops
+                ; the moment the viewer touches anything, because a viewport
+                ; that moves under your hand is worse than a bad first frame.
+                if (userMoved == false) {
+                    editor.fitView()
+                }
             }
         }
         return (editor.sceneJson())
@@ -219,13 +415,30 @@ class RangerFlowWeb {
             return "FAIL no nodes"
         }
         def report:string ""
+        ; A running simulation moves the graph between the steps, so the test
+        ; would be measuring the layout rather than the editor. Paused for the
+        ; duration and put back afterwards.
+        def wasRunning:boolean simRunning
+        simRunning = false
         editor.fitView()
-        def n:FlowNode (graph.nodeAt(0))
-        def sx:double (editor.view.viewport.toScreenX((n.centerX())))
-        def sy:double (editor.view.viewport.toScreenY((n.centerY())))
+        def first:FlowNode (graph.nodeAt(0))
+        def sx:double (editor.view.viewport.toScreenX((first.centerX())))
+        def sy:double (editor.view.viewport.toScreenY((first.centerY())))
+        ; Which node is actually under that point — with overlapping nodes the
+        ; topmost one wins, and asserting on node 0 would be asserting on the
+        ; paint order rather than on the click.
+        def fx:double (editor.view.viewport.toFlowX(sx))
+        def fy:double (editor.view.viewport.toFlowY(sy))
+        def hit:int (graph.nodeAtPoint(fx fy))
+        if (hit < 0) {
+            simRunning = wasRunning
+            return "FAIL nothing under the pointer after fitView"
+        }
+        def n:FlowNode (graph.nodeAt(hit))
         this.pointerDown(sx sy false false)
         this.pointerUp(sx sy false false)
         if (n.selected == false) {
+            simRunning = wasRunning
             return "FAIL click did not select"
         }
         report = (report + "select ok; ")
@@ -234,26 +447,31 @@ class RangerFlowWeb {
         this.pointerMove((sx + 40.0) (sy + 25.0) false false)
         this.pointerUp((sx + 40.0) (sy + 25.0) false false)
         if (n.x <= beforeX) {
+            simRunning = wasRunning
             return "FAIL drag did not move the node"
         }
         report = (report + "drag ok; ")
         this.keyDown("z" false true)
         def back:double (fabs (n.x - beforeX))
         if (back > 0.001) {
+            simRunning = wasRunning
             return "FAIL undo did not restore"
         }
         report = (report + "undo ok; ")
         this.keyDown("a" false true)
         if ((graph.selectedNodeCount()) != (graph.nodeCount())) {
+            simRunning = wasRunning
             return "FAIL select all"
         }
         report = (report + "select-all ok; ")
         graph.clearSelection()
         def json:string (editor.sceneJson())
         if ((strlen json) < 100) {
+            simRunning = wasRunning
             return "FAIL empty scene"
         }
         report = (report + "scene " + (to_string (strlen json)) + " bytes; ")
+        simRunning = wasRunning
         return ("PASS " + report + (this.stats()))
     }
 }

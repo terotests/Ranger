@@ -1,0 +1,400 @@
+; ============================================================================
+; rangerflow_sdl — a desktop window for the schema editor, SDL2 + OpenGL.
+; ============================================================================
+;
+; The same FlowEditor the browser page drives, with the browser taken out:
+;
+;   SDL event  → FlowInput → FlowEditor          (this process)
+;   FlowView   → EVGDisplayList → EvgGlPainter → OpenGL
+;
+; No part of the editor knows which of the two it is running in. That is the
+; whole point of the display-list seam: `gallery/evg/gl/evg-webgl.js` draws it
+; in a tab and `EvgGlPainter` draws it in a window, from the same commands.
+;
+; The window, the input and the GL present path are the DataGrid's — the
+; `dgfx_*` layer is generic SDL2 plumbing that happens to live over there, and
+; a second copy of it would be a second thing to keep correct. See the note in
+; README.md about where it ought to live.
+;
+; Usage (after build.sh):
+;   ./tmp/rangerflow-sdl/rangerflow_sdl [schema.sql] [frames]
+;   SDL_VIDEODRIVER=dummy ./tmp/rangerflow-sdl/rangerflow_sdl … 30   # headless
+;
+; Keys: f fit · l layout (layered / force) · n notation · t theme · e edge type
+;       g background · m minimap · a select all · z undo · y redo
+;       Delete remove selection · Esc / q quit
+; ============================================================================
+
+Import "../../core/FlowEditor.rgr"
+Import "../../domains/erd/SqlSchemaReader.rgr"
+Import "../../domains/erd/SchemaToGraph.rgr"
+Import "../../layout/LayeredLayout.rgr"
+Import "../../layout/ForceLayout.rgr"
+Import "../../../datagrid/platform/sdl/gfx_datagrid_sdl.rgr"
+Import "../../../datagrid/platform/sdl/EvgGlPainter.rgr"
+
+class RangerFlowSdl {
+    def graph:FlowGraph (new FlowGraph)
+    def editor:FlowEditor (new FlowEditor)
+    def sim:FlowSimulation (new FlowSimulation)
+    def simRunning:boolean false
+    def input:FlowInput (new FlowInput)
+    def painter:EvgGlPainter (new EvgGlPainter)
+    def tr:UITextRenderer (new UITextRenderer)
+    ; EvgGlPainter takes an image cache because the spreadsheet it was written
+    ; for draws photographs. A schema diagram has none, so this stays empty —
+    ; it is here to satisfy the signature, not to do anything.
+    def images:GridImages (new GridImages)
+
+    def pw:int 1280
+    def ph:int 800
+    def frames:int 0
+    def hasWindow:boolean false
+    def sqlPath:string "gallery/rangerflow/fixtures/ecommerce.sql"
+    def fontDir:string "gallery/pdf_writer/assets/fonts"
+    def outDir:string "gallery/rangerflow/out"
+    def wantQuit:boolean false
+    def status:string ""
+    def edgeKind:int 0
+    def notationKind:int 0
+    def darkTheme:boolean false
+    def prevDown:boolean false
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------- content --
+    fn loadSchema:boolean () {
+        def sqlOpt:string (?? (read_file "." sqlPath) "")
+        if ((strlen sqlOpt) == 0) {
+            print ("could not read " + sqlPath)
+            return false
+        }
+        def schema:DatabaseSchema (SqlSchemaReader.parse(sqlOpt))
+        def s2g (new SchemaToGraph)
+        ; The renderer rasterizes with the real face, so the widths the node
+        ; sizes are computed from should come from the same one.
+        s2g.measurer = tr.measurer
+        graph = (s2g.build(schema))
+        editor = (FlowEditor.of(graph))
+        editor.view.measurer = tr.measurer
+        editor.setSize((to_double pw) (to_double ph))
+        this.applyLayered()
+        status = ((to_string (schema.tableCount())) + " tables, " + (to_string (array_length schema.foreignKeys)) + " relationships")
+        print ("  " + status)
+        return true
+    }
+
+    fn applyLayered:void () {
+        simRunning = false
+        editor.pinWhileDragging = false
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "LR"
+        lay.layerGap = 160.0
+        lay.nodeGap = 40.0
+        lay.run()
+        SchemaToGraph.faceEdges(graph)
+        editor.fitView()
+    }
+
+    fn applyForce:void () {
+        sim = (FlowSimulation.of(graph))
+        sim.chargeStrength = -1400.0
+        sim.linkDistance = 220.0
+        sim.linkStrengthFixed = 0.06
+        sim.xEnabled = true
+        sim.yEnabled = true
+        sim.collideEnabled = true
+        sim.pullPositions()
+        simRunning = true
+        editor.pinWhileDragging = true
+    }
+
+    ; --------------------------------------------------------------- window --
+    fn openWindow:void () {
+        def ok:int (dgfx_open "RangerFlow — schema editor (SDL2 / OpenGL)" pw ph)
+        if (ok == 1) {
+            hasWindow = true
+        } {
+            print "  dgfx_open failed (no display?) — running headless"
+        }
+    }
+
+    fn syncWindowSize:void () {
+        def ww:int (dgfx_window_width)
+        def wh:int (dgfx_window_height)
+        if (ww < 320) {
+            return
+        }
+        if (wh < 240) {
+            return
+        }
+        if (ww == pw) {
+            if (wh == ph) {
+                return
+            }
+        }
+        pw = ww
+        ph = wh
+        editor.setSize((to_double pw) (to_double ph))
+    }
+
+    ; ---------------------------------------------------------------- input --
+    ; SDL reports the pointer in window points, which is the space the scene is
+    ; built in, so there is nothing to convert. The editor wants edges rather
+    ; than levels, so the press and release are derived here.
+    fn pumpInput:void () {
+        dgfx_poll
+        this.syncWindowSize()
+        def mx:int (dgfx_mouse_x)
+        def my:int (dgfx_mouse_y)
+        def btn:int (dgfx_mouse_buttons)
+        def down:boolean false
+        if ((bit_and btn 1) != 0) {
+            down = true
+        }
+        input.x = (to_double mx)
+        input.y = (to_double my)
+        input.shift = (dgfx_shift_down)
+        input.ctrl = (dgfx_ctrl_down)
+        if down {
+            if (prevDown == false) {
+                editor.pointerDown(input)
+                if simRunning {
+                    sim.alpha = 0.35
+                }
+            } {
+                editor.pointerMove(input)
+            }
+        } {
+            if prevDown {
+                editor.pointerUp(input)
+            } {
+                editor.pointerMove(input)
+            }
+        }
+        prevDown = down
+        def wy:int (dgfx_wheel)
+        if (wy != 0) {
+            editor.wheel(input (0.0 - (to_double wy)))
+        }
+        def text:string (dgfx_take_text)
+        if ((strlen text) > 0) {
+            this.handleText(text)
+        }
+        def k:int (dgfx_pop_key)
+        while (k != 0) {
+            this.handleKey(k)
+            k = (dgfx_pop_key)
+        }
+    }
+
+    fn handleKey:void (k:int) {
+        if (k == 4) {
+            wantQuit = true
+            return
+        }
+        if (k == 9) {
+            editor.keyDown("Delete" false false)
+            return
+        }
+        if (k == 1) {
+            editor.keyDown("Backspace" false false)
+            return
+        }
+    }
+
+    ; One character at a time, because that is what SDL delivers. The demo's
+    ; shortcuts are bare letters rather than Ctrl combinations: a terminal-less
+    ; window on Linux does not reliably get a text event while Ctrl is held,
+    ; and a demo whose keys silently do nothing is worse than a demo with
+    ; simpler keys.
+    fn handleText:void (text:string) {
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:string (substring text i (i + 1))
+            this.command(c)
+            i = (i + 1)
+        }
+    }
+
+    fn command:void (c:string) {
+        if (c == "q") {
+            wantQuit = true
+            return
+        }
+        if (c == "f") {
+            editor.fitView()
+            status = "fit"
+            return
+        }
+        if (c == "l") {
+            if simRunning {
+                this.applyLayered()
+                status = "layout: layered"
+            } {
+                this.applyForce()
+                status = "layout: force (d3)"
+            }
+            return
+        }
+        if (c == "n") {
+            notationKind = ((notationKind + 1) % 3)
+            editor.view.notation = (RangerFlowSdl.notationName(notationKind))
+            status = ("notation: " + editor.view.notation)
+            return
+        }
+        if (c == "e") {
+            edgeKind = ((edgeKind + 1) % 4)
+            def kind:string (RangerFlowSdl.edgeName(edgeKind))
+            def j:int 0
+            while (j < (graph.edgeCount())) {
+                def e:FlowEdge (graph.edgeAt(j))
+                e.edgeType = kind
+                j = (j + 1)
+            }
+            status = ("edges: " + kind)
+            return
+        }
+        if (c == "t") {
+            darkTheme = (darkTheme == false)
+            if darkTheme {
+                editor.view.theme = (FlowTheme.dark())
+            } {
+                editor.view.theme = (FlowTheme.light())
+            }
+            status = ("theme: " + editor.view.theme.name)
+            return
+        }
+        if (c == "g") {
+            def v:int ((editor.view.theme.backgroundVariant + 1) % 4)
+            editor.view.theme.backgroundVariant = v
+            status = ("background: " + (to_string v))
+            return
+        }
+        if (c == "m") {
+            editor.view.showMinimap = (editor.view.showMinimap == false)
+            return
+        }
+        if (c == "a") {
+            editor.keyDown("a" false true)
+            return
+        }
+        if (c == "z") {
+            editor.keyDown("z" false true)
+            return
+        }
+        if (c == "y") {
+            editor.keyDown("y" false true)
+            return
+        }
+        if (c == "s") {
+            def sc:FlowScene (editor.view.buildForExport(24.0))
+            def outPath:string (outDir + "/rangerflow-sdl.svg")
+            write_file "." outPath (sc.toSvg())
+            status = ("wrote " + outPath)
+            print ("  " + status)
+            return
+        }
+    }
+
+    sfn notationName:string (i:int) {
+        if (i == 1) { return "uml" }
+        if (i == 2) { return "plain" }
+        return "crowfoot"
+    }
+
+    sfn edgeName:string (i:int) {
+        if (i == 1) { return "step" }
+        if (i == 2) { return "default" }
+        if (i == 3) { return "straight" }
+        return "smoothstep"
+    }
+
+    ; ---------------------------------------------------------------- frame --
+    fn drawFrame:void () {
+        if simRunning {
+            if ((sim.isSettled()) == false) {
+                sim.tick()
+                SchemaToGraph.faceEdges(graph)
+            }
+        }
+        def sc:FlowScene (editor.view.build())
+        def dl:EVGDisplayList (sc.toDisplayList())
+        if hasWindow {
+            painter.draw(dl pw ph tr images)
+        }
+        frames = (frames + 1)
+    }
+
+    fn run:int (maxFrames:int) {
+        tr.addFontDir(fontDir)
+        def ok:boolean (tr.loadFont("Noto Sans" "Noto_Sans/NotoSans-Regular.ttf"))
+        if ok {
+            tr.fm.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+            tr.fm.loadFont("Noto_Sans/NotoSans-Italic.ttf")
+        } {
+            print "  no font loaded — text will be measured, not drawn"
+        }
+        painter.fontFamily = "Noto Sans"
+        if ((this.loadSchema()) == false) {
+            return 1
+        }
+        this.openWindow()
+        def running:boolean true
+        while (running) {
+            this.pumpInput()
+            this.drawFrame()
+            if (dgfx_should_close) {
+                running = false
+            }
+            if wantQuit {
+                running = false
+            }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+        if hasWindow {
+            dgfx_close
+        }
+        return 0
+    }
+
+    sfn main:void () {
+        def host (new RangerFlowSdl)
+        def maxFrames:int 0
+        def i:int 0
+        def n:int (shell_arg_cnt)
+        while (i < n) {
+            def a:string (shell_arg i)
+            def isNum:boolean true
+            if ((strlen a) == 0) {
+                isNum = false
+            }
+            def ci:int 0
+            while (ci < (strlen a)) {
+                def ch:int (charAt a ci)
+                if (ch < 48) { isNum = false }
+                if (ch > 57) { isNum = false }
+                ci = (ci + 1)
+            }
+            if isNum {
+                def parsed@(optional):int (to_int a)
+                if (!null? parsed) {
+                    maxFrames = (unwrap parsed)
+                }
+            } {
+                host.sqlPath = a
+            }
+            i = (i + 1)
+        }
+        def code:int (host.run(maxFrames))
+        print ("rangerflow-sdl done: frames=" + (to_string host.frames))
+        if (code != 0) {
+            exit 1
+        }
+    }
+}

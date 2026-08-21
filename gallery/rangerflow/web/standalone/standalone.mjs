@@ -106,6 +106,14 @@ window.addEventListener("keydown", (ev) => {
 });
 
 const bind = (id, fn) => document.getElementById(id).addEventListener("change", fn);
+bind("scenario", (e) => {
+  app.loadScenario(e.target.value);
+  app.fitView();
+  // Each scenario picks the layout and notation that suit it; the controls
+  // have to say what the app actually did, or the next change reads as a
+  // no-op because the dropdown already showed the value.
+  syncControls();
+});
 bind("layout", (e) => app.setLayout(e.target.value));
 bind("notation", (e) => app.setNotation(e.target.value));
 bind("edgetype", (e) => app.setEdgeType(e.target.value));
@@ -150,12 +158,27 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
+/** Put the controls back in step with whatever the app decided. */
+function syncControls() {
+  document.getElementById("layout").value = app.layoutName;
+  document.getElementById("notation").value = app.editor.view.notation;
+  document.getElementById("theme").value = app.editor.view.theme.name;
+}
+
 async function boot() {
   await loadFonts();
   resize();
   window.addEventListener("resize", resize);
+  // The schema fixture is the only thing the page cannot make for itself. It
+  // is handed over once and kept, so the scenario picker can come back to it.
   const res = await fetch("./ecommerce.sql");
-  app.loadSql(await res.text());
+  app.setFixtureSql(await res.text());
+
+  const params = new URLSearchParams(location.search);
+  const wanted = params.get("scenario") || "erd";
+  document.getElementById("scenario").value = wanted;
+  app.loadScenario(wanted);
+  syncControls();
   app.fitView();
 
   if (new URLSearchParams(location.search).has("selftest")) {

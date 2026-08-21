@@ -32,11 +32,42 @@ npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON,
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
 npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
-npm run rangerflow:web         # build the serverless WebGL page
-npm run rangerflow:web:serve   # …and serve it on :8080
-npm run rangerflow:web:test    # …or open it in headless Chrome and make it work
+npm run rangerflow:demo:web    # build the page, serve it, open a browser
+npm run rangerflow:web:serve   # …the same without opening anything
+npm run rangerflow:web:test    # …or run all four demos in headless Chrome
 npm run rangerflow:parity      # score it against React Flow — see below
+npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL window
 ```
+
+## The demos, in a browser
+
+`npm run rangerflow:demo:web` builds the static page, serves it, and prints
+four URLs. They are the same editor with different graphs in it — the `demo`
+dropdown in the page switches between them, and `?scenario=` picks one on load:
+
+| | |
+| --- | --- |
+| [`?scenario=erd`](http://localhost:8080/?scenario=erd) | a 9-table database schema, parsed from `fixtures/ecommerce.sql`, crow's foot notation, field-level ports |
+| [`?scenario=uml`](http://localhost:8080/?scenario=uml) | a UML class diagram — the same compartment node with different words in it |
+| [`?scenario=force`](http://localhost:8080/?scenario=force) | React Flow's force-layout example: d3-force running live, and a node you drag pins while you hold it |
+| [`?scenario=flow`](http://localhost:8080/?scenario=flow) | a plain flowchart — the core with no domain on top of it |
+
+Drag to pan, wheel to zoom, shift-drag to box select, drag a handle to connect,
+`Delete`, `Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen,
+and **open .sql** reads a schema in the tab without uploading it anywhere.
+
+Every one of the four is checked on every `npm run rangerflow:web:test`: the
+page drives itself through select → drag → undo → select-all inside real
+headless Chrome and reports what the GL context actually did, so a scenario
+cannot rot unnoticed behind the default one.
+
+## …and in a window
+
+`npm run rangerflow:sdl:run` compiles the whole thing to C++ and links it
+against SDL2 and OpenGL. It is the same `FlowEditor`; only the layer that owns
+the window differs, because the seam between them is the EVG display list.
+See [`platform/sdl/README.md`](platform/sdl/README.md) — including what has and
+has not been verified, and why the window is borrowed from the DataGrid.
 
 ## Why a graph core and a schema editor are the same program
 

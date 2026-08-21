@@ -23,10 +23,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "dist");
 const PORT = parseInt(argVal("--port", "8899"), 10);
 
-function argVal(flag, dflt) {
-  const i = process.argv.indexOf(flag);
+function argVal(name, dflt) {
+  const i = process.argv.indexOf(name);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
 }
+const flag = (name) => process.argv.includes(name);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -112,6 +113,76 @@ const CHROME_FLAGS = [
   "--enable-unsafe-swiftshader",
 ];
 
+const ALL_SCENARIOS = ["erd", "uml", "force", "flow"];
+
+/**
+ * Drive one demo through the page's own self test and report.
+ * Returns true when everything the page claims about itself checks out.
+ */
+async function checkOne(chrome, scenario, shot) {
+  const url =
+    `http://127.0.0.1:${PORT}/index.html?selftest=1` +
+    (scenario ? `&scenario=${encodeURIComponent(scenario)}` : "");
+  const run = await runChrome(chrome, [
+    ...CHROME_FLAGS, "--virtual-time-budget=25000", "--dump-dom", url,
+  ]);
+  const dom = run.stdout || "";
+  if (process.env.SMOKE_DEBUG) {
+    fs.writeFileSync(`/tmp/rangerflow-dom-${scenario || "default"}.html`, dom);
+    console.log("  [debug] dom " + dom.length + " bytes, status " + run.status);
+  }
+  const selftest = (dom.match(/<pre id="selftest"[^>]*>([\s\S]*?)<\/pre>/) || [])[1] || "";
+  const status = (dom.match(/<span id="status">([^<]*)/) || [])[1] || "";
+  const backend = (dom.match(/<span id="backend">([^<]*)/) || [])[1] || "";
+  const cmds = (dom.match(/<span id="cmds">([^<]*)/) || [])[1] || "";
+
+  const label = scenario || "erd";
+  console.log(`  [${label}]`);
+  console.log("    status   " + status);
+  console.log("    backend  " + backend);
+  console.log("    cmds     " + cmds);
+  for (const l of selftest.split("\n")) if (l.trim()) console.log("    " + l.trim());
+
+  const num = (re) => parseInt((selftest.match(re) || [])[1] || "-1", 10);
+  const problems = [];
+  if (backend !== "webgl2") problems.push("not drawing with WebGL 2 (got '" + backend + "')");
+  if (!selftest) problems.push("the page ran no self test");
+  else if (!selftest.startsWith("PASS")) problems.push("self test failed: " + selftest.split("\n")[0]);
+  if (!/webgl2=true/.test(selftest)) problems.push("the context is not a WebGL2RenderingContext");
+  if (!/stencil=true/.test(selftest)) problems.push("no stencil buffer — filled paths cannot be drawn");
+  if (!(num(/quads=(\d+)/) > 50)) problems.push("almost nothing was drawn (quads=" + num(/quads=(\d+)/) + ")");
+  if (!(num(/paths=(\d+)/) > 0)) problems.push("no vector path was drawn — the edges are missing");
+  if (num(/skippedFills=(\d+)/) !== 0) problems.push("fills were skipped: " + num(/skippedFills=(\d+)/));
+  // Every scenario has to put something on the screen; only the schema has a
+  // known node count to check against.
+  if (label === "erd") {
+    if (!/nodes=9/.test(selftest)) problems.push("the fixture schema did not load (expected 9 tables)");
+  } else {
+    const nodes = num(/nodes=(\d+)/);
+    if (!(nodes > 1)) problems.push(`scenario '${label}' produced ${nodes} nodes`);
+  }
+
+  if (problems.length) {
+    for (const p of problems) console.error("    FAIL " + p);
+    if (run.stderr) console.error(run.stderr.split("\n").slice(-6).join("\n"));
+    return false;
+  }
+
+  if (shot) {
+    // Its own run, without the self test, so the picture is the diagram rather
+    // than whatever the last scripted step left on screen.
+    fs.mkdirSync(path.dirname(path.resolve(shot)), { recursive: true });
+    await runChrome(chrome, [
+      ...CHROME_FLAGS, "--virtual-time-budget=15000",
+      "--window-size=1440,900", "--screenshot=" + path.resolve(shot),
+      `http://127.0.0.1:${PORT}/index.html` + (scenario ? `?scenario=${scenario}` : ""),
+    ]);
+    console.log("    wrote " + shot);
+  }
+  console.log("    OK");
+  return true;
+}
+
 async function main() {
   if (!fs.existsSync(path.join(DIST, "rangerflow_web.js"))) {
     console.error("no build in " + DIST + " — run: npm run rangerflow:web");
@@ -124,53 +195,22 @@ async function main() {
   }
   const server = await serve();
   try {
-    const url = `http://127.0.0.1:${PORT}/index.html?selftest=1`;
-    const run = await runChrome(chrome, [
-      ...CHROME_FLAGS, "--virtual-time-budget=25000", "--dump-dom", url,
-    ]);
-    const dom = run.stdout || "";
-    if (process.env.SMOKE_DEBUG) {
-      fs.writeFileSync("/tmp/rangerflow-dom.html", dom);
-      console.log("  [debug] dom " + dom.length + " bytes, status " + run.status);
+    // `--all` walks every demo the page ships through the same self test on
+    // one server, so a scenario cannot rot unnoticed behind the default one.
+    const names = flag("--all") ? ALL_SCENARIOS : [argVal("--scenario", "")];
+    const shots = argVal("--shots", "");
+    let bad = 0;
+    for (const name of names) {
+      const shot = shots
+        ? path.join(shots, `scenario_${name || "erd"}.png`)
+        : argVal("--shot", "");
+      const ok = await checkOne(chrome, name, shot);
+      if (!ok) bad += 1;
     }
-    const selftest = (dom.match(/<pre id="selftest"[^>]*>([\s\S]*?)<\/pre>/) || [])[1] || "";
-    const status = (dom.match(/<span id="status">([^<]*)/) || [])[1] || "";
-    const backend = (dom.match(/<span id="backend">([^<]*)/) || [])[1] || "";
-    const cmds = (dom.match(/<span id="cmds">([^<]*)/) || [])[1] || "";
-
-    console.log("  status   " + status);
-    console.log("  backend  " + backend);
-    console.log("  cmds     " + cmds);
-    for (const l of selftest.split("\n")) if (l.trim()) console.log("  " + l.trim());
-
-    const num = (re) => parseInt((selftest.match(re) || [])[1] || "-1", 10);
-    const problems = [];
-    if (backend !== "webgl2") problems.push("not drawing with WebGL 2 (got '" + backend + "')");
-    if (!selftest) problems.push("the page ran no self test");
-    if (!selftest.startsWith("PASS")) problems.push("self test failed: " + selftest.split("\n")[0]);
-    if (!/webgl2=true/.test(selftest)) problems.push("the context is not a WebGL2RenderingContext");
-    if (!/stencil=true/.test(selftest)) problems.push("no stencil buffer — filled paths cannot be drawn");
-    if (!(num(/quads=(\d+)/) > 50)) problems.push("almost nothing was drawn (quads=" + num(/quads=(\d+)/) + ")");
-    if (!(num(/paths=(\d+)/) > 0)) problems.push("no vector path was drawn — the edges are missing");
-    if (num(/skippedFills=(\d+)/) !== 0) problems.push("fills were skipped: " + num(/skippedFills=(\d+)/));
-    if (!/nodes=9/.test(selftest)) problems.push("the fixture schema did not load (expected 9 tables)");
-
-    if (problems.length) {
-      for (const p of problems) console.error("  FAIL " + p);
-      if (run.stderr) console.error(run.stderr.split("\n").slice(-8).join("\n"));
-      process.exit(1);
+    if (names.length > 1) {
+      console.log(bad ? `  ${bad} scenario(s) FAILED` : "  all scenarios OK");
     }
-
-    const shot = argVal("--shot", "");
-    if (shot) {
-      await runChrome(chrome, [
-        ...CHROME_FLAGS, "--virtual-time-budget=15000",
-        "--window-size=1440,900", "--screenshot=" + path.resolve(shot),
-        `http://127.0.0.1:${PORT}/index.html`,
-      ]);
-      console.log("  wrote " + shot);
-    }
-    console.log("  OK");
+    if (bad) process.exit(1);
   } finally {
     server.close();
   }

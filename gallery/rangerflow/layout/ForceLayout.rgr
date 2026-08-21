@@ -32,24 +32,29 @@ Import "../core/GraphModel.rgr"
 ; reproducible across runs, machines and target languages. A layout that moves
 ; when nothing changed cannot be regression-tested.
 class FlowRandom {
-    def state:int 1
+    ; The state is a DOUBLE, not an int. d3's modulus is 2^32, which does not
+    ; fit in a 32-bit int, and the C++ target compiles `int` to `int`: the
+    ; literal wrapped to 0, every draw divided by zero, and the whole generator
+    ; was silently broken on every target but JavaScript. A double holds both
+    ; the modulus and the largest intermediate (a·x + c ≈ 7.2e15) exactly,
+    ; because both are under 2^53.
+    def state:double 1.0
 
     Constructor () {
     }
 
     fn reset:void () {
-        state = 1
+        state = 1.0
     }
 
     fn next:double () {
-        def a:int 1664525
-        def c:int 1013904223
-        def m:int 4294967296
-        def v:int ((a * state) + c)
-        state = (v % m)
-        def sd:double (to_double state)
-        def md:double (to_double m)
-        return (sd / md)
+        def a:double 1664525.0
+        def c:double 1013904223.0
+        def m:double 4294967296.0
+        def v:double ((a * state) + c)
+        def q:int (floor (v / m))
+        state = (v - ((to_double q) * m))
+        return (state / m)
     }
 
     ; d3-force's `jiggle`: a nudge small enough not to disturb the layout, big
