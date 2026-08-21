@@ -63,6 +63,20 @@ class DocxWeb {
         return viewer.currentPage
     }
 
+    ; The page the app is on, changed by the app. A host used to keep its own
+    ; page number and the app kept another, which was fine while only the host
+    ; ever changed it — and stopped being fine the moment PageDown in view
+    ; mode started turning pages here. There is one page number now and this
+    ; is it; a host reads it back after anything that might have moved it.
+    fn goToPage:boolean (p:int) {
+        return (viewer.goToPage(p))
+    }
+
+    ; A wheel notch or a swipe, in scene pixels, positive downwards.
+    fn scroll:boolean (dy:int) {
+        return (viewer.scrollBy(dy))
+    }
+
     fn imageParts:string () {
         return (viewer.imagePartsJson())
     }

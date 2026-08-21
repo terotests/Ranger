@@ -20,6 +20,8 @@ class DocxViewer {
     def edit:DocxEditController (new DocxEditController)
     def lastError:string ""
     def currentPage:int 0
+    ; Wheel / swipe travel not yet spent on a page turn.
+    def scrollAccum:int 0
 
     Constructor () {
     }
@@ -273,37 +275,155 @@ class DocxViewer {
         this.renderPage(currentPage)
     }
 
+    ; --- reading rather than editing -----------------------------------------
+    ; Every movement below moves a CARET, and `edit` does nothing at all when
+    ; editing is off. That is the whole of "PageDown does not go to the next
+    ; page": in a document you are only reading there is no caret to move, and
+    ; nobody had said what the key should do instead.
+    ;
+    ; What it should do is what it does in every reader — turn the page. The
+    ; keys are the same keys and the hosts already send them, so none of them
+    ; has to learn anything; the key simply now means something on both sides
+    ; of the edit switch.
+    ;
+    ; The viewer draws one page at a time, so paging IS the scroll here. A
+    ; continuous ribbon of pages is a different layout and a bigger change
+    ; than this; what a reader needs first is for the key to do something.
+    fn goToPage:boolean (p:int) {
+        def want:int p
+        def n:int (this.pageCount())
+        if (want < 0) {
+            want = 0
+        }
+        if (n > 0) {
+            if (want > (n - 1)) {
+                want = (n - 1)
+            }
+        }
+        if (want == currentPage) {
+            return false
+        }
+        this.renderPage(want)
+        return true
+    }
+
+    fn turnPage:boolean (delta:int) {
+        return (this.goToPage((currentPage + delta)))
+    }
+
+    ; A wheel notch or a swipe, in scene pixels, positive downwards.
+    ;
+    ; The travel is ACCUMULATED rather than turned into a page each time: one
+    ; flick of a trackpad is a great many small deltas, and a page per delta
+    ; would throw a reader half way through the document. A page turns once
+    ; the travel adds up to a good part of one, and the remainder is kept so
+    ; two half-flicks in the same direction still turn a page.
+    fn scrollBy:boolean (dy:int) {
+        if (dy == 0) {
+            return false
+        }
+        ; A change of direction is a new gesture, not a continuation.
+        if (dy > 0) {
+            if (scrollAccum < 0) {
+                scrollAccum = 0
+            }
+        } {
+            if (scrollAccum > 0) {
+                scrollAccum = 0
+            }
+        }
+        scrollAccum = (scrollAccum + dy)
+        def step:int (this.pageTurnTravel())
+        def turned:boolean false
+        while (scrollAccum >= step) {
+            scrollAccum = (scrollAccum - step)
+            if (this.turnPage(1)) {
+                turned = true
+            } {
+                scrollAccum = 0
+            }
+        }
+        while (scrollAccum <= (0 - step)) {
+            scrollAccum = (scrollAccum + step)
+            if (this.turnPage(-1)) {
+                turned = true
+            } {
+                scrollAccum = 0
+            }
+        }
+        return turned
+    }
+
+    ; How far a gesture has to travel to be worth a page. A third of the page
+    ; is about one comfortable flick and is short enough that a deliberate
+    ; drag still feels connected to the paper.
+    fn pageTurnTravel:int () {
+        def h:int (this.pageHeight())
+        if (h < 300) {
+            return 100
+        }
+        return (idiv h 3)
+    }
+
     fn keyLeft:void (extend:boolean) {
+        if ((edit.isEnabled()) == false) {
+            this.turnPage(-1)
+            return
+        }
         edit.moveLeft(extend)
         this.followCaret()
     }
 
     fn keyRight:void (extend:boolean) {
+        if ((edit.isEnabled()) == false) {
+            this.turnPage(1)
+            return
+        }
         edit.moveRight(extend)
         this.followCaret()
     }
 
     fn keyUp:void (extend:boolean) {
+        if ((edit.isEnabled()) == false) {
+            this.turnPage(-1)
+            return
+        }
         edit.moveUp(view.layout extend)
         this.followCaret()
     }
 
     fn keyDown:void (extend:boolean) {
+        if ((edit.isEnabled()) == false) {
+            this.turnPage(1)
+            return
+        }
         edit.moveDown(view.layout extend)
         this.followCaret()
     }
 
     fn keyPageUp:void (extend:boolean) {
+        if ((edit.isEnabled()) == false) {
+            this.turnPage(-1)
+            return
+        }
         edit.pageUp(view.layout extend)
         this.followCaret()
     }
 
     fn keyPageDown:void (extend:boolean) {
+        if ((edit.isEnabled()) == false) {
+            this.turnPage(1)
+            return
+        }
         edit.pageDown(view.layout extend)
         this.followCaret()
     }
 
     fn keyHome:void (extend:boolean ctrl:boolean) {
+        if ((edit.isEnabled()) == false) {
+            this.goToPage(0)
+            return
+        }
         if ctrl {
             edit.moveDocEdge(false extend)
         } {
@@ -313,6 +433,10 @@ class DocxViewer {
     }
 
     fn keyEnd:void (extend:boolean ctrl:boolean) {
+        if ((edit.isEnabled()) == false) {
+            this.goToPage(((this.pageCount()) - 1))
+            return
+        }
         if ctrl {
             edit.moveDocEdge(true extend)
         } {

@@ -276,10 +276,90 @@ async function writeClipboard(text) {
   }
 }
 
+// --- the wheel, and a swipe ------------------------------------------------
+// A document you are reading has to answer a scroll gesture, and this page had
+// nothing on the wheel at all: the mouse did nothing, the trackpad did nothing,
+// and a finger did nothing. All three are the same question — how far did it
+// travel — so all three send `scroll` and the viewer decides when that adds up
+// to a page. Deciding it there rather than here is what keeps this host and
+// the serverless page feeling the same.
+let scrollBusy = false;
+
+async function sendScroll(dy) {
+  if (!dy) return;
+  if (scrollBusy) return;
+  scrollBusy = true;
+  try {
+    const data = await sendInput({ type: "scroll", dy: Math.round(dy) });
+    if (data && typeof data.page === "number" && data.page !== page) {
+      page = data.page;
+      await refreshPage();
+    }
+  } finally {
+    scrollBusy = false;
+  }
+}
+
+pageImg?.addEventListener(
+  "wheel",
+  (ev) => {
+    ev.preventDefault();
+    // A wheel notch is reported in lines or pages on some browsers; scale
+    // those to something comparable to the pixels a trackpad sends.
+    let dy = ev.deltaY;
+    if (ev.deltaMode === 1) dy *= 16;
+    else if (ev.deltaMode === 2) dy *= 400;
+    sendScroll(dy);
+  },
+  { passive: false }
+);
+
+let touchY = 0;
+let touchActive = false;
+pageImg?.addEventListener(
+  "touchstart",
+  (ev) => {
+    if (ev.touches.length !== 1) return;
+    touchY = ev.touches[0].clientY;
+    touchActive = true;
+  },
+  { passive: true }
+);
+pageImg?.addEventListener(
+  "touchmove",
+  (ev) => {
+    if (!touchActive || ev.touches.length !== 1) return;
+    const y = ev.touches[0].clientY;
+    const dy = touchY - y;
+    touchY = y;
+    ev.preventDefault();
+    sendScroll(dy);
+  },
+  { passive: false }
+);
+pageImg?.addEventListener("touchend", () => {
+  touchActive = false;
+});
+
 window.addEventListener("keydown", async (ev) => {
-  if (!editMode) return;
   const tag = (ev.target && ev.target.tagName) || "";
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+
+  // Reading a document is not editing one, but the arrow keys still have to
+  // do something. In view mode they turn the page — the viewer decides that,
+  // not this file, so the serverless page behaves the same — and everything
+  // that types, deletes or pastes stays behind the edit switch.
+  if (!editMode) {
+    const turn = MOVE_KEYS[ev.key];
+    if (!turn) return;
+    ev.preventDefault();
+    const moved = await sendInput({ type: "move", dir: turn, shift: false, ctrl: false });
+    if (moved && typeof moved.page === "number" && moved.page !== page) {
+      page = moved.page;
+      await refreshPage();
+    }
+    return;
+  }
 
   // Tab moves between table cells. preventDefault keeps the browser from
   // moving focus off the page. (Cmd+Tab belongs to macOS and never reaches us;

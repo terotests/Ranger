@@ -249,6 +249,7 @@
     "datagrid:oracles": "npm run datagrid:oracle:dump && npm run datagrid:oracle:formula && node gallery/datagrid/harness/run_oracles.mjs",
     "docx_viewer:chart:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/tests/ChartPasteTest.rgr -d=./gallery/docx_viewer/bin -o=ChartPasteTest.js -nodecli && node ./gallery/docx_viewer/bin/ChartPasteTest.js",
     "docx_viewer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/tests/DocxTest.rgr -d=./gallery/docx_viewer/bin -o=DocxTest.js -nodecli && node ./gallery/docx_viewer/bin/DocxTest.js",
+    "docx_viewer:paging:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/tests/DocxPagingTest.rgr -d=./gallery/docx_viewer/bin -o=DocxPagingTest.js -nodecli && node ./gallery/docx_viewer/bin/DocxPagingTest.js",
     "docx_viewer:web": "bash gallery/docx_viewer/web/standalone/build.sh",
     "docx_viewer:web:serve": "bash gallery/docx_viewer/web/standalone/build.sh && python3 -m http.server -d gallery/docx_viewer/web/standalone/dist 8002",
     "docx_viewer:web:test": "bash gallery/docx_viewer/web/standalone/build.sh && node gallery/docx_viewer/web/standalone/smoke.mjs",
