@@ -19,7 +19,7 @@ so the same scene can drive a viewer today and a slide editor later.
 10. Text fidelity: align, size, run color, wrap, insets, vertical anchor
 11. Two-stop linear gradients + outer shadow under SoftCanvas rects
 12. Bullets (`buChar` / `buAutoNum`) as prefixed paragraph paint
-13. Preset + `custGeom` path fills (`PptxGeom` + display-list kind 6)
+13. Preset + `custGeom` fills as SVG path data through EVG's `SVGPathParser`
 14. DrawingML tables (`graphicFrame` / `a:tbl`) as cell grid
 15. Charts → Vela PoC (`PptxChartVela`: ChartML → VL → SoftCanvas bars)
 16. True multi-face bold / italic / bold-italic SoftCanvas paint

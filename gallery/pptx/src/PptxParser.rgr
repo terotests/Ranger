@@ -10,6 +10,7 @@
 Import "OpcPackage.rgr"
 Import "PptxXml.rgr"
 Import "PptxModel.rgr"
+Import "PptxGeom.rgr"
 
 class PptxParser {
     def pkg:OpcPackage (new OpcPackage())
@@ -517,24 +518,100 @@ class PptxParser {
         }
         if (pw < 1.0) { pw = 1.0 }
         if (ph < 1.0) { ph = 1.0 }
-        def pts:[double]
+        ; DrawingML's path grammar is not SVG's, but it says the same things,
+        ; so it is TRANSLATED here and flattened by EVG's own path stack. That
+        ; is what makes `cubicBezTo`, `quadBezTo` and `arcTo` draw at all: they
+        ; used to be skipped, so a curved custom shape came out as a polygon of
+        ; whichever of its points happened to be straight lines.
+        def data:string ""
+        def curX:double 0.0
+        def curY:double 0.0
         def i:int 0
         while (i < (pnode.childCount())) {
             def ch:PptxXmlNode (pnode.childAt(i))
             if (ch.isText == false) {
-                if ((ch.name == "moveTo") || (ch.name == "lnTo")) {
-                    def pt@(optional):PptxXmlNode (ch.firstChild("pt"))
-                    if (!null? pt) {
-                        def pn:PptxXmlNode (unwrap pt)
-                        def x:double ((this.parseDoubleAttr(pn "x")) / pw)
-                        def y:double ((this.parseDoubleAttr(pn "y")) / ph)
-                        push pts x
-                        push pts y
+                def kids:[PptxXmlNode] (ch.childrenNamed("pt"))
+                if (ch.name == "moveTo") {
+                    if ((array_length kids) >= 1) {
+                        def m0:PptxXmlNode (itemAt kids 0)
+                        curX = ((this.parseDoubleAttr(m0 "x")) / pw)
+                        curY = ((this.parseDoubleAttr(m0 "y")) / ph)
+                        data = ((data + " M ") + (PptxGeom.pathNum(curX)) + "," + (PptxGeom.pathNum(curY)))
                     }
+                }
+                if (ch.name == "lnTo") {
+                    if ((array_length kids) >= 1) {
+                        def l0:PptxXmlNode (itemAt kids 0)
+                        curX = ((this.parseDoubleAttr(l0 "x")) / pw)
+                        curY = ((this.parseDoubleAttr(l0 "y")) / ph)
+                        data = ((data + " L ") + (PptxGeom.pathNum(curX)) + "," + (PptxGeom.pathNum(curY)))
+                    }
+                }
+                if (ch.name == "cubicBezTo") {
+                    if ((array_length kids) >= 3) {
+                        def c1:PptxXmlNode (itemAt kids 0)
+                        def c2:PptxXmlNode (itemAt kids 1)
+                        def c3:PptxXmlNode (itemAt kids 2)
+                        def x1:double ((this.parseDoubleAttr(c1 "x")) / pw)
+                        def y1:double ((this.parseDoubleAttr(c1 "y")) / ph)
+                        def x2:double ((this.parseDoubleAttr(c2 "x")) / pw)
+                        def y2:double ((this.parseDoubleAttr(c2 "y")) / ph)
+                        curX = ((this.parseDoubleAttr(c3 "x")) / pw)
+                        curY = ((this.parseDoubleAttr(c3 "y")) / ph)
+                        data = ((data + " C ") + (PptxGeom.pathNum(x1)) + "," + (PptxGeom.pathNum(y1)) + " " + (PptxGeom.pathNum(x2)) + "," + (PptxGeom.pathNum(y2)) + " " + (PptxGeom.pathNum(curX)) + "," + (PptxGeom.pathNum(curY)))
+                    }
+                }
+                if (ch.name == "quadBezTo") {
+                    if ((array_length kids) >= 2) {
+                        def q1:PptxXmlNode (itemAt kids 0)
+                        def q2:PptxXmlNode (itemAt kids 1)
+                        def qx:double ((this.parseDoubleAttr(q1 "x")) / pw)
+                        def qy:double ((this.parseDoubleAttr(q1 "y")) / ph)
+                        curX = ((this.parseDoubleAttr(q2 "x")) / pw)
+                        curY = ((this.parseDoubleAttr(q2 "y")) / ph)
+                        data = ((data + " Q ") + (PptxGeom.pathNum(qx)) + "," + (PptxGeom.pathNum(qy)) + " " + (PptxGeom.pathNum(curX)) + "," + (PptxGeom.pathNum(curY)))
+                    }
+                }
+                if (ch.name == "arcTo") {
+                    ; An arc is stated from where the pen is, as two radii and
+                    ; two angles; SVG states it as two radii and where the pen
+                    ; ENDS, plus which of the four arcs between them is meant.
+                    def wR:double ((this.parseDoubleAttr(ch "wR")) / pw)
+                    def hR:double ((this.parseDoubleAttr(ch "hR")) / ph)
+                    def stDeg:double ((this.parseDoubleAttr(ch "stAng")) / 60000.0)
+                    def swDeg:double ((this.parseDoubleAttr(ch "swAng")) / 60000.0)
+                    def rad:double 0.017453292519943295
+                    def st:double (stDeg * rad)
+                    def en:double ((stDeg + swDeg) * rad)
+                    def ccx:double (curX - (wR * (cos st)))
+                    def ccy:double (curY - (hR * (sin st)))
+                    def ex:double (ccx + (wR * (cos en)))
+                    def ey:double (ccy + (hR * (sin en)))
+                    def large:string "0"
+                    def spanAbs:double (fabs swDeg)
+                    if (spanAbs > 180.0) {
+                        large = "1"
+                    }
+                    def sweep:string "0"
+                    if (swDeg > 0.0) {
+                        sweep = "1"
+                    }
+                    def rx:double (fabs wR)
+                    def ry:double (fabs hR)
+                    data = ((data + " A ") + (PptxGeom.pathNum(rx)) + "," + (PptxGeom.pathNum(ry)) + " 0 " + large + " " + sweep + " " + (PptxGeom.pathNum(ex)) + "," + (PptxGeom.pathNum(ey)))
+                    curX = ex
+                    curY = ey
+                }
+                if (ch.name == "close") {
+                    data = (data + " Z")
                 }
             }
             i = (i + 1)
         }
+        if ((strlen data) == 0) {
+            return
+        }
+        def pts:[double] (PptxGeom.flattenData(data))
         if ((array_length pts) >= 6) {
             shape.hasPath = true
             shape.pathUnit = pts

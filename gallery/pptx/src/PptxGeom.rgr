@@ -1,11 +1,24 @@
 ; ==============================================================================
-; PptxGeom - preset DrawingML geometries → flat polygon points (unit box)
+; PptxGeom - DrawingML geometry → flat polygon points (unit box)
 ; ==============================================================================
 ;
-; Returns [x0,y0,x1,y1,…] in unit space [0,1]×[0,1]. SoftCanvas scales into
-; the shape destination rectangle. Custom pathLst parsing can feed the same
-; consumer later.
+; Returns [x0,y0,x1,y1,…] in unit space [0,1]×[0,1]; `scaleToBox` puts that in
+; the shape's rectangle and SoftCanvas / WebGL fill it.
+;
+; The shapes are written as **SVG path data** and flattened by EVG's own vector
+; stack (`SVGPathParser`), rather than as tables of points typed out here. That
+; is the difference between a circle and a twelve-sided polygon: `parse` turns
+; an `A` arc into cubics the way SVG says to, and `flatten` walks the curve at
+; whatever resolution it is asked for. It also means a preset is one readable
+; line — the same line a designer would write — instead of twenty pushes.
+;
+; What it deliberately does NOT do is holes: `flatten` welds every subpath into
+; one ring, and the display list's polygon primitive has no even-odd rule, so a
+; donut would come out solid. Single-contour presets only, until the painter
+; grows rings.
 ; ==============================================================================
+
+Import "../../evg/SVGPathParser.rgr"
 
 class PptxGeom {
     Constructor () {
@@ -16,69 +29,115 @@ class PptxGeom {
         push pts y
     }
 
-    sfn unitPreset:[double] (preset:string) {
-        def pts:[double]
+    ; Segments per curve. 16 puts an ellipse's error under a thousandth of its
+    ; box, which is finer than a pixel on any slide anyone will project.
+    sfn curveSteps:int () {
+        return 16
+    }
+
+    ; A preset as SVG path data in the unit box. An empty string means "this is
+    ; not a path shape" — `rect` and `roundRect` are drawn by the rounded-rect
+    ; primitive, which knows about gradients and shadows in a way a polygon
+    ; does not.
+    sfn presetPath:string (preset:string) {
         if (preset == "ellipse") {
-            ; A real circle rather than the twelve-sided one that used to be
-            ; typed out here — `cos` and `sin` are builtins, and a dodecagon is
-            ; visible as soon as a shape is bigger than a bullet.
-            def n:int 48
-            def i:int 0
-            while (i < n) {
-                def ang:double (((to_double i) * 6.283185307179586) / (to_double n))
-                def cx:double (cos ang)
-                def cy:double (sin ang)
-                PptxGeom.pushPt(pts (0.5 + (0.5 * cx)) (0.5 + (0.5 * cy)))
-                i = (i + 1)
-            }
-            return pts
+            return "M 1,0.5 A 0.5,0.5 0 1 1 0,0.5 A 0.5,0.5 0 1 1 1,0.5 Z"
         }
         if (preset == "triangle") {
-            PptxGeom.pushPt(pts 0.5 0.0)
-            PptxGeom.pushPt(pts 1.0 1.0)
-            PptxGeom.pushPt(pts 0.0 1.0)
-            return pts
+            return "M 0.5,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "rtTriangle") {
+            return "M 0,0 L 0,1 L 1,1 Z"
         }
         if (preset == "diamond") {
-            PptxGeom.pushPt(pts 0.5 0.0)
-            PptxGeom.pushPt(pts 1.0 0.5)
-            PptxGeom.pushPt(pts 0.5 1.0)
-            PptxGeom.pushPt(pts 0.0 0.5)
-            return pts
+            return "M 0.5,0 L 1,0.5 L 0.5,1 L 0,0.5 Z"
+        }
+        if (preset == "parallelogram") {
+            return "M 0.25,0 L 1,0 L 0.75,1 L 0,1 Z"
+        }
+        if (preset == "trapezoid") {
+            return "M 0.25,0 L 0.75,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "pentagon") {
+            return "M 0.5,0 L 1,0.38 L 0.81,1 L 0.19,1 L 0,0.38 Z"
+        }
+        if (preset == "hexagon") {
+            return "M 0.25,0 L 0.75,0 L 1,0.5 L 0.75,1 L 0.25,1 L 0,0.5 Z"
+        }
+        if (preset == "octagon") {
+            return "M 0.29,0 L 0.71,0 L 1,0.29 L 1,0.71 L 0.71,1 L 0.29,1 L 0,0.71 L 0,0.29 Z"
         }
         if (preset == "chevron") {
-            PptxGeom.pushPt(pts 0.0 0.0)
-            PptxGeom.pushPt(pts 0.65 0.0)
-            PptxGeom.pushPt(pts 1.0 0.5)
-            PptxGeom.pushPt(pts 0.65 1.0)
-            PptxGeom.pushPt(pts 0.0 1.0)
-            PptxGeom.pushPt(pts 0.35 0.5)
-            return pts
+            return "M 0,0 L 0.65,0 L 1,0.5 L 0.65,1 L 0,1 L 0.35,0.5 Z"
+        }
+        if (preset == "homePlate") {
+            return "M 0,0 L 0.75,0 L 1,0.5 L 0.75,1 L 0,1 Z"
         }
         if (preset == "star5") {
-            ; Flat 5-point star (outer/inner radii)
-            PptxGeom.pushPt(pts 0.5 0.0)
-            PptxGeom.pushPt(pts 0.62 0.35)
-            PptxGeom.pushPt(pts 1.0 0.38)
-            PptxGeom.pushPt(pts 0.7 0.62)
-            PptxGeom.pushPt(pts 0.81 1.0)
-            PptxGeom.pushPt(pts 0.5 0.78)
-            PptxGeom.pushPt(pts 0.19 1.0)
-            PptxGeom.pushPt(pts 0.3 0.62)
-            PptxGeom.pushPt(pts 0.0 0.38)
-            PptxGeom.pushPt(pts 0.38 0.35)
-            return pts
+            return "M 0.5,0 L 0.62,0.35 L 1,0.38 L 0.7,0.62 L 0.81,1 L 0.5,0.78 L 0.19,1 L 0.3,0.62 L 0,0.38 L 0.38,0.35 Z"
+        }
+        if (preset == "rightArrow") {
+            return "M 0,0.3 L 0.6,0.3 L 0.6,0.05 L 1,0.5 L 0.6,0.95 L 0.6,0.7 L 0,0.7 Z"
+        }
+        if (preset == "leftArrow") {
+            return "M 1,0.3 L 0.4,0.3 L 0.4,0.05 L 0,0.5 L 0.4,0.95 L 0.4,0.7 L 1,0.7 Z"
+        }
+        if (preset == "upArrow") {
+            return "M 0.3,1 L 0.3,0.4 L 0.05,0.4 L 0.5,0 L 0.95,0.4 L 0.7,0.4 L 0.7,1 Z"
+        }
+        if (preset == "downArrow") {
+            return "M 0.3,0 L 0.3,0.6 L 0.05,0.6 L 0.5,1 L 0.95,0.6 L 0.7,0.6 L 0.7,0 Z"
+        }
+        if (preset == "plus") {
+            return "M 0.35,0 L 0.65,0 L 0.65,0.35 L 1,0.35 L 1,0.65 L 0.65,0.65 L 0.65,1 L 0.35,1 L 0.35,0.65 L 0,0.65 L 0,0.35 L 0.35,0.35 Z"
+        }
+        if (preset == "flowChartTerminator") {
+            return "M 0.17,0 L 0.83,0 A 0.17,0.5 0 0 1 0.83,1 L 0.17,1 A 0.17,0.5 0 0 1 0.17,0 Z"
         }
         if (preset == "roundRect") {
-            ; SoftCanvas paints roundRect via radius; empty path → rect fallback
-            return pts
+            return ""
         }
-        ; Default rect
+        return ""
+    }
+
+    ; Flatten path data into the unit-space point list the painter consumes.
+    sfn flattenData:[double] (data:string) {
+        def parser (new SVGPathParser())
+        parser.parse(data)
+        return (parser.flatten((PptxGeom.curveSteps())))
+    }
+
+    sfn unitPreset:[double] (preset:string) {
+        def data:string (PptxGeom.presetPath(preset))
+        if ((strlen data) > 0) {
+            return (PptxGeom.flattenData(data))
+        }
+        def pts:[double]
         PptxGeom.pushPt(pts 0.0 0.0)
         PptxGeom.pushPt(pts 1.0 0.0)
         PptxGeom.pushPt(pts 1.0 1.0)
         PptxGeom.pushPt(pts 0.0 1.0)
         return pts
+    }
+
+    ; A number in path data, without an exponent: `1e-7` is a perfectly good
+    ; double and not a number any path parser has to accept.
+    sfn pathNum:string (v:double) {
+        ; Rounded on the magnitude and the sign put back, because `to_int`
+        ; FLOORS: `(v - 0.5)` on a negative rounds away from zero twice and
+        ; -0.25 comes out -0.250001. The same shape of bug the JPEG encoder
+        ; had in its quantizer.
+        def neg:boolean (v < 0.0)
+        def mag:double v
+        if neg {
+            mag = (0.0 - v)
+        }
+        def r:int (to_int ((mag * 1000000.0) + 0.5))
+        def back:double ((to_double r) / 1000000.0)
+        if neg {
+            back = (0.0 - back)
+        }
+        return (to_string back)
     }
 
     sfn scaleToBox:[double] (unit:[double] x:double y:double w:double h:double) {
@@ -95,11 +154,6 @@ class PptxGeom {
     }
 
     sfn needsPath:boolean (preset:string) {
-        if (preset == "triangle") { return true }
-        if (preset == "diamond") { return true }
-        if (preset == "chevron") { return true }
-        if (preset == "star5") { return true }
-        if (preset == "ellipse") { return true }
-        return false
+        return ((strlen (PptxGeom.presetPath(preset))) > 0)
     }
 }

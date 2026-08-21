@@ -66,7 +66,9 @@ gallery/pptx/
       run color, insets, wrap, vertical anchor (top/middle/bottom estimate)
 - [x] Two-stop linear gradients + outer shadow under SoftCanvas rects
 - [x] Bullets (`buChar` / `buAutoNum`) as indented prefixes
-- [x] Preset + `custGeom` path fills (triangle / diamond / chevron / star / …)
+- [x] Preset + `custGeom` fills as **SVG paths** through EVG's `SVGPathParser`
+      — real curves, so an ellipse is round and `cubicBezTo` / `quadBezTo` /
+      `arcTo` draw instead of being dropped
 - [x] Tables (`graphicFrame` / `a:tbl`) as cell grid + text
 - [x] Charts → Vela PoC (bar ChartML → VL → SoftCanvas)
 - [x] UIInput navigation + fixture picker; chrome shows deck name + slide index
@@ -107,6 +109,7 @@ into the slides), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, 
 governs them — none of this is derived from another editor's source.
 
 ```bash
+npm run pptx:geom:test          # presets and custGeom, as paths
 npm run pptx:editor:test        # the editing core
 npm run pptx:editor:host:test   # pointer, keys, overlay, commands
 npm run pptx:writer:test        # write a deck, read it back, compare
