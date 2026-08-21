@@ -1,0 +1,927 @@
+; ============================================================================
+; EdgeLanes.rgr — give every edge its own track through the corridor.
+; ============================================================================
+;
+; An orthogonal router turns each edge at the midpoint between its two ends.
+; That is the right answer for one edge and the wrong one for nine, because
+; nine edges crossing the same gap all pick the same midpoint and their long
+; perpendicular runs land on top of each other:
+;
+;   before                              after
+;   ────┐                               ────┐
+;   ────┤  ← four edges, one line       ───┐│
+;   ────┤                               ──┐││
+;   ────┘                               ─┐│││
+;
+; The fix is the standard one in orthogonal graph drawing — **channel routing**,
+; or lane assignment: the gap between two columns of nodes is a corridor, the
+; corridor holds a number of parallel tracks, and each edge crossing it gets a
+; track of its own. yEd, ELK's orthogonal router and dbdiagram all do a version
+; of this.
+;
+; The algorithm here is the small honest one:
+;
+;   1. Each edge's trunk is the perpendicular run between its two gapped
+;      endpoints, and its default position is the midpoint — what the router
+;      would have used.
+;   2. Two trunks CONFLICT when they would be drawn within `spacing` of each
+;      other AND their spans overlap, because only then can they be confused
+;      for one line.
+;   3. Conflict is transitive in practice — a stack of four is one problem, not
+;      three — so the conflict graph's connected components are found with
+;      union-find, and each component is one corridor.
+;   4. Within a corridor the edges are ordered by where they are going (the
+;      midpoint of their span), which is the ordering that minimises crossings
+;      between the tracks themselves, and spread symmetrically about the
+;      corridor's centre.
+;   5. The spread is clamped to the corridor's own width, so a track can never
+;      be pushed back through the node it came from. When the edges do not fit
+;      at full spacing, the spacing shrinks rather than the geometry breaking.
+;
+; What this does NOT do is route around obstacles: a track is still a straight
+; run, and a node standing in the corridor is drawn over. The next step for
+; that is dummy nodes in the layered layout, which is noted in the README.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+Import "../core/EdgeRouter.rgr"
+
+class EdgeLanes {
+    ; How far apart two tracks have to be to read as two lines.
+    def spacing:double 14.0
+    ; Kept clear of the corridor's walls so a track never touches a node.
+    def margin:double 10.0
+    ; The offset the router leaves the node by, which is where a trunk starts.
+    def stubOffset:double 20.0
+
+    Constructor () {
+    }
+
+    sfn assign:int (g:FlowGraph) {
+        def el (new EdgeLanes)
+        return (el.apply(g))
+    }
+
+    ; Returns the number of edges that were moved off their default track.
+    fn apply:int (g:FlowGraph) {
+        def n:int (g.edgeCount())
+        if (n < 2) {
+            return 0
+        }
+        ; Ports first: an edge cannot be given its own track if it has not
+        ; first been given its own place to arrive.
+        def fanned:int (this.fanOutPorts(g))
+        ; --- 1. each edge's trunk: axis, default position, span -------------
+        def vertical:[boolean]
+        def pos:[double]
+        def lo:[double]
+        def hi:[double]
+        def wallA:[double]
+        def wallB:[double]
+        def active:[boolean]
+        ; An edge whose corners somebody else already placed — a long edge
+        ; drawn down the corridor its dummies held open, or a route the reader
+        ; dragged into place — cannot be given a track. But it is still a line
+        ; on the diagram, and a track laid four pixels from it reads as one
+        ; line drawn twice. So it joins the corridor as something to keep clear
+        ; of rather than something to move.
+        def frozen:[boolean]
+        def k:int 0
+        while (k < n) {
+            def e:FlowEdge (g.edgeAt(k))
+            push vertical true
+            push pos 0.0
+            push lo 0.0
+            push hi 0.0
+            push wallA 0.0
+            push wallB 0.0
+            push active false
+            push frozen false
+            if (this.trunkOf(g e k vertical pos lo hi wallA wallB)) {
+                set_at active k true
+            }
+            k = (k + 1)
+        }
+        ; Entries past the edge count are not edges at all — they are the
+        ; straight runs of routes that are already drawn. They take part in
+        ; every conflict and never move.
+        def f:int 0
+        while (f < n) {
+            if ((itemAt active f) == false) {
+                def fe:FlowEdge (g.edgeAt(f))
+                this.pushFixedTrunks(fe vertical pos lo hi wallA wallB active frozen)
+            }
+            f = (f + 1)
+        }
+        def total:int (array_length active)
+        def origPos:[double]
+        def o:int 0
+        while (o < total) {
+            push origPos (itemAt pos o)
+            o = (o + 1)
+        }
+
+        ; Spreading one corridor can push a track on top of an edge that was
+        ; not in it — two corridors twenty pixels apart become one corridor
+        ; and one stray line four pixels from it. So conflicts are found again
+        ; against where the tracks actually ended up, and again, until a round
+        ; moves nothing. It settles in two or three rounds on real diagrams;
+        ; the cap is there so a pathological one cannot spin.
+        def round:int 0
+        def working:boolean true
+        while (round < 6) {
+            if working {
+                working = (this.settleRound(g n vertical pos lo hi wallA wallB active frozen))
+                round = (round + 1)
+            } {
+                round = 6
+            }
+        }
+
+        ; The last word belongs to the lines that are already drawn: a corridor
+        ; that spread itself in the final round must still not sit on one.
+        this.avoidFixed(g n vertical pos lo hi wallA wallB active frozen)
+
+        def moved:int 0
+        def m:int 0
+        while (m < n) {
+            if (itemAt active m) {
+                if ((itemAt frozen m) == false) {
+                    if ((fabs ((itemAt pos m) - (itemAt origPos m))) > 0.001) {
+                        moved = (moved + 1)
+                    }
+                }
+            }
+            m = (m + 1)
+        }
+        return (moved + fanned)
+    }
+
+    ; One pass of "group the tracks that would be drawn on top of each other,
+    ; then space each group out". True if anything moved.
+    fn settleRound:boolean (g:FlowGraph n:int vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] active:[boolean] frozen:[boolean]) {
+        ; --- 2/3. conflicts, and the corridors they form ---------------------
+        def parent:[int]
+        def i:int 0
+        while (i < n) {
+            push parent i
+            i = (i + 1)
+        }
+        def a:int 0
+        while (a < n) {
+            if (this.movable(active frozen a)) {
+                def b:int (a + 1)
+                while (b < n) {
+                    if (this.movable(active frozen b)) {
+                        if ((itemAt vertical a) == (itemAt vertical b)) {
+                            def dx:double (fabs ((itemAt pos a) - (itemAt pos b)))
+                            if (dx < spacing) {
+                                if (EdgeLanes.spansOverlap((itemAt lo a) (itemAt hi a) (itemAt lo b) (itemAt hi b))) {
+                                    EdgeLanes.unite(parent a b)
+                                }
+                            }
+                        }
+                    }
+                    b = (b + 1)
+                }
+            }
+            a = (a + 1)
+        }
+
+        ; --- 4/5. order each corridor and spread it --------------------------
+        def moved:int 0
+        def seen:[boolean]
+        def s:int 0
+        while (s < n) {
+            push seen false
+            s = (s + 1)
+        }
+        def r:int 0
+        while (r < n) {
+            def keep:boolean false
+            if (this.movable(active frozen r)) {
+                if ((itemAt seen r) == false) {
+                    if ((EdgeLanes.findRoot(parent r)) == r) {
+                        keep = true
+                    }
+                }
+            }
+            if keep {
+                def members:[int]
+                def m:int 0
+                while (m < n) {
+                    if (this.movable(active frozen m)) {
+                        if ((EdgeLanes.findRoot(parent m)) == r) {
+                            push members m
+                            set_at seen m true
+                        }
+                    }
+                    m = (m + 1)
+                }
+                moved = (moved + (this.spread(g members vertical pos lo hi wallA wallB)))
+            }
+            r = (r + 1)
+        }
+        ; …and then, whatever the corridors decided, get out of the way of the
+        ; lines that were already drawn.
+        moved = (moved + (this.avoidFixed(g n vertical pos lo hi wallA wallB active frozen)))
+        return (moved > 0)
+    }
+
+    fn movable:boolean (active:[boolean] frozen:[boolean] i:int) {
+        if ((itemAt active i) == false) {
+            return false
+        }
+        return ((itemAt frozen i) == false)
+    }
+
+    ; A track that ends up within `spacing` of a line somebody else already
+    ; drew is moved to the nearer side of it, as far as the corridor's own
+    ; walls allow. Nothing is moved for a line it does not run alongside.
+    fn avoidFixed:int (g:FlowGraph n:int vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] active:[boolean] frozen:[boolean]) {
+        def moved:int 0
+        def m:int 0
+        while (m < n) {
+            if (this.movable(active frozen m)) {
+                def at:double (itemAt pos m)
+                def f:int n
+                while (f < (array_length active)) {
+                    if (itemAt frozen f) {
+                        if ((itemAt vertical f) == (itemAt vertical m)) {
+                            if (EdgeLanes.spansOverlap((itemAt lo m) (itemAt hi m) (itemAt lo f) (itemAt hi f))) {
+                                def fp:double (itemAt pos f)
+                                if ((fabs (at - fp)) < spacing) {
+                                    def up:double (fp + spacing)
+                                    def down:double (fp - spacing)
+                                    def want:double up
+                                    if ((fabs (down - at)) < (fabs (up - at))) {
+                                        want = down
+                                    }
+                                    def low:double ((itemAt wallA m) + margin)
+                                    def high:double ((itemAt wallB m) - margin)
+                                    if (want < low) {
+                                        want = up
+                                    }
+                                    if (want > high) {
+                                        want = down
+                                    }
+                                    if (want >= low) {
+                                        if (want <= high) {
+                                            at = want
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    f = (f + 1)
+                }
+                if ((fabs (at - (itemAt pos m))) > 0.001) {
+                    def e:FlowEdge (g.edgeAt(m))
+                    if (itemAt vertical m) {
+                        e.laneX = at
+                        e.hasLaneX = true
+                    } {
+                        e.laneY = at
+                        e.hasLaneY = true
+                    }
+                    set_at pos m at
+                    moved = (moved + 1)
+                }
+            }
+            m = (m + 1)
+        }
+        return moved
+    }
+
+    ; --------------------------------------------------------- port fan-out --
+    ; Several foreign keys pointing at one primary key share a port, so they
+    ; arrive at the same point and their last horizontal run is the same line
+    ; drawn three times. Spread the arrivals across the row that owns the port,
+    ; ordered by where each edge comes from so the fan does not cross itself.
+    ;
+    ; The spread stays inside the row — the point of a field-level port is that
+    ; the edge visibly meets THAT column, and an arrival nudged into the
+    ; neighbouring row would be a lie about the schema.
+    fn fanOutPorts:int (g:FlowGraph) {
+        def keys0:[string]
+        def edgeIdx:[int]
+        def atSource:[boolean]
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            e.portNudgeSource = 0.0
+            e.portNudgeTarget = 0.0
+            if (e.hidden == false) {
+                if (e.sourceIndex >= 0) {
+                    if (e.targetIndex >= 0) {
+                        push keys0 (EdgeLanes.endKey(g e true))
+                        push edgeIdx k
+                        push atSource true
+                        push keys0 (EdgeLanes.endKey(g e false))
+                        push edgeIdx k
+                        push atSource false
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def total:int (array_length keys0)
+        def moved:int 0
+        def done:[boolean]
+        def d:int 0
+        while (d < total) {
+            push done false
+            d = (d + 1)
+        }
+        def i:int 0
+        while (i < total) {
+            if ((itemAt done i) == false) {
+                def key:string (itemAt keys0 i)
+                def group:[int]
+                def keys:[double]
+                def j:int i
+                while (j < total) {
+                    if ((itemAt keys0 j) == key) {
+                        set_at done j true
+                        push group j
+                        ; Ordered by where the far end of the edge is, so the
+                        ; fan opens towards the things it connects to and its
+                        ; own strands do not cross.
+                        def e2:FlowEdge (g.edgeAt((itemAt edgeIdx j)))
+                        def far:boolean ((itemAt atSource j) == false)
+                        def side:int (g.edgeSide(e2 (itemAt atSource j)))
+                        def along:double (g.endpointY(e2 far))
+                        if (EdgeLanes.alongX(side)) {
+                            along = (g.endpointX(e2 far))
+                        }
+                        push keys along
+                    }
+                    j = (j + 1)
+                }
+                def count:int (array_length group)
+                if (count > 1) {
+                    EdgeLanes.sortByKey(group keys)
+                    def firstSlot:int (itemAt group 0)
+                    def anyEdge:FlowEdge (g.edgeAt((itemAt edgeIdx firstSlot)))
+                    def side0:int (g.edgeSide(anyEdge (itemAt atSource firstSlot)))
+                    def owner:FlowNode (EdgeLanes.ownerOf(g anyEdge (itemAt atSource firstSlot)))
+                    ; How much room the fan has depends on which side it is on:
+                    ; a row's height down a left or right edge, and a share of
+                    ; the node's width across a top or bottom one. The spread
+                    ; stays inside the row, because the point of a field-level
+                    ; port is that the edge visibly meets THAT column and an
+                    ; arrival nudged into the next row would misstate the schema.
+                    def room:double (owner.width * 0.5)
+                    if ((EdgeLanes.alongX(side0)) == false) {
+                        room = (owner.rowHeight - 6.0)
+                        if ((owner.sectionCount()) == 0) {
+                            room = (owner.height * 0.5)
+                        }
+                    }
+                    if (room < 4.0) {
+                        room = 4.0
+                    }
+                    def gap:double (room / (to_double count))
+                    def half:double ((gap * (to_double (count - 1))) * 0.5)
+                    def t:int 0
+                    while (t < count) {
+                        def slot:int (itemAt group t)
+                        def e3:FlowEdge (g.edgeAt((itemAt edgeIdx slot)))
+                        def nudge:double ((gap * (to_double t)) - half)
+                        if (itemAt atSource slot) {
+                            e3.portNudgeSource = nudge
+                        } {
+                            e3.portNudgeTarget = nudge
+                        }
+                        moved = (moved + 1)
+                        t = (t + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return moved
+    }
+
+    ; ------------------------------------------------------------- trunks --
+    ; The perpendicular run an edge makes between its two gapped endpoints —
+    ; only edges whose handles face each other have one, which is the case the
+    ; corridors are made of. Everything else keeps the router's own corner.
+    fn trunkOf:boolean (g:FlowGraph e:FlowEdge idx:int vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double]) {
+        if (e.hidden) {
+            return false
+        }
+        if (e.sourceIndex < 0) {
+            return false
+        }
+        if (e.targetIndex < 0) {
+            return false
+        }
+        ; An edge that was routed, or placed by hand, already knows where it
+        ; is going.
+        if ((array_length e.waypoints) >= 4) {
+            return false
+        }
+        if e.pinnedRoute {
+            return false
+        }
+        def kind:string e.edgeType
+        def routed:boolean false
+        if (kind == "step") { routed = true }
+        if (kind == "smoothstep") { routed = true }
+        if (kind == "orthogonal") { routed = true }
+        if (routed == false) {
+            return false
+        }
+        def s1:int (g.edgeSide(e true))
+        def s2:int (g.edgeSide(e false))
+        def horizA:boolean ((EdgeLanes.alongX(s1)) == false)
+        def horizB:boolean ((EdgeLanes.alongX(s2)) == false)
+        ; Only the opposite-facing case has a trunk; a single corner has none.
+        if (horizA != horizB) {
+            return false
+        }
+        def x1:double (g.endpointX(e true))
+        def y1:double (g.endpointY(e true))
+        def x2:double (g.endpointX(e false))
+        def y2:double (g.endpointY(e false))
+        def sgx:double (x1 + ((FlowPosition.normalX(s1)) * stubOffset))
+        def sgy:double (y1 + ((FlowPosition.normalY(s1)) * stubOffset))
+        def tgx:double (x2 + ((FlowPosition.normalX(s2)) * stubOffset))
+        def tgy:double (y2 + ((FlowPosition.normalY(s2)) * stubOffset))
+        if horizA {
+            ; horizontal handles → the trunk is a VERTICAL run at some x
+            set_at vertical idx true
+            set_at pos idx ((sgx + tgx) * 0.5)
+            set_at lo idx (EdgeLanes.lower(sgy tgy))
+            set_at hi idx (EdgeLanes.upper(sgy tgy))
+            set_at wallA idx (EdgeLanes.lower(sgx tgx))
+            set_at wallB idx (EdgeLanes.upper(sgx tgx))
+            return true
+        }
+        set_at vertical idx false
+        set_at pos idx ((sgy + tgy) * 0.5)
+        set_at lo idx (EdgeLanes.lower(sgx tgx))
+        set_at hi idx (EdgeLanes.upper(sgx tgx))
+        set_at wallA idx (EdgeLanes.lower(sgy tgy))
+        set_at wallB idx (EdgeLanes.upper(sgy tgy))
+        return true
+    }
+
+    ; Order by the middle of the span and lay the tracks out around the
+    ; corridor's centre. Ordering by span rather than by index is what keeps
+    ; the tracks themselves from crossing: an edge heading further down gets a
+    ; track further along.
+    fn spread:int (g:FlowGraph members:[int] vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double]) {
+        def count:int (array_length members)
+        if (count < 2) {
+            return 0
+        }
+        def order:[int]
+        def keys:[double]
+        def i:int 0
+        while (i < count) {
+            def m:int (itemAt members i)
+            push order m
+            push keys (((itemAt lo m) + (itemAt hi m)) * 0.5)
+            i = (i + 1)
+        }
+        EdgeLanes.sortByKey(order keys)
+
+        ; The corridor is only as wide as the narrowest edge in it allows.
+        def centre:double 0.0
+        def widest:double 1000000.0
+        def j:int 0
+        while (j < count) {
+            def m2:int (itemAt order j)
+            centre = (centre + (itemAt pos m2))
+            def room:double (((itemAt wallB m2) - (itemAt wallA m2)) - (margin * 2.0))
+            if (room < widest) {
+                widest = room
+            }
+            j = (j + 1)
+        }
+        centre = (centre / (to_double count))
+        def gap:double spacing
+        def span:double (gap * (to_double (count - 1)))
+        if (span > widest) {
+            if (widest <= 0.0) {
+                return 0
+            }
+            gap = (widest / (to_double (count - 1)))
+        }
+        def half:double ((gap * (to_double (count - 1))) * 0.5)
+        def moved:int 0
+        def t:int 0
+        while (t < count) {
+            def m3:int (itemAt order t)
+            def at:double ((centre - half) + (gap * (to_double t)))
+            def e:FlowEdge (g.edgeAt(m3))
+            if (itemAt vertical m3) {
+                e.laneX = at
+                e.hasLaneX = true
+            } {
+                e.laneY = at
+                e.hasLaneY = true
+            }
+            def delta:double (fabs (at - (itemAt pos m3)))
+            if (delta > 0.001) {
+                moved = (moved + 1)
+            }
+            ; The next round looks for conflicts against where the tracks are
+            ; now, not where they started.
+            set_at pos m3 at
+            t = (t + 1)
+        }
+        return moved
+    }
+
+    ; Every straight run of an edge somebody else already routed, long enough
+    ; to read as a line rather than a corner. These are appended past the edge
+    ; count: they are obstacles in the corridors, not candidates for a track.
+    fn pushFixedTrunks:void (e:FlowEdge vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] active:[boolean] frozen:[boolean]) {
+        if e.hidden {
+            return
+        }
+        def n:int (idiv (array_length e.waypoints) 2)
+        if (n < 2) {
+            return
+        }
+        def i:int 1
+        while (i < n) {
+            def ax:double (itemAt e.waypoints ((i - 1) * 2))
+            def ayAt:int (((i - 1) * 2) + 1)
+            def ay:double (itemAt e.waypoints ayAt)
+            def bx:double (itemAt e.waypoints (i * 2))
+            def byAt:int ((i * 2) + 1)
+            def by:double (itemAt e.waypoints byAt)
+            def dx:double (fabs (bx - ax))
+            def dy:double (fabs (by - ay))
+            if (dy > dx) {
+                if (dy >= spacing) {
+                    push vertical true
+                    push pos ax
+                    push lo (EdgeLanes.lower(ay by))
+                    push hi (EdgeLanes.upper(ay by))
+                    push wallA ax
+                    push wallB ax
+                    push active true
+                    push frozen true
+                }
+            } {
+                if (dx >= spacing) {
+                    push vertical false
+                    push pos ay
+                    push lo (EdgeLanes.lower(ax bx))
+                    push hi (EdgeLanes.upper(ax bx))
+                    push wallA ay
+                    push wallB ay
+                    push active true
+                    push frozen true
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Forget every assignment — the lanes are only valid for the positions they
+    ; were computed from, so a drag or a relayout has to start clean.
+    sfn reset:void (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if e.pinnedRoute {
+                k = (k + 1)
+                continue
+            }
+            e.hasLaneX = false
+            e.hasLaneY = false
+            e.portNudgeSource = 0.0
+            e.portNudgeTarget = 0.0
+            ; Waypoints go too. They were computed from a layout, and once a
+            ; node has been dragged by hand that layout is no longer what is on
+            ; screen — a route round an obstacle that has moved is worse than
+            ; no route at all.
+            clear e.waypoints
+            k = (k + 1)
+        }
+    }
+
+    ; What two edges have to share before they are the same arrival: a named
+    ; port, or — when there is none — the node side they both land on. The
+    ; second case is what a plain flowchart or a UML diagram is made of, where
+    ; three edges meet one node's top handle at literally one point.
+    sfn endKey:string (g:FlowGraph e:FlowEdge atSource:boolean) {
+        def portId:string e.targetPort
+        def nodeId:string e.target
+        if atSource {
+            portId = e.sourcePort
+            nodeId = e.source
+        }
+        if (g.hasPort(portId)) {
+            return ("port:" + portId)
+        }
+        def side:int (g.edgeSide(e atSource))
+        return ("node:" + nodeId + ":" + (to_string side))
+    }
+
+    sfn ownerOf:FlowNode (g:FlowGraph e:FlowEdge atSource:boolean) {
+        def portId:string e.targetPort
+        def nodeId:string e.target
+        if atSource {
+            portId = e.sourcePort
+            nodeId = e.source
+        }
+        if (g.hasPort(portId)) {
+            def p:FlowPort (g.portRef(portId))
+            return (g.nodeById(p.nodeId))
+        }
+        return (g.nodeById(nodeId))
+    }
+
+    sfn alongX:boolean (side:int) {
+        if (side == 0) { return true }
+        if (side == 2) { return true }
+        return false
+    }
+
+    ; ------------------------------------------------------------- helpers --
+    sfn lower:double (a:double b:double) {
+        if (a < b) { return a }
+        return b
+    }
+
+    sfn upper:double (a:double b:double) {
+        if (a > b) { return a }
+        return b
+    }
+
+    sfn spansOverlap:boolean (aLo:double aHi:double bLo:double bHi:double) {
+        if (aHi < bLo) { return false }
+        if (bHi < aLo) { return false }
+        return true
+    }
+
+    sfn findRoot:int (parent:[int] i:int) {
+        def r:int i
+        def guard:int 0
+        while (guard < 100000) {
+            def p:int (itemAt parent r)
+            if (p == r) {
+                return r
+            }
+            r = p
+            guard = (guard + 1)
+        }
+        return r
+    }
+
+    sfn unite:void (parent:[int] a:int b:int) {
+        def ra:int (EdgeLanes.findRoot(parent a))
+        def rb:int (EdgeLanes.findRoot(parent b))
+        if (ra == rb) {
+            return
+        }
+        if (ra < rb) {
+            set_at parent rb ra
+        } {
+            set_at parent ra rb
+        }
+    }
+
+    ; Insertion sort, stable, on two parallel arrays.
+    sfn sortByKey:void (order:[int] keys:[double]) {
+        def n:int (array_length order)
+        def i:int 1
+        while (i < n) {
+            def kv:double (itemAt keys i)
+            def mv:int (itemAt order i)
+            def j:int (i - 1)
+            def at:int 0
+            def settled:boolean false
+            while (j >= 0) {
+                if (settled == false) {
+                    if ((itemAt keys j) > kv) {
+                        set_at keys (j + 1) (itemAt keys j)
+                        set_at order (j + 1) (itemAt order j)
+                        j = (j - 1)
+                    } {
+                        at = (j + 1)
+                        settled = true
+                        j = -1
+                    }
+                }
+            }
+            if (settled == false) {
+                at = 0
+            }
+            set_at keys at kv
+            set_at order at mv
+            i = (i + 1)
+        }
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Measuring it
+; ---------------------------------------------------------------------------
+; "The lines are easier to follow" is not a number, and a routing change that
+; cannot be measured is a routing change nobody can defend. This counts the
+; pairs of edge segments that are parallel, within `tol` of each other, and
+; overlapping along their shared axis — that is exactly the situation where two
+; edges read as one line.
+class EdgeOverlap {
+    sfn pairs:int (g:FlowGraph tol:double) {
+        def segX1:[double]
+        def segY1:[double]
+        def segX2:[double]
+        def segY2:[double]
+        def owner:[int]
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                if (e.sourceIndex >= 0) {
+                    if (e.targetIndex >= 0) {
+                        def p:EdgePath (EdgeRouter.route(g e))
+                        p.flatten(1)
+                        def n:int (p.pointCount())
+                        def i:int 1
+                        while (i < n) {
+                            push segX1 (p.px((i - 1)))
+                            push segY1 (p.py((i - 1)))
+                            push segX2 (p.px(i))
+                            push segY2 (p.py(i))
+                            push owner k
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def total:int 0
+        def m:int (array_length owner)
+        def a:int 0
+        while (a < m) {
+            def b:int (a + 1)
+            while (b < m) {
+                if ((itemAt owner a) != (itemAt owner b)) {
+                    if (EdgeOverlap.pairOverlaps(segX1 segY1 segX2 segY2 a b tol)) {
+                        total = (total + 1)
+                    }
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return total
+    }
+
+    ; How many times an edge is drawn straight through a node it has nothing
+    ; to do with. This is the number "routes around obstacles" means, and it is
+    ; the one the dummy-node chains exist to bring down — the overlap count
+    ; above says nothing about it.
+    sfn nodeCrossings:int (g:FlowGraph) {
+        def total:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                if (e.sourceIndex >= 0) {
+                    if (e.targetIndex >= 0) {
+                        def p:EdgePath (EdgeRouter.route(g e))
+                        p.flatten(4)
+                        def i:int 0
+                        while (i < (g.nodeCount())) {
+                            def skip:boolean false
+                            if (i == e.sourceIndex) { skip = true }
+                            if (i == e.targetIndex) { skip = true }
+                            if (skip == false) {
+                                def nd:FlowNode (g.nodeAt(i))
+                                if (nd.hidden == false) {
+                                    if (EdgeOverlap.pathEntersRect(p nd)) {
+                                        total = (total + 1)
+                                    }
+                                }
+                            }
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return total
+    }
+
+    ; Segment against rectangle, properly. Sampling the flattened points was
+    ; the obvious thing and it was wrong: flattening subdivides CURVES, so a
+    ; straight run from one side of the diagram to the other is two points and
+    ; neither of them is inside the box it goes through. The metric reported
+    ; zero crossings for an edge drawn straight across two nodes.
+    ; "Through the box", not "touching it". A route squeezed down a narrow
+    ; corridor ends up drawn along a border, and a border is where the box
+    ; stops — the same half-pixel the router's own clearance test allows, so
+    ; the router and this meter agree on what counts as a crossing.
+    sfn pathEntersRect:boolean (p:EdgePath nd:FlowNode) {
+        def full:FlowRect (nd.rect())
+        def eps:double 0.5
+        def r:FlowRect (FlowRect.create((full.x + eps) (full.y + eps) (full.w - (eps * 2.0)) (full.h - (eps * 2.0))))
+        def n:int (p.pointCount())
+        def i:int 1
+        while (i < n) {
+            if (EdgeOverlap.segmentHitsRect((p.px((i - 1))) (p.py((i - 1))) (p.px(i)) (p.py(i)) r)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Liang-Barsky: clip the segment against the box's four slabs and see
+    ; whether any of it survives.
+    sfn segmentHitsRect:boolean (x1:double y1:double x2:double y2:double r:FlowRect) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def t0:double 0.0
+        def t1:double 1.0
+        def i:int 0
+        while (i < 4) {
+            def pv:double 0.0
+            def qv:double 0.0
+            if (i == 0) {
+                pv = (0.0 - dx)
+                qv = (x1 - r.x)
+            }
+            if (i == 1) {
+                pv = dx
+                qv = ((r.x + r.w) - x1)
+            }
+            if (i == 2) {
+                pv = (0.0 - dy)
+                qv = (y1 - r.y)
+            }
+            if (i == 3) {
+                pv = dy
+                qv = ((r.y + r.h) - y1)
+            }
+            if ((fabs pv) < 0.000001) {
+                ; parallel to this slab: outside it means outside the box
+                if (qv < 0.0) {
+                    return false
+                }
+            } {
+                def t:double (qv / pv)
+                if (pv < 0.0) {
+                    if (t > t1) {
+                        return false
+                    }
+                    if (t > t0) {
+                        t0 = t
+                    }
+                } {
+                    if (t < t0) {
+                        return false
+                    }
+                    if (t < t1) {
+                        t1 = t
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (t0 < t1)
+    }
+
+    sfn pairOverlaps:boolean (x1:[double] y1:[double] x2:[double] y2:[double] a:int b:int tol:double) {
+        def ax1:double (itemAt x1 a)
+        def ay1:double (itemAt y1 a)
+        def ax2:double (itemAt x2 a)
+        def ay2:double (itemAt y2 a)
+        def bx1:double (itemAt x1 b)
+        def by1:double (itemAt y1 b)
+        def bx2:double (itemAt x2 b)
+        def by2:double (itemAt y2 b)
+        def aVert:boolean ((fabs (ax2 - ax1)) < 0.5)
+        def bVert:boolean ((fabs (bx2 - bx1)) < 0.5)
+        def aHoriz:boolean ((fabs (ay2 - ay1)) < 0.5)
+        def bHoriz:boolean ((fabs (by2 - by1)) < 0.5)
+        if aVert {
+            if bVert {
+                if ((fabs (ax1 - bx1)) <= tol) {
+                    return (EdgeLanes.spansOverlap((EdgeLanes.lower(ay1 ay2)) (EdgeLanes.upper(ay1 ay2)) (EdgeLanes.lower(by1 by2)) (EdgeLanes.upper(by1 by2))))
+                }
+            }
+        }
+        if aHoriz {
+            if bHoriz {
+                if ((fabs (ay1 - by1)) <= tol) {
+                    return (EdgeLanes.spansOverlap((EdgeLanes.lower(ax1 ax2)) (EdgeLanes.upper(ax1 ax2)) (EdgeLanes.lower(bx1 bx2)) (EdgeLanes.upper(bx1 bx2))))
+                }
+            }
+        }
+        return false
+    }
+}

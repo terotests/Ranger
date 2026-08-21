@@ -13,6 +13,8 @@ Import "../export/FlowExport.rgr"
 Import "../core/FlowEditor.rgr"
 Import "../layout/ForceLayout.rgr"
 Import "../layout/LayeredLayout.rgr"
+Import "../layout/EdgeLanes.rgr"
+Import "../layout/OrthoRouter.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
@@ -67,6 +69,11 @@ class RangerFlowTest {
         RangerFlowTest.testDecoration(c)
         RangerFlowTest.testForce(c)
         RangerFlowTest.testLayered(c)
+        RangerFlowTest.testEdgeLanes(c)
+        RangerFlowTest.testLongEdgeRouting(c)
+        RangerFlowTest.testObstacleRepair(c)
+        RangerFlowTest.testDragSweep(c)
+        RangerFlowTest.testSegmentDrag(c)
         RangerFlowTest.testEditor(c)
         RangerFlowTest.testScene(c)
         RangerFlowTest.testSql(c)
@@ -402,6 +409,505 @@ class RangerFlowTest {
         l2.run()
         c.ok("cycle broken" ((l2.layerCount()) >= 2))
         c.ok("cycle terminated" ((l2.layerCount()) <= 3))
+    }
+
+    ; ---------------------------------------------------------- edge lanes --
+    sfn testEdgeLanes:void (c:Checker) {
+        c.section("edge lanes")
+        ; Two foreign keys pointing at one primary key share a port, so they
+        ; arrive at the same point and their approach runs are the same line
+        ; drawn twice. The fan-out is what separates them.
+        def g (new FlowGraph)
+        def target:FlowNode (FlowNode.create("t" "customers" 600.0 200.0))
+        target.rowHeight = 20.0
+        def sec:FlowSection (target.addSection(""))
+        def row:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        row.portId = "t.id"
+        sec.addRow(row)
+        target.layoutCompartments()
+        g.addNode(target)
+        def a:FlowNode (FlowNode.create("a" "orders" 0.0 100.0))
+        def b:FlowNode (FlowNode.create("b" "payments" 0.0 400.0))
+        g.addNode(a)
+        g.addNode(b)
+        g.reindex()
+        def e1:FlowEdge (FlowEdge.create("e1" "a" "t"))
+        e1.edgeType = "smoothstep"
+        e1.targetPort = "t.id:l"
+        g.addEdge(e1)
+        def e2:FlowEdge (FlowEdge.create("e2" "b" "t"))
+        e2.edgeType = "smoothstep"
+        e2.targetPort = "t.id:l"
+        g.addEdge(e2)
+        def sameBefore:double (fabs ((g.endpointY(e1 false)) - (g.endpointY(e2 false))))
+        c.near("two edges share one port" sameBefore 0.0 0.000001)
+        EdgeLanes.assign(g)
+        def apartAfter:double (fabs ((g.endpointY(e1 false)) - (g.endpointY(e2 false))))
+        c.ok(("the fan separates them (got " + (to_string apartAfter) + ")") (apartAfter > 2.0))
+        ; …but never further than the row they belong to, because the point of
+        ; a field-level port is that the edge meets THAT column.
+        c.ok("and keeps them inside the row" (apartAfter <= target.rowHeight))
+        ; The one further down arrives lower: the fan does not cross itself.
+        c.ok("the fan is ordered" ((g.endpointY(e2 false)) > (g.endpointY(e1 false))))
+
+        ; Two trunks crossing one corridor get separate tracks.
+        def g2 (new FlowGraph)
+        def l1:FlowNode (g2.node("l1" "l1" 0.0 0.0))
+        def l2:FlowNode (g2.node("l2" "l2" 0.0 200.0))
+        def r1:FlowNode (g2.node("r1" "r1" 500.0 300.0))
+        def r2:FlowNode (g2.node("r2" "r2" 500.0 500.0))
+        def x1:FlowEdge (g2.connect("l1" "r1"))
+        x1.edgeType = "smoothstep"
+        def x2:FlowEdge (g2.connect("l2" "r2"))
+        x2.edgeType = "smoothstep"
+        EdgeLanes.assign(g2)
+        def bothLanes:boolean false
+        if x1.hasLaneX {
+            if x2.hasLaneX { bothLanes = true }
+        }
+        c.ok("both trunks were given a track" bothLanes)
+        def apart:double (fabs (x1.laneX - x2.laneX))
+        c.ok(("the tracks are apart (got " + (to_string apart) + ")") (apart > 1.0))
+
+        ; A bezier has nowhere to put a track, and must not be bent by one.
+        def g3 (new FlowGraph)
+        g3.node("p" "p" 0.0 0.0)
+        g3.node("q" "q" 400.0 300.0)
+        def curve:FlowEdge (g3.connect("p" "q"))
+        curve.edgeType = "default"
+        def before:EdgePath (EdgeRouter.route(g3 curve))
+        def dBefore:string (before.svgPath())
+        EdgeLanes.assign(g3)
+        def after:EdgePath (EdgeRouter.route(g3 curve))
+        c.eqStr("a bezier is left alone" (after.svgPath()) dBefore)
+
+        ; …and the whole point, measured: nothing drawn on top of anything.
+        def sqlOpt:string (?? (read_file "." "gallery/rangerflow/fixtures/ecommerce.sql") "")
+        def schema:DatabaseSchema (SqlSchemaReader.parse(sqlOpt))
+        def s2g (new SchemaToGraph)
+        def gg:FlowGraph (s2g.build(schema))
+        def lay:LayeredLayout (LayeredLayout.of(gg))
+        lay.direction = "LR"
+        lay.layerGap = 150.0
+        lay.nodeGap = 40.0
+        lay.run()
+        SchemaToGraph.faceEdges(gg)
+        def overlapBefore:int (EdgeOverlap.pairs(gg 2.0))
+        c.ok(("the schema starts with overlaps (got " + (to_string overlapBefore) + ")") (overlapBefore > 0))
+        EdgeLanes.assign(gg)
+        def routed:int (lay.routeLongEdges())
+        c.ok(("long edges were routed round the nodes (got " + (to_string routed) + ")") (routed > 0))
+        def overlapAfter:int (EdgeOverlap.pairs(gg 2.0))
+        c.eqInt("and ends with none" overlapAfter 0)
+        ; A routed edge carries its corners, and they start and end on its own
+        ; endpoints — a route that began somewhere else would draw a line from
+        ; nowhere.
+        def sample:FlowEdge (RangerFlowTest.firstRouted(gg))
+        if ((array_length sample.waypoints) >= 4) {
+            c.near("the route starts at the source port" (itemAt sample.waypoints 0) (gg.endpointX(sample true)) 0.001)
+            def lastAt:int ((array_length sample.waypoints) - 2)
+            c.near("and ends at the target port" (itemAt sample.waypoints lastAt) (gg.endpointX(sample false)) 0.001)
+        }
+    }
+
+    ; The point of the dummy chains, on a graph built to need them: a→d spans
+    ; four layers, and b and c stand in the way of the straight line.
+    sfn testLongEdgeRouting:void (c:Checker) {
+        c.section("long edge routing")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "a" 0.0 0.0))
+        def b:FlowNode (g.node("b" "b" 0.0 0.0))
+        def cc:FlowNode (g.node("c" "c" 0.0 0.0))
+        def d:FlowNode (g.node("d" "d" 0.0 0.0))
+        def i:int 0
+        while (i < 4) {
+            def nd:FlowNode (g.nodeAt(i))
+            nd.width = 140.0
+            nd.height = 60.0
+            i = (i + 1)
+        }
+        def e1:FlowEdge (g.connect("a" "b"))
+        def e2:FlowEdge (g.connect("b" "c"))
+        def e3:FlowEdge (g.connect("c" "d"))
+        def long:FlowEdge (g.connect("a" "d"))
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            e.edgeType = "smoothstep"
+            k = (k + 1)
+        }
+        ; First without the chains, which is what a plain layered layout does:
+        ; the long edge is ordered against nothing, given no room, and drawn
+        ; straight through b and c.
+        def plain:LayeredLayout (LayeredLayout.of(g))
+        plain.direction = "LR"
+        plain.useDummies = false
+        plain.run()
+        c.eqInt("four layers" (plain.layerCount()) 4)
+        def before:int (EdgeOverlap.nodeCrossings(g))
+        c.ok(("without dummies the long edge cuts through what is in the way (got " + (to_string before) + ")") (before > 0))
+
+        ; Then with them. The dummies take room in their layers, so the nodes
+        ; move aside — the obstacle is gone before the routing runs, which is
+        ; the whole of Sugiyama's trick — and the corners follow the lane they
+        ; held open.
+        EdgeLanes.reset(g)
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "LR"
+        lay.run()
+        ; The dummies move the nodes aside, but an edge that has not been told
+        ; about its chain still turns at the midpoint and runs along its own
+        ; row — placement is half the job and the routing is the other half.
+        def afterPlacement:int (EdgeOverlap.nodeCrossings(g))
+        def routed:int (lay.routeLongEdges())
+        c.eqInt("one edge needed routing" routed 1)
+        c.ok("and it carries its corners" ((array_length long.waypoints) >= 6))
+        def after:int (EdgeOverlap.nodeCrossings(g))
+        c.eqInt("and the routed edge goes round instead" after 0)
+        c.ok(("routing is what clears it (" + (to_string before) + " → " + (to_string afterPlacement) + " → " + (to_string after) + ")") (after < afterPlacement))
+
+        ; A short edge is left to the ordinary router.
+        c.eqInt("adjacent-layer edges are not routed" (array_length e1.waypoints) 0)
+    }
+
+    ; The complaint this pass exists for: drag a node into the middle of
+    ; somebody else's route and the line is drawn straight through it. The
+    ; layered layout cannot help — it routed against a picture that no longer
+    ; exists — so the grid router repairs what is broken and leaves the rest.
+    sfn testObstacleRepair:void (c:Checker) {
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "a" 0.0 0.0))
+        def b:FlowNode (g.node("b" "b" 600.0 0.0))
+        def blocker:FlowNode (g.node("blocker" "in the way" 0.0 400.0))
+        a.width = 140.0
+        a.height = 60.0
+        b.width = 140.0
+        b.height = 60.0
+        blocker.width = 160.0
+        blocker.height = 60.0
+        def e:FlowEdge (g.connect("a" "b"))
+        e.edgeType = "smoothstep"
+        g.reindex()
+        c.section("obstacle repair")
+        c.eqInt("a clear run crosses nothing" (EdgeOverlap.nodeCrossings(g)) 0)
+
+        ; Drag the third node onto the line.
+        blocker.x = 280.0
+        blocker.y = 0.0
+        blocker.syncFromModel()
+        def broken:int (EdgeOverlap.nodeCrossings(g))
+        c.ok(("dropping a node on the route breaks it (got " + (to_string broken) + ")") (broken > 0))
+
+        def fixed:int (OrthoRouter.repairAll(g))
+        c.eqInt("one edge was repaired" fixed 1)
+        c.eqInt("and nothing is drawn through a node any more" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.ok("the repair left corners behind" ((array_length e.waypoints) >= 6))
+
+        ; A route that is already clear is left exactly as it was — the repair
+        ; pass must not rewrite the whole diagram to fix one line.
+        def before:int (array_length e.waypoints)
+        def again:int (OrthoRouter.repairAll(g))
+        c.eqInt("a second pass finds nothing to do" again 0)
+        c.eqInt("and changes nothing" (array_length e.waypoints) before)
+
+        ; A long obstacle is a detour, not a wall: the router should go round
+        ; it rather than give up, and the route should be visibly longer than
+        ; the straight line it replaced.
+        def g2 (new FlowGraph)
+        def s:FlowNode (g2.node("s" "s" 0.0 0.0))
+        def t:FlowNode (g2.node("t" "t" 400.0 0.0))
+        s.width = 100.0
+        s.height = 60.0
+        t.width = 100.0
+        t.height = 60.0
+        def wall:FlowNode (g2.node("wall" "wall" 150.0 -400.0))
+        wall.width = 100.0
+        wall.height = 800.0
+        def e2:FlowEdge (g2.connect("s" "t"))
+        e2.edgeType = "smoothstep"
+        g2.reindex()
+        def detoured:int (OrthoRouter.repairAll(g2))
+        c.eqInt("a long obstacle is gone round, not given up on" detoured 1)
+        c.eqInt("and the route is clear" (EdgeOverlap.nodeCrossings(g2)) 0)
+        def p2:EdgePath (EdgeRouter.route(g2 e2))
+        p2.flatten(2)
+        c.ok(("the detour is long (got " + (to_string (p2.totalLength())) + ")") ((p2.totalLength()) > 700.0))
+
+        ; Enclosed on all four sides there is genuinely nowhere to go, and the
+        ; edge is left exactly as it was rather than mangled into something.
+        def g3 (new FlowGraph)
+        def inner:FlowNode (g3.node("inner" "inner" 0.0 0.0))
+        inner.width = 80.0
+        inner.height = 40.0
+        def far:FlowNode (g3.node("far" "far" 900.0 0.0))
+        far.width = 80.0
+        far.height = 40.0
+        def top:FlowNode (g3.node("top" "" -200.0 -200.0))
+        top.width = 500.0
+        top.height = 100.0
+        def bottom:FlowNode (g3.node("bottom" "" -200.0 120.0))
+        bottom.width = 500.0
+        bottom.height = 100.0
+        def left:FlowNode (g3.node("left" "" -200.0 -200.0))
+        left.width = 100.0
+        left.height = 420.0
+        def right:FlowNode (g3.node("right" "" 220.0 -200.0))
+        right.width = 100.0
+        right.height = 420.0
+        def e3:FlowEdge (g3.connect("inner" "far"))
+        e3.edgeType = "smoothstep"
+        g3.reindex()
+        def hopeless:int (OrthoRouter.repairAll(g3))
+        c.eqInt("an enclosed edge is left alone rather than mangled" hopeless 0)
+        c.eqInt("with no waypoints invented" (array_length e3.waypoints) 0)
+    }
+
+    ; A route the router produced is a suggestion, not a verdict: the reader
+    ; can take hold of any interior segment and slide it across. What must
+    ; survive that is orthogonality (a segment moves across itself, never
+    ; along), the endpoints (the edge still meets its ports), and undo.
+    sfn testSegmentDrag:void (c:Checker) {
+        c.section("dragging an edge segment")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "A" 0.0 0.0))
+        def b:FlowNode (g.node("b" "B" 420.0 220.0))
+        a.width = 150.0
+        a.height = 50.0
+        b.width = 150.0
+        b.height = 50.0
+        def e:FlowEdge (g.connect("a" "b"))
+        e.edgeType = "smoothstep"
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1200.0 800.0)
+        ed.view.showControls = false
+        ed.view.showMinimap = false
+
+        def corners:[double] (EdgeRouter.cornersFor(g e))
+        def n:int (idiv (array_length corners) 2)
+        c.ok(("a step route has interior corners (got " + (to_string n) + ")") (n >= 4))
+        def startX:double (itemAt corners 0)
+        def startY:double (itemAt corners 1)
+        def endX:double (itemAt corners ((n - 1) * 2))
+        def endYAt:int (((n - 1) * 2) + 1)
+        def endY:double (itemAt corners endYAt)
+        def ax:double (itemAt corners 2)
+        def ay:double (itemAt corners 3)
+        def bx:double (itemAt corners 4)
+        def by:double (itemAt corners 5)
+        def mx:double ((ax + bx) * 0.5)
+        def my:double ((ay + by) * 0.5)
+        def vertical:boolean ((fabs (bx - ax)) < (fabs (by - ay)))
+        c.ok("the interior segment is grabbable in its middle" ((ed.segmentAt(mx my)) >= 0))
+        c.eqInt("but the empty pane next to it is not" (ed.segmentAt((mx + 60.0) (my + 60.0))) -1)
+
+        ; A click that does not move must leave the route to the router.
+        def inp (new FlowInput)
+        inp.x = mx
+        inp.y = my
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.ok("a click selects the edge" e.selected)
+        c.eqInt("and invents no corners of its own" (array_length e.waypoints) 0)
+        c.ok("and leaves it routed automatically" (e.pinnedRoute == false))
+
+        ; Now the same grab, but moved.
+        inp.x = mx
+        inp.y = my
+        ed.pointerDown(inp)
+        c.eqInt("pressing on a segment starts a segment drag" ed.mode 6)
+        inp.x = (mx + 45.0)
+        inp.y = (my + 45.0)
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        c.eqInt("and releasing ends it" ed.mode 0)
+        c.ok("the edge now carries its own corners" ((array_length e.waypoints) >= 8))
+        c.ok("and refuses to be re-routed over" e.pinnedRoute)
+
+        def held:[double] e.waypoints
+        def hn:int (idiv (array_length held) 2)
+        def hax:double (itemAt held 2)
+        def hay:double (itemAt held 3)
+        def hbx:double (itemAt held 4)
+        def hbyAt:int 5
+        def hby:double (itemAt held hbyAt)
+        if vertical {
+            c.near("a vertical run follows the pointer sideways" hax (mx + 45.0) 0.001)
+            c.near("both of its ends, so it stays vertical" hbx (mx + 45.0) 0.001)
+            c.near("and it does not slide along itself" hay ay 0.001)
+            c.near("at either end" hby by 0.001)
+        } {
+            c.near("a horizontal run follows the pointer up and down" hay (my + 45.0) 0.001)
+            c.near("both of its ends, so it stays horizontal" hby (my + 45.0) 0.001)
+            c.near("and it does not slide along itself" hax ax 0.001)
+            c.near("at either end" hbx bx 0.001)
+        }
+        def lastX:double (itemAt held ((hn - 1) * 2))
+        def lastYAt:int (((hn - 1) * 2) + 1)
+        def lastY:double (itemAt held lastYAt)
+        c.near("the edge still leaves its source port" (itemAt held 0) startX 0.001)
+        c.near("at the same height" (itemAt held 1) startY 0.001)
+        c.near("and still meets its target port" lastX endX 0.001)
+        c.near("at the same height" lastY endY 0.001)
+
+        ; Every corner pair is still axis-aligned: nothing went diagonal.
+        def diagonals:int 0
+        def i:int 0
+        while (i < (hn - 1)) {
+            def px:double (itemAt held (i * 2))
+            def pyAt:int ((i * 2) + 1)
+            def py:double (itemAt held pyAt)
+            def qx:double (itemAt held ((i + 1) * 2))
+            def qyAt:int (((i + 1) * 2) + 1)
+            def qy:double (itemAt held qyAt)
+            def offX:double (fabs (qx - px))
+            def offY:double (fabs (qy - py))
+            if (offX > 0.001) {
+                if (offY > 0.001) {
+                    diagonals = (diagonals + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("and the route is still orthogonal end to end" diagonals 0)
+
+        ; Undo puts the routing back in the router's hands; redo takes it away
+        ; again. An edge with no corners of its own must not stay pinned, or it
+        ; would sit out every future repair pass.
+        c.ok("the drag is undoable" (ed.undo.undo(g)))
+        c.eqInt("undo drops the hand-placed corners" (array_length e.waypoints) 0)
+        c.ok("and hands the edge back to the router" (e.pinnedRoute == false))
+        c.ok("redo is offered" (ed.undo.redo(g)))
+        c.ok("and puts the corners back" ((array_length e.waypoints) >= 8))
+        c.ok("pinned again" e.pinnedRoute)
+
+        ; A pinned route is exactly what the drawing uses — not a hint the
+        ; router is free to overrule.
+        def path:EdgePath (EdgeRouter.route(g e))
+        path.flatten(1)
+        c.ok("the drawn path follows the corners the pointer left" ((path.totalLength()) > 0.0))
+        def repaired:int (OrthoRouter.repairAll(g))
+        c.eqInt("and a repair pass keeps its hands off it" repaired 0)
+        c.ok("leaving the corners as dragged" ((array_length e.waypoints) >= 8))
+
+        ; The first and last segments touch a port, so they are not on offer:
+        ; sliding one of those would detach the edge from the column it points
+        ; at, which is the whole point of a field-level port.
+        def sx0:double ((startX + (itemAt corners 2)) * 0.5)
+        def sy0:double ((startY + (itemAt corners 3)) * 0.5)
+        def g2 (new FlowGraph)
+        def a2:FlowNode (g2.node("a" "A" 0.0 0.0))
+        def b2:FlowNode (g2.node("b" "B" 420.0 220.0))
+        a2.width = 150.0
+        a2.height = 50.0
+        b2.width = 150.0
+        b2.height = 50.0
+        def e2:FlowEdge (g2.connect("a" "b"))
+        e2.edgeType = "smoothstep"
+        g2.reindex()
+        def ed2:FlowEditor (FlowEditor.of(g2))
+        ed2.setSize(1200.0 800.0)
+        def stub:int (ed2.segmentAt(sx0 sy0))
+        c.eqInt("the stub that leaves the port is not draggable" stub -1)
+
+        ; A bezier has no segments to slide: its shape is a function of its
+        ; ends, so offering a handle in the middle would be a lie.
+        e2.edgeType = "bezier"
+        c.eqInt("and a curve offers no segments at all" (ed2.segmentAt(mx my)) -1)
+    }
+
+    ; "When you drag a box the lines don't always go round the other boxes."
+    ; The answer to that is not one screenshot: it is every node dropped
+    ; everywhere, re-routed the way the browser re-routes on pointer-up, and a
+    ; count of the drops that leave a line drawn through a table. The demo runs
+    ; the same sweep at a finer step over the real fixtures
+    ; (`npm run rangerflow:drag`); this is the small version that guards it.
+    sfn testDragSweep:void (c:Checker) {
+        c.section("dragging a node past the routes")
+        def g (new FlowGraph)
+        def cols:int 0
+        while (cols < 3) {
+            def rows:int 0
+            while (rows < 2) {
+                def id:string (("n" + (to_string cols)) + (to_string rows))
+                def n:FlowNode (g.node(id id ((to_double cols) * 260.0) ((to_double rows) * 200.0)))
+                n.width = 150.0
+                n.height = 90.0
+                rows = (rows + 1)
+            }
+            cols = (cols + 1)
+        }
+        def e0:FlowEdge (g.connect("n00" "n20"))
+        def e1:FlowEdge (g.connect("n01" "n21"))
+        def e2:FlowEdge (g.connect("n00" "n21"))
+        e0.edgeType = "smoothstep"
+        e1.edgeType = "smoothstep"
+        e2.edgeType = "smoothstep"
+        g.reindex()
+        EdgeLanes.assign(g)
+        OrthoRouter.repairAll(g)
+
+        def mover:FlowNode (g.nodeById("n10"))
+        def homeX:double mover.x
+        def homeY:double mover.y
+        def drops:int 0
+        def dirty:int 0
+        def gy:double -150.0
+        while (gy < 360.0) {
+            def gx:double -150.0
+            while (gx < 660.0) {
+                mover.x = gx
+                mover.y = gy
+                mover.syncFromModel()
+                if ((RangerFlowTest.clearOfOthers(g "n10")) == false) {
+                    gx = (gx + 70.0)
+                    continue
+                }
+                EdgeLanes.reset(g)
+                EdgeLanes.assign(g)
+                OrthoRouter.repairAll(g)
+                drops = (drops + 1)
+                if ((EdgeOverlap.nodeCrossings(g)) > 0) {
+                    dirty = (dirty + 1)
+                }
+                gx = (gx + 45.0)
+            }
+            gy = (gy + 45.0)
+        }
+        mover.x = homeX
+        mover.y = homeY
+        mover.syncFromModel()
+        c.ok(("the sweep actually dropped the node somewhere (got " + (to_string drops) + ")") (drops > 60))
+        c.eqInt(("no drop leaves a line drawn through a box (got " + (to_string dirty) + " of " + (to_string drops) + ")") dirty 0)
+    }
+
+    sfn clearOfOthers:boolean (g:FlowGraph id:string) {
+        def me:FlowNode (g.nodeById(id))
+        def a:FlowRect (me.rect())
+        def k:int 0
+        while (k < (g.nodeCount())) {
+            def other:FlowNode (g.nodeAt(k))
+            if (other.id != id) {
+                def b:FlowRect (other.rect())
+                if ((a.overlapArea(b)) > 0.0) {
+                    return false
+                }
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    sfn firstRouted:FlowEdge (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if ((array_length e.waypoints) >= 4) {
+                return e
+            }
+            k = (k + 1)
+        }
+        return (new FlowEdge)
     }
 
     ; -------------------------------------------------------------- editor --

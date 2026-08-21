@@ -87,6 +87,7 @@ canvas.addEventListener("pointerdown", (ev) => {
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
   app.pointerMove(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+  canvas.style.cursor = app.cursorAt(x, y) || "";
 });
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);

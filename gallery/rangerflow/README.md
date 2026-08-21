@@ -27,11 +27,12 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 137 assertions: model, forces, router, editor, SQL, export
+npm run rangerflow:test        # 204 assertions: model, forces, router, editor, SQL, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
 npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
+npm run rangerflow:drag        # drop every node everywhere, count the lines left crossing
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
 npm run rangerflow:web:test    # …or run all four demos in headless Chrome
@@ -107,9 +108,12 @@ is 250 lines, and most of them are the model rather than the drawing.
 | --- | --- | --- |
 | Model | `core/GraphModel.rgr` | nodes, ports, edges, compartments, viewport, selection, hit tests |
 | Routing | `core/EdgeRouter.rgr` | bezier / step / smoothstep paths, arrow and crow's-foot decoration |
-| Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo |
+| Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo, dragging an edge's corners by hand |
 | Scene | `core/FlowView.rgr`, `core/FlowScene.rgr` | the picture, once, for four backends |
 | Layout | `layout/ForceLayout.rgr`, `layout/LayeredLayout.rgr` | d3-force and a Sugiyama-style layered layout |
+| Routing | `layout/EdgeLanes.rgr` | channel routing: a track per edge through each corridor, and a fan per shared port |
+| | `layout/LayeredLayout.rgr` | dummy-vertex chains, so long edges are ordered, given room, and drawn round what is between their ends |
+| | `layout/OrthoRouter.rgr` | an orthogonal visibility grid and a bend-charging Dijkstra, run as a repair pass for whatever the layout never saw |
 | Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
 | Domains | `domains/erd/*`, `domains/uml/*` | schema and class models, and the two mappings |
 | Export | `export/FlowExport.rgr` | PDF, HTML, SVG, scene JSON, graph JSON |
@@ -186,6 +190,157 @@ different 1e-6 nudge. That is the residue in the table above.
 
 Dragging pins the node through `fx`/`fy` exactly as the example does — the
 simulation may not move what your hand is holding.
+
+## Following one line out of nine
+
+An orthogonal router turns each edge at the midpoint between its ends. That is
+right for one edge and wrong for nine: nine edges crossing the same gap all
+pick the same midpoint, and their long perpendicular runs land on top of each
+other. The second half of the problem is worse and less obvious — several
+foreign keys pointing at one primary key **share a port**, so they arrive at
+literally the same point and their approach runs are the same line drawn three
+times.
+
+`layout/EdgeLanes.rgr` is the standard answer to the first, **channel
+routing**, and the matching answer to the second, a **port fan**:
+
+```text
+before                          after
+────┐                           ────┐
+────┤  ← four edges, one line   ───┐│
+────┤                           ──┐││
+────┘                           ─┐│││
+```
+
+1. Each edge's *trunk* is its perpendicular run between the two gapped
+   endpoints. Two trunks **conflict** when they would be drawn within
+   `spacing` of each other and their spans overlap — only then can they be
+   mistaken for one line.
+2. Conflict is transitive in practice (a stack of four is one problem, not
+   three), so the conflict graph's connected components are found with
+   union-find, and each component is a corridor.
+3. Within a corridor the edges are ordered by the middle of their span — the
+   ordering that keeps the tracks from crossing each other — and spread
+   symmetrically about the corridor's centre, clamped to the corridor's own
+   width so a track is never pushed back through the node it came from.
+4. Edges that share an arrival — a named port, or a node side when there is no
+   port — are fanned across it, ordered by where they come from. The fan stays
+   inside the row, because the point of a field-level port is that the edge
+   visibly meets *that column*.
+
+**Measured, because "looks tidier" is not a number.** `EdgeOverlap.pairs`
+counts the pairs of edge segments that are parallel, within a tolerance of each
+other, and overlapping along their shared axis — exactly the situation where
+two edges read as one line. On the nine-table fixture:
+
+| | before | after |
+| --- | ---: | ---: |
+| segments drawn on top of each other (2 px) | 16 | **1** |
+| segments within 8 px | 27 | 12 |
+| the UML diagram, both tolerances | 12 | **0** |
+
+Most of the twelve that remain at 8 px are the fan itself: three arrivals
+spread across a 19-pixel row are about six pixels apart, which is as much room
+as the row has, and spreading them further would point them at the wrong field.
+They separate immediately after leaving it. The one left at 2 px is a nine-pixel
+sliver where two port stubs on unrelated tables pass within a pixel and a
+quarter of each other — both are pinned to their own field's row, so no track
+can move them.
+
+### …and round what stands in the way
+
+Channel routing gives an edge its own track. It does not help when something is
+*standing* in the track, and the classic answer to that is the other half of
+Sugiyama's method: an edge spanning more than one layer is replaced, for the
+duration of the layout, by a chain of **dummy vertices** — one in each layer it
+crosses.
+
+```text
+without dummies                 with dummies
+┌───┐                           ┌───┐
+│ a ├──────┬────────┐           │ a ├───┐   ┌───┐
+└───┘   ┌──┴──┐     │           └───┘   └───┤ · │  ← a dummy holds the lane
+        │  b  │     │                   ┌───┴───┘     open through b's layer
+        └─────┘  ┌──┴──┐        ┌─────┐ │       ┌─────┐
+         ↑ drawn │  c  │        │  b  │ └───────┤  c  │
+           over  └─────┘        └─────┘         └─────┘
+```
+
+That buys two things at once, and the second is the one that surprised us:
+
+- the dummies take part in the **crossing-reduction sweeps**, so a long edge is
+  ordered against everything else instead of being ignored by the pass that is
+  supposed to untangle it;
+- they take **room** in their layer, so the real nodes move aside. The obstacle
+  is largely gone before any routing happens — the placement does most of the
+  work, and `LayeredLayout.useDummies` exists so the difference can be measured
+  rather than asserted.
+
+Afterwards the chain is thrown away and its positions become the edge's
+**waypoints**: the corners it is drawn through, handed to the same `bendPath`
+that rounds the stepped router's corners. Back edges — the ones the layering
+reversed to break a cycle — are walked in the author's direction and leave the
+node on the side they are actually travelling towards, which is the difference
+between a route that goes round the outside and one that doubles across itself
+on the way out.
+
+`EdgeOverlap.nodeCrossings` counts the times an edge is drawn straight through
+a node it has nothing to do with, which is what "routes around obstacles"
+means. On the schema fixture it goes **1 → 0**; on a graph built to need it
+(four layers, an edge from the first to the last) it is 2 → 0, and with
+`useDummies = false` the same graph keeps its crossings.
+
+Once a node has been **dragged by hand** the waypoints are dropped rather than
+recomputed: a route around an obstacle that has since moved is worse than no
+route at all, so the edge falls back to the corridor router.
+
+### …and round what the layout never saw
+
+The chains go round what the layered layout knows about, because the layout put
+it there. A node the *reader* drags into the middle of a corridor is a different
+problem, and it needs a router that works from geometry rather than from
+layering. `layout/OrthoRouter.rgr` is that router: an **orthogonal visibility
+grid** — every obstacle's edges, plus a line down the middle of every gap wide
+enough to walk through — searched by Dijkstra over `(cell, arrival axis)`, so a
+turn can be charged for and the result comes out with as few bends as the
+detour allows.
+
+It runs as a **repair pass**, not a replacement. `OrthoRouter.repairAll` only
+touches edges that are actually drawn through something, and if the route it
+finds still crosses something it puts the old one back — one bad line is better
+than a different bad line plus the churn. Clearance is a preference rather than
+a requirement: it tries a full margin first, then half, then three pixels, and
+the stub that holds an edge straight as it leaves its port is given up the same
+way, because a box dropped within a stub's length of a port walls the search in
+before it has taken a step.
+
+The number that says whether it works is not a screenshot. `npm run
+rangerflow:drag` drops **every node at every point on a grid**, re-routes the
+way the browser does on pointer-up, and counts the drops that leave a line drawn
+through a table:
+
+| | drops | still crossing |
+| --- | ---: | ---: |
+| e-commerce schema, 9 tables | 1261 | **2** (0.16%) |
+| UML class diagram, 6 classes | 429 | **0** |
+
+The two are the same table dropped into a gap barely wider than itself, where
+the edges that have to cross the gap have nowhere else to be. The suite runs a
+smaller version of the same sweep, so a change that breaks this fails a test
+rather than a screenshot.
+
+### …and where the reader says, instead
+
+A router is a suggestion. Grab any **interior segment** of a stepped edge and
+drag it: a vertical run slides left and right, a horizontal one up and down, and
+nothing goes diagonal, because orthogonality is the property the whole router
+exists to keep. The first and last segments are not on offer — they touch a
+port, and sliding one would detach the edge from the column it is supposed to
+point at, which is the whole point of a field-level port.
+
+A hand-placed route sets `FlowEdge.pinnedRoute`, and after that the lane pass,
+the repair pass and the layout all leave it alone: overruling the reader is
+worse than a crossing. Undo puts the routing back in the router's hands.
 
 ## Parity is measured, not claimed
 
@@ -313,12 +468,10 @@ when the two meet, this reader becomes a thin adapter over that AST.
 
 ## Where it goes next
 
-1. **Dummy-node edge routing** so an edge spanning four layers is routed around
-   what is in the way rather than through it.
-2. **A live schema inspector** behind one interface, so DuckDB, SQLite and
+1. **A live schema inspector** behind one interface, so DuckDB, SQLite and
    RangerDB can all answer "what tables do you have" and the editor cannot tell
    which one did.
-3. **ERD → SQL**: the model is already the right shape for a `CREATE TABLE`
+2. **ERD → SQL**: the model is already the right shape for a `CREATE TABLE`
    generator, which turns the viewer into a designer.
-4. **SDL2 + OpenGL**, which the display-list seam already makes possible — the
+3. **SDL2 + OpenGL**, which the display-list seam already makes possible — the
    scene compiles to C++ with everything else.

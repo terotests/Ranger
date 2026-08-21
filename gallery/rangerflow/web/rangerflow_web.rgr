@@ -21,6 +21,8 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/ForceLayout.rgr"
+Import "../layout/EdgeLanes.rgr"
+Import "../layout/OrthoRouter.rgr"
 
 class RangerFlowWeb {
     def graph:FlowGraph (new FlowGraph)
@@ -82,6 +84,40 @@ class RangerFlowWeb {
         input.shift = shift
         input.ctrl = ctrl
         editor.pointerUp(input)
+        ; Lanes and routes are only valid for the positions they were computed
+        ; from, so a drag or a new connection invalidates both. The layout's
+        ; routes are not recomputed — once a node has been moved by hand the
+        ; layering it was routed against is no longer what is on screen.
+        if (simRunning == false) {
+            EdgeLanes.reset(graph)
+            EdgeLanes.assign(graph)
+            ; Whatever the drag put in somebody's way, routed round. Only the
+            ; broken edges are touched, so this costs a Dijkstra or two rather
+            ; than a rewrite of the diagram.
+            OrthoRouter.repairAll(graph)
+        }
+    }
+
+    ; What the pointer should look like where it is. The segment handles are
+    ; invisible, so the cursor is the only thing that says they are there.
+    fn cursorAt:string (x:double y:double) {
+        if (editor.mode == 6) {
+            if editor.segVertical {
+                return "ew-resize"
+            }
+            return "ns-resize"
+        }
+        if (editor.mode != 0) {
+            return ""
+        }
+        def hit:int (editor.segmentAt(x y))
+        if (hit < 0) {
+            return ""
+        }
+        if (editor.segmentIsVertical(hit)) {
+            return "ew-resize"
+        }
+        return "ns-resize"
     }
 
     fn wheel:void (x:double y:double delta:double) {
@@ -179,9 +215,16 @@ class RangerFlowWeb {
         lay.layerGap = 110.0
         lay.nodeGap = 40.0
         lay.run()
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
         simRunning = false
         editor.pinWhileDragging = false
-        status = ((to_string (g.nodeCount())) + " classes, " + (to_string (g.edgeCount())) + " relations")
+        status = ((to_string (g.nodeCount())) + " classes, " + (to_string (g.edgeCount())) + " relations — drag a line from the middle to route it by hand")
         return true
     }
 
@@ -272,9 +315,16 @@ class RangerFlowWeb {
         lay.layerGap = 90.0
         lay.nodeGap = 26.0
         lay.run()
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
         simRunning = false
         editor.pinWhileDragging = false
-        status = "a flowchart — the core with no domain on top of it"
+        status = "a flowchart — drag a line from the middle to route it by hand"
         return true
     }
 
@@ -293,7 +343,7 @@ class RangerFlowWeb {
         editor = (FlowEditor.of(graph))
         editor.setSize(viewW viewH)
         this.applyLayout()
-        status = ((to_string (schema.tableCount())) + " tables, " + (to_string (array_length schema.foreignKeys)) + " relationships")
+        status = ((to_string (schema.tableCount())) + " tables, " + (to_string (array_length schema.foreignKeys)) + " relationships — drag a line from the middle to route it by hand")
         return true
     }
 
@@ -319,6 +369,13 @@ class RangerFlowWeb {
         lay.nodeGap = 40.0
         lay.run()
         SchemaToGraph.faceEdges(graph)
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
     }
 
     fn setLayout:void (name:string) {

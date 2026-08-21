@@ -389,6 +389,14 @@ class EdgeRouter {
     ; `stepPosition` is where along the run the perpendicular leg goes: 0.5 is
     ; React Flow's default and the only value the router uses today.
     sfn stepPoints:[double] (x1:double y1:double s1:int x2:double y2:double s2:int offset:double) {
+        return (EdgeRouter.stepPointsAt(x1 y1 s1 x2 y2 s2 offset false 0.0 false 0.0))
+    }
+
+    ; The same, with the turn placed explicitly. React Flow's
+    ; `getSmoothStepPath` takes a `center` for exactly this reason, and it is
+    ; what lets `EdgeLanes` give each edge crossing a corridor its own track
+    ; instead of nine edges all turning at the same midpoint.
+    sfn stepPointsAt:[double] (x1:double y1:double s1:int x2:double y2:double s2:int offset:double hasCx:boolean cx:double hasCy:boolean cy:double) {
         def sdx:double (FlowPosition.normalX(s1))
         def sdy:double (FlowPosition.normalY(s1))
         def tdx:double (FlowPosition.normalX(s2))
@@ -434,6 +442,12 @@ class EdgeRouter {
                 centerX = (sgx + ((tgx - sgx) * stepPosition))
             } {
                 centerY = (sgy + ((tgy - sgy) * stepPosition))
+            }
+            if hasCx {
+                centerX = cx
+            }
+            if hasCy {
+                centerY = cy
             }
             def useVerticalSplit:boolean false
             if (sourceDirA == currDir) {
@@ -710,7 +724,11 @@ class EdgeRouter {
     }
 
     sfn step:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double) {
-        def pts:[double] (EdgeRouter.stepPoints(x1 y1 s1 x2 y2 s2 offset))
+        return (EdgeRouter.stepAt(x1 y1 s1 x2 y2 s2 offset false 0.0 false 0.0))
+    }
+
+    sfn stepAt:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double hasCx:boolean cx:double hasCy:boolean cy:double) {
+        def pts:[double] (EdgeRouter.stepPointsAt(x1 y1 s1 x2 y2 s2 offset hasCx cx hasCy cy))
         def p (new EdgePath)
         def n:int (idiv (array_length pts) 2)
         def i:int 0
@@ -731,7 +749,96 @@ class EdgeRouter {
     ; The same corners, with each turn replaced by a quadratic — React Flow's
     ; `getBend`, whose radius shrinks when the two legs are too short for it.
     sfn smoothStep:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double radius:double) {
-        def pts:[double] (EdgeRouter.stepPoints(x1 y1 s1 x2 y2 s2 offset))
+        return (EdgeRouter.smoothStepAt(x1 y1 s1 x2 y2 s2 offset radius false 0.0 false 0.0))
+    }
+
+    sfn smoothStepAt:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double radius:double hasCx:boolean cx:double hasCy:boolean cy:double) {
+        def pts:[double] (EdgeRouter.stepPointsAt(x1 y1 s1 x2 y2 s2 offset hasCx cx hasCy cy))
+        return (EdgeRouter.bendPath(pts radius))
+    }
+
+    ; Consecutive duplicate corners, dropped. Every producer of a corner list
+    ; needs this and each of them used to carry its own copy.
+    sfn dropCollinear:[double] (pts:[double]) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 2)
+        def i:int 0
+        while (i < n) {
+            def x:double (itemAt pts (i * 2))
+            def yat:int ((i * 2) + 1)
+            def y:double (itemAt pts yat)
+            def keep:boolean true
+            if ((array_length out) >= 2) {
+                def lx:double (itemAt out ((array_length out) - 2))
+                def ly:double (itemAt out ((array_length out) - 1))
+                if ((fabs (x - lx)) < 0.01) {
+                    if ((fabs (y - ly)) < 0.01) {
+                        keep = false
+                    }
+                }
+            }
+            if keep {
+                push out x
+                push out y
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Collapse a straight run of corners into its two ends. A stepped route
+    ; often emits the port stub and the run that follows it as two separate
+    ; segments even though they point the same way, and a reader who grabs
+    ; "the middle segment" of such a pair would be grabbing half of a straight
+    ; line — sliding it across would leave the other half behind, diagonally.
+    ; Corners that turn are kept exactly; only the ones that do not are lost.
+    sfn mergeRuns:[double] (pts:[double]) {
+        def compact:[double] (EdgeRouter.dropCollinear(pts))
+        def out:[double]
+        def n:int (idiv (array_length compact) 2)
+        if (n < 3) {
+            return compact
+        }
+        push out (itemAt compact 0)
+        push out (itemAt compact 1)
+        def i:int 1
+        while (i < (n - 1)) {
+            def px:double (itemAt out ((array_length out) - 2))
+            def py:double (itemAt out ((array_length out) - 1))
+            def cx:double (itemAt compact (i * 2))
+            def cyAt:int ((i * 2) + 1)
+            def cy:double (itemAt compact cyAt)
+            def nx:double (itemAt compact ((i + 1) * 2))
+            def nyAt:int (((i + 1) * 2) + 1)
+            def ny:double (itemAt compact nyAt)
+            def turns:boolean true
+            if ((fabs (cx - px)) < 0.01) {
+                if ((fabs (nx - cx)) < 0.01) {
+                    turns = false
+                }
+            }
+            if ((fabs (cy - py)) < 0.01) {
+                if ((fabs (ny - cy)) < 0.01) {
+                    turns = false
+                }
+            }
+            if turns {
+                push out cx
+                push out cy
+            }
+            i = (i + 1)
+        }
+        push out (itemAt compact ((n - 1) * 2))
+        def lastAt:int (((n - 1) * 2) + 1)
+        push out (itemAt compact lastAt)
+        return out
+    }
+
+    ; A corner list, turned into a path with the turns rounded. React Flow's
+    ; `getBend`, and the one place it lives: the stepped router, the corridor
+    ; router and the layered layout's routed edges all hand their corners here
+    ; rather than each rounding them slightly differently.
+    sfn bendPath:EdgePath (pts:[double] radius:double) {
         def p (new EdgePath)
         def n:int (idiv (array_length pts) 2)
         if (n < 2) {
@@ -803,13 +910,73 @@ class EdgeRouter {
 
     ; The one entry point the view and the exporters call.
     sfn route:EdgePath (g:FlowGraph e:FlowEdge) {
+        ; Waypoints win over everything. An edge the layered layout routed has
+        ; already been told where to go — around the nodes standing in its way
+        ; — and recomputing a route here would throw that away.
+        if ((array_length e.waypoints) >= 4) {
+            return (EdgeRouter.bendPath(e.waypoints 5.0))
+        }
         def x1:double (g.endpointX(e true))
         def y1:double (g.endpointY(e true))
         def x2:double (g.endpointX(e false))
         def y2:double (g.endpointY(e false))
         def s1:int (g.edgeSide(e true))
         def s2:int (g.edgeSide(e false))
+        if e.hasLaneX {
+            return (EdgeRouter.routeOn(x1 y1 s1 x2 y2 s2 e.edgeType true e.laneX false 0.0))
+        }
+        if e.hasLaneY {
+            return (EdgeRouter.routeOn(x1 y1 s1 x2 y2 s2 e.edgeType false 0.0 true e.laneY))
+        }
         return (EdgeRouter.routeBetween(x1 y1 s1 x2 y2 s2 e.edgeType))
+    }
+
+    ; The corners an edge is drawn through, as a flat list — its waypoints
+    ; when something routed it, and the ones the stepped router would use
+    ; otherwise. Dragging a segment needs corners rather than a rounded path:
+    ; you cannot move a bend you cannot name.
+    sfn cornersFor:[double] (g:FlowGraph e:FlowEdge) {
+        def out:[double]
+        if ((array_length e.waypoints) >= 4) {
+            def w:int 0
+            while (w < (array_length e.waypoints)) {
+                push out (itemAt e.waypoints w)
+                w = (w + 1)
+            }
+            return (EdgeRouter.mergeRuns(out))
+        }
+        def kind:string e.edgeType
+        def stepped:boolean false
+        if (kind == "step") { stepped = true }
+        if (kind == "smoothstep") { stepped = true }
+        if (kind == "orthogonal") { stepped = true }
+        if (stepped == false) {
+            return out
+        }
+        def x1:double (g.endpointX(e true))
+        def y1:double (g.endpointY(e true))
+        def x2:double (g.endpointX(e false))
+        def y2:double (g.endpointY(e false))
+        def s1:int (g.edgeSide(e true))
+        def s2:int (g.edgeSide(e false))
+        def raw:[double] (EdgeRouter.stepPointsAt(x1 y1 s1 x2 y2 s2 20.0 e.hasLaneX e.laneX e.hasLaneY e.laneY))
+        return (EdgeRouter.mergeRuns(raw))
+    }
+
+    ; Only the stepped families have a turn to place; a bezier or a straight
+    ; line has nowhere to put a track, so the lane is ignored rather than
+    ; quietly bending the curve.
+    sfn routeOn:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int kind:string hasCx:boolean cx:double hasCy:boolean cy:double) {
+        if (kind == "step") {
+            return (EdgeRouter.stepAt(x1 y1 s1 x2 y2 s2 20.0 hasCx cx hasCy cy))
+        }
+        if (kind == "smoothstep") {
+            return (EdgeRouter.smoothStepAt(x1 y1 s1 x2 y2 s2 20.0 5.0 hasCx cx hasCy cy))
+        }
+        if (kind == "orthogonal") {
+            return (EdgeRouter.smoothStepAt(x1 y1 s1 x2 y2 s2 24.0 6.0 hasCx cx hasCy cy))
+        }
+        return (EdgeRouter.routeBetween(x1 y1 s1 x2 y2 s2 kind))
     }
 
     sfn routeBetween:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int kind:string) {

@@ -586,6 +586,91 @@ class SoftCanvas {
     }
 
     ; Rotate + scale blit around pivot (screen pixels). angleDeg: clockwise, Y-down.
+    ; The same, mirrored. A picture in a deck can be flipped horizontally or
+    ; vertically (`a:xfrm flipH="1"`), and mirroring is a different SOURCE
+    ; column for the same destination one rather than a transform: the scaling
+    ; walk below is unchanged except for which pixel it reads.
+    fn blitImageRectScaledFlipped:void (src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int dw:int dh:int flipH:boolean flipV:boolean) {
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        if (dw <= 0) {
+            return
+        }
+        if (dh <= 0) {
+            return
+        }
+        if (flipH == false) {
+            if (flipV == false) {
+                this.blitImageRectScaled(src sx sy sw sh dx dy dw dh)
+                return
+            }
+        }
+        def srcW:int src.width
+        def y 0
+        while (y < dh) {
+            def dstY:int (dy + y)
+            if (dstY < 0) {
+                y = (y + 1)
+            } {
+                if (dstY >= h) {
+                    y = (y + 1)
+                } {
+                    def readY:int y
+                    if flipV {
+                        readY = ((dh - 1) - y)
+                    }
+                    def syOff:int (sy + (to_int ((to_double (readY * sh)) / (to_double dh))))
+                    if (syOff >= src.height) {
+                        syOff = (src.height - 1)
+                    }
+                    def x 0
+                    while (x < dw) {
+                        def dstX:int (dx + x)
+                        if (dstX < 0) {
+                            x = (x + 1)
+                        } {
+                            if (dstX >= w) {
+                                x = (x + 1)
+                            } {
+                                def readX:int x
+                                if flipH {
+                                    readX = ((dw - 1) - x)
+                                }
+                                def sxOff:int (sx + (to_int ((to_double (readX * sw)) / (to_double dw))))
+                                if (sxOff >= srcW) {
+                                    sxOff = (srcW - 1)
+                                }
+                                def sOff:int (((syOff * srcW) + sxOff) * 4)
+                                def srcA:int (buffer_get src.pixels (sOff + 3))
+                                if (srcA > 0) {
+                                    def dOff:int (((dstY * w) + dstX) * 4)
+                                    if (srcA >= 255) {
+                                        buffer_set px dOff (buffer_get src.pixels sOff)
+                                        buffer_set px (dOff + 1) (buffer_get src.pixels (sOff + 1))
+                                        buffer_set px (dOff + 2) (buffer_get src.pixels (sOff + 2))
+                                        buffer_set px (dOff + 3) 255
+                                    } {
+                                        blitter.blendOverBytes(px dOff
+                                            (buffer_get src.pixels sOff)
+                                            (buffer_get src.pixels (sOff + 1))
+                                            (buffer_get src.pixels (sOff + 2))
+                                            srcA)
+                                    }
+                                }
+                                x = (x + 1)
+                            }
+                        }
+                    }
+                    y = (y + 1)
+                }
+            }
+        }
+    }
+
     fn blitImageRectScaledRotated:void (src:ImageBuffer sx:int sy:int sw:int sh:int pivotX:int pivotY:int dw:int dh:int angleDeg:double) {
         if (sw <= 0) {
             return

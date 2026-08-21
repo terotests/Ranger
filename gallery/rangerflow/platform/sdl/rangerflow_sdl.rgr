@@ -30,6 +30,8 @@ Import "../../domains/erd/SqlSchemaReader.rgr"
 Import "../../domains/erd/SchemaToGraph.rgr"
 Import "../../layout/LayeredLayout.rgr"
 Import "../../layout/ForceLayout.rgr"
+Import "../../layout/EdgeLanes.rgr"
+Import "../../layout/OrthoRouter.rgr"
 Import "../../../datagrid/platform/sdl/gfx_datagrid_sdl.rgr"
 Import "../../../datagrid/platform/sdl/EvgGlPainter.rgr"
 
@@ -94,6 +96,13 @@ class RangerFlowSdl {
         lay.nodeGap = 40.0
         lay.run()
         SchemaToGraph.faceEdges(graph)
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
         editor.fitView()
     }
 
@@ -169,6 +178,11 @@ class RangerFlowSdl {
         } {
             if prevDown {
                 editor.pointerUp(input)
+                if (simRunning == false) {
+                    EdgeLanes.reset(graph)
+                    EdgeLanes.assign(graph)
+                    OrthoRouter.repairAll(graph)
+                }
             } {
                 editor.pointerMove(input)
             }

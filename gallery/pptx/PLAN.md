@@ -19,7 +19,7 @@ so the same scene can drive a viewer today and a slide editor later.
 10. Text fidelity: align, size, run color, wrap, insets, vertical anchor
 11. Two-stop linear gradients + outer shadow under SoftCanvas rects
 12. Bullets (`buChar` / `buAutoNum`) as prefixed paragraph paint
-13. Preset + `custGeom` path fills (`PptxGeom` + display-list kind 6)
+13. Preset + `custGeom` fills as SVG path data through EVG's `SVGPathParser`
 14. DrawingML tables (`graphicFrame` / `a:tbl`) as cell grid
 15. Charts → Vela PoC (`PptxChartVela`: ChartML → VL → SoftCanvas bars)
 16. True multi-face bold / italic / bold-italic SoftCanvas paint
@@ -33,6 +33,25 @@ so the same scene can drive a viewer today and a slide editor later.
 | 3f | Charts: pie/line polish, multi-series ChartML coverage |
 | 4 | Transitions / animations (static final state only until then) |
 | 4b | Embedded fonts, UTF-8 inspect dump |
+
+## Editing
+
+The viewer's model was always meant to drive an editor — see `PLAN_EDITOR.md`
+for the phases, and for the licence rule: the feature list is read off what a
+web editor like PPTist does, none of the code is.
+
+| Phase | Items |
+| --- | --- |
+| E1 | Editing core: selection, hit test, transforms, snapping, z-order, group, align, insert / delete, styles, slide ops, undo / redo, host seam — **done** |
+| E2 | A caret inside a shape, run-splitting styles, measured hit test — **done** |
+| E2b | One shared wrap pass — painter, caret and click use the same lines — **done** |
+| E3 | Writing `.pptx` back out on `ZipWriter`, round-tripped and verified from outside — **done, flat** |
+| E3b | Saving the file you opened: original parts kept, only touched slides rewritten — **done** |
+| E4 | Marquee, clipboard, lock, grid, rotation handle, flip, format painter — **done**; crop, gradients, colour picker, rulers open |
+| E4b | The slide panel: thumbnails are the slide's own scene, click to go, drag to reorder — **done** |
+| E5 | Themes, layouts, master editing, sections, notes |
+| E6 | Transitions, animations, presenter view |
+| E7 | Op-log history, dirty-rect paint, benches |
 
 ## Non-goals (for now)
 

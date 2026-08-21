@@ -1,0 +1,216 @@
+; ==============================================================================
+; PptxGeomTest — shapes are paths now, so check they are the shapes they claim
+; ==============================================================================
+;
+; The presets used to be tables of points typed out by hand, and the one that
+; mattered — `ellipse` — was a twelve-sided polygon. They are SVG path data
+; flattened by EVG's own `SVGPathParser` now, which is testable in a way a
+; table is not: an ellipse can be asked whether every one of its points is on
+; the ellipse.
+;
+; The same stack reads DrawingML's `custGeom`, so the curve commands it used to
+; drop — `cubicBezTo`, `quadBezTo`, `arcTo` — are checked here too.
+;
+;   npm run pptx:geom:test
+; ==============================================================================
+
+Import "../src/PptxGeom.rgr"
+Import "../src/PptxXml.rgr"
+Import "../src/PptxParser.rgr"
+Import "../src/PptxModel.rgr"
+
+class PptxGeomTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxGeomTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn run:void () {
+        print "=== PptxGeomTest ==="
+        this.testEllipse()
+        this.testPresets()
+        this.testNumbers()
+        this.testCustGeomLines()
+        this.testCustGeomCubic()
+        this.testCustGeomArc()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testEllipse:void () {
+        print "--- the ellipse is an ellipse ---"
+        def pts:[double] (PptxGeom.unitPreset("ellipse"))
+        def n:int (idiv (array_length pts) 2)
+        this.check("it has enough points to be round" (n >= 32))
+        ; Every point sits on the unit circle about (0.5, 0.5), to within a
+        ; thousandth of the box. A polygon of twelve points fails this by 3%.
+        def worst:double 0.0
+        def i:int 0
+        while (i < n) {
+            def dx:double ((itemAt pts (i * 2)) - 0.5)
+            def dy:double ((itemAt pts ((i * 2) + 1)) - 0.5)
+            def r:double (sqrt ((dx * dx) + (dy * dy)))
+            def err:double (fabs (r - 0.5))
+            if (err > worst) {
+                worst = err
+            }
+            i = (i + 1)
+        }
+        this.check("every point is on the circle" (worst < 0.001))
+        ; …and it goes all the way round: the four extremes are present.
+        def minX:double 9.0
+        def maxX:double (0.0 - 9.0)
+        def minY:double 9.0
+        def maxY:double (0.0 - 9.0)
+        def j:int 0
+        while (j < n) {
+            def x:double (itemAt pts (j * 2))
+            def y:double (itemAt pts ((j * 2) + 1))
+            if (x < minX) { minX = x }
+            if (x > maxX) { maxX = x }
+            if (y < minY) { minY = y }
+            if (y > maxY) { maxY = y }
+            j = (j + 1)
+        }
+        this.check("it fills the box across" ((minX < 0.001) && (maxX > 0.999)))
+        this.check("it fills the box down" ((minY < 0.001) && (maxY > 0.999)))
+    }
+
+    fn testPresets:void () {
+        print "--- the presets ---"
+        def names:[string] ([] _:string ( "triangle" "rtTriangle" "diamond" "parallelogram" "trapezoid" "pentagon" "hexagon" "octagon" "chevron" "homePlate" "star5" "rightArrow" "leftArrow" "upArrow" "downArrow" "plus" "flowChartTerminator" ))
+        def allInside:boolean true
+        def allClosed:boolean true
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            this.check((nm + " is a path shape") (PptxGeom.needsPath(nm)))
+            def pts:[double] (PptxGeom.unitPreset(nm))
+            def n:int (idiv (array_length pts) 2)
+            if (n < 3) {
+                allClosed = false
+            }
+            def k:int 0
+            while (k < n) {
+                def x:double (itemAt pts (k * 2))
+                def y:double (itemAt pts ((k * 2) + 1))
+                if (x < (0.0 - 0.001)) { allInside = false }
+                if (x > 1.001) { allInside = false }
+                if (y < (0.0 - 0.001)) { allInside = false }
+                if (y > 1.001) { allInside = false }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        this.check("every preset stays inside the unit box" allInside)
+        this.check("every preset has an area to fill" allClosed)
+        ; The two the painter draws with its own primitive are NOT paths: a
+        ; rounded rectangle knows about gradients and shadows, a polygon does
+        ; not.
+        this.check("rect is not a path" ((PptxGeom.needsPath("rect")) == false))
+        this.check("roundRect is not a path" ((PptxGeom.needsPath("roundRect")) == false))
+        def rect:[double] (PptxGeom.unitPreset("rect"))
+        this.check("rect still answers four corners" ((array_length rect) == 8))
+        this.check("an unknown preset falls back to the box" ((array_length (PptxGeom.unitPreset("smileyFace"))) == 8))
+    }
+
+    fn testNumbers:void () {
+        print "--- numbers in path data ---"
+        this.check("a half is a half" ((PptxGeom.pathNum(0.5)) == "0.5"))
+        this.check("rounding to six places" ((PptxGeom.pathNum(0.1234567)) == "0.123457"))
+        ; The point of it: a tiny double must not come out as 1e-7, which no
+        ; path parser is obliged to read.
+        def tiny:string (PptxGeom.pathNum(0.0000001))
+        this.check("a tiny number has no exponent" ((indexOf tiny "e") < 0))
+        def neg:string (PptxGeom.pathNum(0.0 - 0.25))
+        this.check("negatives survive" (neg == "-0.25"))
+    }
+
+    fn parseGeom:PptxShape (inner:string) {
+        def xml:string (("<p:spPr><a:custGeom><a:pathLst><a:path w=\"100\" h=\"100\">" + inner) + "</a:path></a:pathLst></a:custGeom></p:spPr>")
+        def p (new PptxXmlParser())
+        def root@(optional):PptxXmlNode (p.parse(xml))
+        def shape (new PptxShape())
+        if (null? root) {
+            return shape
+        }
+        def parser (new PptxParser())
+        parser.parseCustGeomPath((unwrap root) shape)
+        return shape
+    }
+
+    fn testCustGeomLines:void () {
+        print "--- custGeom: straight lines ---"
+        def shape:PptxShape (this.parseGeom("<a:moveTo><a:pt x=\"0\" y=\"0\"/></a:moveTo><a:lnTo><a:pt x=\"100\" y=\"0\"/></a:lnTo><a:lnTo><a:pt x=\"100\" y=\"100\"/></a:lnTo><a:close/>"))
+        this.check("a triangle is a path" shape.hasPath)
+        this.check("three points" ((array_length shape.pathUnit) == 6))
+        this.check("scaled into the unit box" (((itemAt shape.pathUnit 2) > 0.99) && ((itemAt shape.pathUnit 2) < 1.01)))
+    }
+
+    fn testCustGeomCubic:void () {
+        print "--- custGeom: a cubic ---"
+        ; A curve from (0,1) to (1,1) pulled up to the top of the box. Before
+        ; the path stack this shape was two points and a straight line.
+        def shape:PptxShape (this.parseGeom("<a:moveTo><a:pt x=\"0\" y=\"100\"/></a:moveTo><a:cubicBezTo><a:pt x=\"0\" y=\"0\"/><a:pt x=\"100\" y=\"0\"/><a:pt x=\"100\" y=\"100\"/></a:cubicBezTo><a:close/>"))
+        this.check("the curve is a path" shape.hasPath)
+        def n:int (idiv (array_length shape.pathUnit) 2)
+        this.check("it was flattened into many points" (n > 8))
+        ; The middle of that curve sits a quarter of the box below the top.
+        def top:double 9.0
+        def i:int 0
+        while (i < n) {
+            def y:double (itemAt shape.pathUnit ((i * 2) + 1))
+            if (y < top) {
+                top = y
+            }
+            i = (i + 1)
+        }
+        this.check("the curve bows upward" ((top > 0.2) && (top < 0.3)))
+    }
+
+    fn testCustGeomArc:void () {
+        print "--- custGeom: an arc ---"
+        ; A quarter turn clockwise from the right of a circle centred in the
+        ; box: 90 degrees is 5400000 in DrawingML's sixtieths of a degree.
+        def shape:PptxShape (this.parseGeom("<a:moveTo><a:pt x=\"100\" y=\"50\"/></a:moveTo><a:arcTo wR=\"50\" hR=\"50\" stAng=\"0\" swAng=\"5400000\"/><a:close/>"))
+        this.check("the arc is a path" shape.hasPath)
+        def n:int (idiv (array_length shape.pathUnit) 2)
+        this.check("an arc is more than its endpoints" (n > 4))
+        ; Every point of it is on the circle of radius 0.5 about the centre.
+        def worst:double 0.0
+        def i:int 0
+        while (i < n) {
+            def dx:double ((itemAt shape.pathUnit (i * 2)) - 0.5)
+            def dy:double ((itemAt shape.pathUnit ((i * 2) + 1)) - 0.5)
+            def r:double (sqrt ((dx * dx) + (dy * dy)))
+            def err:double (fabs (r - 0.5))
+            if (err > worst) {
+                worst = err
+            }
+            i = (i + 1)
+        }
+        this.check("the arc follows the circle" (worst < 0.01))
+        ; And it ends at the bottom of it, a quarter turn on.
+        def lastY:double (itemAt shape.pathUnit ((n * 2) - 1))
+        def lastX:double (itemAt shape.pathUnit ((n * 2) - 2))
+        this.check("it ends where the sweep says" (((fabs (lastX - 0.5)) < 0.02) && ((fabs (lastY - 1.0)) < 0.02)))
+    }
+}
