@@ -333,7 +333,7 @@ class GridDbSource {
         if (parsed.isNull) {
             if ((strlen (trim typed)) > 0) {
                 model.setCellRaw(row col (before.asString()))
-                status = (typed + " is not a " + (DBType.kindName(column.kind)))
+                status = (typed + " is not a valid " + (DBType.kindName(column.kind)) + " for " + column.name)
                 return true
             }
             if (column.nullable == false) {

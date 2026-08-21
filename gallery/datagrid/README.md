@@ -27,6 +27,8 @@ npm run datagrid:xlsx:test
 npm run datagrid:chart:test
 npm run datagrid:export:test
 npm run datagrid:workbook:test
+npm run datagrid:db:test        # a sheet over RangerDB / SQLite / DuckDB
+npm run datagrid:db:demo        # …and a headless session that edits one
 npm run datagrid:formula:test
 npm run datagrid:formula:array:test
 npm run datagrid:date:test
@@ -223,7 +225,12 @@ in them. `db.row.delete` deletes. `db.refresh` re-runs. With
 `db.autoCommit = false` the edits collect instead, and `db.commit` writes them
 in one transaction where the engine has them.
 
-`npm run datagrid:db:test` runs all of it over all three engines (81/81).
+`npm run datagrid:db:test` runs all of it over all three engines (81/81), and
+`npm run datagrid:db:demo` is a headless session that seeds a table, edits a
+cell through the UI, reads the new value back out of the database, has one
+edit refused, sorts (which re-runs the query) and leaves this behind:
+
+![A workbook sheet whose rows come from DuckDB](artifacts/db_sheet.png)
 
 ## Editing
 

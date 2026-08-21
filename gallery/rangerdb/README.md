@@ -23,8 +23,11 @@ Run it:
 npm run rangerdb:test        # RangerDB against the shared contract + engine internals
 npm run rangerdb:host:test   # the same contract over SQLite and DuckDB
 npm run datagrid:db:test     # the spreadsheet editing a database, on all three
+npm run datagrid:db:demo     # a headless session editing a table through the grid
 npm run rangerdb:bench       # the same queries, timed on each engine
 ```
+
+![A workbook sheet whose rows come from DuckDB](../datagrid/artifacts/db_sheet.png)
 
 DuckDB is optional (`npm i @duckdb/node-api`); SQLite is Node's own built-in.
 An engine that is not installed is reported as skipped, never as failed.

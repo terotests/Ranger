@@ -1,0 +1,213 @@
+; ==============================================================================
+; db_demo - the workbook over a live database, headless.
+; ==============================================================================
+;
+; Seeds a table, binds it as a sheet, prints it, edits a cell the way a user
+; would (click, type, Enter), shows the new value coming back out of the
+; DATABASE rather than out of the sheet, then sorts - which re-runs the query -
+; and leaves a picture of the result behind.
+;
+;   npm run datagrid:db:demo
+;
+; It runs on whichever engine is present: DuckDB if it is installed, SQLite
+; otherwise, and RangerDB if there is no host database at all - which is also
+; the case in a browser, where the other two do not exist.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../rangerdb/src/RangerDB.rgr"
+Import "../../rangerdb/src/HostSql.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DbDemo {
+    sfn tableName:string () {
+        return "sales"
+    }
+
+    sfn bestSession:DBSession () {
+        if (HostSqlBackend.isAvailable("duckdb")) {
+            def duck:HostSqlBackend (HostSqlBackend.forDriver("duckdb"))
+            def ds:DBSession (DBSession.over(duck))
+            if (ds.openDb(":memory:")) {
+                return ds
+            }
+        }
+        if (HostSqlBackend.isAvailable("sqlite")) {
+            def lite:HostSqlBackend (HostSqlBackend.forDriver("sqlite"))
+            def ls:DBSession (DBSession.over(lite))
+            if (ls.openDb(":memory:")) {
+                return ls
+            }
+        }
+        def own:RangerDbBackend (new RangerDbBackend)
+        def rs:DBSession (DBSession.over(own))
+        rs.openDb(":memory:")
+        return rs
+    }
+
+    sfn addRow:void (session:DBSession id:int region:string country:string revenue:double units:int) {
+        def m:DBMutation (DBMutation.makeInsert((DbDemo.tableName())))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("region" (DBValue.fromString(region)))
+        m.withValue("country" (DBValue.fromString(country)))
+        m.withValue("revenue" (DBValue.fromDouble(revenue)))
+        m.withValue("units" (DBValue.fromInt(units)))
+        session.mutate(m)
+    }
+
+    sfn seed:void (session:DBSession) {
+        def cols:[DBColumn]
+        push cols (DBColumn.createKey("id" 2))
+        push cols (DBColumn.create("region" 4))
+        push cols (DBColumn.create("country" 4))
+        push cols (DBColumn.create("revenue" 3))
+        push cols (DBColumn.create("units" 2))
+        session.createTable((DbDemo.tableName()) cols)
+        DbDemo.addRow(session 1 "Nordics" "Finland" 1240000.0 120)
+        DbDemo.addRow(session 2 "Nordics" "Sweden" 980000.0 95)
+        DbDemo.addRow(session 3 "Nordics" "Norway" 610000.0 60)
+        DbDemo.addRow(session 4 "DACH" "Germany" 1750000.0 210)
+        DbDemo.addRow(session 5 "DACH" "Austria" 320000.0 41)
+    }
+
+    sfn pad:string (text:string width:int) {
+        def out:string text
+        def n:int (strlen text)
+        while (n < width) {
+            out = (out + " ")
+            n = (n + 1)
+        }
+        return out
+    }
+
+    sfn printSheet:void (app:GridApp title:string) {
+        print ""
+        print title
+        def cols:int (array_length app.db.columns)
+        def rows:int (app.db.loadedRows + 1)
+        def r:int 0
+        while (r < rows) {
+            def line:string ""
+            def c:int 0
+            while (c < cols) {
+                line = (line + (DbDemo.pad((app.model.getCell(r c)) 12)))
+                c = (c + 1)
+            }
+            if (r == 0) {
+                print ("  " + line)
+                print "  ----------------------------------------------------------------"
+            } {
+                print ("  " + line)
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; The value the DATABASE holds, asked for again rather than read off the
+    ; sheet - which is the only way to show that the edit went somewhere.
+    sfn stored:string (session:DBSession id:int column:string) {
+        def q:QuerySpec (QuerySpec.forTable((DbDemo.tableName())))
+        q.whereIs("id" 0 (DBValue.fromInt(id)))
+        def chunk:DataChunk (session.query(q))
+        if (chunk.rowCount == 0) {
+            return "<missing>"
+        }
+        def ci:int (chunk.columnIndex(column))
+        return (chunk.stringAt(0 ci))
+    }
+
+    sfn click:void (app:GridApp input:UIInput px:int py:int) {
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(false)
+        app.update(input)
+    }
+
+    sfn typeText:void (app:GridApp input:UIInput s:string) {
+        input.newFrame()
+        input.pushText(s)
+        app.update(input)
+    }
+
+    sfn key:void (app:GridApp input:UIInput k:int) {
+        input.newFrame()
+        input.pushKey(k)
+        app.update(input)
+    }
+
+    sfn cellCentre:int (app:GridApp index:int columns:boolean) {
+        def base:int 0
+        if columns {
+            base = (app.grid.gridOriginX())
+            def c:int 0
+            while (c < index) {
+                base = (base + (app.model.colWidth(c)))
+                c = (c + 1)
+            }
+            return (base + 8)
+        }
+        base = (app.grid.gridOriginY())
+        def r:int 0
+        while (r < index) {
+            base = (base + (app.model.rowHeight(r)))
+            r = (r + 1)
+        }
+        return (base + 6)
+    }
+
+    sfn main:void () {
+        def session:DBSession (DbDemo.bestSession())
+        DbDemo.seed(session)
+        print ("engine: " + (session.engineName()))
+
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def input:UIInput (new UIInput)
+
+        def spec:QuerySpec (QuerySpec.forTable((DbDemo.tableName())))
+        spec.orderBy("id" true)
+        def keys:[string]
+        push keys "id"
+        app.bindDatabase(session spec keys "DB sales")
+        print ("status: " + app.db.status)
+        DbDemo.printSheet(app "the query, as a sheet:")
+
+        ; Edit "Sweden" -> "Sverige" by clicking the cell and typing.
+        def x:int (DbDemo.cellCentre(app 2 true))
+        def y:int (DbDemo.cellCentre(app 2 false))
+        DbDemo.click(app input x y)
+        DbDemo.typeText(app input "Sverige")
+        DbDemo.key(app input (UIKey.enter()))
+        print ""
+        print ("typed into the sheet, read back from the database: " + (DbDemo.stored(session 2 "country")))
+        print ("status: " + app.db.status)
+
+        ; A value the column cannot hold is refused and undone.
+        def ux:int (DbDemo.cellCentre(app 4 true))
+        DbDemo.click(app input ux y)
+        DbDemo.typeText(app input "ninety five")
+        DbDemo.key(app input (UIKey.enter()))
+        print ("refused edit: sheet still says " + (app.model.getCell(2 4)) + ", database still says " + (DbDemo.stored(session 2 "units")))
+        print ("status: " + app.db.status)
+
+        ; Sorting is a new query, not a sort of the loaded page.
+        app.applySort(3 false)
+        DbDemo.printSheet(app "after ORDER BY revenue DESC (the engine did it):")
+        print ("status: " + app.db.status)
+
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/datagrid/artifacts" "db_sheet.png")
+        print ""
+        print "wrote gallery/datagrid/artifacts/db_sheet.png"
+    }
+}
