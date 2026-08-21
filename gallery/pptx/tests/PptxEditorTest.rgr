@@ -1,0 +1,610 @@
+; ==============================================================================
+; PptxEditorTest - the editing core, on a deck built in memory
+; ==============================================================================
+
+Import "../src/PptxModel.rgr"
+Import "../src/PptxEdit.rgr"
+Import "../src/PptxParser.rgr"
+Import "../src/PptxResolver.rgr"
+
+class PptxEditorTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxEditorTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn near:boolean (a:double b:double) {
+        def d:double (fabs (a - b))
+        return (d < 0.01)
+    }
+
+    ; A two-shape slide: a box at 100,100 and a box at 300,200.
+    fn buildDeck:PptxPresentation () {
+        def pres (new PptxPresentation())
+        pres.slideWidth = 720.0
+        pres.slideHeight = 540.0
+        def slide (new PptxSlide())
+        slide.width = 720.0
+        slide.height = 540.0
+        def chrome (new PptxShape())
+        chrome.name = "layout footer"
+        chrome.x = 0.0
+        chrome.y = 500.0
+        chrome.width = 720.0
+        chrome.height = 40.0
+        chrome.inherited = true
+        push slide.shapes chrome
+        def a (new PptxShape())
+        a.name = "A"
+        a.x = 100.0
+        a.y = 100.0
+        a.width = 200.0
+        a.height = 100.0
+        a.hasXfrm = true
+        a.fill = (PptxColor.srgbOf("4472C4"))
+        push slide.shapes a
+        def b (new PptxShape())
+        b.name = "B"
+        b.x = 300.0
+        b.y = 200.0
+        b.width = 120.0
+        b.height = 60.0
+        b.hasXfrm = true
+        b.fill = (PptxColor.srgbOf("ED7D31"))
+        push slide.shapes b
+        push pres.slides slide
+        return pres
+    }
+
+    fn run:void () {
+        print "=== PptxEditorTest ==="
+        this.testIds()
+        this.testHitTest()
+        this.testSelection()
+        this.testMoveUndo()
+        this.testResize()
+        this.testMultiResize()
+        this.testZOrder()
+        this.testGroup()
+        this.testAlign()
+        this.testSnap()
+        this.testStructure()
+        this.testStyle()
+        this.testSlides()
+        this.testTyping()
+        this.testDragSeam()
+        this.testHistoryLimit()
+        this.testRealDeck()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testIds:void () {
+        print "--- ids ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        this.check("ids handed out" (a.editId > 0))
+        this.check("ids are distinct" (a.editId != b.editId))
+        def found@(optional):PptxShape (ed.findShape(b.editId))
+        this.check("find by id" (!null? found))
+        def editable:[PptxShape] (ed.editableShapes())
+        this.check("inherited chrome is not editable" ((array_length editable) == 2))
+        this.check("history starts with one step" ((ed.historyDepth()) == 1))
+        this.check("nothing to undo yet" ((ed.canUndo()) == false))
+    }
+
+    fn testHitTest:void () {
+        print "--- hit test ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        this.check("inside A" ((ed.hitTest(150.0 150.0)) == a.editId))
+        this.check("inside B" ((ed.hitTest(350.0 220.0)) == b.editId))
+        this.check("empty slide area" ((ed.hitTest(600.0 60.0)) == 0))
+        this.check("layout chrome is not hit" ((ed.hitTest(360.0 520.0)) == 0))
+        ; A quarter turn about the centre puts 100x200 where 200x100 was.
+        a.rotation = 90.0
+        this.check("rotated shape follows its corners" ((ed.hitTest(160.0 60.0)) == a.editId))
+        this.check("rotated shape drops the old corner" ((ed.hitTest(110.0 110.0)) == 0))
+    }
+
+    fn testSelection:void () {
+        print "--- selection ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        this.check("click selects" (ed.selectAt(150.0 150.0 false)))
+        this.check("one selected" ((ed.selectionCount()) == 1))
+        this.check("it is A" (ed.isSelected(a.editId)))
+        ed.selectAt(350.0 220.0 true)
+        this.check("shift-click adds" ((ed.selectionCount()) == 2))
+        ed.selectAt(350.0 220.0 true)
+        this.check("shift-click again removes" ((ed.selectionCount()) == 1))
+        ed.selectAt(600.0 60.0 false)
+        this.check("click on nothing clears" ((ed.selectionCount()) == 0))
+        ed.selectAll()
+        this.check("select all skips chrome" ((ed.selectionCount()) == 2))
+        def bounds:PptxEditRect (ed.selectionBounds())
+        this.check("bounds x" (this.near(bounds.x 100.0)))
+        this.check("bounds w" (this.near(bounds.w 320.0)))
+        this.check("bounds h" (this.near(bounds.h 160.0)))
+        this.check("b is in there" (ed.isSelected(b.editId)))
+    }
+
+    fn testMoveUndo:void () {
+        print "--- move / undo ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ed.select(a.editId)
+        ed.moveSelection(40.0 -20.0)
+        def moved@(optional):PptxShape (ed.findShape(a.editId))
+        this.check("moved shape found" (!null? moved))
+        if (!null? moved) {
+            def m:PptxShape (unwrap moved)
+            this.check("moved x" (this.near(m.x 140.0)))
+            this.check("moved y" (this.near(m.y 80.0)))
+        }
+        this.check("undo available" (ed.canUndo()))
+        ed.undo()
+        def back@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? back) {
+            def m2:PptxShape (unwrap back)
+            this.check("undo puts it back" (this.near(m2.x 100.0)))
+        }
+        this.check("selection survives undo" (ed.isSelected(a.editId)))
+        ed.redo()
+        def again@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? again) {
+            def m3:PptxShape (unwrap again)
+            this.check("redo moves it again" (this.near(m3.x 140.0)))
+        }
+    }
+
+    fn testResize:void () {
+        print "--- resize / rotate ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ed.select(a.editId)
+        ; Pull the south-east corner 40 right and 20 down.
+        ed.resizeSelection(4 40.0 20.0)
+        this.check("se corner grows width" (this.near(a.width 240.0)))
+        this.check("se corner grows height" (this.near(a.height 120.0)))
+        this.check("se corner keeps the origin" (this.near(a.x 100.0)))
+        ; The north-west corner moves the origin and shrinks the box.
+        ed.resizeSelection(0 40.0 20.0)
+        this.check("nw corner moves x" (this.near(a.x 140.0)))
+        this.check("nw corner shrinks width" (this.near(a.width 200.0)))
+        ; A drag past the far edge stops at the minimum rather than inverting.
+        ed.resizeSelection(3 (0.0 - 500.0) 0.0)
+        this.check("width clamps to the minimum" (this.near(a.width ed.minSizePt)))
+        ed.rotateSelection(45.0)
+        this.check("rotation applied" (this.near(a.rotation 45.0)))
+        ed.rotateSelection(330.0)
+        this.check("rotation wraps" (this.near(a.rotation 15.0)))
+        ed.setSelectionRotation(0.0 - 90.0)
+        this.check("negative rotation normalizes" (this.near(a.rotation 270.0)))
+    }
+
+    fn testMultiResize:void () {
+        print "--- multi resize ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        ed.selectAll()
+        ; Selection box is 100,100 320x160. Doubling its width doubles the
+        ; offsets inside it too, so the arrangement is kept.
+        ed.resizeSelection(3 320.0 0.0)
+        this.check("first shape scales" (this.near(a.width 400.0)))
+        this.check("second shape follows the box" (this.near(b.x 500.0)))
+        this.check("heights untouched" (this.near(b.height 60.0)))
+    }
+
+    fn testZOrder:void () {
+        print "--- z-order ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        this.check("chrome sits first" (((itemAt slide.shapes 0).inherited) == true))
+        ed.select(a.editId)
+        ed.bringToFront()
+        def last:PptxShape (itemAt slide.shapes ((array_length slide.shapes) - 1))
+        this.check("to front is painted last" (last.editId == a.editId))
+        ed.sendToBack()
+        def firstAuthored:PptxShape (itemAt slide.shapes 1)
+        this.check("to back stops before the chrome" (firstAuthored.editId == a.editId))
+        this.check("chrome stays behind everything" (((itemAt slide.shapes 0).inherited) == true))
+        ed.bringForward()
+        this.check("forward is one step" (((itemAt slide.shapes 2).editId) == a.editId))
+        ed.sendBackward()
+        this.check("backward is one step back" (((itemAt slide.shapes 1).editId) == a.editId))
+        this.check("b is still there" (b.editId > 0))
+    }
+
+    fn testGroup:void () {
+        print "--- group / ungroup ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        def aId:int a.editId
+        ed.selectAll()
+        this.check("group needs two" (ed.groupSelection()))
+        this.check("two shapes became one" ((array_length (ed.editableShapes())) == 1))
+        def grp:PptxShape (itemAt (ed.editableShapes()) 0)
+        this.check("it is a group" (grp.kind == 2))
+        this.check("group box is the selection box" (this.near(grp.x 100.0)))
+        this.check("group width" (this.near(grp.width 320.0)))
+        this.check("child box is identity" (this.near(grp.chX grp.x)))
+        this.check("children came along" ((array_length grp.children) == 2))
+        this.check("group is selected" (ed.isSelected(grp.editId)))
+        ; A shape inside a group is still findable, and a click lands on the
+        ; group rather than on the child.
+        def inner@(optional):PptxShape (ed.findShape(aId))
+        this.check("child still findable by id" (!null? inner))
+        this.check("click hits the group" ((ed.hitTest(150.0 150.0)) == grp.editId))
+        this.check("ungroup opens it" (ed.ungroupSelection()))
+        this.check("shapes are back on the slide" ((array_length (ed.editableShapes())) == 2))
+        def back:PptxShape (itemAt (ed.editableShapes()) 0)
+        this.check("child kept its position" (this.near(back.x 100.0)))
+        this.check("children are selected after ungroup" ((ed.selectionCount()) == 2))
+        ed.undo()
+        this.check("undo re-groups" ((array_length (ed.editableShapes())) == 1))
+        this.check("b is accounted for" (b.editId > 0))
+    }
+
+    fn testAlign:void () {
+        print "--- align / distribute ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        ; One shape aligns to the slide.
+        ed.select(a.editId)
+        ed.alignSelection("hcenter")
+        this.check("centre on the slide" (this.near(a.x 260.0)))
+        ed.alignSelection("bottom")
+        this.check("bottom of the slide" (this.near(a.y 440.0)))
+        ; Two align to each other.
+        ed.selectAll()
+        ed.alignSelection("left")
+        this.check("left edges agree" (this.near(a.x b.x)))
+        ; Three distribute evenly.
+        def c (new PptxShape())
+        c.x = 600.0
+        c.y = 300.0
+        c.width = 40.0
+        c.height = 40.0
+        c.editId = 900
+        push slide.shapes c
+        ed.clearSelection()
+        a.x = 0.0
+        b.x = 100.0
+        c.x = 300.0
+        ed.addToSelection(a.editId)
+        ed.addToSelection(b.editId)
+        ed.addToSelection(900)
+        this.check("distribute needs three" (ed.distributeSelection(true)))
+        this.check("middle sits halfway" (this.near(b.x 150.0)))
+        this.check("ends stay put" (this.near(c.x 300.0)))
+    }
+
+    fn testSnap:void () {
+        print "--- snapping ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        ; B's left edge is at 300; drag A's right edge (300) to 302 and it
+        ; should come back.
+        ed.select(a.editId)
+        ed.moveSelectionSnapped(2.0 0.0)
+        this.check("snapped back to the neighbour" (this.near(a.x 100.0)))
+        this.check("a guide was produced" ((array_length ed.guideX) == 1))
+        ; Far enough away and nothing is snapped.
+        ed.moveSelectionSnapped(40.0 0.0)
+        this.check("a long drag is left alone" (this.near(a.x 140.0)))
+        this.check("no guide for a free drag" ((array_length ed.guideX) == 0))
+        ed.snapEnabled = false
+        ed.moveSelectionSnapped(2.0 0.0)
+        this.check("snapping can be turned off" (this.near(a.x 142.0)))
+        this.check("b untouched" (this.near(b.x 300.0)))
+    }
+
+    fn testStructure:void () {
+        print "--- insert / delete / duplicate ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def id:int (ed.addShapeAt("roundRect" 50.0 50.0 80.0 40.0))
+        this.check("insert returns an id" (id > 0))
+        this.check("insert selects the new shape" (ed.isSelected(id)))
+        this.check("three editable shapes" ((array_length (ed.editableShapes())) == 3))
+        def txt:int (ed.addTextBox(400.0 400.0 200.0 60.0 "Hello\nWorld"))
+        def tshape@(optional):PptxShape (ed.findShape(txt))
+        this.check("text box exists" (!null? tshape))
+        if (!null? tshape) {
+            def t:PptxShape (unwrap tshape)
+            this.check("text box has text" (t.hasText))
+            this.check("newline becomes a paragraph" ((array_length t.text.paragraphs) == 2))
+            this.check("text reads back" ((t.text.plainText()) == "Hello\nWorld"))
+        }
+        ed.select(id)
+        this.check("duplicate works" (ed.duplicateSelection()))
+        this.check("duplicate selects the copy" ((ed.isSelected(id)) == false))
+        this.check("five shapes now" ((array_length (ed.editableShapes())) == 5))
+        def copyId:int (itemAt ed.selection 0)
+        def copy@(optional):PptxShape (ed.findShape(copyId))
+        if (!null? copy) {
+            def c:PptxShape (unwrap copy)
+            this.check("copy is offset" (this.near(c.x 60.0)))
+        }
+        this.check("delete removes it" (ed.deleteSelection()))
+        this.check("four shapes left" ((array_length (ed.editableShapes())) == 4))
+        this.check("delete clears the selection" ((ed.selectionCount()) == 0))
+        ed.undo()
+        this.check("undo brings it back" ((array_length (ed.editableShapes())) == 5))
+        ; Chrome cannot be deleted, because it cannot be selected.
+        def chrome:PptxShape (itemAt ((itemAt deck.slides 0).shapes) 0)
+        ed.select(chrome.editId)
+        this.check("chrome cannot be deleted" ((ed.deleteSelection()) == false))
+    }
+
+    fn testStyle:void () {
+        print "--- style / text ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ed.select(a.editId)
+        ed.setFillHex("FF0000")
+        this.check("fill set" (a.fill.srgb == "FF0000"))
+        ed.setLineHex("000000" 1.5)
+        this.check("line colour" (a.line.srgb == "000000"))
+        this.check("line width" (this.near(a.lineWidthPt 1.5)))
+        ed.clearFill()
+        this.check("fill cleared" ((a.fill.isSet) == false))
+        ed.setPreset("ellipse")
+        this.check("preset changed" (a.preset == "ellipse"))
+        ed.setShapeText(a.editId "Title")
+        this.check("text set" ((a.text.plainText()) == "Title"))
+        this.check("shape now carries text" (a.hasText))
+        ed.setTextBold(true)
+        ed.setTextSizePt(28.0)
+        ed.setTextColorHex("112233")
+        def para:PptxParagraph (itemAt a.text.paragraphs 0)
+        def run:PptxTextRun (itemAt para.runs 0)
+        this.check("bold" (run.bold))
+        this.check("size" (this.near(run.fontSizePt 28.0)))
+        this.check("colour" (run.color.srgb == "112233"))
+        ed.setTextAlign("ctr")
+        this.check("paragraph align" (para.align == "ctr"))
+        ; Retyping keeps the look that was set.
+        ed.setShapeText(a.editId "Second")
+        def para2:PptxParagraph (itemAt a.text.paragraphs 0)
+        def run2:PptxTextRun (itemAt para2.runs 0)
+        this.check("retyped text keeps bold" (run2.bold))
+        this.check("retyped text keeps size" (this.near(run2.fontSizePt 28.0)))
+        this.check("retyped text keeps align" (para2.align == "ctr"))
+        this.check("selection text reads back" ((ed.selectionText()) == "Second"))
+    }
+
+    fn testSlides:void () {
+        print "--- slides ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        this.check("one slide to start" ((ed.slideCount()) == 1))
+        this.check("delete refuses the last slide" ((ed.deleteSlide()) == false))
+        this.check("add a slide" (ed.addSlide()))
+        this.check("two slides" ((ed.slideCount()) == 2))
+        this.check("the new one is in front of you" (ed.slideIndex == 1))
+        this.check("new slide is empty" ((array_length (ed.editableShapes())) == 0))
+        ed.gotoSlide(0)
+        this.check("duplicate a slide" (ed.duplicateSlide()))
+        this.check("three slides" ((ed.slideCount()) == 3))
+        this.check("the copy is in front of you" (ed.slideIndex == 1))
+        this.check("copy carries the shapes" ((array_length (ed.editableShapes())) == 2))
+        ; A duplicated slide gets its own ids, or selecting on one would
+        ; select on the other.
+        def orig:PptxSlide (itemAt deck.slides 0)
+        def copy:PptxSlide (itemAt deck.slides 1)
+        def o0:PptxShape (itemAt orig.shapes 0)
+        def c0:PptxShape (itemAt copy.shapes 0)
+        this.check("copies get fresh ids" (o0.editId != c0.editId))
+        this.check("move a slide down" (ed.moveSlide(1)))
+        this.check("index follows the slide" (ed.slideIndex == 2))
+        this.check("move refuses to walk off the end" ((ed.moveSlide(1)) == false))
+        this.check("delete a slide" (ed.deleteSlide()))
+        this.check("two slides left" ((ed.slideCount()) == 2))
+        ed.undo()
+        this.check("undo restores the slide" ((ed.slideCount()) == 3))
+    }
+
+    ; The editor's own contract on a real deck: ids over parsed shapes, a hit
+    ; test in slide points, and a move that survives a round trip.
+    fn testRealDeck:void () {
+        print "--- a parsed deck ---"
+        def parser (new PptxParser())
+        def ok:boolean (parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx"))
+        this.check("open the business deck" ok)
+        if (ok == false) {
+            return
+        }
+        def resolver (new PptxResolver())
+        def raw:PptxPresentation (parser.parsePresentation())
+        def pres:PptxPresentation (resolver.resolvePresentation(raw))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        this.check("slides came through" ((ed.slideCount()) > 1))
+        def shapes:[PptxShape] (ed.editableShapes())
+        this.check("slide one has authored shapes" ((array_length shapes) > 0))
+        def first:PptxShape (itemAt shapes 0)
+        this.check("parsed shapes got ids" (first.editId > 0))
+        def cx:double (first.x + (first.width * 0.5))
+        def cy:double (first.y + (first.height * 0.5))
+        def hit:int (ed.hitTest(cx cy))
+        this.check("a click in a shape finds a shape" (hit > 0))
+        ed.select(hit)
+        def before@(optional):PptxShape (ed.findShape(hit))
+        def x0:double 0.0
+        if (!null? before) {
+            def bs:PptxShape (unwrap before)
+            x0 = bs.x
+        }
+        ed.moveSelection(12.0 0.0)
+        def after@(optional):PptxShape (ed.findShape(hit))
+        if (!null? after) {
+            def m:PptxShape (unwrap after)
+            this.check("it moved on the real deck" (this.near(m.x (x0 + 12.0))))
+        }
+        ed.undo()
+        def back@(optional):PptxShape (ed.findShape(hit))
+        if (!null? back) {
+            def m2:PptxShape (unwrap back)
+            this.check("and moved back" (this.near(m2.x x0)))
+        }
+        this.check("the deck is marked changed" (ed.dirty))
+        parser.close()
+    }
+
+    fn testHistoryLimit:void () {
+        print "--- history ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        ed.historyLimit = 5
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ed.select(a.editId)
+        def i:int 0
+        while (i < 20) {
+            ed.moveSelection(1.0 0.0)
+            i = (i + 1)
+        }
+        this.check("history is capped" ((ed.historyDepth()) == 5))
+        this.check("still undoable" (ed.canUndo()))
+        ; A new step after an undo drops the redo tail — the future you did
+        ; not take.
+        ed.undo()
+        this.check("redo available after undo" (ed.canRedo()))
+        ed.moveSelection(1.0 0.0)
+        this.check("a new step drops the redo tail" ((ed.canRedo()) == false))
+    }
+
+
+    fn testTyping:void () {
+        print "--- typing ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ed.select(a.editId)
+        def depth0:int (ed.historyDepth())
+        ed.appendText("H")
+        ed.appendText("i")
+        this.check("characters land on the shape" ((a.text.plainText()) == "Hi"))
+        this.check("a burst of typing is one step" ((ed.historyDepth()) == (depth0 + 1)))
+        ed.backspaceText()
+        this.check("backspace takes one back" ((a.text.plainText()) == "H"))
+        this.check("still one step" ((ed.historyDepth()) == (depth0 + 1)))
+        ed.undo()
+        ; Undo swaps the deck for the snapshot's copy, so a held reference is
+        ; stale by design — a host looks the shape up again by id.
+        def after@(optional):PptxShape (ed.findShape(a.editId))
+        this.check("undo hands back a live shape" (!null? after))
+        if (!null? after) {
+            def t:PptxShape (unwrap after)
+            this.check("undo drops the whole burst" ((t.text.plainText()) == ""))
+        }
+        ; A move between bursts breaks the coalescing.
+        ed.appendText("A")
+        ed.moveSelection(1.0 0.0)
+        ed.appendText("B")
+        this.check("a new burst after a move is its own step" ((ed.historyDepth()) == (depth0 + 3)))
+    }
+
+    fn testDragSeam:void () {
+        print "--- drag seam ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ed.select(a.editId)
+        def depth0:int (ed.historyDepth())
+        ; What a host does between press and release: apply, apply, apply,
+        ; then one snapshot.
+        def i:int 0
+        while (i < 10) {
+            ed.applyMove(1.0 0.5)
+            i = (i + 1)
+        }
+        this.check("the shape followed the pointer" (this.near(a.x 110.0)))
+        this.check("no history yet" ((ed.historyDepth()) == depth0))
+        ed.pushSnapshot("move")
+        this.check("release is one step" ((ed.historyDepth()) == (depth0 + 1)))
+        def j:int 0
+        while (j < 5) {
+            ed.applyResize(4 2.0 0.0)
+            j = (j + 1)
+        }
+        this.check("resize followed the pointer" (this.near(a.width 210.0)))
+        this.check("resize drag is not history either" ((ed.historyDepth()) == (depth0 + 1)))
+        ed.undo()
+        def back@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? back) {
+            def m:PptxShape (unwrap back)
+            this.check("undo after a live drag restores the press" (this.near(m.x 100.0)))
+            this.check("and the size it was pressed at" (this.near(m.width 200.0)))
+        }
+    }
+
+}

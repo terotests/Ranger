@@ -42,7 +42,8 @@ gallery/pptx/
     PptxChartVela.rgr   ChartML → VL JSON → Vela → display list
     PptxToEvg.rgr       ResolvedSlide → EVG + display list
     PptxView.rgr        SoftCanvas / sceneJson (+ image cache)
-    PptxApp.rgr         UIInput navigation host
+    PptxEdit.rgr        editing core: selection, transforms, history
+    PptxApp.rgr         UIInput navigation + editing host
     pptx_demo.rgr       headless PNG demo
     pptx_oracle_dump.rgr  inspect.json + oracle PNGs
   harness/              feature + semantic + visual oracles
@@ -73,6 +74,36 @@ gallery/pptx/
 Still later: multi-stop gradients, crop/transparency, table merges, richer
 ChartML (pie/line/multi-series), curve geom, animations, embedded fonts.
 
+## Editing
+
+The viewer is a mode away from being an editor. `PptxEdit.rgr` is the editing
+core — host-agnostic, in slide points — and `PptxApp` is the only place a
+window pixel becomes one:
+
+- [x] Edit mode (`edit.toggle`, Ctrl+E). A deck opened to read stays read-only
+- [x] Click to select, shift-click to add, Ctrl+A for the lot; master / layout
+      chrome is drawn but never selectable
+- [x] Drag to move, eight handles to resize, rotation-aware hit testing
+- [x] Alignment guides: shape edges, shape centres and the slide's own thirds
+- [x] Align 6 ways, distribute across / down, z-order, group / ungroup
+- [x] Insert box / ellipse / text box / picture, delete, duplicate
+- [x] Fill, outline, opacity, preset, and bold / italic / size / colour / align
+      on a shape's text
+- [x] Slides: add, duplicate, delete, reorder
+- [x] Undo / redo — a drag is one step, a burst of typing is one step
+- [x] The selection outline and its handles are pushed into the same
+      `EVGDisplayList` as the slide, so WebGL and SoftCanvas both draw them and
+      an export has none of them
+
+Not yet: a text caret (typing appends), saving back to `.pptx`, clipboard,
+crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
+governs them — none of this is derived from another editor's source.
+
+```bash
+npm run pptx:editor:test        # the editing core
+npm run pptx:editor:host:test   # pointer, keys, overlay, commands
+```
+
 ## Running it in a browser, with no host
 
 ```bash
@@ -97,6 +128,8 @@ them, which is also why pictures appear in the WebGL path at all now.
 ```bash
 npm run pptx:fixtures
 npm run pptx:test
+npm run pptx:editor:test
+npm run pptx:editor:host:test
 npm run pptx:harness
 npm run pptx:oracles          # A+B+C (LibreOffice visual)
 npm run pptx:oracles:visual   # fail on visual MAE

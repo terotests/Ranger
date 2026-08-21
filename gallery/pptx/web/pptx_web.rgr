@@ -109,22 +109,83 @@ class PptxWeb {
     }
 
     fn key:void (name:string) {
+        this.keyMod(name false false)
+    }
+
+    ; The same key, with what was held down while it was pressed: shift is a
+    ; bigger nudge and a second shape added to the selection, so a host that
+    ; cannot say so can only ever click one thing.
+    fn keyMod:void (name:string shift:boolean ctrl:boolean) {
         def code:int (PptxWeb.keyByName(name))
         if (code == 0) {
             return
         }
         input.newFrame()
+        input.setModifiers(shift ctrl)
         input.pushKey(code)
         app.update(input)
+    }
+
+    ; Characters. With ctrl held these are the chords (z undo, b bold, …);
+    ; without it they are text going into the selected shape.
+    fn type:void (text:string shift:boolean ctrl:boolean) {
+        if ((strlen text) == 0) {
+            return
+        }
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushText(text)
+        app.update(input)
+    }
+
+    ; What the pointer is holding while it moves. A press that cannot say
+    ; whether shift was down cannot add to a selection.
+    fn mods:void (shift:boolean ctrl:boolean) {
+        app.setMods(shift ctrl)
+    }
+
+    fn editing:boolean () {
+        return app.editMode
+    }
+
+    fn selectionCount:int () {
+        return (app.editor.selectionCount())
+    }
+
+    ; Where the selection is on screen, in window pixels. The page has no idea
+    ; how a slide point becomes a pixel — that is the app's arithmetic — so it
+    ; has to be able to ask.
+    fn selectionBox:string () {
+        def b:PptxEditRect (app.editor.selectionBounds())
+        def sc:double (app.ptScale())
+        def x:double (b.x * sc)
+        def y:double ((b.y * sc) + (to_double app.toolbarH))
+        def w:double (b.w * sc)
+        def h:double (b.h * sc)
+        return ("{\"x\":" + (EVGDisplayList.num(x)) + ",\"y\":" + (EVGDisplayList.num(y)) + ",\"w\":" + (EVGDisplayList.num(w)) + ",\"h\":" + (EVGDisplayList.num(h)) + ",\"count\":" + (to_string (app.editor.selectionCount())) + "}")
+    }
+
+    ; A picture the page handed over, as bytes, named after the file it came
+    ; from — the package path is the viewer's own invention.
+    fn insertPicture:boolean (name:string data:buffer) {
+        def ok:boolean (app.insertPicture(name data))
+        app.render()
+        return ok
     }
 
     sfn keyByName:int (name:string) {
         if (name == "left")     { return (UIKey.left()) }
         if (name == "right")    { return (UIKey.right()) }
+        if (name == "up")       { return (UIKey.up()) }
+        if (name == "down")     { return (UIKey.down()) }
         if (name == "home")     { return (UIKey.home()) }
         if (name == "end")      { return (UIKey.end()) }
         if (name == "pageUp")   { return (UIKey.left()) }
         if (name == "pageDown") { return (UIKey.right()) }
+        if (name == "del")      { return (UIKey.del()) }
+        if (name == "escape")   { return (UIKey.escape()) }
+        if (name == "backspace") { return (UIKey.backspace()) }
+        if (name == "enter")    { return (UIKey.enter()) }
         return (UIKey.none())
     }
 

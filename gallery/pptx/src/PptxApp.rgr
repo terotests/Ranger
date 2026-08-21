@@ -10,6 +10,7 @@ Import "PptxParser.rgr"
 Import "PptxResolver.rgr"
 Import "PptxModel.rgr"
 Import "PptxView.rgr"
+Import "PptxEdit.rgr"
 Import "PptxToEvg.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -22,6 +23,10 @@ Import "../../evg/EVGCommands.rgr"
 ; component the spreadsheet's and the document's are — and this is the only
 ; part that is about slides.
 class PptxToolbar extends EVGToolbar {
+    ; The strip cannot work out whether the deck is being edited any more than
+    ; it can work out which slide you are on; the app sets it before paint.
+    def editOn:boolean false
+
     Constructor () {
     }
 
@@ -35,6 +40,35 @@ class PptxToolbar extends EVGToolbar {
         this.add("slide.last" "" "Last slide" (ToolIcon.alignRight()))
         this.addSeparator()
         this.addText("slide.pick" "" "1 / 1" 88)
+        this.addSeparator()
+        ; The editing half of the strip. It is always here — the buttons are
+        ; live only while `edit.toggle` is pressed, which is what tells you
+        ; the deck can be changed at all.
+        this.add("edit.toggle" "" "Edit the slide" (ToolIcon.paint()))
+        this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        this.addSeparator()
+        this.add("shape.rect" "" "Insert a box" (ToolIcon.borderAll()))
+        this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.cond()))
+        this.add("text.add" "" "Insert a text box" (ToolIcon.textColor()))
+        this.add("picture.add" "" "Insert a picture" (ToolIcon.report()))
+        this.addSeparator()
+        this.add("edit.duplicate" "" "Duplicate" (ToolIcon.merge()))
+        this.add("edit.delete" "" "Delete" (ToolIcon.deleteRow()))
+        this.add("edit.front" "" "Bring to front" (ToolIcon.valignTop()))
+        this.add("edit.back" "" "Send to back" (ToolIcon.valignBot()))
+        this.add("edit.group" "" "Group" (ToolIcon.freeze()))
+        this.add("edit.ungroup" "" "Ungroup" (ToolIcon.borderNone()))
+        this.addSeparator()
+        this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
+        this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
+        this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
+        this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
+        this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
+        this.addSeparator()
+        this.add("slide.add" "" "New slide" (ToolIcon.newFile()))
+        this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.insertRow()))
+        this.add("slide.delete" "" "Delete slide" (ToolIcon.deleteRow()))
     }
 
     ; The one button that shows a value rather than a picture. The strip
@@ -46,6 +80,9 @@ class PptxToolbar extends EVGToolbar {
             t.pressed = false
             if (t.command == "slide.pick") {
                 t.label = ((to_string (index + 1)) + " / " + (to_string count))
+            }
+            if (t.command == "edit.toggle") {
+                t.pressed = editOn
             }
             i = (i + 1)
         }
@@ -75,6 +112,17 @@ class PptxApp {
     def statusH:int 22
     def status:string ""
     def fileRequest:string ""
+    ; Editing. The viewer is the default and the editor is a mode on top of
+    ; it — a deck you opened to read cannot be changed by a stray click.
+    def editor:PptxEditor (new PptxEditor())
+    def editMode:boolean false
+    def dragMode:int 0          ; 0 none, 1 move, 2 resize
+    def dragHandle:int -1
+    def dragLastX:double 0.0    ; slide points
+    def dragLastY:double 0.0
+    def dragMoved:boolean false
+    def modShift:boolean false
+    def modCtrl:boolean false
     ; The slide picker. Ids: 1601.. the slides, 1691 Close.
     def slideDialog:EVGWindow (new EVGWindow)
     def dialogsReady:boolean false
@@ -105,6 +153,41 @@ class PptxApp {
         commands.add("slide.last" "Last slide" "View" "End")
         commands.addArg("slide.pick" "Go to slide…" "View" "")
         commands.addArg("slide.goto" "Go to slide" "View" "")
+        commands.add("dialog.close" "Close the dialog" "View" "Esc")
+        commands.add("edit.toggle" "Edit the slide" "Edit" "Ctrl+E")
+        commands.add("edit.undo" "Undo" "Edit" "Ctrl+Z")
+        commands.add("edit.redo" "Redo" "Edit" "Ctrl+Y")
+        commands.add("edit.delete" "Delete" "Edit" "Del")
+        commands.add("edit.duplicate" "Duplicate" "Edit" "Ctrl+D")
+        commands.add("edit.selectall" "Select all" "Edit" "Ctrl+A")
+        commands.add("edit.front" "Bring to front" "Arrange" "")
+        commands.add("edit.back" "Send to back" "Arrange" "")
+        commands.add("edit.forward" "Bring forward" "Arrange" "")
+        commands.add("edit.backward" "Send backward" "Arrange" "")
+        commands.add("edit.group" "Group" "Arrange" "Ctrl+G")
+        commands.add("edit.ungroup" "Ungroup" "Arrange" "")
+        commands.add("edit.align.left" "Align left" "Arrange" "")
+        commands.add("edit.align.hcenter" "Align centre" "Arrange" "")
+        commands.add("edit.align.right" "Align right" "Arrange" "")
+        commands.add("edit.align.top" "Align top" "Arrange" "")
+        commands.add("edit.align.vcenter" "Align middle" "Arrange" "")
+        commands.add("edit.align.bottom" "Align bottom" "Arrange" "")
+        commands.add("edit.distribute.h" "Distribute across" "Arrange" "")
+        commands.add("edit.distribute.v" "Distribute down" "Arrange" "")
+        commands.add("edit.bold" "Bold text" "Format" "Ctrl+B")
+        commands.add("edit.italic" "Italic text" "Format" "Ctrl+I")
+        commands.addArg("edit.fill" "Fill colour" "Format" "")
+        commands.addArg("edit.line" "Outline colour" "Format" "")
+        commands.addArg("edit.text" "Set the text" "Format" "")
+        commands.add("shape.rect" "Insert a box" "Insert" "")
+        commands.add("shape.ellipse" "Insert an ellipse" "Insert" "")
+        commands.add("text.add" "Insert a text box" "Insert" "")
+        commands.add("picture.add" "Insert a picture" "Insert" "")
+        commands.add("slide.add" "New slide" "Slides" "")
+        commands.add("slide.duplicate" "Duplicate slide" "Slides" "")
+        commands.add("slide.delete" "Delete slide" "Slides" "")
+        commands.add("slide.moveup" "Move slide earlier" "Slides" "")
+        commands.add("slide.movedown" "Move slide later" "Slides" "")
     }
 
     fn load:boolean (fullPath:string) {
@@ -123,6 +206,7 @@ class PptxApp {
         view.deckName = (this.basenameOf(fullPath))
         index = 0
         loaded = true
+        editor.attach(presentation)
         view.status = ((to_string (presentation.slideCount())) + " slides")
         return true
     }
@@ -143,6 +227,7 @@ class PptxApp {
         view.deckName = name
         index = 0
         loaded = true
+        editor.attach(presentation)
         view.status = ((to_string (presentation.slideCount())) + " slides")
         return true
     }
@@ -165,6 +250,7 @@ class PptxApp {
         view.deckName = name
         index = 0
         loaded = true
+        editor.attach(presentation)
         view.status = ((to_string (presentation.slideCount())) + " slides")
         return true
     }
@@ -327,6 +413,8 @@ class PptxApp {
             i = (n - 1)
         }
         index = i
+        editor.slideIndex = i
+        editor.clearSelection()
     }
 
     fn resize:void (nw:int nh:int) {
@@ -374,7 +462,11 @@ class PptxApp {
             }
             return false
         }
-        return false
+        if (id == "dialog.close") {
+            slideDialog.close()
+            return true
+        }
+        return (this.runEditCommand(id arg))
     }
 
     ; --- the slide picker -----------------------------------------------------
@@ -441,6 +533,15 @@ class PptxApp {
                 def t:ToolItem (toolbar.at(toolbar.hot))
                 return (this.runCommand(t.command t.arg))
             }
+        }
+        ; In edit mode the slide is a canvas, not a page: a click selects and
+        ; a drag moves, and the left / right thirds stop turning the page.
+        if editMode {
+            if (this.editPointer(px py pressed down released)) {
+                return true
+            }
+        }
+        if pressed {
             ; Clicking the left or right third of the SLIDE turns the page —
             ; the way a deck is read. It used to be the whole window, which
             ; meant the status band was a navigation button too.
@@ -461,22 +562,49 @@ class PptxApp {
     }
 
     fn update:void (input:UIInput) {
+        modShift = input.shiftDown
+        modCtrl = input.ctrlDown
+        if input.ctrlDown {
+            this.editChords(input.textInput)
+        }
         def i:int 0
         while (i < (input.keyCount())) {
             def k:int (input.keyAt(i))
-            if (k == (UIKey.right())) {
-                this.runCommand("slide.next" "")
+            def taken:boolean false
+            if (k == (UIKey.escape())) {
+                if slideDialog.visible {
+                    slideDialog.close()
+                    taken = true
+                }
             }
-            if (k == (UIKey.left())) {
-                this.runCommand("slide.prev" "")
+            if editMode {
+                taken = (this.editKey(k input.shiftDown))
             }
-            if (k == (UIKey.home())) {
-                this.runCommand("slide.first" "")
-            }
-            if (k == (UIKey.end())) {
-                this.runCommand("slide.last" "")
+            if (taken == false) {
+                if (k == (UIKey.right())) {
+                    this.runCommand("slide.next" "")
+                }
+                if (k == (UIKey.left())) {
+                    this.runCommand("slide.prev" "")
+                }
+                if (k == (UIKey.home())) {
+                    this.runCommand("slide.first" "")
+                }
+                if (k == (UIKey.end())) {
+                    this.runCommand("slide.last" "")
+                }
             }
             i = (i + 1)
+        }
+        ; Typing goes into the selected shape. Not a caret yet — text arrives
+        ; at the end of what is there, and backspace takes it off the end.
+        if editMode {
+            if (input.ctrlDown == false) {
+                if ((strlen input.textInput) > 0) {
+                    this.syncEditor()
+                    editor.appendText(input.textInput)
+                }
+            }
         }
         this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
         this.render()
@@ -493,6 +621,9 @@ class PptxApp {
             PptxApp.offsetList(dl 0 toolbarH)
             PptxApp.appendList(framed dl)
         }
+        if editMode {
+            this.paintEditOverlay(framed)
+        }
         toolbarView.attach(view.ctx view.fontFamily)
         toolbarView.theme = theme
         toolbar.refresh(index (this.slideCount()))
@@ -507,6 +638,10 @@ class PptxApp {
         }
         if ((strlen status) > 0) {
             label = ((label + "   ") + status)
+        }
+        def es:string (this.editStatus())
+        if ((strlen es) > 0) {
+            label = ((label + "   ") + es)
         }
         toolbarView.pushText(framed label 8.0 (to_double (sy + 4)) 12.0 theme.dim)
 
@@ -800,4 +935,591 @@ class PptxApp {
         parser.close()
         loaded = false
     }
+
+    ; --- editing --------------------------------------------------------------
+    ;
+    ; The viewer's geometry is points; the window's is pixels. Everything the
+    ; pointer says has to cross that line, and this is the only place it does.
+
+    fn ptScale:double () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return (96.0 / 72.0)
+        }
+        def s:PptxSlide (unwrap slide)
+        def f:double (view.fitScale(s))
+        return ((96.0 / 72.0) * f)
+    }
+
+    fn screenToSlideX:double (px:int) {
+        def sc:double (this.ptScale())
+        if (sc <= 0.0) {
+            return 0.0
+        }
+        return ((to_double px) / sc)
+    }
+
+    fn screenToSlideY:double (py:int) {
+        def sc:double (this.ptScale())
+        if (sc <= 0.0) {
+            return 0.0
+        }
+        def top:double (to_double toolbarH)
+        return (((to_double py) - top) / sc)
+    }
+
+    fn syncEditor:void () {
+        editor.slideIndex = index
+    }
+
+    fn syncFromEditor:void () {
+        def n:int (array_length presentation.slides)
+        def i:int editor.slideIndex
+        if (i < 0) {
+            i = 0
+        }
+        if (i >= n) {
+            i = (n - 1)
+        }
+        index = i
+        editor.slideIndex = i
+    }
+
+    ; Handles, clockwise from the top-left, on the selection's box.
+    sfn handleCx:double (x0:double x1:double idx:int) {
+        def mid:double ((x0 + x1) * 0.5)
+        if (idx == 1) {
+            return mid
+        }
+        if (idx == 5) {
+            return mid
+        }
+        if (idx == 2) {
+            return x1
+        }
+        if (idx == 3) {
+            return x1
+        }
+        if (idx == 4) {
+            return x1
+        }
+        return x0
+    }
+
+    sfn handleCy:double (y0:double y1:double idx:int) {
+        def mid:double ((y0 + y1) * 0.5)
+        if (idx == 3) {
+            return mid
+        }
+        if (idx == 7) {
+            return mid
+        }
+        if (idx == 4) {
+            return y1
+        }
+        if (idx == 5) {
+            return y1
+        }
+        if (idx == 6) {
+            return y1
+        }
+        return y0
+    }
+
+    fn handleAt:int (px:int py:int) {
+        if ((editor.selectionCount()) == 0) {
+            return -1
+        }
+        def sc:double (this.ptScale())
+        def top:double (to_double toolbarH)
+        def b:PptxEditRect (editor.selectionBounds())
+        def x0:double (b.x * sc)
+        def y0:double ((b.y * sc) + top)
+        def x1:double ((b.right()) * sc)
+        def y1:double (((b.bottom()) * sc) + top)
+        def fx:double (to_double px)
+        def fy:double (to_double py)
+        def i:int 0
+        while (i < 8) {
+            def hx:double (PptxApp.handleCx(x0 x1 i))
+            def hy:double (PptxApp.handleCy(y0 y1 i))
+            def dx:double (fabs (fx - hx))
+            def dy:double (fabs (fy - hy))
+            if (dx <= 6.0) {
+                if (dy <= 6.0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A press picks something up, a drag carries it, and the release is the
+    ; single history step. Nothing between press and release is undoable on
+    ; its own — a drag is one edit however many frames it took.
+    fn editPointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        if (py < toolbarH) {
+            return false
+        }
+        if (py >= (H - statusH)) {
+            return false
+        }
+        def sx:double (this.screenToSlideX(px))
+        def sy:double (this.screenToSlideY(py))
+        if pressed {
+            this.syncEditor()
+            def h:int (this.handleAt(px py))
+            if (h >= 0) {
+                dragMode = 2
+                dragHandle = h
+                dragLastX = sx
+                dragLastY = sy
+                dragMoved = false
+                return true
+            }
+            def hitId:int (editor.hitTest(sx sy))
+            editor.selectAt(sx sy modShift)
+            dragMode = 0
+            if (hitId > 0) {
+                dragMode = 1
+                dragLastX = sx
+                dragLastY = sy
+                dragMoved = false
+            }
+            return true
+        }
+        if released {
+            if (dragMode > 0) {
+                if dragMoved {
+                    if (dragMode == 1) {
+                        editor.pushSnapshot("move")
+                    } {
+                        editor.pushSnapshot("resize")
+                    }
+                }
+                editor.clearGuides()
+                dragMode = 0
+                dragHandle = -1
+                return true
+            }
+            return false
+        }
+        if (dragMode > 0) {
+            if down {
+                def dx:double (sx - dragLastX)
+                def dy:double (sy - dragLastY)
+                if (dragMode == 1) {
+                    def adj:PptxEditRect (editor.snapDelta(dx dy))
+                    editor.applyMove(adj.x adj.y)
+                    ; Follow the shape rather than the pointer, so a snapped
+                    ; edge stays put until the pointer has really left it.
+                    dragLastX = (dragLastX + adj.x)
+                    dragLastY = (dragLastY + adj.y)
+                } {
+                    editor.applyResize(dragHandle dx dy)
+                    dragLastX = sx
+                    dragLastY = sy
+                }
+                dragMoved = true
+                return true
+            }
+        }
+        return false
+    }
+
+    fn setMods:void (shift:boolean ctrl:boolean) {
+        modShift = shift
+        modCtrl = ctrl
+    }
+
+    fn setEditMode:void (on:boolean) {
+        editMode = on
+        toolbar.editOn = on
+        if (on == false) {
+            editor.clearSelection()
+            editor.clearGuides()
+            dragMode = 0
+        }
+    }
+
+    fn nudge:boolean (dx:double dy:double) {
+        if ((editor.selectionCount()) == 0) {
+            return false
+        }
+        this.syncEditor()
+        return (editor.moveSelection(dx dy))
+    }
+
+    ; Bold and italic are toggles, and what they toggle from is whatever the
+    ; first run of the first selected shape says.
+    fn selectionBold:boolean () {
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        def run@(optional):PptxTextRun (PptxEditor.firstRun(sh.text))
+        if (null? run) {
+            return false
+        }
+        def r:PptxTextRun (unwrap run)
+        return r.bold
+    }
+
+    fn selectionItalic:boolean () {
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        def run@(optional):PptxTextRun (PptxEditor.firstRun(sh.text))
+        if (null? run) {
+            return false
+        }
+        def r:PptxTextRun (unwrap run)
+        return r.italic
+    }
+
+    ; A picture from the host: the bytes go into the viewer's decode cache
+    ; under a package-shaped name, which is all the painter ever asks for.
+    fn insertPicture:boolean (name:string bytes:buffer) {
+        if (loaded == false) {
+            return false
+        }
+        this.syncEditor()
+        def part:string ("ppt/media/" + name)
+        view.cacheImage(part bytes)
+        def w:double ((this.slideW()) * 0.35)
+        def h:double (w * 0.6)
+        def x:double (((this.slideW()) - w) * 0.5)
+        def y:double (((this.slideH()) - h) * 0.5)
+        def id:int (editor.addPicture(part bytes x y w h))
+        def added@(optional):PptxShape (editor.findShape(id))
+        if (!null? added) {
+            def sh:PptxShape (unwrap added)
+            view.cacheShapeImages(sh)
+        }
+        this.setEditMode(true)
+        return (id > 0)
+    }
+
+    fn slideW:double () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return presentation.slideWidth
+        }
+        def s:PptxSlide (unwrap slide)
+        return s.width
+    }
+
+    fn slideH:double () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return presentation.slideHeight
+        }
+        def s:PptxSlide (unwrap slide)
+        return s.height
+    }
+
+    ; --- the editing commands -------------------------------------------------
+    ; Every one of them is a command id, so a toolbar button, a keyboard chord
+    ; and a host over a socket all reach the same code.
+    fn runEditCommand:boolean (id:string arg:string) {
+        if (id == "edit.toggle") {
+            def want:boolean (editMode == false)
+            this.setEditMode(want)
+            return true
+        }
+        if (loaded == false) {
+            return false
+        }
+        this.syncEditor()
+        if (id == "edit.undo") {
+            def ok:boolean (editor.undo())
+            this.syncFromEditor()
+            return ok
+        }
+        if (id == "edit.redo") {
+            def ok2:boolean (editor.redo())
+            this.syncFromEditor()
+            return ok2
+        }
+        if (id == "edit.delete") {
+            return (editor.deleteSelection())
+        }
+        if (id == "edit.duplicate") {
+            return (editor.duplicateSelection())
+        }
+        if (id == "edit.selectall") {
+            editor.selectAll()
+            return true
+        }
+        if (id == "edit.front") {
+            return (editor.bringToFront())
+        }
+        if (id == "edit.back") {
+            return (editor.sendToBack())
+        }
+        if (id == "edit.forward") {
+            return (editor.bringForward())
+        }
+        if (id == "edit.backward") {
+            return (editor.sendBackward())
+        }
+        if (id == "edit.group") {
+            return (editor.groupSelection())
+        }
+        if (id == "edit.ungroup") {
+            return (editor.ungroupSelection())
+        }
+        if (id == "edit.align.left") {
+            return (editor.alignSelection("left"))
+        }
+        if (id == "edit.align.hcenter") {
+            return (editor.alignSelection("hcenter"))
+        }
+        if (id == "edit.align.right") {
+            return (editor.alignSelection("right"))
+        }
+        if (id == "edit.align.top") {
+            return (editor.alignSelection("top"))
+        }
+        if (id == "edit.align.vcenter") {
+            return (editor.alignSelection("vcenter"))
+        }
+        if (id == "edit.align.bottom") {
+            return (editor.alignSelection("bottom"))
+        }
+        if (id == "edit.distribute.h") {
+            return (editor.distributeSelection(true))
+        }
+        if (id == "edit.distribute.v") {
+            return (editor.distributeSelection(false))
+        }
+        if (id == "edit.bold") {
+            def b:boolean (this.selectionBold())
+            return (editor.setTextBold((b == false)))
+        }
+        if (id == "edit.italic") {
+            def it:boolean (this.selectionItalic())
+            return (editor.setTextItalic((it == false)))
+        }
+        if (id == "edit.fill") {
+            if ((strlen arg) == 0) {
+                return (editor.clearFill())
+            }
+            return (editor.setFillHex(arg))
+        }
+        if (id == "edit.line") {
+            return (editor.setLineHex(arg 1.0))
+        }
+        if (id == "edit.text") {
+            def sel@(optional):PptxShape (editor.firstSelected())
+            if (null? sel) {
+                return false
+            }
+            def sh:PptxShape (unwrap sel)
+            return (editor.setShapeText(sh.editId arg))
+        }
+        if (id == "shape.rect") {
+            def w:double ((this.slideW()) * 0.25)
+            def h:double ((this.slideH()) * 0.18)
+            def newId:int (editor.addShapeAt("rect" ((this.slideW()) * 0.25) ((this.slideH()) * 0.35) w h))
+            this.setEditMode(true)
+            return (newId > 0)
+        }
+        if (id == "shape.ellipse") {
+            def w2:double ((this.slideW()) * 0.22)
+            def h2:double w2
+            def newId2:int (editor.addShapeAt("ellipse" ((this.slideW()) * 0.4) ((this.slideH()) * 0.3) w2 h2))
+            this.setEditMode(true)
+            return (newId2 > 0)
+        }
+        if (id == "text.add") {
+            def w3:double ((this.slideW()) * 0.4)
+            def h3:double ((this.slideH()) * 0.12)
+            def newId3:int (editor.addTextBox(((this.slideW()) * 0.3) ((this.slideH()) * 0.44) w3 h3 "Text"))
+            this.setEditMode(true)
+            return (newId3 > 0)
+        }
+        if (id == "picture.add") {
+            fileRequest = "image"
+            return true
+        }
+        if (id == "slide.add") {
+            def okAdd:boolean (editor.addSlide())
+            this.syncFromEditor()
+            return okAdd
+        }
+        if (id == "slide.duplicate") {
+            def okDup:boolean (editor.duplicateSlide())
+            this.syncFromEditor()
+            return okDup
+        }
+        if (id == "slide.delete") {
+            def okDel:boolean (editor.deleteSlide())
+            this.syncFromEditor()
+            return okDel
+        }
+        if (id == "slide.moveup") {
+            def okUp:boolean (editor.moveSlide(0 - 1))
+            this.syncFromEditor()
+            return okUp
+        }
+        if (id == "slide.movedown") {
+            def okDown:boolean (editor.moveSlide(1))
+            this.syncFromEditor()
+            return okDown
+        }
+        return false
+    }
+
+    ; --- keys -----------------------------------------------------------------
+
+    fn editKey:boolean (k:int shift:boolean) {
+        def step:double 1.0
+        if shift {
+            step = 10.0
+        }
+        if (k == (UIKey.left())) {
+            return (this.nudge((0.0 - step) 0.0))
+        }
+        if (k == (UIKey.right())) {
+            return (this.nudge(step 0.0))
+        }
+        if (k == (UIKey.up())) {
+            return (this.nudge(0.0 (0.0 - step)))
+        }
+        if (k == (UIKey.down())) {
+            return (this.nudge(0.0 step))
+        }
+        if (k == (UIKey.del())) {
+            this.syncEditor()
+            return (editor.deleteSelection())
+        }
+        if (k == (UIKey.backspace())) {
+            this.syncEditor()
+            return (editor.backspaceText())
+        }
+        if (k == (UIKey.enter())) {
+            this.syncEditor()
+            return (editor.appendText("\n"))
+        }
+        if (k == (UIKey.escape())) {
+            editor.clearSelection()
+            return true
+        }
+        return false
+    }
+
+    ; Ctrl chords arrive as characters with the modifier held, the same way
+    ; the text editor reads them.
+    fn editChords:void (text:string) {
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:int (charAt text i)
+            if ((ch == 101) || (ch == 69)) {
+                this.runEditCommand("edit.toggle" "")
+            }
+            if ((ch == 122) || (ch == 90)) {
+                this.runEditCommand("edit.undo" "")
+            }
+            if ((ch == 121) || (ch == 89)) {
+                this.runEditCommand("edit.redo" "")
+            }
+            if ((ch == 97) || (ch == 65)) {
+                this.runEditCommand("edit.selectall" "")
+            }
+            if ((ch == 100) || (ch == 68)) {
+                this.runEditCommand("edit.duplicate" "")
+            }
+            if ((ch == 103) || (ch == 71)) {
+                this.runEditCommand("edit.group" "")
+            }
+            if ((ch == 98) || (ch == 66)) {
+                this.runEditCommand("edit.bold" "")
+            }
+            if ((ch == 105) || (ch == 73)) {
+                this.runEditCommand("edit.italic" "")
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- the overlay ----------------------------------------------------------
+    ; Selection is chrome, not content: it goes into the same display list as
+    ; the slide, after it, so WebGL and SoftCanvas both get it for nothing and
+    ; an exported deck has none of it.
+    fn paintEditOverlay:void (dl:EVGDisplayList) {
+        def slideOpt@(optional):PptxSlide (this.currentSlide())
+        if (null? slideOpt) {
+            return
+        }
+        def slide:PptxSlide (unwrap slideOpt)
+        def sc:double (this.ptScale())
+        def top:double (to_double toolbarH)
+        def sw:double (slide.width * sc)
+        def sh:double (slide.height * sc)
+        def guide:EVGColor (EVGColor.rgb(232 84 120))
+        def gi:int 0
+        while (gi < (array_length editor.guideX)) {
+            def gx:double ((itemAt editor.guideX gi) * sc)
+            dl.addRect(gx top 1.0 sh guide)
+            gi = (gi + 1)
+        }
+        def gj:int 0
+        while (gj < (array_length editor.guideY)) {
+            def gy:double (((itemAt editor.guideY gj) * sc) + top)
+            dl.addRect(0.0 gy sw 1.0 guide)
+            gj = (gj + 1)
+        }
+        def sel:[PptxShape] (editor.selectedShapes())
+        if ((array_length sel) == 0) {
+            return
+        }
+        def thin:EVGColor (EVGColor.rgb(120 160 235))
+        def i:int 0
+        while (i < (array_length sel)) {
+            def s2:PptxShape (itemAt sel i)
+            dl.addFrame((s2.x * sc) ((s2.y * sc) + top) (s2.width * sc) (s2.height * sc) 1.0 thin)
+            i = (i + 1)
+        }
+        def b:PptxEditRect (editor.selectionBounds())
+        def x0:double (b.x * sc)
+        def y0:double ((b.y * sc) + top)
+        def x1:double ((b.right()) * sc)
+        def y1:double (((b.bottom()) * sc) + top)
+        def box:EVGColor (EVGColor.rgb(40 90 200))
+        dl.addFrame(x0 y0 (x1 - x0) (y1 - y0) 1.0 box)
+        def white:EVGColor (EVGColor.rgb(255 255 255))
+        def hi:int 0
+        while (hi < 8) {
+            def hx:double (PptxApp.handleCx(x0 x1 hi))
+            def hy:double (PptxApp.handleCy(y0 y1 hi))
+            dl.addRect((hx - 4.0) (hy - 4.0) 8.0 8.0 white)
+            dl.addFrame((hx - 4.0) (hy - 4.0) 8.0 8.0 1.0 box)
+            hi = (hi + 1)
+        }
+    }
+
+    fn editStatus:string () {
+        if (editMode == false) {
+            return ""
+        }
+        def n:int (editor.selectionCount())
+        def out:string "edit"
+        if (n == 1) {
+            out = (out + " · 1 selected")
+        }
+        if (n > 1) {
+            out = ((out + " · ") + (to_string n) + " selected")
+        }
+        if (editor.dirty) {
+            out = (out + " · changed")
+        }
+        return out
+    }
+
 }

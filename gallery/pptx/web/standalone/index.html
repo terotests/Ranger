@@ -33,7 +33,9 @@
       <p class="hint">
         The deck is parsed and drawn in this page: OPC/ZIP → PresentationML →
         theme &amp; layout inheritance → <code>EVGDisplayList</code> → WebGL 2.
-        Arrow keys or the buttons change slide; nothing is fetched while you
+        Arrow keys or the buttons change slide. The brush button turns on
+        editing: click a shape to pick it up, drag it, drag a handle to resize,
+        type to put text in it, Ctrl+Z to take it back. Nothing is fetched while you
         look. Open a deck of your own — it is read here, not uploaded.
       </p>
       <div class="frame">
@@ -51,6 +53,7 @@
              browser kept from last time. -->
         <span>build: <strong id="build">__BUILD__</strong></span>
         <label>open a .pptx <input id="file" type="file" accept=".pptx" /></label>
+        <input id="image" type="file" accept="image/png,image/jpeg" hidden />
       </div>
     </div>
     <!-- The compiled engine. A missing file here is silent — the tag 404s and

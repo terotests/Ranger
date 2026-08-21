@@ -176,6 +176,10 @@ class PptxShape {
     def kind:int 0
     ; kind: 0 shape, 1 picture, 2 group, 3 connector, 4 table, 5 chart
     def name:string ""
+    ; Stable handle for an editor. The parser never sets it — `PptxEditor`
+    ; hands one out per shape when a deck is attached, because an index into
+    ; `shapes` stops naming the same shape the moment z-order changes.
+    def editId:int 0
     def x:double 0.0            ; pt
     def y:double 0.0
     def width:double 0.0
