@@ -108,7 +108,6 @@
       <h1>Ranger code editor</h1>
       <span>backend <strong id="backend">…</strong></span>
       <span>cmds <strong id="cmds">0</strong></span>
-      <span>fps <strong id="fps">0</strong></span>
       <span>state <strong id="status">starting…</strong></span>
     </header>
     <main>
@@ -117,8 +116,11 @@
         <textarea
           id="a11y"
           class="a11y-input"
-          role="textbox"
+          role="combobox"
           aria-multiline="true"
+          aria-autocomplete="list"
+          aria-expanded="false"
+          aria-controls="suggestions"
           aria-label="Ranger code editor"
           aria-describedby="keyhelp"
           autocomplete="off"
@@ -132,8 +134,10 @@
         Type to edit. Arrow keys move the caret, Control with left or right
         moves by word, Control with Home or End goes to the start or end of the
         document. Tab inserts two spaces; press Escape and then Tab to move
-        focus out of the editor.
+        focus out of the editor. Control with Space suggests what could be typed
+        next; arrow keys choose and Enter accepts.
       </p>
+      <ul id="suggestions" class="sr-only" role="listbox" aria-label="Suggestions"></ul>
       <div id="live" class="sr-only" aria-live="polite" role="status"></div>
     </main>
     <pre id="selftest" style="margin:0 16px;color:#7dcfff"></pre>

@@ -45,6 +45,16 @@ class CodeEditorWeb {
         page.update(input)
     }
 
+    ; Double and triple click. The host counts the clicks — the browser is the
+    ; only thing that knows what "double" means on this platform.
+    fn selectWord:void (x:int y:int) {
+        page.selectWordAt(x y)
+    }
+
+    fn selectLine:void (x:int y:int) {
+        page.selectLineAt(x y)
+    }
+
     fn wheel:void (x:int y:int delta:int) {
         input.newFrame()
         input.setPointerPos(x y)
@@ -206,6 +216,52 @@ class CodeEditorWeb {
 
     fn currentLine:string () {
         return (this.lineText((this.caretLine())))
+    }
+
+    ; --- the clipboard ---------------------------------------------------------
+    ; Answered from the MODEL rather than from the mirrored line, because a
+    ; selection is not required to stay on one line and the mirror is.
+    ; --- the completion list, for the host's accessible mirror -----------------
+    fn completionOpen:boolean () {
+        return page.editor.completionOpen
+    }
+
+    fn completionCount:int () {
+        return (page.editor.completionCount())
+    }
+
+    fn completionIndex:int () {
+        return page.editor.completionIndex
+    }
+
+    fn completionLabel:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (page.editor.completionCount())) {
+            return ""
+        }
+        def c:Completion (page.editor.completionAt(i))
+        return c.label
+    }
+
+    fn completionDetail:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (page.editor.completionCount())) {
+            return ""
+        }
+        def c:Completion (page.editor.completionAt(i))
+        return c.detail
+    }
+
+    fn selectionText:string () {
+        return (page.editor.selectionText())
+    }
+
+    fn cutSelection:string () {
+        return (page.editor.cutSelection())
     }
 
     ; How long the last full re-lex took, in microseconds — the number the

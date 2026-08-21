@@ -304,6 +304,16 @@ class CodeEditorPage {
         return h
     }
 
+    fn selectWordAt:void (px:int py:int) {
+        editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
+        editor.selectWordAt(ctx.tr px py)
+    }
+
+    fn selectLineAt:void (px:int py:int) {
+        editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
+        editor.selectLineAt(ctx.tr px py)
+    }
+
     fn update:void (inp:UIInput) {
         editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
         if inp.pointerPressed {
@@ -327,6 +337,13 @@ class CodeEditorPage {
             while (ti < tn) {
                 def ch:int (charAt t ti)
                 ; The page's own two chords; everything else is the editor's.
+                if (ch == 32) {
+                    ; Ctrl+Space: the list, whatever has been typed so far.
+                    def opened:boolean (editor.requestCompletions())
+                    if (opened == false) {
+                        status = "nothing to suggest here"
+                    }
+                } {
                 if ((ch == 101) || (ch == 69)) {
                     this.jumpToNextProblem()
                 } {
@@ -338,6 +355,7 @@ class CodeEditorPage {
                     } {
                         editor.handleCtrlChar(ch)
                     }
+                }
                 }
                 }
                 ti = (ti + 1)
@@ -404,6 +422,12 @@ class CodeEditorPage {
         ; pass this is supposed to be cheaper than.
         str_append r ("|" + (to_string (array_length editor.diagnostics)))
         str_append r (":" + (to_string editor.diagVersion))
+        ; The completion list is part of the picture, so opening it has to
+        ; count as a change — otherwise the popup appears on the next blink.
+        if editor.completionOpen {
+            str_append r ("|c" + (to_string (array_length editor.completions)))
+            str_append r (":" + (to_string editor.completionIndex))
+        }
         return r
     }
 

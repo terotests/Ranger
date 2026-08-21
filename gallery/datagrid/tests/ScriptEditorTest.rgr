@@ -246,6 +246,75 @@ class ScriptEditorTest {
         c.ok("breaking it again brings one back" ((ed2.problemCount()) > 0))
         c.ok("and the caret can be sent to it" (ed2.goToNextProblem()))
 
+        print "== the plugin suggests what could be typed =="
+        def cLines:[string] ([] _:string ( "const total = 1;" "function render() {" "  she" "}" ))
+        def sugg:[Completion] (js.complete(cLines 2 5))
+        c.ok(("something to suggest (" + (to_string (array_length sugg)) + ")") ((array_length sugg) >= 4))
+        def first:Completion (itemAt sugg 0)
+        c.eqStr("the workbook API comes first" first.label "sheetNames")
+        c.eqStr("and says where it is from" first.detail "workbook API")
+        c.eqInt("as an api completion" first.kind (CompletionKind.builtin()))
+
+        ; A word only this document knows.
+        def docLines:[string] ([] _:string ( "const grandTotal = 1;" "gran" ))
+        def own:[Completion] (js.complete(docLines 1 4))
+        c.ok("words from the file are offered too" ((array_length own) > 0))
+        def ownFirst:Completion (itemAt own 0)
+        c.eqStr("with the name that was typed once" ownFirst.label "grandTotal")
+        c.eqStr("and where it came from" ownFirst.detail "in this file")
+
+        def none:[Completion] (js.complete(cLines 3 1))
+        c.eqInt("no prefix, no list" (array_length none) 0)
+
+        def rgLines:[string] ([] _:string ( "class A {" "    fn f:void () {" "        arr" "    }" "}" ))
+        def rgSugg:[Completion] (rg.complete(rgLines 2 11))
+        c.ok("the other plugin has its own vocabulary" ((array_length rgSugg) > 0))
+        def rgFirst:Completion (itemAt rgSugg 0)
+        c.eqStr("Ranger's operators" rgFirst.label "array_length")
+        c.eqStr("named as such" rgFirst.detail "operator")
+
+        print "== and the editor can take one =="
+        def ed3:ScriptEditor (new ScriptEditor)
+        ed3.setLanguage(js)
+        ed3.init("function render() {\n  \n}\n")
+        ed3.moveCaret(1 2 false)
+        ed3.handleText("s")
+        c.ok("one letter is not a suggestion" (ed3.completionOpen == false))
+        ed3.handleText("h")
+        c.ok("two letters open the list" ed3.completionOpen)
+        c.ok("with candidates in it" ((ed3.completionCount()) > 0))
+        ed3.handleKey((UIKey.down()) false false)
+        c.eqInt("the arrow picks the next one" ed3.completionIndex 1)
+        ed3.handleKey((UIKey.up()) false false)
+        c.eqInt("and back" ed3.completionIndex 0)
+        def picked:Completion (ed3.completionAt(0))
+        ed3.handleKey((UIKey.enter()) false false)
+        c.ok("Enter accepted it" (ed3.completionOpen == false))
+        def after:string (ed3.buf.lineAt(1))
+        c.eqStr("replacing what was typed, not appending to it" after ("  " + picked.label))
+
+        ed3.handleText("(")
+        c.ok("a non-word character closes the list" (ed3.completionOpen == false))
+        ed3.moveCaret(1 4 false)
+        ed3.requestCompletions()
+        c.ok("Ctrl+Space opens it whatever the prefix" ed3.completionOpen)
+        ed3.handleKey((UIKey.escape()) false false)
+        c.ok("Escape closes it" (ed3.completionOpen == false))
+
+        print "== the clipboard's half of the model =="
+        def cb:ScriptEditor (new ScriptEditor)
+        cb.setLanguage(js)
+        cb.init("alpha beta\nsecond line\nthird\n")
+        cb.moveCaret(0 0 false)
+        cb.moveCaret(0 5 true)
+        c.eqStr("one line copies its span" (cb.selectionText()) "alpha")
+        cb.moveCaret(0 0 false)
+        cb.moveCaret(1 6 true)
+        c.eqStr("and a selection across lines keeps the newline" (cb.selectionText()) "alpha beta\nsecond")
+        def cut:string (cb.cutSelection())
+        c.eqStr("cut hands back what it removed" cut "alpha beta\nsecond")
+        c.eqStr("and the document is shorter" (cb.buf.lineAt(0)) " line")
+
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {

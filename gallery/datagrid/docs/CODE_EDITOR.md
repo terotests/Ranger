@@ -55,6 +55,10 @@ that keeps its indent.
 | Enter | newline, keeping the indent — one level more after `{`, `(`, `[` |
 | Tab | two spaces |
 | Ctrl+A / Ctrl+Z / Ctrl+Y | select all, undo, redo |
+| Ctrl+C / Ctrl+X / Ctrl+V | copy, cut, paste — the whole selection, across lines |
+| Ctrl+Space | suggest; arrows choose, Enter accepts, Escape closes |
+| Ctrl+E | jump to the next problem |
+| double / triple click | select the word, select the line |
 | Ctrl+K / Ctrl+L | next sample document / reload it |
 | Ctrl+S | (SDL host) write the buffer back to the file it was opened from |
 
@@ -250,6 +254,40 @@ Chrome.
 The next candidate, when it matters, is the text atlas: it is rasterized from
 scratch on every render call, and could be kept while the runs are unchanged.
 
+## It suggests, through the same seam
+
+![The completion list, over the caret](../artifacts/code_editor_complete.png)
+
+Autocomplete is the third question a language plugin answers, beside colours
+and problems:
+
+```ranger
+fn complete:[Completion] (lines:[string] line:int col:int)
+```
+
+Two letters open the list; **Ctrl+Space** opens it whatever has been typed;
+arrows choose, Enter or Tab accepts, Escape closes, and typing keeps filtering.
+Accepting **replaces the word being typed** rather than appending to it, which
+is why the plugin is asked for the prefix's start as well as its text.
+
+What is in the list is the plugin's opinion, and the order is the whole of it.
+For TSX: the **workbook API first** — `sheetRows`, `formatNumber`, `param` —
+then the language's keywords, then every word already written in this file. A
+report script is mostly the first and the third of those and almost never
+`instanceof`. For Ranger the same shape with its own vocabulary: operators
+first, then `def` / `fn` / `class`, then the file's own names.
+
+Neither plugin parses to do it. `complete` runs on a keystroke, so it obeys the
+same rule as `quickDiagnose`: answer from what is cheap to know.
+
+The popup is drawn into the display list like everything else — so it works on
+WebGL and OpenGL without either backend knowing what a completion is — and it
+is **mirrored into the DOM** for assistive technology, because a list painted
+on a canvas does not exist for a screen reader. The textarea becomes a
+`combobox` with `aria-expanded` and `aria-activedescendant`, the options live
+in a visually hidden `listbox`, and the live region announces "6 suggestions,
+sheetRows selected".
+
 ## The lexer is not a parser
 
 `JsTokens` knows keywords, identifiers, the workbook API's own names, numbers,
@@ -287,7 +325,8 @@ tab.
 ## What it is not, yet
 
 No word wrap, no folding, no multiple cursors, no search, no clipboard on the
-native host, no IME. Diagnostics have their own painting rather than a general
+native host, no IME. Undo is one step per keystroke — consecutive typing is not
+coalesced yet. Diagnostics have their own painting rather than a general
 decoration layer — when a second thing wants to mark a range (search hits, a
 runtime error from a script that ran), that layer is the next thing to build,
 and the diagnostic record is already the right shape to feed it.
