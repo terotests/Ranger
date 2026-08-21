@@ -996,6 +996,51 @@ rendering half, because the text was already correct in memory by then.
 Both C++ halves need only a C++17 compiler and say so out loud when there is
 none.
 
+### The other thing that is true in only one target: `a = a + b`
+
+A 500,000-row workbook loaded in five seconds and then never finished saving.
+Nothing in the writer looked quadratic; it built the sheet XML the way every
+string in this codebase is built:
+
+```
+out = (out + "<row r=\"" + (to_string (r + 1)) + "\">")
+```
+
+On the JavaScript target that is a rope, and appending is free. On the C++
+target `out + x` constructs a **new** `std::string` holding a copy of
+everything accumulated so far, and then assigns it back — so writing a
+138 MB sheet a row at a time copies about nine petabytes. Measured on the same
+machine, the same compiler, the same test: 5,000 rows in 0.7 s, 10,000 in
+2.8 s, 20,000 in 13.6 s, 40,000 in 104 s. Four times the work for twice the
+rows, all the way up.
+
+`Lang.rgr` already had the operator that fixes it — `str_append s suffix`
+lowers to `s += suffix` on C++, `push_str` on Rust and `s = s + x` on targets
+whose strings are immutable anyway — so the fix was to spell the append as an
+append. The sheet writer, the XML escaper, the clipboard's TSV and HTML
+builders and the ZIP's byte buffer all do that now, and `esc` copies the
+stretches between escapes in **runs** rather than a character at a time,
+handing back the string unchanged when there was nothing to escape. Same
+bytes out: `roundtrip.xlsx` and `annotations-out.xlsx` are byte-identical
+before and after.
+
+| 500,000 rows × 5 columns, C++ `-O2` | before | after |
+| --- | --- | --- |
+| sheet XML | ~4.5 hours (extrapolated) | 1.9 s |
+| `XlsxWriter.write` to disk | never finished | **5.2 s** |
+
+```bash
+npm run datagrid:save:test        # one test, compiled to JS and to C++
+npm run datagrid:save:bench -- 500000
+```
+
+The test is about TIME, because the output was always *correct* — it just took
+hours — and it is compiled twice for the same reason the text tests are: run
+only the JavaScript half and 20,000 rows serialize in 250 ms and everything
+looks fine. The C++ half of the same run took 22.6 s before the fix and 86 ms
+after, against a deliberately loose 20 s budget that no slow machine will trip
+and no quadratic writer can pass.
+
 ## Things that make it feel like a program
 
 **The pointer says what it is over.** A pointer that never changes shape makes

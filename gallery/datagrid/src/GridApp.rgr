@@ -5156,30 +5156,45 @@ class GridApp {
         this.moveActive((sel.active.row + dr) (sel.active.col + dc) extend)
     }
 
+    ; Runs, not characters — and a string with nothing to escape is returned
+    ; as itself rather than rebuilt one character at a time.
     sfn htmlEscape:string (v:string) {
         def out:string ""
         def i:int 0
+        def run:int 0
         def n:int (strlen v)
         while (i < n) {
             def c:int (charAt v i)
+            def rep:string ""
             if (c == 38) {
-                out = (out + "&amp;")
+                rep = "&amp;"
             } {
                 if (c == 60) {
-                    out = (out + "&lt;")
+                    rep = "&lt;"
                 } {
                     if (c == 62) {
-                        out = (out + "&gt;")
+                        rep = "&gt;"
                     } {
                         if (c == 34) {
-                            out = (out + "&quot;")
-                        } {
-                            out = (out + (substring v i (i + 1)))
+                            rep = "&quot;"
                         }
                     }
                 }
             }
+            if ((strlen rep) > 0) {
+                if (i > run) {
+                    str_append out (substring v run i)
+                }
+                str_append out rep
+                run = (i + 1)
+            }
             i = (i + 1)
+        }
+        if (run == 0) {
+            return v
+        }
+        if (n > run) {
+            str_append out (substring v run n)
         }
         return out
     }
@@ -5255,17 +5270,17 @@ class GridApp {
         def r:int a.row
         while (r <= b.row) {
             if (r > a.row) {
-                out = (out + "\n")
+                str_append out "\n"
             }
-            html = (html + "<tr>")
+            str_append html "<tr>"
             def c:int a.col
             while (c <= b.col) {
                 if (c > a.col) {
-                    out = (out + "\t")
+                    str_append out "\t"
                 }
                 def v:string (model.getCell(r c))
-                out = (out + v)
-                html = (html + (this.cellHtml(r c)))
+                str_append out v
+                str_append html (this.cellHtml(r c))
                 push clipValues v
                 push clipFormulas (model.getFormula(r c))
                 ; Formatting travels with the cell, so a paste looks like the
@@ -5274,11 +5289,12 @@ class GridApp {
                 push clipStyles (cst.copy())
                 c = (c + 1)
             }
-            html = (html + "</tr>")
+            str_append html "</tr>"
             r = (r + 1)
         }
         clipboardTsv = out
-        clipboardHtml = (html + "</table>")
+        str_append html "</table>"
+        clipboardHtml = html
         clipboardKind = "cells"
         clipboardPng = ""
         clipboardSvg = ""
