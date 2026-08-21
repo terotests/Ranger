@@ -30,6 +30,7 @@
 
 Import "EVGColor.rgr"
 Import "EVGDisplayList.rgr"
+Import "EVGA11yTree.rgr"
 Import "EVGTextFit.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
@@ -122,6 +123,11 @@ class EVGWindow {
     ; Identity, assigned by the manager on add. Used for the z-order shuffle,
     ; which has to tell one window from another without comparing references.
     def wid:int 0
+    ; A number that is never reused, unlike `wid`, which is a stack position
+    ; and comes back when a window is removed. The accessibility tree keys on
+    ; this: a dialog closed and another opened must not arrive as the same
+    ; node with new contents, or a reader announces nothing at all.
+    def stamp:int 0
     def title:string ""
     def x:int 0
     def y:int 0
@@ -1092,6 +1098,175 @@ class EVGWindow {
     ; The three primitives this file draws with. They delegate to the display
     ; list's own encoders so a dialog and the grid behind it cannot drift into
     ; two encodings of the same command.
+    ; --- what the dialog MEANS ------------------------------------------------
+    ; EVGControlKind was already a role enumeration — label, button, radio,
+    ; checkbox, input, swatch, tool — and `focusedId` was already a focus model
+    ; with a single owner. Nothing here had to be invented; it had to be
+    ; PUBLISHED. That is the whole distance between a dialog a screen reader
+    ; cannot see and one it can drive.
+    ;
+    ; Ids are `win:<wid>/ctl:<id>` — derived from identity, not from paint
+    ; order, so the reader's cursor survives a repaint.
+    fn a11y:void (t:EVGA11yTree parentId:string) {
+        if (visible == false) {
+            return
+        }
+        def winId:string (this.a11yId())
+        def win:EVGA11yNode (t.node(winId parentId (EVGA11yRole.dialog())))
+        def caption:string title
+        if ((strlen caption) == 0) {
+            caption = "Panel"
+        }
+        win.name = caption
+        win.modal = modal
+        t.place(win x y w h)
+        ; Reading order is VISUAL order — top to bottom, then left to right —
+        ; and not the order the controls were added in. A button row is laid
+        ; out right to left so the default button lands in the corner the eye
+        ; goes to, which put "Close, Replace all" in the array and would have
+        ; read the dialog backwards to everyone who cannot see the corner.
+        def order:[int] (this.a11yOrder())
+        def i:int 0
+        while (i < (array_length order)) {
+            def idx:int (itemAt order i)
+            def c:EVGControl (itemAt controls idx)
+            def cid:string (winId + "/ctl:" + (to_string c.id))
+            def n:EVGA11yNode (this.a11yControl(t cid winId c))
+            if ((strlen n.id) > 0) {
+                t.place(n c.x c.y c.w c.h)
+                n.disabled = (c.enabled == false)
+            }
+            i = (i + 1)
+        }
+        if (focusedId >= 0) {
+            def fid:string (winId + "/ctl:" + (to_string focusedId))
+            if (t.has(fid)) {
+                t.setFocus(fid)
+            }
+        }
+    }
+
+    ; Control indices in reading order. A selection sort, because a dialog has
+    ; a dozen controls and the alternative is a dependency.
+    fn a11yOrder:[int] () {
+        def order:[int]
+        def n:int (array_length controls)
+        def used:[boolean]
+        def k:int 0
+        while (k < n) {
+            push used false
+            k = (k + 1)
+        }
+        def placed:int 0
+        while (placed < n) {
+            def best:int -1
+            def i:int 0
+            while (i < n) {
+                if ((itemAt used i) == false) {
+                    if (best < 0) {
+                        best = i
+                    } {
+                        def a:EVGControl (itemAt controls i)
+                        def b:EVGControl (itemAt controls best)
+                        ; Same row means the same band, not the same pixel: a
+                        ; label beside a field sits a couple of pixels higher.
+                        def dy:int (a.y - b.y)
+                        if (dy < 0) {
+                            dy = (0 - dy)
+                        }
+                        if (dy <= 4) {
+                            if (a.x < b.x) {
+                                best = i
+                            }
+                        } {
+                            if (a.y < b.y) {
+                                best = i
+                            }
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            if (best < 0) {
+                placed = n
+            } {
+                push order best
+                set used best true
+                placed = (placed + 1)
+            }
+        }
+        return order
+    }
+
+    ; The window's own node id. `stamp` when the manager gave it one, and the
+    ; stack position otherwise, for a window nothing added.
+    fn a11yId:string () {
+        if (stamp > 0) {
+            return ("win:" + (to_string stamp))
+        }
+        return ("win:w" + (to_string wid))
+    }
+
+    ; One control. Returns a node with an empty id for the kinds that are
+    ; decoration — a separator is a rule, and a content rectangle belongs to
+    ; whoever draws into it and describes itself there.
+    fn a11yControl:EVGA11yNode (t:EVGA11yTree cid:string winId:string c:EVGControl) {
+        def kind:int c.kind
+        if (kind == 0) {
+            return (t.label(cid winId c.text))
+        }
+        if (kind == 1) {
+            def b:EVGA11yNode (t.button(cid winId c.text))
+            if c.isDefault {
+                b.description = "default button"
+            }
+            return b
+        }
+        if (kind == 2) {
+            def r:EVGA11yNode (t.node(cid winId (EVGA11yRole.radio())))
+            r.name = c.text
+            r.focusable = true
+            r.actActivate = true
+            r.checked = (EVGWindow.a11yTri(c.checked))
+            return r
+        }
+        if (kind == 3) {
+            def cb:EVGA11yNode (t.node(cid winId (EVGA11yRole.checkbox())))
+            cb.name = c.text
+            cb.focusable = true
+            cb.actActivate = true
+            cb.checked = (EVGWindow.a11yTri(c.checked))
+            return cb
+        }
+        if (kind == 6) {
+            def f:EVGA11yNode (t.field(cid winId c.text c.value))
+            f.caret = c.caret
+            return f
+        }
+        if (kind == 7) {
+            ; A palette swatch is a radio whose label is a colour. The hex is
+            ; the only name it has, and a name it has not got is worse.
+            def sw:EVGA11yNode (t.node(cid winId (EVGA11yRole.radio())))
+            sw.name = ("colour " + c.value)
+            sw.focusable = true
+            sw.actActivate = true
+            sw.checked = (EVGWindow.a11yTri(c.checked))
+            return sw
+        }
+        if (kind == 8) {
+            def tool:EVGA11yNode (t.button(cid winId c.value))
+            return tool
+        }
+        return (new EVGA11yNode)
+    }
+
+    sfn a11yTri:int (on:boolean) {
+        if on {
+            return (EVGA11yTri.yes())
+        }
+        return (EVGA11yTri.no())
+    }
+
     fn rect:void (dl:EVGDisplayList rx:int ry:int rw:int rh:int col:EVGColor) {
         dl.addRect((to_double rx) (to_double ry) (to_double rw) (to_double rh) col)
     }
@@ -1391,6 +1566,7 @@ class EVGWindowManager {
     fn add:void (win:EVGWindow) {
         win.wid = ((array_length windows) + 1)
         added = (added + 1)
+        win.stamp = added
         push windows win
     }
 
@@ -1474,6 +1650,19 @@ class EVGWindowManager {
             k = (k + 1)
         }
         push windows win
+    }
+
+    ; Every visible window, bottom to top — the order they are painted in, so a
+    ; reader walks them stacked the way they look. A modal does not hide what is
+    ; under it here; the node carries `modal` and the host decides what that
+    ; means, because "hidden" is spelled differently on every platform.
+    fn a11y:void (t:EVGA11yTree parentId:string) {
+        def i:int 0
+        while (i < (array_length windows)) {
+            def w0:EVGWindow (itemAt windows i)
+            w0.a11y(t parentId)
+            i = (i + 1)
+        }
     }
 
     ; Top-down until one window takes it. Every visible window has its

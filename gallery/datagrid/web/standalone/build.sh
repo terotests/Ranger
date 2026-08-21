@@ -77,6 +77,8 @@ cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# The accessibility mirror: the app's own a11y tree, as DOM over the canvas.
+cp gallery/evg/gl/evg-a11y.js "$OUT/gl/evg-a11y.js"
 # Web Crypto decrypt for password-protected .xlsx (OLE / Agile encryption).
 mkdir -p "$OUT/ooxml-encryption"
 cp -a gallery/datagrid/src/xlsx/vendor/ooxml-encryption/dist "$OUT/ooxml-encryption/"
@@ -115,7 +117,7 @@ cp gallery/datagrid/fixtures/business-workbook.xlsx "$OUT/business-workbook.xlsx
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/datagrid_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js']) {
+  for (const f of ['$OUT/datagrid_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js', '$OUT/gl/evg-a11y.js']) {
     h.update(fs.readFileSync(f));
   }
   process.stdout.write(h.digest('hex').slice(0, 10));
@@ -128,7 +130,8 @@ node -e "
   // standalone.mjs imports the renderer itself, so that one needs the query
   // written into the module rather than onto a tag.
   const mjs = fs.readFileSync('$OUT/standalone.mjs', 'utf8')
-    .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp);
+    .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp)
+    .replace('./gl/evg-a11y.js', './gl/evg-a11y.js?v=' + stamp);
   fs.writeFileSync('$OUT/standalone.mjs', mjs);
 " || exit 1
 if grep -q "__BUILD__" "$OUT/index.html"; then

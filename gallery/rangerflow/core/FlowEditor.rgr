@@ -1,0 +1,1241 @@
+; ============================================================================
+; FlowEditor.rgr — the interaction core: pointer in, graph out.
+; ============================================================================
+;
+; The parity list this file exists to satisfy is React Flow's behaviour, not
+; its markup:
+;
+;   pan · zoom at cursor · drag node · drag multiple nodes · rectangle select
+;   select all · delete · connect ports · reconnect an edge · resize node
+;   snap to grid · fit to screen · undo / redo
+;
+; It is written against a plain input struct rather than DOM events, which is
+; what lets the same editor run in a browser, in a headless test, and — when
+; the SDL host lands — on a desktop. Every test in `tests/` drives it exactly
+; the way the browser page does: `pointerDown`, `pointerMove`, `pointerUp`.
+;
+; State machine, because a canvas editor is one whether or not it admits it:
+;
+;   idle ──press on pane──────► panning ──release──► idle
+;        ──press on node──────► dragging
+;        ──press on port──────► connecting
+;        ──shift+press pane───► box select
+;        ──press on resize────► resizing
+; ============================================================================
+
+Import "GraphModel.rgr"
+Import "FlowView.rgr"
+Import "EdgeRouter.rgr"
+
+; What the platform fills in. Levels, not edges: the editor derives the edges,
+; so a host that can only report "the button is down" still works.
+class FlowInput {
+    def x:double 0.0
+    def y:double 0.0
+    def shift:boolean false
+    def ctrl:boolean false
+    def alt:boolean false
+
+    Constructor () {
+    }
+}
+
+; An undo entry owns the objects it removed. Ranger hands out references, so
+; putting a deleted node back is the same node, with its ports, its rows and
+; its identity intact — not a copy that looks like it.
+class FlowUndoEntry {
+    ; 0 move, 1 add nodes, 2 remove nodes, 3 add edges, 4 remove edges,
+    ; 5 reroute (hand-dragged edge corners; the before/after corner lists live
+    ; in oldX / newX, x and y interleaved, and `edges` holds the one edge)
+    def kind:int 0
+    def nodeIds:[string]
+    def oldX:[double]
+    def oldY:[double]
+    def newX:[double]
+    def newY:[double]
+    def nodes:[FlowNode]
+    def edges:[FlowEdge]
+    def label:string ""
+
+    Constructor () {
+    }
+}
+
+class FlowUndo {
+    def past:[FlowUndoEntry]
+    def future:[FlowUndoEntry]
+    def limit:int 200
+
+    Constructor () {
+    }
+
+    fn record:void (e:FlowUndoEntry) {
+        push past e
+        clear future
+        if ((array_length past) > limit) {
+            remove_index past 0
+        }
+    }
+
+    fn canUndo:boolean () {
+        return ((array_length past) > 0)
+    }
+
+    fn canRedo:boolean () {
+        return ((array_length future) > 0)
+    }
+
+    fn undo:boolean (g:FlowGraph) {
+        if ((array_length past) == 0) {
+            return false
+        }
+        def e:FlowUndoEntry (itemAt past ((array_length past) - 1))
+        removeLast past
+        FlowUndo.apply(g e true)
+        push future e
+        return true
+    }
+
+    fn redo:boolean (g:FlowGraph) {
+        if ((array_length future) == 0) {
+            return false
+        }
+        def e:FlowUndoEntry (itemAt future ((array_length future) - 1))
+        removeLast future
+        FlowUndo.apply(g e false)
+        push past e
+        return true
+    }
+
+    sfn apply:void (g:FlowGraph e:FlowUndoEntry reverse:boolean) {
+        if (e.kind == 0) {
+            def i:int 0
+            while (i < (array_length e.nodeIds)) {
+                def id:string (itemAt e.nodeIds i)
+                if (g.hasNode(id)) {
+                    def n:FlowNode (g.nodeById(id))
+                    if reverse {
+                        n.x = (itemAt e.oldX i)
+                        n.y = (itemAt e.oldY i)
+                    } {
+                        n.x = (itemAt e.newX i)
+                        n.y = (itemAt e.newY i)
+                    }
+                    n.syncFromModel()
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        if (e.kind == 5) {
+            if ((array_length e.edges) > 0) {
+                def ed:FlowEdge (itemAt e.edges 0)
+                def want:[double] e.newX
+                if reverse {
+                    want = e.oldX
+                }
+                clear ed.waypoints
+                def c:int 0
+                while (c < (array_length want)) {
+                    push ed.waypoints (itemAt want c)
+                    c = (c + 1)
+                }
+                ; An edge with no corners of its own is back to being routed
+                ; for it, so it must stop refusing the router.
+                ed.pinnedRoute = ((array_length ed.waypoints) >= 4)
+            }
+            return
+        }
+        def adding:boolean false
+        if (e.kind == 1) { adding = true }
+        if (e.kind == 3) { adding = true }
+        if reverse {
+            if adding { adding = false } { adding = true }
+        }
+        if adding {
+            FlowUndo.restore(g e)
+        } {
+            FlowUndo.strip(g e)
+        }
+    }
+
+    sfn restore:void (g:FlowGraph e:FlowUndoEntry) {
+        def i:int 0
+        while (i < (array_length e.nodes)) {
+            def n:FlowNode (itemAt e.nodes i)
+            if ((g.hasNode(n.id)) == false) {
+                g.addNode(n)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length e.edges)) {
+            def ed:FlowEdge (itemAt e.edges k)
+            def present:boolean false
+            def j:int 0
+            while (j < (g.edgeCount())) {
+                def other:FlowEdge (g.edgeAt(j))
+                if (other.id == ed.id) {
+                    present = true
+                }
+                j = (j + 1)
+            }
+            if (present == false) {
+                g.addEdge(ed)
+            }
+            k = (k + 1)
+        }
+        g.reindex()
+    }
+
+    sfn strip:void (g:FlowGraph e:FlowUndoEntry) {
+        def k:int 0
+        while (k < (array_length e.edges)) {
+            def ed:FlowEdge (itemAt e.edges k)
+            g.removeEdge(ed.id)
+            k = (k + 1)
+        }
+        def i:int 0
+        while (i < (array_length e.nodes)) {
+            def n:FlowNode (itemAt e.nodes i)
+            g.removeNode(n.id)
+            i = (i + 1)
+        }
+        g.reindex()
+    }
+}
+
+class FlowEditor {
+    def graph:FlowGraph (new FlowGraph)
+    def view:FlowView (new FlowView)
+    def undo:FlowUndo (new FlowUndo)
+
+    ; 0 idle, 1 panning, 2 dragging, 3 box select, 4 connecting, 5 resizing,
+    ; 6 dragging one segment of an edge
+    def mode:int 0
+    def pressX:double 0.0
+    def pressY:double 0.0
+    def lastX:double 0.0
+    def lastY:double 0.0
+    def pressFlowX:double 0.0
+    def pressFlowY:double 0.0
+    def movedSincePress:boolean false
+
+    def dragIds:[string]
+    def dragStartX:[double]
+    def dragStartY:[double]
+    def resizeIndex:int -1
+    def resizeW:double 0.0
+    def resizeH:double 0.0
+
+    ; --- dragging a segment of an edge ---------------------------------------
+    def segEdge:int -1
+    def segIndex:int -1
+    def segVertical:boolean false
+    def segStart:double 0.0
+    def segUndoBefore:[double]
+
+    ; React Flow's `connectOnClick`. Off by default, because a canvas where
+    ; every click might start a connection is a canvas you cannot select in.
+    def connectOnClick:boolean false
+    def clickConnectFrom:string ""
+
+    def snapToGrid:boolean false
+    def snapSize:double 16.0
+    def panOnDrag:boolean true
+    def zoomOnScroll:boolean true
+    def selectionOnDrag:boolean true
+    ; How near an edge the pointer has to be, in screen pixels, to select it.
+    def edgeHitSlop:double 6.0
+    ; Size of the resize grip in the bottom-right corner of a resizable node.
+    def gripSize:double 10.0
+    ; How near a segment the pointer has to be to grab it, in screen pixels.
+    def segmentGrabSlop:double 7.0
+    ; Whether an edge's middle can be dragged sideways at all.
+    def edgeSegmentDrag:boolean true
+
+    ; Set by the host when a force simulation is driving positions, so a drag
+    ; can pin the node the way the React Flow force example does.
+    def pinWhileDragging:boolean false
+    def onGraphChanged:boolean false
+
+    Constructor () {
+    }
+
+    sfn of:FlowEditor (g:FlowGraph) {
+        def ed (new FlowEditor)
+        ed.graph = g
+        ed.view = (FlowView.of(g))
+        return ed
+    }
+
+    fn setSize:void (w:double h:double) {
+        view.width = w
+        view.height = h
+    }
+
+    fn viewport:FlowViewport () {
+        return view.viewport
+    }
+
+    fn flowX:double (sx:double) {
+        return (view.viewport.toFlowX(sx))
+    }
+
+    fn flowY:double (sy:double) {
+        return (view.viewport.toFlowY(sy))
+    }
+
+    ; ------------------------------------------------------------ hit tests --
+    fn portAt:string (sx:double sy:double) {
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def slop:double (8.0 / view.viewport.zoom)
+        def i:int ((graph.nodeCount()) - 1)
+        while (i >= 0) {
+            def n:FlowNode (graph.nodeAt(i))
+            if (n.hidden == false) {
+                if n.connectable {
+                    def k:int 0
+                    while (k < (array_length n.ports)) {
+                        def p:FlowPort (itemAt n.ports k)
+                        if (p.hidden == false) {
+                            def dx:double ((n.portX(p)) - fx)
+                            def dy:double ((n.portY(p)) - fy)
+                            def adx:double (fabs dx)
+                            def ady:double (fabs dy)
+                            if (adx <= slop) {
+                                if (ady <= slop) {
+                                    return p.id
+                                }
+                            }
+                        }
+                        k = (k + 1)
+                    }
+                }
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    fn edgeAt:int (sx:double sy:double) {
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def slop:double (edgeHitSlop / view.viewport.zoom)
+        def best:int -1
+        def bestD:double slop
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            if (e.hidden == false) {
+                if (e.sourceIndex >= 0) {
+                    if (e.targetIndex >= 0) {
+                        def path:EdgePath (EdgeRouter.route(graph e))
+                        path.flatten(12)
+                        def d:double (path.distanceTo(fx fy))
+                        if (d <= bestD) {
+                            bestD = d
+                            best = k
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    ; Which segment of which edge is under the pointer, as `edge * 1000 +
+    ; segment`, or -1. Only the INTERIOR segments count: the first and last
+    ; touch a port, and moving one of those would detach the edge from the
+    ; column it is supposed to point at.
+    ;
+    ; A straight line and a bezier have no segments to speak of, so they are
+    ; not offered — "drag it sideways" has no meaning for a curve whose shape
+    ; is a function of its endpoints.
+    fn segmentAt:int (sx:double sy:double) {
+        if (edgeSegmentDrag == false) {
+            return -1
+        }
+        def slop:double (segmentGrabSlop / view.viewport.zoom)
+        def best:int -1
+        def bestD:double slop
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            if (e.hidden == false) {
+                def corners:[double] (EdgeRouter.cornersFor(graph e))
+                def n:int (idiv (array_length corners) 2)
+                if (n >= 4) {
+                    def fx:double (this.flowX(sx))
+                    def fy:double (this.flowY(sy))
+                    def i:int 1
+                    while (i < (n - 2)) {
+                        def ax:double (itemAt corners (i * 2))
+                        def ayAt:int ((i * 2) + 1)
+                        def ay:double (itemAt corners ayAt)
+                        def bx:double (itemAt corners ((i + 1) * 2))
+                        def byAt:int (((i + 1) * 2) + 1)
+                        def by:double (itemAt corners byAt)
+                        def d:double (FlowEditor.distanceToSegment(fx fy ax ay bx by))
+                        if (d <= bestD) {
+                            bestD = d
+                            best = ((k * 1000) + i)
+                        }
+                        i = (i + 1)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    sfn distanceToSegment:double (px:double py:double x1:double y1:double x2:double y2:double) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def len2:double ((dx * dx) + (dy * dy))
+        def t:double 0.0
+        if (len2 > 0.0) {
+            t = ((((px - x1) * dx) + ((py - y1) * dy)) / len2)
+            if (t < 0.0) { t = 0.0 }
+            if (t > 1.0) { t = 1.0 }
+        }
+        def cx:double (x1 + (dx * t))
+        def cy:double (y1 + (dy * t))
+        def ex:double (px - cx)
+        def ey:double (py - cy)
+        return (sqrt ((ex * ex) + (ey * ey)))
+    }
+
+    ; The bottom-right grip of a resizable node — React Flow's NodeResizer,
+    ; without the DOM handles.
+    fn gripAt:int (sx:double sy:double) {
+        def i:int ((graph.nodeCount()) - 1)
+        while (i >= 0) {
+            def n:FlowNode (graph.nodeAt(i))
+            def take:boolean false
+            if (n.hidden == false) {
+                if n.resizable {
+                    if n.selected {
+                        take = true
+                    }
+                }
+            }
+            if take {
+                def gx:double (view.viewport.toScreenX((n.x + n.width)))
+                def gy:double (view.viewport.toScreenY((n.y + n.height)))
+                def dx:double (sx - gx)
+                def dy:double (sy - gy)
+                if (dx > (0.0 - gripSize)) {
+                    if (dx < gripSize) {
+                        if (dy > (0.0 - gripSize)) {
+                            if (dy < gripSize) {
+                                return i
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    ; ------------------------------------------------------------- pointer ---
+    fn pointerDown:void (inp:FlowInput) {
+        pressX = inp.x
+        pressY = inp.y
+        lastX = inp.x
+        lastY = inp.y
+        pressFlowX = (this.flowX(inp.x))
+        pressFlowY = (this.flowY(inp.y))
+        movedSincePress = false
+
+        def btn:int (view.controlAt(inp.x inp.y))
+        if (btn >= 0) {
+            this.pressControl(btn)
+            mode = 0
+            return
+        }
+        def grip:int (this.gripAt(inp.x inp.y))
+        if (grip >= 0) {
+            def rn:FlowNode (graph.nodeAt(grip))
+            resizeIndex = grip
+            resizeW = rn.width
+            resizeH = rn.height
+            mode = 5
+            return
+        }
+        def portId:string (this.portAt(inp.x inp.y))
+        if ((strlen portId) > 0) {
+            view.connectFrom = portId
+            view.connecting = true
+            view.connectToX = pressFlowX
+            view.connectToY = pressFlowY
+            mode = 4
+            return
+        }
+        def ni:int (graph.nodeAtPoint(pressFlowX pressFlowY))
+        ; React Flow's `connectOnClick`, and the mode a toolbar's "connect"
+        ; button turns on: the first click picks the source, the second joins
+        ; them. A click on the pane cancels, so a half-made connection is never
+        ; left waiting for a node the reader has stopped looking for.
+        if connectOnClick {
+            if (ni >= 0) {
+                def cn:FlowNode (graph.nodeAt(ni))
+                if ((strlen clickConnectFrom) == 0) {
+                    clickConnectFrom = cn.id
+                    graph.clearSelection()
+                    cn.selected = true
+                } {
+                    this.connectNodes(clickConnectFrom cn.id)
+                    clickConnectFrom = ""
+                    graph.clearSelection()
+                }
+                mode = 0
+                return
+            }
+            clickConnectFrom = ""
+        }
+        if (ni >= 0) {
+            def n:FlowNode (graph.nodeAt(ni))
+            if (n.selectable) {
+                if (n.selected == false) {
+                    if (inp.shift == false) {
+                        graph.clearSelection()
+                    }
+                    n.selected = true
+                } {
+                    if inp.shift {
+                        n.selected = false
+                    }
+                }
+            }
+            if (n.draggable) {
+                this.beginDrag()
+                mode = 2
+                return
+            }
+            mode = 0
+            return
+        }
+        def ei:int (this.edgeAt(inp.x inp.y))
+        if (ei >= 0) {
+            def e:FlowEdge (graph.edgeAt(ei))
+            if (inp.shift == false) {
+                graph.clearSelection()
+            }
+            e.selected = true
+            ; Selecting and dragging are the same gesture: the press selects,
+            ; and if the pointer then moves, the segment under it comes along.
+            ; A click that does not move leaves the route exactly as it was.
+            def hit:int (this.segmentAt(inp.x inp.y))
+            if (hit >= 0) {
+                if ((idiv hit 1000) == ei) {
+                    this.beginSegmentDrag(ei (hit % 1000))
+                    return
+                }
+            }
+            mode = 0
+            return
+        }
+        if inp.shift {
+            if selectionOnDrag {
+                mode = 3
+                view.boxSelect = (FlowRect.create(pressFlowX pressFlowY 0.0 0.0))
+                return
+            }
+        }
+        graph.clearSelection()
+        if panOnDrag {
+            mode = 1
+        } {
+            mode = 0
+        }
+    }
+
+    ; Which way the segment behind a `segmentAt` hit runs. The handles are
+    ; invisible, so a host that wants to show a resize cursor has to be able to
+    ; ask without starting a drag.
+    fn segmentIsVertical:boolean (hit:int) {
+        if (hit < 0) {
+            return false
+        }
+        def ei:int (idiv hit 1000)
+        def seg:int (hit % 1000)
+        if (ei >= (graph.edgeCount())) {
+            return false
+        }
+        def e:FlowEdge (graph.edgeAt(ei))
+        def corners:[double] (EdgeRouter.cornersFor(graph e))
+        def n:int (idiv (array_length corners) 2)
+        if ((seg + 1) >= n) {
+            return false
+        }
+        def ax:double (itemAt corners (seg * 2))
+        def ayAt:int ((seg * 2) + 1)
+        def ay:double (itemAt corners ayAt)
+        def bx:double (itemAt corners ((seg + 1) * 2))
+        def byAt:int (((seg + 1) * 2) + 1)
+        def by:double (itemAt corners byAt)
+        return ((fabs (bx - ax)) < (fabs (by - ay)))
+    }
+
+    ; Take the edge's corners as they are, whoever produced them, and hold on
+    ; to the original for one undo step.
+    fn beginSegmentDrag:void (edgeIdx:int seg:int) {
+        def e:FlowEdge (graph.edgeAt(edgeIdx))
+        def corners:[double] (EdgeRouter.cornersFor(graph e))
+        def n:int (idiv (array_length corners) 2)
+        if (seg < 1) {
+            mode = 0
+            return
+        }
+        if (seg > (n - 3)) {
+            mode = 0
+            return
+        }
+        clear segUndoBefore
+        def w:int 0
+        while (w < (array_length e.waypoints)) {
+            push segUndoBefore (itemAt e.waypoints w)
+            w = (w + 1)
+        }
+        clear e.waypoints
+        def c:int 0
+        while (c < (array_length corners)) {
+            push e.waypoints (itemAt corners c)
+            c = (c + 1)
+        }
+        def ax:double (itemAt corners (seg * 2))
+        def ayAt:int ((seg * 2) + 1)
+        def ay:double (itemAt corners ayAt)
+        def bx:double (itemAt corners ((seg + 1) * 2))
+        def byAt:int (((seg + 1) * 2) + 1)
+        def by:double (itemAt corners byAt)
+        segVertical = ((fabs (bx - ax)) < (fabs (by - ay)))
+        segStart = ay
+        if segVertical {
+            segStart = ax
+        }
+        segEdge = edgeIdx
+        segIndex = seg
+        mode = 6
+    }
+
+    ; A segment only moves ACROSS itself — a vertical run slides left and
+    ; right, a horizontal one up and down. Moving it along its own direction
+    ; would not change the drawing, and letting it go diagonal would stop the
+    ; route being orthogonal, which is the property the whole router exists to
+    ; keep.
+    fn segmentDragTo:void (sx:double sy:double) {
+        if (segEdge < 0) {
+            return
+        }
+        def e:FlowEdge (graph.edgeAt(segEdge))
+        def n:int (idiv (array_length e.waypoints) 2)
+        if (segIndex < 1) {
+            return
+        }
+        if ((segIndex + 1) >= (n - 1)) {
+            return
+        }
+        def want:double (this.flowY(sy))
+        if segVertical {
+            want = (this.flowX(sx))
+        }
+        if snapToGrid {
+            want = (FlowEditor.snap(want snapSize))
+        }
+        def a:int (segIndex * 2)
+        def b:int ((segIndex + 1) * 2)
+        if segVertical {
+            set_at e.waypoints a want
+            set_at e.waypoints b want
+        } {
+            set_at e.waypoints (a + 1) want
+            set_at e.waypoints (b + 1) want
+        }
+        e.pinnedRoute = true
+    }
+
+    fn endSegmentDrag:void () {
+        if (segEdge < 0) {
+            return
+        }
+        def e:FlowEdge (graph.edgeAt(segEdge))
+        def moved:boolean false
+        def n:int (idiv (array_length e.waypoints) 2)
+        if (segIndex >= 1) {
+            def at:int (segIndex * 2)
+            def now:double (itemAt e.waypoints (at + 1))
+            if segVertical {
+                now = (itemAt e.waypoints at)
+            }
+            if ((fabs (now - segStart)) > 0.001) {
+                moved = true
+            }
+        }
+        if moved {
+            def entry (new FlowUndoEntry)
+            entry.kind = 5
+            entry.label = "reroute"
+            push entry.edges e
+            def w:int 0
+            while (w < (array_length segUndoBefore)) {
+                push entry.oldX (itemAt segUndoBefore w)
+                w = (w + 1)
+            }
+            def v:int 0
+            while (v < (array_length e.waypoints)) {
+                push entry.newX (itemAt e.waypoints v)
+                v = (v + 1)
+            }
+            undo.record(entry)
+            onGraphChanged = true
+        } {
+            ; A click that did not move must not pin the route.
+            e.pinnedRoute = false
+            clear e.waypoints
+            def r:int 0
+            while (r < (array_length segUndoBefore)) {
+                push e.waypoints (itemAt segUndoBefore r)
+                r = (r + 1)
+            }
+        }
+        segEdge = -1
+        segIndex = -1
+    }
+
+    fn beginDrag:void () {
+        clear dragIds
+        clear dragStartX
+        clear dragStartY
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            def take:boolean n.selected
+            ; A frame carries what is inside it. Dragging a swimlane and
+            ; leaving its steps behind would be a lane that means nothing.
+            if (take == false) {
+                take = (this.insideSelected(n))
+            }
+            if take {
+                if n.draggable {
+                    push dragIds n.id
+                    push dragStartX n.x
+                    push dragStartY n.y
+                    n.dragging = true
+                    if pinWhileDragging {
+                        n.pinHere()
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; True when some ancestor of this node is selected. Walks up rather than
+    ; down, and stops at a depth no honest diagram exceeds, so a parent that
+    ; somehow points at itself cannot hang the editor.
+    fn insideSelected:boolean (n:FlowNode) {
+        def id:string n.parentId
+        def hops:int 0
+        while (hops < 16) {
+            if ((strlen id) == 0) {
+                return false
+            }
+            if ((graph.hasNode(id)) == false) {
+                return false
+            }
+            def p:FlowNode (graph.nodeById(id))
+            if p.selected {
+                return true
+            }
+            id = p.parentId
+            hops = (hops + 1)
+        }
+        return false
+    }
+
+    fn pointerMove:void (inp:FlowInput) {
+        def dx:double (inp.x - lastX)
+        def dy:double (inp.y - lastY)
+        lastX = inp.x
+        lastY = inp.y
+        def mdx:double (inp.x - pressX)
+        def mdy:double (inp.y - pressY)
+        def adx:double (fabs mdx)
+        def ady:double (fabs mdy)
+        if (adx > 2.0) { movedSincePress = true }
+        if (ady > 2.0) { movedSincePress = true }
+
+        if (mode == 0) {
+            this.updateHover(inp.x inp.y)
+            return
+        }
+        if (mode == 1) {
+            view.viewport.panBy(dx dy)
+            return
+        }
+        if (mode == 2) {
+            this.dragTo(inp.x inp.y)
+            return
+        }
+        if (mode == 3) {
+            def fx:double (this.flowX(inp.x))
+            def fy:double (this.flowY(inp.y))
+            view.boxSelect = (FlowRect.fromCorners(pressFlowX pressFlowY fx fy))
+            return
+        }
+        if (mode == 4) {
+            view.connectToX = (this.flowX(inp.x))
+            view.connectToY = (this.flowY(inp.y))
+            view.hoverPort = (this.portAt(inp.x inp.y))
+            return
+        }
+        if (mode == 5) {
+            this.resizeTo(inp.x inp.y)
+            return
+        }
+        if (mode == 6) {
+            this.segmentDragTo(inp.x inp.y)
+            return
+        }
+    }
+
+    fn updateHover:void (sx:double sy:double) {
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        view.hoverNode = (graph.nodeAtPoint(fx fy))
+        view.hoverPort = (this.portAt(sx sy))
+    }
+
+    fn dragTo:void (sx:double sy:double) {
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def dx:double (fx - pressFlowX)
+        def dy:double (fy - pressFlowY)
+        def i:int 0
+        while (i < (array_length dragIds)) {
+            def id:string (itemAt dragIds i)
+            if (graph.hasNode(id)) {
+                def n:FlowNode (graph.nodeById(id))
+                def nx:double ((itemAt dragStartX i) + dx)
+                def ny:double ((itemAt dragStartY i) + dy)
+                if snapToGrid {
+                    nx = (FlowEditor.snap(nx snapSize))
+                    ny = (FlowEditor.snap(ny snapSize))
+                }
+                n.x = nx
+                n.y = ny
+                n.syncFromModel()
+                if pinWhileDragging {
+                    n.pin(n.simX n.simY)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn snap:double (v:double size:double) {
+        if (size <= 0.0) {
+            return v
+        }
+        def q:int (floor ((v / size) + 0.5))
+        return ((to_double q) * size)
+    }
+
+    fn resizeTo:void (sx:double sy:double) {
+        if (resizeIndex < 0) {
+            return
+        }
+        def n:FlowNode (graph.nodeAt(resizeIndex))
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def w:double (fx - n.x)
+        def h:double (fy - n.y)
+        if (w < n.minWidth) { w = n.minWidth }
+        if (h < n.minHeight) { h = n.minHeight }
+        if snapToGrid {
+            w = (FlowEditor.snap(w snapSize))
+            h = (FlowEditor.snap(h snapSize))
+        }
+        n.width = w
+        n.height = h
+        n.placeRowPorts()
+    }
+
+    fn pointerUp:void (inp:FlowInput) {
+        if (mode == 2) {
+            this.endDrag()
+        }
+        if (mode == 3) {
+            if (inp.shift == false) {
+                graph.clearSelection()
+            }
+            graph.selectInRect(view.boxSelect)
+            view.boxSelect = (new FlowRect)
+        }
+        if (mode == 4) {
+            this.endConnect(inp)
+        }
+        if (mode == 5) {
+            resizeIndex = -1
+        }
+        if (mode == 6) {
+            this.endSegmentDrag()
+        }
+        mode = 0
+        view.connecting = false
+        view.connectFrom = ""
+    }
+
+    fn endDrag:void () {
+        if ((array_length dragIds) == 0) {
+            return
+        }
+        def entry (new FlowUndoEntry)
+        entry.kind = 0
+        entry.label = "move"
+        def moved:boolean false
+        def i:int 0
+        while (i < (array_length dragIds)) {
+            def id:string (itemAt dragIds i)
+            if (graph.hasNode(id)) {
+                def n:FlowNode (graph.nodeById(id))
+                n.dragging = false
+                if pinWhileDragging {
+                    n.unpin()
+                }
+                push entry.nodeIds id
+                push entry.oldX (itemAt dragStartX i)
+                push entry.oldY (itemAt dragStartY i)
+                push entry.newX n.x
+                push entry.newY n.y
+                def dx:double (n.x - (itemAt dragStartX i))
+                def dy:double (n.y - (itemAt dragStartY i))
+                def adx:double (fabs dx)
+                def ady:double (fabs dy)
+                if (adx > 0.001) { moved = true }
+                if (ady > 0.001) { moved = true }
+            }
+            i = (i + 1)
+        }
+        if moved {
+            undo.record(entry)
+            onGraphChanged = true
+        }
+        clear dragIds
+        clear dragStartX
+        clear dragStartY
+    }
+
+    fn endConnect:void (inp:FlowInput) {
+        def toPort:string (this.portAt(inp.x inp.y))
+        view.hoverPort = ""
+        if ((strlen toPort) == 0) {
+            return
+        }
+        if ((graph.canConnect(view.connectFrom toPort)) == false) {
+            return
+        }
+        def from:FlowPort (graph.portRef(view.connectFrom))
+        def to:FlowPort (graph.portRef(toPort))
+        def e:FlowEdge (FlowEdge.create("" from.nodeId to.nodeId))
+        e.sourcePort = view.connectFrom
+        e.targetPort = toPort
+        e.edgeType = "smoothstep"
+        graph.addEdge(e)
+        def entry (new FlowUndoEntry)
+        entry.kind = 3
+        entry.label = "connect"
+        push entry.edges e
+        undo.record(entry)
+        onGraphChanged = true
+    }
+
+    ; --------------------------------------------------------- authoring ----
+    ; What a toolbar needs, and nothing a toolbar does not: the palette adds a
+    ; node, the connect button joins two of them, the name field renames the
+    ; selection. Each one is a single undo step, because a reader who added a
+    ; box by mistake expects one Ctrl-Z to remove it.
+    ;
+    ; These live on the editor rather than in the page so the desktop host and
+    ; the tests drive the same authoring the browser does.
+    def newNodeWidth:double 150.0
+    def newNodeHeight:double 52.0
+    def newNodeSeq:int 0
+
+    fn addNode:FlowNode (label:string shape:string flowX:double flowY:double) {
+        newNodeSeq = (newNodeSeq + 1)
+        def id:string ("n" + (to_string newNodeSeq))
+        while (graph.hasNode(id)) {
+            newNodeSeq = (newNodeSeq + 1)
+            id = ("n" + (to_string newNodeSeq))
+        }
+        def n (new FlowNode)
+        n.id = id
+        n.label = label
+        n.shape = shape
+        n.width = newNodeWidth
+        n.height = newNodeHeight
+        if (shape == "diamond") {
+            n.width = (newNodeWidth + 20.0)
+            n.height = (newNodeHeight + 24.0)
+        }
+        if (shape == "circle") {
+            n.width = 64.0
+            n.height = 64.0
+        }
+        ; Dropped centred on the point that was asked for, and snapped if the
+        ; grid is on, so a new box lands on the same lattice as the old ones.
+        def px:double (flowX - (n.width * 0.5))
+        def py:double (flowY - (n.height * 0.5))
+        if snapToGrid {
+            px = (FlowEditor.snap(px snapSize))
+            py = (FlowEditor.snap(py snapSize))
+        }
+        n.x = px
+        n.y = py
+        n.syncFromModel()
+        graph.addNode(n)
+        graph.reindex()
+        graph.clearSelection()
+        n.selected = true
+        def entry (new FlowUndoEntry)
+        entry.kind = 1
+        entry.label = "add node"
+        push entry.nodes n
+        undo.record(entry)
+        onGraphChanged = true
+        return n
+    }
+
+    ; Add a node in the middle of what the reader is looking at, which is where
+    ; a toolbar button with no pointer position should put it.
+    fn addNodeAtCentre:FlowNode (label:string shape:string) {
+        def fx:double (this.flowX(view.width * 0.5))
+        def fy:double (this.flowY(view.height * 0.5))
+        return (this.addNode(label shape fx fy))
+    }
+
+    ; React Flow's `connectOnClick`: click one node, click the next, and the
+    ; two are joined — the same connection dragging a handle would make, for a
+    ; reader on a trackpad or a touch screen who would rather not drag.
+    fn connectNodes:boolean (sourceId:string targetId:string) {
+        if (sourceId == targetId) {
+            return false
+        }
+        if ((graph.hasNode(sourceId)) == false) {
+            return false
+        }
+        if ((graph.hasNode(targetId)) == false) {
+            return false
+        }
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def other:FlowEdge (graph.edgeAt(k))
+            if (other.source == sourceId) {
+                if (other.target == targetId) {
+                    return false
+                }
+            }
+            k = (k + 1)
+        }
+        def e:FlowEdge (FlowEdge.create("" sourceId targetId))
+        e.edgeType = "smoothstep"
+        graph.addEdge(e)
+        graph.reindex()
+        def entry (new FlowUndoEntry)
+        entry.kind = 3
+        entry.label = "connect"
+        push entry.edges e
+        undo.record(entry)
+        onGraphChanged = true
+        return true
+    }
+
+    fn selectedNode:FlowNode () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if n.selected {
+                return n
+            }
+            i = (i + 1)
+        }
+        return (new FlowNode)
+    }
+
+    fn selectedNodeId:string () {
+        def n:FlowNode (this.selectedNode())
+        return n.id
+    }
+
+    fn renameSelected:boolean (label:string) {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return false
+        }
+        n.label = label
+        onGraphChanged = true
+        return true
+    }
+
+    fn setSelectedShape:boolean (shape:string) {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return false
+        }
+        n.shape = shape
+        onGraphChanged = true
+        return true
+    }
+
+    ; ---------------------------------------------------------------- wheel --
+    fn wheel:void (inp:FlowInput delta:double) {
+        if (zoomOnScroll == false) {
+            view.viewport.panBy(0.0 (0.0 - delta))
+            return
+        }
+        def factor:double 1.1
+        if (delta > 0.0) {
+            factor = (1.0 / 1.1)
+        }
+        view.viewport.zoomAt(inp.x inp.y factor)
+    }
+
+    ; ------------------------------------------------------------- keyboard --
+    ; Key names rather than codes, because a code table is a platform detail
+    ; and the tests would end up asserting on one.
+    fn keyDown:boolean (key:string shift:boolean ctrl:boolean) {
+        if (key == "Delete") {
+            return (this.deleteSelection())
+        }
+        if (key == "Backspace") {
+            return (this.deleteSelection())
+        }
+        if (key == "Escape") {
+            graph.clearSelection()
+            mode = 0
+            view.connecting = false
+            return true
+        }
+        if ctrl {
+            if (key == "a") {
+                this.selectAll()
+                return true
+            }
+            if (key == "z") {
+                if shift {
+                    return (undo.redo(graph))
+                }
+                return (undo.undo(graph))
+            }
+            if (key == "y") {
+                return (undo.redo(graph))
+            }
+            if (key == "0") {
+                this.fitView()
+                return true
+            }
+        }
+        if (key == "f") {
+            this.fitView()
+            return true
+        }
+        return false
+    }
+
+    fn selectAll:void () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if (n.hidden == false) {
+                if n.selectable {
+                    n.selected = true
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn deleteSelection:boolean () {
+        def entry (new FlowUndoEntry)
+        entry.kind = 2
+        entry.label = "delete"
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if n.selected {
+                push entry.nodes n
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            def take:boolean e.selected
+            def j:int 0
+            while (j < (array_length entry.nodes)) {
+                def n2:FlowNode (itemAt entry.nodes j)
+                if (e.source == n2.id) { take = true }
+                if (e.target == n2.id) { take = true }
+                j = (j + 1)
+            }
+            if take {
+                push entry.edges e
+            }
+            k = (k + 1)
+        }
+        if ((array_length entry.nodes) == 0) {
+            if ((array_length entry.edges) == 0) {
+                return false
+            }
+        }
+        FlowUndo.strip(graph entry)
+        undo.record(entry)
+        onGraphChanged = true
+        return true
+    }
+
+    ; ------------------------------------------------------------- viewport --
+    fn fitView:void () {
+        def r:FlowRect (graph.bounds())
+        view.viewport.fitRect(r view.width view.height 0.1)
+    }
+
+    fn zoomIn:void () {
+        def cx:double (view.width * 0.5)
+        def cy:double (view.height * 0.5)
+        view.viewport.zoomAt(cx cy 1.2)
+    }
+
+    fn zoomOut:void () {
+        def cx:double (view.width * 0.5)
+        def cy:double (view.height * 0.5)
+        view.viewport.zoomAt(cx cy (1.0 / 1.2))
+    }
+
+    fn pressControl:void (btn:int) {
+        if (btn == 0) { this.zoomIn() }
+        if (btn == 1) { this.zoomOut() }
+        if (btn == 2) { this.fitView() }
+        if (btn == 3) {
+            view.showMinimap = (view.showMinimap == false)
+        }
+    }
+
+    ; ---------------------------------------------------------------- frame --
+    fn build:FlowScene () {
+        return (view.build())
+    }
+
+    fn sceneJson:string () {
+        def sc:FlowScene (view.build())
+        return (sc.sceneJson(view.width view.height))
+    }
+}

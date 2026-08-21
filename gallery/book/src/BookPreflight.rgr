@@ -1,0 +1,381 @@
+; ==============================================================================
+; BookPreflight.rgr - the questions a printer asks, asked before the printer
+; ==============================================================================
+;
+; Everything else in this directory is about making a book look right. This
+; file is about the other half of publishing: whether the file can actually be
+; printed, which is a different question and is answered by arithmetic rather
+; than by eye.
+;
+; The checks are the ones that cost money when they are missed:
+;
+;   overset text        words that exist in the story and on no page
+;   image resolution    a 800px photo across a 210mm page is 96 dpi, and looks
+;                       exactly like 300 dpi on screen
+;   bleed               an element that stops at the trim leaves a white sliver
+;                       when the guillotine drifts, so it must overhang
+;   safety              text closer to the trim than the bindery can promise
+;   signatures          a page count that is not a multiple of four
+;   missing assets      a frame pointing at a file nobody added
+;
+; The screen cannot show any of these. That is the whole point of preflight:
+; the failures are invisible in preview by construction, so they have to be
+; computed and listed rather than looked for.
+; ==============================================================================
+
+Import "BookFlow.rgr"
+
+class BookPreflightItem {
+    ; error - will print wrong. warning - probably wrong. info - worth knowing.
+    def severity:string "warning"
+    def code:string ""
+    def message:string ""
+    def page:int -1
+    def frameId:string ""
+
+    Constructor () {
+        severity = "warning"
+        code = ""
+        message = ""
+        page = -1
+        frameId = ""
+    }
+
+    sfn create:BookPreflightItem (severity:string code:string message:string page:int frameId:string) {
+        def it (new BookPreflightItem())
+        it.severity = severity
+        it.code = code
+        it.message = message
+        it.page = page
+        it.frameId = frameId
+        return it
+    }
+
+    fn asLine:string () {
+        def out:string ("[" + severity + "] " + code + ": " + message)
+        if (page >= 0) {
+            def n:int (page + 1)
+            out = (out + " (page " + (to_string n) + ")")
+        }
+        if ((strlen frameId) > 0) {
+            out = (out + " [frame " + frameId + "]")
+        }
+        return out
+    }
+}
+
+class BookPreflightReport {
+    def items:[BookPreflightItem]
+
+    Constructor () {
+    }
+
+    fn add:void (it:BookPreflightItem) {
+        push items it
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    fn itemAtIndex:BookPreflightItem (i:int) {
+        return (itemAt items i)
+    }
+
+    fn countOf:int (severity:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:BookPreflightItem (itemAt items i)
+            if (it.severity == severity) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn errorCount:int () {
+        return (this.countOf("error"))
+    }
+
+    fn warningCount:int () {
+        return (this.countOf("warning"))
+    }
+
+    ; The one question a build script wants answered.
+    fn printable:boolean () {
+        def errs:int (this.countOf("error"))
+        return (errs == 0)
+    }
+
+    fn asText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:BookPreflightItem (itemAt items i)
+            def line:string (it.asLine())
+            out = (out + line + "\n")
+            i = (i + 1)
+        }
+        def errs:int (this.countOf("error"))
+        def warns:int (this.countOf("warning"))
+        def infos:int (this.countOf("info"))
+        out = (out + (to_string errs) + " error(s), " + (to_string warns) + " warning(s), " + (to_string infos) + " note(s)\n")
+        return out
+    }
+}
+
+class BookPreflight {
+    ; Points to whole millimetres, rounded rather than truncated - "extend it
+    ; at least 2 mm" when the answer is 3 is worse than not saying it.
+    ; Below this an image is not print quality. 300 is the industry number;
+    ; 150 is the point at which the halftone is visible to anyone.
+    def targetDpi:double 300.0
+    def minimumDpi:double 150.0
+    ; How far a bleeding element must overhang the trim. 3 mm is the standard
+    ; the trade assumes when nobody says otherwise.
+    def bleedRequired:double 8.5
+    ; Text nearer the trim than this is at the mercy of the guillotine.
+    def safetyMargin:double 14.17
+    def signatureMultiple:int 4
+
+    Constructor () {
+        targetDpi = 300.0
+        minimumDpi = 150.0
+        bleedRequired = 8.5
+        safetyMargin = 14.17
+        signatureMultiple = 4
+    }
+
+    sfn mmText:string (points:double) {
+        def mm:double (BookUnits.toMm(points))
+        def bumped:double (mm + 0.5)
+        def whole:int (floor bumped)
+        return (to_string whole)
+    }
+
+    fn run:BookPreflightReport (doc:BookDocument flow:BookFlowResult) {
+        def report (new BookPreflightReport())
+        this.checkOverset(doc flow report)
+        this.checkPages(doc report)
+        this.checkSignature(doc report)
+        this.checkFonts(doc report)
+        return report
+    }
+
+    ; ---------------------------------------------------------------------
+
+    fn checkOverset:void (doc:BookDocument flow:BookFlowResult report:BookPreflightReport) {
+        if flow.overflow {
+            def n:int flow.overflowParagraph
+            def msg:string ("text does not fit the frame chain - overset from paragraph " + (to_string n))
+            def it:BookPreflightItem (BookPreflightItem.create("error" "overset" msg -1 ""))
+            report.add(it)
+        }
+        def i:int 0
+        while (i < (array_length flow.messages)) {
+            def m:string (itemAt flow.messages i)
+            def it2:BookPreflightItem (BookPreflightItem.create("warning" "flow" m -1 ""))
+            report.add(it2)
+            i = (i + 1)
+        }
+    }
+
+    fn checkPages:void (doc:BookDocument report:BookPreflightReport) {
+        def pi:int 0
+        while (pi < (doc.pageCount())) {
+            def page:BookPage (doc.pageAt(pi))
+            def fi:int 0
+            while (fi < (array_length page.frames)) {
+                def f:BookFrame (itemAt page.frames fi)
+                this.checkFrame(doc page f report)
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+    }
+
+    fn checkFrame:void (doc:BookDocument page:BookPage frame:BookFrame report:BookPreflightReport) {
+        if (frame.kind == "image") {
+            if ((doc.hasAsset(frame.assetId)) == false) {
+                def msg:string ("image frame points at an asset that is not in the document: " + frame.assetId)
+                def it:BookPreflightItem (BookPreflightItem.create("error" "missing-asset" msg page.index frame.id))
+                report.add(it)
+            } {
+                def asset:BookAsset (doc.assetFor(frame.assetId))
+                this.checkResolution(page frame asset report)
+            }
+        }
+        ; Bleed is a question about ink that reaches the edge. Text reaching
+        ; the edge is not a bleed problem to be fixed by extending it further -
+        ; it is a safety problem, and asking the author to push words past the
+        ; trim would be exactly the wrong advice.
+        if (frame.kind == "text") {
+            this.checkSafety(doc page frame report)
+        } {
+            this.checkBleed(page frame report)
+        }
+        if (frame.overflowed) {
+            def msg2:string "frame is full and continues into the next frame"
+            def it2:BookPreflightItem (BookPreflightItem.create("info" "continues" msg2 page.index frame.id))
+            report.add(it2)
+        }
+    }
+
+    ; Effective resolution is the only honest measure of an image on a page:
+    ; the pixels it actually has divided by the inches it actually covers.
+    fn checkResolution:void (page:BookPage frame:BookFrame asset:BookAsset report:BookPreflightReport) {
+        if (asset.naturalWidth <= 0.0) {
+            def msg0:string ("image has no known pixel size, so its print resolution cannot be checked: " + asset.id)
+            def it0:BookPreflightItem (BookPreflightItem.create("warning" "unknown-size" msg0 page.index frame.id))
+            report.add(it0)
+            return
+        }
+        if (frame.w <= 0.0) {
+            return
+        }
+        def inches:double (frame.w / 72.0)
+        def dpi:double (asset.naturalWidth / inches)
+        def rounded:int (floor dpi)
+        if (dpi < minimumDpi) {
+            def msg:string (asset.id + " prints at " + (to_string rounded) + " dpi - below the " + (to_string (floor minimumDpi)) + " dpi floor")
+            def it:BookPreflightItem (BookPreflightItem.create("error" "low-resolution" msg page.index frame.id))
+            report.add(it)
+            return
+        }
+        if (dpi < targetDpi) {
+            def msg2:string (asset.id + " prints at " + (to_string rounded) + " dpi - under the " + (to_string (floor targetDpi)) + " dpi target")
+            def it2:BookPreflightItem (BookPreflightItem.create("warning" "low-resolution" msg2 page.index frame.id))
+            report.add(it2)
+        }
+    }
+
+    ; An element touching the trim is the classic mistake: it looks correct on
+    ; screen and prints with a white hairline wherever the cut wandered.
+    fn checkBleed:void (page:BookPage frame:BookFrame report:BookPreflightReport) {
+        def touchesLeft:boolean (frame.x <= 0.0)
+        def right:double (frame.x + frame.w)
+        def touchesRight:boolean (right >= page.width)
+        def touchesTop:boolean (frame.y <= 0.0)
+        def bottom:double (frame.y + frame.h)
+        def touchesBottom:boolean (bottom >= page.height)
+        def touches:boolean (touchesLeft || touchesRight)
+        if (touchesTop || touchesBottom) {
+            touches = true
+        }
+        if (touches == false) {
+            return
+        }
+
+        def enough:boolean true
+        if touchesLeft {
+            def over:double (0.0 - frame.x)
+            if (over < bleedRequired) {
+                enough = false
+            }
+        }
+        if touchesRight {
+            def over2:double (right - page.width)
+            if (over2 < bleedRequired) {
+                enough = false
+            }
+        }
+        if touchesTop {
+            def over3:double (0.0 - frame.y)
+            if (over3 < bleedRequired) {
+                enough = false
+            }
+        }
+        if touchesBottom {
+            def over4:double (bottom - page.height)
+            if (over4 < bleedRequired) {
+                enough = false
+            }
+        }
+        if (enough == false) {
+            def mmR:string (BookPreflight.mmText(bleedRequired))
+            def msg:string ("element reaches the trim without bleeding past it - extend it at least " + mmR + " mm beyond every edge it touches")
+            def it:BookPreflightItem (BookPreflightItem.create("error" "no-bleed" msg page.index frame.id))
+            report.add(it)
+        }
+    }
+
+    fn checkSafety:void (doc:BookDocument page:BookPage frame:BookFrame report:BookPreflightReport) {
+        def tooLeft:boolean (frame.x < safetyMargin)
+        def right:double (frame.x + frame.w)
+        def limitR:double (page.width - safetyMargin)
+        def tooRight:boolean (right > limitR)
+        def tooTop:boolean (frame.y < safetyMargin)
+        ; A folio's frame is a drop zone, not an ink extent: the box may reach
+        ; the trim while the single line inside it sits well clear. Measuring
+        ; the box would report every page number in every book.
+        def bottom:double (frame.y + frame.h)
+        if ((strlen frame.text) > 0) {
+            def style:BookStyle (doc.styleFor(frame.styleName))
+            bottom = (frame.y + style.fontSize)
+        }
+        def limitB:double (page.height - safetyMargin)
+        def tooBottom:boolean (bottom > limitB)
+        def bad:boolean (tooLeft || tooRight)
+        if (tooTop || tooBottom) {
+            bad = true
+        }
+        if bad {
+            def mmR:string (BookPreflight.mmText(safetyMargin))
+            def msg:string ("text sits closer than " + mmR + " mm to the trim and may be cut")
+            def it:BookPreflightItem (BookPreflightItem.create("warning" "safety-margin" msg page.index frame.id))
+            report.add(it)
+        }
+    }
+
+    fn checkSignature:void (doc:BookDocument report:BookPreflightReport) {
+        def count:int (doc.pageCount())
+        if (count == 0) {
+            def it0:BookPreflightItem (BookPreflightItem.create("error" "empty" "the document has no pages" -1 ""))
+            report.add(it0)
+            return
+        }
+        if (signatureMultiple < 2) {
+            return
+        }
+        def whole:int (idiv count signatureMultiple)
+        def exact:int (whole * signatureMultiple)
+        if (count != exact) {
+            def next:int (exact + signatureMultiple)
+            def msg:string ((to_string count) + " pages is not a multiple of " + (to_string signatureMultiple) + " - a printer will pad it to " + (to_string next))
+            def it:BookPreflightItem (BookPreflightItem.create("warning" "signature" msg -1 ""))
+            report.add(it)
+        }
+    }
+
+    ; A font the measurer cannot back was measured with guessed widths, which
+    ; means the line breaks in this document are not the line breaks that will
+    ; print. EVGTextEngine already knows; preflight is where it gets said.
+    fn checkFonts:void (doc:BookDocument report:BookPreflightReport) {
+        def i:int 0
+        while (i < (array_length doc.styles)) {
+            def s:BookStyle (itemAt doc.styles i)
+            if (s.fontSize < 6.0) {
+                def msg:string ("style \"" + s.name + "\" is under 6 pt - legal text at best, unreadable at worst")
+                def it:BookPreflightItem (BookPreflightItem.create("warning" "tiny-type" msg -1 ""))
+                report.add(it)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Font warnings raised by the text engine during flow. Kept separate so a
+    ; caller that measured with real faces does not have to pass anything.
+    fn addFontWarnings:void (engine:BookFlowEngine report:BookPreflightReport) {
+        def te:EVGTextEngine engine.text
+        def n:int (te.warningCount())
+        def i:int 0
+        while (i < n) {
+            def w:string (te.warningAt(i))
+            def it:BookPreflightItem (BookPreflightItem.create("error" "font-metrics" w -1 ""))
+            report.add(it)
+            i = (i + 1)
+        }
+    }
+}

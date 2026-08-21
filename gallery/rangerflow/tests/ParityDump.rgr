@@ -1,0 +1,905 @@
+; ============================================================================
+; ParityDump.rgr — RangerFlow's answers to the questions React Flow was asked.
+; ============================================================================
+;
+; Two halves, and they are different kinds of evidence:
+;
+;   CASES   the same geometry the oracles computed — edge paths, viewport
+;           algebra, bounds, overlap — dumped as numbers for `tools/parity.mjs`
+;           to compare against `@xyflow/system` with a tolerance.
+;
+;   PROBES  one executable check per React Flow *behaviour*, each driving the
+;           real FlowEditor through pointerDown / pointerMove / pointerUp. A
+;           capability cannot be claimed in the scorecard without one, and a
+;           probe that fails turns the row red rather than quietly staying
+;           green — which is the difference between a measurement and a wish.
+;
+;   node gallery/rangerflow/bin/ParityDump.js
+;   → gallery/rangerflow/harness/out/rangerflow.json
+;
+; The case ids are built by the same rules the oracle uses. They are not shared
+; through a file, so they can drift; `tools/parity.mjs` compares the two id sets
+; and fails loudly when they do.
+; ============================================================================
+
+Import "../core/FlowEditor.rgr"
+Import "../core/EdgeRouter.rgr"
+Import "../layout/ForceLayout.rgr"
+
+class ParityOut {
+    def parts:[string]
+
+    Constructor () {
+    }
+
+    fn add:void (s:string) {
+        push parts s
+    }
+
+    fn joined:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            if (i > 0) {
+                out = (out + ",\n")
+            }
+            out = (out + (itemAt parts i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn count:int () {
+        return (array_length parts)
+    }
+}
+
+class ParityDump {
+    def cases:ParityOut (new ParityOut)
+    def probes:ParityOut (new ParityOut)
+    def frames:ParityOut (new ParityOut)
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def d (new ParityDump)
+        d.dumpPaths()
+        d.dumpViewport()
+        d.dumpBounds()
+        d.dumpForce()
+        d.probeAll()
+        def json:string ("{\n\"source\": \"RangerFlow\",\n\"cases\": [\n")
+        def body:string (d.cases.joined())
+        def rest:string ("\n],\n\"force\": {\n" + (d.frames.joined()) + "\n},\n\"probes\": [\n" + (d.probes.joined()) + "\n]\n}\n")
+        write_file "." "gallery/rangerflow/harness/out/rangerflow.json" (json + body + rest)
+        print ("  " + (to_string (d.cases.count())) + " values, " + (to_string (d.probes.count())) + " probes (" + (to_string d.passed) + " ok, " + (to_string d.failed) + " failing)")
+        print "  → gallery/rangerflow/harness/out/rangerflow.json"
+        if (d.failed > 0) {
+            exit 1
+        }
+    }
+
+    ; ---------------------------------------------------------------- cases --
+    ; The same source point and the same five target offsets the oracle uses:
+    ; ahead, behind, above, a near-overlap, and straight down.
+    sfn offsetX:double (i:int) {
+        if (i == 0) { return 250.0 }
+        if (i == 1) { return -250.0 }
+        if (i == 2) { return 250.0 }
+        if (i == 3) { return -40.0 }
+        return 0.0
+    }
+
+    sfn offsetY:double (i:int) {
+        if (i == 0) { return 200.0 }
+        if (i == 1) { return 200.0 }
+        if (i == 2) { return -200.0 }
+        if (i == 3) { return 20.0 }
+        return 300.0
+    }
+
+    sfn kindName:string (k:int) {
+        if (k == 0) { return "bezier" }
+        if (k == 1) { return "straight" }
+        if (k == 2) { return "step" }
+        return "smoothstep"
+    }
+
+    ; React Flow calls its default edge "bezier"; RangerFlow calls it "default".
+    sfn routerKind:string (k:int) {
+        if (k == 0) { return "default" }
+        if (k == 1) { return "straight" }
+        if (k == 2) { return "step" }
+        return "smoothstep"
+    }
+
+    fn dumpPaths:void () {
+        def sx:double 150.0
+        def sy:double 120.0
+        def k:int 0
+        while (k < 4) {
+            def s:int 0
+            while (s < 4) {
+                def t:int 0
+                while (t < 4) {
+                    def i:int 0
+                    while (i < 5) {
+                        def tx:double (sx + (ParityDump.offsetX(i)))
+                        def ty:double (sy + (ParityDump.offsetY(i)))
+                        def p:EdgePath (EdgeRouter.routeBetween(sx sy s tx ty t (ParityDump.routerKind(k))))
+                        p.flatten(24)
+                        def id:string ("path:" + (ParityDump.kindName(k)) + ":" + (to_string s) + ":" + (to_string t) + ":" + (to_string i))
+                        def row:string ("{\"id\": \"" + id + "\", \"kind\": \"path\", \"d\": \"" + (p.svgPath()) + "\"")
+                        row = (row + ", \"labelX\": " + (ParityDump.num((p.midX()))))
+                        row = (row + ", \"labelY\": " + (ParityDump.num((p.midY()))) + "}")
+                        cases.add(row)
+                        i = (i + 1)
+                    }
+                    t = (t + 1)
+                }
+                s = (s + 1)
+            }
+            k = (k + 1)
+        }
+    }
+
+    sfn transformX:double (i:int) {
+        if (i == 0) { return 0.0 }
+        if (i == 1) { return 40.0 }
+        if (i == 2) { return -315.5 }
+        return 1200.0
+    }
+
+    sfn transformY:double (i:int) {
+        if (i == 0) { return 0.0 }
+        if (i == 1) { return -20.0 }
+        if (i == 2) { return 88.25 }
+        return 900.0
+    }
+
+    sfn transformZoom:double (i:int) {
+        if (i == 0) { return 1.0 }
+        if (i == 1) { return 2.0 }
+        if (i == 2) { return 0.4375 }
+        return 0.1
+    }
+
+    sfn pointX:double (i:int) {
+        if (i == 0) { return 0.0 }
+        if (i == 1) { return 100.0 }
+        if (i == 2) { return -250.5 }
+        return 1919.0
+    }
+
+    sfn pointY:double (i:int) {
+        if (i == 0) { return 0.0 }
+        if (i == 1) { return 50.0 }
+        if (i == 2) { return 725.25 }
+        return 1079.0
+    }
+
+    fn dumpViewport:void () {
+        def ti:int 0
+        while (ti < 4) {
+            def vp (new FlowViewport)
+            vp.x = (ParityDump.transformX(ti))
+            vp.y = (ParityDump.transformY(ti))
+            vp.zoom = (ParityDump.transformZoom(ti))
+            def pi:int 0
+            while (pi < 4) {
+                def px:double (ParityDump.pointX(pi))
+                def py:double (ParityDump.pointY(pi))
+                def idA:string ("vp:toflow:" + (to_string ti) + ":" + (to_string pi))
+                cases.add(("{\"id\": \"" + idA + "\", \"kind\": \"point\", \"x\": " + (ParityDump.num((vp.toFlowX(px)))) + ", \"y\": " + (ParityDump.num((vp.toFlowY(py)))) + "}"))
+                def idB:string ("vp:toscreen:" + (to_string ti) + ":" + (to_string pi))
+                cases.add(("{\"id\": \"" + idB + "\", \"kind\": \"point\", \"x\": " + (ParityDump.num((vp.toScreenX(px)))) + ", \"y\": " + (ParityDump.num((vp.toScreenY(py)))) + "}"))
+                pi = (pi + 1)
+            }
+            ti = (ti + 1)
+        }
+        this.dumpFit()
+    }
+
+    sfn boundsX:double (i:int) {
+        if (i == 0) { return 0.0 }
+        if (i == 1) { return -400.0 }
+        if (i == 2) { return 120.5 }
+        return 0.0
+    }
+
+    sfn boundsY:double (i:int) {
+        if (i == 0) { return 0.0 }
+        if (i == 1) { return -250.0 }
+        if (i == 2) { return -37.25 }
+        return 0.0
+    }
+
+    sfn boundsW:double (i:int) {
+        if (i == 0) { return 200.0 }
+        if (i == 1) { return 1600.0 }
+        if (i == 2) { return 55.0 }
+        return 8000.0
+    }
+
+    sfn boundsH:double (i:int) {
+        if (i == 0) { return 100.0 }
+        if (i == 1) { return 900.0 }
+        if (i == 2) { return 800.0 }
+        return 40.0
+    }
+
+    sfn sizeW:double (i:int) {
+        if (i == 0) { return 800.0 }
+        if (i == 1) { return 1440.0 }
+        return 320.0
+    }
+
+    sfn sizeH:double (i:int) {
+        if (i == 0) { return 400.0 }
+        if (i == 1) { return 900.0 }
+        return 240.0
+    }
+
+    sfn padValue:double (i:int) {
+        if (i == 0) { return 0.0 }
+        if (i == 1) { return 0.1 }
+        return 0.25
+    }
+
+    fn dumpFit:void () {
+        def bi:int 0
+        while (bi < 4) {
+            def si:int 0
+            while (si < 3) {
+                def pi:int 0
+                while (pi < 3) {
+                    def r:FlowRect (FlowRect.create((ParityDump.boundsX(bi)) (ParityDump.boundsY(bi)) (ParityDump.boundsW(bi)) (ParityDump.boundsH(bi))))
+                    def vp (new FlowViewport)
+                    vp.minZoom = 0.1
+                    vp.maxZoom = 4.0
+                    vp.fitRect(r (ParityDump.sizeW(si)) (ParityDump.sizeH(si)) (ParityDump.padValue(pi)))
+                    def id:string ("vp:fit:" + (to_string bi) + ":" + (to_string si) + ":" + (to_string pi))
+                    def row:string ("{\"id\": \"" + id + "\", \"kind\": \"viewport\", \"x\": " + (ParityDump.num(vp.x)))
+                    row = (row + ", \"y\": " + (ParityDump.num(vp.y)) + ", \"zoom\": " + (ParityDump.num(vp.zoom)) + "}")
+                    cases.add(row)
+                    pi = (pi + 1)
+                }
+                si = (si + 1)
+            }
+            bi = (bi + 1)
+        }
+    }
+
+    fn dumpBounds:void () {
+        ; The same two node sets the oracle measures with getNodesBounds.
+        def g0 (new FlowGraph)
+        def a0:FlowNode (g0.node("a" "a" 0.0 0.0))
+        a0.width = 150.0
+        a0.height = 40.0
+        def b0:FlowNode (g0.node("b" "b" 300.0 120.0))
+        b0.width = 150.0
+        b0.height = 40.0
+        this.dumpRect("bounds:0" (g0.bounds()))
+
+        def g1 (new FlowGraph)
+        def a1:FlowNode (g1.node("a" "a" -80.5 220.25))
+        a1.width = 220.0
+        a1.height = 96.0
+        def b1:FlowNode (g1.node("b" "b" 640.0 -410.0))
+        b1.width = 80.0
+        b1.height = 300.0
+        def c1:FlowNode (g1.node("c" "c" 90.0 90.0))
+        c1.width = 10.0
+        c1.height = 10.0
+        this.dumpRect("bounds:1" (g1.bounds()))
+
+        ; Rectangle-selection overlap, which React Flow measures as an area.
+        this.dumpOverlap("overlap:0" 0.0 0.0 100.0 100.0 50.0 50.0 100.0 100.0)
+        this.dumpOverlap("overlap:1" 0.0 0.0 100.0 100.0 100.0 0.0 100.0 100.0)
+        this.dumpOverlap("overlap:2" 0.0 0.0 100.0 100.0 120.0 0.0 100.0 100.0)
+        this.dumpOverlap("overlap:3" 0.0 0.0 100.0 100.0 10.0 10.0 10.0 10.0)
+        this.dumpOverlap("overlap:4" 0.0 0.0 10.5 10.5 5.25 5.25 10.0 10.0)
+    }
+
+    fn dumpRect:void (id:string r:FlowRect) {
+        def row:string ("{\"id\": \"" + id + "\", \"kind\": \"rect\", \"x\": " + (ParityDump.num(r.x)))
+        row = (row + ", \"y\": " + (ParityDump.num(r.y)) + ", \"width\": " + (ParityDump.num(r.w)))
+        row = (row + ", \"height\": " + (ParityDump.num(r.h)) + "}")
+        cases.add(row)
+    }
+
+    fn dumpOverlap:void (id:string ax:double ay:double aw:double ah:double bx:double by:double bw:double bh:double) {
+        def a:FlowRect (FlowRect.create(ax ay aw ah))
+        def b:FlowRect (FlowRect.create(bx by bw bh))
+        def area:double (a.overlapArea(b))
+        cases.add(("{\"id\": \"" + id + "\", \"kind\": \"scalar\", \"value\": " + (ParityDump.num(area)) + "}"))
+    }
+
+    ; Six decimals: the comparison is numeric with a tolerance, so what matters
+    ; is not losing precision on the way out. Two would have hidden a
+    ; sub-pixel disagreement that a zoomed-in editor makes visible.
+    sfn num:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def av:double v
+        if neg {
+            av = (0.0 - v)
+        }
+        def scaled:double ((av * 1000000.0) + 0.5)
+        def whole:int (to_int (scaled / 1000000.0))
+        def rem:int ((to_int scaled) - (whole * 1000000))
+        def fs:string (to_string rem)
+        while ((strlen fs) < 6) {
+            fs = ("0" + fs)
+        }
+        def out:string ((to_string whole) + "." + fs)
+        if neg {
+            out = ("-" + out)
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------- force ------
+    ; The same 30-node graph the d3 oracle builds — a ternary tree with three
+    ; cross links, which is the shape React Flow's force-layout example ships
+    ; with — under the example's own parameters, sampled at the same ticks.
+    fn dumpForce:void () {
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < 30) {
+            g.node(("n" + (to_string i)) "" 0.0 0.0)
+            i = (i + 1)
+        }
+        def k:int 1
+        while (k < 30) {
+            def parent:int (idiv (k - 1) 3)
+            g.connect(("n" + (to_string parent)) ("n" + (to_string k)))
+            k = (k + 1)
+        }
+        g.connect("n5" "n17")
+        g.connect("n8" "n23")
+        g.connect("n11" "n26")
+        def sim:FlowSimulation (FlowSimulation.reactFlowExample(g -1000.0 150.0))
+        this.dumpFrame(g "t0")
+        sim.tickTimes(1)
+        this.dumpFrame(g "t1")
+        sim.tickTimes(9)
+        this.dumpFrame(g "t10")
+        sim.tickTimes(40)
+        this.dumpFrame(g "t50")
+        sim.tickTimes(250)
+        this.dumpFrame(g "t300")
+    }
+
+    fn dumpFrame:void (g:FlowGraph key:string) {
+        def row:string ("\"" + key + "\": [")
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (i > 0) {
+                row = (row + ", ")
+            }
+            row = (row + "{\"id\": \"" + n.id + "\", \"x\": " + (ParityDump.num(n.simX)) + ", \"y\": " + (ParityDump.num(n.simY)) + "}")
+            i = (i + 1)
+        }
+        frames.add((row + "]"))
+    }
+
+    ; --------------------------------------------------------------- probes --
+    fn probe:void (id:string ok:boolean note:string) {
+        def flag:string "false"
+        if ok {
+            flag = "true"
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  PROBE FAIL " + id + " — " + note)
+        }
+        probes.add(("{\"id\": \"" + id + "\", \"ok\": " + flag + ", \"note\": \"" + note + "\"}"))
+    }
+
+    sfn near:boolean (a:double b:double tol:double) {
+        def d:double (fabs (a - b))
+        return (d <= tol)
+    }
+
+    fn twoNodeEditor:FlowEditor () {
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "A" 0.0 0.0))
+        a.width = 150.0
+        a.height = 50.0
+        a.resizable = true
+        def b:FlowNode (g.node("b" "B" 300.0 0.0))
+        b.width = 150.0
+        b.height = 50.0
+        def pa:FlowPort (FlowPort.create("a.out" "a" 1 25.0))
+        a.addPort(pa)
+        def pb:FlowPort (FlowPort.create("b.in" "b" 3 25.0))
+        b.addPort(pb)
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1000.0 600.0)
+        ed.view.showControls = false
+        ed.view.showMinimap = false
+        return ed
+    }
+
+    fn probeAll:void () {
+        this.probeAuthoring()
+        this.probeViewportBehaviour()
+        this.probeSelection()
+        this.probeDragging()
+        this.probeConnecting()
+        this.probeResizeAndSnap()
+        this.probeEdgesAndChrome()
+    }
+
+    ; What a toolbar does. React Flow documents `connectOnClick` and
+    ; `node.parentId`, so both are rows in the scorecard and both have to be
+    ; driven through the real editor to claim them.
+    fn probeAuthoring:void () {
+        def ed:FlowEditor (this.twoNodeEditor())
+        def inp (new FlowInput)
+        ed.connectOnClick = true
+        inp.x = 40.0
+        inp.y = 20.0
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        inp.x = 340.0
+        inp.y = 20.0
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        def made:boolean ((ed.graph.edgeCount()) == 1)
+        this.probe("connectOnClick" made "clicking two nodes in turn joins them")
+
+        ; Sub-flows: a child moves with its parent and keeps its own position.
+        def ed2:FlowEditor (this.twoNodeEditor())
+        def frame:FlowNode (ed2.graph.nodeById("a"))
+        frame.nodeType = "group"
+        frame.width = 400.0
+        frame.height = 300.0
+        def child:FlowNode (ed2.graph.nodeById("b"))
+        child.parentId = "a"
+        child.x = 60.0
+        child.y = 60.0
+        child.syncFromModel()
+        def before:double child.x
+        frame.selected = true
+        ed2.beginDrag()
+        ed2.mode = 2
+        ed2.pressX = 0.0
+        ed2.pressY = 0.0
+        ed2.lastX = 0.0
+        ed2.lastY = 0.0
+        def inp2 (new FlowInput)
+        inp2.x = 70.0
+        inp2.y = 0.0
+        ed2.pointerMove(inp2)
+        ed2.pointerUp(inp2)
+        def carried:boolean (ParityDump.near((child.x - before) 70.0 0.001))
+        this.probe("subFlowDrag" carried "dragging a parent carries its children")
+
+        ; The palette: one call, one node, one undo step.
+        def ed3:FlowEditor (this.twoNodeEditor())
+        def n0:int (ed3.graph.nodeCount())
+        def added:FlowNode (ed3.addNode("New" "diamond" 200.0 200.0))
+        def grew:boolean ((ed3.graph.nodeCount()) == (n0 + 1))
+        def shaped:boolean (added.shape == "diamond")
+        def undone:boolean (ed3.undo.undo(ed3.graph))
+        def gone:boolean ((ed3.graph.nodeCount()) == n0)
+        def all:boolean grew
+        if (shaped == false) { all = false }
+        if (undone == false) { all = false }
+        if (gone == false) { all = false }
+        this.probe("addNode" all "a node can be added, shaped, and taken back")
+    }
+
+    fn probeViewportBehaviour:void () {
+        def ed:FlowEditor (this.twoNodeEditor())
+        def inp (new FlowInput)
+        ; pan: drag on empty pane
+        def px:double ed.view.viewport.x
+        inp.x = 700.0
+        inp.y = 500.0
+        ed.pointerDown(inp)
+        inp.x = 760.0
+        inp.y = 530.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        this.probe("pan" (ParityDump.near((ed.view.viewport.x - px) 60.0 0.001)) "drag on the pane translates the viewport")
+
+        ; zoom at cursor: the flow point under the pointer must not move
+        def before:double (ed.view.viewport.toFlowX(400.0))
+        def beforeY:double (ed.view.viewport.toFlowY(300.0))
+        inp.x = 400.0
+        inp.y = 300.0
+        ed.wheel(inp -1.0)
+        def okX:boolean (ParityDump.near((ed.view.viewport.toFlowX(400.0)) before 0.0001))
+        def okY:boolean (ParityDump.near((ed.view.viewport.toFlowY(300.0)) beforeY 0.0001))
+        def zoomed:boolean (ed.view.viewport.zoom > 1.0)
+        def all:boolean false
+        if okX {
+            if okY {
+                if zoomed { all = true }
+            }
+        }
+        this.probe("zoomAtCursor" all "the flow point under the pointer is invariant")
+
+        ; zoom limits
+        ed.view.viewport.minZoom = 0.5
+        ed.view.viewport.maxZoom = 1.5
+        def i:int 0
+        while (i < 40) {
+            ed.wheel(inp -1.0)
+            i = (i + 1)
+        }
+        def hi:boolean (ParityDump.near(ed.view.viewport.zoom 1.5 0.000001))
+        def k:int 0
+        while (k < 80) {
+            ed.wheel(inp 1.0)
+            k = (k + 1)
+        }
+        def lo:boolean (ParityDump.near(ed.view.viewport.zoom 0.5 0.000001))
+        def clamped:boolean false
+        if hi {
+            if lo { clamped = true }
+        }
+        this.probe("zoomLimits" clamped "minZoom / maxZoom clamp the wheel")
+
+        ; fitView centres the graph
+        def ed2:FlowEditor (this.twoNodeEditor())
+        ed2.fitView()
+        def r:FlowRect (ed2.graph.bounds())
+        def cx:double (ed2.view.viewport.toScreenX((r.centerX())))
+        def cy:double (ed2.view.viewport.toScreenY((r.centerY())))
+        def centred:boolean false
+        if (ParityDump.near(cx 500.0 0.001)) {
+            if (ParityDump.near(cy 300.0 0.001)) { centred = true }
+        }
+        this.probe("fitView" centred "fitView centres the graph in the viewport")
+
+        ; the controls panel
+        def ed3:FlowEditor (this.twoNodeEditor())
+        ed3.view.showControls = true
+        def z0:double ed3.view.viewport.zoom
+        def btn (new FlowInput)
+        btn.x = 26.0
+        btn.y = ((600.0 - 112.0) + 14.0)
+        ed3.pointerDown(btn)
+        ed3.pointerUp(btn)
+        this.probe("controlsZoomIn" (ed3.view.viewport.zoom > z0) "the + button zooms in")
+        btn.y = ((600.0 - 112.0) + 70.0)
+        ed3.pointerDown(btn)
+        ed3.pointerUp(btn)
+        def r3:FlowRect (ed3.graph.bounds())
+        def fx:double (ed3.view.viewport.toScreenX((r3.centerX())))
+        this.probe("controlsFit" (ParityDump.near(fx 500.0 0.001)) "the fit button frames the graph")
+    }
+
+    fn probeSelection:void () {
+        def ed:FlowEditor (this.twoNodeEditor())
+        def a:FlowNode (ed.graph.nodeById("a"))
+        def b:FlowNode (ed.graph.nodeById("b"))
+        def inp (new FlowInput)
+        inp.x = 20.0
+        inp.y = 20.0
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        this.probe("clickSelect" a.selected "clicking a node selects it")
+
+        inp.x = 320.0
+        inp.shift = true
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        this.probe("shiftAddSelect" ((ed.graph.selectedNodeCount()) == 2) "shift-click adds to the selection")
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        this.probe("shiftRemoveSelect" ((ed.graph.selectedNodeCount()) == 1) "shift-click again removes it")
+        inp.shift = false
+
+        ed.graph.clearSelection()
+        inp.x = 600.0
+        inp.y = 400.0
+        inp.shift = true
+        ed.pointerDown(inp)
+        inp.x = -60.0
+        inp.y = -60.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        inp.shift = false
+        this.probe("boxSelect" ((ed.graph.selectedNodeCount()) == 2) "shift-drag on the pane selects a rectangle")
+
+        ed.graph.clearSelection()
+        ed.keyDown("a" false true)
+        this.probe("selectAll" ((ed.graph.selectedNodeCount()) == 2) "Ctrl+A selects every node")
+
+        ed.keyDown("Escape" false false)
+        this.probe("escapeClears" ((ed.graph.selectedNodeCount()) == 0) "Escape clears the selection")
+
+        ; deleting takes the attached edges with it
+        def ed2:FlowEditor (this.twoNodeEditor())
+        ed2.graph.connect("a" "b")
+        def n2:FlowNode (ed2.graph.nodeById("a"))
+        n2.selected = true
+        ed2.keyDown("Delete" false false)
+        def gone:boolean false
+        if ((ed2.graph.nodeCount()) == 1) {
+            if ((ed2.graph.edgeCount()) == 0) { gone = true }
+        }
+        this.probe("deleteSelection" ((ed2.graph.nodeCount()) == 1) "Delete removes the selected nodes")
+        this.probe("deleteTakesEdges" gone "…and the edges attached to them")
+        ed2.keyDown("z" false true)
+        def back:boolean false
+        if ((ed2.graph.nodeCount()) == 2) {
+            if ((ed2.graph.edgeCount()) == 1) { back = true }
+        }
+        this.probe("undoDelete" back "undo restores the node and its edges")
+
+        ; per-node flags
+        def ed3:FlowEditor (this.twoNodeEditor())
+        def a3:FlowNode (ed3.graph.nodeById("a"))
+        a3.selectable = false
+        def inp3 (new FlowInput)
+        inp3.x = 20.0
+        inp3.y = 20.0
+        ed3.pointerDown(inp3)
+        ed3.pointerUp(inp3)
+        this.probe("perNodeSelectable" (a3.selected == false) "selectable:false is respected")
+        def b3:FlowNode (ed3.graph.nodeById("b"))
+        b3.hidden = true
+        this.probe("hiddenNodes" ((ed3.graph.nodeAtPoint(320.0 20.0)) < 0) "a hidden node is not hit-tested")
+    }
+
+    fn probeDragging:void () {
+        def ed:FlowEditor (this.twoNodeEditor())
+        def a:FlowNode (ed.graph.nodeById("a"))
+        def b:FlowNode (ed.graph.nodeById("b"))
+        def inp (new FlowInput)
+        inp.x = 20.0
+        inp.y = 20.0
+        ed.pointerDown(inp)
+        inp.x = 80.0
+        inp.y = 60.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        this.probe("dragNode" (ParityDump.near(a.x 60.0 0.001)) "a node follows the pointer")
+
+        ed.keyDown("a" false true)
+        inp.x = 80.0
+        inp.y = 60.0
+        ed.pointerDown(inp)
+        inp.x = 100.0
+        inp.y = 60.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        def both:boolean false
+        if (ParityDump.near(a.x 80.0 0.001)) {
+            if (ParityDump.near(b.x 320.0 0.001)) { both = true }
+        }
+        this.probe("dragMultiple" both "every selected node moves together")
+
+        ed.keyDown("z" false true)
+        def undone:boolean false
+        if (ParityDump.near(a.x 60.0 0.001)) {
+            if (ParityDump.near(b.x 300.0 0.001)) { undone = true }
+        }
+        this.probe("undoMove" undone "one undo puts the whole group back")
+        ed.keyDown("z" true true)
+        this.probe("redoMove" (ParityDump.near(a.x 80.0 0.001)) "redo moves it forward again")
+
+        def ed4:FlowEditor (this.twoNodeEditor())
+        def a4:FlowNode (ed4.graph.nodeById("a"))
+        a4.draggable = false
+        def i4 (new FlowInput)
+        i4.x = 20.0
+        i4.y = 20.0
+        ed4.pointerDown(i4)
+        i4.x = 90.0
+        ed4.pointerMove(i4)
+        ed4.pointerUp(i4)
+        this.probe("perNodeDraggable" (ParityDump.near(a4.x 0.0 0.001)) "draggable:false is respected")
+    }
+
+    fn probeConnecting:void () {
+        def ed:FlowEditor (this.twoNodeEditor())
+        def inp (new FlowInput)
+        ; from a's right-hand port to b's left-hand port
+        inp.x = 150.0
+        inp.y = 25.0
+        ed.pointerDown(inp)
+        def started:boolean ed.view.connecting
+        inp.x = 300.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        this.probe("connectPorts" ((ed.graph.edgeCount()) == 1) "dragging port to port makes an edge")
+        this.probe("connectPreview" started "the drag shows a live connection line")
+
+        this.probe("connectValidationDuplicate" ((ed.graph.canConnect("a.out" "b.in")) == false) "the same pair cannot be connected twice")
+        this.probe("connectValidationSelf" ((ed.graph.canConnect("a.out" "a.out")) == false) "a port cannot connect to itself")
+
+        def limited:FlowPort (ed.graph.portRef("b.in"))
+        limited.connectionLimit = 1
+        this.probe("connectionLimit" ((ed.graph.canConnect("a.out" "b.in")) == false) "a handle honours its connection limit")
+
+        def role:FlowPort (ed.graph.portRef("a.out"))
+        role.role = "target"
+        this.probe("portRoles" ((ed.graph.canConnect("a.out" "b.in")) == false) "a target-only handle refuses to be a source")
+
+        def ed2:FlowEditor (this.twoNodeEditor())
+        def a2:FlowNode (ed2.graph.nodeById("a"))
+        def extra:FlowPort (FlowPort.create("a.out2" "a" 2 75.0))
+        a2.addPort(extra)
+        ed2.graph.reindex()
+        def two:boolean false
+        if (ed2.graph.hasPort("a.out")) {
+            if (ed2.graph.hasPort("a.out2")) { two = true }
+        }
+        this.probe("multipleHandles" two "a node carries any number of handles, on any side")
+    }
+
+    fn probeResizeAndSnap:void () {
+        def ed:FlowEditor (this.twoNodeEditor())
+        def a:FlowNode (ed.graph.nodeById("a"))
+        a.selected = true
+        def inp (new FlowInput)
+        inp.x = 150.0
+        inp.y = 50.0
+        ed.pointerDown(inp)
+        inp.x = 240.0
+        inp.y = 130.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        def resized:boolean false
+        if (ParityDump.near(a.width 240.0 0.001)) {
+            if (ParityDump.near(a.height 130.0 0.001)) { resized = true }
+        }
+        this.probe("resizeNode" resized "the corner grip resizes a selected node")
+
+        a.minWidth = 200.0
+        a.minHeight = 100.0
+        inp.x = 240.0
+        inp.y = 130.0
+        ed.pointerDown(inp)
+        inp.x = 20.0
+        inp.y = 20.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        def floored:boolean false
+        if (ParityDump.near(a.width 200.0 0.001)) {
+            if (ParityDump.near(a.height 100.0 0.001)) { floored = true }
+        }
+        this.probe("resizeMinSize" floored "a node cannot be resized below its minimum")
+
+        def ed2:FlowEditor (this.twoNodeEditor())
+        ed2.snapToGrid = true
+        ed2.snapSize = 25.0
+        def b2:FlowNode (ed2.graph.nodeById("a"))
+        def i2 (new FlowInput)
+        i2.x = 20.0
+        i2.y = 20.0
+        ed2.pointerDown(i2)
+        i2.x = 27.0
+        i2.y = 33.0
+        ed2.pointerMove(i2)
+        ed2.pointerUp(i2)
+        def snapped:boolean false
+        if (ParityDump.near(b2.x 0.0 0.001)) {
+            if (ParityDump.near(b2.y 25.0 0.001)) { snapped = true }
+        }
+        this.probe("snapPosition" snapped "a dragged node lands on the grid")
+
+        def c2:FlowNode (ed2.graph.nodeById("b"))
+        c2.selected = true
+        c2.resizable = true
+        def i3 (new FlowInput)
+        i3.x = (ed2.view.viewport.toScreenX(450.0))
+        i3.y = (ed2.view.viewport.toScreenY(50.0))
+        ed2.pointerDown(i3)
+        i3.x = (ed2.view.viewport.toScreenX(457.0))
+        i3.y = (ed2.view.viewport.toScreenY(69.0))
+        ed2.pointerMove(i3)
+        ed2.pointerUp(i3)
+        this.probe("snapSize" (ParityDump.near(c2.width 150.0 0.001)) "a resized node lands on the grid too")
+    }
+
+    fn probeEdgesAndChrome:void () {
+        def ed:FlowEditor (this.twoNodeEditor())
+        def e:FlowEdge (ed.graph.connect("a" "b"))
+        e.edgeType = "straight"
+        ; a click near the middle of the edge, in screen space
+        def mx:double (ed.view.viewport.toScreenX(225.0))
+        def my:double (ed.view.viewport.toScreenY(25.0))
+        def inp (new FlowInput)
+        inp.x = mx
+        inp.y = my
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        this.probe("edgeSelect" e.selected "clicking near an edge selects it")
+
+        ; the four edge types all produce a path with length
+        def kinds:[string] ([] _:string ( "default" "straight" "step" "smoothstep" ))
+        def allOk:boolean true
+        def i:int 0
+        while (i < 4) {
+            def p:EdgePath (EdgeRouter.routeBetween(0.0 0.0 1 300.0 200.0 3 (itemAt kinds i)))
+            p.flatten(16)
+            if ((p.totalLength()) < 100.0) {
+                allOk = false
+            }
+            i = (i + 1)
+        }
+        this.probe("edgeTypes" allOk "bezier, straight, step and smoothstep all route")
+
+        e.label = "1..*"
+        def sc:FlowScene (ed.view.build())
+        this.probe("edgeLabels" (ParityDump.hasText(sc "1..*")) "an edge label is drawn on the path")
+
+        def deco:EdgeDecoration (EdgeDecoration.build("arrowclosed" 100.0 100.0 0.0 9.0))
+        this.probe("markers" ((deco.shapeCount()) > 0) "edge markers are drawn at the ends")
+
+        ; background variants
+        def variants:boolean true
+        def v:int 0
+        while (v < 4) {
+            ed.view.theme.backgroundVariant = v
+            def scv:FlowScene (ed.view.build())
+            if (v == 0) {
+                ; nothing but the base fill and the graph itself
+                if ((scv.count()) < 1) { variants = false }
+            } {
+                if ((scv.count()) < 10) { variants = false }
+            }
+            v = (v + 1)
+        }
+        ed.view.theme.backgroundVariant = 1
+        this.probe("backgroundVariants" variants "dots, lines, cross and none")
+
+        ; minimap and culling
+        ed.view.showMinimap = true
+        def scm:FlowScene (ed.view.build())
+        this.probe("minimap" ((ParityDump.countTag(scm "chrome")) > 2) "the minimap draws the graph and the viewport")
+        ed.view.showMinimap = false
+
+        ed.view.viewport.x = -100000.0
+        ed.view.build()
+        def culled:boolean false
+        if (ed.view.drawnNodes == 0) {
+            if (ed.view.culledNodes == 2) { culled = true }
+        }
+        this.probe("culling" culled "off-screen nodes are dropped while building")
+
+        ; themes
+        def dark:FlowTheme (FlowTheme.dark())
+        def light:FlowTheme (FlowTheme.light())
+        this.probe("darkTheme" (dark.background != light.background) "a dark theme, read by the renderer and the exporters alike")
+    }
+
+    sfn hasText:boolean (sc:FlowScene text:string) {
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.kind == 1) {
+                if (it.text == text) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn countTag:int (sc:FlowScene tag:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.tag == tag) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}

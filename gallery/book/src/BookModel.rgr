@@ -1,0 +1,1031 @@
+; ==============================================================================
+; BookModel.rgr - the document a book editor edits
+; ==============================================================================
+;
+; A page layout program is not a vector editor with pages bolted on. The thing
+; that separates the two is that the text does not live on a page at all: it
+; lives in a Story, and a page only owns a Frame that the story happens to be
+; flowing through at that point. Move the frame, resize it, delete the page -
+; the story is untouched, and the text simply lands somewhere else.
+;
+;   Story  "Once upon a time..."   the words, in order, page-independent
+;   Frame  page 3, x/y/w/h         an area that borrows part of a story
+;
+; That is the Scribus/InDesign model, and it is the reason this file exists
+; instead of reusing EVGElement directly: EVG is the render target, not the
+; document. The document is edited, versioned, auto-laid-out and re-flowed;
+; the EVG tree is thrown away and rebuilt after every change.
+;
+; Everything here is plain data plus lookup. No layout, no measuring, no
+; rendering - those are BookFlow.rgr and BookRender.rgr.
+; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; Units. A book is measured in millimetres by its author and in points by its
+; printer, so the model stores points and offers the conversion.
+; ------------------------------------------------------------------------------
+class BookUnits {
+    sfn mm:double (v:double) {
+        return (v * 2.8346456692913385)
+    }
+
+    sfn cm:double (v:double) {
+        return (v * 28.346456692913385)
+    }
+
+    sfn inch:double (v:double) {
+        return (v * 72.0)
+    }
+
+    sfn pt:double (v:double) {
+        return (v * 1.0)
+    }
+
+    ; Points back to millimetres, for a UI that shows the author's units.
+    sfn toMm:double (v:double) {
+        return (v / 2.8346456692913385)
+    }
+}
+
+class BookPageSize {
+    def width:double 595.28
+    def height:double 841.89
+
+    Constructor () {
+        width = 595.28
+        height = 841.89
+    }
+
+    sfn create:BookPageSize (w:double h:double) {
+        def s (new BookPageSize())
+        s.width = w
+        s.height = h
+        return s
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Formats. Picture books are square far more often than they are A4, so the
+; square trim sizes are first-class rather than something you type by hand.
+; ------------------------------------------------------------------------------
+class BookFormats {
+    sfn resolve:BookPageSize (name:string) {
+        if (name == "a4") {
+            return (BookPageSize.create(595.28 841.89))
+        }
+        if (name == "a4-landscape") {
+            return (BookPageSize.create(841.89 595.28))
+        }
+        if (name == "a5") {
+            return (BookPageSize.create(419.53 595.28))
+        }
+        if (name == "letter") {
+            return (BookPageSize.create(612.0 792.0))
+        }
+        if (name == "trade-5x8") {
+            return (BookPageSize.create(360.0 576.0))
+        }
+        if (name == "trade-6x9") {
+            return (BookPageSize.create(432.0 648.0))
+        }
+        ; 210 mm square - the common European picture-book trim.
+        if (name == "square-210") {
+            return (BookPageSize.create(595.28 595.28))
+        }
+        ; 250 mm square - the large picture book.
+        if (name == "square-250") {
+            return (BookPageSize.create(708.66 708.66))
+        }
+        ; 8.5 x 8.5 inch - the common US picture-book trim.
+        if (name == "square-8.5in") {
+            return (BookPageSize.create(612.0 612.0))
+        }
+        return (BookPageSize.create(595.28 841.89))
+    }
+
+    ; The formats a UI can offer, in the order it should offer them.
+    sfn names:[string] () {
+        def out:[string]
+        push out "square-210"
+        push out "square-250"
+        push out "square-8.5in"
+        push out "a4"
+        push out "a4-landscape"
+        push out "a5"
+        push out "letter"
+        push out "trade-5x8"
+        push out "trade-6x9"
+        return out
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Styles. A style is the reason a 200-page book can change its body font in one
+; edit, so paragraphs name a style instead of carrying their own type spec.
+;
+; widows/orphans and keepWithNext are here rather than in the flow engine
+; because they are typographic intent, not an engine setting: a caption may
+; break anywhere, a heading may never end a column.
+; ------------------------------------------------------------------------------
+class BookStyle {
+    def name:string "body"
+    def fontFamily:string "Noto Sans"
+    def fontSize:double 11.0
+    ; 0 means "derive from font size" - see leadingFor().
+    def leading:double 0.0
+    def align:string "left"          ; left | center | right | justify
+    def color:string "#111111"
+    def bold:boolean false
+    def italic:boolean false
+    def spaceBefore:double 0.0
+    def spaceAfter:double 0.0
+    def firstLineIndent:double 0.0
+    ; Minimum lines this paragraph may leave at the bottom of a column (orphans)
+    ; and carry to the top of the next one (widows).
+    def orphans:int 2
+    def widows:int 2
+    ; A heading is meaningless as the last line of a column.
+    def keepWithNext:boolean false
+    ; A chapter opener starts its own page.
+    def startsNewPage:boolean false
+
+    Constructor () {
+        name = "body"
+        fontFamily = "Noto Sans"
+        fontSize = 11.0
+        leading = 0.0
+        align = "left"
+        color = "#111111"
+        orphans = 2
+        widows = 2
+    }
+
+    sfn create:BookStyle (name:string family:string size:double) {
+        def s (new BookStyle())
+        s.name = name
+        s.fontFamily = family
+        s.fontSize = size
+        return s
+    }
+
+    fn leadingFor:double () {
+        if (leading > 0.0) {
+            return leading
+        }
+        return (fontSize * 1.35)
+    }
+
+    fn copyOf:BookStyle () {
+        def s (new BookStyle())
+        s.name = name
+        s.fontFamily = fontFamily
+        s.fontSize = fontSize
+        s.leading = leading
+        s.align = align
+        s.color = color
+        s.bold = bold
+        s.italic = italic
+        s.spaceBefore = spaceBefore
+        s.spaceAfter = spaceAfter
+        s.firstLineIndent = firstLineIndent
+        s.orphans = orphans
+        s.widows = widows
+        s.keepWithNext = keepWithNext
+        s.startsNewPage = startsNewPage
+        return s
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Content: a story is paragraphs, a paragraph is text plus a style name.
+; ------------------------------------------------------------------------------
+class BookParagraph {
+    def text:string ""
+    def styleName:string "body"
+    ; Set by the flow engine so an editor can jump from a page back to the
+    ; source paragraph. Not authored.
+    def firstPage:int -1
+
+    Constructor () {
+        text = ""
+        styleName = "body"
+        firstPage = -1
+    }
+
+    sfn create:BookParagraph (text:string styleName:string) {
+        def p (new BookParagraph())
+        p.text = text
+        p.styleName = styleName
+        return p
+    }
+}
+
+class BookStory {
+    def id:string "story"
+    def title:string ""
+    def paragraphs:[BookParagraph]
+
+    Constructor () {
+        id = "story"
+        title = ""
+    }
+
+    sfn create:BookStory (id:string) {
+        def s (new BookStory())
+        s.id = id
+        return s
+    }
+
+    fn addParagraph:BookParagraph (text:string styleName:string) {
+        def p (BookParagraph.create(text styleName))
+        push paragraphs p
+        return p
+    }
+
+    fn paragraphCount:int () {
+        return (array_length paragraphs)
+    }
+
+    fn paragraphAt:BookParagraph (i:int) {
+        return (itemAt paragraphs i)
+    }
+
+    ; Rough length, for auto-layout deciding how many pages a story wants.
+    fn charCount:int () {
+        def total:int 0
+        def i:int 0
+        while (i < (array_length paragraphs)) {
+            def p:BookParagraph (itemAt paragraphs i)
+            def n:int (strlen p.text)
+            total = (total + n)
+            i = (i + 1)
+        }
+        return total
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Assets. An image is referenced by id, never by path, so that replacing a
+; photo does not mean visiting every page it appears on.
+; ------------------------------------------------------------------------------
+class BookAsset {
+    def id:string ""
+    def path:string ""
+    def naturalWidth:double 0.0
+    def naturalHeight:double 0.0
+    def caption:string ""
+
+    Constructor () {
+        id = ""
+        path = ""
+        naturalWidth = 0.0
+        naturalHeight = 0.0
+    }
+
+    sfn create:BookAsset (id:string path:string w:double h:double) {
+        def a (new BookAsset())
+        a.id = id
+        a.path = path
+        a.naturalWidth = w
+        a.naturalHeight = h
+        return a
+    }
+
+    fn aspect:double () {
+        if (naturalHeight <= 0.0) {
+            return 1.0
+        }
+        return (naturalWidth / naturalHeight)
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Frames. One class covers text, image and decoration, because in an editor
+; they are the same gesture - drag a rectangle - and differ only in what fills
+; it. `nextFrameId` is the link that makes a chain of frames one column of
+; running text across many pages.
+; ------------------------------------------------------------------------------
+class BookFrame {
+    def id:string ""
+    def kind:string "text"          ; text | image | shape | path
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 100.0
+    def h:double 100.0
+    def rotation:double 0.0
+    def opacity:double 1.0
+    def layer:string "content"      ; background | content | overlay
+
+    ; --- text ---
+    def storyId:string ""
+    def nextFrameId:string ""
+    def columns:int 1
+    def gutter:double 12.0
+    def insetTop:double 0.0
+    def insetRight:double 0.0
+    def insetBottom:double 0.0
+    def insetLeft:double 0.0
+    ; Where a story enters this frame. Filled in by the flow engine; an editor
+    ; shows it as "continued from page N".
+    def flowStartParagraph:int -1
+    def flowStartLine:int -1
+    def overflowed:boolean false
+
+    ; --- image ---
+    def assetId:string ""
+    def fit:string "cover"          ; cover | contain | fill | none
+    def focusX:double 0.5
+    def focusY:double 0.5
+
+    ; --- shape / path ---
+    def fill:string ""
+    def stroke:string ""
+    def strokeWidth:double 0.0
+    def cornerRadius:double 0.0
+    def pathData:string ""
+
+    ; A frame placed by a master page. An editor shows it locked until the user
+    ; overrides it, and re-applying the master replaces it.
+    def fromMaster:boolean false
+    ; Text substituted at render time: {page}, {title}, {author}. A frame with
+    ; literal text carries no story - it is furniture, not content.
+    def text:string ""
+    ; The style literal text is set in. Only meaningful with `text`.
+    def styleName:string "folio"
+
+    Constructor () {
+        id = ""
+        kind = "text"
+        w = 100.0
+        h = 100.0
+        opacity = 1.0
+        layer = "content"
+        columns = 1
+        gutter = 12.0
+        fit = "cover"
+        focusX = 0.5
+        focusY = 0.5
+        flowStartParagraph = -1
+        flowStartLine = -1
+        styleName = "folio"
+    }
+
+    sfn textFrame:BookFrame (id:string x:double y:double w:double h:double storyId:string) {
+        def f (new BookFrame())
+        f.id = id
+        f.kind = "text"
+        f.x = x
+        f.y = y
+        f.w = w
+        f.h = h
+        f.storyId = storyId
+        return f
+    }
+
+    sfn imageFrame:BookFrame (id:string x:double y:double w:double h:double assetId:string) {
+        def f (new BookFrame())
+        f.id = id
+        f.kind = "image"
+        f.x = x
+        f.y = y
+        f.w = w
+        f.h = h
+        f.assetId = assetId
+        return f
+    }
+
+    sfn shapeFrame:BookFrame (id:string x:double y:double w:double h:double fill:string) {
+        def f (new BookFrame())
+        f.id = id
+        f.kind = "shape"
+        f.x = x
+        f.y = y
+        f.w = w
+        f.h = h
+        f.fill = fill
+        return f
+    }
+
+    fn contentX:double () {
+        return (x + insetLeft)
+    }
+
+    fn contentY:double () {
+        return (y + insetTop)
+    }
+
+    fn contentW:double () {
+        def used:double (insetLeft + insetRight)
+        return (w - used)
+    }
+
+    fn contentH:double () {
+        def used:double (insetTop + insetBottom)
+        return (h - used)
+    }
+
+    ; Width of one column, once the gutters between columns are taken out.
+    fn columnWidth:double () {
+        def cw:double (this.contentW())
+        if (columns <= 1) {
+            return cw
+        }
+        def cols:double (to_double columns)
+        def gaps:double (cols - 1.0)
+        def gutters:double (gaps * gutter)
+        def usable:double (cw - gutters)
+        return (usable / cols)
+    }
+
+    fn columnX:double (index:int) {
+        def cw:double (this.columnWidth())
+        def i:double (to_double index)
+        def step:double (cw + gutter)
+        def off:double (i * step)
+        def cx:double (this.contentX())
+        return (cx + off)
+    }
+
+    fn setInsets:void (t:double r:double b:double l:double) {
+        insetTop = t
+        insetRight = r
+        insetBottom = b
+        insetLeft = l
+    }
+
+    fn copyOf:BookFrame () {
+        def f (new BookFrame())
+        f.id = id
+        f.kind = kind
+        f.x = x
+        f.y = y
+        f.w = w
+        f.h = h
+        f.rotation = rotation
+        f.opacity = opacity
+        f.layer = layer
+        f.storyId = storyId
+        f.nextFrameId = nextFrameId
+        f.columns = columns
+        f.gutter = gutter
+        f.insetTop = insetTop
+        f.insetRight = insetRight
+        f.insetBottom = insetBottom
+        f.insetLeft = insetLeft
+        f.assetId = assetId
+        f.fit = fit
+        f.focusX = focusX
+        f.focusY = focusY
+        f.fill = fill
+        f.stroke = stroke
+        f.strokeWidth = strokeWidth
+        f.cornerRadius = cornerRadius
+        f.pathData = pathData
+        f.fromMaster = fromMaster
+        f.text = text
+        f.styleName = styleName
+        return f
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Guides and grids. A guide is advice to the editor, not geometry that renders.
+; ------------------------------------------------------------------------------
+class BookGuide {
+    def horizontal:boolean true
+    def position:double 0.0
+
+    Constructor () {
+        horizontal = true
+        position = 0.0
+    }
+
+    sfn create:BookGuide (horizontal:boolean position:double) {
+        def g (new BookGuide())
+        g.horizontal = horizontal
+        g.position = position
+        return g
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Master pages. Repeating furniture - margins, page numbers, a running head -
+; described once and stamped onto every page that names the master.
+;
+; A master is asymmetric on purpose: the inner margin of a left-hand page is on
+; its right. That single fact is most of what makes a spread look bound rather
+; than printed.
+; ------------------------------------------------------------------------------
+class BookMasterPage {
+    def name:string "default"
+    def marginTop:double 42.0
+    def marginBottom:double 48.0
+    ; Inner is the spine side, outer is the trimmed side.
+    def marginInner:double 54.0
+    def marginOuter:double 42.0
+    def columns:int 1
+    def gutter:double 14.0
+    def frames:[BookFrame]
+    def guides:[BookGuide]
+    def showPageNumber:boolean false
+    def pageNumberStyle:string "folio"
+    ; Distance from the bottom trim to the page-number baseline.
+    def pageNumberOffset:double 26.0
+
+    Constructor () {
+        name = "default"
+        marginTop = 42.0
+        marginBottom = 48.0
+        marginInner = 54.0
+        marginOuter = 42.0
+        columns = 1
+        gutter = 14.0
+        showPageNumber = false
+        pageNumberStyle = "folio"
+        pageNumberOffset = 26.0
+    }
+
+    sfn create:BookMasterPage (name:string) {
+        def m (new BookMasterPage())
+        m.name = name
+        return m
+    }
+
+    fn setMargins:void (top:double bottom:double inner:double outer:double) {
+        marginTop = top
+        marginBottom = bottom
+        marginInner = inner
+        marginOuter = outer
+    }
+
+    ; The left margin of a page, which depends on which side of the spine it is.
+    fn leftMarginFor:double (recto:boolean) {
+        if recto {
+            return marginInner
+        }
+        return marginOuter
+    }
+
+    fn rightMarginFor:double (recto:boolean) {
+        if recto {
+            return marginOuter
+        }
+        return marginInner
+    }
+
+    fn addFrame:void (f:BookFrame) {
+        f.fromMaster = true
+        push frames f
+    }
+
+    fn addGuide:void (g:BookGuide) {
+        push guides g
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Pages.
+; ------------------------------------------------------------------------------
+class BookPage {
+    def index:int 0
+    def width:double 595.28
+    def height:double 841.89
+    def masterName:string ""
+    def background:string ""
+    def frames:[BookFrame]
+    ; Pages a reader never counts: a half-title, a blank verso.
+    def numbered:boolean true
+
+    Constructor () {
+        index = 0
+        width = 595.28
+        height = 841.89
+        masterName = ""
+        background = ""
+        numbered = true
+    }
+
+    fn addFrame:BookFrame (f:BookFrame) {
+        push frames f
+        return f
+    }
+
+    fn frameCount:int () {
+        return (array_length frames)
+    }
+
+    fn frameAt:BookFrame (i:int) {
+        return (itemAt frames i)
+    }
+
+    ; A right-hand page in a bound book carries an odd folio: page index 0 is
+    ; the first recto.
+    fn isRecto:boolean () {
+        def half:int (idiv index 2)
+        def doubled:int (half * 2)
+        return (index == doubled)
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The document.
+; ------------------------------------------------------------------------------
+class BookDocument {
+    def title:string "Untitled"
+    def author:string ""
+    def format:string "square-210"
+    def pageWidth:double 595.28
+    def pageHeight:double 595.28
+    def bleed:double 0.0
+    def pages:[BookPage]
+    def stories:[BookStory]
+    def styles:[BookStyle]
+    def assets:[BookAsset]
+    def masters:[BookMasterPage]
+    ; Monotonic, so generated frame ids never collide with authored ones.
+    def idSeq:int 0
+
+    Constructor () {
+        title = "Untitled"
+        format = "square-210"
+        pageWidth = 595.28
+        pageHeight = 595.28
+        idSeq = 0
+    }
+
+    sfn create:BookDocument (title:string format:string) {
+        def d (new BookDocument())
+        d.title = title
+        d.setFormat(format)
+        return d
+    }
+
+    fn setFormat:void (name:string) {
+        def size:BookPageSize (BookFormats.resolve(name))
+        format = name
+        pageWidth = size.width
+        pageHeight = size.height
+    }
+
+    fn nextId:string (prefix:string) {
+        idSeq = (idSeq + 1)
+        def n:string (to_string idSeq)
+        return (prefix + "-" + n)
+    }
+
+    ; --- styles ---
+
+    fn addStyle:BookStyle (s:BookStyle) {
+        def i:int 0
+        while (i < (array_length styles)) {
+            def existing:BookStyle (itemAt styles i)
+            if (existing.name == s.name) {
+                set_at styles i s
+                return s
+            }
+            i = (i + 1)
+        }
+        push styles s
+        return s
+    }
+
+    ; Always answers. A paragraph naming a style nobody defined still has to
+    ; lay out, and a book that refuses to render because of a typo in a style
+    ; name is worse than one that renders in the body face.
+    fn styleFor:BookStyle (name:string) {
+        def i:int 0
+        while (i < (array_length styles)) {
+            def s:BookStyle (itemAt styles i)
+            if (s.name == name) {
+                return s
+            }
+            i = (i + 1)
+        }
+        def fallback (new BookStyle())
+        fallback.name = name
+        return fallback
+    }
+
+    fn hasStyle:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length styles)) {
+            def s:BookStyle (itemAt styles i)
+            if (s.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- stories ---
+
+    fn addStory:BookStory (s:BookStory) {
+        push stories s
+        return s
+    }
+
+    fn newStory:BookStory (id:string) {
+        def s (BookStory.create(id))
+        push stories s
+        return s
+    }
+
+    fn storyFor:BookStory (id:string) {
+        def i:int 0
+        while (i < (array_length stories)) {
+            def s:BookStory (itemAt stories i)
+            if (s.id == id) {
+                return s
+            }
+            i = (i + 1)
+        }
+        return (BookStory.create(id))
+    }
+
+    fn hasStory:boolean (id:string) {
+        def i:int 0
+        while (i < (array_length stories)) {
+            def s:BookStory (itemAt stories i)
+            if (s.id == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- assets ---
+
+    fn addAsset:BookAsset (a:BookAsset) {
+        push assets a
+        return a
+    }
+
+    fn assetFor:BookAsset (id:string) {
+        def i:int 0
+        while (i < (array_length assets)) {
+            def a:BookAsset (itemAt assets i)
+            if (a.id == id) {
+                return a
+            }
+            i = (i + 1)
+        }
+        return (BookAsset.create(id "" 0.0 0.0))
+    }
+
+    fn hasAsset:boolean (id:string) {
+        def i:int 0
+        while (i < (array_length assets)) {
+            def a:BookAsset (itemAt assets i)
+            if (a.id == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- masters ---
+
+    fn addMaster:BookMasterPage (m:BookMasterPage) {
+        push masters m
+        return m
+    }
+
+    fn masterFor:BookMasterPage (name:string) {
+        def i:int 0
+        while (i < (array_length masters)) {
+            def m:BookMasterPage (itemAt masters i)
+            if (m.name == name) {
+                return m
+            }
+            i = (i + 1)
+        }
+        return (BookMasterPage.create(name))
+    }
+
+    fn hasMaster:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length masters)) {
+            def m:BookMasterPage (itemAt masters i)
+            if (m.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- pages ---
+
+    ; Creating a page applies its master immediately: the master frames are
+    ; copied in, mirrored for the page's side of the spine, so that from here
+    ; on a page is a self-contained thing to render and edit.
+    fn newPage:BookPage (masterName:string) {
+        def p (new BookPage())
+        p.width = pageWidth
+        p.height = pageHeight
+        p.masterName = masterName
+        p.index = (array_length pages)
+        push pages p
+        if (this.hasMaster(masterName)) {
+            this.applyMaster(p)
+        }
+        return p
+    }
+
+    fn applyMaster:void (p:BookPage) {
+        def m:BookMasterPage (this.masterFor(p.masterName))
+        def recto:boolean (p.isRecto())
+        def i:int 0
+        while (i < (array_length m.frames)) {
+            def src:BookFrame (itemAt m.frames i)
+            def f:BookFrame (src.copyOf())
+            ; Mirror across the spine so an "outer" element stays outer.
+            if (recto == false) {
+                def right:double (p.width - f.x)
+                def mirrored:double (right - f.w)
+                f.x = mirrored
+            }
+            f.id = (this.nextId("m"))
+            push p.frames f
+            i = (i + 1)
+        }
+        if m.showPageNumber {
+            def folio (new BookFrame())
+            folio.id = (this.nextId("folio"))
+            folio.kind = "text"
+            folio.text = "{page}"
+            folio.storyId = ""
+            folio.fromMaster = true
+            folio.layer = "overlay"
+            folio.h = 20.0
+            folio.w = 120.0
+            def bottom:double (p.height - m.pageNumberOffset)
+            folio.y = bottom
+            if recto {
+                def outerRight:double (p.width - m.marginOuter)
+                folio.x = (outerRight - folio.w)
+            } {
+                folio.x = m.marginOuter
+            }
+            push p.frames folio
+        }
+    }
+
+    fn pageCount:int () {
+        return (array_length pages)
+    }
+
+    fn pageAt:BookPage (i:int) {
+        return (itemAt pages i)
+    }
+
+    ; A spread is what a reader actually sees: page 0 alone (the opening
+    ; recto), then pairs.
+    fn spreadCount:int () {
+        def n:int (array_length pages)
+        if (n == 0) {
+            return 0
+        }
+        def rest:int (n - 1)
+        def pairs:int (idiv (rest + 1) 2)
+        return (pairs + 1)
+    }
+
+    ; --- frames ---
+
+    fn frameFor:BookFrame (id:string) {
+        def pi:int 0
+        while (pi < (array_length pages)) {
+            def p:BookPage (itemAt pages pi)
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                if (f.id == id) {
+                    return f
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+        return (new BookFrame())
+    }
+
+    fn hasFrame:boolean (id:string) {
+        def pi:int 0
+        while (pi < (array_length pages)) {
+            def p:BookPage (itemAt pages pi)
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                if (f.id == id) {
+                    return true
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+        return false
+    }
+
+    fn pageIndexOfFrame:int (id:string) {
+        def pi:int 0
+        while (pi < (array_length pages)) {
+            def p:BookPage (itemAt pages pi)
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                if (f.id == id) {
+                    return pi
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+        return -1
+    }
+
+    ; Linking is the whole flow model: b continues a.
+    fn linkFrames:void (aId:string bId:string) {
+        def a:BookFrame (this.frameFor(aId))
+        def b:BookFrame (this.frameFor(bId))
+        a.nextFrameId = bId
+        if ((strlen b.storyId) == 0) {
+            b.storyId = a.storyId
+        }
+    }
+
+    ; The chain of frame ids a story travels through, starting at `startId`.
+    ; Guarded against a cycle, because an editor can make one with two clicks.
+    fn frameChain:[string] (startId:string) {
+        def out:[string]
+        def cur:string startId
+        def guard:int 0
+        while ((strlen cur) > 0) {
+            if (guard > 4096) {
+                return out
+            }
+            if ((this.hasFrame(cur)) == false) {
+                return out
+            }
+            def seen:boolean false
+            def i:int 0
+            while (i < (array_length out)) {
+                if ((itemAt out i) == cur) {
+                    seen = true
+                }
+                i = (i + 1)
+            }
+            if seen {
+                return out
+            }
+            push out cur
+            def f:BookFrame (this.frameFor(cur))
+            cur = f.nextFrameId
+            guard = (guard + 1)
+        }
+        return out
+    }
+
+    ; The first frame of each story that is not itself a continuation.
+    fn storyEntryFrames:[string] () {
+        def out:[string]
+        def pi:int 0
+        while (pi < (array_length pages)) {
+            def p:BookPage (itemAt pages pi)
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                def isText:boolean (f.kind == "text")
+                def hasStory:boolean ((strlen f.storyId) > 0)
+                if (isText && hasStory) {
+                    if ((this.isContinuation(f.id)) == false) {
+                        push out f.id
+                    }
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+        return out
+    }
+
+    fn isContinuation:boolean (frameId:string) {
+        def pi:int 0
+        while (pi < (array_length pages)) {
+            def p:BookPage (itemAt pages pi)
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                if (f.nextFrameId == frameId) {
+                    return true
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+        return false
+    }
+}
